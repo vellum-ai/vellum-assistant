@@ -8,6 +8,7 @@ import type {
 import { client } from "@/generated/daemon/client.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 
 type RecordingLifecycleEvent =
   | RecordingStartEvent
@@ -16,12 +17,7 @@ type RecordingLifecycleEvent =
   | RecordingResumeEvent;
 
 type RecordingStatus =
-  | "started"
-  | "stopped"
-  | "failed"
-  | "restart_cancelled"
-  | "paused"
-  | "resumed";
+  "started" | "stopped" | "failed" | "restart_cancelled" | "paused" | "resumed";
 
 interface ActiveRecording {
   event: RecordingStartEvent;
@@ -177,6 +173,7 @@ export class ScreenRecordingController {
       capture: typeof captureStream;
       chooseMimeType: typeof recorderMimeType;
       createRecorder: (stream: MediaStream, mimeType: string) => MediaRecorder;
+      ownsLifecycle: () => boolean;
       now: () => number;
       reportStatus: typeof postStatus;
     } = {
@@ -184,13 +181,18 @@ export class ScreenRecordingController {
       chooseMimeType: recorderMimeType,
       createRecorder: (stream, mimeType) =>
         new MediaRecorder(stream, { mimeType }),
+      ownsLifecycle: () => !isPopoutWindowLifetime(),
       now: Date.now,
       reportStatus: postStatus,
     },
   ) {}
 
   async handle(event: RecordingLifecycleEvent): Promise<void> {
-    if (!isElectron() || !window.vellum?.screenRecording) {
+    if (
+      !isElectron() ||
+      !window.vellum?.screenRecording ||
+      !this.dependencies.ownsLifecycle()
+    ) {
       return;
     }
     switch (event.type) {
@@ -286,7 +288,7 @@ export class ScreenRecordingController {
       this.active = active;
       for (const track of capture.stream.getVideoTracks()) {
         track.addEventListener("ended", () => {
-          void this.stop(event.recordingId);
+          void this.stop(event.recordingId).catch(() => undefined);
         });
       }
       recorder.start(1_000);

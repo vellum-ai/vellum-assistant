@@ -22,6 +22,10 @@ class FakeTrack {
   stop(): void {
     this.stopped = true;
   }
+
+  end(): void {
+    this.ended?.();
+  }
 }
 
 class FakeRecorder {
@@ -88,6 +92,7 @@ test("reports start, pause, resume, and completed attachment status", async () =
     }),
     chooseMimeType: () => "video/webm",
     createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
     now: () => now,
     reportStatus: async (_event, status, details) => {
       statuses.push({
@@ -126,6 +131,7 @@ test("reports restart cancellation when the source picker is denied", async () =
     },
     chooseMimeType: () => "video/webm",
     createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
     now: () => 0,
     reportStatus: async (_event, status) => {
       statuses.push(status);
@@ -136,4 +142,58 @@ test("reports restart cancellation when the source picker is denied", async () =
 
   expect(statuses).toEqual(["restart_cancelled"]);
   expect(window.vellum!.screenRecording!.begin).not.toHaveBeenCalled();
+});
+
+test("ignores lifecycle events in a popout renderer", async () => {
+  const capture = mock(async () => {
+    throw new Error("should not capture");
+  });
+  const reportStatus = mock(async () => undefined);
+  const controller = new ScreenRecordingController({
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => false,
+    now: () => 0,
+    reportStatus,
+  });
+
+  await controller.handle(startEvent);
+
+  expect(capture).not.toHaveBeenCalled();
+  expect(reportStatus).not.toHaveBeenCalled();
+});
+
+test("handles a failed share-bar auto-stop without an unhandled rejection", async () => {
+  const statuses: string[] = [];
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  window.vellum!.screenRecording!.finish = mock(async () => {
+    throw new Error("write failed");
+  });
+  const controller = new ScreenRecordingController({
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_event, status) => {
+      statuses.push(status);
+    },
+  });
+
+  await controller.handle(startEvent);
+  track.end();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(statuses).toEqual(["started", "failed"]);
+  expect(window.vellum!.screenRecording!.abort).toHaveBeenCalledWith(
+    recordingId,
+  );
 });

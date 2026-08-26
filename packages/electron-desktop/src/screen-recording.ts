@@ -1,7 +1,14 @@
 import { mkdir, open, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
-import { desktopCapturer, session } from "electron";
+import {
+  app,
+  desktopCapturer,
+  dialog,
+  session,
+  type DesktopCapturerSource,
+  type WebContents,
+} from "electron";
 import { z } from "zod";
 
 import {
@@ -25,6 +32,8 @@ interface RecordingFileSession {
   filePath: string;
   file: FileHandle;
   write: Promise<void>;
+  owner: WebContents;
+  onOwnerDestroyed: () => void;
 }
 
 export interface InstallScreenRecordingOptions {
@@ -35,6 +44,35 @@ export interface InstallScreenRecordingOptions {
 export const resolveScreenRecordingDirectory = (appDataDir: string): string =>
   path.join(appDataDir, "vellum-assistant", "recordings");
 
+const chooseCaptureSource = async (): Promise<DesktopCapturerSource | null> => {
+  const sources = await desktopCapturer.getSources({
+    types: ["screen", "window"],
+    fetchWindowIcons: false,
+    thumbnailSize: { width: 0, height: 0 },
+  });
+  if (sources.length === 0) {
+    return null;
+  }
+  const cancelId = sources.length;
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    title: "Choose what to record",
+    message: "Choose a screen or window to record",
+    buttons: [
+      ...sources.map((source) => {
+        const type = source.id.startsWith("screen:") ? "Display" : "Window";
+        return `${type}: ${source.name || "Untitled"}`;
+      }),
+      "Cancel",
+    ],
+    cancelId,
+    defaultId: 0,
+    noLink: true,
+    normalizeAccessKeys: true,
+  });
+  return response === cancelId ? null : (sources[response] ?? null);
+};
+
 export const installScreenRecording = ({
   appDataDir,
   handle,
@@ -42,13 +80,42 @@ export const installScreenRecording = ({
   const sessions = new Map<string, RecordingFileSession>();
   const recordingsDir = resolveScreenRecordingDirectory(appDataDir);
 
+  const releaseSession = (
+    recordingId: string,
+    recording: RecordingFileSession,
+  ): void => {
+    sessions.delete(recordingId);
+    recording.owner.removeListener("destroyed", recording.onOwnerDestroyed);
+  };
+
+  const abortSession = async (recordingId: string): Promise<void> => {
+    const recording = sessions.get(recordingId);
+    if (!recording) {
+      return;
+    }
+    releaseSession(recordingId, recording);
+    await recording.write.catch(() => undefined);
+    await recording.file.close().catch(() => undefined);
+    await rm(recording.filePath, { force: true });
+  };
+
+  const getOwnedSession = (
+    recordingId: string,
+    owner: WebContents,
+  ): RecordingFileSession => {
+    const recording = sessions.get(recordingId);
+    if (!recording) {
+      throw new Error("Screen recording session not found");
+    }
+    if (recording.owner !== owner) {
+      throw new Error("Screen recording session belongs to another window");
+    }
+    return recording;
+  };
+
   session.defaultSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
-      const [source] = await desktopCapturer.getSources({
-        types: ["screen", "window"],
-        fetchWindowIcons: false,
-        thumbnailSize: { width: 0, height: 0 },
-      });
+      const source = await chooseCaptureSource().catch(() => null);
       if (!source) {
         callback({});
         return;
@@ -63,10 +130,16 @@ export const installScreenRecording = ({
     { useSystemPicker: true },
   );
 
+  app.once("before-quit", () => {
+    for (const recordingId of [...sessions.keys()]) {
+      void abortSession(recordingId).catch(() => undefined);
+    }
+  });
+
   handle(
     SCREEN_RECORDING_BEGIN,
     z.tuple([RecordingIdSchema]),
-    async ([recordingId]) => {
+    async ([recordingId], event) => {
       if (sessions.size > 0) {
         throw new Error("A screen recording is already active");
       }
@@ -76,52 +149,54 @@ export const installScreenRecording = ({
         `screen-recording-${recordingId}.webm`,
       );
       const file = await open(filePath, "w");
-      sessions.set(recordingId, { filePath, file, write: Promise.resolve() });
+      const onOwnerDestroyed = (): void => {
+        void abortSession(recordingId).catch(() => undefined);
+      };
+      sessions.set(recordingId, {
+        filePath,
+        file,
+        write: Promise.resolve(),
+        owner: event.sender,
+        onOwnerDestroyed,
+      });
+      event.sender.once("destroyed", onOwnerDestroyed);
     },
   );
 
   handle(
     SCREEN_RECORDING_APPEND,
     z.tuple([RecordingIdSchema, RecordingChunkSchema]),
-    async ([recordingId, chunk]) => {
-      const session = sessions.get(recordingId);
-      if (!session) {
-        throw new Error("Screen recording session not found");
-      }
-      session.write = session.write.then(async () => {
-        await session.file.write(chunk);
+    async ([recordingId, chunk], event) => {
+      const recording = getOwnedSession(recordingId, event.sender);
+      recording.write = recording.write.then(async () => {
+        await recording.file.write(chunk);
       });
-      await session.write;
+      await recording.write;
     },
   );
 
   handle(
     SCREEN_RECORDING_FINISH,
     z.tuple([RecordingIdSchema]),
-    async ([recordingId]) => {
-      const session = sessions.get(recordingId);
-      if (!session) {
-        throw new Error("Screen recording session not found");
-      }
-      await session.write;
-      await session.file.close();
-      sessions.delete(recordingId);
-      return { filePath: session.filePath };
+    async ([recordingId], event) => {
+      const recording = getOwnedSession(recordingId, event.sender);
+      releaseSession(recordingId, recording);
+      await recording.write;
+      await recording.file.close();
+      return { filePath: recording.filePath };
     },
   );
 
   handle(
     SCREEN_RECORDING_ABORT,
     z.tuple([RecordingIdSchema]),
-    async ([recordingId]) => {
-      const session = sessions.get(recordingId);
-      if (!session) {
+    async ([recordingId], event) => {
+      const recording = sessions.get(recordingId);
+      if (!recording) {
         return;
       }
-      sessions.delete(recordingId);
-      await session.write.catch(() => undefined);
-      await session.file.close();
-      await rm(session.filePath, { force: true });
+      getOwnedSession(recordingId, event.sender);
+      await abortSession(recordingId);
     },
   );
 
@@ -148,7 +223,7 @@ export const installScreenRecording = ({
           sources.find((source) => source.id.startsWith(prefix))?.id ?? null
         );
       }
-      return sources[0]?.id ?? null;
+      return null;
     },
   );
 };
