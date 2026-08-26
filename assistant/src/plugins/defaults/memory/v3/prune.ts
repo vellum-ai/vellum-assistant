@@ -65,10 +65,8 @@ import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
-import {
-  INJECTED_CONCEPT_HEADER_REGEX,
-  readInjectedBlock,
-} from "../substrate/injected-block-slugs.js";
+import { parseCardSections } from "../substrate/card-block-sections.js";
+import { readInjectedBlock } from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
   getPrunedSlugs,
@@ -79,85 +77,7 @@ import {
 
 const log = getLogger("memory-v3-shadow");
 
-// ─── card-section parsing & filtering ────────────────────────────────────────
-
-/** Matches any top-level `# ` header line — concept card headers AND foreign
- *  headers like a capability chunk's `# Skill:` / `# CLI command:` line. */
-const TOP_LEVEL_HEADER_REGEX = /^# /gm;
-
-/** One parsed card section: the header line plus everything up to the next
- *  chunk boundary (or end of block), trailing whitespace removed. */
-export interface CardSection {
-  slug: string;
-  /** The section text INCLUDING its `# memory/concepts/<slug>.md` header
-   *  line, `trimEnd()`ed so re-joining with `\n\n` reproduces the renderer's
-   *  exact bytes. */
-  text: string;
-}
-
-/** One ordered chunk of a parsed card block: a concept card (prunable, owned
- *  by `slug`) or any other `\n\n`-joined chunk (e.g. capability content under
- *  its own `# Skill:` / `# CLI command:` header — never prunable). */
-export type CardBlockPiece =
-  | { kind: "card"; slug: string; text: string }
-  | { kind: "other"; text: string };
-
-/**
- * Split an UNWRAPPED card-block body into its preamble (the instruction
- * header — everything before the first boundary), the ordered chunk pieces,
- * and the card sections (the `kind: "card"` pieces, kept as a convenience
- * view). Returns zero sections/pieces when the text carries no concept card
- * headers.
- *
- * A card's section ends at the next concept header OR at any other top-level
- * `# ` header that starts its own `\n\n`-joined chunk — so a capability chunk
- * trailing a concept card (`renderCardsBlockInner` joins them with `\n\n`) is
- * parsed as a separate non-card piece instead of being absorbed into the
- * card, and pruning the card never deletes it. The blank-line requirement
- * keeps a card head's own `# Title` line (which follows the path header with
- * a single `\n`) from splitting the card, and guarantees splits land on the
- * renderer's `\n\n` seams so re-joins stay byte-identical.
- */
-export function parseCardSections(inner: string): {
-  preamble: string;
-  sections: CardSection[];
-  pieces: CardBlockPiece[];
-} {
-  const cardMatches = [...inner.matchAll(INJECTED_CONCEPT_HEADER_REGEX)];
-  if (cardMatches.length === 0) {
-    return { preamble: inner, sections: [], pieces: [] };
-  }
-
-  const cardStarts = new Set(cardMatches.map((match) => match.index!));
-  const boundaries: Array<{ index: number; slug: string | null }> =
-    cardMatches.map((match) => ({ index: match.index!, slug: match[1]! }));
-  for (const match of inner.matchAll(TOP_LEVEL_HEADER_REGEX)) {
-    const i = match.index!;
-    if (cardStarts.has(i)) {
-      continue;
-    }
-    // Foreign header on a `\n\n` seam → starts its own chunk.
-    if (i >= 2 && inner[i - 1] === "\n" && inner[i - 2] === "\n") {
-      boundaries.push({ index: i, slug: null });
-    }
-  }
-  boundaries.sort((a, b) => a.index - b.index);
-
-  const preamble = inner.slice(0, boundaries[0]!.index).trimEnd();
-  const pieces = boundaries.map((boundary, i): CardBlockPiece => {
-    const end =
-      i + 1 < boundaries.length ? boundaries[i + 1]!.index : undefined;
-    const text = inner.slice(boundary.index, end).trimEnd();
-    return boundary.slug === null
-      ? { kind: "other", text }
-      : { kind: "card", slug: boundary.slug, text };
-  });
-  const sections = pieces.filter(
-    (piece): piece is Extract<CardBlockPiece, { kind: "card" }> =>
-      piece.kind === "card",
-  );
-  return { preamble, sections, pieces };
-}
+export { parseCardSections } from "../substrate/card-block-sections.js";
 
 /**
  * Remove pruned slugs' card sections from an unwrapped block body.
