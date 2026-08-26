@@ -18,6 +18,8 @@
  * `suppressFailureNotifications`.
  */
 
+import { resolveEffectiveProfileKey } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
@@ -411,13 +413,30 @@ export async function runBackgroundJob(
         isAsyncBackground: true,
         visibleInSourceNow: false,
       };
+      // The provider scope is the profile key the resolver actually used for
+      // this call site (the override when usable, else the site's own
+      // winner), so failures on different provider routes cannot collapse
+      // into one notification. No named winner, or a config read failing on
+      // this path, yields no scope and the key falls back to per-job.
+      let providerScope: string | undefined;
+      try {
+        providerScope = resolveEffectiveProfileKey(
+          opts.callSite,
+          getConfig().llm,
+          {
+            ...(opts.overrideProfile
+              ? { overrideProfile: opts.overrideProfile }
+              : {}),
+          },
+        );
+      } catch {
+        providerScope = undefined;
+      }
       const dedupeKey = activityFailedDedupeKey({
         jobName: opts.jobName,
         errorKind,
         ...(failureCode !== undefined ? { failureCode } : {}),
-        ...(opts.overrideProfile !== undefined
-          ? { providerScope: opts.overrideProfile }
-          : {}),
+        ...(providerScope !== undefined ? { providerScope } : {}),
       });
       emitNotificationSignal({
         sourceChannel: "assistant_tool",

@@ -286,24 +286,25 @@ describe("runBackgroundJob", () => {
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("model_provider");
     // A provider-scoped failure code keys the notification on the cause and
-    // the provider scope, not the job, so every job failing on the same code
-    // against the same profile collapses into one notification per UTC day.
+    // the resolved provider scope, not the job. `heartbeatAgent` resolves the
+    // cost-optimized default profile, so every job failing on this code
+    // through that route collapses into one notification per UTC day.
     expect(emitCalls[0].dedupeKey as string).toMatch(
-      /^activity-failed:cause:PROVIDER_BILLING:default:\d{4}-\d{2}-\d{2}$/,
+      /^activity-failed:cause:PROVIDER_BILLING:cost-optimized:\d{4}-\d{2}-\d{2}$/,
     );
   });
 
-  test("overrideProfile scopes the cause-keyed dedupe", async () => {
+  test("a usable overrideProfile scopes the cause-keyed dedupe", async () => {
     processMessageImpl = async () => ({
       messageId: "msg-failed-turn",
       turnFailure: { failureCode: "PROVIDER_BILLING" },
     });
 
-    await runBackgroundJob(baseOpts({ overrideProfile: "profile-a" }));
+    await runBackgroundJob(baseOpts({ overrideProfile: "balanced" }));
 
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].dedupeKey as string).toMatch(
-      /^activity-failed:cause:PROVIDER_BILLING:profile-a:\d{4}-\d{2}-\d{2}$/,
+      /^activity-failed:cause:PROVIDER_BILLING:balanced:\d{4}-\d{2}-\d{2}$/,
     );
   });
 
@@ -336,7 +337,7 @@ describe("runBackgroundJob", () => {
     expect(result.errorKind).toBe("model_provider");
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].dedupeKey as string).toMatch(
-      /^activity-failed:cause:model_provider:default:\d{4}-\d{2}-\d{2}$/,
+      /^activity-failed:cause:model_provider:cost-optimized:\d{4}-\d{2}-\d{2}$/,
     );
   });
 

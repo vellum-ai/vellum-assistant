@@ -52,15 +52,18 @@ const PROVIDER_SCOPED_FAILURE_CODES = new Set<string>([
  * keep the per-job key so one job's failure cannot swallow the visibility of
  * another's.
  *
- * `providerScope` is the inference profile the job resolved against
- * (`"default"` for the workspace's active profile). The profile is a
+ * `providerScope` is the inference-profile key the failing call actually
+ * resolved through (the runner derives it via `resolveEffectiveProfileKey`;
+ * schedules pass their snapshotted pin). Callers that cannot name a
+ * trustworthy scope omit it, and provider-scoped failures then key per job:
+ * an extra notification is recoverable, while a false collapse across two
+ * provider routes hides a failure whose remedy differs. The profile is a
  * transitional stand-in for the provider connection the failure actually hit:
  * one profile resolves to one connection at a time, so scoping by profile can
- * split one incident across profiles that share a connection (an extra
- * notification, recoverable) but cannot merge two connections' incidents (a
- * hidden failure, not recoverable). Once the turn boundary carries the
- * classified `connectionName` (today it keeps only the code), this scope
- * should become the connection itself.
+ * split one incident across profiles that share a connection but cannot merge
+ * two connections' incidents. Once the turn boundary carries the classified
+ * `connectionName` (today it keeps only the code), this scope should become
+ * the connection itself.
  *
  * Shared by every `activity.failed` producer that reports a classified
  * background failure (the background-job runner, and the scheduler's
@@ -74,17 +77,17 @@ export function activityFailedDedupeKey(args: {
   providerScope?: string;
 }): string {
   const day = new Date().toISOString().slice(0, 10);
-  const scope = args.providerScope ?? "default";
+  const scope = args.providerScope;
   if (args.failureCode) {
     if (WORKSPACE_WIDE_FAILURE_CODES.has(args.failureCode)) {
       return `activity-failed:cause:${args.failureCode}:${day}`;
     }
-    if (PROVIDER_SCOPED_FAILURE_CODES.has(args.failureCode)) {
+    if (PROVIDER_SCOPED_FAILURE_CODES.has(args.failureCode) && scope) {
       return `activity-failed:cause:${args.failureCode}:${scope}:${day}`;
     }
     return `activity-failed:${args.jobName}:${day}`;
   }
-  if (args.errorKind === "model_provider") {
+  if (args.errorKind === "model_provider" && scope) {
     return `activity-failed:cause:model_provider:${scope}:${day}`;
   }
   return `activity-failed:${args.jobName}:${day}`;
