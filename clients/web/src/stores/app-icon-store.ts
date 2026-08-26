@@ -3,11 +3,11 @@
  * consumer.
  *
  * This is one fact about one device: which alternate the home screen shows and
- * which ones the installed build carries. Held per hook instance, a surface
- * that mounts beside another reports the icon that was applied before it, so it
- * draws a stale preview and lets the user press Set on an icon they already
- * have, which fires a second iOS swap alert. Held here, every consumer
- * re-renders on the same write.
+ * which ones the installed build carries. Holding it at module level keeps the
+ * snapshot alive across mounts: navigating back to Settings renders the last
+ * known answer immediately instead of a blank while the bridge round-trip
+ * completes, and any future surface that mounts the hook reads the same
+ * snapshot instead of racing its own.
  *
  * The store is a cache of what the shell last answered, never a wish: only
  * `useAppIconSync`'s refresh writes it, always from `getAppIconState()`.
