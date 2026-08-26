@@ -2,8 +2,8 @@
  * CES RPC backend for non-secret credential records (identity + policy).
  */
 
-import { CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
+import { CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 
 import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";

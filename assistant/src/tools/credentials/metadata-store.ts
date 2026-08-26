@@ -22,8 +22,8 @@ import {
 import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
 
 import type { CredentialRecordBackend } from "../../security/ces-rpc-record-backend.js";
-import { getDataDir } from "../../util/platform.js";
 import { getLogger } from "../../util/logger.js";
+import { getDataDir } from "../../util/platform.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
 
 const log = getLogger("credential-metadata-store");
