@@ -10,6 +10,7 @@ import "../__tests__/test-preload.js";
 const BOT = "900000000000000001";
 const HUMAN = "900000000000000002";
 const ALLOWED_CHANNEL = "800000000000000001";
+const OTHER_CHANNEL = "800000000000000002";
 const GUILD = "700000000000000001";
 
 const policy: AdmissionPolicy = {
@@ -151,5 +152,60 @@ describe("admitDiscordMessage", () => {
       policy,
     );
     expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });
+  });
+});
+
+describe("the legacy allow-list fence", () => {
+  // A non-empty persisted list is operator intent from the old model, and an
+  // upgrade must not widen that scope before they clear it. Nothing writes
+  // the list anymore, so new installs never enter this describe.
+  const legacyPolicy: AdmissionPolicy = {
+    botUserId: BOT,
+    legacyAllowedChannelIds: new Set([ALLOWED_CHANNEL]),
+  };
+
+  test("a listed channel still admits a mention", () => {
+    expect(admitDiscordMessage(candidate(), legacyPolicy)).toEqual({
+      admitted: true,
+    });
+  });
+
+  test("an unlisted channel stays out, exactly as configured", () => {
+    const verdict = admitDiscordMessage(
+      candidate({ channelId: OTHER_CHANNEL }),
+      legacyPolicy,
+    );
+    expect(verdict).toEqual({ admitted: false, reason: "channel_not_allowed" });
+  });
+
+  test("a thread inherits its parent's listing", () => {
+    const verdict = admitDiscordMessage(
+      candidate({
+        channelId: "800000000000000099",
+        parentChannelId: ALLOWED_CHANNEL,
+      }),
+      legacyPolicy,
+    );
+    expect(verdict).toEqual({ admitted: true });
+  });
+
+  test("a DM is unaffected by the list", () => {
+    const verdict = admitDiscordMessage(
+      candidate({
+        guildId: undefined,
+        channelId: "800000000000000009",
+        mentionedUserIds: [],
+      }),
+      legacyPolicy,
+    );
+    expect(verdict).toEqual({ admitted: true });
+  });
+
+  test("without a list, an unlisted room admits a mention", () => {
+    const verdict = admitDiscordMessage(
+      candidate({ channelId: OTHER_CHANNEL }),
+      policy,
+    );
+    expect(verdict).toEqual({ admitted: true });
   });
 });

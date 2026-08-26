@@ -2655,25 +2655,27 @@ async function main() {
       return;
     }
 
-    // Room admission defers to Discord's own channel permissions; the config
-    // allow-list no longer gates anything. An install that still carries a
-    // non-empty list restricted the bot on purpose, so its silent expansion
-    // to every visible channel is worth one loud line naming the new control.
-    const legacyAllowList =
-      configFileCache.getStringArray("discord", "allowedChannelIds") ?? [];
-    if (legacyAllowList.length > 0) {
+    // Room admission defers to Discord's own channel permissions. A
+    // non-empty legacy allow-list is persisted operator intent, so it keeps
+    // gating rooms until the operator clears it; the log names the way out.
+    const readLegacyAllowedChannelIds = (): ReadonlySet<string> | undefined => {
+      const ids =
+        configFileCache.getStringArray("discord", "allowedChannelIds") ?? [];
+      return ids.length > 0 ? new Set(ids) : undefined;
+    };
+    if (readLegacyAllowedChannelIds() !== undefined) {
       log.warn(
-        { legacyAllowListSize: legacyAllowList.length },
-        "discord.allowedChannelIds no longer restricts the bot: it now " +
-          "answers mentions in every channel its role can see. Scope it " +
-          "with View Channel permissions in Discord, and remove the " +
-          "config entry to clear this warning.",
+        "discord.allowedChannelIds is a legacy setting and is still " +
+          "enforced: the bot answers mentions only in listed channels. To " +
+          "adopt Discord's own permission model, scope the bot with View " +
+          "Channel permissions in Discord and remove the config entry.",
       );
     }
 
     discordGatewayClient = new DiscordGatewayClient(
       {
         botToken,
+        readLegacyAllowedChannelIds,
       },
       createDiscordInboundEventHandler({
         config,

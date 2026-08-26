@@ -12,6 +12,14 @@
  * owner scopes the bot with channel and role permissions the same way they
  * would anywhere else, in the UI they already know.
  *
+ * One legacy exception preserves persisted operator intent: an install whose
+ * config still carries a non-empty `discord.allowedChannelIds` restricted the
+ * bot on purpose under the old model, and an upgrade must not widen that
+ * scope before they act. While the list is present it keeps gating guild
+ * rooms (threads inherit their parent's listing); clearing the config entry
+ * is the operator's explicit adoption of the permission model. Nothing
+ * writes the list anymore, so no new install ever has one.
+ *
  * A DM is the one message that is already addressed to the bot and nobody
  * else, so it is admitted on a separate lane, without a mention: @-ing a bot
  * in its own DM is not how anyone writes. What that lane admits is a *room*, not a
@@ -33,6 +41,12 @@ export interface AdmissionCandidate {
    * thread this is the *thread's* id, not the channel the thread hangs off.
    */
   channelId: string;
+  /**
+   * Snowflake of the parent channel when {@link channelId} is a thread,
+   * resolved by the caller's thread-parent cache. Read only under a legacy
+   * allow-list, where a thread inherits its parent's listing.
+   */
+  parentChannelId?: string;
   /** Snowflake of the guild, absent for DMs. */
   guildId?: string;
   /** Snowflake of the message author. */
@@ -52,6 +66,7 @@ export interface AdmissionCandidate {
 export type AdmissionDropReason =
   | "self_authored"
   | "bot_authored"
+  | "channel_not_allowed"
   | "bot_not_mentioned";
 
 export type AdmissionVerdict =
@@ -61,6 +76,13 @@ export type AdmissionVerdict =
 export interface AdmissionPolicy {
   /** The bot's own user snowflake, used for self-filtering and mention matching. */
   botUserId: string;
+  /**
+   * A legacy install's persisted room restriction, present only while its
+   * config still carries a non-empty `discord.allowedChannelIds`. Enforced
+   * so an upgrade cannot widen the operator's scope before they clear it;
+   * absent on every install that never wrote one.
+   */
+  legacyAllowedChannelIds?: ReadonlySet<string>;
 }
 
 const ADMITTED: AdmissionVerdict = { admitted: true };
@@ -113,6 +135,19 @@ export function admitDiscordMessage(
   // the two first.
   if (!candidate.guildId) {
     return ADMITTED;
+  }
+
+  // The legacy fence: a persisted allow-list keeps gating rooms until the
+  // operator clears it. A thread inherits its parent's listing, matching the
+  // model the list was configured under.
+  if (policy.legacyAllowedChannelIds !== undefined) {
+    const channelAllowed =
+      policy.legacyAllowedChannelIds.has(candidate.channelId) ||
+      (candidate.parentChannelId !== undefined &&
+        policy.legacyAllowedChannelIds.has(candidate.parentChannelId));
+    if (!channelAllowed) {
+      return drop("channel_not_allowed");
+    }
   }
 
   // Requiring the bot's own id here is what keeps announcements out: Discord

@@ -18,9 +18,14 @@ import type { AdmissionCandidate } from "./admit.js";
 import { extractDiscordAttachments } from "./attachments.js";
 import type { DiscordMessageCreate } from "./message-schemas.js";
 
-/** Build the admission gate's input from a parsed message. */
+/**
+ * Build the admission gate's input from a parsed message. `parentChannelId`
+ * comes from the caller's thread-parent cache; the gate reads it only under
+ * a legacy allow-list, where a thread inherits its parent's listing.
+ */
 export function toAdmissionCandidate(
   message: DiscordMessageCreate,
+  parentChannelId: string | undefined,
 ): AdmissionCandidate | null {
   const authorId = message.author?.id;
   if (!authorId || !message.channel_id) {
@@ -28,6 +33,7 @@ export function toAdmissionCandidate(
   }
   return {
     channelId: message.channel_id,
+    ...(parentChannelId !== undefined ? { parentChannelId } : {}),
     ...(message.guild_id !== undefined ? { guildId: message.guild_id } : {}),
     authorId,
     authorIsBot:

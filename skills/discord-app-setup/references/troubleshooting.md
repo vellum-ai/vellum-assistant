@@ -43,6 +43,7 @@ The bot acts only when it is @mentioned in a channel its role can see, so work t
 - Confirm the message @mentions the bot: it ignores unmentioned messages in a server
 - Confirm you are mentioning the bot directly, not just posting in the channel.
 - If it still stays silent, the channel's admission policy may be excluding the sender: by default Discord admits trusted contacts rather than anyone in the server.
+- If the assistant's config still carries `discord.allowedChannelIds` from an earlier setup, that legacy list is still enforced and the bot only answers in listed channels. Remove the config entry to adopt the permission model above.
 
 ## OAuth Invite Errors
 

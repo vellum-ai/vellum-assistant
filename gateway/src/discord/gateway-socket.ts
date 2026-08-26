@@ -118,6 +118,13 @@ export interface GatewaySocketLike {
 
 export interface DiscordGatewayClientOptions {
   botToken: string;
+  /**
+   * A legacy install's persisted room restriction, read live per message so
+   * an operator's edit applies without a restart. Returns undefined once the
+   * config entry is cleared, which is the operator adopting the permission
+   * model; nothing writes the entry anymore.
+   */
+  readLegacyAllowedChannelIds?: () => ReadonlySet<string> | undefined;
   fetchFn?: typeof fetchImpl;
   createSocket?: (url: string) => GatewaySocketLike;
   schedule?: ScheduleFn;
@@ -127,6 +134,9 @@ export interface DiscordGatewayClientOptions {
 
 export class DiscordGatewayClient {
   private readonly botToken: string;
+  private readonly readLegacyAllowedChannelIds?: () =>
+    | ReadonlySet<string>
+    | undefined;
   private readonly fetchFn: typeof fetchImpl;
   private readonly createSocket: (url: string) => GatewaySocketLike;
   private readonly schedule: ScheduleFn;
@@ -160,6 +170,7 @@ export class DiscordGatewayClient {
     private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
+    this.readLegacyAllowedChannelIds = options.readLegacyAllowedChannelIds;
     this.fetchFn = options.fetchFn ?? fetchImpl;
     this.createSocket =
       options.createSocket ??
@@ -662,14 +673,21 @@ export class DiscordGatewayClient {
       return;
     }
     const message = parsed.data;
-    const candidate = toAdmissionCandidate(message);
+    // Parent resolution serves the normalized event's conversation binding,
+    // and, under a legacy allow-list, the thread-inheritance rule.
+    const parentChannelId = this.threadParents.parentOf(message.channel_id);
+    const candidate = toAdmissionCandidate(message, parentChannelId);
     if (!candidate) {
       log.warn("Dropping MESSAGE_CREATE with no author identity");
       return;
     }
 
+    const legacyAllowedChannelIds = this.readLegacyAllowedChannelIds?.();
     const verdict = admitDiscordMessage(candidate, {
       botUserId: this.botUserId,
+      ...(legacyAllowedChannelIds !== undefined
+        ? { legacyAllowedChannelIds }
+        : {}),
     });
     if (!verdict.admitted) {
       const fields = {
@@ -695,7 +713,6 @@ export class DiscordGatewayClient {
       return;
     }
 
-    const parentChannelId = this.threadParents.parentOf(message.channel_id);
     const normalized = normalizeDiscordMessage(message, {
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,

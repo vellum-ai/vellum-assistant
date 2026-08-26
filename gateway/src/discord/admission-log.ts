@@ -39,12 +39,17 @@ export type AdmissionDropLogLevel = "info" | "debug";
  * address the bot. It is not a fault, but it is evidence that events reach the
  * client at all.
  *
+ * `channel_not_allowed` exists only under a legacy install's persisted
+ * allow-list, where dropping unlisted rooms is the configured behavior
+ * rather than a fault, so it surfaces like ordinary denied traffic.
+ *
  * `self_authored` and `bot_authored` never promote. They are the bot's own
  * echo and other machines' traffic, they scale with how chatty a room is, and
  * no misconfiguration produces them, so a visible line would carry no signal.
  */
 const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
   bot_not_mentioned: "info",
+  channel_not_allowed: "info",
   self_authored: "debug",
   bot_authored: "debug",
 };

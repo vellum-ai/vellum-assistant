@@ -111,7 +111,7 @@ describe("DiscordMessageCreateSchema", () => {
 
 describe("toAdmissionCandidate", () => {
   test("maps the fields the admission gate reads", () => {
-    const candidate = toAdmissionCandidate(parse(messagePayload()));
+    const candidate = toAdmissionCandidate(parse(messagePayload()), undefined);
     expect(candidate).toEqual({
       channelId: "channel-1",
       guildId: "guild-1",
@@ -124,6 +124,7 @@ describe("toAdmissionCandidate", () => {
   test("webhook messages read as bot-authored", () => {
     const candidate = toAdmissionCandidate(
       parse(messagePayload({ webhook_id: "wh-1" })),
+      undefined,
     );
     expect(candidate?.authorIsBot).toBe(true);
   });
@@ -135,7 +136,10 @@ describe("toAdmissionCandidate", () => {
       { author: { id: "user-1", bot: "yes" } },
       { webhook_id: 42 },
     ]) {
-      const candidate = toAdmissionCandidate(parse(messagePayload(overrides)));
+      const candidate = toAdmissionCandidate(
+        parse(messagePayload(overrides)),
+        undefined,
+      );
       expect(candidate?.authorIsBot).toBe(true);
       const verdict = admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
@@ -146,11 +150,11 @@ describe("toAdmissionCandidate", () => {
 
   test("returns null without author identity", () => {
     expect(
-      toAdmissionCandidate(parse(messagePayload({ author: {} }))),
+      toAdmissionCandidate(parse(messagePayload({ author: {} })), undefined),
     ).toBeNull();
     const noAuthor = messagePayload();
     delete (noAuthor as Record<string, unknown>).author;
-    expect(toAdmissionCandidate(parse(noAuthor))).toBeNull();
+    expect(toAdmissionCandidate(parse(noAuthor), undefined)).toBeNull();
   });
 });
 
@@ -319,7 +323,7 @@ describe("normalizeDiscordMessage", () => {
     });
     const parsed = parse(raw);
     const event = normalizeDiscordMessage(parsed, { raw });
-    const candidate = toAdmissionCandidate(parsed);
+    const candidate = toAdmissionCandidate(parsed, undefined);
 
     expect(event?.source.chatType).toBe("dm");
     expect(event?.message.content).toBe("");
@@ -353,7 +357,7 @@ describe("normalizeDiscordMessage", () => {
     expect(event?.source.chatType).toBe("channel");
 
     // And the gate keeps applying the guild controls to it.
-    const candidate = toAdmissionCandidate(parsed);
+    const candidate = toAdmissionCandidate(parsed, undefined);
     expect(candidate).not.toBeNull();
     const verdict = admitDiscordMessage(candidate!, {
       botUserId: "bot-1",
