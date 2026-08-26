@@ -23,11 +23,11 @@ import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/inde
 import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
-import { ProviderError } from "../util/errors.js";
 import {
   resolveUsageAttribution,
   type UsageAttributionInput,
 } from "../usage/attribution.js";
+import { ProviderError } from "../util/errors.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 

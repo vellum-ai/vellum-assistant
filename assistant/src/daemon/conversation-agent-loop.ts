@@ -109,14 +109,14 @@ import {
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
 import {
+  clearConversationNotices,
+  drainConversationNotices,
+} from "./conversation-notices.js";
+import {
   DEFAULT_MAX_RETRIES,
   shouldRetryProviderRateLimit,
   sleepForRateLimitRetry,
 } from "./conversation-rate-limit-retry.js";
-import {
-  clearConversationNotices,
-  drainConversationNotices,
-} from "./conversation-notices.js";
 import {
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
