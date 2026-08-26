@@ -1174,7 +1174,7 @@ export class AcpSessionManager {
             // The event above only reaches clients that are listening now. The
             // registry outlives them, so without a persisted marker a client
             // that reloads loses the card and still gets redirected at it.
-            stampAcpAuthRequiredOnAnchor(
+            void stampAcpAuthRequiredOnAnchor(
               current.parentConversationId,
               recoveryAnchor,
             );

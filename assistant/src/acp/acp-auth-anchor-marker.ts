@@ -1,10 +1,4 @@
 import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "../api/events/acp-auth-required.js";
-import { updateMessageContent } from "../persistence/conversation-crud.js";
-import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
-import {
-  messageRawContent,
-  recentAssistantMessageContents,
-} from "../persistence/message-reads.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp-auth-anchor-marker");
@@ -17,15 +11,6 @@ const log = getLogger("acp-auth-anchor-marker");
  */
 export const ACP_AUTH_ERROR_CODE_RIDER = "_acpAuthErrorCode";
 
-/**
- * The id of the assistant message carrying the `tool_use` block with this id,
- * or `null` when the scanned window holds no such block.
- *
- * A newest-first scan rather than an index: the one caller runs once per run
- * that dies on auth, which is rare, and content lives either inline or behind
- * a ref file, so a `LIKE` over the stored column would silently miss every
- * ref-backed row.
- */
 /**
  * Whether these blocks carry the `tool_use` with this id. Pure so the anchor
  * scan's matching rule is testable without a database behind it.
@@ -64,20 +49,6 @@ export function applyAcpAuthRider(
   return false;
 }
 
-function findMessageIdByToolUseId(
-  conversationId: string,
-  toolUseId: string,
-): string | null {
-  for (const row of recentAssistantMessageContents(conversationId)) {
-    if (
-      blocksCarryToolUse(resolveMessageContentBlocks(row.content), toolUseId)
-    ) {
-      return row.id;
-    }
-  }
-  return null;
-}
-
 /**
  * Record on persisted history that this run's Claude credential was rejected,
  * so a client that reloads can re-raise the inline Connect card.
@@ -95,23 +66,45 @@ function findMessageIdByToolUseId(
  * re-derive it, so a missing anchor or a busy database is logged and dropped
  * rather than allowed to interrupt session teardown.
  */
-export function stampAcpAuthRequiredOnAnchor(
+export async function stampAcpAuthRequiredOnAnchor(
   conversationId: string | undefined,
   toolUseId: string | undefined,
-): void {
+): Promise<void> {
   if (!conversationId || !toolUseId) {
     return;
   }
   try {
-    const messageId = findMessageIdByToolUseId(conversationId, toolUseId);
-    if (!messageId) {
+    // Imported here rather than at module scope. The session manager keeps a
+    // deliberately narrow persistence graph (`db-connection` and the schema),
+    // and reaching conversation CRUD from its top level pulls the whole
+    // message-write stack, and everything that stack imports, into every
+    // module that touches ACP. This path runs once per run that dies on auth,
+    // so the cost of loading it on demand is nothing.
+    const [{ updateMessageContent }, { resolveMessageContentBlocks }, reads] =
+      await Promise.all([
+        import("../persistence/conversation-crud.js"),
+        import("../persistence/message-content-file.js"),
+        import("../persistence/message-reads.js"),
+      ]);
+
+    let messageId: string | null = null;
+    for (const row of reads.recentAssistantMessageContents(conversationId)) {
+      if (
+        blocksCarryToolUse(resolveMessageContentBlocks(row.content), toolUseId)
+      ) {
+        messageId = row.id;
+        break;
+      }
+    }
+    if (messageId === null) {
       log.warn(
         { conversationId, toolUseId },
         "no anchor tool_use found; Connect card will not survive a reload",
       );
       return;
     }
-    const raw = messageRawContent(messageId);
+
+    const raw = reads.messageRawContent(messageId);
     if (raw === null) {
       return;
     }
