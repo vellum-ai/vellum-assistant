@@ -49,9 +49,36 @@ export type ChannelActionState =
   | { kind: "setup" }
   | { kind: "none" };
 
+/**
+ * Manual guardian attest on Contacts (the Verify me button).
+ *
+ * `supportsVerification` is the outbound challenge flow (voice/DM code).
+ * Plugin channels have no challenge, but they still use the same one-click
+ * attest Phone already has on this page.
+ */
+export function offersManualVerify(info: ChannelInfo): boolean {
+  return (
+    info.supportsVerification ||
+    (typeof info.source === "string" && info.source.startsWith("plugin:"))
+  );
+}
+
+function contactHasCopyablePhone(
+  contactChannels: ContactChannelPayload[],
+): boolean {
+  return contactChannels.some(
+    (channel) =>
+      channel.type === "phone" &&
+      channel.status !== "revoked" &&
+      channel.status !== "blocked" &&
+      Boolean(channel.address?.trim()),
+  );
+}
+
 export function getChannelActionState(
   info: ChannelInfo,
   existing: ContactChannelPayload | undefined,
+  canCopyPhone = false,
 ): ChannelActionState {
   const isA2A = info.id === "a2a";
 
@@ -72,6 +99,15 @@ export function getChannelActionState(
     return { kind: "none" };
   }
   if (existing && existing.status !== "revoked") {
+    return { kind: "unverified" };
+  }
+  // A plugin channel with no row yet can still be attested from the
+  // contact's phone number, the same way Phone Calling is attested.
+  if (
+    canCopyPhone &&
+    typeof info.source === "string" &&
+    info.source.startsWith("plugin:")
+  ) {
     return { kind: "unverified" };
   }
   return { kind: "setup" };
@@ -248,6 +284,7 @@ export function ContactChannelsSection({
               <ChannelRow
                 info={info}
                 existing={existing}
+                canCopyPhone={contactHasCopyablePhone(contactChannels)}
                 setupLabel={
                   setupLabel ?? t("contactChannelsSection.setupDefault")
                 }
@@ -256,7 +293,7 @@ export function ContactChannelsSection({
                   onSetupChannel ? () => onSetupChannel(info.id) : undefined
                 }
                 onVerify={
-                  onVerifyChannel && info.supportsVerification
+                  onVerifyChannel && offersManualVerify(info)
                     ? () => setVerifyPending(info)
                     : undefined
                 }
@@ -327,6 +364,7 @@ export function ContactChannelsSection({
 interface ChannelRowProps {
   info: ChannelInfo;
   existing: ContactChannelPayload | undefined;
+  canCopyPhone?: boolean;
   setupLabel: string;
   verifyLoading?: boolean;
   onSetup?: () => void;
@@ -338,6 +376,7 @@ interface ChannelRowProps {
 function ChannelRow({
   info,
   existing,
+  canCopyPhone,
   setupLabel,
   verifyLoading,
   onSetup,
@@ -346,7 +385,7 @@ function ChannelRow({
   onLinkAccount,
 }: ChannelRowProps) {
   const { t } = useTranslation("contacts");
-  const actionState = getChannelActionState(info, existing);
+  const actionState = getChannelActionState(info, existing, canCopyPhone);
 
   return (
     <div className="flex items-center gap-3 py-4">

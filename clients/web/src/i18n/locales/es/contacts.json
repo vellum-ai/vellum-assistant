@@ -41,6 +41,7 @@
     "deleteFailed": "No se pudo eliminar el contacto",
     "saveFailed": "No se pudo guardar el contacto",
     "verifyFailed": "No se pudo verificar el canal",
+    "verifyNeedsAddress": "Guarda primero un número de teléfono en este contacto y luego verifica el canal.",
     "rosterLoadFailed": "No se pudo cargar el directorio del espacio de trabajo. Comprueba la conexión con Slack y vuelve a intentarlo.",
     "emptyBody": "Selecciona un contacto"
   },

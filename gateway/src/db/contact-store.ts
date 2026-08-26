@@ -30,7 +30,15 @@ import {
   listContactUserFileSlugs,
 } from "../ipc/contacts-info-client.js";
 import { getLogger } from "../logger.js";
-import { canonicalizeInboundIdentity } from "../verification/identity.js";
+import {
+  expandPluginChannelTwins,
+  isPluginDiscoveredChannelType,
+  pluginInboundAddress,
+} from "../channels/plugin-contact-identity.js";
+import {
+  canonicalizeIdentityAs,
+  canonicalizeInboundIdentity,
+} from "../verification/identity.js";
 
 const log = getLogger("contact-store");
 
@@ -647,11 +655,22 @@ export class ContactStore {
       .where(eq(contactChannels.id, gwChannel.id))
       .run();
 
-    return this.db
+    const after = this.db
       .select()
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannel.id))
       .get()!;
+
+    if (params.status === "revoked" || params.status === "blocked") {
+      this.syncPluginInboundTwin(after, {
+        status: after.status,
+        revokedReason: after.revokedReason,
+        blockedReason: after.blockedReason,
+        writeBackAddress: false,
+      });
+    }
+
+    return after;
   }
 
   /**
@@ -779,7 +798,23 @@ export class ContactStore {
     if (!after) return null;
     const didWrite = result.changes > 0;
 
-    return { channel: after, didWrite };
+    this.syncPluginInboundTwin(after, {
+      status: "active",
+      verifiedVia,
+      verifiedAt: after.verifiedAt,
+      writeBackAddress: true,
+    });
+
+    const verified = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, gwChannelId))
+      .get();
+    if (!verified) {
+      return null;
+    }
+
+    return { channel: verified, didWrite };
   }
 
   /**
@@ -875,6 +910,12 @@ export class ContactStore {
     if (!after) {
       return null;
     }
+
+    this.syncPluginInboundTwin(after, {
+      status: "revoked",
+      revokedReason: after.revokedReason,
+      writeBackAddress: false,
+    });
 
     return { channel: after, didWrite: true };
   }
@@ -1279,10 +1320,15 @@ export class ContactStore {
     // Canonicalize all channel addresses up front so every downstream path
     // (gateway DB, assistant mirror op, conflict checks) uses the canonical
     // form.
-    const canonicalChannels = params.channels?.map((ch) => ({
-      ...ch,
-      address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
-    }));
+    const canonicalChannels = params.channels
+      ? expandPluginChannelTwins(
+          params.channels.map((ch) => ({
+            ...ch,
+            address:
+              canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
+          })),
+        )
+      : undefined;
 
     // Fallback name for a brand-new contact created without an explicit
     // displayName: the first channel's canonical address, else "Unknown".
@@ -1658,6 +1704,100 @@ export class ContactStore {
         })
         .run();
     }
+  }
+
+  /**
+   * The first usable phone address on a contact, preferring an active row.
+   * Used when a plugin-discovered channel has no address of its own.
+   */
+  private siblingPhoneAddress(contactId: string): string | null {
+    const rows = this.db
+      .select()
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.contactId, contactId),
+          eq(contactChannels.type, "phone"),
+        ),
+      )
+      .all();
+    const usable = rows.filter(
+      (row) =>
+        row.status !== "revoked" &&
+        row.status !== "blocked" &&
+        row.address.trim().length > 0,
+    );
+    const preferred =
+      usable.find((row) => row.status === "active") ?? usable[0];
+    if (!preferred) {
+      return null;
+    }
+    return (
+      canonicalizeIdentityAs("phone", preferred.address) ?? preferred.address
+    );
+  }
+
+  /**
+   * Keep the inbound `(plugin, plugin:address)` twin in sync with a
+   * Contacts-page plugin channel (`imessage`, `meeting-bot`, …).
+   *
+   * `writeBackAddress` fills an empty discovered-row address from the
+   * contact's phone channel. Verify does that so a stub iMessage row becomes
+   * the number inbound will present. Revoke does not, so a stub is not
+   * given an address as it is being disconnected.
+   */
+  private syncPluginInboundTwin(
+    channel: ContactChannel,
+    opts: {
+      status: ContactChannel["status"];
+      verifiedVia?: string | null;
+      verifiedAt?: number | null;
+      revokedReason?: string | null;
+      blockedReason?: string | null;
+      writeBackAddress: boolean;
+    },
+  ): void {
+    if (!isPluginDiscoveredChannelType(channel.type)) {
+      return;
+    }
+
+    let address = channel.address.trim();
+    if (!address && opts.writeBackAddress) {
+      const phone = this.siblingPhoneAddress(channel.contactId);
+      if (!phone) {
+        return;
+      }
+      address = phone;
+      this.db
+        .update(contactChannels)
+        .set({ address, updatedAt: Date.now() })
+        .where(eq(contactChannels.id, channel.id))
+        .run();
+    }
+    if (!address) {
+      return;
+    }
+
+    const scoped = pluginInboundAddress(channel.type, address);
+    if (!scoped) {
+      return;
+    }
+
+    this.syncChannels(
+      channel.contactId,
+      [
+        {
+          type: "plugin",
+          address: scoped,
+          status: opts.status,
+          verifiedVia: opts.verifiedVia ?? undefined,
+          verifiedAt: opts.verifiedAt ?? undefined,
+          revokedReason: opts.revokedReason ?? undefined,
+          blockedReason: opts.blockedReason ?? undefined,
+        },
+      ],
+      Date.now(),
+    );
   }
 
   // ---------------------------------------------------------------------------
