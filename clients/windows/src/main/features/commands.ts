@@ -16,6 +16,7 @@ import {
 import { installGlobalShortcuts } from "@vellumai/electron-desktop/global-shortcuts";
 import { installHotkeysIpc } from "@vellumai/electron-desktop/hotkeys";
 import { installImageContextMenu } from "@vellumai/electron-desktop/image-context-menu";
+import { toggleQuickInput } from "@vellumai/electron-desktop/quick-input-window";
 import { installTextContextMenu } from "@vellumai/electron-desktop/text-context-menu";
 
 import { getRendererBase } from "../app-config";
@@ -43,6 +44,9 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
         globalHotkey: () => {
           void ensureVisible();
         },
+        // Bound here, not in auxiliary-windows, so the user's rebinding in
+        // Keyboard Shortcuts applies and the chord is registered once.
+        quickInput: toggleQuickInput,
         // Talk, from wherever the user is. `registerAll` skips a command with
         // no handler, so without this the binding would be offered in both
         // Keyboard Shortcuts and Voice settings, show as bound, and do

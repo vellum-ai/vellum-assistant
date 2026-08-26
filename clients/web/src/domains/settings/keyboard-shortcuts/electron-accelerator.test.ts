@@ -51,6 +51,15 @@ describe("eventToAccelerator", () => {
     );
   });
 
+  it("maps Ctrl to CmdOrCtrl and the Windows key to Super on Windows", () => {
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", ctrlKey: true }), "windows"),
+    ).toBe("CmdOrCtrl+K");
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", metaKey: true }), "windows"),
+    ).toBe("Super+K");
+  });
+
   it("resolves arrows, digits, and punctuation from the physical code", () => {
     expect(
       eventToAccelerator(keydown({ code: "ArrowUp", metaKey: true })),

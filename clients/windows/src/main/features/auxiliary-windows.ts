@@ -1,4 +1,4 @@
-import { app, globalShortcut, screen } from "electron";
+import { app, screen } from "electron";
 
 import {
   configureCommandPaletteWindow,
@@ -26,14 +26,10 @@ import {
   configureQuickInputWindow,
   installQuickInput,
   repositionQuickInputWindow,
-  toggleQuickInput,
 } from "@vellumai/electron-desktop/quick-input-window";
 
 import { getRendererBase } from "../app-config";
-import {
-  installEscapeMonitor,
-  setDictationRecording,
-} from "../escape-monitor";
+import { installEscapeMonitor, setDictationRecording } from "../escape-monitor";
 import { handle, on } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
@@ -82,10 +78,6 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installPopoutWindows();
-
-    if (!globalShortcut.register("Control+Shift+/", toggleQuickInput)) {
-      log.warn("[auxiliary-windows] failed to register Quick Input shortcut");
-    }
 
     const repositionTransientWindows = (): void => {
       repositionCommandPaletteWindow();

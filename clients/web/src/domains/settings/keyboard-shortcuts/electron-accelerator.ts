@@ -1,4 +1,5 @@
 import type { ResolvedHotkey } from "@/runtime/hotkeys";
+import type { ElectronHostOS } from "@/runtime/platform-detection";
 
 /**
  * Converts a captured browser `KeyboardEvent` into an Electron
@@ -86,21 +87,35 @@ const mainKeyFromEvent = (event: KeyboardEvent): string | null => {
 /**
  * Build an Electron accelerator from a captured keydown, or `null` when the
  * event has no bindable key (e.g. a lone modifier press while the user is
- * still composing the chord). Command maps to `CmdOrCtrl` to match the
- * compiled defaults; the physical Control key maps to `Control`.
+ * still composing the chord). The host's primary modifier (Command on macOS,
+ * Ctrl on Windows) maps to `CmdOrCtrl` so a recorded chord compares equal to
+ * the compiled defaults; the other one maps to its literal Electron name
+ * (`Control` on macOS, `Super` for the Windows key).
  */
-export const eventToAccelerator = (event: KeyboardEvent): string | null => {
+export const eventToAccelerator = (
+  event: KeyboardEvent,
+  hostOS: ElectronHostOS = "macos",
+): string | null => {
   const key = mainKeyFromEvent(event);
   if (key === null) {
     return null;
   }
 
   const modifiers: string[] = [];
-  if (event.metaKey) {
-    modifiers.push("CmdOrCtrl");
-  }
-  if (event.ctrlKey) {
-    modifiers.push("Control");
+  if (hostOS === "windows") {
+    if (event.ctrlKey) {
+      modifiers.push("CmdOrCtrl");
+    }
+    if (event.metaKey) {
+      modifiers.push("Super");
+    }
+  } else {
+    if (event.metaKey) {
+      modifiers.push("CmdOrCtrl");
+    }
+    if (event.ctrlKey) {
+      modifiers.push("Control");
+    }
   }
   if (event.altKey) {
     modifiers.push("Alt");

@@ -6,6 +6,7 @@ import {
   setHotkey,
   type ResolvedHotkey,
 } from "@/runtime/hotkeys";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 
 import {
   eventToAccelerator,
@@ -87,7 +88,10 @@ export function useHotkeyRecorder(options?: {
         return;
       }
 
-      const accelerator = eventToAccelerator(event);
+      const accelerator = eventToAccelerator(
+        event,
+        detectElectronHostOS() ?? "macos",
+      );
       if (accelerator === null) {
         return;
       }
