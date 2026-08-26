@@ -4,15 +4,63 @@ import { useEffect, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
-import { parsePairingAddress } from "@vellumai/service-contracts/remote-web-pairing";
+import {
+  isTunnelProviderWebsiteUrl,
+  normalizePairingBaseUrl,
+  parseRemoteWebPairingParams,
+  type PublicBaseUrlRejection,
+} from "@vellumai/service-contracts/remote-web-pairing";
 
 import {
+  normalizeOriginUrl,
   useRememberedOriginsStore,
   type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
+import { publicBaseUrlRejectionMessage } from "@/utils/pairing-address";
 import { useTranslation } from "@/i18n";
 
-const ADD_FAILED_COPY = "Failed to add the assistant. Please try again.";
+type OriginToRemember =
+  | { ok: true; url: string; deviceCode: string | null }
+  | { ok: false; reason: PublicBaseUrlRejection };
+
+/**
+ * Reduce a pasted address to the origin this device remembers, or name why it
+ * cannot be one.
+ *
+ * The gate is `normalizeOriginUrl`, the same boundary the `?register` handoff
+ * applies and the one the iOS shell's `SelfHostedServer.validate` mirrors. The
+ * stricter `resolvePublicBaseUrl` gate is SSRF containment for a host that
+ * POSTs to the address; an entry here is a target this browser navigates to,
+ * so a LAN assistant (`https://192.168.1.5:8443`, `https://[fd00::1]`) stays
+ * addable. A tunnel vendor's own website is still refused: no assistant lives
+ * behind one, so it is a paste mistake with a better answer than an entry
+ * pointing at a marketing page.
+ */
+function resolveOriginToRemember(raw: string): OriginToRemember {
+  let base: string;
+  try {
+    // The app-route tail is dropped, a path prefix survives
+    // (`https://host/assistant-123/assistant/pair` yields
+    // `https://host/assistant-123`).
+    base = normalizePairingBaseUrl(raw);
+  } catch {
+    return { ok: false, reason: "unparseable" };
+  }
+  if (isTunnelProviderWebsiteUrl(base)) {
+    return { ok: false, reason: "service-website" };
+  }
+  const url = normalizeOriginUrl(base);
+  if (url === null) {
+    // Everything `normalizeOriginUrl` refuses past a parse is a scheme that is
+    // not https, a `javascript:`/`mailto:` opaque url included.
+    return { ok: false, reason: "non-https" };
+  }
+  return {
+    ok: true,
+    url,
+    deviceCode: parseRemoteWebPairingParams(raw).deviceCode,
+  };
+}
 
 interface AddRemoteOriginDialogProps {
   open: boolean;
@@ -30,10 +78,10 @@ interface AddRemoteOriginDialogProps {
  * chooser. The field takes the same artifact every other pairing surface
  * takes: a pairing link, whose approved device code rides out to the caller
  * for the navigation, or the bare https base, which lands on the origin's own
- * pair page to mint a code there. The address is validated on submit; invalid
- * input renders inline. No name field: the label arrives via pairing
- * artifacts (a `?register` handoff), so the hostname stands in as the
- * entry's title until then.
+ * pair page to mint a code there. The address is validated on submit; a
+ * refusal renders inline, naming the reason. No name field: the label arrives
+ * via pairing artifacts (a `?register` handoff), so the hostname stands in as
+ * the entry's title until then.
  *
  * Only the base is remembered. The device code is one-time credential
  * material: it stays in this call and never reaches the origin store.
@@ -68,16 +116,9 @@ function AddRemoteOriginDialog({
     if (!url.trim() || pending) {
       return;
     }
-    // Reduce an address copied out of a browser to the public base the store
-    // remembers, keeping the device code a pairing link carries: the app-route
-    // tail is dropped, a path prefix survives
-    // (`https://host/assistant-123/assistant/pair` yields
-    // `https://host/assistant-123`).
-    const parsed = parsePairingAddress(url);
+    const parsed = resolveOriginToRemember(url);
     if (!parsed.ok) {
-      setError(
-        "Enter the full https address, like https://example.com/assistant-1.",
-      );
+      setError(publicBaseUrlRejectionMessage(parsed.reason, url));
       return;
     }
     setPending(true);
@@ -85,15 +126,15 @@ function AddRemoteOriginDialog({
     try {
       const result = await useRememberedOriginsStore
         .getState()
-        .addOrigin({ url: parsed.publicBaseUrl });
+        .addOrigin({ url: parsed.url });
       if (result.ok) {
         onAdded(result.origin, parsed.deviceCode);
         return;
       }
-      setError(ADD_FAILED_COPY);
+      setError(t("addRemoteOriginDialog.addFailed"));
     } catch (err) {
       console.error("addRemoteOriginDialog.add failed", err);
-      setError(ADD_FAILED_COPY);
+      setError(t("addRemoteOriginDialog.addFailed"));
     }
     setPending(false);
   };

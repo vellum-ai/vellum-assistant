@@ -20,15 +20,25 @@ import { pairingLinkForBase } from "@/utils/pairing-address";
 import { routes } from "@/utils/routes";
 
 /**
+ * The pair route as the native shells address it: relative to the assistant
+ * entry the shell loads, which is what `switchToPath` appends to.
+ */
+const NATIVE_PAIR_ROUTE = routes.remotePair.slice(
+  `${routes.assistant}/`.length,
+);
+
+/**
  * Navigate to the SPA root at the origin's base. An unpaired or expired
  * session bounces to that origin's own pair page via its resolver, which is
  * the intended degraded state.
  *
- * A `deviceCode` lands on that pair page directly instead, carrying the code
- * in the fragment so the already-approved pairing completes in one step rather
- * than minting a fresh challenge. The code is credential material: it is read
- * from the pasted link, never written to the origin store, and exists only for
- * the length of this navigation.
+ * A `deviceCode` lands on that pair page directly instead, so the
+ * already-approved pairing completes in one step rather than minting a fresh
+ * challenge. The code is credential material: it is read from the pasted link,
+ * never written to the origin store, and exists only for the length of this
+ * navigation. A browser navigation carries it in the fragment, which never
+ * reaches the wire; the native swap carries it in the query, the only shape
+ * the shells accept.
  *
  * On a native mobile shell the switch goes through the `SelfHostedServers`
  * plugin so the shell reloads in place. A shell too old to carry the plugin
@@ -51,6 +61,15 @@ export async function switchToOrigin(
   const pairUrl = deviceCode
     ? pairingLinkForBase(origin.url, deviceCode)
     : null;
+  // The pair route relative to the shell's assistant entry. Both Capacitor
+  // plugins refuse a path carrying a fragment, so the code rides in the query
+  // here; the pair page reads either.
+  const pairPath =
+    deviceCode && pairUrl !== null
+      ? `${NATIVE_PAIR_ROUTE}?${new URLSearchParams({
+          device_code: deviceCode,
+        }).toString()}`
+      : null;
   const navigate = () =>
     window.location.assign(pairUrl ?? `${origin.url}${routes.assistant}`);
   // Nothing is awaited ahead of the web navigation: it is issued in the same
@@ -60,14 +79,10 @@ export async function switchToOrigin(
     navigate();
     return;
   }
-  // The pair route relative to the shell's assistant entry, fragment and all.
   const switched =
-    pairUrl === null
+    pairPath === null
       ? await nativeSwitchToOrigin(origin.url)
-      : await nativeSwitchToOriginPath(
-          origin.url,
-          `pair${new URL(pairUrl).hash}`,
-        );
+      : await nativeSwitchToOriginPath(origin.url, pairPath);
   if (!switched) {
     navigate();
   }

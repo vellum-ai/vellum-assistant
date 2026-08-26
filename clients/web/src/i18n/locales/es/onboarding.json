@@ -87,7 +87,8 @@
   "addRemoteOriginDialog": {
     "title": "Añadir un asistente remoto",
     "body": "Pega el enlace https que te dio la página de vinculación de tu asistente.",
-    "addressLabel": "Dirección del asistente"
+    "addressLabel": "Dirección del asistente",
+    "addFailed": "No se pudo añadir el asistente. Inténtalo de nuevo."
   },
   "connectAssistantDialog": {
     "title": "Conectar un asistente remoto",
