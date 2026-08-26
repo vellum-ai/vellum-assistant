@@ -127,10 +127,12 @@ export async function admitInbound(
   // a `no_one` lockout would upgrade an actor on a channel the guardian has
   // explicitly turned off.
   //
-  // Defense in depth: the §8.1 exempt set (vellum/platform/a2a) skips this
-  // check so a guardian can never lock themselves out of the desktop client
-  // via the admission UI. The same exemption is enforced PUT-side in
-  // channel-admission-policy.ts and at the runtime admission stage.
+  // Defense in depth: the §8.1 exempt set (platform/a2a) skips this check.
+  // The same exemption is enforced PUT-side in channel-admission-policy.ts
+  // and at the runtime admission stage. `vellum` is hidden, not exempt: its
+  // floor stays enforced, and a guardian cannot lock themselves out of the
+  // desktop client because PUT 403s hidden channels and the seed re-pins
+  // `guardian_only`, which always admits the guardian.
   const admissionPolicy = resolveAdmissionPolicy(event.sourceChannel);
   if (admissionPolicy === "no_one") {
     log.info(

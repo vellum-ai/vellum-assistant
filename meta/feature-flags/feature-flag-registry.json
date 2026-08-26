@@ -289,7 +289,7 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. On by default; disable to hide the card.",
+      "description": "Server-side switch for per-channel admission-floor enforcement: the gateway kill switch, the runtime floor stage, and the admission-policy reads all gate on it. On by default. Client UI visibility is version-gated, not flag-gated.",
       "defaultEnabled": true
     },
     {

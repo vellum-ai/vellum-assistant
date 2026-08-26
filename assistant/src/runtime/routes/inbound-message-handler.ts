@@ -764,9 +764,10 @@ export async function handleChannelInbound({
   // re-verification challenge — §8.2). The gateway kill switch already
   // dropped `no_one` upstream, but the stage handles it defensively.
   //
-  // Internal channels (`vellum`, `platform`, `a2a`) short-circuit admit
-  // inside `enforceAdmissionPolicy` — defense in depth alongside the
-  // gateway's exempt-channel skip and the PUT-handler's 403.
+  // Exempt channels (`platform`, `a2a`) short-circuit admit inside
+  // `enforceAdmissionPolicy` — defense in depth alongside the gateway's
+  // exempt-channel skip and the PUT-handler's 403. `vellum` is hidden, not
+  // exempt: its floor is evaluated like any enforced channel's.
   //
   // Bootstrap deep-link: when ACL resolved a validated pending_bootstrap
   // session, skip the floor entirely. The bootstrap intercept stage below
