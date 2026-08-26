@@ -5,6 +5,8 @@ import {
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
 export const SKILL_PLATFORM_VALUES = ["macos", "windows", "linux"] as const;
+export const INVALID_REQUIRED_HOST_CAPABILITIES =
+  "<invalid-required-host-capabilities>";
 
 export type SkillPlatform = (typeof SKILL_PLATFORM_VALUES)[number];
 
@@ -53,9 +55,18 @@ export function normalizeRequiredHostCapabilities(value: unknown): {
   requiredHostCapabilities?: HostProxyCapability[];
   unsupportedHostCapabilities?: string[];
 } {
-  if (!Array.isArray(value)) {
+  if (value === undefined) {
     return {};
   }
+  if (!Array.isArray(value)) {
+    return {
+      unsupportedHostCapabilities: [INVALID_REQUIRED_HOST_CAPABILITIES],
+    };
+  }
+  const hasMalformedEntry = value.some(
+    (capability) =>
+      typeof capability !== "string" || capability.trim().length === 0,
+  );
   const declared = [
     ...new Set(
       value
@@ -74,6 +85,9 @@ export function normalizeRequiredHostCapabilities(value: unknown): {
     (capability) =>
       !(HOST_PROXY_CAPABILITIES as readonly string[]).includes(capability),
   );
+  if (hasMalformedEntry) {
+    unsupportedHostCapabilities.push(INVALID_REQUIRED_HOST_CAPABILITIES);
+  }
   return {
     ...(requiredHostCapabilities.length > 0
       ? { requiredHostCapabilities }

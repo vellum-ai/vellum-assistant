@@ -675,7 +675,43 @@ export async function listSkillsFiltered(
   return { skills, categoryCounts, totalCount };
 }
 
-/** Look up a single skill by ID from the resolved catalog, returning its SlimSkillResponse. */
+/** Resolve a local skill while preserving an incompatible ID match. */
+function resolveSkillById(
+  skillId: string,
+  clientOs?: string,
+  sourceActorPrincipalId?: string,
+  isInteractive: boolean = false,
+  hostPlatforms?: readonly unknown[],
+): {
+  found?: { item: SlimSkillResponse; summary: SkillSummary };
+  incompatibleLocal?: SkillSummary;
+} {
+  const config = getConfig();
+  const catalog = loadSkillCatalog();
+  const platformContext = {
+    clientOs,
+    sourceActorPrincipalId,
+    isInteractive,
+    hostPlatforms,
+  };
+  const localMatch = catalog.find((skill) => skill.id === skillId);
+  if (
+    localMatch &&
+    !isSkillCompatibleWithContext(localMatch, platformContext)
+  ) {
+    return { incompatibleLocal: localMatch };
+  }
+  const resolved = resolveSkillStates(catalog, config, platformContext);
+  const match = resolved.find((r) => r.summary.id === skillId);
+  if (!match) {
+    return {};
+  }
+
+  const r = match;
+  const item = toSlimSkillResponse(r.summary, r.state);
+  return { found: { item, summary: r.summary } };
+}
+
 function findSkillById(
   skillId: string,
   clientOs?: string,
@@ -683,22 +719,13 @@ function findSkillById(
   isInteractive: boolean = false,
   hostPlatforms?: readonly unknown[],
 ): { item: SlimSkillResponse; summary: SkillSummary } | undefined {
-  const config = getConfig();
-  const catalog = loadSkillCatalog();
-  const resolved = resolveSkillStates(catalog, config, {
+  return resolveSkillById(
+    skillId,
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
     hostPlatforms,
-  });
-  const match = resolved.find((r) => r.summary.id === skillId);
-  if (!match) {
-    return undefined;
-  }
-
-  const r = match;
-  const item = toSlimSkillResponse(r.summary, r.state);
-  return { item, summary: r.summary };
+  ).found;
 }
 
 /**
@@ -732,14 +759,21 @@ export async function getSkill(
   isInteractive: boolean = false,
   hostPlatforms?: readonly unknown[],
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
-  const found = findSkillById(
+  const lookup = resolveSkillById(
     skillId,
     clientOs,
     sourceActorPrincipalId,
     isInteractive,
     hostPlatforms,
   );
+  const found = lookup.found;
   if (!found) {
+    if (lookup.incompatibleLocal) {
+      return {
+        error: `Skill "${skillId}" is unavailable for this request`,
+        status: 404,
+      };
+    }
     // Fallback: skill is not installed. Try all file providers.
     for (const provider of getFileProviders()) {
       if (!provider.canHandle(skillId)) {

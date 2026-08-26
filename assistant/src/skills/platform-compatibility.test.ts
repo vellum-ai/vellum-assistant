@@ -187,6 +187,21 @@ describe("skill platform compatibility", () => {
     ).toEqual({
       unsupportedHostCapabilities: ["future_host_capability"],
     });
+    expect(normalizeRequiredHostCapabilities([])).toEqual({});
+    expect(normalizeRequiredHostCapabilities(undefined)).toEqual({});
+  });
+
+  test("preserves malformed host capability declarations for fail-closed checks", () => {
+    for (const malformed of ["host_bash", { capability: "host_bash" }, null]) {
+      expect(
+        normalizeRequiredHostCapabilities(malformed)
+          .unsupportedHostCapabilities,
+      ).toEqual(["<invalid-required-host-capabilities>"]);
+    }
+    expect(
+      normalizeRequiredHostCapabilities(["host_bash", null])
+        .unsupportedHostCapabilities,
+    ).toEqual(["<invalid-required-host-capabilities>"]);
   });
 
   test("rejects all-invalid and mixed host capability requirements", () => {

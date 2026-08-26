@@ -98,6 +98,48 @@ describe("fetchCatalog normalization", () => {
     ]);
   });
 
+  test("fails closed on malformed remote host requirements", async () => {
+    globalThis.fetch = stubFetchJson({
+      skills: [
+        {
+          id: "scalar-host-requirement",
+          required_host_capabilities: "host_bash",
+        },
+        {
+          id: "object-host-requirement",
+          required_host_capabilities: { capability: "host_bash" },
+        },
+        {
+          id: "null-host-requirement",
+          metadata: {
+            vellum: { "required-host-capabilities": null },
+          },
+          required_host_capabilities: ["host_bash"],
+        },
+        {
+          id: "empty-host-requirement",
+          required_host_capabilities: [],
+        },
+      ],
+    });
+
+    const catalog = new Map(
+      (await fetchCatalog()).map((skill) => [skill.id, skill]),
+    );
+    for (const skillId of [
+      "scalar-host-requirement",
+      "object-host-requirement",
+      "null-host-requirement",
+    ]) {
+      expect(catalog.get(skillId)?.unsupportedHostCapabilities).toEqual([
+        "<invalid-required-host-capabilities>",
+      ]);
+    }
+    expect(
+      catalog.get("empty-host-requirement")?.unsupportedHostCapabilities,
+    ).toBeUndefined();
+  });
+
   test("leaves category undefined when the API omits it", async () => {
     globalThis.fetch = stubFetchJson({
       skills: [{ id: "no-cat", name: "no-cat", description: "d" }],

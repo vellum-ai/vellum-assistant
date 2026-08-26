@@ -163,7 +163,9 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
     nested?.platforms ?? entry.platforms,
   );
   const declaredHostCapabilities =
-    nested?.["required-host-capabilities"] ?? entry.required_host_capabilities;
+    nested && Object.hasOwn(nested, "required-host-capabilities")
+      ? nested["required-host-capabilities"]
+      : entry.required_host_capabilities;
   const { requiredHostCapabilities, unsupportedHostCapabilities } =
     normalizeRequiredHostCapabilities(declaredHostCapabilities);
 
