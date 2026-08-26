@@ -37,9 +37,15 @@ const defaultHelperCall = async (method: string): Promise<unknown> => {
 };
 const helperCall = mock(defaultHelperCall);
 
+let onFocus: (() => void) | null = null;
+
 mock.module("electron", () => ({
   app: {
-    on: mock(() => undefined),
+    on: mock((event: string, listener: () => void) => {
+      if (event === "browser-window-focus") {
+        onFocus = listener;
+      }
+    }),
     quit: mock(() => undefined),
     relaunch: mock(() => undefined),
   },
@@ -132,6 +138,19 @@ test("requests notifications by probing instead of opening settings", async () =
   helperCall.mockImplementation(async () => ({ notifications: "granted" }));
   await expect(handlers.get(PERMISSIONS_GET_STATE)!([])).resolves.toMatchObject(
     { notifications: { status: "granted", canRequest: false } },
+  );
+});
+
+test("regaining focus drops the notification probe result", async () => {
+  helperCall.mockImplementation(async () => ({ notifications: "granted" }));
+  notificationOutcome = "failed";
+  await expect(
+    handlers.get(PERMISSIONS_REQUEST)!(["notifications"]),
+  ).resolves.toMatchObject({ status: "denied" });
+
+  onFocus!();
+  await expect(handlers.get(PERMISSIONS_GET_STATE)!([])).resolves.toMatchObject(
+    { notifications: { status: "granted" } },
   );
 });
 

@@ -112,8 +112,9 @@ const allWindowsWebContents = () =>
 
 class WindowsPermissionsService {
   private lastStateJson: string | null = null;
-  // Probe result plus the native status seen when probing; a later native
-  // change (the user toggled Settings) invalidates it.
+  // Probe result plus the native status seen when probing. Dropped when the
+  // native status changes or the window regains focus, since the per-app
+  // toggle is invisible to the helper and the user may have changed it.
   private notificationProbe: {
     status: SystemPermissionStatus;
     nativeStatus: SystemPermissionStatus | undefined;
@@ -159,6 +160,11 @@ class WindowsPermissionsService {
       await shell.openExternal(uri);
     }
     return (await this.refresh())[kind];
+  }
+
+  refreshOnFocus(): Promise<SystemPermissionsState> {
+    this.notificationProbe = null;
+    return this.refresh();
   }
 
   quitAndReopen(): void {
@@ -314,7 +320,7 @@ const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     );
 
     app.on("browser-window-focus", () => {
-      void service.refresh();
+      void service.refreshOnFocus();
     });
   },
 };
