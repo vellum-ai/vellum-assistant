@@ -55,17 +55,36 @@ Microsoft Office desktop apps expose COM APIs. Check that the app is installed b
 
 ```powershell
 # Create an isolated temporary workbook
-$excel = New-Object -ComObject Excel.Application
-$excel.Visible = $true
-$workbook = $excel.Workbooks.Add()
-if (-not [string]::IsNullOrEmpty($workbook.Path) -or $workbook.AutoSaveOn) {
-  throw "The workbook is not an isolated temporary document."
+$excel = $null
+$workbook = $null
+$worksheet = $null
+$cell = $null
+try {
+  $excel = New-Object -ComObject Excel.Application
+  $excel.Visible = $true
+  $workbook = $excel.Workbooks.Add()
+  if (-not [string]::IsNullOrEmpty($workbook.Path) -or $workbook.AutoSaveOn) {
+    throw "The workbook is not an isolated temporary document."
+  }
+  $worksheet = $workbook.Worksheets.Item(1)
+  $cell = $worksheet.Cells.Item(1, 1)
+  $cell.Value2 = "Example"
+} finally {
+  if ($null -ne $workbook) {
+    $workbook.Close($false)
+  }
+  if ($null -ne $excel) {
+    $excel.Quit()
+  }
+  foreach ($comObject in @($cell, $worksheet, $workbook, $excel)) {
+    if ($null -ne $comObject) {
+      [System.Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) | Out-Null
+    }
+  }
 }
-$worksheet = $workbook.Worksheets.Item(1)
-$worksheet.Cells.Item(1, 1).Value2 = "Example"
 ```
 
-Close temporary documents and call `[System.Runtime.InteropServices.Marshal]::ReleaseComObject(...)` for COM objects that are no longer needed.
+Close unsaved temporary documents with `Close($false)`, quit the application, and release COM objects in a `finally` block so cleanup never waits for a save prompt.
 
 ## Consequential actions are unsupported
 
