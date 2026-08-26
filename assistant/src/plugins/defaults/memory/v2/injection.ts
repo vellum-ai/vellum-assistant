@@ -23,10 +23,7 @@
 // user message only — prior turns' attachments are left alone. This keeps the
 // cached prefix bytes-identical across turns.
 
-import {
-  isSkillCompatibleWithContext,
-  type SkillPlatformContext,
-} from "@vellumai/plugin-api";
+import type { SkillPlatformContext } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
@@ -38,6 +35,10 @@ import {
 import { getEdgeIndex } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
+import {
+  filterCompatibleEverInjected,
+  isSkillSlugCompatible,
+} from "../substrate/skill-card-compatibility.js";
 import {
   getSkillCapability,
   isSkillSlug,
@@ -245,8 +246,10 @@ export async function injectMemoryV2Block(
   // prior cached attachments don't exist or have been thrown away. The user
   // message gets a complete top-K dump alongside the static
   // essentials/threads/recent block, then per-turn turns just add deltas.
-  const priorEverInjected: readonly EverInjectedEntry[] =
-    priorState?.everInjected ?? [];
+  const priorEverInjected = filterCompatibleEverInjected(
+    priorState?.everInjected ?? [],
+    skillPlatformContext ?? {},
+  );
   const { topNow, toInject } = selectInjections({
     A: finalActivation,
     priorEverInjected,
@@ -386,17 +389,9 @@ async function finalizeInjection(args: {
     skillPlatformContext,
   } = args;
 
-  const isCompatibleSkillSlug = (slug: string): boolean => {
-    if (!isSkillSlug(slug)) {
-      return true;
-    }
-    const skill = getSkillCapability(slug);
-    return (
-      skill !== null &&
-      isSkillCompatibleWithContext(skill, skillPlatformContext ?? {})
-    );
-  };
-  const selectedSlugs = candidateSlugs.filter(isCompatibleSkillSlug);
+  const selectedSlugs = candidateSlugs.filter((slug) =>
+    isSkillSlugCompatible(slug, skillPlatformContext ?? {}),
+  );
 
   const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
 
@@ -409,7 +404,7 @@ async function finalizeInjection(args: {
   const selectedSet = new Set(selectedSlugs);
   const pinnedSlugs = (await listAlwaysCandidateSkillSlugs()).filter(
     (slug) =>
-      isCompatibleSkillSlug(slug) &&
+      isSkillSlugCompatible(slug, skillPlatformContext ?? {}) &&
       !selectedSet.has(slug) &&
       !everInjectedSet.has(slug),
   );
@@ -619,8 +614,10 @@ async function injectViaRouter(args: {
     signal,
   } = args;
 
-  const priorEverInjected: readonly EverInjectedEntry[] =
-    priorState?.everInjected ?? [];
+  const priorEverInjected = filterCompatibleEverInjected(
+    priorState?.everInjected ?? [],
+    skillPlatformContext ?? {},
+  );
 
   // Saturated-index bypass: when every page in the index has already been
   // injected on a prior turn of this conversation, the router LLM call is

@@ -58,8 +58,6 @@
  * The next compaction clears the store and resets both layers.
  */
 
-import { isSkillCompatibleWithContext } from "@vellumai/plugin-api";
-
 import { getConfig } from "../../../../config/loader.js";
 import {
   isMemoryEnabled,
@@ -77,10 +75,15 @@ import {
 } from "../../../types.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock, wrapMemorySpotlightBlock } from "../memory-marker.js";
-import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
+import { isSkillSlugCompatible } from "../substrate/skill-card-compatibility.js";
+import { isSkillSlug } from "../substrate/skill-store.js";
 import { isCapabilitySlug } from "./capabilities.js";
 import { cardBytes } from "./card.js";
-import { getActiveSlugs, recordInjected } from "./ever-injected-store.js";
+import {
+  getActiveSlugs,
+  markPruned,
+  recordInjected,
+} from "./ever-injected-store.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { renderV3CardContent } from "./page-content.js";
 import { MemoryV3RetrievalUnavailableError } from "./pool-select.js";
@@ -295,6 +298,18 @@ export const memoryV3Injector: Injector = {
       return null;
     }
 
+    const skillPlatformContext = {
+      clientOs: ctx.clientOs,
+      isInteractive: ctx.isInteractive,
+      sourceActorPrincipalId: ctx.sourceActorPrincipalId,
+    };
+    const incompatibleActiveSkills = [...getActiveSlugs(ctx.conversationId)]
+      .filter(isSkillSlug)
+      .filter((slug) => !isSkillSlugCompatible(slug, skillPlatformContext));
+    if (incompatibleActiveSkills.length > 0) {
+      markPruned(ctx.conversationId, incompatibleActiveSkills, Date.now());
+    }
+
     let observed: OrchestrateResult | null;
     try {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
@@ -328,20 +343,7 @@ export const memoryV3Injector: Injector = {
       const netNew = result.selections
         .map((s) => s.slug)
         .filter((slug) => !active.has(slug))
-        .filter((slug) => {
-          if (!isSkillSlug(slug)) {
-            return true;
-          }
-          const skill = getSkillCapability(slug);
-          return (
-            skill !== null &&
-            isSkillCompatibleWithContext(skill, {
-              clientOs: ctx.clientOs,
-              isInteractive: ctx.isInteractive,
-              sourceActorPrincipalId: ctx.sourceActorPrincipalId,
-            })
-          );
-        });
+        .filter((slug) => isSkillSlugCompatible(slug, skillPlatformContext));
 
       // Render net-new cards, skipping slugs that resolve to no content
       // (deleted pages, unresolvable capabilities) — nothing is attached for

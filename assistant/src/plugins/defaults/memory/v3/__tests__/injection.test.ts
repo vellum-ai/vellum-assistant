@@ -32,8 +32,11 @@ import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
-import type { InjectionBlock } from "../../../../types.js";
+import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
+import type { InjectionBlock, TurnContext } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
+import { stripIncompatibleSkillCardsFromMessages } from "../../substrate/skill-card-compatibility.js";
+import type { SkillEntry } from "../../substrate/types.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
@@ -52,6 +55,13 @@ const realPageContent = { ...(await import("../page-content.js")) };
 const realShadowPlugin = { ...(await import("../shadow-plugin.js")) };
 const realSkillStore = { ...(await import("../../substrate/skill-store.js")) };
 
+const WINDOWS_SKILL_ENTRY: SkillEntry = {
+  id: "windows-automation",
+  content: "Automates native Windows applications.",
+  platforms: ["windows"],
+  requiredHostCapabilities: ["host_bash"],
+};
+
 let injectionMockActive = false;
 
 // ─── mutable test state ──────────────────────────────────────────────────────
@@ -67,6 +77,7 @@ let pruneConfig: {
 } | null = null;
 /** Canned orchestrate result per turnIndex; `null` simulates an ordinary miss. */
 let turnResults = new Map<number, OrchestrateResult | null | Error>();
+let windowsSkillEnabled = false;
 const observeTurnSpy = mock(
   async (
     _conversationId: string,
@@ -186,16 +197,31 @@ mock.module("../page-content.js", () => ({
     injectionMockActive
       ? slug === "missing-page"
         ? ""
-        : `# memory/concepts/${slug}.md\ncard body for ${slug}`
+        : slug === "skills/windows-automation"
+          ? "# Skill: windows-automation\nAutomates native Windows applications."
+          : `# memory/concepts/${slug}.md\ncard body for ${slug}`
       : realPageContent.renderV3CardContent(slug),
 }));
 
 mock.module("../../substrate/skill-store.js", () => ({
   ...realSkillStore,
-  getSkillCapability: (idOrSlug: string) =>
-    injectionMockActive && idOrSlug === "skills/test-skill"
-      ? { id: "test-skill", content: "Synthetic test skill" }
-      : realSkillStore.getSkillCapability(idOrSlug),
+  getSkillCapability: (idOrSlug: string) => {
+    if (injectionMockActive && idOrSlug === "skills/test-skill") {
+      return { id: "test-skill", content: "Synthetic test skill" };
+    }
+    if (
+      injectionMockActive &&
+      windowsSkillEnabled &&
+      idOrSlug === "skills/windows-automation"
+    ) {
+      return WINDOWS_SKILL_ENTRY;
+    }
+    return realSkillStore.getSkillCapability(idOrSlug);
+  },
+  listSkillEntries: () =>
+    injectionMockActive && windowsSkillEnabled
+      ? [WINDOWS_SKILL_ENTRY]
+      : realSkillStore.listSkillEntries(),
 }));
 
 mock.module("../shadow-plugin.js", () => ({
@@ -283,6 +309,9 @@ function produceCardsWithoutCommit(
   conversationId: string,
   turnIndex: number,
   trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
+  skillContext: Partial<
+    Pick<TurnContext, "clientOs" | "isInteractive" | "sourceActorPrincipalId">
+  > = {},
 ) {
   seedMemoryConfig();
   return memoryV3Injector.produce({
@@ -290,6 +319,7 @@ function produceCardsWithoutCommit(
     conversationId,
     turnIndex,
     trust: trust as never,
+    ...skillContext,
   });
 }
 
@@ -346,6 +376,7 @@ beforeEach(async () => {
   spotlightConfig = { n: 6, windowTurns: 2 };
   pruneConfig = null;
   turnResults = new Map();
+  windowsSkillEnabled = false;
   observeTurnSpy.mockClear();
   logCalls.length = 0;
   testDb = makeDb();
@@ -567,6 +598,98 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     const injected = getInjected("conv-1");
     expect(injected.get("skills/test-skill")!.bytes).toBe(0);
     expect(injected.get("page-a")!.bytes).toBeGreaterThan(0);
+  });
+
+  test("removes a carried Windows skill after host disconnect and restores it after reconnect", async () => {
+    liveEnabled = true;
+    windowsSkillEnabled = true;
+    turnResults.set(0, result(["skills/windows-automation", "page-a"]));
+    turnResults.set(1, result(["skills/windows-automation", "page-a"]));
+    turnResults.set(2, result(["skills/windows-automation", "page-a"]));
+    const skillContext = {
+      clientOs: "windows" as const,
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+    };
+    let hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "memory-v3-windows-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+
+    try {
+      const connected = await produceCardsWithoutCommit(
+        "conv-windows-host",
+        0,
+        GUARDIAN_TRUST,
+        skillContext,
+      );
+      commitCardsBlock(connected);
+      expect(connected?.text).toContain(
+        "Automates native Windows applications.",
+      );
+      expect(getActiveSlugs("conv-windows-host")).toContain(
+        "skills/windows-automation",
+      );
+
+      const messages = [
+        {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: connected!.text }],
+        },
+      ];
+      hostClient.dispose();
+      stripIncompatibleSkillCardsFromMessages(messages, skillContext);
+      expect(JSON.stringify(messages)).not.toContain(
+        "Automates native Windows applications.",
+      );
+      expect(JSON.stringify(messages)).toContain("# memory/concepts/page-a.md");
+
+      const disconnected = await produceCardsWithoutCommit(
+        "conv-windows-host",
+        1,
+        GUARDIAN_TRUST,
+        skillContext,
+      );
+      commitCardsBlock(disconnected);
+      expect(disconnected?.text ?? "").not.toContain(
+        "Automates native Windows applications.",
+      );
+      expect(getActiveSlugs("conv-windows-host")).not.toContain(
+        "skills/windows-automation",
+      );
+      expect(getActiveSlugs("conv-windows-host")).toContain("page-a");
+      expect(getPrunedSlugs("conv-windows-host")).toContain(
+        "skills/windows-automation",
+      );
+
+      hostClient = assistantEventHub.subscribe({
+        type: "client",
+        clientId: "memory-v3-windows-host-reconnected",
+        interfaceId: "windows",
+        capabilities: ["host_bash"],
+        actorPrincipalId: "actor-a",
+        callback: () => {},
+      });
+      const reconnected = await produceCardsWithoutCommit(
+        "conv-windows-host",
+        2,
+        GUARDIAN_TRUST,
+        skillContext,
+      );
+      commitCardsBlock(reconnected);
+      expect(reconnected?.text).toContain(
+        "Automates native Windows applications.",
+      );
+      expect(getActiveSlugs("conv-windows-host")).toContain(
+        "skills/windows-automation",
+      );
+    } finally {
+      hostClient.dispose();
+    }
   });
 
   test("per-conversation memo LRU: a key refresh evicts nothing; new-key eviction prefers stale entries", async () => {

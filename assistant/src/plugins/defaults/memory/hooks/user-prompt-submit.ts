@@ -51,6 +51,7 @@ import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
+import { stripIncompatibleSkillCardsFromMessages } from "../substrate/skill-card-compatibility.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
@@ -321,6 +322,17 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   const actorContext = resolveTurnInboundActorContext(
     conversation?.trustContext,
   );
+  const skillPlatformContext = {
+    clientOs: conversation?.currentTurnClientOs,
+    isInteractive: conversation
+      ? !conversation.hasNoClient
+      : ctx.isNonInteractive === false,
+    sourceActorPrincipalId: conversation?.getTurnActorPrincipalId?.(),
+  };
+  stripIncompatibleSkillCardsFromMessages(
+    ctx.latestMessages,
+    skillPlatformContext,
+  );
 
   // Legacy (v1/v2) graph retrieval is the deprecated path:
   // `shouldRunLegacyMemoryRetrieval` skips it under memory-v3-live (v3 owns
@@ -359,11 +371,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
             ctx.isHiddenPrompt === true &&
               ctx.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
           ),
-          {
-            clientOs: conversation.currentTurnClientOs,
-            isInteractive: !conversation.hasNoClient,
-            sourceActorPrincipalId: conversation.getTurnActorPrincipalId?.(),
-          },
+          skillPlatformContext,
         ),
     );
 
