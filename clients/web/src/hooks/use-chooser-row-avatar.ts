@@ -277,14 +277,17 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  * Avatar data for one chooser row, resolved through a precedence chain:
  * 1. The connected row reuses `useAssistantAvatar`'s cache, correct in every
  *    transport mode and never fetched twice.
- * 2. Other platform rows fetch per id through the platform proxy, only when
+ * 2. The platform's synced thumbnail (`assistant.avatarUrl`): a plain image
+ *    URL, so it renders in every mode with no daemon round-trip. It ranks
+ *    below 1 because the live read keeps a character avatar's SVG fidelity.
+ * 3. Other platform rows fetch per id through the platform proxy, only when
  *    {@link canFetchRowAvatarViaPlatformProxy} says the id is honored and the
  *    org store can supply the `Vellum-Organization-Id` header.
- * 3. Local rows (the connected one when unreachable, siblings even asleep)
+ * 4. Local rows (the connected one when unreachable, siblings even asleep)
  *    read their workspace through the host when one can serve it.
- * 4. The last-seen cache: whatever a live source last resolved for this id,
+ * 5. The last-seen cache: whatever a live source last resolved for this id,
  *    so a row keeps its avatar while the assistant is unreachable.
- * Only live sources (1 and 2) feed the cache, at fetch time (1 does so
+ * Only live sources (1 and 3) feed the cache, at fetch time (1 does so
  * inside `useAssistantAvatar`); a conclusive none from any source evicts it.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
@@ -296,6 +299,11 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
+  const syncedAvatar: AvatarRead | null = assistant.avatarUrl
+    ? { traits: null, imageUrl: assistant.avatarUrl }
+    : null;
+  const hasSyncedAvatar = syncedAvatar !== null;
+
   const manifestSupport = rowManifestSupport(assistant);
   const rowQuery = useQuery<LegacyAvatarRead>({
     queryKey: chooserRowAvatarQueryKey(assistant.id, manifestSupport),
@@ -303,6 +311,7 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
       fetchRowAvatarGeneration(client, assistant, manifestSupport),
     enabled:
       !isConnectedRow &&
+      !hasSyncedAvatar &&
       isOrgReady &&
       canFetchRowAvatarViaPlatformProxy(assistant),
     staleTime: (query) =>
@@ -328,14 +337,17 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
   const showLive =
     liveConclusive || (live !== undefined && !isEmptyAvatar(live));
 
-  // The connected row only needs a host read once its live read has
-  // settled empty.
+  // The connected row only falls through once its live read has settled
+  // empty, so a loading row does not flash the thumbnail before the SVG.
   const liveSettledEmpty = !connected.isLoading && !showLive;
+  const showSynced = hasSyncedAvatar && (!isConnectedRow || liveSettledEmpty);
+
   const hostQuery = useQuery<LegacyAvatarRead>({
     queryKey: chooserRowAvatarHostQueryKey(assistant.id),
     queryFn: ({ client }) => readRowAvatarViaHost(client, assistant.id),
     enabled:
       canReadRowAvatarViaHost(assistant) &&
+      !hasSyncedAvatar &&
       (!isConnectedRow || liveSettledEmpty),
     staleTime: HOST_AVATAR_STALE_TIME_MS,
     // staleTime alone never refetches a chooser that stays mounted; the
@@ -353,7 +365,7 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
   const cacheQuery = useQuery<AvatarRead>({
     queryKey: chooserRowAvatarCacheQueryKey(assistant.id),
     queryFn: () => readCachedRowAvatar(assistant.id),
-    enabled: !showLive && !showHost,
+    enabled: !showLive && !hasSyncedAvatar && !showHost,
     staleTime: Infinity,
     structuralSharing: false,
     retry: false,
@@ -361,6 +373,9 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
 
   if (showLive) {
     return live ?? EMPTY_AVATAR;
+  }
+  if (showSynced) {
+    return syncedAvatar ?? EMPTY_AVATAR;
   }
   if (showHost) {
     return { traits: hostQuery.data.traits, imageUrl: hostQuery.data.imageUrl };

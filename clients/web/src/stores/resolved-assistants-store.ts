@@ -60,6 +60,9 @@ export interface ResolvedAssistant {
    *  entries; only the API carries it. Null/undefined means the platform has
    *  no route to this assistant. */
   ingressUrl?: string | null;
+  /** Synced avatar thumbnail served by the platform; only the API carries
+   *  it. Null means the platform holds no avatar for this assistant. */
+  avatarUrl?: string | null;
   /** Owning org for platform entries; only the lockfile carries it, so
    *  API-sourced entries leave this undefined. */
   organizationId?: string;
@@ -187,6 +190,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
               ingressUrl: a.ingress_url,
+              avatarUrl: a.avatar_url,
               currentReleaseVersion: a.current_release_version,
               releaseChannel: a.release_channel,
               isActiveLockfileAssistant:
@@ -211,6 +215,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           name: assistant.name,
           hatchedAt: assistant.created,
           ingressUrl: assistant.ingress_url,
+          avatarUrl: assistant.avatar_url,
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
           ...classifyApiEntry(

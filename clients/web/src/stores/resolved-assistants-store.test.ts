@@ -333,16 +333,41 @@ describe("setFromApi connectability", () => {
       created: "2026-01-01T00:00:00Z",
       is_local: false,
       ingress_url: null,
+      avatar_url: null,
       current_release_version: null,
       release_channel: "stable",
       ...overrides,
     }) as ApiAssistant;
 
+  it("carries the platform avatar_url and leaves lockfile entries without one", () => {
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-cloud", avatar_url: "https://cdn.example/a.png" }),
+        apiEntry({ id: "asst-bare", avatar_url: null }),
+      ]);
+    const byId = new Map(
+      useResolvedAssistantsStore.getState().assistants.map((a) => [a.id, a]),
+    );
+    expect(byId.get("asst-cloud")?.avatarUrl).toBe("https://cdn.example/a.png");
+    expect(byId.get("asst-bare")?.avatarUrl).toBeNull();
+
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [localAssistant],
+      activeAssistant: "asst-local",
+    });
+    expect(
+      useResolvedAssistantsStore.getState().assistants[0].avatarUrl,
+    ).toBeUndefined();
+  });
+
   it("drops a local registration with no ingress and no lockfile entry", () => {
-    useResolvedAssistantsStore.getState().setFromApi([
-      apiEntry({ id: "asst-cloud" }),
-      apiEntry({ id: "asst-dead-local", is_local: true, ingress_url: null }),
-    ]);
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-cloud" }),
+        apiEntry({ id: "asst-dead-local", is_local: true, ingress_url: null }),
+      ]);
 
     const assistants = useResolvedAssistantsStore.getState().assistants;
     expect(assistants.map((a) => a.id)).toEqual(["asst-cloud"]);
@@ -370,9 +395,11 @@ describe("setFromApi connectability", () => {
       activeAssistant: "asst-local",
     });
 
-    useResolvedAssistantsStore.getState().setFromApi([
-      apiEntry({ id: "asst-local", is_local: true, ingress_url: null }),
-    ]);
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-local", is_local: true, ingress_url: null }),
+      ]);
 
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-local");
