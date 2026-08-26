@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { bucketMessagesAdded } from "@/lib/diagnostics";
+import {
+  bucketMessagesAdded,
+  bucketTurnAge,
+  turnStartMsFromId,
+} from "@/lib/diagnostics";
 
 describe("bucketMessagesAdded", () => {
   // Buckets must stay low-cardinality so the values are aggregable
@@ -42,5 +46,41 @@ describe("bucketMessagesAdded", () => {
     expect(bucketMessagesAdded(Number.NaN)).toBe("0");
     expect(bucketMessagesAdded(Number.POSITIVE_INFINITY)).toBe("0");
     expect(bucketMessagesAdded(Number.NEGATIVE_INFINITY)).toBe("0");
+  });
+});
+
+describe("turnStartMsFromId", () => {
+  test("extracts the send stamp from a client turn id", () => {
+    expect(turnStartMsFromId("turn-1787774471939-au3bcw")).toBe(1787774471939);
+  });
+
+  test("returns null for null and foreign id shapes", () => {
+    expect(turnStartMsFromId(null)).toBe(null);
+    expect(turnStartMsFromId("")).toBe(null);
+    expect(turnStartMsFromId("some-server-id")).toBe(null);
+    expect(turnStartMsFromId("turn-abc-xyz")).toBe(null);
+    // A short digit run is not an epoch-milliseconds stamp.
+    expect(turnStartMsFromId("turn-123-xyz")).toBe(null);
+  });
+});
+
+describe("bucketTurnAge", () => {
+  test("buckets ages into the tag bands", () => {
+    expect(bucketTurnAge(0)).toBe("<2s");
+    expect(bucketTurnAge(1_999)).toBe("<2s");
+    expect(bucketTurnAge(2_000)).toBe("2-5s");
+    expect(bucketTurnAge(4_999)).toBe("2-5s");
+    expect(bucketTurnAge(5_000)).toBe("5-15s");
+    expect(bucketTurnAge(14_999)).toBe("5-15s");
+    expect(bucketTurnAge(15_000)).toBe("15-60s");
+    expect(bucketTurnAge(59_999)).toBe("15-60s");
+    expect(bucketTurnAge(60_000)).toBe("60s+");
+  });
+
+  test("collapses unusable inputs to unknown rather than throwing", () => {
+    expect(bucketTurnAge(null)).toBe("unknown");
+    expect(bucketTurnAge(-1)).toBe("unknown");
+    expect(bucketTurnAge(Number.NaN)).toBe("unknown");
+    expect(bucketTurnAge(Number.POSITIVE_INFINITY)).toBe("unknown");
   });
 });
