@@ -164,8 +164,10 @@ const {
 const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
 
 const initialAuthState = useAuthStore.getState();
-const { chooserRowAvatarCacheQueryKey } =
+const { chooserRowAvatarCacheQueryKey, persistLastSeenAvatar } =
   await import("@/lib/persist-last-seen-avatar");
+const { platformAvatarUrlsQueryKey } =
+  await import("@/hooks/use-platform-avatar-urls");
 
 /** Past the window a bare avatar stays fresh for. */
 const A_MINUTE_LATER = 61_000;
@@ -572,6 +574,38 @@ describe("useChooserRowAvatar", () => {
         () => useChooserRowAvatar(pairedRow("unlisted")),
         { wrapper: createWrapper() },
       );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+      expect(listAssistants).toHaveBeenCalledTimes(1);
+    });
+
+    test("persisting live evidence drops the lookup entry so the row falls through to the cache", async () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("other")),
+        { wrapper: createWrapper(queryClient) },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      await persistLastSeenAvatar(queryClient, "other", {
+        traits,
+        imageUrl: null,
+      });
+
+      expect(
+        queryClient
+          .getQueryData<Map<string, string>>(
+            platformAvatarUrlsQueryKey("user-1"),
+          )
+          ?.has("other"),
+      ).toBe(false);
       await waitFor(() => {
         expect(result.current.traits).toEqual(traits);
       });

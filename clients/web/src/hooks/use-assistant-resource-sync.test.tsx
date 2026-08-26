@@ -29,6 +29,7 @@ import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
+import { platformAvatarUrlsQueryKey } from "@/hooks/use-platform-avatar-urls";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -886,6 +887,33 @@ describe("useAssistantResourceSync", () => {
     publish("sse.opened", { assistantId: "asst-1", cause: "error" });
     await flushReconnectSweep();
     expect(avatarUrl()).toBe("https://cdn.example/a.png");
+  });
+
+  test("avatar_updated drops the platform lookup entry without a refetch", async () => {
+    const queryClient = freshQueryClient();
+    queryClient.invalidateQueries = mock(() => Promise.resolve()) as never;
+    const key = platformAvatarUrlsQueryKey("user-1");
+    queryClient.setQueryData(
+      key,
+      new Map([
+        ["asst-1", "https://cdn.example/a.png"],
+        ["asst-2", "https://cdn.example/b.png"],
+      ]),
+    );
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<Map<string, string>>(key)?.has("asst-1"),
+      ).toBe(false);
+    });
+    expect(
+      queryClient.getQueryData<Map<string, string>>(key)?.get("asst-2"),
+    ).toBe("https://cdn.example/b.png");
+    expect(queryClient.getQueryState(key)?.fetchStatus).toBe("idle");
   });
 
   test("invalidates avatar query on avatar_updated event", async () => {

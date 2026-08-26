@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import { listAssistants } from "@/assistant/api";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -16,6 +16,31 @@ export const PLATFORM_AVATAR_URLS_STALE_TIME_MS = 60_000;
 /** Keyed by user so a sign-out never serves another account's thumbnails. */
 export function platformAvatarUrlsQueryKey(userId: string | null) {
   return ["platformAvatarUrls", userId] as const;
+}
+
+const PLATFORM_AVATAR_URLS_KEY_PREFIX = ["platformAvatarUrls"] as const;
+
+/**
+ * Drops one id from every cached map without refetching. Mirrors the store's
+ * `clearAvatarUrl`: live evidence outranks a URL observed earlier, and the
+ * platform copy lags the daemon's async sync, so an immediate refetch would
+ * only re-serve the stale URL. The next stale-window refetch restores it.
+ */
+export function suppressPlatformAvatarUrl(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
+  queryClient.setQueriesData<PlatformAvatarUrls>(
+    { queryKey: PLATFORM_AVATAR_URLS_KEY_PREFIX },
+    (urls) => {
+      if (!urls?.has(assistantId)) {
+        return urls;
+      }
+      const next = new Map(urls);
+      next.delete(assistantId);
+      return next;
+    },
+  );
 }
 
 /**
