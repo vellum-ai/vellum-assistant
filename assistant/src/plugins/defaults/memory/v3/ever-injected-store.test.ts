@@ -423,6 +423,52 @@ describe("fail-soft without a memory database", () => {
     expect(getActiveSlugs("conv-1")).toEqual(new Set());
   });
 
+  test("lets an outage-time prune supersede queued durable reconciliation", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    memoryDbAvailable = false;
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
+    ]);
+    markPruned("conv-1", ["topics/page-a"], 4_000);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(residentBytes("conv-1")).toBe(0);
+
+    memoryDbAvailable = true;
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(residentBytes("conv-1")).toBe(0);
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 140,
+      prunedAt: 4_000,
+    });
+  });
+
+  test("lets queued durable reconciliation supersede an older prune", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    memoryDbAvailable = false;
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
+    ]);
+    markPruned("conv-1", ["topics/page-a"], 2_500);
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(residentBytes("conv-1")).toBe(140);
+
+    memoryDbAvailable = true;
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(residentBytes("conv-1")).toBe(140);
+    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
+      bytes: 140,
+      prunedAt: null,
+    });
+  });
+
   test("does not recover a persisted card older than its prune", () => {
     recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
     markPruned("conv-1", ["topics/page-a"], 2_000);

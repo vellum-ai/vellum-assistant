@@ -27,7 +27,7 @@
  *     not contain, suppressing their re-injection forever.
  */
 
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { memoryV3EverInjected } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
@@ -46,6 +46,7 @@ const pendingPersistedReconciliations = new Map<
   string,
   Map<string, PendingInjection>
 >();
+const pendingPrunes = new Map<string, Map<string, number>>();
 
 type MemoryDb = NonNullable<ReturnType<typeof memoryDbOrNull>>;
 
@@ -58,6 +59,7 @@ function queueReinjections(
   }
   const pending = pendingReinjections.get(conversationId) ?? new Map();
   const pruned = lastKnownPrunedSlugs.get(conversationId);
+  const queuedPrunes = pendingPrunes.get(conversationId);
   for (const entry of entries) {
     const prior = pending.get(entry.slug);
     if (prior && prior.injectedAt > entry.injectedAt) {
@@ -67,9 +69,16 @@ function queueReinjections(
       bytes: entry.bytes,
       injectedAt: entry.injectedAt,
     });
-    pruned?.delete(entry.slug);
+    const prunedAt = queuedPrunes?.get(entry.slug);
+    if (prunedAt === undefined || entry.injectedAt > prunedAt) {
+      queuedPrunes?.delete(entry.slug);
+      pruned?.delete(entry.slug);
+    }
   }
   pendingReinjections.set(conversationId, pending);
+  if (queuedPrunes?.size === 0) {
+    pendingPrunes.delete(conversationId);
+  }
 }
 
 function queuePersistedReconciliations(
@@ -85,6 +94,37 @@ function queuePersistedReconciliations(
     }
   }
   pendingPersistedReconciliations.set(conversationId, pending);
+}
+
+function queuePrunes(
+  conversationId: string,
+  slugs: string[],
+  prunedAt: number,
+): void {
+  const pending = pendingPrunes.get(conversationId) ?? new Map();
+  const snapshot = lastKnownPrunedSlugs.get(conversationId) ?? new Set();
+  for (const slug of slugs) {
+    const reinjectedAt = Math.max(
+      pendingReinjections.get(conversationId)?.get(slug)?.injectedAt ??
+        -Infinity,
+      pendingPersistedReconciliations.get(conversationId)?.get(slug)
+        ?.injectedAt ?? -Infinity,
+    );
+    if (reinjectedAt !== undefined && reinjectedAt > prunedAt) {
+      continue;
+    }
+    const prior = pending.get(slug);
+    if (prior === undefined || prunedAt > prior) {
+      pending.set(slug, prunedAt);
+    }
+    snapshot.add(slug);
+  }
+  if (pending.size > 0) {
+    pendingPrunes.set(conversationId, pending);
+  }
+  if (snapshot.size > 0) {
+    lastKnownPrunedSlugs.set(conversationId, snapshot);
+  }
 }
 
 function persistPendingReinjections(
@@ -124,10 +164,34 @@ function persistPendingReinjections(
   }
 }
 
+function persistPendingPrunes(mdb: MemoryDb, conversationId: string): void {
+  const pending = pendingPrunes.get(conversationId);
+  if (!pending) {
+    return;
+  }
+  for (const [slug, prunedAt] of pending) {
+    mdb
+      .update(memoryV3EverInjected)
+      .set({ prunedAt })
+      .where(
+        and(
+          eq(memoryV3EverInjected.conversationId, conversationId),
+          eq(memoryV3EverInjected.slug, slug),
+        ),
+      )
+      .run();
+    pending.delete(slug);
+  }
+  if (pending.size === 0) {
+    pendingPrunes.delete(conversationId);
+  }
+}
+
 function retryPendingAccounting(mdb: MemoryDb, conversationId: string): void {
   try {
     reconcilePendingPersistedInjections(mdb, conversationId);
     persistPendingReinjections(mdb, conversationId);
+    persistPendingPrunes(mdb, conversationId);
   } catch (err) {
     log.warn({ err }, "failed to retry pending card accounting; continuing");
   }
@@ -183,13 +247,24 @@ function pendingEntries(conversationId: string): Map<string, PendingInjection> {
       entries.set(slug, entry);
     }
   }
+  for (const [slug, prunedAt] of pendingPrunes.get(conversationId) ?? []) {
+    if ((entries.get(slug)?.injectedAt ?? -Infinity) <= prunedAt) {
+      entries.delete(slug);
+    }
+  }
   return entries;
 }
 
 function currentPrunedSnapshot(conversationId: string): Set<string> {
   const slugs = new Set(lastKnownPrunedSlugs.get(conversationId) ?? []);
-  for (const slug of pendingReinjections.get(conversationId)?.keys() ?? []) {
-    slugs.delete(slug);
+  for (const slug of pendingPrunes.get(conversationId)?.keys() ?? []) {
+    slugs.add(slug);
+  }
+  for (const [slug, entry] of pendingReinjections.get(conversationId) ?? []) {
+    const prunedAt = pendingPrunes.get(conversationId)?.get(slug);
+    if (prunedAt === undefined || entry.injectedAt > prunedAt) {
+      slugs.delete(slug);
+    }
   }
   return slugs;
 }
@@ -208,6 +283,7 @@ export function _resetEverInjectedRuntimeStateForTests(): void {
   lastKnownPrunedSlugs.clear();
   pendingReinjections.clear();
   pendingPersistedReconciliations.clear();
+  pendingPrunes.clear();
 }
 
 export interface EverInjectedEntry {
@@ -262,8 +338,9 @@ export function getActiveSlugs(conversationId: string): Set<string> {
       ),
     )
     .all();
+  const queuedPrunes = pendingPrunes.get(conversationId);
   return new Set([
-    ...rows.map((row) => row.slug),
+    ...rows.map((row) => row.slug).filter((slug) => !queuedPrunes?.has(slug)),
     ...pendingEntries(conversationId).keys(),
   ]);
 }
@@ -307,6 +384,9 @@ export function getActiveEntries(
     )
     .all();
   const entries = new Map(rows.map((row) => [row.slug, row]));
+  for (const slug of pendingPrunes.get(conversationId)?.keys() ?? []) {
+    entries.delete(slug);
+  }
   for (const [slug, entry] of pendingEntries(conversationId)) {
     entries.set(slug, { slug, ...entry });
   }
@@ -407,27 +487,13 @@ export function markPruned(
   if (slugs.length === 0) {
     return;
   }
+  queuePrunes(conversationId, slugs, at);
   try {
     const mdb = memoryDbOrNull("markPruned");
     if (!mdb) {
       return;
     }
     retryPendingAccounting(mdb, conversationId);
-    mdb
-      .update(memoryV3EverInjected)
-      .set({ prunedAt: at })
-      .where(
-        and(
-          eq(memoryV3EverInjected.conversationId, conversationId),
-          inArray(memoryV3EverInjected.slug, slugs),
-        ),
-      )
-      .run();
-    const snapshot = lastKnownPrunedSlugs.get(conversationId) ?? new Set();
-    for (const slug of slugs) {
-      snapshot.add(slug);
-    }
-    lastKnownPrunedSlugs.set(conversationId, snapshot);
   } catch (err) {
     log.warn({ err }, "failed to mark ever-injected cards pruned; continuing");
   }
@@ -441,6 +507,7 @@ export function clearConversation(conversationId: string): void {
   lastKnownPrunedSlugs.delete(conversationId);
   pendingReinjections.delete(conversationId);
   pendingPersistedReconciliations.delete(conversationId);
+  pendingPrunes.delete(conversationId);
   try {
     const mdb = memoryDbOrNull("clearConversation");
     if (!mdb) {
