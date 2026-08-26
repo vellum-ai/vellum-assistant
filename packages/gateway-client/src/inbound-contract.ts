@@ -169,8 +169,8 @@ export const RuntimeInboundPayloadSchema = z.object({
   conversationExternalId: z.string(),
   externalMessageId: z.string(),
   content: z.string(),
-  /** The named event family; absent only on retry payloads persisted
-   *  before the kind existed. resolveInboundEventKind derives it then. */
+  /** The named event family; absent only on replayed retry payloads,
+   *  where resolveInboundEventKind derives it from the legacy fields. */
   eventKind: z.enum(INBOUND_EVENT_KINDS).optional(),
   isEdit: z.boolean().optional(),
   callbackQueryId: z.string().optional(),

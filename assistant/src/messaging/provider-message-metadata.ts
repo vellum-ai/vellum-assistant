@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CHANNEL_IDS } from "../channels/types.js";
+import { CHANNEL_IDS, type ChannelId } from "../channels/types.js";
 
 /**
  * What a stored channel message row knows about itself, in terms no single
@@ -125,4 +125,32 @@ export function groupingMessageId(
   meta: ProviderMessageMetadata,
 ): string | undefined {
   return meta.reaction?.targetMessageId ?? meta.messageId;
+}
+
+/**
+ * Merge a patch into a row's serialized neutral metadata, synthesizing the
+ * envelope from the caller's lookup-derived facts when the row has none, so
+ * the post-merge value always reads back through
+ * {@link readProviderMessageMetadata}. The counterpart of Slack's
+ * mergeSlackMetadata for the neutral shape.
+ */
+export function mergeProviderMessageMetadata(
+  existing: string | null,
+  seed: {
+    source: ChannelId;
+    conversationExternalId: string;
+    messageId: string;
+    threadId?: string;
+  },
+  patch: { editedAt?: number; deletedAt?: number },
+): string {
+  const parsed = readProviderMessageMetadata(existing);
+  const base: ProviderMessageMetadata = parsed ?? {
+    source: seed.source,
+    conversationExternalId: seed.conversationExternalId,
+    messageId: seed.messageId,
+    ...(seed.threadId ? { threadId: seed.threadId } : {}),
+    eventKind: "message",
+  };
+  return JSON.stringify({ ...base, ...patch });
 }

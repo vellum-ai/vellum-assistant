@@ -36,8 +36,8 @@ interface InboundEventBase<C extends InboundChannelId> {
     conversationExternalId: string;
     externalMessageId: string;
     /** The named event family. Producers stamp it on every event; the
-     *  legacy flag and sentinel fields below persist only as the payload
-     *  of their families and for replayed pre-kind retry payloads. */
+     *  flag and sentinel fields below carry each family's payload and
+     *  classify replayed retry payloads that arrive unstamped. */
     eventKind?: InboundEventKind;
     isEdit?: boolean;
     callbackQueryId?: string;

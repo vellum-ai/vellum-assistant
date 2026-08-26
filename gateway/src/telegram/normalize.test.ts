@@ -93,7 +93,7 @@ describe("normalizeTelegramUpdate — private-chat topics", () => {
   });
 });
 
-describe("normalizeTelegramUpdate — event kinds", () => {
+describe("normalizeTelegramUpdate: event kinds", () => {
   it("classifies an edited_message as an edit", () => {
     const result = normalizeTelegramUpdate({
       update_id: 600,

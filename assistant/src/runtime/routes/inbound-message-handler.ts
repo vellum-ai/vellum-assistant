@@ -303,9 +303,9 @@ export async function handleChannelInbound({
     sourceMetadata,
   } = body;
 
-  // The named event family. Stamped by every gateway producer; derived from
-  // the legacy flag and sentinel fields only for retry payloads persisted
-  // before the kind existed.
+  // The named event family. Stamped by every gateway producer; replayed
+  // retry payloads arrive unstamped and classify by their flag and sentinel
+  // fields instead.
   const eventKind = resolveInboundEventKind(body);
   const isEdit = eventKind === "edit";
 

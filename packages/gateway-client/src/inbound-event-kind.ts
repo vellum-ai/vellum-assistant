@@ -5,12 +5,12 @@
  * stages apply: only user-authored text (message, edit) can carry a
  * verification code or an invite, only a message starts an agent turn, and
  * edit/delete/reaction/button all refer to another message rather than
- * standing alone. Before the kind existed, each family was inferred from
- * the field that happened to carry it: `isEdit`, the sentinel string
- * `"message_deleted"`, the `"reaction:"` prefix, the presence of
- * `callbackData` at all. Those encodings still arrive on replayed retry
- * payloads persisted before the kind, so {@link resolveInboundEventKind}
- * derives the kind from them exactly once; nothing else may sniff them.
+ * standing alone. A payload can also encode its family in the field that
+ * carries it: `isEdit`, the sentinel string `"message_deleted"`, the
+ * `"reaction:"` prefix, the presence of `callbackData` at all. Replayed
+ * retry payloads arrive with only those encodings, so
+ * {@link resolveInboundEventKind} derives the kind from them exactly once;
+ * nothing else may sniff them.
  */
 
 export const INBOUND_EVENT_KINDS = [
@@ -28,12 +28,12 @@ export function isInboundEventKind(value: string): value is InboundEventKind {
 }
 
 /**
- * The one place the legacy encodings are read. A payload stamped with a
- * kind wins outright; an unstamped one (a retry payload persisted before
- * the kind existed) is classified by the fields that used to carry the
- * family. The fallback order mirrors the old consumers' precedence:
- * reaction prefixes and the delete sentinel are specific `callbackData`
- * values, so they are tested before the generic button reading.
+ * The one place the field encodings are read. A payload stamped with a
+ * kind wins outright; an unstamped one (a replayed retry payload) is
+ * classified by the fields that carry its family. The fallback order is
+ * specific-before-generic: reaction prefixes and the delete sentinel are
+ * particular `callbackData` values, so they are tested before the generic
+ * button reading.
  */
 export function resolveInboundEventKind(fields: {
   eventKind?: string;
