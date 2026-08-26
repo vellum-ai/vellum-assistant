@@ -81,6 +81,42 @@ describe("skill platform compatibility", () => {
     ).toBe(false);
   });
 
+  test("requires each capability in a direct local host proof", () => {
+    const context = {
+      clientOs: "windows",
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+      hostPlatforms: [{ platform: "windows", capabilities: ["host_bash"] }],
+    } as const;
+    expect(
+      isSkillCompatibleWithContext(
+        {
+          platforms: ["windows"],
+          requiredHostCapabilities: ["host_bash"],
+        },
+        context,
+      ),
+    ).toBe(true);
+    expect(
+      isSkillCompatibleWithContext(
+        {
+          platforms: ["windows"],
+          requiredHostCapabilities: ["host_cu"],
+        },
+        context,
+      ),
+    ).toBe(false);
+    expect(
+      isSkillCompatibleWithContext(
+        {
+          platforms: ["windows"],
+          requiredHostCapabilities: ["host_bash", "host_app_control"],
+        },
+        context,
+      ),
+    ).toBe(false);
+  });
+
   test("rejects a Windows browser without a capable host on Windows", () => {
     const skill = {
       platforms: ["windows"] as const,

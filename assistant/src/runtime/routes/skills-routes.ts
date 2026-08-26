@@ -31,7 +31,7 @@ import {
 } from "../../daemon/handlers/skills.js";
 import { getCategories } from "../../skills/categories-cache.js";
 import {
-  type SkillPlatform,
+  type HostPlatformCapabilityProof,
   skillPlatformForNodePlatform,
 } from "../../skills/platform-compatibility.js";
 import { getSkillHistory } from "../../skills/skill-history.js";
@@ -54,12 +54,12 @@ function requestClientOs(
 function requestLocalHostPlatforms(
   headers: Record<string, string> | undefined,
   transport: RouteHandlerArgs["transport"],
-): SkillPlatform[] | undefined {
+): HostPlatformCapabilityProof[] | undefined {
   if (transport !== "ipc" || headers?.["x-vellum-principal-type"] !== "local") {
     return undefined;
   }
   const platform = skillPlatformForNodePlatform(process.platform);
-  return platform ? [platform] : undefined;
+  return platform ? [{ platform, capabilities: ["host_bash"] }] : undefined;
 }
 
 function requestActorPrincipalId(

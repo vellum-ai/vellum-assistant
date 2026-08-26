@@ -136,6 +136,9 @@ describe("skill management client platform routing", () => {
       "x-vellum-principal-type": "local",
       "x-vellum-actor-principal-id": "actor-a",
     };
+    const localHostProof = [
+      { platform: daemonPlatform, capabilities: ["host_bash"] },
+    ];
 
     await listHandler({ headers, transport: "ipc" });
     await searchHandler({
@@ -158,7 +161,7 @@ describe("skill management client platform routing", () => {
       daemonPlatform,
       "actor-a",
       true,
-      [daemonPlatform],
+      localHostProof,
     );
     expect(searchSkillsMock).toHaveBeenCalledWith(
       "automation",
@@ -166,12 +169,12 @@ describe("skill management client platform routing", () => {
       daemonPlatform,
       "actor-a",
       true,
-      [daemonPlatform],
+      localHostProof,
     );
     expect(installSkillMock).toHaveBeenCalledWith(
       expect.objectContaining({
         clientOs: daemonPlatform,
-        hostPlatforms: [daemonPlatform],
+        hostPlatforms: localHostProof,
         sourceActorPrincipalId: "actor-a",
       }),
     );
@@ -180,7 +183,7 @@ describe("skill management client platform routing", () => {
       daemonPlatform,
       "actor-a",
       true,
-      [daemonPlatform],
+      localHostProof,
     );
   });
 

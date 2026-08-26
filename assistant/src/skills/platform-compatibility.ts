@@ -16,6 +16,11 @@ export interface PlatformScopedSkill {
   unsupportedHostCapabilities?: readonly string[];
 }
 
+export interface HostPlatformCapabilityProof {
+  platform: SkillPlatform;
+  capabilities: readonly HostProxyCapability[];
+}
+
 export interface SkillPlatformContext {
   clientOs?: unknown;
   isInteractive?: boolean;
@@ -140,6 +145,33 @@ function connectedHostPlatforms(
   return [...new Set(platforms)];
 }
 
+function provenHostPlatforms(
+  values: readonly unknown[],
+  requiredCapabilities: readonly HostProxyCapability[],
+): SkillPlatform[] {
+  return values
+    .map((value): SkillPlatform | null => {
+      if (typeof value === "string") {
+        return skillPlatformForClientOs(value);
+      }
+      if (value == null || typeof value !== "object") {
+        return null;
+      }
+      const proof = value as Partial<HostPlatformCapabilityProof>;
+      const capabilities = proof.capabilities;
+      if (
+        !Array.isArray(capabilities) ||
+        !requiredCapabilities.every((capability) =>
+          capabilities.includes(capability),
+        )
+      ) {
+        return null;
+      }
+      return skillPlatformForClientOs(proof.platform);
+    })
+    .filter((platform): platform is SkillPlatform => platform !== null);
+}
+
 export function isSkillCompatibleWithContext(
   skill: PlatformScopedSkill,
   context: SkillPlatformContext,
@@ -155,15 +187,12 @@ export function isSkillCompatibleWithContext(
     ) {
       return false;
     }
-    const capableHostPlatforms = (
-      context.hostPlatforms ??
-      connectedHostPlatforms(
-        context.sourceActorPrincipalId,
-        requiredCapabilities,
-      )
-    )
-      .map(skillPlatformForClientOs)
-      .filter((platform): platform is SkillPlatform => platform !== null);
+    const capableHostPlatforms = context.hostPlatforms
+      ? provenHostPlatforms(context.hostPlatforms, requiredCapabilities)
+      : connectedHostPlatforms(
+          context.sourceActorPrincipalId,
+          requiredCapabilities,
+        );
     return capableHostPlatforms.some(
       (platform) => !skill.platforms || skill.platforms.includes(platform),
     );
