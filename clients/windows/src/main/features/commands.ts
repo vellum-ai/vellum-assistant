@@ -44,8 +44,8 @@ const commandsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
         globalHotkey: () => {
           void ensureVisible();
         },
-        // Bound here, not in auxiliary-windows, so the user's rebinding in
-        // Keyboard Shortcuts applies and the chord is registered once.
+        // Registered through installGlobalShortcuts so the Keyboard
+        // Shortcuts rebinding applies and the chord is bound exactly once.
         quickInput: toggleQuickInput,
         // Talk, from wherever the user is. `registerAll` skips a command with
         // no handler, so without this the binding would be offered in both
