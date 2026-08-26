@@ -42,31 +42,37 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
     [t],
   );
   const [error, setError] = useState<string | null>(null);
-  const callbackUrl = buildProviderCallbackUrl(returnTo, {
-    authIntent: "signup",
-  });
+  const [pending, setPending] = useState(false);
+
+  /**
+   * Hand off to AuthKit, holding the screen's controls until the flow lands. A
+   * native start resolves the flow's marketing attribution before the browser
+   * auth surface opens, and a second start inside that gap replaces the first,
+   * which the plugin rejects as a failure the user never caused. A rejection
+   * hands the screen back.
+   */
+  const startFlow = (intent: "signup" | undefined, logLabel: string) => {
+    setError(null);
+    setPending(true);
+    startAuthFlow(
+      PROVIDER_ID,
+      buildProviderCallbackUrl(returnTo, { authIntent: intent }),
+      { returnTo, intent },
+    ).catch((err) => {
+      console.error(logLabel, err);
+      setError(t("authErrors.genericFailure"));
+      setPending(false);
+    });
+  };
 
   const start = () => {
-    setError(null);
-    startAuthFlow(PROVIDER_ID, callbackUrl, {
-      returnTo,
-      intent: "signup",
-    }).catch((err) => {
-      console.error("[signup] auth flow failed:", err);
-      setError(t("authErrors.genericFailure"));
-    });
+    startFlow("signup", "[signup] auth flow failed:");
   };
 
   // "Sign in" goes straight to AuthKit (login) rather than routing through the
   // /account/login redirect page, which would flash an extra "Redirecting…".
   const signIn = () => {
-    setError(null);
-    startAuthFlow(PROVIDER_ID, buildProviderCallbackUrl(returnTo), {
-      returnTo,
-    }).catch((err) => {
-      console.error("[signup] sign-in flow failed:", err);
-      setError(t("authErrors.genericFailure"));
-    });
+    startFlow(undefined, "[signup] sign-in flow failed:");
   };
 
   return (
@@ -79,7 +85,12 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
       <p className="signup__subtitle">{t("signupScreen.subtitle")}</p>
 
       <div className="signup__buttons">
-        <button type="button" className="signup__btn" onClick={start}>
+        <button
+          type="button"
+          className="signup__btn"
+          onClick={start}
+          disabled={pending}
+        >
           {t("signupScreen.continue")}
         </button>
       </div>
@@ -92,7 +103,12 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
           ns="account"
           components={{
             signIn: (
-              <button type="button" className="signup__link" onClick={signIn} />
+              <button
+                type="button"
+                className="signup__link"
+                onClick={signIn}
+                disabled={pending}
+              />
             ),
           }}
         />
