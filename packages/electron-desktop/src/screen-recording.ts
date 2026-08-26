@@ -254,8 +254,9 @@ export const installScreenRecording = ({
   handle(
     SCREEN_RECORDING_RELEASE,
     z.tuple([RecordingIdSchema]),
-    ([recordingId], event) => {
-      getOwnedCompleted(recordingId, event.sender);
+    async ([recordingId], event) => {
+      const recording = getOwnedCompleted(recordingId, event.sender);
+      await rm(recording.filePath, { force: true });
       completed.delete(recordingId);
     },
   );

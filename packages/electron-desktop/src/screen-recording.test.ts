@@ -206,7 +206,10 @@ test("reads completed recordings in owner-bound chunks", async () => {
     recordingId,
     new Uint8Array([1, 2, 3, 4, 5]),
   );
-  await invoke("vellum:screenRecording:finish", recordingId);
+  const { filePath } = await invoke<{ filePath: string }>(
+    "vellum:screenRecording:finish",
+    recordingId,
+  );
 
   await expect(
     invoke<{ data: Uint8Array; eof: boolean }>(
@@ -235,6 +238,7 @@ test("reads completed recordings in owner-bound chunks", async () => {
   ).rejects.toThrow("belongs to another window");
 
   await invoke("vellum:screenRecording:release", recordingId);
+  expect(existsSync(filePath)).toBeFalse();
   await expect(
     invoke("vellum:screenRecording:read", recordingId, 0, 3),
   ).rejects.toThrow("not found");

@@ -378,7 +378,6 @@ export class ScreenRecordingController {
 
   async handleAssistantChange(assistantId: string | null): Promise<void> {
     if (
-      !assistantId ||
       !isElectron() ||
       !window.vellum?.screenRecording ||
       !this.dependencies.ownsLifecycle()
@@ -396,10 +395,12 @@ export class ScreenRecordingController {
     ) {
       return;
     }
-    await this.finalizeLifecycleWork();
+    await this.finalizeLifecycleWork(null);
   }
 
-  private async finalizeLifecycleWork(keptAssistantId?: string): Promise<void> {
+  private async finalizeLifecycleWork(
+    keptAssistantId: string | null,
+  ): Promise<void> {
     if (this.pending && this.pending.assistantId !== keptAssistantId) {
       this.pending.cancelled = true;
     }
