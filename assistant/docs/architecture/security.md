@@ -34,7 +34,7 @@ The order inside `check()`: the memory-retrospective skill-authoring grant, then
 
 ### Auto-Approve Threshold
 
-Thresholds are **gateway-owned**: stored in the gateway's SQLite database, read by the assistant over IPC (`get_global_thresholds`, `get_conversation_threshold`), and set from the Settings UI (Permissions & Privacy) or the per-conversation risk tolerance picker. When the gateway is unreachable the assistant resolves `"none"` (Strict), fail-closed with no local fallback.
+Thresholds are **gateway-owned**: stored in the gateway's SQLite database, read by the assistant over IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`), and set from the Settings UI (Permissions & Privacy) or the per-conversation risk tolerance picker. When the gateway is unreachable the assistant resolves `"none"` (Strict), fail-closed with no local fallback.
 
 Gateway defaults per execution context (`gateway/src/ipc/threshold-handlers.ts`): `interactive` (a conversation with a client) `medium`, `autonomous` (background/scheduled) `low`, `headless` `none`. A per-conversation override wins over the global value; for non-guardian actors a channel-permission cell can only lower the effective threshold.
 

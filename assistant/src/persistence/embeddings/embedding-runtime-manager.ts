@@ -102,6 +102,7 @@ async function downloadAndExtract(
     // Extract tarball, stripping the leading "package/" directory
     const proc = Bun.spawn({
       cmd: ["tar", "xzf", tmpTar, "-C", targetDir, "--strip-components=1"],
+      windowsHide: true,
       stdout: "ignore",
       stderr: "pipe",
     });

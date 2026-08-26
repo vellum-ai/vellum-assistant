@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildProcessTree,
+  buildSystemProcessTree,
   deriveName,
   deriveOrigin,
   type ProcInfo,
@@ -18,6 +19,14 @@ describe("deriveName", () => {
   test("uses the executable basename for plain commands", () => {
     expect(deriveName("/usr/local/bin/qdrant --config foo")).toBe("qdrant");
     expect(deriveName("qdrant")).toBe("qdrant");
+  });
+
+  test("handles quoted Windows executable and script paths", () => {
+    expect(
+      deriveName(
+        '"C:\\Program Files\\Bun\\bun.exe" run "C:\\Example App\\jobs\\worker.ts"',
+      ),
+    ).toBe("jobs-worker");
   });
 
   test("summarizes the script path as <parent>-<file> for interpreter invocations", () => {
@@ -64,6 +73,12 @@ describe("deriveOrigin", () => {
       deriveOrigin(
         "bun --smol run /home/u/.vellum/workspace/plugins/cognee/server.ts",
       ),
+    ).toBe("plugin:cognee");
+  });
+
+  test("tags a plugin from a Windows command path", () => {
+    expect(
+      deriveOrigin("bun run C:\\Vellum\\workspace\\plugins\\cognee\\server.ts"),
     ).toBe("plugin:cognee");
   });
 
@@ -193,5 +208,36 @@ describe("buildProcessTree", () => {
     expect(tree.pid).toBe(1);
     expect(tree.children.map((c) => c.pid)).toEqual([2]);
     expect(tree.children[0].children).toEqual([]);
+  });
+});
+
+describe("buildSystemProcessTree", () => {
+  test("includes every process under a synthetic system root", () => {
+    const procs: ProcInfo[] = [
+      { pid: 4, ppid: 0, command: "System", origin: "workspace" },
+      { pid: 100, ppid: 4, command: "assistant.exe", origin: "workspace" },
+      { pid: 200, ppid: 100, command: "worker.exe", origin: "workspace" },
+      { pid: 300, ppid: 999, command: "orphan.exe", origin: "workspace" },
+    ];
+
+    const tree = buildSystemProcessTree(procs);
+    const allPids = (node: typeof tree): number[] => [
+      node.pid,
+      ...node.children.flatMap(allPids),
+    ];
+
+    expect(tree.name).toBe("system");
+    expect(allPids(tree)).toEqual([0, 4, 100, 200, 300]);
+  });
+
+  test("includes processes trapped in a parent cycle", () => {
+    const procs: ProcInfo[] = [
+      { pid: 10, ppid: 20, command: "a", origin: "workspace" },
+      { pid: 20, ppid: 10, command: "b", origin: "workspace" },
+    ];
+
+    const tree = buildSystemProcessTree(procs);
+    expect(tree.children.map((child) => child.pid)).toEqual([10]);
+    expect(tree.children[0].children.map((child) => child.pid)).toEqual([20]);
   });
 });

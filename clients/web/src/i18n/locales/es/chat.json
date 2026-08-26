@@ -1159,6 +1159,9 @@
   },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
+    "expandAria": "Reabrir pregunta",
+    "minimizeAria": "Minimizar pregunta",
+    "minimizedSummary": "{count, plural, one {# opción} other {# opciones}} · Toca para reabrir",
     "nextQuestionAria": "Pregunta siguiente",
     "optionAria": "Opción {number}: {label}",
     "position": "{current} de {total}",

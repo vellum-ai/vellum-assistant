@@ -43,9 +43,9 @@ function resetTables(): void {
 /**
  * Build a minimal PNG whose IHDR declares the given dimensions. Only the
  * 8-byte signature and the width/height fields (read by `parseImageDimensions`)
- * need to be correct; the rest is padding. `optimizeImageForTransport` cannot
- * downscale this off macOS (no `sips`), so it stays a no-op — exactly the
- * host condition that produces an unsendable stored image.
+ * need to be correct; the rest is padding. The image is not decodable, so
+ * `optimizeImageForTransport` leaves it unchanged and produces the unsendable
+ * stored-image condition.
  */
 function makePngBase64(width: number, height: number, padBytes = 0): string {
   const header = Buffer.from(

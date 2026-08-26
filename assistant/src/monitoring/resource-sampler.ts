@@ -34,7 +34,15 @@ import { diffCounters } from "../util/counter-diff.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
-import { buildProcessTree, listProcesses } from "../util/process-tree.js";
+import {
+  listProcessTableAsync,
+  type ProcessTableRow,
+} from "../util/process-table.js";
+import {
+  buildProcessTree,
+  buildSystemProcessTree,
+  listProcesses,
+} from "../util/process-tree.js";
 import { readActiveConversations } from "./active-conversations.js";
 import { topProcessesByFd } from "./file-descriptors.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
@@ -149,10 +157,16 @@ export async function writeSnapshot(
   mkdirSync(snapshotsDir, { recursive: true });
 
   let tree: unknown = null;
+  let processTable: ProcessTableRow[] | null = null;
   try {
-    const procs = await listProcesses();
-    // pid 1 is the container init; its subtree is the whole container.
-    tree = buildProcessTree(procs, 1);
+    processTable = await listProcessTableAsync();
+    const procs = await listProcesses(processTable);
+    // pid 1 is the container init; its subtree is the whole container. Windows
+    // has no such root, so every process hangs off a synthetic one.
+    tree =
+      process.platform === "win32"
+        ? buildSystemProcessTree(procs)
+        : buildProcessTree(procs, 1);
   } catch (err) {
     log.warn({ err }, "Failed to enumerate process tree for snapshot");
   }
@@ -166,21 +180,24 @@ export async function writeSnapshot(
     log.warn({ err }, "Failed to read page-cache residency for snapshot");
   }
 
+  const processOptions = { platform: process.platform, processTable };
   const snapshot = {
     ts: sample.ts,
     kind,
     sample,
     fileResidency,
     // PSS-ranked with per-process anon/file split; PSS sums reconcile against
-    // the cgroup total where an RSS sum double-counts shared pages.
-    topProcesses: topProcessesByMemory(15),
+    // the cgroup total where an RSS sum double-counts shared pages. Windows
+    // reports working-set size instead.
+    topProcesses: topProcessesByMemory(15, processOptions),
     // Slab memory belongs to no process; without this, cgroup usage that
     // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
     // Descriptor pressure, ranked against each process's own soft limit. An
     // EMFILE storm and a memory spike look alike from the outside (unrelated
-    // failures across the daemon), so the capture records both.
-    topProcessesByFd: topProcessesByFd(15),
+    // failures across the daemon), so the capture records both. Windows
+    // records raw handle counts since it has no comparable soft limit.
+    topProcessesByFd: topProcessesByFd(15, processOptions),
     processTree: tree,
   };
 

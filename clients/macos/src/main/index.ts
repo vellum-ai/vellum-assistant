@@ -8,13 +8,12 @@ import { installCommandPaletteWindow } from "@vellumai/electron-desktop/command-
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import { installDictationOverlay } from "@vellumai/electron-desktop/dictation-overlay-window";
 import {
-  authorizePairedGatewayForwardPlan,
-  executeGatewayForwardPlan,
-  planGatewayForward,
-  planPairedGatewayForward,
+  forwardGatewayRequest,
+  forwardPairedGatewayRequest,
   type GatewayForwardFetcher,
 } from "@vellumai/electron-desktop/gateway-forward";
 import { installPermissionHandler } from "@vellumai/electron-desktop/permissions";
+import { installPairedGatewayRequestGuard } from "@vellumai/electron-desktop/paired-gateway-request-guard";
 import {
   executePlatformForwardPlan,
   planPlatformForward,
@@ -42,7 +41,6 @@ import { resolveAllowedOrigin } from "./app-origin";
 import { writeCliLocator } from "./cli-installer";
 import { provisionCliForWrapper } from "./cli-path-installer";
 import { handle, handleSync, on } from "./ipc";
-import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import { hasPendingDeepLinks, installDeepLinks } from "./deep-links.client";
 import { handleBundleFile, installMacBundleWorkflow } from "./bundles";
 import {
@@ -278,6 +276,7 @@ const registerAppProtocol = (): void => {
     const proxied = await forwardGatewayRequest(
       request,
       getAllowedGatewayPorts,
+      gatewayForwardFetcher,
     );
     if (proxied) return proxied;
 
@@ -289,6 +288,8 @@ const registerAppProtocol = (): void => {
     const pairedProxied = await forwardPairedGatewayRequest(
       request,
       getPairedGatewayTargets,
+      getPairedGuardianAccessToken,
+      gatewayForwardFetcher,
     );
     if (pairedProxied) {
       return pairedProxied;
@@ -319,41 +320,6 @@ const registerAppProtocol = (): void => {
 
 const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
   net.fetch(url, init);
-
-/**
- * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to the
- * local gateway on loopback, or return `null` when the URL is not a gateway
- * request. `net.fetch` runs in the main process, so the renderer only ever
- * talks to its own secure `app://` origin; main does the `http://127.0.0.1`
- * hop.
- */
-const forwardGatewayRequest = async (
-  request: GlobalRequest,
-  getAllowedPorts: () => Set<number>,
-): Promise<Response | null> =>
-  executeGatewayForwardPlan(
-    planGatewayForward(request, getAllowedPorts),
-    request,
-    gatewayForwardFetcher,
-  );
-
-/**
- * Forward a paired-gateway data-plane request
- * (`/assistant/__gateway-paired/{assistantId}/*`) to the remote gateway an
- * imported pairing recorded as its `runtimeUrl`, or return `null` when the URL
- * is not a paired-gateway request. Main does the remote hop so the renderer
- * stays same-origin.
- */
-const forwardPairedGatewayRequest = async (
-  request: GlobalRequest,
-  getTargets: () => Map<string, string>,
-): Promise<Response | null> => {
-  const plan = await authorizePairedGatewayForwardPlan(
-    planPairedGatewayForward(request, getTargets),
-    getPairedGuardianAccessToken,
-  );
-  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
-};
 
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
@@ -430,7 +396,10 @@ app
 
     if (!isDev) {
       registerAppProtocol();
-      installPairedGatewayRequestGuard();
+      installPairedGatewayRequestGuard({
+        appOrigin: { protocol: `${APP_PROTOCOL}:`, host: APP_HOST },
+        resolveAllowedOrigin,
+      });
     }
     registerVellumAppProtocol(
       path.join(app.getPath("userData"), BUNDLES_DIR_NAME),

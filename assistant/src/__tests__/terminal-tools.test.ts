@@ -47,6 +47,7 @@ import {
   KATA_INJECTED_ENV_VARS,
   KATA_SAFE_ENV_VARS,
   SAFE_ENV_VARS,
+  WINDOWS_SAFE_ENV_VARS,
 } from "../tools/terminal/safe-env.js";
 import { shellTool } from "../tools/terminal/shell.js";
 
@@ -194,6 +195,7 @@ describe("buildSanitizedEnv", () => {
       ...KATA_SAFE_ENV_VARS,
       ...KATA_INJECTED_ENV_VARS,
       ...ALWAYS_INJECTED_ENV_VARS,
+      ...WINDOWS_SAFE_ENV_VARS,
     ];
     for (const key of keys) {
       expect(safeKeys).toContain(key);

@@ -165,6 +165,26 @@ describe("parseToolManifest", () => {
     }
   });
 
+  test("accepts supported client operating systems", () => {
+    const result = parseToolManifest(
+      makeManifest({
+        tools: [makeToolEntry({ supported_client_os: ["macos", "windows"] })],
+      }),
+    );
+
+    expect(result.tools[0].supported_client_os).toEqual(["macos", "windows"]);
+  });
+
+  test("rejects unknown supported client operating systems", () => {
+    expect(() =>
+      parseToolManifest(
+        makeManifest({
+          tools: [makeToolEntry({ supported_client_os: ["beos"] })],
+        }),
+      ),
+    ).toThrow(/supported_client_os/);
+  });
+
   test("accepts an empty input_schema object", () => {
     const raw = makeManifest({
       tools: [makeToolEntry({ input_schema: {} })],

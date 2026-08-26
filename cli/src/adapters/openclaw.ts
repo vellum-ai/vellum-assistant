@@ -87,7 +87,8 @@ if ! command -v bun >/dev/null 2>&1; then
     echo "Installing unzip (required by bun)..."
     apt-get install -y unzip
   fi
-  curl -fsSL https://bun.sh/install | bash
+  # Pinned. Keep in sync with .tool-versions.
+  curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
   export BUN_INSTALL="\$HOME/.bun"
   export PATH="\$BUN_INSTALL/bin:\$PATH"
   echo "bun version: $(bun --version)"

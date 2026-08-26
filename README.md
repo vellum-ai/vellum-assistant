@@ -95,7 +95,7 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 **Guides**
 
-- [Your self-hosted assistant on your devices](docs/self-hosted-phone.md) — reach a locally hosted assistant from your phone, tablet, or another computer with the nginx edge, a Tailscale HTTPS front, and one-scan QR pairing.
+- [Pair a device](https://vellum.ai/docs/hosting-options/pair-a-device): reach a self-hosted assistant from your phone or another computer by opening a tunnel and pairing the device.
 
 </details>
 
