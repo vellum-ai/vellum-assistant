@@ -1,10 +1,10 @@
-import { and, desc, eq } from "drizzle-orm";
-
 import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "../api/events/acp-auth-required.js";
 import { updateMessageContent } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
-import { messages } from "../persistence/schema/conversations.js";
+import {
+  messageRawContent,
+  recentAssistantMessageContents,
+} from "../persistence/message-reads.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp-auth-anchor-marker");
@@ -16,15 +16,6 @@ const log = getLogger("acp-auth-anchor-marker");
  * translates into a wire field, invisible to the model's own view of the turn.
  */
 export const ACP_AUTH_ERROR_CODE_RIDER = "_acpAuthErrorCode";
-
-/**
- * How many of a conversation's newest assistant messages the anchor lookup
- * scans. A run's spawn call is by construction in the conversation that
- * started it, and a long-lived run is the case that puts distance between the
- * two, so the window is generous rather than tight. Bounded all the same: this
- * resolves content refs off disk per row.
- */
-const ANCHOR_SCAN_LIMIT = 200;
 
 /**
  * The id of the assistant message carrying the `tool_use` block with this id,
@@ -77,20 +68,7 @@ function findMessageIdByToolUseId(
   conversationId: string,
   toolUseId: string,
 ): string | null {
-  const rows = getDb()
-    .select({ id: messages.id, content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "assistant"),
-      ),
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(ANCHOR_SCAN_LIMIT)
-    .all();
-
-  for (const row of rows) {
+  for (const row of recentAssistantMessageContents(conversationId)) {
     if (
       blocksCarryToolUse(resolveMessageContentBlocks(row.content), toolUseId)
     ) {
@@ -133,15 +111,11 @@ export function stampAcpAuthRequiredOnAnchor(
       );
       return;
     }
-    const row = getDb()
-      .select({ content: messages.content })
-      .from(messages)
-      .where(eq(messages.id, messageId))
-      .get();
-    if (!row) {
+    const raw = messageRawContent(messageId);
+    if (raw === null) {
       return;
     }
-    const blocks = resolveMessageContentBlocks(row.content);
+    const blocks = resolveMessageContentBlocks(raw);
     if (applyAcpAuthRider(blocks, toolUseId)) {
       updateMessageContent(messageId, JSON.stringify(blocks));
     }

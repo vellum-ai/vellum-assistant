@@ -100,6 +100,68 @@ function newestFinalizedAssistantRow(
 }
 
 /**
+ * How many of a conversation's newest assistant rows
+ * {@link findAssistantMessageCarryingToolUse} scans. A run's spawn call is by
+ * construction in the conversation that started it, and a long-lived run is
+ * what puts distance between the two, so the window is generous rather than
+ * tight. Bounded all the same: the caller resolves content refs off disk per
+ * row it inspects.
+ */
+export const TOOL_USE_SCAN_LIMIT = 200;
+
+/**
+ * `(id, content)` of the newest assistant rows in a conversation, for a caller
+ * that has to look inside `content` to find what it wants.
+ *
+ * Any row, not just finalized ones: the one caller stamps a marker onto a tool
+ * call whose turn may still be streaming, and skipping unfinalized rows would
+ * miss exactly the recent turn it is most likely to want. A `{ ref }` content
+ * value is the caller's to resolve, which is why the raw column is returned
+ * rather than parsed blocks.
+ *
+ * Ordered newest-first and capped at {@link TOOL_USE_SCAN_LIMIT}. A scan
+ * rather than an index because `tool_use` ids live inside the content blob,
+ * and a `LIKE` over the stored column would silently miss every ref-backed
+ * row.
+ */
+export function recentAssistantMessageContents(
+  conversationId: string,
+  opts?: { db?: MessageReadHandle; limit?: number },
+): { id: string; content: string }[] {
+  return (opts?.db ?? getDb())
+    .select({ id: messages.id, content: messages.content })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "assistant"),
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(opts?.limit ?? TOOL_USE_SCAN_LIMIT)
+    .all();
+}
+
+/**
+ * Raw `content` of one message by id, or null when the row is gone.
+ *
+ * Any row, for the same reason as {@link recentAssistantMessageContents}, and
+ * paired with it: a caller scans for the row it wants, then re-reads that one
+ * row before writing it back.
+ */
+export function messageRawContent(
+  messageId: string,
+  opts?: { db?: MessageReadHandle },
+): string | null {
+  const row = (opts?.db ?? getDb())
+    .select({ content: messages.content })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  return row?.content ?? null;
+}
+
+/**
  * Raw `content` of the last user-role row in a conversation, in insertion
  * order (`rowid DESC`, not `createdAt`), or null when there is none.
  *

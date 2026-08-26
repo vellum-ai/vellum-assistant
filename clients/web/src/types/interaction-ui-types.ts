@@ -81,6 +81,18 @@ export interface PendingAcpConnectState {
    * completing or dismissing the flow clears the card.
    */
   reason?: "missing" | "auth_required";
+  /**
+   * Whether this prompt was re-derived from persisted history rather than
+   * raised by a live failure in this session.
+   *
+   * The `auth_required` marker stays in history permanently, so a restored one
+   * describes a rejection from some earlier session, which the user may
+   * already have repaired. A live one describes a rejection that just
+   * happened. Only the restored kind lets the already-connected self-heal
+   * retire the card, which is what keeps a stale marker from re-raising it on
+   * every cold start after a successful reconnect.
+   */
+  restoredFromHistory?: boolean;
 }
 
 // ---------------------------------------------------------------------------

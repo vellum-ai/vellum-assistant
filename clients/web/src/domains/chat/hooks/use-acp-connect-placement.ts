@@ -27,8 +27,15 @@ export type AcpConnectPlacement = "inline" | "docked" | null;
  *
  * A user message after the anchor is what marks it as history: until then the
  * anchor's turn is still the last thing in the thread and the card sits in
- * view, in the context that explains it. An anchor that has paged out of the
- * loaded transcript entirely docks for the same reason.
+ * view, in the context that explains it.
+ *
+ * An anchor that is not in the transcript at all yields no placement. The
+ * prompt deliberately outlives a conversation switch (`resetAll` carries it
+ * over), so "no anchor here" is usually a different conversation rather than a
+ * paged-out row, and docking on it would show the card, and its Connect
+ * button, against whatever assistant the user navigated to. The two are not
+ * distinguishable from the transcript alone, so the ambiguous case declines to
+ * render rather than guess.
  */
 export function decideAcpConnectPlacement(
   messages: readonly DisplayMessage[],
@@ -41,7 +48,7 @@ export function decideAcpConnectPlacement(
     message.toolCalls?.some((toolCall) => toolCall.id === toolUseId),
   );
   if (anchorIndex === -1) {
-    return "docked";
+    return null;
   }
   const supersededByNewTurn = messages
     .slice(anchorIndex + 1)
@@ -59,4 +66,21 @@ export function useAcpConnectPlacement(): AcpConnectPlacement {
     () => decideAcpConnectPlacement(messages, toolUseId),
     [messages, toolUseId],
   );
+}
+
+/**
+ * The tool call the Connect card renders under, or `null` when it belongs
+ * above the composer instead (or nowhere).
+ *
+ * Read once by `Transcript` and threaded down to the rows, so a row does not
+ * subscribe to the transcript to answer a question about one tool call.
+ * Subscribing per row would defeat `TranscriptRow`'s memo boundary: the
+ * transcript array is replaced on every streaming delta, so every row would
+ * rerender and rescan on each one, quadratic in the loaded row count.
+ */
+export function useAcpConnectInlineToolUseId(): string | null {
+  const toolUseId =
+    useInteractionStore.use.pendingAcpConnect()?.toolUseId ?? null;
+  const placement = useAcpConnectPlacement();
+  return placement === "inline" ? toolUseId : null;
 }

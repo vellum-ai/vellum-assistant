@@ -67,6 +67,9 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   const reason = useInteractionStore(
     (state) => state.pendingAcpConnect?.reason ?? "missing",
   );
+  const restoredFromHistory = useInteractionStore(
+    (state) => state.pendingAcpConnect?.restoredFromHistory === true,
+  );
 
   // Self-heal: if Claude is already connected (e.g. connected from Settings out
   // of band), the store-held prompt is stale — retire it rather than show a CTA
@@ -76,12 +79,18 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // `idle`), so a fresh in-card connect keeps showing its "connected"
   // confirmation instead of unmounting out from under the user.
   //
-  // Skipped for an `auth_required` prompt: that check asks "is a token
-  // stored", the wrong question when the stored token itself was rejected. A
-  // "yes" would retire the card over the failure it exists to repair; those
-  // prompts clear only by completing the connect flow.
+  // Skipped for a LIVE `auth_required` prompt: that check asks "is a token
+  // stored", the wrong question when the stored token itself was just
+  // rejected. A "yes" would retire the card over the failure it exists to
+  // repair; those prompts clear only by completing the connect flow.
+  //
+  // A restored one is the opposite case. Its marker sits in history
+  // permanently, describing a rejection from an earlier session that the user
+  // may already have repaired, so "is a token stored" is the right question:
+  // without it every cold start after a successful reconnect re-raises a card
+  // for auth that already works.
   useEffect(() => {
-    if (reason === "auth_required") {
+    if (reason === "auth_required" && !restoredFromHistory) {
       return;
     }
     let cancelled = false;
@@ -97,7 +106,7 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [assistantId, reason]);
+  }, [assistantId, reason, restoredFromHistory]);
 
   useEffect(() => {
     if (!alreadyConnected || connection.phase !== "idle") {

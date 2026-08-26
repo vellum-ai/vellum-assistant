@@ -219,6 +219,39 @@ describe("AcpConnectAffordance", () => {
     expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
+  test("retires a history-restored auth_required prompt once Claude is connected", async () => {
+    // The marker lives in history permanently, so a restored prompt describes
+    // an earlier session's rejection the user may already have repaired.
+    // Without the self-heal it re-raises on every cold start against auth that
+    // now works.
+    alreadyConnected = true;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "toolu-acp-1",
+      reason: "auth_required",
+      restoredFromHistory: true,
+    });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
+    });
+  });
+
+  test("keeps a history-restored prompt up while Claude is still unconnected", async () => {
+    alreadyConnected = false;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "toolu-acp-1",
+      reason: "auth_required",
+      restoredFromHistory: true,
+    });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+  });
+
   test("records nothing when the connected check answers false", async () => {
     alreadyConnected = false;
     useInteractionStore

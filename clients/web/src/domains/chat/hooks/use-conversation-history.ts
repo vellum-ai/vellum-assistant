@@ -364,7 +364,10 @@ export function useConversationHistory({
       wirePendingAcpConnect &&
       !useInteractionStore.getState().pendingAcpConnect
     ) {
-      useInteractionStore.getState().showAcpConnect(wirePendingAcpConnect);
+      useInteractionStore.getState().showAcpConnect({
+        ...wirePendingAcpConnect,
+        restoredFromHistory: true,
+      });
     }
 
     // Refresh embedded surface content into the history cache.

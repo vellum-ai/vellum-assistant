@@ -60,13 +60,16 @@ describe("decideAcpConnectPlacement", () => {
     expect(decideAcpConnectPlacement(messages, ANCHOR)).toBe("docked");
   });
 
-  test("docks when the anchor has paged out of the loaded transcript", () => {
+  test("renders nowhere when the anchor is absent from this transcript", () => {
+    // The prompt outlives a conversation switch, so an anchor that is not here
+    // is most likely another conversation's. Docking it would show the card,
+    // and its Connect button, against the assistant the user navigated to.
     const messages = [user("u9"), assistantWithTools("a9", ["unrelated"])];
-    expect(decideAcpConnectPlacement(messages, ANCHOR)).toBe("docked");
+    expect(decideAcpConnectPlacement(messages, ANCHOR)).toBeNull();
   });
 
-  test("docks on an empty transcript rather than hiding the prompt", () => {
-    expect(decideAcpConnectPlacement([], ANCHOR)).toBe("docked");
+  test("renders nowhere on an empty transcript", () => {
+    expect(decideAcpConnectPlacement([], ANCHOR)).toBeNull();
   });
 
   test("matches the newest anchor when a run is respawned under one id", () => {
