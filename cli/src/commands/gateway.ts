@@ -1,4 +1,3 @@
-import { gatewayContacts } from "./gateway/contacts.js";
 import { gatewayToken } from "./gateway/token.js";
 
 function printUsage(): void {
@@ -7,8 +6,7 @@ function printUsage(): void {
   console.log("Gateway management commands.");
   console.log("");
   console.log("Subcommands:");
-  console.log("  contacts    Manage contact ACL (list, get, set-threshold)");
-  console.log("  token       Manage gateway authentication tokens");
+  console.log("  token    Manage gateway authentication tokens");
 }
 
 export async function gateway(): Promise<void> {
@@ -22,11 +20,6 @@ export async function gateway(): Promise<void> {
 
   if (subcommand === "token") {
     await gatewayToken();
-    return;
-  }
-
-  if (subcommand === "contacts") {
-    await gatewayContacts();
     return;
   }
 

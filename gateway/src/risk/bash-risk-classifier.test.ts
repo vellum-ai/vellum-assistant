@@ -1135,12 +1135,13 @@ describe("gateway contacts classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
-  test("gateway contacts set-threshold → medium", async () => {
+  test("gateway contacts set-risk-threshold → high", async () => {
     const result = await classifier.classify({
-      command: "gateway contacts set-threshold contact-1 --threshold high",
+      command:
+        "gateway contacts set-risk-threshold contact-1 --threshold high",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("high");
   });
 });
 

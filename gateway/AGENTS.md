@@ -249,12 +249,12 @@ The gateway package ships an operator CLI (`gateway/src/cli/`, bin `gateway`) fo
 ```
 gateway contacts list
 gateway contacts get <contactId>
-gateway contacts set-threshold <contactId> --threshold none|low|medium|high|inherit
+gateway contacts set-risk-threshold <contactId> --threshold none|low|medium|high|inherit
 ```
 
 The CLI talks to the running gateway over its IPC socket (`set_contact_threshold`, `contacts_list_rich`, `contacts_get_rich`). It does not open `gateway.sqlite` itself.
 
-Host-side equivalent: `vellum gateway contacts` (HTTP + guardian token). In Docker: `vellum exec --service gateway -- gateway contacts ...`.
+From the host: `vellum exec --service gateway -- gateway contacts ...`. Do not add a `vellum gateway contacts` verb.
 
 ## Guardian Requests (gateway-owned)
 

@@ -52,13 +52,13 @@ describe("parseContactsArgs", () => {
   test("maps inherit to a null ceiling", () => {
     expect(
       parseContactsArgs([
-        "set-threshold",
+        "set-risk-threshold",
         "contact-1",
         "--threshold",
         "inherit",
       ]),
     ).toEqual({
-      kind: "set-threshold",
+      kind: "set-risk-threshold",
       contactId: "contact-1",
       threshold: null,
       json: false,
@@ -67,7 +67,12 @@ describe("parseContactsArgs", () => {
 
   test("rejects an unknown threshold without calling IPC", () => {
     expect(
-      parseContactsArgs(["set-threshold", "contact-1", "--threshold", "full"]),
+      parseContactsArgs([
+        "set-risk-threshold",
+        "contact-1",
+        "--threshold",
+        "full",
+      ]),
     ).toEqual({
       kind: "error",
       message:
@@ -76,11 +81,11 @@ describe("parseContactsArgs", () => {
   });
 });
 
-describe("gateway contacts set-threshold", () => {
+describe("gateway contacts set-risk-threshold", () => {
   test("writes a ceiling over IPC", async () => {
     ipcResult = { ok: true, contactId: "contact-1", threshold: "high" };
     const { code, stdout } = await run([
-      "set-threshold",
+      "set-risk-threshold",
       "contact-1",
       "--threshold",
       "high",
@@ -96,7 +101,7 @@ describe("gateway contacts set-threshold", () => {
   test("maps inherit to a null ceiling", async () => {
     ipcResult = { ok: true, contactId: "contact-1", threshold: null };
     const { code, stdout } = await run([
-      "set-threshold",
+      "set-risk-threshold",
       "contact-1",
       "--threshold",
       "inherit",
@@ -112,7 +117,7 @@ describe("gateway contacts set-threshold", () => {
   test("maps a missing contact to exit 1", async () => {
     ipcResult = { ok: false, error: "not_found" };
     const { code, stderr } = await run([
-      "set-threshold",
+      "set-risk-threshold",
       "contact-missing",
       "--threshold",
       "high",
@@ -124,7 +129,7 @@ describe("gateway contacts set-threshold", () => {
   test("exits 1 when the gateway is unreachable", async () => {
     ipcResult = undefined;
     const { code, stderr } = await run([
-      "set-threshold",
+      "set-risk-threshold",
       "contact-1",
       "--threshold",
       "high",

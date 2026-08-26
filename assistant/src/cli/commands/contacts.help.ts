@@ -15,13 +15,6 @@ can be linked to external identifiers — phone numbers,
 Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
-This namespace lists and inspects contacts and manages channels and
-invites. Contact ACL writes for the assistant-access ceiling live on
-the gateway CLI (gateway contacts set-threshold or
-vellum gateway contacts set-threshold). Creating, renaming, and
-deleting contacts is not available here. Use the Contacts page or
-POST /v1/contacts.
-
 Examples:
   $ assistant contacts list
   $ assistant contacts get abc-123

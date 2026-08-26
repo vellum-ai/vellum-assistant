@@ -2,7 +2,7 @@
  * `gateway contacts` operator surface.
  *
  * Reads and writes gateway-owned contact ACL over the gateway IPC socket.
- * The ceiling write is `set_contact_threshold`. inherit maps to null.
+ * The risk-ceiling write is `set_contact_threshold`. inherit maps to null.
  */
 
 import { ipcCall } from "@vellumai/gateway-client/ipc-client";
@@ -21,7 +21,7 @@ export type ParsedContactsCommand =
   | { kind: "list"; json: boolean; role?: string }
   | { kind: "get"; contactId: string; json: boolean }
   | {
-      kind: "set-threshold";
+      kind: "set-risk-threshold";
       contactId: string;
       threshold: "none" | "low" | "medium" | "high" | null;
       json: boolean;
@@ -75,7 +75,7 @@ export function parseContactsArgs(args: string[]): ParsedContactsCommand {
     return { kind: "get", contactId, json };
   }
 
-  if (subcommand === "set-threshold") {
+  if (subcommand === "set-risk-threshold") {
     const contactId = positional[1];
     if (!contactId || contactId.startsWith("-")) {
       return {
@@ -100,7 +100,7 @@ export function parseContactsArgs(args: string[]): ParsedContactsCommand {
       };
     }
     return {
-      kind: "set-threshold",
+      kind: "set-risk-threshold",
       contactId,
       threshold: threshold === "inherit" ? null : threshold,
       json,
@@ -130,28 +130,26 @@ export function contactsUsage(): string {
     "Usage: gateway contacts <subcommand>",
     "",
     "Operator commands for gateway-owned contact ACL.",
-    "The assistant-access ceiling is stored on the contact as none, low,",
-    "medium, or high. inherit clears it so the contact follows room and",
-    "trust-class settings.",
+    "The contact risk ceiling is stored as none, low, medium, or high.",
+    "inherit clears it so the contact follows room and trust-class settings.",
     "",
     "Subcommands:",
-    "  list                         List contacts",
-    "  get <contactId>              Get one contact",
-    "  set-threshold <contactId>    Set the assistant-access ceiling",
+    "  list                              List contacts",
+    "  get <contactId>                   Get one contact",
+    "  set-risk-threshold <contactId>    Set the contact risk ceiling",
     "",
     "Options:",
-    "  --role <role>                Filter list by contact or guardian",
-    "  --threshold <value>          none, low, medium, high, or inherit",
-    "  --json                       Machine-readable JSON",
+    "  --role <role>                     Filter list by contact or guardian",
+    "  --threshold <value>               none, low, medium, high, or inherit",
+    "  --json                            Machine-readable JSON",
     "",
     "Examples:",
     "  $ gateway contacts list",
     "  $ gateway contacts get abc-123",
-    "  $ gateway contacts set-threshold abc-123 --threshold high",
-    "  $ gateway contacts set-threshold abc-123 --threshold inherit",
+    "  $ gateway contacts set-risk-threshold abc-123 --threshold high",
+    "  $ gateway contacts set-risk-threshold abc-123 --threshold inherit",
     "",
     "From the host: vellum exec --service gateway -- gateway contacts list",
-    "or vellum gateway contacts list",
   ].join("\n");
 }
 

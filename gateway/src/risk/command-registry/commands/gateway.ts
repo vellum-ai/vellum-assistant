@@ -15,9 +15,9 @@ const spec: CommandRiskSpec = {
         get: {
           baseRisk: "low",
         },
-        "set-threshold": {
-          baseRisk: "medium",
-          reason: "Writes a contact assistant-access ceiling on the gateway",
+        "set-risk-threshold": {
+          baseRisk: "high",
+          reason: "Writes a contact risk ceiling and can escalate auto-approval",
         },
       },
     },
