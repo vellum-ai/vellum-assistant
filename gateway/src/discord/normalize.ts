@@ -74,6 +74,7 @@ export function normalizeDiscordMessage(
     sourceChannel: "discord",
     receivedAt: new Date().toISOString(),
     message: {
+      eventKind: "message",
       content: message.content,
       conversationExternalId: options.parentChannelId ?? message.channel_id,
       externalMessageId: message.id,

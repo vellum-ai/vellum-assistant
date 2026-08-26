@@ -1,6 +1,6 @@
 process.title = "vellum-gateway";
 
-import { slackEventRefersToAnotherMessage } from "./slack/event-kind.js";
+import { eventRefersToAnotherMessage } from "./channels/inbound-event.js";
 import { buildSlackSourceMetadata } from "./slack/source-metadata.js";
 import { randomBytes } from "node:crypto";
 
@@ -2440,7 +2440,7 @@ async function main() {
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
 
-        const refersToAnotherMessage = slackEventRefersToAnotherMessage(
+        const refersToAnotherMessage = eventRefersToAnotherMessage(
           normalized.event.message,
         );
         const slackSourceMetadata = buildSlackSourceMetadata(normalized);

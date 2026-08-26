@@ -202,6 +202,7 @@ export function normalizeTelegramUpdate(
       sourceChannel: "telegram",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "button",
         content: cbq.data,
         conversationExternalId: chatId,
         externalMessageId: String(updateId),
@@ -320,6 +321,7 @@ export function normalizeTelegramUpdate(
     sourceChannel: "telegram",
     receivedAt: new Date().toISOString(),
     message: {
+      eventKind: isEdit ? "edit" : "message",
       content,
       conversationExternalId: String(message.chat.id),
       externalMessageId: String(updateId),

@@ -83,6 +83,14 @@ export {
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";
 
+export {
+  INBOUND_EVENT_KINDS,
+  inboundEventRefersToAnotherMessage,
+  isInboundEventKind,
+  resolveInboundEventKind,
+} from "./inbound-event-kind.js";
+export type { InboundEventKind } from "./inbound-event-kind.js";
+
 // Plugin admission-denied notice (gateway → plugin) — canned deny copy + envelope
 export {
   ACCESS_DENIED_NOT_APPROVED_REPLY,

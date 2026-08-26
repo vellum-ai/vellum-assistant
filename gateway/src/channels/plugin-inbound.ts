@@ -252,6 +252,7 @@ export function readPluginInbound(
       sourceChannel: "plugin",
       receivedAt,
       message: {
+        eventKind: "message",
         content: read("content") ?? "",
         conversationExternalId: pluginScopedId(plugin, conversation!),
         externalMessageId: pluginScopedId(plugin, messageId!),

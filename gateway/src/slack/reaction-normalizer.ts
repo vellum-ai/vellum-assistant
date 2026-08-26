@@ -54,6 +54,7 @@ function normalizeSlackReaction(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "reaction",
         content: callbackData,
         conversationExternalId: channel,
         externalMessageId,
