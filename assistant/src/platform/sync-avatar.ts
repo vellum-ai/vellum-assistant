@@ -6,16 +6,21 @@
  * read when the request runs, so rapid changes collapse into one PATCH
  * carrying the newest raster. The dedup key comes from the raster file itself,
  * not the manifest, so a raster rewritten in place (fs watcher path) still
- * syncs. The last synced key is persisted beside the manifest so a daemon
- * restart does not re-upload an unchanged raster. `avatar_base64: null` is
- * sent only when the avatar is actually removed; a non-none avatar whose
- * raster is missing (image PNG gone, character re-render unavailable) is
- * skipped so the platform keeps the last synced copy.
+ * syncs. The last synced key is persisted outside the workspace repo at
+ * `<protected dir>/platform-sync/avatar.json` so a daemon restart does not
+ * re-upload an unchanged raster and the record never dirties the workspace.
+ * A persisted key older than `AVATAR_SYNC_KEY_TTL_MS` is ignored, so an
+ * avatar lost server-side while id and base URL are unchanged is re-pushed
+ * within a week (API-key auth cannot read the record to verify it).
+ * `avatar_base64: null` is sent only when the avatar is actually removed; a
+ * non-none avatar whose raster is missing (image PNG gone, character
+ * re-render unavailable) is skipped so the platform keeps the last synced
+ * copy.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   computeImageMeta,
@@ -24,7 +29,7 @@ import {
 import { ensureAvatarRasterPath } from "../avatar/ensure-raster.js";
 import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
 import { getLogger } from "../util/logger.js";
-import { getAvatarDir } from "../util/platform.js";
+import { getProtectedDir } from "../util/platform.js";
 import {
   createPlatformPatchQueue,
   type PatchPayload,
@@ -37,7 +42,8 @@ const log = getLogger("sync-avatar");
 const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
 const DOWNSCALE_PX = 128;
 const NONE_KEY = "none";
-const SYNC_STATE_FILENAME = "avatar-sync.json";
+const SYNC_STATE_SUBPATH = ["platform-sync", "avatar.json"];
+export const AVATAR_SYNC_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 let queue: PlatformPatchQueue<void> | null = null;
 
@@ -63,14 +69,21 @@ export function syncAvatarToPlatform(): void {
 }
 
 function syncStatePath(): string {
-  return join(getAvatarDir(), SYNC_STATE_FILENAME);
+  return join(getProtectedDir(), ...SYNC_STATE_SUBPATH);
 }
 
+/** Returns the persisted key, or null when missing, malformed, or expired. */
 function readPersistedKey(): string | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(syncStatePath(), "utf-8"));
-    const key = (parsed as { key?: unknown } | null)?.key;
-    return typeof key === "string" ? key : null;
+    const { key, syncedAt } = (parsed ?? {}) as {
+      key?: unknown;
+      syncedAt?: unknown;
+    };
+    if (typeof key !== "string" || typeof syncedAt !== "number") {
+      return null;
+    }
+    return Date.now() - syncedAt < AVATAR_SYNC_KEY_TTL_MS ? key : null;
   } catch {
     return null;
   }
@@ -78,8 +91,11 @@ function readPersistedKey(): string | null {
 
 function persistKey(key: string): void {
   try {
-    mkdirSync(getAvatarDir(), { recursive: true });
-    writeFileSync(syncStatePath(), JSON.stringify({ key }));
+    const path = syncStatePath();
+    mkdirSync(dirname(path), { recursive: true });
+    const tmpPath = `${path}.tmp.${process.pid}`;
+    writeFileSync(tmpPath, JSON.stringify({ key, syncedAt: Date.now() }));
+    renameSync(tmpPath, path);
   } catch (err) {
     log.warn({ err }, "Failed to persist avatar sync state");
   }
