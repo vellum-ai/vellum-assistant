@@ -1419,6 +1419,29 @@ describe("vellum:localMode:readAssistantAvatar handler", () => {
     }
   });
 
+  test("an unreadable manifest image surfaces as a failure over IPC", () => {
+    const avatarDir = path.join(
+      instanceDir,
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(avatarDir, "avatar.json"),
+      JSON.stringify({
+        kind: "image",
+        image: { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" },
+      }),
+    );
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: false,
+      error: "avatar image unreadable",
+    });
+  });
+
   test("missing assistantId is a structured error", () => {
     expect(readAssistantAvatar(undefined)).toEqual({
       ok: false,

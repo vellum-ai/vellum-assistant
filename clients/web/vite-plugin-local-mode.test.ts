@@ -13,6 +13,7 @@ import type { ViteDevServer, Connect } from "vite";
 import {
   AVATAR_IMAGE_FILENAME,
   AVATAR_MANIFEST_FILENAME,
+  AVATAR_TRAITS_FILENAME,
   resolveAvatarDir,
 } from "@vellumai/avatar-manifest";
 import * as actualLocalMode from "@vellumai/local-mode";
@@ -51,6 +52,7 @@ const env = {
   VELLUM_ENVIRONMENT: "production",
   VELLUM_LOCKFILE_DIR: tempDir,
   XDG_CONFIG_HOME: tempDir,
+  XDG_DATA_HOME: path.join(tempDir, "data-home"),
 };
 const configDir = path.join(tempDir, "vellum");
 const lockfilePath = path.join(tempDir, ".vellum.lock.json");
@@ -305,6 +307,43 @@ describe("avatar middleware", () => {
       ok: false,
       error: "Malformed assistant ID",
     });
+  });
+
+  test("an unreadable manifest image is a failure, not null", async () => {
+    fs.writeFileSync(
+      path.join(avatarDir, AVATAR_MANIFEST_FILENAME),
+      JSON.stringify({
+        kind: "image",
+        image: { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" },
+      }),
+    );
+
+    expect(JSON.parse((await dispatch("/__local/avatar/asst-a")).body)).toEqual(
+      { ok: false, error: "avatar image unreadable" },
+    );
+  });
+
+  test("entry without an instanceDir resolves the default dir from the plugin env", async () => {
+    writeLockfile([{ assistantId: "asst-a", cloud: "local" }]);
+    const defaultAvatarDir = resolveAvatarDir(
+      path.join(
+        env.XDG_DATA_HOME,
+        "vellum",
+        "assistants",
+        "asst-a",
+        ".vellum",
+        "workspace",
+      ),
+    );
+    fs.mkdirSync(defaultAvatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(defaultAvatarDir, AVATAR_TRAITS_FILENAME),
+      JSON.stringify(traits),
+    );
+
+    expect(JSON.parse((await dispatch("/__local/avatar/asst-a")).body)).toEqual(
+      { ok: true, avatar: { kind: "character", traits } },
+    );
   });
 
   test("absent avatar and unknown assistant both resolve to null", async () => {

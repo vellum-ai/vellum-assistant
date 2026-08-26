@@ -57,6 +57,8 @@ The CLI is a generic lifecycle manager. It must **never** contain references to 
 
 Cross-package imports into `skills/` are forbidden. The CLI is distributed as an npm package; anything outside `cli/` is not included in the tarball and will fail to resolve at runtime.
 
+Workspace packages that `cli/src` never imports may still be listed in `package.json` `dependencies` and `bundledDependencies` when a bundled dependency depends on them (for example `@vellumai/avatar-manifest`, pulled in by `@vellumai/local-mode`); `bundledDependencies` only nests a `file:` dep when it is a direct dependency of the CLI.
+
 ## Boundary: No `.vellum/` directory access
 
 The CLI must **never** read from or write to the `.vellum/` directory (e.g. `~/.vellum/protected/`, `<instanceDir>/.vellum/`). That directory structure is an **assistant daemon / gateway implementation detail**. The CLI's job is to spawn those processes and pass configuration via environment variables — not to reach into their internal storage.

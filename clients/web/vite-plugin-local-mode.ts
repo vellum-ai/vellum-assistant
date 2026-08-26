@@ -120,7 +120,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(
         statusMiddleware(config.lockfilePaths, upgradingLocalAssistantIds),
       );
-      server.middlewares.use(avatarMiddleware(config.lockfilePaths));
+      server.middlewares.use(avatarMiddleware(config.lockfilePaths, env));
       server.middlewares.use(
         guardianTokenMiddleware(
           config.lockfilePaths,
@@ -941,7 +941,10 @@ function statusMiddleware(
   };
 }
 
-function avatarMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
+function avatarMiddleware(
+  lockfilePaths: string[],
+  env: Record<string, string>,
+): Connect.NextHandleFunction {
   return (req, res, next) => {
     const match = req.url?.match(LOCAL_AVATAR_PATTERN);
     if (!match) {
@@ -971,7 +974,7 @@ function avatarMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify(
-        readLockfileAssistantAvatar(lockfilePaths, assistantId, process.env),
+        readLockfileAssistantAvatar(lockfilePaths, assistantId, env),
       ),
     );
   };
