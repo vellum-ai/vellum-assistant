@@ -377,12 +377,11 @@ export function ChatMainPanel({
   // scroll, empty state, counts) reads the lane, because the lane IS the chat
   // in that arrangement. `vellumMessages` is the same array by reference
   // whenever nothing moved, so ordinary conversations see no change at all.
-  const { vellumMessages } = useChannelSidecar({
+  const { vellumMessages: messages } = useChannelSidecar({
     conversationId: activeConversationId,
     conversation: activeConversation,
     messages: transcriptMessages,
   });
-  const messages = vellumMessages;
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
   // A client-minted draft has no server row, so there is no history to wait

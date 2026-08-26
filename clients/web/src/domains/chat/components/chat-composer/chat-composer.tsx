@@ -775,8 +775,12 @@ export function ChatComposer({
   // button, the Enter policy, and `useComposerSubmit`'s own guard all answer
   // "is there something to send" from the same state.
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
-  const hasStagedChannelReference =
-    useChannelReferenceStore.use.reference() !== null;
+  // Derived boolean selector: swapping which row is staged replaces the
+  // reference object without changing sendability, so this subscribes to the
+  // flip alone rather than re-rendering the composer on every swap.
+  const hasStagedChannelReference = useChannelReferenceStore(
+    (s) => s.reference !== null,
+  );
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;

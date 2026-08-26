@@ -504,11 +504,8 @@ export interface ViewerState {
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
-   * Which external-channel thread the read-only channel drawer is showing, as
-   * an identity rather than a payload. The panel re-derives its rows from the
-   * live transcript and matches them against this, so a conversation switch
-   * cannot leave a previous thread's messages on screen and nothing here
-   * keeps a departed conversation's rows alive.
+   * Which external-channel thread the read-only channel drawer is showing.
+   * See {@link ChannelSidecarRef} for why this is an identity, not rows.
    */
   activeChannelTranscript: ChannelSidecarRef | null;
   viewBeforeChannelTranscript: Exclude<MainView, OverlayView>;
