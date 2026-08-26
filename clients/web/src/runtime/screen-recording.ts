@@ -7,6 +7,7 @@ import type {
 
 import { client } from "@/generated/daemon/client.gen";
 import { supportsRecordingOwnership } from "@/lib/backwards-compat/recording-ownership";
+import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -287,6 +288,7 @@ export class ScreenRecordingController {
       requiresTransfer: typeof requiresRecordingTransfer;
       supportsOwnership: typeof supportsRecordingOwnership;
       transferRecording: typeof transferRecording;
+      waitForAssistantVersion: typeof whenAssistantVersionKnownFor;
       waitBeforeRetry: (delayMs: number) => Promise<void>;
     } = {
       capture: captureStream,
@@ -301,6 +303,7 @@ export class ScreenRecordingController {
       requiresTransfer: requiresRecordingTransfer,
       supportsOwnership: supportsRecordingOwnership,
       transferRecording,
+      waitForAssistantVersion: whenAssistantVersionKnownFor,
       waitBeforeRetry: (delayMs) =>
         new Promise((resolve) => setTimeout(resolve, delayMs)),
     },
@@ -351,14 +354,24 @@ export class ScreenRecordingController {
       this.pending.cancelled = true;
       this.pending = null;
     }
-    const usesOwnership = this.dependencies.supportsOwnership(assistantId);
     const pending: PendingRecording = {
       recordingId: event.recordingId,
       cancelled: false,
-      claimed: !usesOwnership,
+      claimed: false,
       ownershipLost: false,
     };
     this.pending = pending;
+    await this.dependencies.waitForAssistantVersion(assistantId);
+    if (pending.cancelled || this.pending !== pending) {
+      return;
+    }
+    const ownershipSupport = this.dependencies.supportsOwnership(assistantId);
+    if (ownershipSupport === null) {
+      this.pending = null;
+      return;
+    }
+    const usesOwnership = ownershipSupport;
+    pending.claimed = !usesOwnership;
     if (usesOwnership && !(await this.claimWithRetry(assistantId, pending))) {
       if (this.pending === pending) {
         this.pending = null;

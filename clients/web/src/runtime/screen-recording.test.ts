@@ -1,5 +1,9 @@
 import { beforeEach, expect, mock, test } from "bun:test";
-import { supportsRecordingOwnership } from "@/lib/backwards-compat/recording-ownership";
+import {
+  MIN_VERSION as RECORDING_OWNERSHIP_MIN_VERSION,
+  supportsRecordingOwnership,
+} from "@/lib/backwards-compat/recording-ownership";
+import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -74,6 +78,7 @@ const localTransferDependencies = {
   requiresTransfer: () => false,
   supportsOwnership: () => true,
   transferRecording: async () => ({}),
+  waitForAssistantVersion: async () => undefined,
   waitBeforeRetry: async () => undefined,
 };
 
@@ -93,6 +98,31 @@ beforeEach(() => {
     },
   });
 });
+
+const createVersionGatedController = () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const claimRecordingMock = mock(async () => "claimed" as const);
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: claimRecordingMock,
+    reportStatus: async () => undefined,
+    supportsOwnership: supportsRecordingOwnership,
+    waitForAssistantVersion: whenAssistantVersionKnownFor,
+  });
+  return { claimRecordingMock, controller, recorder };
+};
 
 test("encodes each remote transfer chunk in its own request", async () => {
   await transferRecording(
@@ -434,6 +464,7 @@ test("streams remote recording chunks before reporting stopped", async () => {
         ? { attachmentId: "attachment-remote" }
         : {};
     },
+    waitForAssistantVersion: async () => undefined,
     waitBeforeRetry: async () => undefined,
   });
 
@@ -625,6 +656,100 @@ test("uses the legacy path when an older assistant lacks claim routes", async ()
   expect(claimRecordingMock).not.toHaveBeenCalled();
   expect(recorder.state).toBe("recording");
   expect(statuses).toEqual(["started"]);
+});
+
+test("waits for an unhydrated assistant version before claiming", async () => {
+  const { claimRecordingMock, controller, recorder } =
+    createVersionGatedController();
+
+  const start = controller.handle(startEvent, "assistant-1");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(claimRecordingMock).not.toHaveBeenCalled();
+
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity(
+      "Test Assistant",
+      RECORDING_OWNERSHIP_MIN_VERSION,
+      "assistant-1",
+    );
+  await start;
+
+  expect(claimRecordingMock).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
+});
+
+test("waits for the selected assistant version after a switch", async () => {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity(
+      "Previous Assistant",
+      RECORDING_OWNERSHIP_MIN_VERSION,
+      "assistant-old",
+    );
+  const { claimRecordingMock, controller, recorder } =
+    createVersionGatedController();
+
+  const start = controller.handle(startEvent, "assistant-new");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(claimRecordingMock).not.toHaveBeenCalled();
+
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity(
+      "Selected Assistant",
+      RECORDING_OWNERSHIP_MIN_VERSION,
+      "assistant-new",
+    );
+  await start;
+
+  expect(claimRecordingMock).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
+});
+
+test("cancels an obsolete start while its version is resolving", async () => {
+  const replacementId = "00000000-0000-4000-8000-000000000002";
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const claimRecordingMock = mock(async () => "claimed" as const);
+  const versionResolvers = new Map<string, () => void>();
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    claimRecording: claimRecordingMock,
+    reportStatus: async () => undefined,
+    supportsOwnership: () => true,
+    waitForAssistantVersion: (assistantId) =>
+      new Promise<void>((resolve) => {
+        versionResolvers.set(assistantId!, resolve);
+      }),
+  });
+
+  const obsoleteStart = controller.handle(startEvent, "assistant-old");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const replacementStart = controller.handle(
+    { ...startEvent, recordingId: replacementId },
+    "assistant-new",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  versionResolvers.get("assistant-new")!();
+  await replacementStart;
+  versionResolvers.get("assistant-old")!();
+  await obsoleteStart;
+
+  expect(claimRecordingMock).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
 });
 
 test("clears a missing contender so a newer recording can start", async () => {
