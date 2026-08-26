@@ -10,7 +10,6 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import { getUserAppDataDir } from "../../util/platform.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import { log } from "./shared.js";
 
@@ -395,9 +394,8 @@ async function finalizeAndPublishRecording(params: {
     resolvedPath = path.resolve(filePath);
   }
   const allowedDir = path.join(
-    getUserAppDataDir(),
-    "vellum-assistant",
-    "recordings",
+    process.env.HOME ?? "",
+    "Library/Application Support/vellum-assistant/recordings",
   );
   let resolvedAllowedDir: string;
   try {
