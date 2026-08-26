@@ -35,6 +35,7 @@ import {
   FLATTENED_CARD_GROUND,
   resolveColor,
   softAccent,
+  themeAccentHex,
   widgetTheme,
   type WidgetAppearance,
 } from "./widget-tokens";
@@ -71,7 +72,7 @@ export function StatusWidgetPreview({
   avatarImageUrl = null,
   flattened = false,
 }: StatusWidgetPreviewProps) {
-  const accent = softAccent(accentHex);
+  const accent = softAccent(themeAccentHex(accentHex, avatarImageUrl !== null));
   const isActive = unreadCount > 0 || inProgressCount > 0;
   const control = CONTROL_HEIGHT * scale;
   const textPrimary = flattened

@@ -33,6 +33,7 @@ import {
   FLATTENED_CARD_GROUND,
   resolveColor,
   softAccent,
+  themeAccentHex,
   widgetTheme,
   type WidgetAppearance,
 } from "./widget-tokens";
@@ -84,7 +85,7 @@ export function CatchUpWidgetPreview({
   isStale = false,
   flattened = false,
 }: CatchUpWidgetPreviewProps) {
-  const accent = softAccent(accentHex);
+  const accent = softAccent(themeAccentHex(accentHex, avatarImageUrl !== null));
   const rows = conversations.slice(0, MAX_ROWS);
   const textPrimary = flattened
     ? "#FFFFFF"

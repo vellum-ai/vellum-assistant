@@ -120,6 +120,22 @@ export function avatarPalette(accentHex: string | null): WidgetAvatarPalette {
   };
 }
 
+/**
+ * `SnapshotEntry.themeAccentHex`: the accent a rendering themes itself with,
+ * or `null` to keep the static tokens.
+ *
+ * The one owner of the rule that only a character avatar carries an accent: an
+ * uploaded photo has none by design, so it drops any accent handed alongside
+ * it. Both palettes below read the gate from here, so a card and the controls
+ * on it cannot disagree about which accounts are themed.
+ */
+export function themeAccentHex(
+  accentHex: string | null,
+  hasPhotoAvatar: boolean,
+): string | null {
+  return hasPhotoAvatar ? null : accentHex;
+}
+
 /** `WidgetSoftAccent`: the pale card a New Chat surface sits on. */
 export interface WidgetSoftAccent {
   fill: WidgetAppearanceColor;

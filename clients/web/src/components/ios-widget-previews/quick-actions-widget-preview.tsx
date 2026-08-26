@@ -33,6 +33,7 @@ import {
   avatarPalette,
   FLATTENED_CARD_GROUND,
   resolveColor,
+  themeAccentHex,
   type WidgetAppearance,
 } from "./widget-tokens";
 
@@ -85,7 +86,9 @@ export function QuickActionsWidgetPreview({
   avatarImageUrl = null,
   flattened = false,
 }: QuickActionsWidgetPreviewProps) {
-  const palette = avatarPalette(accentHex);
+  const palette = avatarPalette(
+    themeAccentHex(accentHex, avatarImageUrl !== null),
+  );
   const onSurface = flattened
     ? "#FFFFFF"
     : resolveColor(palette.onSurface, appearance);
