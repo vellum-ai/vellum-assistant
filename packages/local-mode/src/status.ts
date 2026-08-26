@@ -270,35 +270,42 @@ function lockfileInstanceDir(
   );
 }
 
+export type LockfileInstanceDirResult =
+  | { ok: true; instanceDir?: string }
+  | { ok: false };
+
 /**
  * The instance directory for a lockfile entry: the persisted one (honoring
  * legacy `baseDataDir` entries the parsed contract drops), else the default
- * location status also falls back to. Undefined when the entry is missing or
- * the authoritative lockfile is unreadable.
+ * location status also falls back to. `instanceDir` is undefined when the
+ * entry is missing; `ok: false` when the authoritative lockfile is unreadable,
+ * so callers can tell absence from a failed read.
  */
 export function resolveLockfileInstanceDir(
   lockfilePaths: string[],
   assistantId: string,
   env: Record<string, string | undefined>,
-): string | undefined {
+): LockfileInstanceDirResult {
   const result = getLockfileData(lockfilePaths);
   if (!result.ok) {
-    return undefined;
+    return { ok: false };
   }
   const entry = result.data.assistants.find(
     (assistant) => assistant.assistantId === assistantId,
   );
   const rawEntry = findRawAssistant(result.raw, assistantId);
   if (!entry && !rawEntry) {
-    return undefined;
+    return { ok: true };
   }
   try {
-    return (
-      lockfileInstanceDir(entry, rawEntry) ??
-      defaultInstanceDir(env, assistantId)
-    );
+    return {
+      ok: true,
+      instanceDir:
+        lockfileInstanceDir(entry, rawEntry) ??
+        defaultInstanceDir(env, assistantId),
+    };
   } catch {
-    return undefined;
+    return { ok: true };
   }
 }
 

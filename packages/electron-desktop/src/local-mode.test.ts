@@ -1377,6 +1377,15 @@ describe("vellum:localMode:readAssistantAvatar handler", () => {
     });
   });
 
+  test("reports a corrupt lockfile as a failure, not a conclusive none", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: false,
+      error: "lockfile unreadable",
+    });
+  });
+
   test("entry without an instanceDir reads the default dir from process.env", () => {
     const previousDataHome = process.env.XDG_DATA_HOME;
     const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-data-"));

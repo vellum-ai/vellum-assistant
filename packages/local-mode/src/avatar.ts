@@ -11,9 +11,9 @@ import { resolveLockfileInstanceDir } from "./status";
 /**
  * A lockfile assistant's avatar as read off its workspace by a host.
  * `{ ok: true, avatar: null }` is a conclusive absence (no entry, no
- * workspace, no avatar); a file the manifest points at but the host cannot
- * serve (unreadable, oversized) is `ok: false` so callers keep their
- * last-seen avatar. Structurally identical to
+ * workspace, no avatar); an unreadable lockfile, or a file the manifest
+ * points at but the host cannot serve (unreadable, oversized), is `ok: false`
+ * so callers keep their last-seen avatar. Structurally identical to
  * `LocalReadAssistantAvatarResult` in `@vellumai/ipc-contract`, which this
  * package cannot depend on; hosts return it straight over IPC/HTTP.
  */
@@ -54,16 +54,15 @@ export function readLockfileAssistantAvatar(
   assistantId: string,
   env: Record<string, string | undefined>,
 ): LockfileAssistantAvatarResult {
-  const instanceDir = resolveLockfileInstanceDir(
-    lockfilePaths,
-    assistantId,
-    env,
-  );
-  if (!instanceDir) {
+  const resolved = resolveLockfileInstanceDir(lockfilePaths, assistantId, env);
+  if (!resolved.ok) {
+    return { ok: false, error: "lockfile unreadable" };
+  }
+  if (!resolved.instanceDir) {
     return { ok: true, avatar: null };
   }
   const avatar = readWorkspaceAvatar(
-    path.join(instanceDir, ".vellum", "workspace"),
+    path.join(resolved.instanceDir, ".vellum", "workspace"),
   );
   switch (avatar.kind) {
     case "character":

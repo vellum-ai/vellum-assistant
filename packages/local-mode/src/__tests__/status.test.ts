@@ -231,16 +231,18 @@ describe("getLocalAssistantStatus", () => {
 describe("resolveLockfileInstanceDir", () => {
   test("reads the instance dir from the parsed entry", () => {
     writeLocalLockfile();
-    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toBe(
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toEqual({
+      ok: true,
       instanceDir,
-    );
+    });
   });
 
   test("honors legacy top-level baseDataDir", () => {
     writeLockfile({ assistantId: "local-1", baseDataDir: instanceDir });
-    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toBe(
+    expect(resolveLockfileInstanceDir([lockfilePath], "local-1", {})).toEqual({
+      ok: true,
       instanceDir,
-    );
+    });
   });
 
   test("falls back to the default instance dir for an entry without one", () => {
@@ -251,20 +253,23 @@ describe("resolveLockfileInstanceDir", () => {
         VELLUM_ENVIRONMENT: "production",
         XDG_DATA_HOME: dataHome,
       }),
-    ).toBe(path.join(dataHome, "vellum", "assistants", "local-1"));
+    ).toEqual({
+      ok: true,
+      instanceDir: path.join(dataHome, "vellum", "assistants", "local-1"),
+    });
   });
 
-  test("is undefined for a missing entry", () => {
+  test("has no instance dir for a missing entry", () => {
     writeLocalLockfile();
     expect(
       resolveLockfileInstanceDir([lockfilePath], "local-2", {
         VELLUM_ENVIRONMENT: "production",
         XDG_DATA_HOME: tempDir,
       }),
-    ).toBeUndefined();
+    ).toEqual({ ok: true });
   });
 
-  test("stops when the authoritative lockfile is unreadable", () => {
+  test("fails when the authoritative lockfile is unreadable", () => {
     const legacyPath = path.join(tempDir, "legacy.json");
     writeFileSync(lockfilePath, "{ not json");
     writeFileSync(
@@ -275,7 +280,7 @@ describe("resolveLockfileInstanceDir", () => {
     );
     expect(
       resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1", {}),
-    ).toBeUndefined();
+    ).toEqual({ ok: false });
   });
 
   test("empty authoritative lockfile never falls through to a legacy file", () => {
@@ -289,6 +294,6 @@ describe("resolveLockfileInstanceDir", () => {
     );
     expect(
       resolveLockfileInstanceDir([lockfilePath, legacyPath], "local-1", {}),
-    ).toBeUndefined();
+    ).toEqual({ ok: true });
   });
 });

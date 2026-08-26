@@ -132,6 +132,12 @@ describe("readLockfileAssistantAvatar", () => {
     expect(read()).toEqual({ ok: true, avatar: null });
   });
 
+  test("corrupt lockfile is a failure, not a conclusive none", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    expect(read()).toEqual({ ok: false, error: "lockfile unreadable" });
+  });
+
   test("entry without an instanceDir reads the default instance dir", () => {
     writeLockfileEntry({ gatewayPort: 1, daemonPort: 2 });
     const defaultAvatarDir = path.join(
