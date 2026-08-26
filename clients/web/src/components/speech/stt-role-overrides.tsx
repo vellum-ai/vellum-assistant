@@ -166,7 +166,7 @@ export function SttRoleOverrides({ assistantId }: { assistantId: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="mt-1 flex flex-col gap-2 border-t border-[var(--border-subtle)] pt-4">
       <span className="text-body-small-default text-[var(--content-tertiary)]">
         {t("sttRoleOverrides.title")}
       </span>
@@ -177,12 +177,12 @@ export function SttRoleOverrides({ assistantId }: { assistantId: string }) {
           return (
             <li
               key={entry.role}
-              className="flex items-center gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2"
+              className="flex items-center gap-4 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2"
             >
               <span className="min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]">
                 {labelKey ? t(labelKey) : entry.role}
               </span>
-              <span className="min-w-0 truncate text-body-small-default text-[var(--content-tertiary)]">
+              <span className="min-w-0 truncate text-body-small-default text-[var(--content-default)]">
                 {entry.model
                   ? `${displayNameFor(entry.provider)} · ${entry.model}`
                   : displayNameFor(entry.provider)}
@@ -190,6 +190,10 @@ export function SttRoleOverrides({ assistantId }: { assistantId: string }) {
               <Button
                 variant="ghost"
                 size="compact"
+                // Ghost resolves to `--content-default`, which reads louder
+                // than the provider it sits beside. The value is what the row
+                // exists to report; this is only the way out of it.
+                className="[--vbtn-fg:var(--content-tertiary)]"
                 disabled={clearing === entry.role}
                 onClick={() => void clearRole(entry.role)}
               >
