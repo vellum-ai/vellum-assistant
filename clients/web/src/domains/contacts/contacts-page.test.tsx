@@ -118,6 +118,15 @@ mock.module("@vellumai/design-library/components/select", () => ({
     ),
 }));
 
+mock.module("@/hooks/use-assistant-channels", () => ({
+  useAssistantChannels: () => ({
+    channels: [],
+    pendingChannelKey: null,
+    onSetup: () => {},
+    onDisconnect: () => {},
+  }),
+}));
+
 mock.module("@/domains/contacts/contacts-gateway", () => ({
   upsertContact: async (
     _assistantId: string,
