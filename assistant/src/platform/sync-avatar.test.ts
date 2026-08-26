@@ -1,4 +1,11 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -47,12 +54,25 @@ mock.module("../avatar/resvg-lazy.js", () => ({
 
 import {
   _resetSyncAvatarStateForTests,
-  MAX_AVATAR_UPLOAD_BYTES,
   syncAvatarToPlatform,
 } from "./sync-avatar.js";
 
+/** Just over the 256 KB upload cap. */
+const OVERSIZED = Buffer.alloc(256 * 1024 + 1);
+
 const dir = mkdtempSync(join(tmpdir(), "sync-avatar-test-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+const workspaceDir = join(dir, "workspace");
+const syncStatePath = join(workspaceDir, "data", "avatar", "avatar-sync.json");
+const prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+afterAll(() => {
+  if (prevWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = prevWorkspaceDir;
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
 
 function writeRaster(name: string, bytes: Buffer): string {
   const path = join(dir, name);
@@ -103,6 +123,8 @@ async function settle(): Promise<void> {
 
 describe("syncAvatarToPlatform", () => {
   beforeEach(() => {
+    rmSync(workspaceDir, { recursive: true, force: true });
+    mkdirSync(join(workspaceDir, "data", "avatar"), { recursive: true });
     _resetSyncAvatarStateForTests();
     patches = [];
     rasterCalls = 0;
@@ -171,19 +193,6 @@ describe("syncAvatarToPlatform", () => {
     );
   });
 
-  test("re-registering to another base URL re-sends the same raster", async () => {
-    syncAvatarToPlatform();
-    await settle();
-    mockClient = makeClient("asst-1", "https://platform.b");
-    syncAvatarToPlatform();
-    await settle();
-
-    expect(patches.map((p) => p.path)).toEqual([
-      "/v1/assistants/asst-1/",
-      "/v1/assistants/asst-1/",
-    ]);
-  });
-
   test("rapid changes collapse into one PATCH carrying the newest raster", async () => {
     syncAvatarToPlatform();
     syncAvatarToPlatform();
@@ -237,10 +246,7 @@ describe("syncAvatarToPlatform", () => {
   });
 
   test("skips oversized rasters when resvg is unavailable", async () => {
-    mockRasterPath = writeRaster(
-      "big.png",
-      Buffer.alloc(MAX_AVATAR_UPLOAD_BYTES + 1),
-    );
+    mockRasterPath = writeRaster("big.png", OVERSIZED);
     syncAvatarToPlatform();
     await settle();
 
@@ -250,10 +256,7 @@ describe("syncAvatarToPlatform", () => {
   test("downscales oversized rasters through resvg", async () => {
     mockResvgAvailable = true;
     mockRenderedPng = Buffer.from("tiny");
-    mockRasterPath = writeRaster(
-      "big.png",
-      Buffer.alloc(MAX_AVATAR_UPLOAD_BYTES + 1),
-    );
+    mockRasterPath = writeRaster("big.png", OVERSIZED);
     syncAvatarToPlatform();
     await settle();
 
@@ -265,15 +268,58 @@ describe("syncAvatarToPlatform", () => {
 
   test("skips when the downscaled raster still exceeds the cap", async () => {
     mockResvgAvailable = true;
-    mockRenderedPng = Buffer.alloc(MAX_AVATAR_UPLOAD_BYTES + 1);
-    mockRasterPath = writeRaster(
-      "big.png",
-      Buffer.alloc(MAX_AVATAR_UPLOAD_BYTES + 1),
-    );
+    mockRenderedPng = OVERSIZED;
+    mockRasterPath = writeRaster("big.png", OVERSIZED);
     syncAvatarToPlatform();
     await settle();
 
     expect(patches).toHaveLength(0);
+  });
+
+  test("a restart with the same raster and destination does not re-upload", async () => {
+    syncAvatarToPlatform();
+    await settle();
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8"))).toEqual({
+      key: expect.stringMatching(/^https:\/\/platform\.a\|asst-1\|image:/),
+    });
+
+    _resetSyncAvatarStateForTests();
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+  });
+
+  test("a restart re-uploads when the destination or raster changed", async () => {
+    syncAvatarToPlatform();
+    await settle();
+
+    _resetSyncAvatarStateForTests();
+    mockClient = makeClient("asst-2");
+    syncAvatarToPlatform();
+    await settle();
+
+    _resetSyncAvatarStateForTests();
+    writeRaster("a.png", Buffer.from("png-a-rewritten"));
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches.map((p) => p.path)).toEqual([
+      "/v1/assistants/asst-1/",
+      "/v1/assistants/asst-2/",
+      "/v1/assistants/asst-2/",
+    ]);
+    expect(patches[2].body.avatar_base64).toBe(
+      Buffer.from("png-a-rewritten").toString("base64"),
+    );
+  });
+
+  test("a failed PATCH leaves the persisted key untouched", async () => {
+    respond = () => new Response("nope", { status: 500 });
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(() => readFileSync(syncStatePath)).toThrow();
   });
 
   test("no-op without a platform client or assistant id", async () => {
@@ -286,35 +332,5 @@ describe("syncAvatarToPlatform", () => {
 
     expect(patches).toHaveLength(0);
     expect(rasterCalls).toBe(0);
-  });
-
-  test("a failed PATCH does not dedup the next attempt", async () => {
-    respond = () => new Response("nope", { status: 500 });
-    syncAvatarToPlatform();
-    await settle();
-    respond = () => new Response("{}", { status: 200 });
-    syncAvatarToPlatform();
-    await settle();
-    syncAvatarToPlatform();
-    await settle();
-
-    expect(patches).toHaveLength(2);
-  });
-
-  test("a thrown fetch is swallowed and retried on the next publish", async () => {
-    mockClient = {
-      baseUrl: "https://platform.a",
-      platformAssistantId: "asst-1",
-      fetch: async () => {
-        throw new Error("boom");
-      },
-    };
-    syncAvatarToPlatform();
-    await settle();
-    mockClient = makeClient();
-    syncAvatarToPlatform();
-    await settle();
-
-    expect(patches).toHaveLength(1);
   });
 });

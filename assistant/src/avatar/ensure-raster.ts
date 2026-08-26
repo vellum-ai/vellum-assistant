@@ -7,17 +7,6 @@ import { writeTraitsAndRenderAvatar } from "./traits-png-sync.js";
 
 const log = getLogger("ensure-raster");
 
-function readPng(path: string): Buffer | null {
-  try {
-    return readFileSync(path);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
-    }
-    throw err;
-  }
-}
-
 /**
  * Returns the on-disk path of the current avatar PNG, or null when there is
  * none. Never reads the raster bytes.
@@ -46,25 +35,32 @@ export async function ensureAvatarRasterPath(
 
   try {
     const result = writeTraitsAndRenderAvatar(state.traits);
-    if (!result.ok) {
-      log.warn({ reason: result.reason }, "Avatar raster re-render failed");
-      return null;
+    if (result.ok) {
+      return avatarPath;
     }
+    log.warn({ reason: result.reason }, "Avatar raster re-render failed");
   } catch (err) {
     log.warn({ err }, "Avatar raster re-render threw");
-    return null;
   }
-
-  return existsSync(avatarPath) ? avatarPath : null;
+  return null;
 }
 
 /**
- * Returns the PNG raster for the current avatar, or null when there is none.
- * Same existence and regeneration semantics as `ensureAvatarRasterPath`.
+ * Returns the PNG raster for the current avatar, or null when there is none
+ * or it cannot be read. Same regeneration semantics as
+ * `ensureAvatarRasterPath`.
  */
 export async function ensureAvatarRaster(
   state: AvatarState = readAvatarState(),
 ): Promise<Buffer | null> {
   const avatarPath = await ensureAvatarRasterPath(state);
-  return avatarPath ? readPng(avatarPath) : null;
+  if (!avatarPath) {
+    return null;
+  }
+  try {
+    return readFileSync(avatarPath);
+  } catch (err) {
+    log.warn({ err }, "Avatar raster read failed");
+    return null;
+  }
 }
