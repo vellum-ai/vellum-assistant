@@ -1196,3 +1196,51 @@ describe("the companion surface's text selection", () => {
     );
   });
 });
+
+/**
+ * The idle motion, which is two animations that must not become one.
+ *
+ * `AnimatedAvatar` owns `transform` on its own `<svg>` for the breathe and the
+ * morph, so the bob lives on a wrapper. Put both on one node and the browser
+ * silently keeps whichever declaration came last, and the loss is invisible in
+ * a screenshot.
+ */
+describe("the resting avatar's idle motion", () => {
+  test("bobs on a wrapper of its own, with the glow riding inside it", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" accentHex="#ff8800" />,
+    );
+
+    const bob = container.querySelector<HTMLElement>(".companion-avatar-bob");
+    expect(bob).not.toBeNull();
+
+    const glow = bob?.querySelector<HTMLElement>(".companion-glow");
+    expect(glow).not.toBeNull();
+    expect(glow?.className).not.toContain("animate-pulse");
+    expect(glow?.style.background.toLowerCase()).toContain("#ff8800");
+  });
+
+  /**
+   * The artwork keeps its own animated node under the wrapper, which is what
+   * makes the two transforms compose rather than replace each other.
+   */
+  test("leaves the artwork on a node below the bob", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="resting"
+        character={{ bodyShape: "blob", eyeStyle: "curious", color: "teal" }}
+      />,
+    );
+
+    const bob = container.querySelector<HTMLElement>(".companion-avatar-bob");
+    expect(bob?.querySelector("svg")).not.toBeNull();
+  });
+
+  /** The wrapper sits inside the avatar's box, which nothing else may move. */
+  test("keeps the avatar box as the wrapper's parent", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    const bob = container.querySelector<HTMLElement>(".companion-avatar-bob");
+    expect(bob?.parentElement?.className).toContain("size-11");
+  });
+});

@@ -164,6 +164,28 @@ export const Resting: Story = {
 };
 
 /**
+ * The same circle in an assistant's own colour, which is what the desktop
+ * actually shows: the glow is the character's palette hex, not the surface's
+ * teal default. Here to make the colour a thing that can be reviewed rather
+ * than something only a live call ever produced.
+ */
+export const RestingInItsOwnColour: Story = {
+  args: {
+    phase: "resting",
+    character: { bodyShape: "burst", eyeStyle: "curious", color: "orange" },
+    accentHex: "#E9642F",
+  },
+};
+
+/**
+ * An uploaded image instead of a composed creature. It has no palette colour to
+ * resolve, so this is the case the component's default accent exists for.
+ */
+export const RestingCustomImage: Story = {
+  args: { phase: "resting", character: undefined, avatarSrc: EXAMPLE_AVATAR },
+};
+
+/**
  * Resting, with a turn running somewhere the user is not looking.
  *
  * The state the working ring exists for: the assistant is doing something and
