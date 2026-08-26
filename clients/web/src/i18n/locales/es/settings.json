@@ -595,7 +595,8 @@
     "save": "Guardar",
     "saveError": "No se pudo guardar el límite diario de créditos. Inténtalo de nuevo.",
     "skippedNotice": "Omitido por hoy. Este límite se reanuda a las {time}.",
-    "toggleLabel": "Límite diario de créditos"
+    "toggleLabel": "Límite diario de créditos",
+    "toggleSubtitle": "El límite diario solo se aplica a los créditos de uso adicional"
   },
   "debugControlsPanel": {
     "backups": "Copias de seguridad",

@@ -595,7 +595,8 @@
     "save": "Save",
     "saveError": "Failed to save daily credit limit. Please try again.",
     "skippedNotice": "Skipped for today. This limit resumes at {time}.",
-    "toggleLabel": "Daily Credit Limit"
+    "toggleLabel": "Daily Credit Limit",
+    "toggleSubtitle": "Daily limit only applies to extra usage credits"
   },
   "debugControlsPanel": {
     "backups": "Backups",
