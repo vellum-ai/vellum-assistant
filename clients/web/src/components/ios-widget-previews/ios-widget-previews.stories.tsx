@@ -160,12 +160,17 @@ export const QuickActionsUnread: Story = {
 };
 
 /**
- * A custom photo replaces the eyes and is blurred under a scrim to become the
- * card, since an uploaded avatar carries no accent to tint with. The
- * accentless account falls back to the brand block.
+ * The three avatar kinds, which is what decides the treatment: a photo has no
+ * accent by design, so it replaces the eyes and is blurred under a scrim to
+ * become the card, while an account with no avatar at all falls back to the
+ * brand block.
+ *
+ * The character in the middle carries a face raster alongside its accent,
+ * which production payloads do. It keeps its accent and its eyes: presence of
+ * a raster is not what makes a card a photo card.
  */
 export const QuickActionsAvatars: Story = {
-  name: "Quick Actions / avatars",
+  name: "Quick Actions / avatar kinds",
   render: () => (
     <Appearances
       render={(appearance) => (
@@ -173,11 +178,38 @@ export const QuickActionsAvatars: Story = {
           <QuickActionsWidgetPreview
             appearance={appearance}
             unreadCount={5}
+            avatarKind="image"
             accentHex={null}
             avatarImageUrl={AVATAR_PHOTO}
           />
-          <QuickActionsWidgetPreview appearance={appearance} accentHex={null} />
+          <QuickActionsWidgetPreview
+            appearance={appearance}
+            unreadCount={5}
+            avatarKind="character"
+            accentHex="#0E9B8B"
+            avatarImageUrl={AVATAR_PHOTO}
+          />
+          <QuickActionsWidgetPreview
+            appearance={appearance}
+            avatarKind="none"
+            accentHex={null}
+          />
         </div>
+      )}
+    />
+  ),
+};
+
+/**
+ * A snapshot's ordinary `unreadCount: 0` is the quiet card, not a chip reading
+ * zero, so a consumer can hand the real count straight over.
+ */
+export const QuickActionsZeroUnread: Story = {
+  name: "Quick Actions / zero unread",
+  render: () => (
+    <Appearances
+      render={(appearance) => (
+        <QuickActionsWidgetPreview appearance={appearance} unreadCount={0} />
       )}
     />
   ),

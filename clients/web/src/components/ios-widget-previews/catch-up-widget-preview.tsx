@@ -36,6 +36,7 @@ import {
   themeAccentHex,
   widgetTheme,
   type WidgetAppearance,
+  type WidgetAvatarKind,
 } from "./widget-tokens";
 
 const CONTENT_MARGIN = 16;
@@ -69,6 +70,9 @@ export interface CatchUpWidgetPreviewProps {
   scale?: number;
   appearance?: WidgetAppearance;
   conversations?: CatchUpConversation[];
+  /** See `QuickActionsWidgetPreviewProps`. The kind gates the accent; the
+   *  raster still rides the New Chat surface whatever the kind. */
+  avatarKind?: WidgetAvatarKind;
   accentHex?: string | null;
   avatarImageUrl?: string | null;
   /** A snapshot too old to be trusted about work in flight. */
@@ -80,12 +84,13 @@ export function CatchUpWidgetPreview({
   scale = 1,
   appearance = "light",
   conversations = [],
+  avatarKind = "character",
   accentHex = "#0E9B8B",
   avatarImageUrl = null,
   isStale = false,
   flattened = false,
 }: CatchUpWidgetPreviewProps) {
-  const accent = softAccent(themeAccentHex(accentHex, avatarImageUrl !== null));
+  const accent = softAccent(themeAccentHex(avatarKind, accentHex));
   const rows = conversations.slice(0, MAX_ROWS);
   const textPrimary = flattened
     ? "#FFFFFF"

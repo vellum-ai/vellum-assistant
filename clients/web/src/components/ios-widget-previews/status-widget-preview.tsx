@@ -38,6 +38,7 @@ import {
   themeAccentHex,
   widgetTheme,
   type WidgetAppearance,
+  type WidgetAvatarKind,
 } from "./widget-tokens";
 
 const CONTENT_MARGIN = 16;
@@ -58,6 +59,9 @@ export interface StatusWidgetPreviewProps {
   appearance?: WidgetAppearance;
   unreadCount?: number;
   inProgressCount?: number;
+  /** See `QuickActionsWidgetPreviewProps`. The kind gates the accent; the
+   *  raster still rides the New Chat surface whatever the kind. */
+  avatarKind?: WidgetAvatarKind;
   accentHex?: string | null;
   avatarImageUrl?: string | null;
   flattened?: boolean;
@@ -68,11 +72,12 @@ export function StatusWidgetPreview({
   appearance = "light",
   unreadCount = 0,
   inProgressCount = 0,
+  avatarKind = "character",
   accentHex = "#0E9B8B",
   avatarImageUrl = null,
   flattened = false,
 }: StatusWidgetPreviewProps) {
-  const accent = softAccent(themeAccentHex(accentHex, avatarImageUrl !== null));
+  const accent = softAccent(themeAccentHex(avatarKind, accentHex));
   const isActive = unreadCount > 0 || inProgressCount > 0;
   const control = CONTROL_HEIGHT * scale;
   const textPrimary = flattened

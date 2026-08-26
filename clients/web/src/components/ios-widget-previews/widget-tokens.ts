@@ -121,19 +121,31 @@ export function avatarPalette(accentHex: string | null): WidgetAvatarPalette {
 }
 
 /**
+ * `WidgetAvatarKind`: what a widget can do with the snapshot's avatar, as the
+ * three treatments it has rather than as the string the payload carries.
+ *
+ * The discriminator is the kind, never the presence of a raster: a character
+ * payload carries its accent AND its encoded face together, so "has an image"
+ * says nothing about which treatment the card wants.
+ */
+export type WidgetAvatarKind = "character" | "image" | "none";
+
+/**
  * `SnapshotEntry.themeAccentHex`: the accent a rendering themes itself with,
  * or `null` to keep the static tokens.
  *
  * The one owner of the rule that only a character avatar carries an accent: an
- * uploaded photo has none by design, so it drops any accent handed alongside
- * it. Both palettes below read the gate from here, so a card and the controls
- * on it cannot disagree about which accounts are themed.
+ * uploaded photo has none by design, an account with nothing synced has none to
+ * read, and any other kind keeps the static palette even if a malformed or
+ * newer-schema payload carries an accent alongside it. Both palettes below read
+ * the gate from here, so a card and the controls on it cannot disagree about
+ * which accounts are themed.
  */
 export function themeAccentHex(
+  kind: WidgetAvatarKind,
   accentHex: string | null,
-  hasPhotoAvatar: boolean,
 ): string | null {
-  return hasPhotoAvatar ? null : accentHex;
+  return kind === "character" ? accentHex : null;
 }
 
 /** `WidgetSoftAccent`: the pale card a New Chat surface sits on. */

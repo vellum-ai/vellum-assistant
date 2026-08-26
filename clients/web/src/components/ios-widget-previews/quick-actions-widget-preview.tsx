@@ -35,6 +35,7 @@ import {
   resolveColor,
   themeAccentHex,
   type WidgetAppearance,
+  type WidgetAvatarKind,
 } from "./widget-tokens";
 
 const CONTENT_MARGIN = 16;
@@ -70,9 +71,19 @@ export interface QuickActionsWidgetPreviewProps {
   appearance?: WidgetAppearance;
   /** The count on the chip. `null` draws the quiet card. */
   unreadCount?: number | null;
-  /** The avatar's accent, or `null` for the account with no avatar at all. */
+  /**
+   * Which of the three avatar treatments the card draws. The kind decides,
+   * never the presence of a raster: a character carries its accent and its
+   * encoded face together.
+   */
+  avatarKind?: WidgetAvatarKind;
+  /** The avatar's accent. Read only for a character; see `themeAccentHex`. */
   accentHex?: string | null;
-  /** A custom photo, drawn in place of the eyes and blurred into the card. */
+  /**
+   * The raster the snapshot carries. An `image` avatar draws it as the mark and
+   * blurs it into the card; a character keeps its eyes and leaves this to the
+   * surfaces that show the whole avatar.
+   */
   avatarImageUrl?: string | null;
   /** The system's monochrome modes: a themed Home Screen, StandBy, the lock screen. */
   flattened?: boolean;
@@ -82,13 +93,12 @@ export function QuickActionsWidgetPreview({
   scale = 1,
   appearance = "light",
   unreadCount = null,
+  avatarKind = "character",
   accentHex = "#0E9B8B",
   avatarImageUrl = null,
   flattened = false,
 }: QuickActionsWidgetPreviewProps) {
-  const palette = avatarPalette(
-    themeAccentHex(accentHex, avatarImageUrl !== null),
-  );
+  const palette = avatarPalette(themeAccentHex(avatarKind, accentHex));
   const onSurface = flattened
     ? "#FFFFFF"
     : resolveColor(palette.onSurface, appearance);
@@ -101,19 +111,23 @@ export function QuickActionsWidgetPreview({
   // `QuickActionsCardBackground`: a photo avatar makes the card the blurred
   // photo over its own near-black ground, not the accent, since an uploaded
   // avatar carries no accent to tint with.
-  const hasPhotoCard = avatarImageUrl !== null && !flattened;
+  const hasPhotoCard =
+    avatarKind === "image" && avatarImageUrl !== null && !flattened;
   const background = flattened
     ? FLATTENED_CARD_GROUND
     : hasPhotoCard
       ? SURFACE_GROUND
       : resolveColor(palette.surface, appearance);
 
+  // `QuickActionsEntry.unreadCount`: nil unless something is actually waiting,
+  // so a snapshot's ordinary zero draws the quiet card rather than a `0` chip.
+  const chipCount = unreadCount !== null && unreadCount > 0 ? unreadCount : null;
   const contentWidth = 160 * scale - CONTENT_MARGIN * scale * 2;
   const markWidth =
-    unreadCount === null
+    chipCount === null
       ? contentWidth
       : contentWidth -
-        chipAllowance(unreadCount, scale) -
+        chipAllowance(chipCount, scale) -
         MARK_CHIP_GAP * scale;
 
   return (
@@ -161,7 +175,7 @@ export function QuickActionsWidgetPreview({
           boxSizing: "border-box",
         }}
       >
-        {unreadCount === null ? (
+        {chipCount === null ? (
           <div
             style={{
               display: "flex",
@@ -175,6 +189,7 @@ export function QuickActionsWidgetPreview({
               imageSize={AVATAR_IMAGE_SIZE * scale}
               cornerRadius={AVATAR_IMAGE_CORNER_RADIUS * scale}
               appearance={appearance}
+              kind={avatarKind}
               avatarImageUrl={avatarImageUrl}
               flattened={flattened}
             />
@@ -193,13 +208,14 @@ export function QuickActionsWidgetPreview({
                 imageSize={fittedImageSize(markWidth, scale)}
                 cornerRadius={AVATAR_IMAGE_CORNER_RADIUS * scale}
                 appearance={appearance}
+                kind={avatarKind}
                 avatarImageUrl={avatarImageUrl}
                 flattened={flattened}
               />
             </div>
             <div style={{ flex: 1 }} />
             <UnreadChip
-              count={unreadCount}
+              count={chipCount}
               scale={scale}
               onSurface={onSurface}
               appearance={appearance}
@@ -251,6 +267,7 @@ function AvatarMark({
   imageSize,
   cornerRadius,
   appearance,
+  kind,
   avatarImageUrl,
   flattened,
 }: {
@@ -258,10 +275,11 @@ function AvatarMark({
   imageSize: number;
   cornerRadius: number;
   appearance: WidgetAppearance;
+  kind: WidgetAvatarKind;
   avatarImageUrl: string | null;
   flattened: boolean;
 }) {
-  if (avatarImageUrl !== null) {
+  if (kind === "image" && avatarImageUrl !== null) {
     return (
       <img
         src={avatarImageUrl}
