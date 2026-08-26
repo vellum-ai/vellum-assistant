@@ -8,30 +8,15 @@
  * and the partition runs once per transcript change per consumer rather than
  * once per token.
  *
- * ## Identity stability
- *
- * The derivation rebuilds its objects on every transcript change, but its
- * consumers key memos and effects on the results, so this hook hands back the
- * PREVIOUS identities whenever the values did not move:
- *
- * - `target` stays reference-stable across streamed tokens, so the header
- *   slot registration does not re-fire per token.
- * - `vellumMessages` stays reference-stable when an update touched only
- *   channel rows, so the chat lane's transcript items hold still. That is
- *   also what stops the underfilled-viewport pagination from chain-loading
- *   history pages the lane will not show: a fetched page of channel-only rows
- *   leaves the lane's identity unchanged, so the scroll machinery sees no
- *   items change and does not re-fire.
- * - `entries` reuses each unchanged row's object, so an open drawer only
- *   re-renders the rows an update actually touched.
+ * `target` is memoized on its primitive fields rather than on the derivation
+ * run, so it keeps one object identity across streamed tokens: consumers key
+ * memos and effects on it (the header slot registration in particular), and
+ * a fresh object per token would re-fire them all.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 
-import type {
-  ChannelMessageProvenance,
-  ProvenanceConversation,
-} from "@/domains/chat/channel-sidecar/channel-message-provenance";
+import type { ProvenanceConversation } from "@/domains/chat/channel-sidecar/channel-message-provenance";
 import {
   hasChannelSidecarContent,
   partitionChannelTranscript,
@@ -78,83 +63,6 @@ export function useChannelSidecarFlag(): boolean {
   return useClientFeatureFlagStore.use.channelConversationSidecar();
 }
 
-function isSameTargetValue(
-  a: ChannelSidecarTarget | null,
-  b: ChannelSidecarTarget | null,
-): boolean {
-  if (a === null || b === null) {
-    return a === b;
-  }
-  return (
-    a.conversationId === b.conversationId &&
-    a.channelId === b.channelId &&
-    a.threadName === b.threadName &&
-    a.sourceHref === b.sourceHref
-  );
-}
-
-function isSameProvenanceValue(
-  a: ChannelMessageProvenance,
-  b: ChannelMessageProvenance,
-): boolean {
-  return (
-    a.channelId === b.channelId &&
-    a.kind === b.kind &&
-    a.externalMessageId === b.externalMessageId &&
-    a.externalThreadId === b.externalThreadId &&
-    a.externalChatId === b.externalChatId &&
-    a.externalChatName === b.externalChatName &&
-    a.senderName === b.senderName &&
-    a.sourceLink?.webUrl === b.sourceLink?.webUrl &&
-    a.sourceLink?.appUrl === b.sourceLink?.appUrl &&
-    a.threadSourceLink?.webUrl === b.threadSourceLink?.webUrl &&
-    a.threadSourceLink?.appUrl === b.threadSourceLink?.appUrl &&
-    a.reaction?.emoji === b.reaction?.emoji &&
-    a.reaction?.op === b.reaction?.op &&
-    a.reaction?.actorName === b.reaction?.actorName
-  );
-}
-
-function isSameEntryValue(
-  a: ChannelTranscriptEntry,
-  b: ChannelTranscriptEntry,
-): boolean {
-  return (
-    a.id === b.id &&
-    a.text === b.text &&
-    a.timestamp === b.timestamp &&
-    a.role === b.role &&
-    isSameProvenanceValue(a.provenance, b.provenance)
-  );
-}
-
-/**
- * Reuse `prev`'s elements (and, when every element survives, `prev` itself)
- * for the members of `next` that are value-equal.
- */
-function stabilizeArray<T>(
-  prev: T[] | undefined,
-  next: T[],
-  isSame: (a: T, b: T) => boolean,
-): T[] {
-  if (!prev) {
-    return next;
-  }
-  if (prev === next) {
-    return next;
-  }
-  let allReused = prev.length === next.length;
-  const merged = next.map((item, i) => {
-    const previous = prev[i];
-    if (previous !== undefined && (previous === item || isSame(previous, item))) {
-      return previous;
-    }
-    allReused = false;
-    return item;
-  });
-  return allReused ? prev : merged;
-}
-
 export function useChannelSidecar({
   conversationId,
   conversation,
@@ -174,9 +82,8 @@ export function useChannelSidecar({
   sourceHref?: string | null;
 }): ChannelSidecar {
   const flagEnabled = useChannelSidecarFlag();
-  const previousRef = useRef<ChannelSidecar | null>(null);
 
-  const result = useMemo(() => {
+  const derived = useMemo(() => {
     if (!flagEnabled) {
       return { target: null, entries: [], vellumMessages: messages };
     }
@@ -190,38 +97,48 @@ export function useChannelSidecar({
       entries,
       sourceHref,
     });
-    const derived: ChannelSidecar = {
+    return {
       target: hasChannelSidecarContent(target, entries) ? target : null,
       entries,
       vellumMessages,
     };
-
-    const previous = previousRef.current;
-    if (!previous) {
-      return derived;
-    }
-    return {
-      target: isSameTargetValue(previous.target, derived.target)
-        ? previous.target
-        : derived.target,
-      entries: stabilizeArray(
-        previous.entries,
-        derived.entries,
-        isSameEntryValue,
-      ),
-      vellumMessages: stabilizeArray(
-        previous.vellumMessages,
-        derived.vellumMessages,
-        (a, b) => a === b,
-      ),
-    };
   }, [flagEnabled, messages, conversation, conversationId, sourceHref]);
 
-  // Committed after render so a re-derivation compares against the identities
-  // consumers actually hold.
-  useEffect(() => {
-    previousRef.current = result;
-  });
+  // Rebuild the target from its primitives so its identity survives
+  // re-derivation: the fields change on a conversation or thread change, not
+  // on a streamed token.
+  const targetConversationId = derived.target?.conversationId;
+  const targetChannelId = derived.target?.channelId;
+  const targetThreadName = derived.target?.threadName;
+  const targetSourceHref = derived.target?.sourceHref;
+  const target = useMemo((): ChannelSidecarTarget | null => {
+    if (targetConversationId === undefined || targetChannelId === undefined) {
+      return null;
+    }
+    const stable: ChannelSidecarTarget = {
+      conversationId: targetConversationId,
+      channelId: targetChannelId,
+    };
+    if (targetThreadName !== undefined) {
+      stable.threadName = targetThreadName;
+    }
+    if (targetSourceHref !== undefined) {
+      stable.sourceHref = targetSourceHref;
+    }
+    return stable;
+  }, [
+    targetConversationId,
+    targetChannelId,
+    targetThreadName,
+    targetSourceHref,
+  ]);
 
-  return result;
+  return useMemo(
+    () => ({
+      target,
+      entries: derived.entries,
+      vellumMessages: derived.vellumMessages,
+    }),
+    [target, derived],
+  );
 }
