@@ -289,10 +289,10 @@ public class MainActivity extends BridgeActivity {
         if (connect != null) {
             // Remember the origin the moment the link arrives, as iOS does: a
             // tunnel already down never reaches onPageFinished, so one recorded
-            // only on success is one the chooser can never offer back. The
-            // active slot stays deferred, keeping a server that fails to load
-            // from displacing the one already working.
-            SelfHostedServer.append(this, connect.server(), connect.name());
+            // only on success is one the chooser can never offer back. What
+            // pairing still has to earn stays deferred, so an unreachable server
+            // neither displaces the active one nor relabels a card it already has.
+            SelfHostedServer.appendIfAbsent(this, connect.server(), connect.name());
         }
         return connect;
     }
@@ -350,9 +350,9 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Promote the pending server once its pair page loads. Only the active slot
-     * really moves: {@link #consumeConnectIntent} already remembered the origin,
-     * so activate's re-append only refreshes the label.
+     * Promote the pending server once its pair page loads: the active slot, plus
+     * the label that {@link #consumeConnectIntent} withheld from an origin the
+     * list already knew.
      */
     private void finishPendingConnect(String loadedUrl) {
         if (

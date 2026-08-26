@@ -126,12 +126,14 @@ absent. Scanning a connect link switches the native shell to the validated
 server, opens `<server>/assistant/pair`, and keeps an existing server path
 prefix intact. Cold and warm app launches use the same route.
 
-The server, with its label, joins the remembered list as soon as the link is
-scanned, matching iOS, so the chooser can still offer it when the pairing page
-never loads. Only the active slot is deferred: it is written after that page
-loads, so a server that turns out to be unreachable never displaces the one
-already working. The one-time device code is kept out of app preferences and
-the generated Capacitor configuration. HTTPS is required except for `localhost`,
+A server the list does not already hold joins it, with its label, as soon as
+the link is scanned, matching iOS, so the chooser can still offer it when the
+pairing page never loads. What a scan alone cannot claim is deferred until that
+page loads: the active slot, so an unreachable server never displaces the one
+already working, and the label on a server already remembered, so an unpaired
+link cannot rename a card that an earlier pairing named. The one-time device
+code is kept out of app preferences and the generated Capacitor configuration.
+HTTPS is required except for `localhost`,
 `127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
 when a physical development device needs to reach a service through
 `localhost`.

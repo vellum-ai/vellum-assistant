@@ -169,6 +169,23 @@ final class SelfHostedServer {
      * updates the label; a nameless re-append keeps the existing one.
      */
     static void append(Store store, URI url, String name) {
+        remember(store, url, name, true);
+    }
+
+    static void appendIfAbsent(Context context, URI url, String name) {
+        appendIfAbsent(new PreferencesStore(context), url, name);
+    }
+
+    /**
+     * Remember an origin only when the list does not already hold it, leaving a
+     * known origin's label alone. A label carried by a link that has not paired
+     * yet is unverified, so it must not overwrite one a pairing earned.
+     */
+    static void appendIfAbsent(Store store, URI url, String name) {
+        remember(store, url, name, false);
+    }
+
+    private static void remember(Store store, URI url, String name, boolean relabel) {
         synchronized (listLock) {
             List<Entry> entries = servers(store);
             String canonical = canonicalString(url);
@@ -176,8 +193,10 @@ final class SelfHostedServer {
             int index = indexOfUrl(entries, canonical);
             if (index < 0) {
                 entries.add(new Entry(label, canonical));
-            } else if (label != null) {
+            } else if (relabel && label != null) {
                 entries.set(index, new Entry(label, canonical));
+            } else {
+                return;
             }
             persist(store, entries);
         }
