@@ -4190,6 +4190,14 @@ paths:
                   type: string
                 content:
                   type: string
+                eventKind:
+                  type: string
+                  enum:
+                    - message
+                    - edit
+                    - delete
+                    - reaction
+                    - button
                 isEdit:
                   type: boolean
                 callbackQueryId:

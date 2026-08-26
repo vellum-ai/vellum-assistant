@@ -1,7 +1,8 @@
 /**
- * The kind derivation is the single reader of the legacy family encodings,
- * so its matrix is the compatibility contract: every shape a pre-kind retry
- * payload can replay must classify exactly as its old consumer would have.
+ * The kind derivation is the single reader of the field encodings, so its
+ * matrix is the compatibility contract: every shape an unstamped replayed
+ * retry payload can carry must classify exactly as the consumers that read
+ * those fields directly would classify it.
  */
 import { describe, expect, test } from "bun:test";
 

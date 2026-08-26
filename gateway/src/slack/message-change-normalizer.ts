@@ -155,7 +155,7 @@ export function normalizeSlackMessageDelete(
         conversationExternalId: channel,
         // Unique per delete event to avoid dedup collisions
         externalMessageId: eventId,
-        // Sentinel value the daemon reads on pre-kind retry payloads
+        // Sentinel value that classifies unstamped replayed retry payloads
         callbackData: "message_deleted",
       },
       actor: {
