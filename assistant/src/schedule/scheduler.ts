@@ -8,7 +8,7 @@ import {
 } from "../daemon/disk-pressure-background-gate.js";
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { activityFailedDedupeKey } from "../notifications/activity-failed-dedupe.js";
+import { emitBackgroundFailureSignal } from "../notifications/background-failure-signal.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
@@ -235,7 +235,12 @@ async function handleExecutionFailure(params: {
    * collapse; absent means a generic exception, which keys per schedule.
    */
   errorKind?: BackgroundJobErrorKind;
-  failureCode?: string;
+  /**
+   * The failing turn's carried classification, when the failure was a
+   * non-throwing turn failure. The exhaustion alert renders its authored
+   * message and scopes by the route that actually served the runs.
+   */
+  turnFailure?: TurnFailure;
 }): Promise<void> {
   const decision = decideRetry(params.job);
   await applyRetryDecision({
@@ -246,16 +251,33 @@ async function handleExecutionFailure(params: {
     failOneShotPermanently,
     resetRetryCount,
     emitAlert: () => {
-      const providerScope = resolveScheduleProviderScope(params.job);
-      emitScheduleActivityFailed({
-        jobId: params.job.id,
-        jobName: params.job.name,
-        errorMessage: params.errorMsg,
+      const fallbackProviderScope = resolveScheduleProviderScope(params.job);
+      const carried = params.turnFailure;
+      emitBackgroundFailureSignal({
+        jobName: `schedule:${params.job.id}`,
+        displayName: `schedule:${params.job.name}`,
+        sourceChannel: "scheduler",
+        sourceContextId: params.job.id,
         errorKind: params.errorKind ?? "exception",
-        ...(params.failureCode !== undefined
-          ? { failureCode: params.failureCode }
+        errorMessage: params.errorMsg,
+        ...(carried?.failureCode !== undefined
+          ? { failureCode: carried.failureCode }
           : {}),
-        ...(providerScope !== undefined ? { providerScope } : {}),
+        ...(carried?.userMessage !== undefined
+          ? { failureSummary: carried.userMessage }
+          : {}),
+        ...(carried?.errorCategory !== undefined
+          ? { errorCategory: carried.errorCategory }
+          : {}),
+        ...(carried?.connectionName !== undefined
+          ? { connectionName: carried.connectionName }
+          : {}),
+        ...(carried?.profileName !== undefined
+          ? { profileName: carried.profileName }
+          : {}),
+        ...(fallbackProviderScope !== undefined
+          ? { fallbackProviderScope }
+          : {}),
       });
     },
     log,
@@ -938,7 +960,7 @@ export async function runDueSchedulesOnce(
     let ok: boolean;
     let errorMsg: string | undefined;
     let errorKind: BackgroundJobErrorKind | undefined;
-    let failureCode: string | undefined;
+    let failedTurn: TurnFailure | undefined;
     const conversationReused = reusedConversationId != null;
     let runConversationId = reusedConversationId;
     const runId = await createScheduleRun(job.id, reusedConversationId);
@@ -973,7 +995,7 @@ export async function runDueSchedulesOnce(
           ok = false;
           errorMsg = describeTurnFailure(turnFailure);
           errorKind = "model_provider";
-          failureCode = turnFailure.failureCode;
+          failedTurn = turnFailure;
         } else {
           ok = true;
         }
@@ -1040,7 +1062,7 @@ export async function runDueSchedulesOnce(
       ok = result.ok;
       errorMsg = result.error?.message;
       errorKind = result.errorKind;
-      failureCode = result.failureCode;
+      failedTurn = result.turnFailure;
     }
 
     if (ok) {
@@ -1070,7 +1092,7 @@ export async function runDueSchedulesOnce(
         errorMsg: errorMsg ?? "Schedule run failed",
         isOneShot,
         ...(errorKind !== undefined ? { errorKind } : {}),
-        ...(failureCode !== undefined ? { failureCode } : {}),
+        ...(failedTurn !== undefined ? { turnFailure: failedTurn } : {}),
       });
 
       // Only skip invalidation when the conversation was *actually* reused,
@@ -1093,56 +1115,4 @@ export async function runDueSchedulesOnce(
   }
 
   return result;
-}
-
-/**
- * Emit an `activity.failed` notification for a schedule whose retries have
- * been exhausted. Fires once when the retry policy has given up. The dedupe
- * key comes from the shared cause-first derivation, so every schedule (and
- * background job) failing for the same classified cause on the same UTC day
- * collapses into one notification, and cause-less failures collapse per
- * schedule per day.
- */
-function emitScheduleActivityFailed(args: {
-  jobId: string;
-  jobName: string;
-  errorMessage: string;
-  errorKind: BackgroundJobErrorKind;
-  failureCode?: string;
-  providerScope?: string;
-}): void {
-  emitNotificationSignal({
-    sourceChannel: "scheduler",
-    sourceContextId: args.jobId,
-    sourceEventName: "activity.failed",
-    dedupeKey: activityFailedDedupeKey({
-      jobName: `schedule:${args.jobId}`,
-      errorKind: args.errorKind,
-      ...(args.failureCode !== undefined
-        ? { failureCode: args.failureCode }
-        : {}),
-      ...(args.providerScope !== undefined
-        ? { providerScope: args.providerScope }
-        : {}),
-    }),
-    contextPayload: {
-      jobName: `schedule:${args.jobName}`,
-      errorMessage: args.errorMessage,
-      errorKind: args.errorKind,
-    },
-    attentionHints: {
-      requiresAction: false,
-      urgency: "medium",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-  }).catch((emitErr) => {
-    log.warn(
-      {
-        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
-        jobId: args.jobId,
-      },
-      "Failed to emit activity.failed notification for exhausted schedule",
-    );
-  });
 }

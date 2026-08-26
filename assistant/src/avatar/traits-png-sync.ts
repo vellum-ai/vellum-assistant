@@ -2,8 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  AVATAR_IMAGE_FILENAME,
+  AVATAR_TRAITS_FILENAME,
+  type CharacterTraits,
+} from "@vellumai/avatar-manifest";
+
 import { getLogger } from "../util/logger.js";
-import { AVATAR_IMAGE_FILENAME, getAvatarDir } from "../util/platform.js";
+import { getAvatarDir } from "../util/platform.js";
 import { renderCharacterAscii } from "./ascii-renderer.js";
 import { getCharacterComponents } from "./character-components.js";
 import { renderCharacterPng } from "./png-renderer.js";
@@ -11,17 +17,10 @@ import { isResvgAvailable } from "./resvg-lazy.js";
 
 const log = getLogger("traits-png-sync");
 
-/** Sidecar filename for the persisted character traits JSON. */
-export const TRAITS_FILENAME = "character-traits.json";
-
 /** Sidecar filename for the rendered ASCII art. */
 export const ASCII_FILENAME = "character-ascii.txt";
 
-export interface CharacterTraits {
-  bodyShape: string;
-  eyeStyle: string;
-  color: string;
-}
+export type { CharacterTraits } from "@vellumai/avatar-manifest";
 
 export type TraitsSyncResult =
   | { ok: true; asciiWritten: boolean }
@@ -171,7 +170,7 @@ export function writeTraitsAndRenderAvatar(
   }
 
   const avatarDir = getAvatarDir();
-  const traitsPath = join(avatarDir, TRAITS_FILENAME);
+  const traitsPath = join(avatarDir, AVATAR_TRAITS_FILENAME);
 
   try {
     mkdirSync(avatarDir, { recursive: true });

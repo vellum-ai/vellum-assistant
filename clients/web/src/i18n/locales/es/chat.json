@@ -604,6 +604,7 @@
     "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
   },
   "documentViewerPage": {
+    "exportFailed": "No se pudo exportar el PDF",
     "notFound": "Documento no encontrado."
   },
   "dynamicPageSurface": {
@@ -1111,8 +1112,8 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
     "exhausted": "Añade créditos para continuar.",
+    "extraCredits": "Usando créditos de uso adicional",
     "pctUsed": "{pct}% usado",
-    "resets": "Se restablece el {date}",
     "settingsAriaLabel": "Ajustes de uso y facturación",
     "title": "Uso"
   },
@@ -1158,7 +1159,6 @@
   },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
-    "expandAria": "Reabrir pregunta",
     "minimizeAria": "Minimizar pregunta",
     "minimizedSummary": "{count, plural, one {# opción} other {# opciones}} · Toca para reabrir",
     "nextQuestionAria": "Pregunta siguiente",

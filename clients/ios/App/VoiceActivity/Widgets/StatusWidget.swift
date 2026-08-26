@@ -147,13 +147,13 @@ struct StatusWidgetView: View {
     private func chatPill(height: CGFloat, scale: CGFloat) -> some View {
         PillActionButton(
             intent: OpenNewChatIntent(),
-            icon: Image("VellumV"),
             title: "Chat",
             fill: entry.softAccent.fill,
             tint: entry.softAccent.onFill,
             height: height,
             carriesAccent: true,
             avatarImage: entry.avatarImage,
+            showsAppIcon: true,
             scale: scale
         )
     }

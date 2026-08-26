@@ -24,7 +24,7 @@ import {
   providerForImageGenModel,
 } from "@/lib/provider-catalogs";
 
-import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/byo-service-card";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";

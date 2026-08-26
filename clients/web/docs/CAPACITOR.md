@@ -171,7 +171,7 @@ References:
 
 Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus, a microphone foreground service, and an ongoing status notification. The voice-room camera is the capture exception: native mobile shells use `@capacitor-community/camera-preview`, while browsers and older shells use a web `MediaStream` fallback.
 
-The shell registers **eight app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
+The shell registers **nine app-local** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) (count them there, not from prose). `CameraPreview` is an external SPM/Gradle dependency that Capacitor discovers automatically, so it is not registered in that method.
 
 | Plugin | Web module | What it does |
 | --- | --- | --- |
@@ -183,6 +183,7 @@ The shell registers **eight app-local** Capacitor plugins in [`MyViewController.
 | `SelfHostedServers` | [`src/runtime/self-hosted-servers.ts`](../src/runtime/self-hosted-servers.ts) | List, add, remove, and switch between self-hosted server origins; `switchTo` swaps the shell's configured origin and reloads without leaving the app. See the section below |
 | `RecentChats` | [`src/runtime/recent-chats.ts`](../src/runtime/recent-chats.ts) | Mirrors the sidebar conversation list (ids + titles) into a UserDefaults cache that backs the Shortcuts app's chat picker (`ChatEntityQuery`); synced from `ChatLayout` once the list query has resolved |
 | `WidgetSnapshot` | [`src/runtime/widget-snapshot.ts`](../src/runtime/widget-snapshot.ts) | Mirrors a conversation summary (unread and in-progress counts plus the three most recent threads) into App Group UserDefaults for the Home Screen widgets, reloading their timelines after each write. `sync` replaces the whole snapshot; `clear` drops it, so a signed-out account's titles do not outlive the session on a surface that renders without unlocking the app |
+| `AppIcon` | [`src/runtime/app-icon.ts`](../src/runtime/app-icon.ts) | Reads the alternate home-screen icons the build ships (`CFBundleAlternateIcons`) and swaps between them. Backs the App icon picker in Settings -> General, where a user cycles eyes and color, with a Match avatar shortcut that seeds the selection from the assistant's avatar. iOS shows a system alert on every icon change, so `set` runs only from a press and never on its own |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
 

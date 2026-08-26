@@ -15,6 +15,8 @@ export const createLocalModeBridge = (
     ipc.invoke("vellum:localMode:hatch", species, remote),
   listDevices: (assistantId) =>
     ipc.invoke("vellum:localMode:listDevices", assistantId),
+  readAssistantAvatar: (assistantId) =>
+    ipc.invoke("vellum:localMode:readAssistantAvatar", assistantId),
   readLockfile: () => ipc.invoke("vellum:localMode:readLockfile"),
   renameLockfileAssistant: (assistantId, name) =>
     ipc.invoke("vellum:localMode:renameLockfileAssistant", assistantId, name),

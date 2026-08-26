@@ -38,6 +38,7 @@ import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
+import { saveFile } from "@/runtime/native-file";
 import { Trans, useTranslation } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
@@ -984,14 +985,7 @@ export function ShareFeedbackModal({
         setSubmitError("Diagnostics export isn't supported in this browser.");
         return;
       }
-      const url = URL.createObjectURL(logsFile);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = logsFile.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      await saveFile(logsFile, logsFile.name);
       onClose();
     } catch (err) {
       setSubmitError(

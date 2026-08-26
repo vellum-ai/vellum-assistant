@@ -44,6 +44,7 @@ import {
   soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { SYNC_TAGS } from "@/lib/sync/types";
@@ -110,9 +111,7 @@ export function useAssistantResourceSync(
         for (const tag of event.tags) {
           switch (tag) {
             case SYNC_TAGS.assistantAvatar:
-              void queryClient.invalidateQueries({
-                queryKey: avatarQueryKey(assistantId),
-              });
+              invalidateAvatarQueries(queryClient, assistantId);
               break;
             case SYNC_TAGS.assistantIdentity:
               void queryClient.invalidateQueries({
@@ -216,9 +215,7 @@ export function useAssistantResourceSync(
         return;
 
       case "avatar_updated":
-        void queryClient.invalidateQueries({
-          queryKey: avatarQueryKey(assistantId),
-        });
+        invalidateAvatarQueries(queryClient, assistantId);
         return;
     }
   });
@@ -237,6 +234,24 @@ export function useAssistantResourceSync(
       reconnectSweepTimerRef.current = null;
       refreshAssistantResources(queryClient, assistantId);
     }, RECONNECT_SWEEP_DEBOUNCE_MS);
+  });
+}
+
+/** The canonical avatar cache plus every chooser row variant for the same id. */
+function invalidateAvatarQueries(
+  queryClient: QueryClient,
+  assistantId: string,
+  refetchType?: "active" | "none",
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: avatarQueryKey(assistantId),
+    refetchType,
+  });
+  // Chooser-row queries are disabled for the connected row, so this only
+  // marks them stale for when the user switches away and back.
+  void queryClient.invalidateQueries({
+    queryKey: chooserRowAvatarQueryKeyPrefix(assistantId),
+    refetchType: "none",
   });
 }
 
@@ -272,10 +287,7 @@ function refreshAssistantResources(
     queryKey: configGetQueryKey(pathOpts),
     refetchType,
   });
-  void queryClient.invalidateQueries({
-    queryKey: avatarQueryKey(assistantId),
-    refetchType,
-  });
+  invalidateAvatarQueries(queryClient, assistantId, refetchType);
   invalidateMemoryQueries(queryClient, assistantId, refetchType);
   void queryClient.invalidateQueries({
     queryKey: soundsConfigGetQueryKey(pathOpts),

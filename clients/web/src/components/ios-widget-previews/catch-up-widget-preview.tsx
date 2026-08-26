@@ -18,16 +18,12 @@
  * @see clients/ios/App/VoiceActivity/Widgets/CatchUpWidget.swift
  */
 
-import {
-  BubbleGlyph,
-  EllipsisGlyph,
-  VellumVGlyph,
-  WaveformGlyph,
-} from "./widget-glyphs";
+import { BubbleGlyph, EllipsisGlyph, WaveformGlyph } from "./widget-glyphs";
 import {
   WidgetActionTile,
   WIDGET_TILE_ICON_SIZE,
 } from "./widget-action-controls";
+import { VellumAppIconMark } from "./vellum-app-icon-mark";
 import { WidgetCard } from "./widget-card";
 import {
   FLATTENED_CARD_GROUND,
@@ -161,13 +157,9 @@ export function CatchUpWidgetPreview({
                   }}
                 />
               ) : (
-                <VellumVGlyph
+                <VellumAppIconMark
                   size={WIDGET_TILE_ICON_SIZE * scale}
-                  color={
-                    flattened
-                      ? "#FFFFFF"
-                      : resolveColor(accent.onFill, appearance)
-                  }
+                  flattened={flattened}
                 />
               )
             }

@@ -24,7 +24,10 @@ jobs:
     # Runner and Xcode match `release-ios.yaml` so this check exercises the
     # same toolchain that produces TestFlight builds.
     runs-on: macos-15
-    timeout-minutes: 30
+    # The unsigned Xcode build is what needs the room here; the icon drift
+    # check rasterizes 54 icons in seconds. A `macos-15` runner is slow and
+    # variable enough that a tighter budget fails on time alone.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -43,7 +46,12 @@ jobs:
 
       - name: Install dependencies
         working-directory: clients/web
-        run: bun install --frozen-lockfile --filter=@vellumai/web
+        # `@vellumai/assistant` is here for the avatar icon drift check below:
+        # rasterizing the icons needs its native `@resvg/resvg-js` binding.
+        run: |
+          bun install --frozen-lockfile \
+            --filter=@vellumai/web \
+            --filter=@vellumai/assistant
 
       - name: Capacitor sync
         working-directory: clients/web

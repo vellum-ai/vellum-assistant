@@ -480,6 +480,9 @@ export function AutoTopUpCard() {
           checked={toggleChecked}
           onChange={handleToggleChange}
           label={t("autoTopUpCard.toggleLabel")}
+          helperText={
+            toggleChecked ? t("autoTopUpCard.toggleHelper") : undefined
+          }
         />
       </div>
 

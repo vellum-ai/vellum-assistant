@@ -40,6 +40,7 @@ import {
   isDraftPastOneLine,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
@@ -733,6 +734,7 @@ beforeEach(() => {
     stagedQuotes: [],
     replyBubble: null,
   });
+  useInteractionStore.setState({ pendingQuestion: null });
 });
 
 /**
@@ -1532,6 +1534,51 @@ describe("ChatComposer: a banner standing over the card", () => {
     expect(composerShell(container)?.hasAttribute("data-banner-above")).toBe(
       true,
     );
+  });
+
+  test("a pending question card takes the row down with it", async () => {
+    // GIVEN a standing row in an app shell
+    mockIsNativeMobile = true;
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+
+    // WHEN the agent raises a question, whose card docks in the same strip
+    await act(async () => {
+      useInteractionStore.setState({
+        pendingQuestion: {
+          requestId: "req-1",
+          entries: [{ id: "q1", question: "Which one?", options: [] }],
+        },
+      });
+    });
+
+    // THEN the row stands down, the way it does under a banner
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // AND comes back once the question is answered
+    await act(async () => {
+      useInteractionStore.setState({ pendingQuestion: null });
+    });
+
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(false);
+  });
+
+  test("focus does not buy the row back from a question card", () => {
+    // GIVEN a browser phone composer under a question card, where focus is
+    // normally what raises the row
+    useInteractionStore.setState({
+      pendingQuestion: {
+        requestId: "req-1",
+        entries: [{ id: "q1", question: "Which one?", options: [] }],
+      },
+    });
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // WHEN the user taps into it
+    fireEvent.focusIn(textareaOf(container));
+
+    // THEN the card still wins
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
   });
 
   test("a banner leaving gives the row back", async () => {

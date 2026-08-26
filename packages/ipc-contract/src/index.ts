@@ -16,6 +16,7 @@ export {
   type LocalConnectImportResult,
   type LocalListDevicesResult,
   type LocalPairedDeviceRecord,
+  type LocalReadAssistantAvatarResult,
   type LocalRevokeDeviceResult,
   type LocalUpgradeOptions,
   type LocalWakeOptions,

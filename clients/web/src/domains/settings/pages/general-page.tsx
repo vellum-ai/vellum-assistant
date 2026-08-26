@@ -10,6 +10,7 @@ import {
 } from "@/components/disk-pressure-banner";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { ProfileCard } from "@/components/profile-card";
+import { AppIconRow } from "@/domains/settings/components/app-icon-row";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
@@ -319,6 +320,7 @@ export function GeneralPage() {
         <div className="flex flex-col gap-5">
           <ThemePicker />
           <ShowTipsRow />
+          <AppIconRow />
         </div>
       </DetailCard>
 

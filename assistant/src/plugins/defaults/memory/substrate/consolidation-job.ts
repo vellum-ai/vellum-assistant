@@ -486,12 +486,14 @@ export async function memoryV2ConsolidateJob(
       // everything else (network blip, model hiccup, timeout) is transient
       // and stays on the short curve.
       const failureKind: ConsolidationFailureKind =
-        runResult.failureCode === "PROVIDER_BILLING" ? "billing" : "transient";
+        runResult.turnFailure?.failureCode === "PROVIDER_BILLING"
+          ? "billing"
+          : "transient";
       log.error(
         {
           conversationId: runResult.conversationId,
           errorKind: runResult.errorKind,
-          failureCode: runResult.failureCode,
+          failureCode: runResult.turnFailure?.failureCode,
           failureKind,
           err: runResult.error?.message,
         },

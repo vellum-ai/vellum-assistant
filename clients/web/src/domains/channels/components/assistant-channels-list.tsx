@@ -263,12 +263,16 @@ export function AssistantChannelsList({
           </>
         )}
 
-        {/* Slack brings its own cards (connection, default access, per-channel
-            overrides) so it renders bare; the other adapters get a DetailCard
-            wrapper. Both scroll as a whole when the stacked content overflows —
-            the per-channel list self-bounds its own rows within that. */}
+        {/* Slack and Email bring their own cards so they render bare; the
+            other adapters get a DetailCard wrapper. Both scroll as a whole
+            when the stacked content overflows; the per-channel list
+            self-bounds its own rows within that. */}
         <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selectedKey === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
+          {selectedKey === "slack" || selectedKey === "email" ? (
+            detail
+          ) : (
+            <DetailCard>{detail}</DetailCard>
+          )}
         </section>
       </div>
 

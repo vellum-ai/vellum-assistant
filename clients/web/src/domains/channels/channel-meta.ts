@@ -26,6 +26,7 @@ interface ChannelMeta {
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
     | "channelMeta.discord.label"
+    | "channelMeta.email.label"
     | "channelMeta.phone.label";
   /**
    * Catalog key for the disconnect dialog's body.
@@ -101,6 +102,17 @@ export const CHANNEL_META = {
     hasTrustFloorControl: true,
     credentialForm: "discord-token",
     disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
+  },
+  email: {
+    labelKey: "channelMeta.email.label",
+    // Email's setup is address and domain management rather than a
+    // credential form, rendered by the panel's own email branch, so every
+    // generic affordance is declared off: no form, no disconnect route, no
+    // pitch. The trust floor is the one generic control it shares.
+    disconnectMessageKey: undefined,
+    hasTrustFloorControl: true,
+    credentialForm: undefined,
+    disconnectedPitchKey: undefined,
   },
   phone: {
     labelKey: "channelMeta.phone.label",

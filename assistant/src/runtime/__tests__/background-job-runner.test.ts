@@ -278,7 +278,7 @@ describe("runBackgroundJob", () => {
     expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
     // The stable classified code rides the result so callers can branch on
     // the failure class without parsing the error message.
-    expect(result.failureCode).toBe("PROVIDER_BILLING");
+    expect(result.turnFailure?.failureCode).toBe("PROVIDER_BILLING");
 
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].sourceEventName).toBe("activity.failed");
@@ -308,6 +308,34 @@ describe("runBackgroundJob", () => {
     );
   });
 
+  test("carried turn attribution scopes the dedupe and rides the payload", async () => {
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: {
+        failureCode: "PROVIDER_BILLING",
+        userMessage: "You're out of credits.",
+        errorCategory: "credits_exhausted",
+        connectionName: "conn-a",
+        profileName: "balanced",
+      },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.turnFailure?.userMessage).toBe("You're out of credits.");
+    expect(emitCalls).toHaveLength(1);
+    // The carried connection outranks the call site's recomputed profile.
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:PROVIDER_BILLING:conn-a:\d{4}-\d{2}-\d{2}$/,
+    );
+    expect(emitCalls[0].contextPayload).toMatchObject({
+      failureSummary: "You're out of credits.",
+      errorCategory: "credits_exhausted",
+      connectionName: "conn-a",
+    });
+  });
+
   test("job-specific failure code keeps the per-job dedupe key", async () => {
     // CONTEXT_TOO_LARGE names a defect in this job's own prompt; collapsing
     // it across jobs would hide a second job's unrelated failure.
@@ -319,7 +347,7 @@ describe("runBackgroundJob", () => {
     const result = await runBackgroundJob(baseOpts());
 
     expect(result.ok).toBe(false);
-    expect(result.failureCode).toBe("CONTEXT_TOO_LARGE");
+    expect(result.turnFailure?.failureCode).toBe("CONTEXT_TOO_LARGE");
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].dedupeKey as string).toMatch(
       /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,

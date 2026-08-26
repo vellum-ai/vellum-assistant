@@ -36,11 +36,17 @@ mock.module("../runtime/background-job-runner.js", () => ({
       return { conversationId, ok: true };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      const classification = runnerFailureClassification ?? {
+        errorKind: "exception" as const,
+      };
       return {
         conversationId,
         ok: false,
         error,
-        ...(runnerFailureClassification ?? { errorKind: "exception" as const }),
+        errorKind: classification.errorKind,
+        ...(classification.failureCode !== undefined
+          ? { turnFailure: { failureCode: classification.failureCode } }
+          : {}),
       };
     }
   },

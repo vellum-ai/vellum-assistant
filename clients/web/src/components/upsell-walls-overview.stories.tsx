@@ -35,7 +35,7 @@ import {
   ADD_CREDITS_COPY,
   UPGRADE_COPY,
 } from "@/domains/chat/components/credits-upsell-card";
-import { EmailManagedContent } from "@/domains/settings/ai/email-managed-content";
+import { EmailManagedContent } from "@/domains/channels/components/email-managed-content";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import {
