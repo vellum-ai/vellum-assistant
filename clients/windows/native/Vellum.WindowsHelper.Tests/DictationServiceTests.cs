@@ -187,10 +187,36 @@ public static class DictationServiceTests
         // A failed replacement reports a reason and settles the displaced owner.
         events.Clear();
         engine = new FakeEngine { StartError = new Exception("audio device unavailable") };
-        Assert(Json(manager.SetPartials(true, false, 16000))
+        Assert(Json(manager.SetPartials(true, true, 16000))
             .Contains("audio device unavailable", StringComparison.Ordinal));
         Assert(events.Any(e => e.Method == "dictation.error" &&
             e.Json.Contains("audio device unavailable", StringComparison.Ordinal)));
+
+        // A tap session whose on-device engine cannot start falls through
+        // to the server path; when that fails too the error is terminal.
+        events.Clear();
+        var noLanguagePack = new FakeEngine { StartError = new Exception("no recognizer") };
+        var fallback = new FakeEngine();
+        manager = new DictationSessionManager(
+            request => request.RequireOnDevice ? noLanguagePack : fallback, Notify);
+        Assert(Json(manager.SetPartials(true, false, 16000))
+            .Contains("\"enabled\":true", StringComparison.Ordinal));
+        Assert(noLanguagePack.Disposed);
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":true", StringComparison.Ordinal)));
+        events.Clear();
+        manager = new DictationSessionManager(
+            request => request.RequireOnDevice
+                ? throw new DictationUnavailableException("no recognizer")
+                : throw new DictationUnavailableException("offline"),
+            Notify);
+        Assert(Json(manager.SetPartials(true, false, 16000))
+            .Contains("offline", StringComparison.Ordinal));
+        Assert(events.Count(e => e.Method == "dictation.error") == 2);
+        Assert(events.Any(e =>
+            e.Json.Contains("\"onDevice\":false", StringComparison.Ordinal) &&
+            e.Json.Contains("\"willRetryServer\":false", StringComparison.Ordinal)));
+        manager = new DictationSessionManager(_ => engine, Notify);
 
         // Whole-recording transcription uses an independent pushed-audio
         // engine, publishes its final text, and does not disturb streaming.

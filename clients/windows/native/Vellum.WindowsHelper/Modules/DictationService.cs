@@ -133,6 +133,10 @@ public sealed class DictationSessionManager(
     {
         var generation = ++_generation;
         _sawActivity = false;
+        // Only a tap session can move to the server path: the online
+        // engine cannot replay pushed PCM, and short push dictations settle
+        // through `dictation.transcribe` anyway.
+        var canRetryServer = request.RequireOnDevice && !request.PushAudio;
         IDictationEngine engine;
         try
         {
@@ -140,13 +144,8 @@ public sealed class DictationSessionManager(
         }
         catch (DictationUnavailableException err)
         {
-            NotifyStartFailure(err.Message, request.RequireOnDevice);
-            return new { enabled = false, reason = err.Message };
+            return StartFailedLocked(err.Message, request, canRetryServer);
         }
-        // Only a tap session can move to the server path: the online
-        // engine cannot replay pushed PCM, and short push dictations settle
-        // through `dictation.transcribe` anyway.
-        var canRetryServer = request.RequireOnDevice && !request.PushAudio;
         engine.Partial += text => IfCurrent(generation, () =>
         {
             _sawActivity = true;
@@ -194,8 +193,7 @@ public sealed class DictationSessionManager(
                 _engine = null;
                 engine.Dispose();
             }
-            NotifyStartFailure(err.Message, request.RequireOnDevice);
-            return new { enabled = false, reason = err.Message };
+            return StartFailedLocked(err.Message, request, canRetryServer);
         }
         if (!ReferenceEquals(_engine, engine))
         {
@@ -249,6 +247,29 @@ public sealed class DictationSessionManager(
     {
         CancelLocked();
         StartLocked(request with { RequireOnDevice = false });
+    }
+
+    /// <summary>
+    /// A tap session whose on-device recognizer cannot even be built or
+    /// started (no language pack, denied device) tries the server path;
+    /// anything else is a terminal error.
+    /// </summary>
+    private object StartFailedLocked(
+        string message,
+        DictationEngineRequest request,
+        bool canRetryServer)
+    {
+        notify("dictation.error", new
+        {
+            message,
+            onDevice = request.RequireOnDevice,
+            willRetryServer = canRetryServer,
+        });
+        if (!canRetryServer)
+        {
+            return new { enabled = false, reason = message };
+        }
+        return StartLocked(request with { RequireOnDevice = false });
     }
 
     public object AppendAudio(string base64)
@@ -348,10 +369,6 @@ public sealed class DictationSessionManager(
         _transcriptionEngine?.Dispose();
         _transcriptionEngine = null;
     }
-
-    private void NotifyStartFailure(string message, bool onDevice) =>
-        notify("dictation.error",
-            new { message, onDevice, willRetryServer = false });
 
     private static TimeSpan TranscriptionCompletionTimeout(
         int pcmByteLength,
@@ -579,13 +596,6 @@ internal sealed class OnlineSpeechEngine : IDictationEngine
             _recognizer = new WinRtSpeechRecognizer();
             _recognizer.Constraints.Add(new SpeechRecognitionTopicConstraint(
                 SpeechRecognitionScenario.Dictation, "dictation"));
-            var compiled = _recognizer.CompileConstraintsAsync()
-                .AsTask().GetAwaiter().GetResult();
-            if (compiled.Status != SpeechRecognitionResultStatus.Success)
-            {
-                throw new InvalidOperationException(
-                    $"online recognition unavailable ({compiled.Status})");
-            }
         }
         catch (Exception err)
         {
@@ -617,11 +627,29 @@ internal sealed class OnlineSpeechEngine : IDictationEngine
     public event Action<string>? Finalized;
     public event Action<string>? Failed;
 
-    // Throws when the online speech privacy setting is off; the session
-    // manager reports it as a start failure.
-    public void Start() =>
-        _recognizer.ContinuousRecognitionSession.StartAsync()
-            .AsTask().GetAwaiter().GetResult();
+    // Compile and start off the caller's thread: the session manager
+    // holds its lock during Start, and the online path can stall on the
+    // network. Failures (offline, online speech privacy setting off)
+    // surface through `Failed`.
+    public void Start() => _ = StartAsync();
+
+    private async Task StartAsync()
+    {
+        try
+        {
+            var compiled = await _recognizer.CompileConstraintsAsync();
+            if (compiled.Status != SpeechRecognitionResultStatus.Success)
+            {
+                Complete($"online recognition unavailable ({compiled.Status})");
+                return;
+            }
+            await _recognizer.ContinuousRecognitionSession.StartAsync();
+        }
+        catch (Exception err)
+        {
+            Complete(err.Message);
+        }
+    }
 
     public void Append(byte[] pcm)
     {
