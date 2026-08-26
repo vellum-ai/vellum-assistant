@@ -644,7 +644,6 @@
   },
   "useGlobalDeepLinkConsumer": {
     "connectGuidance": "Este enlace proviene de un código QR de emparejamiento. Para conectar este Mac, pega aquí el enlace de emparejamiento del equipo del asistente.",
-    "connectGuidanceWithHost": "Este enlace proviene de un código QR de emparejamiento. Para conectar este Mac, pega aquí el enlace de emparejamiento del equipo del asistente en {host}.",
     "legacyLinkGuidance": "Este enlace proviene de una versión anterior de la aplicación y ya no se puede usar. Genera un nuevo enlace de emparejamiento en el equipo del asistente y pégalo aquí."
   },
   "useVoiceSamplePreview": {

@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { buildRemoteWebPairingUrl } from "@vellumai/service-contracts/remote-web-pairing";
+
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { t } from "@/i18n";
 import { notifyCheckoutSuccess } from "@/lib/billing/checkout-success";
@@ -68,11 +70,12 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  *   drain (`useCameraDeepLink`).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
- *   which opens its Connect a Remote Assistant dialog off that store
- *   with guidance: a link carrying a `bundle` is told to fetch a fresh
- *   pairing link, and a bundle-less link (the pair page's url+code
- *   hand-off, which cannot complete a durable desktop pairing) gets
- *   guidance naming the host.
+ *   which opens its Connect a Remote Assistant dialog off that store.
+ *   A `url`+`code` link recomposes into the pairing link and prefills the
+ *   address field, so the pair completes on one click; a link carrying
+ *   only a base prefills that, and the dialog mints its own approval
+ *   code. A link with no usable base gets guidance instead of a prefill,
+ *   naming its legacy pairing bundle when it carried one.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * ## Deep-link text: proven provenance sends, anything else pre-fills
@@ -126,26 +129,23 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  */
 
 /**
- * Guidance for a connect link that carried no bundle: the pair page's
- * url+code hand-off. The device-code exchange cannot produce a durable
- * desktop pairing (its refresh token is an HttpOnly cookie), so the
- * dialog explains how to get a pairing link instead. Named host only
- * when the link carried a parseable https base.
+ * The address a `connect` deep link asks the dialog to pair with. A link
+ * carrying a device code recomposes into the pairing link the local-mode host
+ * exchanges outright; a link carrying only a base becomes the bare address,
+ * which mints its own approval code. `null` when the link carried no usable
+ * base, leaving the dialog nothing to submit.
  */
-function connectGuidanceMessage(url: string | null): string {
-  let host: string | null = null;
-  if (url !== null) {
-    try {
-      host = new URL(url).host;
-    } catch {
-      // Main-side validation makes this unreachable; guidance degrades
-      // to the hostless copy.
-    }
+function connectAddress(
+  url: string | null,
+  code: string | null,
+): string | null {
+  if (url === null) {
+    return null;
   }
-  if (host === null) {
-    return t("useGlobalDeepLinkConsumer.connectGuidance");
+  if (code === null) {
+    return url;
   }
-  return t("useGlobalDeepLinkConsumer.connectGuidanceWithHost", { host });
+  return buildRemoteWebPairingUrl({ verificationUri: url, deviceCode: code });
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -377,20 +377,30 @@ export function useGlobalDeepLinkConsumer(): void {
     },
   );
 
-  // A `bundle` comes from app versions whose connect dialog took a pasted
-  // pairing bundle. The renderer has no importer for one, the credentials it
-  // carries are short-lived, and it is secret material, so only its presence
-  // is read: the payload reaches neither the store, the field, nor a log.
-  useBusSubscription("deeplink.connect", ({ url, bundle }) => {
+  // A usable address prefills the field and stops there. A custom URL scheme
+  // carries no caller identity (see the provenance note above the hook) and a
+  // pairing is an authority grant: submitting one unattended would let any page
+  // that can open a URL attach an assistant of its choosing and have the
+  // chooser connect to it. Prefilling retypes nothing, shows the user the host
+  // they are about to pair with, and leaves the grant one click away.
+  //
+  // With nothing to submit the dialog explains the link instead. `legacy`
+  // marks app versions whose connect dialog took a pasted pairing bundle; the
+  // payload never crosses the bridge, so only the flag is read.
+  useBusSubscription("deeplink.connect", ({ url, code, legacy }) => {
     void ensureMainWindowVisible();
+    const address = connectAddress(url, code);
     // Park before navigating so the chooser mounts with the dialog
     // already open (its auto-skip stands down while it is).
-    useConnectDialogStore.getState().openConnectDialog({
-      guidanceMessage:
-        bundle === null
-          ? connectGuidanceMessage(url)
-          : t("useGlobalDeepLinkConsumer.legacyLinkGuidance"),
-    });
+    useConnectDialogStore.getState().openConnectDialog(
+      address !== null
+        ? { initialAddress: address }
+        : {
+            guidanceMessage: legacy
+              ? t("useGlobalDeepLinkConsumer.legacyLinkGuidance")
+              : t("useGlobalDeepLinkConsumer.connectGuidance"),
+          },
+    );
     navigateRef.current(routes.selectAssistant);
   });
 

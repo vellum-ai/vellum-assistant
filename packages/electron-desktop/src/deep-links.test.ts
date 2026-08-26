@@ -347,7 +347,7 @@ describe("parseVellumUrl", () => {
     ).toEqual({ kind: "unknown", url: "vellum-assistant://auth/callback" });
   });
 
-  test("vellum-assistant://connect?url=…&code=… → connect with the validated base; the code is never carried", () => {
+  test("vellum-assistant://connect?url=…&code=… → connect carrying the base and the device code", () => {
     expect(
       parseVellumUrl(
         "vellum-assistant://connect?url=https%3A%2F%2Fassistant.example.com%2Fassistant-1&code=ABCD-1234",
@@ -355,20 +355,67 @@ describe("parseVellumUrl", () => {
     ).toEqual({
       kind: "connect",
       url: "https://assistant.example.com/assistant-1",
+      code: "ABCD-1234",
     });
   });
 
-  test("vellum://connect?bundle=… → connect carrying the bundle", () => {
-    expect(parseVellumUrl("vellum://connect?bundle=eyJnYXRld2F5")).toEqual({
-      kind: "connect",
-      bundle: "eyJnYXRld2F5",
-    });
-  });
-
-  test("connect accepts base64url bundles with padding", () => {
+  test("connect carries an opaque code, not just base64url", () => {
+    // `buildAppConnectUrl` emits whatever the gateway minted, and its own test
+    // pins `a+b/c=` surviving the encoding. Refusing it here would silently
+    // drop an approved code and drop the user into a fresh approval flow.
     expect(
-      parseVellumUrl("vellum-assistant://connect?bundle=ab-C_9%3D%3D"),
-    ).toEqual({ kind: "connect", bundle: "ab-C_9==" });
+      parseVellumUrl(
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=a%2Bb%2Fc%3D",
+      ),
+    ).toEqual({ kind: "connect", url: "https://h.example", code: "a+b/c=" });
+  });
+
+  test("connect drops a code that cannot have come from a gateway", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=has%20a%20space",
+      ),
+    ).toEqual({ kind: "connect", url: "https://h.example" });
+    expect(
+      parseVellumUrl(
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=%00control",
+      ),
+    ).toEqual({ kind: "connect", url: "https://h.example" });
+    expect(
+      parseVellumUrl(
+        `vellum://connect?url=https%3A%2F%2Fh.example&code=${"a".repeat(257)}`,
+      ),
+    ).toEqual({ kind: "connect", url: "https://h.example" });
+  });
+
+  test("connect drops a code with no base to exchange it against", () => {
+    // Nothing can be done with a device code alone, so it is not carried
+    // across the bridge just to be discarded there.
+    expect(parseVellumUrl("vellum://connect?code=ABCD-1234")).toEqual({
+      kind: "connect",
+    });
+    expect(
+      parseVellumUrl("vellum://connect?url=http%3A%2F%2Fevil.example&code=SEC"),
+    ).toEqual({ kind: "connect" });
+  });
+
+  test("vellum://connect?bundle=… → the legacy signal, never the payload", () => {
+    const link = parseVellumUrl("vellum://connect?bundle=eyJnYXRld2F5");
+    expect(link).toEqual({ kind: "connect", legacy: true });
+    expect(JSON.stringify(link)).not.toContain("eyJnYXRld2F5");
+  });
+
+  test("a bundle rides alongside a usable base without displacing it", () => {
+    expect(
+      parseVellumUrl(
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=ABCD&bundle=eyJnYXRld2F5",
+      ),
+    ).toEqual({
+      kind: "connect",
+      url: "https://h.example",
+      code: "ABCD",
+      legacy: true,
+    });
   });
 
   test("connect drops a non-https url param but keeps the rest of the link", () => {
@@ -376,19 +423,13 @@ describe("parseVellumUrl", () => {
       parseVellumUrl(
         "vellum://connect?url=http%3A%2F%2Fevil.example&bundle=eyJnYXRld2F5",
       ),
-    ).toEqual({ kind: "connect", bundle: "eyJnYXRld2F5" });
+    ).toEqual({ kind: "connect", legacy: true });
   });
 
   test("connect drops an unparseable url param", () => {
     expect(
       parseVellumUrl("vellum://connect?url=not%20a%20url&bundle=eyJnYXRld2F5"),
-    ).toEqual({ kind: "connect", bundle: "eyJnYXRld2F5" });
-  });
-
-  test("connect drops a bundle that is not base64/base64url", () => {
-    expect(
-      parseVellumUrl("vellum://connect?bundle=not%20base64%20at%20all"),
-    ).toEqual({ kind: "connect" });
+    ).toEqual({ kind: "connect", legacy: true });
   });
 
   test("a bare connect link still parses as connect, never unknown", () => {
@@ -402,10 +443,10 @@ describe("parseVellumUrl", () => {
   });
 
   test("connect secrets never surface in console output from the module", () => {
-    // The parser carries `bundle` on the typed link only and drops the
-    // device code entirely. This guards the auth/callback precedent:
-    // nothing the module does with a connect URL may write the raw URL's
-    // secret material to a log stream.
+    // The parser carries `code` on the typed link only and drops the bundle
+    // payload entirely. This guards the auth/callback precedent: nothing the
+    // module does with a connect URL may write the raw URL's credential
+    // material to a log stream.
     const consoleSpies = (
       ["log", "warn", "error", "info", "debug"] as const
     ).map((method) => spyOn(console, method));
@@ -423,6 +464,22 @@ describe("parseVellumUrl", () => {
       for (const spy of consoleSpies) {
         spy.mockRestore();
       }
+    }
+  });
+
+  test("a connect link never reaches the unknown echo path, however malformed", () => {
+    // `unknown` carries its URL through to the renderer's Sentry breadcrumb,
+    // so a device code must never be able to route there. Every connect link
+    // stays a connect link, malformed fields and all.
+    for (const input of [
+      "vellum://connect?url=https%3A%2F%2Fh.example&code=SECRET-CODE",
+      "vellum://connect?url=nonsense&code=SECRET-CODE",
+      "vellum://connect?code=SECRET-CODE",
+      "vellum://connect/extra/path?code=SECRET-CODE",
+    ]) {
+      const link = parseVellumUrl(input);
+      expect(link.kind).toBe("connect");
+      expect(JSON.stringify(link)).not.toContain("nonsense");
     }
   });
 
@@ -724,7 +781,7 @@ describe("handleDeepLink — window activation", () => {
   });
 
   test("brings the main window forward for `connect`", () => {
-    handleDeepLink("vellum://connect?bundle=eyJnYXRld2F5");
+    handleDeepLink("vellum://connect?url=https%3A%2F%2Fh.example&code=ABCD");
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 
