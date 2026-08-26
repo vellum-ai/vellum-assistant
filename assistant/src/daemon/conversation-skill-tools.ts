@@ -105,6 +105,8 @@ export interface ProjectSkillToolsOptions {
   preactivatedSkillIds?: string[];
   /** Operating system reported by the client driving the current turn. */
   clientOs?: string;
+  /** Authenticated actor driving the current turn. */
+  sourceActorPrincipalId?: string;
   /**
    * Conversation-scoped tracking map of previously active skill IDs to their
    * version hashes (or the no-tools sentinel for active skills without a
@@ -386,7 +388,13 @@ export function projectSkillTools(
     const flagKey = skill ? skillFlagKey(skill) : undefined;
     if (
       (!skill ||
-        isSkillCompatibleWithClientPlatform(skill, options?.clientOs)) &&
+        isSkillCompatibleWithClientPlatform(
+          skill,
+          options?.clientOs,
+          process.platform,
+          undefined,
+          options?.sourceActorPrincipalId,
+        )) &&
       (!flagKey || isAssistantFeatureFlagEnabled(flagKey, config))
     ) {
       activeIds.add(id);

@@ -41,6 +41,12 @@ function requestClientOs(
   return parseClientOs(headers?.[CLIENT_METADATA_HEADERS.os]) ?? undefined;
 }
 
+function requestActorPrincipalId(
+  headers: Record<string, string> | undefined,
+): string | undefined {
+  return headers?.["x-vellum-actor-principal-id"];
+}
+
 const partnerAuditSchema = z.object({
   risk: z.enum(["safe", "low", "medium", "high", "critical", "unknown"]),
   alerts: z.number().optional(),
@@ -243,6 +249,7 @@ export const ROUTES: RouteDefinition[] = [
             includeCatalog: include === "catalog",
           },
           clientOs,
+          requestActorPrincipalId(headers),
         );
         return {
           skills: result.skills,
@@ -251,7 +258,7 @@ export const ROUTES: RouteDefinition[] = [
         };
       }
 
-      const skills = listSkills(clientOs);
+      const skills = listSkills(clientOs, requestActorPrincipalId(headers));
       return { skills };
     },
   },
@@ -323,6 +330,7 @@ export const ROUTES: RouteDefinition[] = [
         pathParams!.id,
         path,
         requestClientOs(headers),
+        requestActorPrincipalId(headers),
       );
       if ("error" in result) {
         if (result.status === 400) {
@@ -366,6 +374,7 @@ export const ROUTES: RouteDefinition[] = [
       const result = await getSkillFiles(
         pathParams!.id,
         requestClientOs(headers),
+        requestActorPrincipalId(headers),
       );
       if ("error" in result) {
         if (result.status === 404) {
@@ -432,7 +441,13 @@ export const ROUTES: RouteDefinition[] = [
         // gone. An existing skill with nothing recorded still gets an empty
         // list, which is the honest answer for a bundled skill or one the
         // workspace has not committed yet.
-        if (!skillExistsLocally(pathParams!.id, requestClientOs(headers))) {
+        if (
+          !skillExistsLocally(
+            pathParams!.id,
+            requestClientOs(headers),
+            requestActorPrincipalId(headers),
+          )
+        ) {
           throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
         }
         return await getSkillHistory(pathParams!.id, {
@@ -581,7 +596,12 @@ export const ROUTES: RouteDefinition[] = [
       const limit = limitRaw
         ? Math.max(1, Number.parseInt(limitRaw, 10) || 25)
         : 25;
-      const result = await searchSkills(query, limit, requestClientOs(headers));
+      const result = await searchSkills(
+        query,
+        limit,
+        requestClientOs(headers),
+        requestActorPrincipalId(headers),
+      );
       if (!result.success) {
         throw new InternalError(result.error);
       }
@@ -678,7 +698,11 @@ export const ROUTES: RouteDefinition[] = [
       skill: skillDetailSchema.describe("Skill detail object"),
     }),
     handler: async ({ pathParams, headers }: RouteHandlerArgs) => {
-      const result = await getSkill(pathParams!.id, requestClientOs(headers));
+      const result = await getSkill(
+        pathParams!.id,
+        requestClientOs(headers),
+        requestActorPrincipalId(headers),
+      );
       if ("error" in result) {
         if (result.status === 404) {
           throw new NotFoundError(result.error);
@@ -769,6 +793,7 @@ export const ROUTES: RouteDefinition[] = [
         catalogOnly: body.catalogOnly as boolean | undefined,
         overwrite: body.overwrite as boolean | undefined,
         clientOs: requestClientOs(headers),
+        sourceActorPrincipalId: requestActorPrincipalId(headers),
       });
       if (!result.success) {
         throw new InternalError(result.error);
@@ -833,6 +858,7 @@ export const ROUTES: RouteDefinition[] = [
       const result = getSkillLocalDetail(
         pathParams!.id,
         requestClientOs(headers),
+        requestActorPrincipalId(headers),
       );
       if (!result.ok) {
         if (result.status === 404) {

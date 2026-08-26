@@ -25,6 +25,7 @@ export function resolveSkillStates(
   catalog: SkillSummary[],
   config: AssistantConfig,
   clientOs?: string,
+  sourceActorPrincipalId?: string,
 ): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
   const { entries, allowBundled } = config.skills ?? {
@@ -33,7 +34,15 @@ export function resolveSkillStates(
   };
 
   for (const skill of catalog) {
-    if (!isSkillCompatibleWithClientPlatform(skill, clientOs)) {
+    if (
+      !isSkillCompatibleWithClientPlatform(
+        skill,
+        clientOs,
+        process.platform,
+        undefined,
+        sourceActorPrincipalId,
+      )
+    ) {
       continue;
     }
 

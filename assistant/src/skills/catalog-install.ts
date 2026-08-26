@@ -634,6 +634,7 @@ export async function autoInstallFromCatalog(
   skillId: string,
   catalog?: CatalogSkill[],
   clientOs?: string,
+  sourceActorPrincipalId?: string,
 ): Promise<boolean> {
   let skills: CatalogSkill[];
 
@@ -655,7 +656,15 @@ export async function autoInstallFromCatalog(
   if (!entry) {
     return false;
   }
-  if (!isSkillCompatibleWithClientPlatform(entry, clientOs)) {
+  if (
+    !isSkillCompatibleWithClientPlatform(
+      entry,
+      clientOs,
+      process.platform,
+      undefined,
+      sourceActorPrincipalId,
+    )
+  ) {
     throw new Error(skillPlatformUnavailableMessage(skillId, entry));
   }
 

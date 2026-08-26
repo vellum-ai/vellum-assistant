@@ -89,6 +89,7 @@ function writeToolsJson(
 async function executeSkillLoad(
   input: Record<string, unknown>,
   clientOs?: string,
+  sourceActorPrincipalId?: string,
 ): Promise<{ content: string; isError: boolean }> {
   const tool = skillLoadTool;
 
@@ -96,6 +97,7 @@ async function executeSkillLoad(
     workingDir: "/tmp",
     conversationId: "conversation-1",
     clientOs,
+    sourceActorPrincipalId,
     trustClass: "guardian",
   });
   return { content: result.content, isError: result.isError };
@@ -164,12 +166,14 @@ describe("skill_load tool", () => {
       clientId: "client-platform-skill-host",
       interfaceId: clientPlatform,
       capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
       callback: () => {},
     });
     try {
       const withClient = await executeSkillLoad(
         { skill: "client-platform-skill" },
         clientPlatform,
+        "actor-a",
       );
       expect(withClient.isError).toBe(false);
       expect(withClient.content).toContain("Body.");

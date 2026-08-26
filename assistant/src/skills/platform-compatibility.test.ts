@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   filterSkillsByClientPlatform,
   filterSkillsByPlatform,
@@ -51,6 +52,47 @@ describe("skill platform compatibility", () => {
     ).toBe(false);
   });
 
+  test("rejects a Windows browser without a capable host on Windows", () => {
+    const skill = { platforms: ["windows"] as const };
+    expect(
+      isSkillCompatibleWithClientPlatform(skill, "windows", "win32", []),
+    ).toBe(false);
+  });
+
+  test("does not use another actor's capable host", () => {
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "platform-compatibility-actor-b-host",
+      interfaceId: "windows",
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-b",
+      callback: () => {},
+    });
+    try {
+      const skill = { platforms: ["windows"] as const };
+      expect(
+        isSkillCompatibleWithClientPlatform(
+          skill,
+          "windows",
+          "linux",
+          undefined,
+          "actor-a",
+        ),
+      ).toBe(false);
+      expect(
+        isSkillCompatibleWithClientPlatform(
+          skill,
+          "windows",
+          "linux",
+          undefined,
+          "actor-b",
+        ),
+      ).toBe(true);
+    } finally {
+      hostClient.dispose();
+    }
+  });
+
   test("filters incompatible skills from offer surfaces", () => {
     const skills = [
       { id: "portable" },
@@ -63,7 +105,7 @@ describe("skill platform compatibility", () => {
     ).toEqual(["portable", "windows-only"]);
   });
 
-  test("filters offer surfaces by assistant or connected client platform", () => {
+  test("filters client-routed surfaces by the capable host platform", () => {
     const skills = [
       { id: "linux-only", platforms: ["linux"] as const },
       { id: "windows-only", platforms: ["windows"] as const },
@@ -74,7 +116,7 @@ describe("skill platform compatibility", () => {
       filterSkillsByClientPlatform(skills, "windows", "linux", ["windows"]).map(
         (skill) => skill.id,
       ),
-    ).toEqual(["linux-only", "windows-only"]);
+    ).toEqual(["windows-only"]);
   });
 
   test("normalizes valid unique metadata values", () => {

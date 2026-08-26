@@ -426,12 +426,14 @@ Body.
       clientId: "install-skill-routing-host",
       interfaceId: clientPlatform,
       capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
       callback: () => {},
     });
     try {
       const result = await installSkill({
         slug: "client-platform-skill",
         clientOs: clientPlatform,
+        sourceActorPrincipalId: "actor-a",
       });
 
       expect(result).toEqual({

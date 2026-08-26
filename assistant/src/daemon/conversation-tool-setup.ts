@@ -1042,6 +1042,7 @@ export function createResolveToolsCallback(
     const projection = projectSkillTools(history, {
       preactivatedSkillIds: effectivePreactivated,
       clientOs: ctx.currentTurnClientOs,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId(),
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
       // Scope plugin-contributed skills to the conversation's per-chat plugin

@@ -243,10 +243,13 @@ describe("resolveSkillStates with feature flags", () => {
       clientId: "skill-state-client-platform-host",
       interfaceId: clientPlatform,
       capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
       callback: () => {},
     });
     try {
-      expect(resolveSkillStates([skill], config, clientPlatform)).toEqual([
+      expect(
+        resolveSkillStates([skill], config, clientPlatform, "actor-a"),
+      ).toEqual([
         expect.objectContaining({
           summary: expect.objectContaining({ id: "client-platform-skill" }),
           state: "enabled",

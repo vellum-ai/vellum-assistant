@@ -102,6 +102,9 @@ export async function executeFindSimilarSkills(
       ? catalog
       : catalog.filter((skill) => !outOfScope(skill)),
     context.clientOs,
+    process.platform,
+    undefined,
+    context.sourceActorPrincipalId,
   );
 
   const hits = await findNearest(goal, {

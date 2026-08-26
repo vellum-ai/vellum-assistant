@@ -192,6 +192,7 @@ export const skillLoadTool = {
           selector,
           undefined,
           context.clientOs,
+          context.sourceActorPrincipalId,
         );
         if (installed) {
           log.info({ skillId: selector }, "Auto-installed skill from catalog");
@@ -219,7 +220,15 @@ export const skillLoadTool = {
 
     const skill = loaded.skill;
 
-    if (!isSkillCompatibleWithClientPlatform(skill, context.clientOs)) {
+    if (
+      !isSkillCompatibleWithClientPlatform(
+        skill,
+        context.clientOs,
+        process.platform,
+        undefined,
+        context.sourceActorPrincipalId,
+      )
+    ) {
       return {
         content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
         isError: true,
@@ -310,6 +319,7 @@ export const skillLoadTool = {
               missingId,
               remoteCatalog,
               context.clientOs,
+              context.sourceActorPrincipalId,
             );
             if (installed) {
               log.info(
@@ -438,7 +448,15 @@ export const skillLoadTool = {
         if (childOutOfPluginScope(child)) {
           continue;
         }
-        if (!isSkillCompatibleWithClientPlatform(child, context.clientOs)) {
+        if (
+          !isSkillCompatibleWithClientPlatform(
+            child,
+            context.clientOs,
+            process.platform,
+            undefined,
+            context.sourceActorPrincipalId,
+          )
+        ) {
           continue;
         }
         const childFlagKey = skillFlagKey(child);

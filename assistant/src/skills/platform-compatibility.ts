@@ -46,9 +46,15 @@ export function skillPlatformForClientOs(value: unknown): SkillPlatform | null {
     : null;
 }
 
-function connectedHostPlatforms(): SkillPlatform[] {
+function connectedHostPlatforms(
+  sourceActorPrincipalId: string | undefined,
+): SkillPlatform[] {
+  if (sourceActorPrincipalId == null) {
+    return [];
+  }
   const platforms = assistantEventHub
     .listClientsByCapability("host_bash")
+    .filter((client) => client.actorPrincipalId === sourceActorPrincipalId)
     .map((client) => skillPlatformForClientOs(client.interfaceId))
     .filter((platform): platform is SkillPlatform => platform !== null);
   return [...new Set(platforms)];
@@ -69,15 +75,21 @@ export function isSkillCompatibleWithClientPlatform(
   skill: PlatformScopedSkill,
   clientOs: unknown,
   platform: NodeJS.Platform = process.platform,
-  hostPlatforms: readonly unknown[] = connectedHostPlatforms(),
+  hostPlatforms?: readonly unknown[],
+  sourceActorPrincipalId?: string,
 ): boolean {
-  if (isSkillCompatibleWithPlatform(skill, platform)) {
+  if (!skill.platforms || skill.platforms.length === 0) {
     return true;
   }
+  if (clientOs == null) {
+    return isSkillCompatibleWithPlatform(skill, platform);
+  }
   const clientPlatform = skillPlatformForClientOs(clientOs);
+  const capableHostPlatforms =
+    hostPlatforms ?? connectedHostPlatforms(sourceActorPrincipalId);
   return (
     clientPlatform !== null &&
-    hostPlatforms.includes(clientPlatform) &&
+    capableHostPlatforms.includes(clientPlatform) &&
     skill.platforms?.includes(clientPlatform) === true
   );
 }
@@ -95,14 +107,18 @@ export function filterSkillsByClientPlatform<T extends PlatformScopedSkill>(
   skills: readonly T[],
   clientOs: unknown,
   platform: NodeJS.Platform = process.platform,
-  hostPlatforms: readonly unknown[] = connectedHostPlatforms(),
+  hostPlatforms?: readonly unknown[],
+  sourceActorPrincipalId?: string,
 ): T[] {
+  const capableHostPlatforms =
+    hostPlatforms ?? connectedHostPlatforms(sourceActorPrincipalId);
   return skills.filter((skill) =>
     isSkillCompatibleWithClientPlatform(
       skill,
       clientOs,
       platform,
-      hostPlatforms,
+      capableHostPlatforms,
+      sourceActorPrincipalId,
     ),
   );
 }

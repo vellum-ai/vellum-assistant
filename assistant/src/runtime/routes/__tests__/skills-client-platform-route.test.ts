@@ -1,15 +1,26 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const listSkillsMock = mock((_clientOs?: string) => []);
+const listSkillsMock = mock(
+  (_clientOs?: string, _sourceActorPrincipalId?: string) => [],
+);
 const listSkillsFilteredMock = mock(
-  async (_filter: unknown, _clientOs?: string) => ({
+  async (
+    _filter: unknown,
+    _clientOs?: string,
+    _sourceActorPrincipalId?: string,
+  ) => ({
     skills: [],
     categoryCounts: {},
     totalCount: 0,
   }),
 );
 const searchSkillsMock = mock(
-  async (_query: string, _limit: number, _clientOs?: string) => ({
+  async (
+    _query: string,
+    _limit: number,
+    _clientOs?: string,
+    _sourceActorPrincipalId?: string,
+  ) => ({
     success: true as const,
     skills: [],
   }),
@@ -50,7 +61,10 @@ const installHandler = ROUTES.find(
   (r) => r.operationId === "installSkill",
 )!.handler;
 
-const WINDOWS_HEADERS = { "x-vellum-client-os": "windows" };
+const WINDOWS_HEADERS = {
+  "x-vellum-client-os": "windows",
+  "x-vellum-actor-principal-id": "actor-a",
+};
 
 beforeEach(() => {
   listSkillsMock.mockClear();
@@ -63,7 +77,7 @@ describe("skill management client platform routing", () => {
   test("passes the requesting client OS to skill listings", async () => {
     await listHandler({ headers: WINDOWS_HEADERS });
 
-    expect(listSkillsMock).toHaveBeenCalledWith("windows");
+    expect(listSkillsMock).toHaveBeenCalledWith("windows", "actor-a");
   });
 
   test("passes the requesting client OS to catalog search", async () => {
@@ -72,7 +86,12 @@ describe("skill management client platform routing", () => {
       headers: WINDOWS_HEADERS,
     });
 
-    expect(searchSkillsMock).toHaveBeenCalledWith("automation", 25, "windows");
+    expect(searchSkillsMock).toHaveBeenCalledWith(
+      "automation",
+      25,
+      "windows",
+      "actor-a",
+    );
   });
 
   test("passes the requesting client OS to catalog install", async () => {
@@ -85,6 +104,7 @@ describe("skill management client platform routing", () => {
       expect.objectContaining({
         slug: "windows-automation",
         clientOs: "windows",
+        sourceActorPrincipalId: "actor-a",
       }),
     );
   });
