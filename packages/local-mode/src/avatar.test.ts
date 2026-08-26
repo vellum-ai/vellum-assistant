@@ -193,13 +193,26 @@ describe("readLockfileAssistantAvatar", () => {
       "avatar.json",
       JSON.stringify({ kind: "image", image: imageMeta }),
     );
-    const image = Buffer.alloc(imageMaxBytes);
+    const image = Buffer.concat([
+      png,
+      Buffer.alloc(imageMaxBytes - png.length),
+    ]);
     writeAvatarFile("avatar-image.png", image);
 
     expect(read()).toEqual({
       ok: true,
       avatar: { kind: "image", imageBase64: image.toString("base64") },
     });
+  });
+
+  test("manifest image whose bytes are not a raster is a failure", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+    writeAvatarFile("avatar-image.png", Buffer.from("definitely not an image"));
+
+    expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
   });
 
   test("manifest image whose PNG is a directory is a failure", () => {

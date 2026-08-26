@@ -20,13 +20,11 @@
  * copy.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import {
-  computeImageMeta,
-  readAvatarState,
-} from "../avatar/avatar-manifest.js";
+import { readAvatarState } from "../avatar/avatar-manifest.js";
 import {
   ensureAvatarRasterPath,
   readContainedAvatarRaster,
@@ -130,14 +128,15 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
     log.warn({ kind: state.kind }, "Avatar raster missing; skipping sync");
     return undefined;
   }
-  const { etag } = computeImageMeta(path);
+  const bytes = readRaster(path);
+  if (!bytes) {
+    return undefined;
+  }
+  // Keyed on content so a same-size, same-mtime rewrite still re-syncs.
+  const digest = createHash("sha256").update(bytes).digest("hex");
   return {
-    key: `${state.kind}:${etag}`,
+    key: `${state.kind}:${digest}`,
     body: async () => {
-      const bytes = readRaster(path);
-      if (!bytes) {
-        return undefined;
-      }
       const encoded = encodeForUpload(bytes);
       if (encoded === undefined) {
         log.warn(

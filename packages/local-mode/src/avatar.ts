@@ -32,6 +32,20 @@ function isBeneath(dir: string, filePath: string): boolean {
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
+/** PNG, JPEG, GIF, or WebP magic bytes; anything else is not a usable raster. */
+function looksLikeRaster(bytes: Buffer): boolean {
+  if (bytes.length < 4) return false;
+  if (bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])))
+    return true;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true;
+  if (bytes.subarray(0, 4).toString("latin1") === "GIF8") return true;
+  return (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString("latin1") === "RIFF" &&
+    bytes.subarray(8, 12).toString("latin1") === "WEBP"
+  );
+}
+
 /**
  * Serve only a regular file that truly lives under the workspace: a symlinked
  * PNG (or a symlinked ancestor) would let the workspace hand the renderer an
@@ -88,6 +102,9 @@ function readAvatarImage(
     const image = fs.readFileSync(fd);
     if (image.length > AVATAR_IMAGE_MAX_BYTES) {
       return { ok: false, error: "avatar image too large" };
+    }
+    if (!looksLikeRaster(image)) {
+      return { ok: false, error: "avatar image unreadable" };
     }
     return {
       ok: true,
