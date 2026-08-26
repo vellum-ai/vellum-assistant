@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useLocation } from "react-router";
 
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
@@ -10,8 +10,9 @@ import { conversationIdForPath } from "@/utils/routes";
  * The park exists for one race, a widget tap that lands before the layout is
  * mounted on a settled route, which resolves in seconds or not at all. The same
  * minute the camera park allows itself (`PENDING_CAMERA_TTL_MS`), for the same
- * reason: a tap whose landing is bounced by a route guard must not throw the
- * list open on top of some unrelated later navigation.
+ * reason: a tap whose landing never settles (a route guard bounced it, the
+ * assistant is still waking) must not throw the list open on top of some
+ * unrelated later navigation.
  */
 export const PENDING_CONVERSATION_LIST_TTL_MS = 60_000;
 
@@ -34,9 +35,25 @@ interface UseConversationListDeepLinkOptions {
  * `ChatLayout`, which is not mounted when the tap cold-launches the app and
  * never mounts on settings / logs / account routes.
  *
+ * ## Why the drawer waits for a conversation
+ *
+ * The layout closes the drawer on every navigation, and a landing on
+ * `/assistant` replace-navigates to a conversation a beat after arrival
+ * (`useConversationLoader`). A drawer opened on the index would therefore be
+ * shut by the very navigation it was waiting on.
+ *
+ * So the request waits rather than opening early and re-asserting itself. The
+ * two are not equivalent: a drawer that reopens after each navigation is one
+ * the user cannot get out of, and picking a conversation from it would land
+ * them on that conversation with the list thrown straight back over the top.
+ * Waiting means there is no drawer on screen to fight over, and the request is
+ * spent by the single open it was asking for. A landing that never settles
+ * inside the TTL drops the request instead, which is the honest outcome: the
+ * list is not somewhere to arrive at a minute late.
+ *
  * Call this AFTER the layout's close-the-drawer-on-navigation effect. Effects
- * run in hook order, so an open granted here on the same commit as a navigation
- * outlives that close rather than being undone by it.
+ * run in hook order, so the open granted on the settling navigation's own
+ * commit outlives that close rather than being undone by it.
  */
 export function useConversationListDeepLink({
   isMobile,
@@ -45,14 +62,6 @@ export function useConversationListDeepLink({
 }: UseConversationListDeepLinkOptions): void {
   const pendingAt = usePendingDeepLinkStore.use.pendingConversationListAt();
   const { pathname } = useLocation();
-  /**
-   * The park this already opened the drawer for once, so the hold below is
-   * worth exactly one re-open. A landing that never reaches a conversation
-   * (a guard bounced it, the account has nowhere to settle) would otherwise
-   * throw the drawer back open on every navigation until the park ages out,
-   * including the ones the user makes from inside the drawer.
-   */
-  const openedForRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (pendingAt === null) {
@@ -60,35 +69,25 @@ export function useConversationListDeepLink({
     }
     const consume = () =>
       usePendingDeepLinkStore.getState().consumePendingConversationList();
-    // Spent whatever the age: a park whose landing never settled (a route
-    // guard bounced it, the account is mid-onboarding) must not throw the list
-    // open minutes later.
+    // Spent whatever the age: an expired park is not left behind for a later
+    // navigation to drain.
     if (Date.now() - pendingAt > PENDING_CONVERSATION_LIST_TTL_MS) {
       consume();
       return;
     }
     if (!isMobile) {
       // A wide window keeps the list on screen as the sidebar, so the whole
-      // request is making sure it is not collapsed. Nothing here is waiting on
-      // a route, so it is spent at once.
+      // request is making sure it is not collapsed. Nothing is waiting on a
+      // route here: uncollapsing survives navigation, so it is done at once.
       expandSidebar();
       consume();
       return;
     }
-    openDrawer();
-    // Spent once the route names a conversation, or once this park has already
-    // bought its one re-open. A tap that lands on `/assistant` is
-    // replace-navigated off it a beat later (`useConversationLoader`), and a
-    // park spent before that would have its drawer closed by the very
-    // navigation it was waiting on, so the first open on an unsettled route
-    // holds the request for that one navigation and no further.
-    if (
-      conversationIdForPath(pathname) !== null ||
-      openedForRef.current === pendingAt
-    ) {
-      consume();
+    // Held, untouched, until the landing settles; see the note above.
+    if (conversationIdForPath(pathname) === null) {
       return;
     }
-    openedForRef.current = pendingAt;
+    openDrawer();
+    consume();
   }, [pendingAt, isMobile, pathname, openDrawer, expandSidebar]);
 }
