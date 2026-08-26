@@ -9,7 +9,9 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
 
 - `src/main/index.ts` boots the hardened shell (single-instance lock,
   per-environment `userData`, `app://` serving with path-traversal protection,
-  platform API forwarding) and then composes `src/main/features/*`.
+  local, paired, and platform request forwarding, paired-request frame-origin
+  enforcement, CSP, a permission allowlist, and sandboxed `vellumapp://`
+  serving) and then composes `src/main/features/*`.
 - `src/main/features/*` and `src/preload/features/*` are capability modules
   installed through the registries in `@vellumai/electron-desktop`. Every
   `.ts` file in those directories is picked up automatically; a new capability

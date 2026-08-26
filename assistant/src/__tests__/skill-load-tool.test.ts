@@ -2,6 +2,8 @@ import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ClientOs } from "../channels/types.js";
+
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Build a mock that covers every export from platform.ts — any function not
@@ -67,6 +69,7 @@ function writeToolsJson(
     input_schema?: Record<string, unknown>;
     executor?: string;
     execution_target?: string;
+    supported_client_os?: ClientOs[];
   }>,
 ): void {
   const skillDir = join(TEST_DIR, "skills", skillId);
@@ -81,6 +84,7 @@ function writeToolsJson(
       input_schema: t.input_schema ?? { type: "object", properties: {} },
       executor: t.executor ?? "scripts/run.sh",
       execution_target: t.execution_target ?? "host",
+      supported_client_os: t.supported_client_os,
     })),
   };
   writeFileSync(join(skillDir, "TOOLS.json"), JSON.stringify(manifest));
@@ -88,7 +92,7 @@ function writeToolsJson(
 
 async function executeSkillLoad(
   input: Record<string, unknown>,
-  clientOs?: string,
+  clientOs?: ClientOs,
   sourceActorPrincipalId?: string,
   isInteractive: boolean = false,
 ): Promise<{ content: string; isError: boolean }> {
@@ -97,10 +101,10 @@ async function executeSkillLoad(
   const result = await tool.execute(input, {
     workingDir: "/tmp",
     conversationId: "conversation-1",
-    clientOs,
     isInteractive,
     sourceActorPrincipalId,
     trustClass: "guardian",
+    clientOs,
   });
   return { content: result.content, isError: result.isError };
 }
@@ -835,6 +839,34 @@ describe("skill_load tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).not.toContain("## Available Tools");
     expect(result.content).not.toContain("skill_execute");
+  });
+
+  test("omits tools unsupported by the current client operating system", async () => {
+    writeSkill(
+      "platform-tools",
+      "Platform Tools",
+      "Has platform-specific tools",
+      "Body.",
+    );
+    writeToolsJson("platform-tools", [
+      {
+        name: "mac_only_action",
+        description: "Runs only on macOS",
+        supported_client_os: ["macos"],
+      },
+      {
+        name: "desktop_action",
+        description: "Runs on every desktop",
+      },
+    ]);
+
+    const result = await executeSkillLoad(
+      { skill: "platform-tools" },
+      "windows",
+    );
+
+    expect(result.content).not.toContain("mac_only_action");
+    expect(result.content).toContain("desktop_action");
   });
 
   test("included child skill with TOOLS.json has its tool schemas in output", async () => {

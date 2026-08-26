@@ -83,11 +83,16 @@ afterAll(async () => {
 
 describe("createSkillTool", () => {
   test("produces a tool with correct name, description, and category", () => {
-    const tool = createSkillTool(makeEntry(), "/skills/my-skill", "v1:test");
+    const tool = createSkillTool(
+      makeEntry({ supported_client_os: ["macos"] }),
+      "/skills/my-skill",
+      "v1:test",
+    );
 
     expect(tool.name).toBe("test_tool");
     expect(tool.description).toBe("A test tool");
     expect(tool.category).toBe("testing");
+    expect(tool.supportedClientOs).toEqual(["macos"]);
   });
 
   // Removed "sets origin to skill" test — the factory no longer stamps an

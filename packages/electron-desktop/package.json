@@ -61,6 +61,7 @@
     "./module-configuration": "./src/module-configuration.ts",
     "./native-auth": "./src/native-auth.ts",
     "./notifications": "./src/notifications.ts",
+    "./paired-gateway-request-guard": "./src/paired-gateway-request-guard.ts",
     "./permissions": "./src/permissions.ts",
     "./platform-forward": "./src/platform-forward.ts",
     "./popout-window": "./src/popout-window.ts",

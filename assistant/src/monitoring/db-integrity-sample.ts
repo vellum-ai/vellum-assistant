@@ -66,6 +66,7 @@ async function runCheckSubprocess(
   );
   const child = Bun.spawn({
     cmd: [...command, dbPath],
+    windowsHide: true,
     stdio: ["ignore", "pipe", "ignore"],
   });
   activeChild = child;

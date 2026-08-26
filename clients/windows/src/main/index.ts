@@ -1,26 +1,30 @@
 import "./env-seed";
 
 import { app, net, protocol, session, shell } from "electron";
-import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
-import { VELLUMAPP_PROTOCOL } from "@vellumai/electron-desktop/bundle-platform";
+import {
+  BUNDLES_DIR_NAME,
+  VELLUMAPP_PROTOCOL,
+} from "@vellumai/electron-desktop/bundle-platform";
+import { installCsp } from "@vellumai/electron-desktop/csp";
 import { getDeviceId } from "@vellumai/electron-desktop/device-id";
 import {
-  authorizePairedGatewayForwardPlan,
-  executeGatewayForwardPlan,
-  planGatewayForward,
-  planPairedGatewayForward,
+  forwardGatewayRequest,
+  forwardPairedGatewayRequest,
   type GatewayForwardFetcher,
 } from "@vellumai/electron-desktop/gateway-forward";
 import { getPairedGuardianAccessToken } from "@vellumai/electron-desktop/local-mode";
 import { getWatchedLockfileSnapshot } from "@vellumai/electron-desktop/lockfile-watcher";
+import { installPairedGatewayRequestGuard } from "@vellumai/electron-desktop/paired-gateway-request-guard";
+import { installPermissionHandler } from "@vellumai/electron-desktop/permissions";
 import {
   executePlatformForwardPlan,
   planPlatformForward,
 } from "@vellumai/electron-desktop/platform-forward";
+import { registerVellumAppProtocol } from "@vellumai/electron-desktop/vellumapp-protocol";
+import { planAppProtocolAssetRequest } from "@vellumai/electron-utils/app-protocol";
 import {
   pairedGatewayTargetsFromLockfile,
   readAllowedGatewayPorts,
@@ -30,6 +34,7 @@ import {
 } from "@vellumai/local-mode";
 
 import {
+  APP_HOST,
   APP_PROTOCOL,
   WINDOWS_RELEASE_INFO,
   usesAppProtocolRenderer,
@@ -40,7 +45,6 @@ import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
 import { ensureVisible } from "./main-window";
-import { installPairedGatewayRequestGuard } from "./paired-gateway-request-guard";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
@@ -154,6 +158,7 @@ const registerAppProtocol = (): void => {
     const proxied = await forwardGatewayRequest(
       request,
       getAllowedGatewayPorts,
+      gatewayForwardFetcher,
     );
     if (proxied) {
       return proxied;
@@ -166,6 +171,8 @@ const registerAppProtocol = (): void => {
     const pairedProxied = await forwardPairedGatewayRequest(
       request,
       getPairedGatewayTargets,
+      getPairedGuardianAccessToken,
+      gatewayForwardFetcher,
     );
     if (pairedProxied) {
       return pairedProxied;
@@ -179,33 +186,21 @@ const registerAppProtocol = (): void => {
       return platformProxied;
     }
 
-    const result = resolveAppProtocolPath(
+    const asset = await planAppProtocolAssetRequest({
       rendererRoot,
-      request.url,
-      RENDERER_MOUNT,
-    );
-    if (result.kind === "forbidden") {
+      indexHtml,
+      requestUrl: request.url,
+      mountPrefix: RENDERER_MOUNT,
+      allowedOrigin: { protocol: `${APP_PROTOCOL}:`, host: APP_HOST },
+    });
+    if (asset.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
     }
-    const { resolved } = result;
-    if (await fileExists(resolved)) {
-      return net.fetch(pathToFileURL(resolved).toString());
-    }
-    const ext = path.extname(resolved);
-    if (ext === "" || ext === ".html") {
-      return net.fetch(pathToFileURL(indexHtml).toString());
+    if (asset.kind === "fetch") {
+      return net.fetch(pathToFileURL(asset.path).toString());
     }
     return new Response("Not Found", { status: 404 });
   });
-};
-
-const fileExists = async (candidate: string): Promise<boolean> => {
-  try {
-    const stat = await fs.stat(candidate);
-    return stat.isFile();
-  } catch {
-    return false;
-  }
 };
 
 // Synchronous config snapshot the preload reads at startup and exposes to the
@@ -223,38 +218,6 @@ handleSync("vellum:config:get", () => ({
 
 const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
   net.fetch(url, init);
-
-/**
- * Forward a gateway data-plane request (`/assistant/__gateway/{port}/*`) to
- * the local gateway on loopback, or return `null` when the URL is not a
- * gateway request. `net.fetch` runs in main, so the renderer only ever talks
- * to its own secure `app://` origin.
- */
-const forwardGatewayRequest = async (
-  request: GlobalRequest,
-  getAllowedPorts: () => Set<number>,
-): Promise<Response | null> =>
-  executeGatewayForwardPlan(
-    planGatewayForward(request, getAllowedPorts),
-    request,
-    gatewayForwardFetcher,
-  );
-
-/**
- * Forward a paired-gateway request (`/assistant/__gateway-paired/{id}/*`) to
- * the remote gateway an imported pairing recorded as its `runtimeUrl`, or
- * return `null` when the URL is not a paired-gateway request.
- */
-const forwardPairedGatewayRequest = async (
-  request: GlobalRequest,
-  getTargets: () => Map<string, string>,
-): Promise<Response | null> => {
-  const plan = await authorizePairedGatewayForwardPlan(
-    planPairedGatewayForward(request, getTargets),
-    getPairedGuardianAccessToken,
-  );
-  return executeGatewayForwardPlan(plan, request, gatewayForwardFetcher);
-};
 
 const forwardPlatformRequest = async (
   request: GlobalRequest,
@@ -289,8 +252,16 @@ app
     log.info("[app] ready");
     if (usesAppProtocolRenderer(app.isPackaged)) {
       registerAppProtocol();
-      installPairedGatewayRequestGuard();
+      installPairedGatewayRequestGuard({
+        appOrigin: { protocol: `${APP_PROTOCOL}:`, host: APP_HOST },
+        resolveAllowedOrigin,
+      });
     }
+    registerVellumAppProtocol(
+      path.join(app.getPath("userData"), BUNDLES_DIR_NAME),
+    );
+    installPermissionHandler(resolveAllowedOrigin);
+    installCsp();
     if (app.isPackaged && process.platform === "win32") {
       try {
         const result = provisionCliForCurrentUser({

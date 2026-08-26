@@ -778,7 +778,7 @@ export function buildChannelCapabilityBlock(
   if (clientOs === "windows") {
     lines.push("");
     lines.push(
-      "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths.",
+      "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths. Prefer PowerShell or CLI automation over foreground computer use when either can complete the task reliably.",
     );
   }
 
