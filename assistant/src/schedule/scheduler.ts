@@ -7,13 +7,17 @@ import {
 } from "../daemon/disk-pressure-background-gate.js";
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
+import { activityFailedDedupeKey } from "../notifications/activity-failed-dedupe.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import { runBackgroundJob } from "../runtime/background-job-runner.js";
+import {
+  type BackgroundJobErrorKind,
+  runBackgroundJob,
+} from "../runtime/background-job-runner.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
@@ -223,22 +227,31 @@ async function handleExecutionFailure(params: {
   job: ScheduleJob;
   errorMsg: string;
   isOneShot: boolean;
+  /**
+   * Classified failure cause from the runner, when the failing path had one.
+   * Keys the exhaustion alert's dedupe so same-cause failures across jobs
+   * collapse; absent means a generic exception, which keys per schedule.
+   */
+  errorKind?: BackgroundJobErrorKind;
+  failureCode?: string;
 }): Promise<void> {
   const decision = decideRetry(params.job);
   await applyRetryDecision({
     job: params.job,
     isOneShot: params.isOneShot,
-    errorMsg: params.errorMsg,
     decision,
     scheduleRetry,
     failOneShotPermanently,
     resetRetryCount,
-    emitAlert: (_title, _summary, dedupKey) =>
+    emitAlert: () =>
       emitScheduleActivityFailed({
         jobId: params.job.id,
         jobName: params.job.name,
         errorMessage: params.errorMsg,
-        dedupKey,
+        errorKind: params.errorKind ?? "exception",
+        ...(params.failureCode !== undefined
+          ? { failureCode: params.failureCode }
+          : {}),
       }),
     log,
   });
@@ -896,6 +909,8 @@ export async function runDueSchedulesOnce(
     let conversationId: string;
     let ok: boolean;
     let errorMsg: string | undefined;
+    let errorKind: BackgroundJobErrorKind | undefined;
+    let failureCode: string | undefined;
     const conversationReused = reusedConversationId != null;
     let runConversationId = reusedConversationId;
     const runId = await createScheduleRun(job.id, reusedConversationId);
@@ -929,17 +944,20 @@ export async function runDueSchedulesOnce(
         if (turnFailure) {
           ok = false;
           errorMsg = describeTurnFailure(turnFailure);
+          errorKind = "model_provider";
+          failureCode = turnFailure.failureCode;
         } else {
           ok = true;
         }
       } catch (err) {
         ok = false;
         errorMsg = err instanceof Error ? err.message : String(err);
+        errorKind = "exception";
       }
     } else {
-      // Fresh-bootstrap path: route through the shared runner so failures
-      // surface via `activity.failed` and we get the standard timeout +
-      // error-classification policy applied to every background producer.
+      // Fresh-bootstrap path: route through the shared runner for the
+      // standard timeout + error-classification policy applied to every
+      // background producer.
       // The runner fires `onConversationCreated` synchronously after bootstrap
       // (before `processMessage` starts) so the macOS sidebar gets the new
       // conversation immediately rather than after the up-to-30-min job ends.
@@ -962,7 +980,12 @@ export async function runDueSchedulesOnce(
         groupId: resolveScheduleConversationGroupId(job),
         conversationType: "scheduled",
         scheduleJobId: job.id,
-        suppressFailureNotifications: job.quiet === true,
+        // The retry policy owns the single user-facing alert for a failing
+        // schedule (fired once, when retries are exhausted). Letting the
+        // runner also emit per attempt would notify for failures that a
+        // retry may yet recover, and pair every exhaustion alert with a
+        // duplicate.
+        suppressFailureNotifications: true,
         onConversationCreated: async (newConversationId) => {
           runConversationId = newConversationId;
           await setScheduleRunConversationId(runId, newConversationId);
@@ -988,6 +1011,8 @@ export async function runDueSchedulesOnce(
       }
       ok = result.ok;
       errorMsg = result.error?.message;
+      errorKind = result.errorKind;
+      failureCode = result.failureCode;
     }
 
     if (ok) {
@@ -1016,6 +1041,8 @@ export async function runDueSchedulesOnce(
         job,
         errorMsg: errorMsg ?? "Schedule run failed",
         isOneShot,
+        ...(errorKind !== undefined ? { errorKind } : {}),
+        ...(failureCode !== undefined ? { failureCode } : {}),
       });
 
       // Only skip invalidation when the conversation was *actually* reused,
@@ -1042,25 +1069,34 @@ export async function runDueSchedulesOnce(
 
 /**
  * Emit an `activity.failed` notification for a schedule whose retries have
- * been exhausted. Fires once when the retry policy has given up, so the
- * dedupeKey caller is the per-attempt key passed in by `applyRetryDecision`
- * (already includes the job id and a timestamp).
+ * been exhausted. Fires once when the retry policy has given up. The dedupe
+ * key comes from the shared cause-first derivation, so every schedule (and
+ * background job) failing for the same classified cause on the same UTC day
+ * collapses into one notification, and cause-less failures collapse per
+ * schedule per day.
  */
 function emitScheduleActivityFailed(args: {
   jobId: string;
   jobName: string;
   errorMessage: string;
-  dedupKey: string;
+  errorKind: BackgroundJobErrorKind;
+  failureCode?: string;
 }): void {
   emitNotificationSignal({
     sourceChannel: "scheduler",
     sourceContextId: args.jobId,
     sourceEventName: "activity.failed",
-    dedupeKey: args.dedupKey,
+    dedupeKey: activityFailedDedupeKey({
+      jobName: `schedule:${args.jobId}`,
+      errorKind: args.errorKind,
+      ...(args.failureCode !== undefined
+        ? { failureCode: args.failureCode }
+        : {}),
+    }),
     contextPayload: {
       jobName: `schedule:${args.jobName}`,
       errorMessage: args.errorMessage,
-      errorKind: "exception",
+      errorKind: args.errorKind,
     },
     attentionHints: {
       requiresAction: false,

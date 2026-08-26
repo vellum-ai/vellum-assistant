@@ -22,6 +22,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { activityFailedDedupeKey } from "../notifications/activity-failed-dedupe.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
@@ -99,9 +100,9 @@ export interface RunBackgroundJobOptions {
   timeoutMs: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
-   * Use for jobs that own their own failure UX (e.g. heartbeat's alerter)
-   * or for "quiet" scheduled jobs that the user has explicitly asked to
-   * suppress notifications for.
+   * Use for jobs whose failure alerting is owned elsewhere: heartbeat's
+   * alerter banner, and the scheduler's retry policy (which alerts once,
+   * when retries are exhausted, instead of once per attempt).
    */
   suppressFailureNotifications?: boolean;
   /** Conversation grouping id. Defaults to `"system:background"`. */
@@ -410,12 +411,11 @@ export async function runBackgroundJob(
         isAsyncBackground: true,
         visibleInSourceNow: false,
       };
-      // Dedupe by jobName + UTC date so repeated failures of the same
-      // background job (e.g. a watcher whose credentials are revoked)
-      // collapse into a single home-feed entry per day rather than
-      // spamming on every tick.
-      const day = new Date().toISOString().slice(0, 10);
-      const dedupeKey = `activity-failed:${opts.jobName}:${day}`;
+      const dedupeKey = activityFailedDedupeKey({
+        jobName: opts.jobName,
+        errorKind,
+        ...(failureCode !== undefined ? { failureCode } : {}),
+      });
       emitNotificationSignal({
         sourceChannel: "assistant_tool",
         sourceContextId: conversationId,

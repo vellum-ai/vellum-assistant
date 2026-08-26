@@ -285,6 +285,27 @@ describe("runBackgroundJob", () => {
     expect(
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("model_provider");
+    // A classified failure code keys the notification on the cause, not the
+    // job, so every job failing on the same code collapses into one
+    // notification per UTC day.
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:provider_error:\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  test("code-less provider failure dedupes on the shared model_provider cause", async () => {
+    processMessageImpl = async () => {
+      throw new Error("provider returned 401");
+    };
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("model_provider");
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:cause:model_provider:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {
@@ -301,6 +322,10 @@ describe("runBackgroundJob", () => {
     expect(
       (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
     ).toBe("timeout");
+    // A timeout is job-specific, so it keeps the per-job dedupe key.
+    expect(emitCalls[0].dedupeKey as string).toMatch(
+      /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 
   test("suppressFailureNotifications: failure returns ok=false but emits nothing", async () => {
