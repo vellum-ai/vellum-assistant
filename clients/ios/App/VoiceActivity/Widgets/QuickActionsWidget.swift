@@ -37,6 +37,10 @@ struct QuickActionsWidget: Widget {
     }
 }
 
+// A Storybook replica copies this file's measurements and palette, at
+// `clients/web/src/components/ios-widget-previews/`. Nothing checks the two
+// against each other, so a change here wants a look there.
+
 /// The card: the two actions along the bottom, the assistant across the top,
 /// and the count beside it while something is waiting.
 ///

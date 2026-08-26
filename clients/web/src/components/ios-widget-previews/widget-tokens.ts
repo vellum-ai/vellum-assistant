@@ -145,7 +145,47 @@ export function themeAccentHex(
   kind: WidgetAvatarKind,
   accentHex: string | null,
 ): string | null {
-  return kind === "character" ? accentHex : null;
+  if (kind !== "character" || accentHex === null) {
+    return null;
+  }
+  return canonicalAccentHex(accentHex);
+}
+
+/**
+ * `canonicalCSSHex`, narrowed to what a card surface can be.
+ *
+ * The Swift accepts `#RGB`, `#RRGGBB` and `#RRGGBBAA` with the `#` optional,
+ * and expands the short form before any palette derives anything from it. The
+ * shared derivations in `avatar-tone.ts` read `#RRGGBB` only and hand back
+ * their input untouched for anything else, so an accent arriving in one of the
+ * other spellings would silently skip the darkening, the wash and the contrast
+ * choice. Canonicalizing once, here, is what keeps the two sides agreeing on
+ * more than the spelling they happen to share.
+ *
+ * The alpha an 8-digit spelling carries is dropped rather than honored: what
+ * comes out is a card surface, and a translucent card is not one.
+ * `WidgetAvatarPalette` forces alpha on its light side for the same reason.
+ * Anything neither side can read returns `null`, so the caller falls back to
+ * its static palette exactly as the Swift's `guard` does.
+ */
+function canonicalAccentHex(raw: string): string | null {
+  let digits = raw.trim().toUpperCase();
+  if (digits.startsWith("#")) {
+    digits = digits.slice(1);
+  }
+  if (digits.length === 3) {
+    digits = digits
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  if (digits.length !== 6 && digits.length !== 8) {
+    return null;
+  }
+  if (!/^[0-9A-F]+$/.test(digits)) {
+    return null;
+  }
+  return `#${digits.slice(0, 6)}`;
 }
 
 /** `WidgetSoftAccent`: the pale card a New Chat surface sits on. */

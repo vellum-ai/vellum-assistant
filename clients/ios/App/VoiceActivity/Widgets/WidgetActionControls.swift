@@ -18,6 +18,10 @@ import WidgetKit
 // a translucent white, which survives the flattening as the same soft ground it
 // was drawn as.
 
+// A Storybook replica copies this file's measurements and palette, at
+// `clients/web/src/components/ios-widget-previews/`. Nothing checks the two
+// against each other, so a change here wants a look there.
+
 /// The grounds a control draws on once WidgetKit flattens the widget.
 ///
 /// White rather than the control's own color because only alpha survives the

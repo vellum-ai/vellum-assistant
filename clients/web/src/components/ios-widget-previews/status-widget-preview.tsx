@@ -64,6 +64,12 @@ export interface StatusWidgetPreviewProps {
   avatarKind?: WidgetAvatarKind;
   accentHex?: string | null;
   avatarImageUrl?: string | null;
+  /**
+   * Whether the snapshot is too old to read as a status. A lone "2 unread" also
+   * asserts that nothing is running, which an aged snapshot cannot know, so the
+   * card falls back to the launcher rather than apologizing for its counts.
+   */
+  isStale?: boolean;
   flattened?: boolean;
 }
 
@@ -75,10 +81,12 @@ export function StatusWidgetPreview({
   avatarKind = "character",
   accentHex = "#0E9B8B",
   avatarImageUrl = null,
+  isStale = false,
   flattened = false,
 }: StatusWidgetPreviewProps) {
   const accent = softAccent(themeAccentHex(avatarKind, accentHex));
-  const isActive = unreadCount > 0 || inProgressCount > 0;
+  // `StatusWidgetView.isActive`: a stale snapshot has nothing to report.
+  const isActive = !isStale && (unreadCount > 0 || inProgressCount > 0);
   const control = CONTROL_HEIGHT * scale;
   const textPrimary = flattened
     ? "#FFFFFF"

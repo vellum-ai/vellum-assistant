@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { CatchUpWidgetPreview } from "./catch-up-widget-preview";
+import { ReplicaNotice } from "./replica-notice";
 import { QuickActionsWidgetPreview } from "./quick-actions-widget-preview";
 import { StatusWidgetPreview } from "./status-widget-preview";
 import type { WidgetAppearance } from "./widget-tokens";
@@ -42,6 +43,16 @@ import type { WidgetAppearance } from "./widget-tokens";
 const meta = {
   title: "iOS Widgets/Home Screen",
   parameters: { layout: "centered" },
+  // Every canvas, not only the Docs tab: cards that look this much like the
+  // real thing are the ones worth labelling where they are looked at.
+  decorators: [
+    (Story) => (
+      <div>
+        <ReplicaNotice />
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta;
 
 export default meta;
@@ -235,6 +246,38 @@ export const StatusStates: Story = {
             appearance={appearance}
             unreadCount={3}
             inProgressCount={2}
+          />
+        </div>
+      )}
+    />
+  ),
+};
+
+/**
+ * What the small cards do once the snapshot is too old to be counting with.
+ *
+ * Quick Actions drops the chip and keeps the face, so the card is
+ * indistinguishable from a quiet one: the tally is a claim about now, which is
+ * exactly what a closed app cannot see, while whose assistant this is stays
+ * true. Status drops the readout entirely, because a lone "3 unread" also
+ * asserts nothing is running, and the launcher is the more useful true thing.
+ */
+export const StaleSnapshots: Story = {
+  name: "Stale snapshot",
+  render: () => (
+    <Appearances
+      render={(appearance) => (
+        <div style={{ display: "flex", gap: 12 }}>
+          <QuickActionsWidgetPreview
+            appearance={appearance}
+            unreadCount={3}
+            isStale
+          />
+          <StatusWidgetPreview
+            appearance={appearance}
+            unreadCount={3}
+            inProgressCount={2}
+            isStale
           />
         </div>
       )}

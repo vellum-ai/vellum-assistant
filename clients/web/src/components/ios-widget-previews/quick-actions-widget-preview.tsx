@@ -85,6 +85,12 @@ export interface QuickActionsWidgetPreviewProps {
    * surfaces that show the whole avatar.
    */
   avatarImageUrl?: string | null;
+  /**
+   * Whether the snapshot behind this card is old enough that its count is a
+   * claim about an inbox from half an hour ago. The chip drops; the face does
+   * not, because whose assistant this is stays true.
+   */
+  isStale?: boolean;
   /** The system's monochrome modes: a themed Home Screen, StandBy, the lock screen. */
   flattened?: boolean;
 }
@@ -96,6 +102,7 @@ export function QuickActionsWidgetPreview({
   avatarKind = "character",
   accentHex = "#0E9B8B",
   avatarImageUrl = null,
+  isStale = false,
   flattened = false,
 }: QuickActionsWidgetPreviewProps) {
   const palette = avatarPalette(themeAccentHex(avatarKind, accentHex));
@@ -119,16 +126,18 @@ export function QuickActionsWidgetPreview({
       ? SURFACE_GROUND
       : resolveColor(palette.surface, appearance);
 
-  // `QuickActionsEntry.unreadCount`: nil unless something is actually waiting,
-  // so a snapshot's ordinary zero draws the quiet card rather than a `0` chip.
-  const chipCount = unreadCount !== null && unreadCount > 0 ? unreadCount : null;
+  // `QuickActionsEntry.unreadCount`: nil unless something is actually waiting
+  // and the snapshot is fresh enough to be counting. An ordinary zero draws the
+  // quiet card rather than a `0` chip, and a stale snapshot drops the tally
+  // while keeping the face: a count says how many are waiting NOW, which is
+  // exactly what a widget cannot see while the app is closed.
+  const chipCount =
+    !isStale && unreadCount !== null && unreadCount > 0 ? unreadCount : null;
   const contentWidth = 160 * scale - CONTENT_MARGIN * scale * 2;
   const markWidth =
     chipCount === null
       ? contentWidth
-      : contentWidth -
-        chipAllowance(chipCount, scale) -
-        MARK_CHIP_GAP * scale;
+      : contentWidth - chipAllowance(chipCount, scale) - MARK_CHIP_GAP * scale;
 
   return (
     <WidgetCard
