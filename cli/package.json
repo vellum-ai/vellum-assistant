@@ -29,6 +29,7 @@
   "author": "Vellum AI",
   "license": "MIT",
   "dependencies": {
+    "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
@@ -40,6 +41,7 @@
     "react": "19.2.6"
   },
   "bundledDependencies": [
+    "@vellumai/avatar-manifest",
     "@vellumai/environments",
     "@vellumai/ipc-server-utils",
     "@vellumai/local-mode",

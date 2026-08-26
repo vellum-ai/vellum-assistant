@@ -9,6 +9,7 @@
   ],
   "project": ["src/**/*.ts", "src/**/*.tsx"],
   "ignoreDependencies": [
+    "@vellumai/avatar-manifest",
     "@vellumai/environments",
     "@vellumai/ipc-server-utils",
     "@vellumai/local-mode",
