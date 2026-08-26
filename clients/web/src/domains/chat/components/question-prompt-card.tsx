@@ -515,18 +515,31 @@ export function QuestionPromptBody({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {!isMinimized && (
-            // Both of these act on rows that are on screen: the pager pages
-            // between them, and the chevron puts them away. So they leave with
-            // the rows, fading out over the first half of the collapse and
-            // unmounting once the state commits, by which point they are
-            // already invisible. The chevron points down and stays there:
-            // reopening is the minimized header's job, and a second control
-            // rotated the other way would only duplicate it.
+            // Everything in here belongs to rows that are on screen: the pager
+            // pages between them, the chevron puts them away, and the status
+            // line says which of them you are on. So they leave with the rows,
+            // fading out over the first half of the collapse and unmounting
+            // once the state commits, by which point they are already
+            // invisible. The chevron points down and stays there: reopening is
+            // the minimized header's job, and a second control rotated the
+            // other way would only duplicate it.
             <div
               className="question-card-motion flex items-center gap-1"
               style={{ opacity: expandedOpacity }}
               data-dragging={dragAttr}
             >
+              {isBatched && (
+                // The pager offers movement without saying where from. A
+                // sighted reader takes that from the options changing under
+                // them, which is nothing a reader paging by button can see, so
+                // the count is announced rather than drawn.
+                <span role="status" className="sr-only">
+                  {t("questionPromptCard.position", {
+                    current: currentIndex + 1,
+                    total: entries.length,
+                  })}
+                </span>
+              )}
               <Button
                 variant="ghost"
                 size="compact"

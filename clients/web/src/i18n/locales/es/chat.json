@@ -1166,6 +1166,7 @@
     "nextQuestionAria": "Pregunta siguiente",
     "optionAria": "Opción {number}: {label}",
     "previousQuestionAria": "Pregunta anterior",
+    "position": "{current} de {total}",
     "sendResponseAria": "Enviar respuesta",
     "skip": "Omitir",
     "skipAria": "Omitir esta pregunta",
