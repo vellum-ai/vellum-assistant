@@ -10,10 +10,7 @@ mock.module("./client.js", () => ({
   VellumPlatformClient: { create: async () => mockClient },
 }));
 
-import {
-  _resetSyncIdentityStateForTests,
-  syncIdentityNameToPlatform,
-} from "./sync-identity.js";
+import { syncIdentityNameToPlatform } from "./sync-identity.js";
 
 interface Patch {
   path: string;
@@ -21,15 +18,14 @@ interface Patch {
 }
 
 let patches: Patch[];
-let respond: () => Response;
 
-function makeClient(assistantId = "asst-1", baseUrl = "https://platform.a") {
+function makeClient(assistantId = "asst-1") {
   return {
-    baseUrl,
+    baseUrl: "https://platform.a",
     platformAssistantId: assistantId,
     fetch: async (path: string, init: RequestInit) => {
       patches.push({ path, body: JSON.parse(init.body as string) });
-      return respond();
+      return new Response("{}", { status: 200 });
     },
   };
 }
@@ -40,15 +36,15 @@ async function settle(): Promise<void> {
   }
 }
 
+// The module owns one queue, so names are unique per test to avoid dedup
+// across tests. Queue semantics are covered by platform-patch-queue.test.ts.
 describe("syncIdentityNameToPlatform", () => {
   beforeEach(() => {
-    _resetSyncIdentityStateForTests();
     patches = [];
-    respond = () => new Response("{}", { status: 200 });
     mockClient = makeClient();
   });
 
-  test("PATCHes the name once and dedups an unchanged name", async () => {
+  test("PATCHes the name and dedups an unchanged name", async () => {
     syncIdentityNameToPlatform("Ada");
     await settle();
     syncIdentityNameToPlatform("Ada");
@@ -59,62 +55,21 @@ describe("syncIdentityNameToPlatform", () => {
     ]);
   });
 
-  test("re-registering to another assistant id re-sends the same name", async () => {
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-    mockClient = makeClient("asst-2");
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-
-    expect(patches.map((p) => p.path)).toEqual([
-      "/v1/assistants/asst-1/",
-      "/v1/assistants/asst-2/",
-    ]);
-  });
-
-  test("re-registering to another base URL re-sends the same name", async () => {
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-    mockClient = makeClient("asst-1", "https://platform.b");
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-
-    expect(patches).toHaveLength(2);
-  });
-
   test("rapid changes collapse into one PATCH carrying the newest name", async () => {
-    syncIdentityNameToPlatform("Ada");
     syncIdentityNameToPlatform("Bea");
     syncIdentityNameToPlatform("Cy");
+    syncIdentityNameToPlatform("Dee");
     await settle();
 
-    expect(patches.map((p) => p.body.name)).toEqual(["Cy"]);
+    expect(patches.map((p) => p.body.name)).toEqual(["Dee"]);
   });
 
-  test("empty names and missing client or assistant id are no-ops", async () => {
+  test("empty names and a missing client are no-ops", async () => {
     syncIdentityNameToPlatform("");
     mockClient = null;
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-    mockClient = makeClient("");
-    syncIdentityNameToPlatform("Ada");
+    syncIdentityNameToPlatform("Eve");
     await settle();
 
     expect(patches).toHaveLength(0);
-  });
-
-  test("a failed PATCH does not dedup the next attempt", async () => {
-    respond = () => new Response("nope", { status: 500 });
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-    respond = () => new Response("{}", { status: 200 });
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-    syncIdentityNameToPlatform("Ada");
-    await settle();
-
-    expect(patches).toHaveLength(2);
   });
 });

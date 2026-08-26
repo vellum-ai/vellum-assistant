@@ -1,0 +1,170 @@
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+let mockClient: {
+  baseUrl: string;
+  platformAssistantId: string;
+  fetch: (path: string, init: RequestInit) => Promise<Response>;
+} | null;
+
+mock.module("./client.js", () => ({
+  VellumPlatformClient: { create: async () => mockClient },
+}));
+
+import { getLogger } from "../util/logger.js";
+import { createPlatformPatchQueue } from "./platform-patch-queue.js";
+
+interface Patch {
+  path: string;
+  body: { value: string };
+}
+
+let patches: Patch[];
+let respond: () => Response;
+let builds: number;
+
+function makeClient(assistantId = "asst-1", baseUrl = "https://platform.a") {
+  return {
+    baseUrl,
+    platformAssistantId: assistantId,
+    fetch: async (path: string, init: RequestInit) => {
+      patches.push({ path, body: JSON.parse(init.body as string) });
+      return respond();
+    },
+  };
+}
+
+function makeQueue(
+  opts: {
+    loadSyncedKey?: () => string | null;
+    saveSyncedKey?: (key: string) => void;
+  } = {},
+) {
+  return createPlatformPatchQueue<string | undefined>({
+    log: getLogger("test"),
+    label: "value",
+    buildPayload: (value) => {
+      builds += 1;
+      return value === undefined ? undefined : { key: value, body: { value } };
+    },
+    ...opts,
+  });
+}
+
+async function settle(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+describe("createPlatformPatchQueue", () => {
+  beforeEach(() => {
+    patches = [];
+    builds = 0;
+    respond = () => new Response("{}", { status: 200 });
+    mockClient = makeClient();
+  });
+
+  test("PATCHes once and dedups an unchanged key", async () => {
+    const queue = makeQueue();
+    queue.enqueue("a");
+    await settle();
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches).toEqual([
+      { path: "/v1/assistants/asst-1/", body: { value: "a" } },
+    ]);
+  });
+
+  test("re-registering to another assistant id or base URL re-sends", async () => {
+    const queue = makeQueue();
+    queue.enqueue("a");
+    await settle();
+    mockClient = makeClient("asst-2");
+    queue.enqueue("a");
+    await settle();
+    mockClient = makeClient("asst-2", "https://platform.b");
+    queue.enqueue("a");
+    await settle();
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches.map((p) => p.path)).toEqual([
+      "/v1/assistants/asst-1/",
+      "/v1/assistants/asst-2/",
+      "/v1/assistants/asst-2/",
+    ]);
+  });
+
+  test("rapid enqueues collapse into one PATCH carrying the newest payload", async () => {
+    const queue = makeQueue();
+    queue.enqueue("a");
+    queue.enqueue("b");
+    queue.enqueue("c");
+    await settle();
+
+    expect(patches.map((p) => p.body.value)).toEqual(["c"]);
+    expect(builds).toBe(1);
+  });
+
+  test("an undefined payload, missing client, or missing assistant id skips", async () => {
+    const queue = makeQueue();
+    queue.enqueue(undefined);
+    await settle();
+    mockClient = null;
+    queue.enqueue("a");
+    await settle();
+    mockClient = makeClient("");
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches).toHaveLength(0);
+    expect(builds).toBe(1);
+  });
+
+  test("a failed PATCH does not dedup the next attempt", async () => {
+    const queue = makeQueue();
+    respond = () => new Response("nope", { status: 500 });
+    queue.enqueue("a");
+    await settle();
+    respond = () => new Response("{}", { status: 200 });
+    queue.enqueue("a");
+    await settle();
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches).toHaveLength(2);
+  });
+
+  test("a thrown fetch is swallowed and retried on the next enqueue", async () => {
+    const queue = makeQueue();
+    mockClient = {
+      ...makeClient(),
+      fetch: async () => {
+        throw new Error("boom");
+      },
+    };
+    queue.enqueue("a");
+    await settle();
+    mockClient = makeClient();
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches).toHaveLength(1);
+  });
+
+  test("seeds the dedup key from loadSyncedKey and saves each success", async () => {
+    const saved: string[] = [];
+    const queue = makeQueue({
+      loadSyncedKey: () => "https://platform.a|asst-1|a",
+      saveSyncedKey: (key) => saved.push(key),
+    });
+    queue.enqueue("a");
+    await settle();
+    queue.enqueue("b");
+    await settle();
+
+    expect(patches.map((p) => p.body.value)).toEqual(["b"]);
+    expect(saved).toEqual(["https://platform.a|asst-1|b"]);
+  });
+});

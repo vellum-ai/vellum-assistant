@@ -2,19 +2,20 @@
  * Sync the avatar raster to the platform Assistant record.
  *
  * Every avatar publish (routes and the fs watcher) and daemon startup enqueue
- * a sync. The current avatar state is read when the request runs, so rapid
- * changes collapse into one PATCH carrying the newest raster. The dedup key
- * comes from the raster file itself, not the manifest, so a raster rewritten
- * in place (fs watcher path) still syncs, and is scoped to the platform
- * destination so re-registering to another assistant or base URL re-sends.
- * `avatar_base64: null` is sent only when the avatar is actually removed; a
- * non-none avatar whose raster is missing (image PNG gone, character re-render
- * unavailable) is skipped so the platform keeps the last synced copy.
- * Best-effort: failures are logged, never thrown, and leave the dedup key
- * untouched so the next publish retries.
+ * a sync through the shared platform PATCH queue. The current avatar state is
+ * read when the request runs, so rapid changes collapse into one PATCH
+ * carrying the newest raster. The dedup key comes from the raster file itself,
+ * not the manifest, so a raster rewritten in place (fs watcher path) still
+ * syncs. The last synced key is persisted beside the manifest so a daemon
+ * restart does not re-upload an unchanged raster. `avatar_base64: null` is
+ * sent only when the avatar is actually removed; a non-none avatar whose
+ * raster is missing (image PNG gone, character re-render unavailable) is
+ * skipped so the platform keeps the last synced copy.
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   computeImageMeta,
@@ -23,23 +24,26 @@ import {
 import { ensureAvatarRasterPath } from "../avatar/ensure-raster.js";
 import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
 import { getLogger } from "../util/logger.js";
-import { VellumPlatformClient } from "./client.js";
+import { getAvatarDir } from "../util/platform.js";
+import {
+  createPlatformPatchQueue,
+  type PatchPayload,
+  type PlatformPatchQueue,
+} from "./platform-patch-queue.js";
 
 const log = getLogger("sync-avatar");
 
 /** Largest raster sent as-is; bigger ones are downscaled first. */
-export const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
+const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
 const DOWNSCALE_PX = 128;
 const NONE_KEY = "none";
+const SYNC_STATE_FILENAME = "avatar-sync.json";
 
-let lastSyncedKey: string | null = null;
-let seq = 0;
-let pending: Promise<void> = Promise.resolve();
+let queue: PlatformPatchQueue<void> | null = null;
 
+/** Recreates the queue so the next sync re-seeds its dedup key from disk. */
 export function _resetSyncAvatarStateForTests(): void {
-  lastSyncedKey = null;
-  seq = 0;
-  pending = Promise.resolve();
+  queue = null;
 }
 
 /**
@@ -48,17 +52,43 @@ export function _resetSyncAvatarStateForTests(): void {
  * configured, or when the raster's etag matches the last successful sync.
  */
 export function syncAvatarToPlatform(): void {
-  const mySeq = ++seq;
-  pending = pending.then(() => doSync(mySeq)).catch(() => {});
+  queue ??= createPlatformPatchQueue({
+    log,
+    label: "avatar",
+    buildPayload,
+    loadSyncedKey: readPersistedKey,
+    saveSyncedKey: persistKey,
+  });
+  queue.enqueue();
 }
 
-/** Returns undefined when a non-none avatar has no raster to send. */
-async function readRaster(): Promise<
-  { key: string; bytes: Buffer | null } | undefined
-> {
+function syncStatePath(): string {
+  return join(getAvatarDir(), SYNC_STATE_FILENAME);
+}
+
+function readPersistedKey(): string | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(syncStatePath(), "utf-8"));
+    const key = (parsed as { key?: unknown } | null)?.key;
+    return typeof key === "string" ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistKey(key: string): void {
+  try {
+    mkdirSync(getAvatarDir(), { recursive: true });
+    writeFileSync(syncStatePath(), JSON.stringify({ key }));
+  } catch (err) {
+    log.warn({ err }, "Failed to persist avatar sync state");
+  }
+}
+
+async function buildPayload(): Promise<PatchPayload | undefined> {
   const state = readAvatarState();
   if (state.kind === "none") {
-    return { key: NONE_KEY, bytes: null };
+    return { key: NONE_KEY, body: { avatar_base64: null } };
   }
   const path = await ensureAvatarRasterPath(state);
   if (!path) {
@@ -66,7 +96,21 @@ async function readRaster(): Promise<
     return undefined;
   }
   const { etag } = computeImageMeta(path);
-  return { key: `${state.kind}:${etag}`, bytes: await readFile(path) };
+  return {
+    key: `${state.kind}:${etag}`,
+    body: async () => {
+      const bytes = await readFile(path);
+      const encoded = encodeForUpload(bytes);
+      if (encoded === undefined) {
+        log.warn(
+          { bytes: bytes.length, cap: MAX_AVATAR_UPLOAD_BYTES },
+          "Avatar raster exceeds upload cap and could not be downscaled; skipping sync",
+        );
+        return undefined;
+      }
+      return { avatar_base64: encoded };
+    },
+  };
 }
 
 function downscalePng(png: Buffer): Buffer | null {
@@ -95,70 +139,4 @@ function encodeForUpload(bytes: Buffer): string | undefined {
     return undefined;
   }
   return upload.toString("base64");
-}
-
-async function doSync(requestSeq: number): Promise<void> {
-  try {
-    if (requestSeq !== seq) {
-      return;
-    }
-
-    const client = await VellumPlatformClient.create();
-    const assistantId = client?.platformAssistantId;
-    if (!client || !assistantId) {
-      return;
-    }
-
-    const raster = await readRaster();
-    if (!raster) {
-      return;
-    }
-    const { key: rasterKey, bytes } = raster;
-    const key = `${client.baseUrl}|${assistantId}|${rasterKey}`;
-    if (key === lastSyncedKey) {
-      return;
-    }
-
-    let avatarBase64: string | null = null;
-    if (bytes) {
-      const encoded = encodeForUpload(bytes);
-      if (encoded === undefined) {
-        log.warn(
-          { bytes: bytes.length, cap: MAX_AVATAR_UPLOAD_BYTES },
-          "Avatar raster exceeds upload cap and could not be downscaled; skipping sync",
-        );
-        return;
-      }
-      avatarBase64 = encoded;
-    }
-
-    // A newer publish superseded this one while the raster was read; it will
-    // carry the fresher state.
-    if (requestSeq !== seq) {
-      return;
-    }
-
-    const resp = await client.fetch(
-      `/v1/assistants/${encodeURIComponent(assistantId)}/`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatar_base64: avatarBase64 }),
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
-
-    if (resp.ok) {
-      lastSyncedKey = key;
-      log.info({ key: rasterKey, assistantId }, "Synced avatar to platform");
-    } else {
-      const text = await resp.text();
-      log.warn(
-        { status: resp.status, body: text, assistantId },
-        "Failed to sync avatar to platform",
-      );
-    }
-  } catch (err) {
-    log.warn({ err }, "Error syncing avatar to platform");
-  }
 }
