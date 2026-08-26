@@ -62,20 +62,26 @@ EXAMPLES:
 }
 
 /**
- * Pairing failures worth another attempt: the assistant could not be reached
- * at all, which is the transport class (a thrown fetch, a timeout, a refused
- * redirect, a body that errored mid-stream). Local-mode leaves the session and
- * the device code untouched on those, so polling simply continues.
+ * Pairing failures worth another attempt. `unreachable` is the transport class
+ * (a thrown fetch, a timeout, a refused redirect, a body that errored
+ * mid-stream). `gateway-retryable` is a refusal the gateway answered but which
+ * left the device code exchangeable, because the route releases the challenge
+ * before a repairable failure. Local-mode keeps the session pollable for both,
+ * so polling simply continues.
  *
  * Everything else is settled and ends the attempt. `invalid-address` and
  * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
- * one-time code is already spent; and `gateway` means the assistant
- * ANSWERED with something unusable (an over-cap body, credentials this device
- * cannot persist, an unexpected status), which is a definitive rejection
- * rather than a dropped connection.
+ * one-time code is already spent; and `gateway` means the assistant answered
+ * with something unusable (an over-cap body, or credentials this device cannot
+ * persist) after spending the code, which is a definitive rejection.
+ *
+ * This set must stay in agreement with `RETRYABLE_PAIRING_REASONS` in
+ * `clients/web/src/lib/local-mode.ts`, which classifies the same reasons for
+ * the desktop dialog.
  */
 const RETRYABLE_PAIRING_REASONS: ReadonlySet<PairingFailureReason> = new Set([
   "unreachable",
+  "gateway-retryable",
 ]);
 
 function isRetryablePairingFailure(failure: PairingFailure): boolean {
