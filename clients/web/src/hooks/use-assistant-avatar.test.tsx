@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AvatarFileResult } from "@/assistant/avatar-api";
+import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
 import type {
   AvatarState,
   CharacterComponents,
@@ -83,6 +84,20 @@ mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterTraitsResult,
 }));
 
+const actualLastSeenCache = await import("@/lib/avatar-last-seen-cache");
+const writeLastSeenAvatar = mock(
+  async (_id: string, _v: AvatarLastSeenCache.LastSeenAvatar) => {},
+);
+const deleteLastSeenAvatar = mock(async (_id: string) => {});
+mock.module(
+  "@/lib/avatar-last-seen-cache",
+  (): Partial<typeof AvatarLastSeenCache> => ({
+    ...actualLastSeenCache,
+    writeLastSeenAvatar,
+    deleteLastSeenAvatar,
+  }),
+);
+
 const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar");
 
 function createWrapper() {
@@ -110,6 +125,8 @@ afterEach(() => {
   fetchAvatarState.mockClear();
   fetchAvatarImageUrlResult.mockClear();
   fetchCharacterTraitsResult.mockClear();
+  writeLastSeenAvatar.mockClear();
+  deleteLastSeenAvatar.mockClear();
   fetchCharacterComponents.mockResolvedValue(components);
   fetchAvatarState.mockResolvedValue(noneState);
   fetchAvatarImageUrlResult.mockResolvedValue(ABSENT);
@@ -117,6 +134,56 @@ afterEach(() => {
 });
 
 describe("useAssistantAvatar", () => {
+  describe("last-seen cache", () => {
+    test("a resolved character avatar is persisted for the chooser's fallback", async () => {
+      fetchAvatarState.mockResolvedValueOnce(characterState);
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "asst-1",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a resolved none evicts the entry", async () => {
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+      await waitFor(() => {
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
+          "asst-1",
+          expect.any(Number),
+        );
+      });
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("an inconclusive read touches nothing", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(fetchAvatarState).toHaveBeenCalled();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(result.current.isSuccess).toBe(false);
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+  });
+
   test("character kind exposes manifest traits and skips the image fetch", async () => {
     fetchAvatarState.mockResolvedValueOnce(characterState);
 

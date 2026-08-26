@@ -65,7 +65,7 @@ const readAssistantAvatarHost = mock(
   }),
 );
 mock.module("@/runtime/local-mode-host", (): Partial<typeof LocalModeHost> => ({
-  isLocalModeHostAvailable: () => hostAvailable,
+  canReadAvatarFromLocalHost: () => hostAvailable,
   readAssistantAvatarHost,
 }));
 
@@ -140,11 +140,14 @@ const { useAssistantIdentityStore } =
 const { MIN_VERSION } =
   await import("@/lib/backwards-compat/avatar-state-manifest");
 const {
-  EMPTY_AVATAR_STALE_TIME_MS,
   canFetchRowAvatarViaPlatformProxy,
   chooserRowAvatarQueryKeyPrefix,
+  releaseRowAvatarUrls,
   useChooserRowAvatar,
 } = await import("@/hooks/use-chooser-row-avatar");
+
+/** Past the window a bare avatar stays fresh for. */
+const A_MINUTE_LATER = 61_000;
 
 const revokeObjectURL = mock((_url: string) => {});
 URL.revokeObjectURL = revokeObjectURL;
@@ -495,7 +498,7 @@ describe("useChooserRowAvatar", () => {
     expect(first.result.current).toEqual({ traits: null, imageUrl: null });
     first.unmount();
 
-    setSystemTime(new Date(Date.now() + EMPTY_AVATAR_STALE_TIME_MS + 1));
+    setSystemTime(new Date(Date.now() + A_MINUTE_LATER));
     fetchCharacterTraitsResult.mockResolvedValue(found(traits));
     const second = renderHook(() => useChooserRowAvatar(row), { wrapper });
     await waitFor(() => {
@@ -514,7 +517,7 @@ describe("useChooserRowAvatar", () => {
     });
     first.unmount();
 
-    setSystemTime(new Date(Date.now() + EMPTY_AVATAR_STALE_TIME_MS + 1));
+    setSystemTime(new Date(Date.now() + A_MINUTE_LATER));
     const second = renderHook(() => useChooserRowAvatar(row), { wrapper });
     await waitFor(() => {
       expect(second.result.current.traits).toEqual(traits);
@@ -703,8 +706,31 @@ describe("useChooserRowAvatar", () => {
       await waitFor(() => {
         expect(result.current.traits).toEqual(traits);
       });
+      await settle();
       expect(result.current.imageUrl).toBeNull();
       expect(readAssistantAvatarHost).not.toHaveBeenCalled();
+    });
+
+    test("the connected local row falls back to the host read when it is unreachable", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      const hostTraits = { ...traits, color: "sunset-orange" };
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits: hostTraits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("active")),
+        { wrapper: createWrapper() },
+      );
+      // The live read retries once (1s backoff) before it settles.
+      await waitFor(
+        () => {
+          expect(result.current.traits).toEqual(hostTraits);
+        },
+        { timeout: 3000 },
+      );
+      expect(readAssistantAvatarHost).toHaveBeenCalledWith("active");
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
     });
 
     test("invalidating the row prefix re-reads the host", async () => {
@@ -737,6 +763,34 @@ describe("useChooserRowAvatar", () => {
         expect(result.current.traits).toEqual(updated);
       });
       expect(readAssistantAvatarHost).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("releaseRowAvatarUrls", () => {
+    test("revokes the live and cached object urls held for a removed assistant", async () => {
+      fetchAvatarState.mockResolvedValue(imageState);
+      fetchAvatarImageUrlResult.mockResolvedValue(found("blob:row-image"));
+      const live = renderHook(() => useChooserRowAvatar(platformRow("other")), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(live.result.current.imageUrl).toBe("blob:row-image");
+      });
+      readLastSeenAvatar.mockResolvedValue({
+        kind: "image",
+        blob: new Blob(["png"]),
+      });
+      const cached = renderHook(() => useChooserRowAvatar(localRow("other")), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(cached.result.current.imageUrl).toBe("blob:cached-image");
+      });
+
+      releaseRowAvatarUrls("other");
+
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:row-image");
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:cached-image");
     });
   });
 

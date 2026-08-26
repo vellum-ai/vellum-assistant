@@ -24,6 +24,7 @@ const {
   readAssistantAvatarHost,
   fetchGuardianTokenHost,
   isLocalModeHostAvailable,
+  canReadAvatarFromLocalHost,
   requiresGuardianReprovision,
 } = await import("./local-mode-host");
 
@@ -40,8 +41,14 @@ beforeEach(() => {
   (window as WindowWithConfig).__VELLUM_CONFIG__ = {};
 });
 
+/** bun aliases `import.meta.env` to `process.env`, so this is the Vite dev flag. */
+function onViteDevHost() {
+  process.env.DEV = "true";
+}
+
 afterEach(() => {
   runningInElectron = false;
+  delete process.env.DEV;
   globalThis.fetch = realFetch;
   delete (window as { vellum?: unknown }).vellum;
   delete (window as WindowWithConfig).__VELLUM_CONFIG__;
@@ -761,6 +768,7 @@ describe("getLocalAssistantStatusHost", () => {
 
 describe("readAssistantAvatarHost", () => {
   test("web/dev host GETs the avatar middleware and returns its JSON", async () => {
+    onViteDevHost();
     const avatar = {
       kind: "character" as const,
       traits: { bodyShape: "round", eyeStyle: "dot", color: "#123456" },
@@ -809,6 +817,53 @@ describe("readAssistantAvatarHost", () => {
 
     expect(result.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a rejected Electron bridge call resolves ok:false instead of throwing", async () => {
+    setElectronBridge({
+      readAssistantAvatar: mock(async () => {
+        throw new Error("ipc channel closed");
+      }),
+    });
+
+    expect(await readAssistantAvatarHost("a-1")).toEqual({
+      ok: false,
+      error: "Error: ipc channel closed",
+    });
+  });
+
+  test("the packaged CLI web host issues no request: it has no avatar endpoint", async () => {
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the CLI host");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await readAssistantAvatarHost("a-1");
+
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("canReadAvatarFromLocalHost", () => {
+  test("is true on the Electron host", () => {
+    runningInElectron = true;
+    expect(canReadAvatarFromLocalHost()).toBe(true);
+  });
+
+  test("is true on the Vite dev host", () => {
+    onViteDevHost();
+    expect(canReadAvatarFromLocalHost()).toBe(true);
+  });
+
+  test("is false on the packaged CLI web host", () => {
+    expect(canReadAvatarFromLocalHost()).toBe(false);
+  });
+
+  test("is false when no local-mode host is available", () => {
+    onViteDevHost();
+    delete (window as WindowWithConfig).__VELLUM_CONFIG__;
+    expect(canReadAvatarFromLocalHost()).toBe(false);
   });
 });
 
@@ -961,6 +1016,7 @@ describe("web/dev transport resilience", () => {
   });
 
   test("avatar returns a failure result instead of throwing on a non-JSON body", async () => {
+    onViteDevHost();
     globalThis.fetch = nonJsonResponse();
     const result = await readAssistantAvatarHost("a-1");
     expect(result.ok).toBe(false);
