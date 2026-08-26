@@ -240,6 +240,7 @@
     "loadError": "Failed to load auto-reload configuration.",
     "loading": "Loading…",
     "summary": "Add {amount} when balance falls under {threshold}",
+    "toggleHelper": "Auto reloads only occur when plan based usage is exhausted",
     "toggleLabel": "Enable auto-reload",
     "updateError": "Failed to save auto-reload settings. Please try again."
   },
