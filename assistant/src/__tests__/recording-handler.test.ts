@@ -200,10 +200,15 @@ function registerMockClient(
   mockClients.set(clientId, { clientId, actorPrincipalId, interfaceId });
 }
 
-function statusHeaders(clientId: string, actorPrincipalId: string) {
+function statusHeaders(
+  clientId: string,
+  actorPrincipalId: string,
+  desktopClientId?: string,
+) {
   return {
     "x-vellum-client-id": clientId,
     "x-vellum-actor-principal-id": actorPrincipalId,
+    ...(desktopClientId ? { "vellum-device-id": desktopClientId } : {}),
   };
 }
 
@@ -334,6 +339,7 @@ describe("recording status restart fallback", () => {
   test("attaches a completed recording after assistant state is lost", async () => {
     const conversationId = "conv-recording-restart-fallback";
     const recordingId = "00000000-0000-4000-8000-000000000091";
+    registerMockClient("renderer-1", "actor-1", "web");
     registerMockClient("desktop-1", "actor-1", "windows");
 
     await expect(
@@ -344,7 +350,7 @@ describe("recording status restart fallback", () => {
           status: "stopped",
           filePath: `${ALLOWED_RECORDINGS_DIR}/${recordingId}.webm`,
         },
-        headers: statusHeaders("desktop-1", "actor-1"),
+        headers: statusHeaders("renderer-1", "actor-1", "desktop-1"),
       } as never),
     ).resolves.toEqual({ ok: true });
 
@@ -354,6 +360,7 @@ describe("recording status restart fallback", () => {
   });
 
   test("rejects restart fallback from the wrong actor", async () => {
+    registerMockClient("renderer-actor", "actor-2", "web");
     registerMockClient("desktop-actor", "actor-1");
 
     await expect(
@@ -363,12 +370,12 @@ describe("recording status restart fallback", () => {
           attachToConversationId: "conv-recording-wrong-actor",
           status: "failed",
         },
-        headers: statusHeaders("desktop-actor", "actor-2"),
+        headers: statusHeaders("renderer-actor", "actor-2", "desktop-actor"),
       } as never),
     ).rejects.toThrow("does not match");
   });
 
-  test("rejects restart fallback from a non-desktop client", async () => {
+  test("rejects a spoofed browser desktop marker", async () => {
     registerMockClient("web-client", "actor-1", "web");
 
     await expect(
@@ -378,13 +385,14 @@ describe("recording status restart fallback", () => {
           attachToConversationId: "conv-recording-wrong-client",
           status: "failed",
         },
-        headers: statusHeaders("web-client", "actor-1"),
+        headers: statusHeaders("web-client", "actor-1", "spoofed-desktop"),
       } as never),
     ).rejects.toThrow("desktop client");
   });
 
   test("rejects restart fallback for an unknown conversation", async () => {
     mockConversationExists = false;
+    registerMockClient("renderer-conversation", "actor-1", "web");
     registerMockClient("desktop-conversation", "actor-1");
 
     await expect(
@@ -394,12 +402,17 @@ describe("recording status restart fallback", () => {
           attachToConversationId: "conv-recording-does-not-exist",
           status: "stopped",
         },
-        headers: statusHeaders("desktop-conversation", "actor-1"),
+        headers: statusHeaders(
+          "renderer-conversation",
+          "actor-1",
+          "desktop-conversation",
+        ),
       } as never),
     ).rejects.toThrow("Conversation not found");
   });
 
   test("rejects a non-terminal restart fallback status", async () => {
+    registerMockClient("renderer-non-terminal", "actor-1", "web");
     registerMockClient("desktop-non-terminal", "actor-1");
 
     await expect(
@@ -409,7 +422,11 @@ describe("recording status restart fallback", () => {
           attachToConversationId: "conv-recording-non-terminal",
           status: "started",
         },
-        headers: statusHeaders("desktop-non-terminal", "actor-1"),
+        headers: statusHeaders(
+          "renderer-non-terminal",
+          "actor-1",
+          "desktop-non-terminal",
+        ),
       } as never),
     ).rejects.toThrow("another client");
   });

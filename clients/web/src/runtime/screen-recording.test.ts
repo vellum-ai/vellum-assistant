@@ -18,6 +18,7 @@ mock.module("@/generated/daemon/client.gen", () => ({
 const {
   ScreenRecordingController,
   captureSelectedSource,
+  postStatus,
   requiresRecordingTransfer,
   transferRecording,
 } = await import("./screen-recording");
@@ -86,6 +87,7 @@ beforeEach(() => {
   clientPost.mockClear();
   useAssistantIdentityStore.getState().clearIdentity();
   Object.assign(window, {
+    __VELLUM_CONFIG__: { deviceId: "desktop-client-1" },
     vellum: {
       platform: "electron",
       screenRecording: {
@@ -97,6 +99,18 @@ beforeEach(() => {
       },
     },
   });
+});
+
+test("reports status with the Electron main-process client identity", async () => {
+  await postStatus("assistant-1", startEvent, "stopped", {
+    filePath: "/recordings/capture.webm",
+  });
+
+  expect(clientPost).toHaveBeenCalledWith(
+    expect.objectContaining({
+      headers: { "Vellum-Device-Id": "desktop-client-1" },
+    }),
+  );
 });
 
 const createVersionGatedController = () => {
@@ -545,10 +559,7 @@ test("only the client that wins the claim starts capture", async () => {
   const firstStart = first.handle(startEvent, "assistant-1");
   const secondStart = second.handle(startEvent, "assistant-1");
   await Promise.all([firstStart, retryWaiting]);
-  await second.handle(
-    { type: "recording_stop", recordingId },
-    "assistant-1",
-  );
+  await second.handle({ type: "recording_stop", recordingId }, "assistant-1");
   continueRetry();
   await secondStart;
 
@@ -832,7 +843,7 @@ test("a newer recording supersedes an obsolete pending contender", async () => {
   expect(recorder.state).toBe("recording");
 });
 
-test("stops locally without status after losing the claim", async () => {
+test("stops locally without status after an occupied renewal", async () => {
   const track = new FakeTrack();
   const recorder = new FakeRecorder();
   const statuses: string[] = [];
@@ -865,6 +876,48 @@ test("stops locally without status after losing the claim", async () => {
 
   expect(recorder.state).toBe("inactive");
   expect(statuses).toEqual(["started"]);
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+  expect(track.stopped).toBeTrue();
+});
+
+test("keeps recording after a missing renewal and reports the completed file", async () => {
+  const track = new FakeTrack();
+  const recorder = new FakeRecorder();
+  const statuses: string[] = [];
+  let serverStateMissing!: () => void;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    maintainClaim: (_assistantId, _recordingId, _onLost, onMissing) => {
+      serverStateMissing = onMissing;
+      return () => undefined;
+    },
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+  serverStateMissing();
+
+  expect(recorder.state).toBe("recording");
+
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+
+  expect(statuses).toEqual(["started", "stopped"]);
   expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
   expect(track.stopped).toBeTrue();
 });

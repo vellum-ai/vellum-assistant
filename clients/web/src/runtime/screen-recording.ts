@@ -8,6 +8,7 @@ import type {
 import { client } from "@/generated/daemon/client.gen";
 import { supportsRecordingOwnership } from "@/lib/backwards-compat/recording-ownership";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
+import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -19,7 +20,12 @@ type RecordingLifecycleEvent =
   | RecordingResumeEvent;
 
 type RecordingStatus =
-  "started" | "stopped" | "failed" | "restart_cancelled" | "paused" | "resumed";
+  | "started"
+  | "stopped"
+  | "failed"
+  | "restart_cancelled"
+  | "paused"
+  | "resumed";
 
 interface ActiveRecording {
   assistantId: string;
@@ -75,11 +81,7 @@ const claimRecording = async (
   const result = await postRecordingRequest<{
     claimed: boolean;
     outcome: RecordingClaimOutcome;
-  }>(
-    assistantId,
-    "claim",
-    { recordingId },
-  );
+  }>(assistantId, "claim", { recordingId });
   return result.outcome;
 };
 
@@ -109,6 +111,7 @@ const maintainRecordingClaim = (
   assistantId: string,
   recordingId: string,
   onLost: () => void,
+  onMissing: () => void,
 ): (() => void) => {
   let stopped = false;
   let checking = false;
@@ -119,7 +122,11 @@ const maintainRecordingClaim = (
     checking = true;
     void claimRecording(assistantId, recordingId)
       .then((outcome) => {
-        if (outcome !== "claimed" && !stopped) {
+        if (outcome === "missing" && !stopped) {
+          stopped = true;
+          clearInterval(timer);
+          onMissing();
+        } else if (outcome === "occupied" && !stopped) {
           stopped = true;
           clearInterval(timer);
           onLost();
@@ -136,7 +143,7 @@ const maintainRecordingClaim = (
   };
 };
 
-const postStatus = async (
+export const postStatus = async (
   assistantId: string,
   event: RecordingStartEvent,
   status: RecordingStatus,
@@ -147,6 +154,7 @@ const postStatus = async (
     error?: string;
   } = {},
 ): Promise<void> => {
+  const desktopClientId = getDeviceId();
   const { response } = await client.post({
     url: "/v1/assistants/{assistant_id}/recordings/status" as KnownDaemonUrl,
     path: { assistant_id: assistantId },
@@ -157,6 +165,9 @@ const postStatus = async (
       operationToken: event.operationToken,
       ...details,
     } as Record<string, unknown>,
+    ...(desktopClientId
+      ? { headers: { "Vellum-Device-Id": desktopClientId } }
+      : {}),
   });
   if (!response?.ok) {
     throw new Error(
@@ -383,6 +394,7 @@ export class ScreenRecordingController {
           assistantId,
           event.recordingId,
           () => this.loseOwnership(event.recordingId),
+          () => this.keepAliveAfterServerRestart(event.recordingId),
         )
       : () => undefined;
     let capture: CapturedMedia | null = null;
@@ -690,6 +702,14 @@ export class ScreenRecordingController {
     if (active.recorder.state !== "inactive") {
       active.recorder.stop();
     }
+  }
+
+  private keepAliveAfterServerRestart(recordingId: string): void {
+    const active = this.active;
+    if (!active || active.event.recordingId !== recordingId) {
+      return;
+    }
+    active.stopClaimMaintenance();
   }
 
   private async stop(recordingId: string): Promise<void> {

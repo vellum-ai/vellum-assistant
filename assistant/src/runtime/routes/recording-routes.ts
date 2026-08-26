@@ -119,17 +119,20 @@ async function restoreRestartFallbackOwner(
   body: Record<string, unknown>,
   headers: Record<string, string> | undefined,
   recordingId: string,
-  clientId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   if (
     typeof body.status !== "string" ||
     !TERMINAL_RECORDING_STATUSES.has(body.status) ||
     typeof body.attachToConversationId !== "string"
   ) {
-    return false;
+    return null;
   }
 
-  const client = assistantEventHub.getClientById(clientId);
+  const desktopClientId = headers?.["vellum-device-id"]?.trim();
+  if (!desktopClientId) {
+    throw new ForbiddenError("Recording status requires a desktop client");
+  }
+  const client = assistantEventHub.getClientById(desktopClientId);
   if (
     !client ||
     (client.interfaceId !== "macos" && client.interfaceId !== "windows")
@@ -143,7 +146,7 @@ async function restoreRestartFallbackOwner(
   enforceSameActorOrThrow({
     sourceActorPrincipalId: actorPrincipalId,
     targetActorPrincipalId: client.actorPrincipalId,
-    targetClientId: clientId,
+    targetClientId: desktopClientId,
     op: "screen_recording",
     hubForMissingTarget: assistantEventHub,
   });
@@ -152,7 +155,9 @@ async function restoreRestartFallbackOwner(
     throw new NotFoundError("Conversation not found");
   }
 
-  return restoreMissingRecordingClaim(recordingId, clientId);
+  return restoreMissingRecordingClaim(recordingId, desktopClientId)
+    ? desktopClientId
+    : null;
 }
 
 async function requireStatusOwner(
@@ -160,22 +165,26 @@ async function requireStatusOwner(
   headers: Record<string, string> | undefined,
   recordingId: string,
   clientId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   if (ownsRecordingClaim(recordingId, clientId)) {
-    return false;
+    return null;
   }
   if (hasRecordingClaim(recordingId)) {
     throw new ConflictError("Recording belongs to another client");
   }
   const outcome = claimRecordingOutcome(recordingId, clientId);
   if (outcome === "claimed") {
-    return false;
+    return null;
   }
-  if (
-    outcome === "missing" &&
-    (await restoreRestartFallbackOwner(body, headers, recordingId, clientId))
-  ) {
-    return true;
+  if (outcome === "missing") {
+    const restoredOwnerId = await restoreRestartFallbackOwner(
+      body,
+      headers,
+      recordingId,
+    );
+    if (restoredOwnerId) {
+      return restoredOwnerId;
+    }
   }
   throw new ConflictError("Recording belongs to another client");
 }
@@ -350,7 +359,7 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
   }
 
   const clientId = requireClientId(headers);
-  const restoredOwner = await requireStatusOwner(
+  const restoredOwnerId = await requireStatusOwner(
     body,
     headers,
     body.conversationId,
@@ -365,8 +374,8 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
   try {
     await handleRecordingStatusCore(msg);
   } catch (err) {
-    if (restoredOwner) {
-      releaseRecordingClaim(body.conversationId, clientId);
+    if (restoredOwnerId) {
+      releaseRecordingClaim(body.conversationId, restoredOwnerId);
     }
     log.error(
       { err, conversationId: body.conversationId, status: body.status },
