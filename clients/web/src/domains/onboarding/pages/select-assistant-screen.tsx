@@ -1176,7 +1176,7 @@ function AssistantCard({
 }) {
   const { t } = useTranslation("onboarding");
   const label = assistantLabel(assistant);
-  const { traits, imageUrl } = useChooserRowAvatar(assistant);
+  const { traits, imageUrl, onImageError } = useChooserRowAvatar(assistant);
   const glyph = assistant.isPaired ? (
     <Link2 className="h-5 w-5" />
   ) : assistant.isLocal ? (
@@ -1192,6 +1192,7 @@ function AssistantCard({
           imageUrl={imageUrl}
           fallback={glyph}
           decorative
+          onImageError={onImageError}
         />
       }
       title={label}

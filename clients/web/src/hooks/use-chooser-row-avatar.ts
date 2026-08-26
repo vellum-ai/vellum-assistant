@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import { fetchAvatarState } from "@/assistant/avatar-api";
@@ -37,6 +38,14 @@ import {
 import type { AvatarRead } from "@/types/avatar";
 
 const QUERY_KEY_PREFIX = "chooserRowAvatar";
+
+export interface ChooserRowAvatar extends AvatarRead {
+  /**
+   * Wire to the rendered image's `onError`. A synced thumbnail that fails to
+   * load (offline, expired signed URL) re-enables the row's other sources.
+   */
+  onImageError: () => void;
+}
 
 type RowManifestSupport = "supported" | "unsupported" | "unknown";
 
@@ -289,18 +298,29 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  *    so a row keeps its avatar while the assistant is unreachable.
  * Only live sources (1 and 3) feed the cache, at fetch time (1 does so
  * inside `useAssistantAvatar`); a conclusive none from any source evicts it.
+ * Persisting live evidence also drops the row's `avatarUrl`, so 2 never
+ * outranks a fresher local read. A synced URL that fails to load
+ * (`onImageError`) is set aside so 3 to 5 take over for that row.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
  */
-export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
+export function useChooserRowAvatar(
+  assistant: ResolvedAssistant,
+): ChooserRowAvatar {
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isConnectedRow = assistant.id === activeAssistantId;
   const isOrgReady = useIsOrgReady();
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
-  const syncedAvatar: AvatarRead | null = assistant.avatarUrl
-    ? { traits: null, imageUrl: assistant.avatarUrl }
+  // Keyed by URL so a reload that carries a new thumbnail retries it.
+  const [failedSyncedUrl, setFailedSyncedUrl] = useState<string | null>(null);
+  const syncedUrl =
+    assistant.avatarUrl && assistant.avatarUrl !== failedSyncedUrl
+      ? assistant.avatarUrl
+      : null;
+  const syncedAvatar: AvatarRead | null = syncedUrl
+    ? { traits: null, imageUrl: syncedUrl }
     : null;
   const hasSyncedAvatar = syncedAvatar !== null;
 
@@ -371,14 +391,18 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
     retry: false,
   });
 
-  if (showLive) {
-    return live ?? EMPTY_AVATAR;
-  }
-  if (showSynced) {
-    return syncedAvatar ?? EMPTY_AVATAR;
-  }
-  if (showHost) {
-    return { traits: hostQuery.data.traits, imageUrl: hostQuery.data.imageUrl };
-  }
-  return cacheQuery.data ?? EMPTY_AVATAR;
+  const onImageError = useCallback(() => {
+    if (showSynced) {
+      setFailedSyncedUrl(syncedUrl);
+    }
+  }, [showSynced, syncedUrl]);
+
+  const avatar: AvatarRead = showLive
+    ? (live ?? EMPTY_AVATAR)
+    : showSynced
+      ? (syncedAvatar ?? EMPTY_AVATAR)
+      : showHost
+        ? { traits: hostQuery.data.traits, imageUrl: hostQuery.data.imageUrl }
+        : (cacheQuery.data ?? EMPTY_AVATAR);
+  return { ...avatar, onImageError };
 }
