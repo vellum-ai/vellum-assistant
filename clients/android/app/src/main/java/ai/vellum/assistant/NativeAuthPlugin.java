@@ -18,9 +18,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -401,14 +401,30 @@ public class NativeAuthPlugin extends Plugin {
      * {@code request.GET} even for a POST.
      */
     private URL buildPlatformURL(Uri baseURL, String path, String encodedQuery) throws IOException {
-        Uri.Builder builder = new Uri.Builder()
+        Uri origin = new Uri.Builder()
             .scheme(baseURL.getScheme())
             .encodedAuthority(baseURL.getEncodedAuthority())
-            .encodedPath(path);
-        if (encodedQuery != null && !encodedQuery.isEmpty()) {
-            builder.encodedQuery(encodedQuery);
+            .encodedPath(path)
+            .build();
+        return withQuery(origin.toString(), encodedQuery);
+    }
+
+    /**
+     * {@code base} carrying {@code encodedQuery}, or {@code base} alone when
+     * there is no query. A {@code base} that already has a query or a fragment
+     * is refused rather than given a second one.
+     *
+     * <p>Takes plain strings, so the append decision stays covered by JVM
+     * tests: {@link Uri} is stubbed out of that source set.
+     */
+    static URL withQuery(String base, String encodedQuery) throws MalformedURLException {
+        if (base.indexOf('?') >= 0 || base.indexOf('#') >= 0) {
+            throw new MalformedURLException("Base URL carries its own query or fragment: " + base);
         }
-        return new URL(builder.build().toString());
+        if (encodedQuery == null || encodedQuery.trim().isEmpty()) {
+            return new URL(base);
+        }
+        return new URL(base + "?" + encodedQuery);
     }
 
     /**
@@ -616,15 +632,17 @@ public class NativeAuthPlugin extends Plugin {
      * Allowlisted campaign attribution from a {@code startAuth} call. The
      * {@link JSObject} unwrap happens here so {@link Attribution} stays free of
      * Capacitor and Android types, and so stays testable on the JVM.
+     *
+     * <p>Only genuine strings survive: a number or a boolean is dropped rather
+     * than coerced, matching the iOS shell.
      */
     static Map<String, String> readAttribution(JSObject source) {
         Map<String, String> raw = new LinkedHashMap<>();
         if (source != null) {
-            for (Iterator<String> keys = source.keys(); keys.hasNext(); ) {
-                String key = keys.next();
-                String value = source.getString(key, null);
-                if (value != null) {
-                    raw.put(key, value);
+            for (String key : Attribution.KEYS) {
+                Object value = source.opt(key);
+                if (value instanceof String) {
+                    raw.put(key, (String) value);
                 }
             }
         }

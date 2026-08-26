@@ -216,7 +216,7 @@ targets:
     platform: iOS
     sources:
       - path: AppTests
-      - path: App/WorkOSAuth.swift
+      - path: App/Attribution.swift
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
