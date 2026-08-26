@@ -34,7 +34,6 @@ import { getLogger } from "../util/logger.js";
 import {
   claudeTokenDigest,
   claudeTokenRefusedByClaude,
-  storedClaudeTokenDigest,
 } from "./acp-auth-marker-store.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
@@ -320,6 +319,11 @@ export async function prepareAgentEnv(
       env.CLAUDE_CODE_OAUTH_TOKEN &&
       claudeTokenRefusedByClaude(env.CLAUDE_CODE_OAUTH_TOKEN)
     ) {
+      // Imported here rather than at the top: `acp-claude-oauth` reaches back
+      // into this module for the spawn policy helpers, and that module is the
+      // one authorised to read this vault field, so the dependency has to run
+      // one way at load and the other at call time.
+      const { storedClaudeTokenDigest } = await import("./acp-claude-oauth.js");
       const stored = await storedClaudeTokenDigest();
       if (
         stored !== undefined &&

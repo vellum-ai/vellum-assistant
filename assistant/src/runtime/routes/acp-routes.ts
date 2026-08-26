@@ -9,10 +9,8 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  acpAuthMarkerStillCurrent,
-  storedClaudeTokenDigest,
-} from "../../acp/acp-auth-marker-store.js";
+import { acpAuthMarkerStillCurrent } from "../../acp/acp-auth-marker-store.js";
+import { storedClaudeTokenDigest } from "../../acp/acp-claude-oauth.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";

@@ -4,10 +4,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "./acp-credentials.js";
 
 const log = getLogger("acp-auth-marker-store");
 
@@ -77,26 +74,4 @@ export function claudeTokenRefusedByClaude(token: string): boolean {
     );
     return false;
   }
-}
-
-/**
- * Digest of the Claude OAuth token secure storage holds right now, or
- * `undefined` when it holds none.
- *
- * The credential a marker is judged against. A configured
- * `CLAUDE_CODE_OAUTH_TOKEN` that Claude has already refused stands down at the
- * next spawn, so once a token carries a marker the vault value is what a spawn
- * goes on to resolve, and comparing against it answers whether the marker
- * still describes the credential in use.
- *
- * Read on demand rather than cached. The vault is the authority on what it
- * holds, and a copy of that answer in this process is a second one that has to
- * be kept in step with every write, including writes this process did not
- * make.
- */
-export async function storedClaudeTokenDigest(): Promise<string | undefined> {
-  const token = await getSecureKeyAsync(
-    credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
-  );
-  return token ? claudeTokenDigest(token) : undefined;
 }

@@ -117,12 +117,14 @@ mock.module("../../assistant-event-hub.js", () => ({
 }));
 
 // The credential a spawn would resolve, which every credential-failure marker
-// is compared against before it is served. Spreading the real module keeps the
-// comparison itself real: only the vault read is under the test's control.
+// is compared against before it is served. Only the vault read is stubbed:
+// the comparison itself stays real, and spreading the module keeps every other
+// export intact for consumers that reach for one.
 let fakeStoredCredential: string | undefined;
 const realMarkerStore = await import("../../../acp/acp-auth-marker-store.js");
-mock.module("../../../acp/acp-auth-marker-store.js", () => ({
-  ...realMarkerStore,
+const realClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
+mock.module("../../../acp/acp-claude-oauth.js", () => ({
+  ...realClaudeOauth,
   storedClaudeTokenDigest: async () => fakeStoredCredential,
 }));
 
