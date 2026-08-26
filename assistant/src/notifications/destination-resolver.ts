@@ -160,7 +160,10 @@ export function resolveDestinations(
         // stored room id. User and channel snowflakes are indistinguishable
         // bare numbers, so the adapter resolves the DM channel from the
         // person at send time and a guild room can never become a delivery
-        // target.
+        // target. The binding context reuses the conversation the guardian
+        // verified in, which the verification intercept scopes to the DM
+        // lane; delivery stays DM-safe regardless, since it never reads
+        // this id.
         if (guardian?.address) {
           result.set("discord", {
             channel: "discord",
