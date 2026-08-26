@@ -415,6 +415,9 @@ export async function runBackgroundJob(
         jobName: opts.jobName,
         errorKind,
         ...(failureCode !== undefined ? { failureCode } : {}),
+        ...(opts.overrideProfile !== undefined
+          ? { providerScope: opts.overrideProfile }
+          : {}),
       });
       emitNotificationSignal({
         sourceChannel: "assistant_tool",

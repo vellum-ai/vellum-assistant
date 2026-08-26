@@ -540,12 +540,64 @@ describe("execute-mode failure notifications", () => {
     expect(alert.sourceEventName).toBe("activity.failed");
     expect(alert.sourceContextId).toBe(schedule.id);
     expect(alert.dedupeKey).toMatch(
-      /^activity-failed:cause:PROVIDER_BILLING:\d{4}-\d{2}-\d{2}$/,
+      /^activity-failed:cause:PROVIDER_BILLING:default:\d{4}-\d{2}-\d{2}$/,
     );
     expect(alert.contextPayload).toMatchObject({
       jobName: "schedule:Billing victim",
       errorKind: "model_provider",
     });
+  });
+
+  test("schedules on different profiles alert separately for the same cause", async () => {
+    // Two provider connections can fail for the same class of reason with
+    // different remedies; schedule A's alert must not suppress schedule B's.
+    const emitted: Array<Record<string, unknown>> = [];
+    emitNotificationSignalImpl = async (payload) => {
+      emitted.push(payload as Record<string, unknown>);
+    };
+    runnerFailureClassification = {
+      errorKind: "model_provider",
+      failureCode: "PROVIDER_INVALID_KEY",
+    };
+
+    const scheduleA = await createSchedule({
+      name: "Profile A victim",
+      cronExpression: "0 * * * *",
+      message: "do work",
+      syntax: "cron",
+      maxRetries: 1,
+      retryBackoffMs: 1000,
+      inferenceProfile: "profile-a",
+    });
+    const scheduleB = await createSchedule({
+      name: "Profile B victim",
+      cronExpression: "0 * * * *",
+      message: "do work",
+      syntax: "cron",
+      maxRetries: 1,
+      retryBackoffMs: 1000,
+      inferenceProfile: "profile-b",
+    });
+    forceScheduleDue(scheduleA.id);
+    forceScheduleDue(scheduleB.id);
+
+    scheduler = startScheduler(async () => {
+      throw new Error("provider rejected the key");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    forceScheduleDue(scheduleA.id);
+    forceScheduleDue(scheduleB.id);
+    await scheduler.runOnce();
+    scheduler.stop();
+
+    expect(emitted).toHaveLength(2);
+    const keys = emitted.map((signal) => signal.dedupeKey as string).sort();
+    expect(keys[0]).toMatch(
+      /^activity-failed:cause:PROVIDER_INVALID_KEY:profile-a:\d{4}-\d{2}-\d{2}$/,
+    );
+    expect(keys[1]).toMatch(
+      /^activity-failed:cause:PROVIDER_INVALID_KEY:profile-b:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 
   test("a cause-less failure keys the exhaustion alert per schedule", async () => {

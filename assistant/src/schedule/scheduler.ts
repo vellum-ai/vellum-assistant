@@ -252,6 +252,9 @@ async function handleExecutionFailure(params: {
         ...(params.failureCode !== undefined
           ? { failureCode: params.failureCode }
           : {}),
+        ...(params.job.inferenceProfile != null
+          ? { providerScope: params.job.inferenceProfile }
+          : {}),
       }),
     log,
   });
@@ -1081,6 +1084,7 @@ function emitScheduleActivityFailed(args: {
   errorMessage: string;
   errorKind: BackgroundJobErrorKind;
   failureCode?: string;
+  providerScope?: string;
 }): void {
   emitNotificationSignal({
     sourceChannel: "scheduler",
@@ -1091,6 +1095,9 @@ function emitScheduleActivityFailed(args: {
       errorKind: args.errorKind,
       ...(args.failureCode !== undefined
         ? { failureCode: args.failureCode }
+        : {}),
+      ...(args.providerScope !== undefined
+        ? { providerScope: args.providerScope }
         : {}),
     }),
     contextPayload: {
