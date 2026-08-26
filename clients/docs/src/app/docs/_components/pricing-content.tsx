@@ -532,8 +532,10 @@ export function PricingContent() {
 
           <CollapsibleSection id="how-pricing-works" label="How pricing works">
             <p className="mb-4 text-zinc-600">
-              Vellum uses a prepaid credit balance: usage is deducted from your
-              credits as you use the assistant. You can add credits anytime from
+              Paid work draws on two pools, in order. If your plan includes
+              monthly usage, that allowance is always consumed first. Only
+              after the included usage is fully consumed does spending move to
+              your prepaid credit balance. You can add credits anytime from
               the Billing page via Stripe Checkout. Applicable taxes may be
               added during checkout.
             </p>
