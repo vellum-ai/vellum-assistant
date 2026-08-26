@@ -5,17 +5,14 @@ import {
   TIER_CHANGE_ELIGIBLE_STATUSES,
   extractMutationError,
 } from "@/domains/settings/components/adjust-plan-utils";
+import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
 import {
   organizationsBillingPlansRetrieveOptions,
-  organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionChangeCreditTierCreateMutation,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation,
   organizationsBillingSubscriptionChangeStorageTierCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
-  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   CreditTierEnum,
@@ -221,27 +218,6 @@ export function useChangeTiers({
     changeStorageTierMutation.isPending ||
     changeCreditTierMutation.isPending;
 
-  // Awaited before a resize-needed result resolves so the takeover reads the
-  // refetched onboarding ceiling, not the stale cache (mirrors the
-  // package-switch path).
-  const invalidateBillingQueries = () =>
-    Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: organizationsBillingPlansRetrieveQueryKey(),
-      }),
-      // An immediate tier change grants the credit difference right away, and
-      // the Usage Balance bar reads off the summary's grant figures.
-      queryClient.invalidateQueries({
-        queryKey: organizationsBillingSummaryRetrieveQueryKey(),
-      }),
-    ]);
-
   const changeTiers = async (
     selection: ChangeTiersSelection,
   ): Promise<ChangeTiersResult | null> => {
@@ -321,7 +297,7 @@ export function useChangeTiers({
     const results = await Promise.all(pending);
     // Await the refetches so a resize-needed result resolves only once the
     // takeover can read the new ceiling instead of the stale cache.
-    await invalidateBillingQueries();
+    await invalidateBillingQueries(queryClient);
 
     // Storage is always an upgrade (the modal disables downgrades). A machine
     // change needs a resize only when it grows the ceiling — a downgrade is

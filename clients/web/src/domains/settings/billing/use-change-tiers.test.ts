@@ -433,8 +433,8 @@ describe("useChangeTiers", () => {
     expect(storageCalls).toEqual([]);
     expect(invalidatedKeys).toEqual([
       SUBSCRIPTION_KEY,
-      ONBOARDING_KEY,
       PLANS_KEY,
+      ONBOARDING_KEY,
       SUMMARY_KEY,
     ]);
     expect(toastErrorCalls).toEqual([]);
