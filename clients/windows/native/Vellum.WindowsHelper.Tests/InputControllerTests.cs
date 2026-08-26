@@ -69,6 +69,19 @@ public static class InputControllerTests
         Check(InputController.MapAction("computer_use_screenshot", null).Type == "observe", "screenshot observes");
         Check(InputController.MapAction("computer_use_press_key", null).Type == "key", "press_key");
 
+        // Drag carries a destination by coordinates or element id.
+        using var dragInput = JsonDocument.Parse("{\"element_id\":1,\"to_x\":50,\"to_y\":60}");
+        var drag = InputController.MapAction("computer_use_drag", dragInput.RootElement);
+        Check(drag.Type == "drag" && drag.ElementId == 1 && drag.ToX == 50 && drag.ToY == 60, "drag mapping");
+
+        // App names resolve through aliases and Start Menu shortcut stems.
+        Check(AppLauncher.Resolve("vscode") == "Visual Studio Code", "app alias");
+        var shortcuts = new[] { @"C:\sm\Google Chrome.lnk", @"C:\sm\Slack Beta.lnk", @"C:\sm\Slack.lnk" };
+        Check(AppLauncher.FindShortcut(shortcuts, "chrome", "Google Chrome") == shortcuts[0], "shortcut alias");
+        Check(AppLauncher.FindShortcut(shortcuts, "slack", "slack") == shortcuts[2], "shortcut exact beats prefix");
+        Check(AppLauncher.FindShortcut(shortcuts, "sla", "sla") == shortcuts[1], "shortcut prefix");
+        Check(AppLauncher.FindShortcut(shortcuts, "zoom", "zoom") is null, "shortcut missing");
+
         var module = new InputController();
 
         // An unrecognized tool reports an unsupported action instead of ending
@@ -87,6 +100,16 @@ public static class InputControllerTests
         CheckContains(
             await InvokeAsync(module, "conv-element", "computer_use_click", "{\"element_id\":3}"),
             "was not found", "unknown element");
+
+        // Drag resolves both endpoints; a missing destination fails before input.
+        var dragResolved = await InputController.ResolveElementCoordinatesAsync(
+            new CuAction("drag", X: 1, Y: 2, ToElementId: 7),
+            new FakeObservationSource(new CuPoint(40, 60)),
+            CancellationToken.None);
+        Check(dragResolved.ToX == 40 && dragResolved.ToY == 60, "drag destination resolves");
+        CheckContains(
+            await InvokeAsync(module, "conv-drag", "computer_use_drag", "{\"x\":1,\"y\":2}"),
+            "Destination coordinates", "drag needs destination");
 
         var resolved = await InputController.ResolveElementCoordinatesAsync(
             new CuAction("click", ElementId: 7),
