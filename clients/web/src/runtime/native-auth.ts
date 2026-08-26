@@ -18,7 +18,7 @@ import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
 import {
   captureInstallReferrer,
-  clearStoredInstallReferrer,
+  markInstallReferrerSpent,
   readStoredInstallReferrer,
 } from "@/runtime/install-referrer";
 import {
@@ -134,6 +134,9 @@ export function useIsNativePlatform(): boolean {
  *
  * Throws on user cancellation (`USER_CANCELLED`) and any other error; the
  * caller decides whether to surface or swallow.
+ *
+ * `attribution` is an explicit override; absent it, this resolves the flow's
+ * attribution itself, so every native entry carries one.
  */
 export async function startNativeLogin(options?: {
   baseURL?: string;
@@ -149,6 +152,11 @@ export async function startNativeLogin(options?: {
   // resume checkout from privacy.
   clearStaleNativeCheckoutStash(options?.intent, options?.returnTo);
 
+  // Attribution resolves here for the same reason: the direct login form is
+  // the auth entry a fresh Play install reaches, and the install referrer is
+  // the only attribution such an install carries.
+  const attribution = await resolveNativeAttribution(options?.attribution);
+
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
   const destination = sanitizeReturnTo(
     options?.returnTo ?? null,
@@ -158,7 +166,7 @@ export async function startNativeLogin(options?: {
     baseURL,
     ...(options?.loginHint ? { loginHint: options.loginHint } : {}),
     ...(options?.intent ? { intent: options.intent } : {}),
-    ...(options?.attribution ? { attribution: options.attribution } : {}),
+    ...(attribution ? { attribution } : {}),
     postAuthDestination: destination,
   });
 
@@ -221,10 +229,10 @@ async function completeNativeLogin(
     await waitForNativeSessionCookie();
   }
 
-  // The referrer is spent: it rode this flow's `startAuth` call. Cleared on
+  // The referrer is spent: it rode this flow's `startAuth` call. Recorded on
   // login too, since we can't tell signup from login here and a retained value
   // would attach this install's campaign to the next user to sign up here.
-  clearStoredInstallReferrer();
+  markInstallReferrerSpent();
 
   // Persist the token in native secure storage for biometric session recovery.
   // Respects the user's opt-out preference; storeBiometricToken is also
@@ -378,9 +386,10 @@ export function clearStaleNativeCheckoutStash(
 /**
  * Attribution to hand the native shell, drawn from exactly one source.
  *
- * URL params win: they carry the user's current, explicit campaign context.
- * The Play install referrer is the fallback, and it is the only attribution a
- * Play install carries at all (such an install arrives with no URL params).
+ * A caller's override wins outright, then URL params: they carry the user's
+ * current, explicit campaign context. The Play install referrer is the
+ * fallback, and it is the only attribution a Play install carries at all (such
+ * an install arrives with no URL params).
  *
  * The two are never merged: `persist_attribution` on the platform stores a row
  * as one coherent unit from a single source, so it must not be handed fields
@@ -388,11 +397,11 @@ export function clearStaleNativeCheckoutStash(
  * the empty-row backfill guard.
  */
 async function resolveNativeAttribution(
-  attribution: Record<string, string> | undefined,
+  override: Record<string, string> | undefined,
 ): Promise<Record<string, string> | undefined> {
-  const fromUrl = attribution ?? readAttributionParams(window.location.search);
-  if (Object.keys(fromUrl).length > 0) {
-    return fromUrl;
+  const current = override ?? readAttributionParams(window.location.search);
+  if (Object.keys(current).length > 0) {
+    return current;
   }
   await captureInstallReferrer();
   const stored = readStoredInstallReferrer();
@@ -414,8 +423,7 @@ async function resolveNativeAttribution(
  * swallowed since it's a routine dismissal, and all other errors are
  * re-thrown for the caller to handle.
  *
- * The native and web paths both forward marketing attribution. Electron does
- * not: `window.vellum.auth.startOAuth` has no parameter for it yet.
+ * The native and web paths both forward marketing attribution.
  */
 export async function startAuthFlow(
   providerId: string,
@@ -424,7 +432,6 @@ export async function startAuthFlow(
 ): Promise<void> {
   if (isNativePlatform()) {
     try {
-      const attribution = await resolveNativeAttribution(options.attribution);
       await startNativeLogin({
         returnTo: resolveNativePostAuthDestination(
           options.intent,
@@ -432,7 +439,7 @@ export async function startAuthFlow(
         ),
         loginHint: options.loginHint,
         intent: options.intent,
-        attribution,
+        attribution: options.attribution,
       });
     } catch (err) {
       // Capacitor translates native `call.reject(msg, code)` into a

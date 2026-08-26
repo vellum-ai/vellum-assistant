@@ -50,6 +50,7 @@ const {
   clearStaleNativeCheckoutStash,
   resolveNativePostAuthDestination,
   startAuthFlow,
+  startNativeLogin,
 } = await import("./native-auth");
 const { clearCheckoutIntent, readCheckoutIntent, saveCheckoutIntent } =
   await import("@/lib/billing/checkout-intent");
@@ -399,7 +400,7 @@ describe("startAuthFlow attribution on native", () => {
     });
   });
 
-  test("clears the stored referrer once the session is real", async () => {
+  test("spends the stored referrer once the session is real", async () => {
     localStorage.setItem(INSTALL_REFERRER_KEY, "utm_source=google-play");
 
     await runSignup();
@@ -407,8 +408,37 @@ describe("startAuthFlow attribution on native", () => {
     expect(lastStartAuthOptions().attribution).toEqual({
       utm_source: "google-play",
     });
-    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBeNull();
+    // Emptied, not removed: the key that remains is what keeps the shell from
+    // handing the same referrer to the next user who signs up here.
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe("");
     expect(window.location.href).toBe("/assistant/onboarding/privacy");
+  });
+
+  test("resolves attribution on the direct login entry too", async () => {
+    // `login-page.tsx` calls `startNativeLogin` itself, and it is the entry an
+    // unauthenticated fresh Play install actually reaches.
+    setLocation("?utm_source=newsletter&not_a_param=x");
+
+    await startNativeLogin({ returnTo: "/assistant/home" });
+
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "newsletter",
+    });
+  });
+
+  test("captures the install referrer on the direct login entry", async () => {
+    readInstallReferrer.mockResolvedValueOnce({
+      referrer: "utm_source=google-play&utm_medium=organic",
+    });
+
+    await startNativeLogin({ returnTo: "/assistant/home" });
+
+    expect(readInstallReferrer).toHaveBeenCalledTimes(1);
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "google-play",
+      utm_medium: "organic",
+    });
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe("");
   });
 
   test("leaves the stored referrer in place when native auth fails", async () => {
