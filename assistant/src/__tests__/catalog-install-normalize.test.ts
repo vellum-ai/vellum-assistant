@@ -53,7 +53,7 @@ describe("fetchCatalog normalization", () => {
           icon: "🛒",
           category: "commerce",
           platforms: ["windows"],
-          required_host_capabilities: ["host_bash"],
+          required_host_capabilities: ["host_bash", "future_host"],
           updated_at: "2026-04-19T19:26:17Z",
         },
       ],
@@ -72,8 +72,29 @@ describe("fetchCatalog normalization", () => {
     expect(skill.platforms).toEqual(["windows"]);
     expect(skill.metadata?.vellum?.platforms).toEqual(["windows"]);
     expect(skill.requiredHostCapabilities).toEqual(["host_bash"]);
+    expect(skill.unsupportedHostCapabilities).toEqual(["future_host"]);
     expect(skill.metadata?.vellum?.["required-host-capabilities"]).toEqual([
       "host_bash",
+      "future_host",
+    ]);
+  });
+
+  test("preserves all-unknown remote requirements as unsupported", async () => {
+    globalThis.fetch = stubFetchJson({
+      skills: [
+        {
+          id: "future-skill",
+          description: "Needs a newer host",
+          required_host_capabilities: ["future_host"],
+        },
+      ],
+    });
+
+    const [skill] = await fetchCatalog();
+    expect(skill.requiredHostCapabilities).toBeUndefined();
+    expect(skill.unsupportedHostCapabilities).toEqual(["future_host"]);
+    expect(skill.metadata?.vellum?.["required-host-capabilities"]).toEqual([
+      "future_host",
     ]);
   });
 

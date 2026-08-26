@@ -179,6 +179,7 @@ async function buildInstalledSkillCards(): Promise<InstalledSkillCards> {
       content,
       platforms: skill.platforms,
       requiredHostCapabilities: skill.requiredHostCapabilities,
+      unsupportedHostCapabilities: skill.unsupportedHostCapabilities,
     });
   }
   return { installedIds, cards, alwaysCandidateIds };
@@ -333,6 +334,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
           content,
           platforms: entry.platforms,
           requiredHostCapabilities: entry.requiredHostCapabilities,
+          unsupportedHostCapabilities: entry.unsupportedHostCapabilities,
         });
       }
     } catch (err) {

@@ -15,6 +15,7 @@ const mockCatalogSkills = mock(
     directoryPath?: string;
     platforms?: Array<"macos" | "windows" | "linux">;
     requiredHostCapabilities?: Array<"host_bash">;
+    unsupportedHostCapabilities?: string[];
   }> => [],
 );
 const mockClawhubInstall = mock(
@@ -450,6 +451,29 @@ Body.
     } finally {
       hostClient.dispose();
     }
+  });
+
+  test("rejects bundled skills with unsupported host requirements", async () => {
+    mockCatalogSkills.mockReturnValue([
+      {
+        id: "future-skill",
+        displayName: "Future Skill",
+        description: "Needs a newer host",
+        source: "bundled",
+        directoryPath: "/tmp/test-bundled-skills/future-skill",
+        requiredHostCapabilities: ["host_bash"],
+        unsupportedHostCapabilities: ["future_host"],
+      },
+    ]);
+
+    const result = await installSkill({
+      slug: "future-skill",
+      clientOs: "windows",
+      sourceActorPrincipalId: "actor-a",
+      isInteractive: true,
+    });
+    expect(result.success).toBe(false);
+    expect(mockEnsureSkillEntry).not.toHaveBeenCalled();
   });
 
   test("skills.sh install failure propagates error", async () => {

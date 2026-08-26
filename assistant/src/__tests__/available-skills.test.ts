@@ -299,6 +299,26 @@ describe("listCatalogSkills", () => {
     ]);
   });
 
+  test("marks remote skills with unsupported host requirements unavailable", async () => {
+    remoteFixture = [
+      {
+        id: "future-skill",
+        name: "future-skill",
+        description: "Needs a newer host",
+        unsupportedHostCapabilities: ["future_host"],
+      },
+    ];
+
+    const { listCatalogSkills } = await import("../skills/available-skills.js");
+    expect(await listCatalogSkills()).toEqual([
+      expect.objectContaining({
+        id: "future-skill",
+        unsupportedHostCapabilities: ["future_host"],
+        state: "unavailable",
+      }),
+    ]);
+  });
+
   test("adds no error handling of its own — unexpected catalog-read errors propagate", async () => {
     remoteError = new Error("catalog read exploded");
     const { listCatalogSkills } = await import("../skills/available-skills.js");

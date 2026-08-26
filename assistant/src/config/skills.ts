@@ -18,11 +18,7 @@ import {
 
 import { z } from "zod";
 
-import {
-  type ClientOs,
-  HOST_PROXY_CAPABILITIES,
-  type HostProxyCapability,
-} from "../channels/types.js";
+import { type ClientOs, type HostProxyCapability } from "../channels/types.js";
 import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
@@ -62,9 +58,7 @@ const VellumMetadataSchema = z
     category: z.string().optional(),
     "always-candidate": z.boolean().optional(),
     platforms: z.array(z.enum(SKILL_PLATFORM_VALUES)).optional(),
-    "required-host-capabilities": z
-      .array(z.enum(HOST_PROXY_CAPABILITIES))
-      .optional(),
+    "required-host-capabilities": z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -147,6 +141,7 @@ export interface SkillSummary {
   platforms?: SkillPlatform[];
   /** Connected host capabilities required before this skill may be offered. */
   requiredHostCapabilities?: HostProxyCapability[];
+  unsupportedHostCapabilities?: string[];
   /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
@@ -274,6 +269,7 @@ interface ParsedFrontmatter {
   alwaysCandidate?: boolean;
   platforms?: SkillPlatform[];
   requiredHostCapabilities?: HostProxyCapability[];
+  unsupportedHostCapabilities?: string[];
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
@@ -397,9 +393,8 @@ function parseFrontmatter(
       : undefined;
 
   const platforms = normalizeSkillPlatforms(vellum?.platforms);
-  const requiredHostCapabilities = normalizeRequiredHostCapabilities(
-    vellum?.["required-host-capabilities"],
-  );
+  const { requiredHostCapabilities, unsupportedHostCapabilities } =
+    normalizeRequiredHostCapabilities(vellum?.["required-host-capabilities"]);
 
   const strippedBody = stripCommentLines(body);
 
@@ -428,6 +423,7 @@ function parseFrontmatter(
     alwaysCandidate,
     platforms,
     requiredHostCapabilities,
+    unsupportedHostCapabilities,
     inlineCommandExpansions,
   };
 }
@@ -590,6 +586,7 @@ function readSkillFromDirectory(
       alwaysCandidate: parsed.alwaysCandidate,
       platforms: parsed.platforms,
       requiredHostCapabilities: parsed.requiredHostCapabilities,
+      unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -648,6 +645,7 @@ function readBundledSkillFromDirectory(
       alwaysCandidate: parsed.alwaysCandidate,
       platforms: parsed.platforms,
       requiredHostCapabilities: parsed.requiredHostCapabilities,
+      unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -718,6 +716,7 @@ function loadBundledSkills(): SkillSummary[] {
       alwaysCandidate: skill.alwaysCandidate,
       platforms: skill.platforms,
       requiredHostCapabilities: skill.requiredHostCapabilities,
+      unsupportedHostCapabilities: skill.unsupportedHostCapabilities,
       inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
@@ -1010,6 +1009,7 @@ function skillSummaryFromDefinition(
     alwaysCandidate: skill.alwaysCandidate,
     platforms: skill.platforms,
     requiredHostCapabilities: skill.requiredHostCapabilities,
+    unsupportedHostCapabilities: skill.unsupportedHostCapabilities,
     inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
@@ -1075,6 +1075,7 @@ export function loadSkillCatalog(
             alwaysCandidate: parsed.alwaysCandidate,
             platforms: parsed.platforms,
             requiredHostCapabilities: parsed.requiredHostCapabilities,
+            unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -1224,6 +1225,7 @@ export function loadSkillCatalog(
           alwaysCandidate: parsed.alwaysCandidate,
           platforms: parsed.platforms,
           requiredHostCapabilities: parsed.requiredHostCapabilities,
+          unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 

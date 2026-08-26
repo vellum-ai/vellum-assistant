@@ -9,6 +9,7 @@ export type { HostProxyCapability, SkillPlatform };
 export interface PlatformScopedSkill {
   platforms?: readonly SkillPlatform[];
   requiredHostCapabilities?: readonly HostProxyCapability[];
+  unsupportedHostCapabilities?: readonly string[];
 }
 
 export interface SkillPlatformContext {

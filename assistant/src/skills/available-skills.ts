@@ -34,6 +34,7 @@ export interface ResolvedSkillEntry {
   platforms?: SkillPlatform[];
   /** Connected host capabilities required before this skill may be used. */
   requiredHostCapabilities?: HostProxyCapability[];
+  unsupportedHostCapabilities?: string[];
   /** True for locally installed skills; false for remote catalog entries. */
   installed: boolean;
   /** Where the installed skill comes from. Unset for remote catalog entries. */
@@ -85,9 +86,13 @@ export async function listInstalledSkills(): Promise<ResolvedSkillEntry[]> {
       alwaysCandidate: summary.alwaysCandidate,
       platforms: summary.platforms,
       requiredHostCapabilities: summary.requiredHostCapabilities,
+      unsupportedHostCapabilities: summary.unsupportedHostCapabilities,
       installed: true,
       source: summary.source,
-      state: stateById.get(summary.id) ?? "unavailable",
+      state:
+        (summary.unsupportedHostCapabilities?.length ?? 0) > 0
+          ? "unavailable"
+          : (stateById.get(summary.id) ?? "unavailable"),
     };
     if (
       summary.source === "managed" ||
@@ -137,8 +142,12 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       avoidWhen: entry.metadata?.vellum?.["avoid-when"],
       platforms: entry.platforms,
       requiredHostCapabilities: entry.requiredHostCapabilities,
+      unsupportedHostCapabilities: entry.unsupportedHostCapabilities,
       installed: false,
-      state: gated ? "unavailable" : "available",
+      state:
+        gated || (entry.unsupportedHostCapabilities?.length ?? 0) > 0
+          ? "unavailable"
+          : "available",
     };
   });
 }

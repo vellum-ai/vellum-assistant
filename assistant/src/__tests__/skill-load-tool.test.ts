@@ -189,6 +189,44 @@ describe("skill_load tool", () => {
     }
   });
 
+  test("rejects all-invalid and mixed host requirements even with a capable host", async () => {
+    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
+    for (const [id, requirements] of [
+      ["all-invalid-host-skill", ["future_host"]],
+      ["mixed-host-skill", ["host_bash", "future_host"]],
+    ] as const) {
+      const skillDir = join(TEST_DIR, "skills", id);
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, "SKILL.md"),
+        `---\nname: "${id}"\ndescription: "Needs an unsupported host capability"\nmetadata: ${JSON.stringify({ vellum: { platforms: [clientPlatform], "required-host-capabilities": requirements } })}\n---\n\nBody.\n`,
+      );
+    }
+
+    const hostClient = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "unknown-capability-host",
+      interfaceId: clientPlatform,
+      capabilities: ["host_bash"],
+      actorPrincipalId: "actor-a",
+      callback: () => {},
+    });
+    try {
+      for (const skill of ["all-invalid-host-skill", "mixed-host-skill"]) {
+        const result = await executeSkillLoad(
+          { skill },
+          clientPlatform,
+          "actor-a",
+          true,
+        );
+        expect(result.isError).toBe(true);
+        expect(result.content).not.toContain("Body.");
+      }
+    } finally {
+      hostClient.dispose();
+    }
+  });
+
   test("loads a daemon-host skill for a browser turn", async () => {
     const daemonPlatform =
       process.platform === "darwin"

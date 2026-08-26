@@ -11,6 +11,7 @@ export type SkillPlatform = (typeof SKILL_PLATFORM_VALUES)[number];
 export interface PlatformScopedSkill {
   platforms?: readonly SkillPlatform[];
   requiredHostCapabilities?: readonly HostProxyCapability[];
+  unsupportedHostCapabilities?: readonly string[];
 }
 
 export interface SkillPlatformContext {
@@ -38,20 +39,39 @@ export function normalizeSkillPlatforms(
   return platforms.length > 0 ? platforms : undefined;
 }
 
-export function normalizeRequiredHostCapabilities(
-  value: unknown,
-): HostProxyCapability[] | undefined {
+export function normalizeRequiredHostCapabilities(value: unknown): {
+  requiredHostCapabilities?: HostProxyCapability[];
+  unsupportedHostCapabilities?: string[];
+} {
   if (!Array.isArray(value)) {
-    return undefined;
+    return {};
   }
-  const capabilities = [
+  const declared = [
     ...new Set(
-      value.filter((capability): capability is HostProxyCapability =>
-        (HOST_PROXY_CAPABILITIES as readonly unknown[]).includes(capability),
-      ),
+      value
+        .filter(
+          (capability): capability is string => typeof capability === "string",
+        )
+        .map((capability) => capability.trim())
+        .filter((capability) => capability.length > 0),
     ),
   ];
-  return capabilities.length > 0 ? capabilities : undefined;
+  const requiredHostCapabilities = declared.filter(
+    (capability): capability is HostProxyCapability =>
+      (HOST_PROXY_CAPABILITIES as readonly string[]).includes(capability),
+  );
+  const unsupportedHostCapabilities = declared.filter(
+    (capability) =>
+      !(HOST_PROXY_CAPABILITIES as readonly string[]).includes(capability),
+  );
+  return {
+    ...(requiredHostCapabilities.length > 0
+      ? { requiredHostCapabilities }
+      : {}),
+    ...(unsupportedHostCapabilities.length > 0
+      ? { unsupportedHostCapabilities }
+      : {}),
+  };
 }
 
 export function skillPlatformForNodePlatform(
@@ -100,6 +120,9 @@ export function isSkillCompatibleWithContext(
   skill: PlatformScopedSkill,
   context: SkillPlatformContext,
 ): boolean {
+  if ((skill.unsupportedHostCapabilities?.length ?? 0) > 0) {
+    return false;
+  }
   const requiredCapabilities = skill.requiredHostCapabilities ?? [];
   if (requiredCapabilities.length > 0) {
     if (

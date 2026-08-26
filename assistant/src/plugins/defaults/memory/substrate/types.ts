@@ -169,6 +169,7 @@ export interface SkillEntry {
   content: string;
   platforms?: SkillPlatform[];
   requiredHostCapabilities?: HostProxyCapability[];
+  unsupportedHostCapabilities?: string[];
 }
 
 // ---------------------------------------------------------------------------

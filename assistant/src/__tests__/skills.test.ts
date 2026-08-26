@@ -232,6 +232,21 @@ describe("workspace skills", () => {
     expect(wsSkills[0].id).toBe("ws-skill");
   });
 
+  test("preserves unknown workspace host requirements for fail-closed checks", () => {
+    const skillDir = join(workspaceSkillsDir, "future-host-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: Future Host Skill\ndescription: Needs current and future host support\nmetadata:\n  vellum:\n    required-host-capabilities:\n      - host_bash\n      - future_host\n---\n\nBody.\n`,
+    );
+
+    const skill = loadSkillCatalog(workspaceSkillsDir).find(
+      (entry) => entry.id === "future-host-skill",
+    );
+    expect(skill?.requiredHostCapabilities).toEqual(["host_bash"]);
+    expect(skill?.unsupportedHostCapabilities).toEqual(["future_host"]);
+  });
+
   test("resolveSkillSelector finds workspace skills when workspaceSkillsDir is provided", () => {
     writeWorkspaceSkill(
       "ws-resolve",

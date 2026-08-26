@@ -160,6 +160,37 @@ describe("skill platform compatibility", () => {
         "host_bash",
         "not-a-capability",
       ]),
-    ).toEqual(["host_bash"]);
+    ).toEqual({
+      requiredHostCapabilities: ["host_bash"],
+      unsupportedHostCapabilities: ["not-a-capability"],
+    });
+    expect(
+      normalizeRequiredHostCapabilities(["future_host_capability"]),
+    ).toEqual({
+      unsupportedHostCapabilities: ["future_host_capability"],
+    });
+  });
+
+  test("rejects all-invalid and mixed host capability requirements", () => {
+    const context = {
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+      hostPlatforms: ["windows"],
+    };
+    expect(
+      isSkillCompatibleWithContext(
+        { unsupportedHostCapabilities: ["future_host_capability"] },
+        context,
+      ),
+    ).toBe(false);
+    expect(
+      isSkillCompatibleWithContext(
+        {
+          requiredHostCapabilities: ["host_bash"],
+          unsupportedHostCapabilities: ["future_host_capability"],
+        },
+        context,
+      ),
+    ).toBe(false);
   });
 });

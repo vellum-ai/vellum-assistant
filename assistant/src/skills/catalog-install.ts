@@ -43,6 +43,7 @@ export interface CatalogSkill {
   updatedAt?: string;
   platforms?: SkillPlatform[];
   requiredHostCapabilities?: HostProxyCapability[];
+  unsupportedHostCapabilities?: string[];
   metadata?: {
     icon?: string;
     emoji?: string;
@@ -53,7 +54,7 @@ export interface CatalogSkill {
       "feature-flag"?: string;
       category?: string;
       platforms?: SkillPlatform[];
-      "required-host-capabilities"?: HostProxyCapability[];
+      "required-host-capabilities"?: string[];
     };
   };
 }
@@ -161,9 +162,10 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
   const platforms = normalizeSkillPlatforms(
     nested?.platforms ?? entry.platforms,
   );
-  const requiredHostCapabilities = normalizeRequiredHostCapabilities(
-    nested?.["required-host-capabilities"] ?? entry.required_host_capabilities,
-  );
+  const declaredHostCapabilities =
+    nested?.["required-host-capabilities"] ?? entry.required_host_capabilities;
+  const { requiredHostCapabilities, unsupportedHostCapabilities } =
+    normalizeRequiredHostCapabilities(declaredHostCapabilities);
 
   return {
     id,
@@ -176,6 +178,7 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
     ...(updatedAt ? { updatedAt } : {}),
     ...(platforms ? { platforms } : {}),
     ...(requiredHostCapabilities ? { requiredHostCapabilities } : {}),
+    ...(unsupportedHostCapabilities ? { unsupportedHostCapabilities } : {}),
     metadata: {
       ...entry.metadata,
       ...(icon ? { icon } : {}),
@@ -184,8 +187,8 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
         ...(displayName ? { "display-name": displayName } : {}),
         ...(category ? { category } : {}),
         ...(platforms ? { platforms } : {}),
-        ...(requiredHostCapabilities
-          ? { "required-host-capabilities": requiredHostCapabilities }
+        ...(Array.isArray(declaredHostCapabilities)
+          ? { "required-host-capabilities": declaredHostCapabilities }
           : {}),
       },
     },
