@@ -400,7 +400,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+        "This is Tailscale's website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
       ),
     ).toBeTruthy();
     // The bad URL is refused client-side — no challenge is ever minted.

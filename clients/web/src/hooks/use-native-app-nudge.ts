@@ -22,8 +22,14 @@ export const IOS_APP_STORE_URL =
   "https://apps.apple.com/us/app/vellum-assistant/id6759934423";
 
 const ANDROID_PACKAGE_ID = "ai.vellum.assistant";
-const ANDROID_PLAY_STORE_URL =
-  `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE_ID}`;
+
+/** Verbatim value Android's `getInstallReferrer()` returns after install. */
+const ANDROID_INSTALL_REFERRER =
+  "utm_source=vellum-app&utm_medium=in-app-nudge";
+
+export const ANDROID_PLAY_STORE_URL =
+  `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE_ID}` +
+  `&referrer=${encodeURIComponent(ANDROID_INSTALL_REFERRER)}`;
 
 const STORAGE_KEYS: Record<
   NativeAppPlatform,
