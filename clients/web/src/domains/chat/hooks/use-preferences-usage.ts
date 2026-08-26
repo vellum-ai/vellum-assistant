@@ -35,6 +35,14 @@ export interface PreferencesUsage {
   spent: boolean;
   /** The bundle is spent and the wallet behind it is empty too. */
   exhausted: boolean;
+  /**
+   * The bundle is spent while the wallet behind it still holds credit, so
+   * the next managed turn draws on extra usage credits. Reads the raw
+   * balance rather than {@link exhausted}: a BYOK route suppresses
+   * `exhausted` to keep the credit wall down, and a turn that dispatches on
+   * the user's own key must not be described as spending extra credits.
+   */
+  usingExtraCredits: boolean;
 }
 
 /**
@@ -53,6 +61,7 @@ export function usePreferencesUsage(
   const obscureCredits = useObscureCredits();
   const {
     isExhausted,
+    balance,
     availableUsageBalance,
     totalUsageBalance,
     enabled: billingEnabled,
@@ -83,11 +92,16 @@ export function usePreferencesUsage(
     return null;
   }
   const spent = usage.ratio >= 1;
+  // The same raw reading the plan card derives. `isExhausted` stays down on a
+  // provably-BYOK route, which is right for the credit wall but would let an
+  // empty wallet claim the next turn draws on extra credits.
+  const walletEmpty = balance != null && Number(balance) <= 0;
   return {
     ratio: usage.ratio,
     resetsAt: usage.resetsAt,
     spent,
     // Spending the bundle only alarms once the wallet behind it is empty too.
     exhausted: spent && isExhausted,
+    usingExtraCredits: spent && !walletEmpty,
   };
 }

@@ -43,6 +43,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 let billingEnabled = true;
 let creditsExhausted = false;
+/** The raw wallet balance, which BYOK suppression never touches. */
+let effectiveBalance: string | null = null;
 let availableUsageBalance: string | null = null;
 let totalUsageBalance: string | null = null;
 /** What the panel asked the wallet status to classify against. */
@@ -57,7 +59,7 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
       dailyLimitSnoozed: false,
       dailyLimit: null,
       dailySpend: null,
-      balance: null,
+      balance: effectiveBalance,
       availableUsageBalance,
       totalUsageBalance,
       enabled: billingEnabled,
@@ -161,6 +163,7 @@ beforeEach(() => {
   plans = proPlans();
   billingEnabled = true;
   creditsExhausted = false;
+  effectiveBalance = null;
   availableUsageBalance = null;
   totalUsageBalance = null;
   balanceStatusOpts = undefined;
@@ -241,6 +244,7 @@ describe("PreferencesUsagePanel", () => {
     subscription = { ...proSubscription(), plan_id: "base", package: null };
     totalUsageBalance = "5.00";
     availableUsageBalance = "0.00";
+    effectiveBalance = "0.00";
     creditsExhausted = true;
     const { findByTestId, getByText } = renderPanel();
 
@@ -256,6 +260,7 @@ describe("PreferencesUsagePanel", () => {
     subscription = { ...proSubscription(), plan_id: "base", package: null };
     totalUsageBalance = "5.00";
     availableUsageBalance = "0.00";
+    effectiveBalance = "12.00";
     const { findByTestId, getByText, queryByText, queryByTestId } =
       renderPanel();
 
@@ -276,6 +281,7 @@ describe("PreferencesUsagePanel", () => {
 
   test("a spent bundle with an empty wallet raises the strip", async () => {
     usageTotalUsd = "25";
+    effectiveBalance = "0.00";
     creditsExhausted = true;
     const onAddCredits = mock(() => {});
     const { findByTestId, getByText, queryByText } = renderPanel({
@@ -299,6 +305,7 @@ describe("PreferencesUsagePanel", () => {
 
   test("without a handler the strip states its case and offers nothing", async () => {
     usageTotalUsd = "25";
+    effectiveBalance = "0.00";
     creditsExhausted = true;
     const { findByTestId, getByText, queryByTestId } = renderPanel({
       withoutAddCredits: true,
@@ -312,6 +319,7 @@ describe("PreferencesUsagePanel", () => {
 
   test("a spent bundle swaps the bar for the extra-credits line", async () => {
     usageTotalUsd = "25";
+    effectiveBalance = "18.00";
     const { findByTestId, getByText, queryByTestId, queryByText } =
       renderPanel();
 
@@ -327,6 +335,28 @@ describe("PreferencesUsagePanel", () => {
     );
     expect(panel.textContent).not.toContain("100% used");
     expect(panel.querySelector('[data-slot="progress-bar-fill"]')).toBeNull();
+    expect(queryByText("Add credits to continue.")).toBeNull();
+    expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
+  });
+
+  test("a BYOK route with an empty wallet keeps the red reading", async () => {
+    // The BYOK gate holds `isExhausted` down so the credit wall stays away,
+    // but the wallet is empty: the next turn runs on the user's own key, so
+    // nothing may claim extra credits are being spent.
+    usageTotalUsd = "25";
+    effectiveBalance = "0.00";
+    const { findByTestId, queryByText, queryByTestId } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    await waitFor(() => {
+      expect(panel.textContent).toContain("100% used");
+    });
+    expect(queryByText("Now using extra usage credits")).toBeNull();
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).toContain("--system-negative-strong");
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });

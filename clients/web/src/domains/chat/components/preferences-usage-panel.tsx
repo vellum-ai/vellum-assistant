@@ -42,11 +42,11 @@ export function PreferencesUsagePanel({
   const resetDate = usage.resetsAt
     ? formatUsageResetDate(usage.resetsAt, i18n.language)
     : null;
-  // A spent bundle with credits still behind it is not an alarm: the next
+  // A spent bundle with credit still behind it is not an alarm: the next
   // turn draws on extra usage credits, and the amber line below says so in
-  // the bar's place. Red waits for `exhausted`, when the wallet is empty too.
-  const { spent, exhausted } = usage;
-  const usingExtraCredits = spent && !exhausted;
+  // the bar's place. An empty wallet keeps the red reading whether or not
+  // the BYOK-aware `exhausted` raises the strip below.
+  const { spent, exhausted, usingExtraCredits } = usage;
 
   return (
     <div className="my-2 flex flex-col gap-1" data-testid="preferences-usage">

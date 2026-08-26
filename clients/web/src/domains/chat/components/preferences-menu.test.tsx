@@ -235,6 +235,7 @@ function usage(ratio: number, walletEmpty = false): PreferencesUsage {
     resetsAt: "2026-09-01T00:00:00Z",
     spent,
     exhausted: spent && walletEmpty,
+    usingExtraCredits: spent && !walletEmpty,
   };
 }
 
@@ -544,6 +545,7 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
       resetsAt: null,
       spent: true,
       exhausted: false,
+      usingExtraCredits: true,
     };
     await openMenu();
 
