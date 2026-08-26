@@ -6,7 +6,6 @@ import type {
 } from "@vellumai/assistant-api";
 
 import { client } from "@/generated/daemon/client.gen";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 
@@ -20,6 +19,7 @@ type RecordingStatus =
   "started" | "stopped" | "failed" | "restart_cancelled" | "paused" | "resumed";
 
 interface ActiveRecording {
+  assistantId: string;
   event: RecordingStartEvent;
   recorder: MediaRecorder;
   stream: MediaStream;
@@ -27,6 +27,11 @@ interface ActiveRecording {
   stopped: Promise<void>;
   stopping: boolean;
   closeCapture: () => void;
+}
+
+interface PendingRecording {
+  recordingId: string;
+  cancelled: boolean;
 }
 
 interface CapturedMedia {
@@ -37,14 +42,11 @@ interface CapturedMedia {
 type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
 
 const postStatus = async (
+  assistantId: string,
   event: RecordingStartEvent,
   status: RecordingStatus,
   details: { filePath?: string; durationMs?: number; error?: string } = {},
 ): Promise<void> => {
-  const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  if (!assistantId) {
-    throw new Error("No active assistant for screen recording status");
-  }
   const { response } = await client.post({
     url: "/v1/assistants/{assistant_id}/recordings/status" as KnownDaemonUrl,
     path: { assistant_id: assistantId },
@@ -167,6 +169,7 @@ const isPickerCancellation = (error: unknown): boolean =>
 
 export class ScreenRecordingController {
   private active: ActiveRecording | null = null;
+  private pending: PendingRecording | null = null;
 
   constructor(
     private readonly dependencies: {
@@ -187,7 +190,10 @@ export class ScreenRecordingController {
     },
   ) {}
 
-  async handle(event: RecordingLifecycleEvent): Promise<void> {
+  async handle(
+    event: RecordingLifecycleEvent,
+    assistantId: string,
+  ): Promise<void> {
     if (
       !isElectron() ||
       !window.vellum?.screenRecording ||
@@ -197,7 +203,7 @@ export class ScreenRecordingController {
     }
     switch (event.type) {
       case "recording_start":
-        await this.start(event);
+        await this.start(event, assistantId);
         break;
       case "recording_stop":
         await this.stop(event.recordingId);
@@ -211,15 +217,23 @@ export class ScreenRecordingController {
     }
   }
 
-  private async start(event: RecordingStartEvent): Promise<void> {
+  private async start(
+    event: RecordingStartEvent,
+    assistantId: string,
+  ): Promise<void> {
     const bridge = window.vellum!.screenRecording!;
-    if (this.active) {
-      await this.dependencies.reportStatus(event, "failed", {
+    if (this.active || this.pending) {
+      await this.dependencies.reportStatus(assistantId, event, "failed", {
         error: "A screen recording is already active",
       });
       return;
     }
 
+    const pending: PendingRecording = {
+      recordingId: event.recordingId,
+      cancelled: false,
+    };
+    this.pending = pending;
     let capture: CapturedMedia | null = null;
     let recorder: MediaRecorder | null = null;
     let fileStarted = false;
@@ -229,8 +243,22 @@ export class ScreenRecordingController {
         throw new Error("This desktop cannot encode a screen recording");
       }
       capture = await this.dependencies.capture(event);
+      if (pending.cancelled) {
+        capture.close();
+        capture = null;
+        await this.dependencies.reportStatus(assistantId, event, "stopped");
+        return;
+      }
       await bridge.begin(event.recordingId);
       fileStarted = true;
+      if (pending.cancelled) {
+        capture.close();
+        capture = null;
+        await bridge.abort(event.recordingId);
+        fileStarted = false;
+        await this.dependencies.reportStatus(assistantId, event, "stopped");
+        return;
+      }
 
       recorder = this.dependencies.createRecorder(capture.stream, mimeType);
       let writes = Promise.resolve();
@@ -251,6 +279,7 @@ export class ScreenRecordingController {
         rejectStopped = reject;
       });
       const active: ActiveRecording = {
+        assistantId,
         event,
         recorder,
         stream: capture.stream,
@@ -264,15 +293,20 @@ export class ScreenRecordingController {
           try {
             await writes;
             const { filePath } = await bridge.finish(event.recordingId);
-            await this.dependencies.reportStatus(event, "stopped", {
-              filePath,
-              durationMs: this.dependencies.now() - active.startedAt,
-            });
+            await this.dependencies.reportStatus(
+              assistantId,
+              event,
+              "stopped",
+              {
+                filePath,
+                durationMs: this.dependencies.now() - active.startedAt,
+              },
+            );
             resolveStopped();
           } catch (error) {
             await bridge.abort(event.recordingId);
             await this.dependencies
-              .reportStatus(event, "failed", {
+              .reportStatus(assistantId, event, "failed", {
                 error: error instanceof Error ? error.message : String(error),
               })
               .catch(() => undefined);
@@ -285,6 +319,9 @@ export class ScreenRecordingController {
           }
         })();
       };
+      if (this.pending === pending) {
+        this.pending = null;
+      }
       this.active = active;
       for (const track of capture.stream.getVideoTracks()) {
         track.addEventListener("ended", () => {
@@ -292,7 +329,7 @@ export class ScreenRecordingController {
         });
       }
       recorder.start(1_000);
-      await this.dependencies.reportStatus(event, "started");
+      await this.dependencies.reportStatus(assistantId, event, "started");
     } catch (error) {
       if (recorder) {
         recorder.onstop = null;
@@ -307,17 +344,30 @@ export class ScreenRecordingController {
       if (fileStarted) {
         await bridge.abort(event.recordingId);
       }
+      if (pending.cancelled) {
+        await this.dependencies.reportStatus(assistantId, event, "stopped");
+        return;
+      }
       await this.dependencies.reportStatus(
+        assistantId,
         event,
         event.operationToken && isPickerCancellation(error)
           ? "restart_cancelled"
           : "failed",
         { error: error instanceof Error ? error.message : String(error) },
       );
+    } finally {
+      if (this.pending === pending) {
+        this.pending = null;
+      }
     }
   }
 
   private async stop(recordingId: string): Promise<void> {
+    if (this.pending?.recordingId === recordingId) {
+      this.pending.cancelled = true;
+      return;
+    }
     const active = this.active;
     if (!active || active.event.recordingId !== recordingId) {
       return;
@@ -343,7 +393,11 @@ export class ScreenRecordingController {
       return;
     }
     active.recorder.pause();
-    await this.dependencies.reportStatus(active.event, "paused");
+    await this.dependencies.reportStatus(
+      active.assistantId,
+      active.event,
+      "paused",
+    );
   }
 
   private async resume(recordingId: string): Promise<void> {
@@ -356,7 +410,11 @@ export class ScreenRecordingController {
       return;
     }
     active.recorder.resume();
-    await this.dependencies.reportStatus(active.event, "resumed");
+    await this.dependencies.reportStatus(
+      active.assistantId,
+      active.event,
+      "resumed",
+    );
   }
 }
 
@@ -364,4 +422,5 @@ const controller = new ScreenRecordingController();
 
 export const handleScreenRecordingEvent = (
   event: RecordingLifecycleEvent,
-): Promise<void> => controller.handle(event);
+  assistantId: string,
+): Promise<void> => controller.handle(event, assistantId);

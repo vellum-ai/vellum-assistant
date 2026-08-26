@@ -109,6 +109,7 @@ export interface UseStreamEventHandlerParams {
   /** Forward-navigate to a URL. Callers wire this to their framework router. */
   push: (url: string) => void;
   isNative: boolean;
+  assistantId: string | null;
 
   // --- Reconciliation ---
   cancelReconciliation: () => void;
@@ -145,6 +146,7 @@ export function useStreamEventHandler(
   const {
     push,
     isNative,
+    assistantId,
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
@@ -582,7 +584,10 @@ export function useStreamEventHandler(
         case "recording_stop":
         case "recording_pause":
         case "recording_resume":
-          void handleScreenRecordingEvent(event).catch((error) => {
+          if (!assistantId) {
+            break;
+          }
+          void handleScreenRecordingEvent(event, assistantId).catch((error) => {
             captureError(error, {
               context: "screen_recording_lifecycle",
               tags: { eventType: event.type },
@@ -600,6 +605,7 @@ export function useStreamEventHandler(
     [
       push,
       isNative,
+      assistantId,
       cancelReconciliation,
       startReconciliationLoop,
       queryClient,

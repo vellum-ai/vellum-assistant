@@ -3,11 +3,6 @@ import { beforeEach, expect, mock, test } from "bun:test";
 mock.module("@/generated/daemon/client.gen", () => ({
   client: { post: mock(async () => ({ response: { ok: true } })) },
 }));
-mock.module("@/stores/resolved-assistants-store", () => ({
-  useResolvedAssistantsStore: {
-    getState: () => ({ activeAssistantId: "assistant-1" }),
-  },
-}));
 
 const { ScreenRecordingController } = await import("./screen-recording");
 
@@ -76,9 +71,13 @@ beforeEach(() => {
   });
 });
 
-test("reports start, pause, resume, and completed attachment status", async () => {
-  const statuses: Array<{ status: string; filePath?: string; error?: string }> =
-    [];
+test("reports the full lifecycle to the initiating assistant", async () => {
+  const statuses: Array<{
+    assistantId: string;
+    status: string;
+    filePath?: string;
+    error?: string;
+  }> = [];
   const recorder = new FakeRecorder();
   const track = new FakeTrack();
   let now = 1_000;
@@ -94,8 +93,9 @@ test("reports start, pause, resume, and completed attachment status", async () =
     createRecorder: () => recorder as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => now,
-    reportStatus: async (_event, status, details) => {
+    reportStatus: async (assistantId, _event, status, details) => {
       statuses.push({
+        assistantId,
         status,
         filePath: details?.filePath,
         error: details?.error,
@@ -103,17 +103,42 @@ test("reports start, pause, resume, and completed attachment status", async () =
     },
   });
 
-  await controller.handle(startEvent);
-  await controller.handle({ type: "recording_pause", recordingId });
-  await controller.handle({ type: "recording_resume", recordingId });
+  await controller.handle(startEvent, "assistant-1");
+  await controller.handle(
+    { type: "recording_pause", recordingId },
+    "assistant-2",
+  );
+  await controller.handle(
+    { type: "recording_resume", recordingId },
+    "assistant-2",
+  );
   now = 4_000;
-  await controller.handle({ type: "recording_stop", recordingId });
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-2",
+  );
 
   expect(statuses).toEqual([
-    { status: "started", filePath: undefined, error: undefined },
-    { status: "paused", filePath: undefined, error: undefined },
-    { status: "resumed", filePath: undefined, error: undefined },
     {
+      assistantId: "assistant-1",
+      status: "started",
+      filePath: undefined,
+      error: undefined,
+    },
+    {
+      assistantId: "assistant-1",
+      status: "paused",
+      filePath: undefined,
+      error: undefined,
+    },
+    {
+      assistantId: "assistant-1",
+      status: "resumed",
+      filePath: undefined,
+      error: undefined,
+    },
+    {
+      assistantId: "assistant-1",
       status: "stopped",
       filePath: "/recordings/capture.webm",
       error: undefined,
@@ -133,12 +158,15 @@ test("reports restart cancellation when the source picker is denied", async () =
     createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => 0,
-    reportStatus: async (_event, status) => {
+    reportStatus: async (_assistantId, _event, status) => {
       statuses.push(status);
     },
   });
 
-  await controller.handle({ ...startEvent, operationToken: "restart-1" });
+  await controller.handle(
+    { ...startEvent, operationToken: "restart-1" },
+    "assistant-1",
+  );
 
   expect(statuses).toEqual(["restart_cancelled"]);
   expect(window.vellum!.screenRecording!.begin).not.toHaveBeenCalled();
@@ -158,7 +186,7 @@ test("ignores lifecycle events in a popout renderer", async () => {
     reportStatus,
   });
 
-  await controller.handle(startEvent);
+  await controller.handle(startEvent, "assistant-1");
 
   expect(capture).not.toHaveBeenCalled();
   expect(reportStatus).not.toHaveBeenCalled();
@@ -183,12 +211,12 @@ test("handles a failed share-bar auto-stop without an unhandled rejection", asyn
     createRecorder: () => recorder as unknown as MediaRecorder,
     ownsLifecycle: () => true,
     now: () => 0,
-    reportStatus: async (_event, status) => {
+    reportStatus: async (_assistantId, _event, status) => {
       statuses.push(status);
     },
   });
 
-  await controller.handle(startEvent);
+  await controller.handle(startEvent, "assistant-1");
   track.end();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -196,4 +224,50 @@ test("handles a failed share-bar auto-stop without an unhandled rejection", asyn
   expect(window.vellum!.screenRecording!.abort).toHaveBeenCalledWith(
     recordingId,
   );
+});
+
+test("honors stop while source selection is pending", async () => {
+  const statuses: string[] = [];
+  const track = new FakeTrack();
+  let resolveCapture!: (capture: {
+    stream: MediaStream;
+    close: () => void;
+  }) => void;
+  const capture = mock(
+    () =>
+      new Promise<{ stream: MediaStream; close: () => void }>((resolve) => {
+        resolveCapture = resolve;
+      }),
+  );
+  const recorder = new FakeRecorder();
+  const controller = new ScreenRecordingController({
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+    },
+  });
+
+  const start = controller.handle(startEvent, "assistant-1");
+  await Promise.resolve();
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  resolveCapture({
+    stream: {
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+    } as unknown as MediaStream,
+    close: () => track.stop(),
+  });
+  await start;
+
+  expect(statuses).toEqual(["stopped"]);
+  expect(track.stopped).toBeTrue();
+  expect(recorder.state).toBe("inactive");
+  expect(window.vellum!.screenRecording!.begin).not.toHaveBeenCalled();
 });

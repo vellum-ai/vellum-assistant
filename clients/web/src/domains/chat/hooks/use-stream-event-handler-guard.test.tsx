@@ -88,6 +88,7 @@ function renderHandler(overrides?: {
       useStreamEventHandler({
         push: () => {},
         isNative: false,
+        assistantId: "assistant-1",
         cancelReconciliation: () => {},
         startReconciliationLoop: () => {},
         setAssetsRefreshKey: () => {},
