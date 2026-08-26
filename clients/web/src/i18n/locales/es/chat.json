@@ -327,7 +327,6 @@
     "createTitle": "Crear regla de confianza",
     "description": "Las llamadas a herramientas que coincidan usan el nivel de riesgo de esta regla, para que tu tolerancia de aprobación pueda autoaprobarlas.",
     "editTitle": "Editar regla de confianza",
-    "everywhere": "En todas partes",
     "narrowerScopeAria": "Alcance más estrecho",
     "orNarrowScope": "O reduce el alcance:",
     "save": "Guardar",
@@ -335,8 +334,7 @@
     "saveRule": "Guardar regla",
     "saving": "Guardando…",
     "suggested": "Sugerido: {risk}",
-    "treatAs": "Tratar como",
-    "where": "Dónde"
+    "treatAs": "Tratar como"
   },
   "choiceSurface": {
     "continue": "Continuar",

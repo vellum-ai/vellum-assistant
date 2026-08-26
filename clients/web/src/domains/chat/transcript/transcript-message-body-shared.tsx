@@ -14,7 +14,6 @@ import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-ca
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -27,7 +26,6 @@ export interface OpenRuleEditorContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
 }
 
 /**

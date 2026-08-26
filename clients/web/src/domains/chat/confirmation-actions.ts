@@ -303,7 +303,6 @@ export async function handleAllowAndCreateRule(
     riskLevel: toRiskLevel(snapshot.riskLevel),
     allowlistOptions: snapshot.allowlistOptions ?? [],
     scopeOptions: snapshot.scopeOptions ?? [],
-    directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
     commandText: deriveCommandText(snapshot.input, snapshot.toolName ?? ""),
     commandDescription: snapshot.riskReason ?? snapshot.description ?? "",
   };
@@ -318,7 +317,6 @@ export async function handleAllowAndCreateRule(
       riskReason: snapshot.riskReason ?? snapshot.description,
       resolvedAllowlistOptions: snapshot.allowlistOptions ?? [],
       scopeOptions: snapshot.scopeOptions ?? [],
-      directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
     });
   };
 

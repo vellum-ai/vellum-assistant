@@ -34,7 +34,6 @@ beforeEach(async () => {
   await initGatewayDb();
   initTrustRuleCache();
   store = new TrustRuleStore();
-
 });
 
 afterEach(() => {
@@ -93,10 +92,7 @@ describe("GET /v1/trust-rules — list", () => {
     expect(defaults.length).toBeGreaterThan(0);
     store.update(defaults[0].id, { risk: "high" });
 
-    const reqModified = jsonRequest(
-      "http://localhost/v1/trust-rules",
-      "GET",
-    );
+    const reqModified = jsonRequest("http://localhost/v1/trust-rules", "GET");
     const resModified = await handler(reqModified);
     const bodyModified = (await resModified.json()) as {
       rules: Array<{ origin: string; userModified: boolean }>;
@@ -299,6 +295,40 @@ describe("POST /v1/trust-rules — create", () => {
 
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("risk");
+  });
+
+  test("rejects a narrowing scope rather than storing the rule wider than consented", async () => {
+    // The engine matches on (tool, pattern) only. A request scoped to a
+    // directory must fail loudly: accepting it would persist a rule that
+    // auto-approves everywhere while the user consented to one directory.
+    const handler = createTrustRulesCreateHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/trust-rules", "POST", {
+        tool: "bash",
+        pattern: "npm run *",
+        risk: "low",
+        description: "Allow npm scripts",
+        scope: "/Users/me/projects/app/**",
+      }),
+    );
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("workspace-wide");
+  });
+
+  test('accepts scope "everywhere", which matches what the store does (201)', async () => {
+    const handler = createTrustRulesCreateHandler();
+    const res = await handler(
+      jsonRequest("http://localhost/v1/trust-rules", "POST", {
+        tool: "bash",
+        pattern: "git status",
+        risk: "low",
+        description: "Allow git status",
+        scope: "everywhere",
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });
 

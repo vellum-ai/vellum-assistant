@@ -32,7 +32,6 @@ import { toRiskLevel } from "@/domains/chat/utils/risk";
 import { submitConfirmation } from "@/domains/chat/api/interactions";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
@@ -46,7 +45,6 @@ export interface TrustRulePayload {
   toolName: string;
   pattern: string;
   riskLevel: TrustRuleRisk;
-  scope: string;
 }
 
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
@@ -57,7 +55,6 @@ export interface ToolCallRuleContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
   matchedTrustRuleId?: string;
 }
 
@@ -172,7 +169,7 @@ async function executeSaveRule(
         ctx.assistantId,
         context.requestId,
         "allow",
-        { selectedPattern: rule.pattern, selectedScope: rule.scope },
+        { selectedPattern: rule.pattern, selectedScope: "everywhere" },
       );
       if (!result.ok) {
         useRuleEditorStore.getState().dismissRuleEditor();
@@ -233,7 +230,6 @@ async function executeSaveRule(
         pattern: rule.pattern,
         risk: rule.riskLevel,
         description: `${rule.toolName} — ${rule.pattern}`,
-        scope: rule.scope,
       });
     }
   } catch (err) {
@@ -269,7 +265,6 @@ export function fireSuggestion(params: {
   riskReason?: string;
   resolvedAllowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
   existingRule?: TrustRuleItem;
 }): void {
   const abortController = useRuleEditorStore
@@ -295,10 +290,6 @@ export function fireSuggestion(params: {
           reasonDescription: params.riskReason ?? "",
         },
         scopeOptions: scopeOpts,
-        directoryScopeOptions: params.directoryScopeOptions.map((o) => ({
-          scope: o.scope,
-          label: o.label,
-        })),
         intent: "auto_approve",
         existingRule: params.existingRule
           ? {
@@ -345,7 +336,6 @@ export function handleOpenRuleEditorForToolCall(
     riskLevel: toRiskLevel(context.riskLevel),
     allowlistOptions: resolvedAllowlistOptions,
     scopeOptions: context.scopeOptions,
-    directoryScopeOptions: context.directoryScopeOptions,
     commandText: deriveCommandText(context.input, context.toolName),
     commandDescription: context.riskReason ?? "",
   };
@@ -385,7 +375,6 @@ export function handleOpenRuleEditorForToolCall(
       riskReason: context.riskReason,
       resolvedAllowlistOptions,
       scopeOptions: context.scopeOptions,
-      directoryScopeOptions: context.directoryScopeOptions,
       existingRule,
     });
   };
