@@ -2,7 +2,10 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { isLoopbackPublicUrl } from "@vellumai/service-contracts/remote-web-pairing";
+import {
+  isDnsIndependentLoopbackUrl,
+  isLoopbackPublicUrl,
+} from "@vellumai/service-contracts/remote-web-pairing";
 
 import { guardianTokenPath, resolveConfigDirPaths } from "./config";
 import type { CliInvocation } from "./util";
@@ -53,10 +56,11 @@ export function saveGuardianToken(
 
 /**
  * The guardian refresh token is long-lived and replayable, so it is only
- * transmitted over a confidential channel: HTTPS, or a loopback host (local
- * dev, or a same-host reverse proxy / tunnel agent). Refreshing against a
- * non-loopback plaintext `http://` URL is refused; an on-path attacker could
- * otherwise capture the refresh token and rotate it into fresh credentials.
+ * transmitted over a confidential channel: HTTPS, or a host that stays on this
+ * machine whatever DNS answers (local dev, or a same-host reverse proxy /
+ * tunnel agent). Refreshing against any other plaintext `http://` URL is
+ * refused; an on-path attacker could otherwise capture the refresh token and
+ * rotate it into fresh credentials.
  *
  * A user-chosen malicious `https://` destination is intentionally out of
  * scope: HTTPS protects the channel, and the access token already goes
@@ -66,7 +70,13 @@ export function saveGuardianToken(
 export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
   try {
     return (
-      new URL(gatewayUrl).protocol === "https:" || isLoopbackUrl(gatewayUrl)
+      new URL(gatewayUrl).protocol === "https:" ||
+      // The narrow loopback set, not {@link isLoopbackUrl}: this grants a
+      // plaintext channel the trust of an encrypted one, and a reserved
+      // `*.localhost` name resolves to whatever DNS says on a resolver that
+      // does not implement RFC 6761, which would put the refresh token on the
+      // wire to an arbitrary address.
+      isDnsIndependentLoopbackUrl(gatewayUrl)
     );
   } catch {
     return false;
@@ -74,9 +84,11 @@ export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
 }
 
 /**
- * Whether a URL's host is loopback; false for unparseable URLs. Delegates to
- * the shared pairing predicate so this package's guards and the address checks
- * in `@vellumai/service-contracts` judge a host by the same rules.
+ * Whether a URL's host is loopback, judged wide; false for unparseable URLs.
+ * Delegates to the shared pairing predicate so this package's refusals and the
+ * address checks in `@vellumai/service-contracts` judge a host by the same
+ * rules. Callers refuse what this matches; a caller granting loopback a
+ * privilege reads `isDnsIndependentLoopbackUrl` instead.
  */
 export function isLoopbackUrl(url: string): boolean {
   return isLoopbackPublicUrl(url);

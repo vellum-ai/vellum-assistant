@@ -92,13 +92,32 @@ export type PairResult =
 export type PairRefusal = Extract<PairResult, { ok: false }>;
 
 /**
+ * How a gateway URL names one assistant: its host plus the deployment path
+ * prefix, e.g. `gw.example.com/assistant-1`. The prefix is part of the
+ * identity because `normalizePairingBaseUrl` keeps it, so several assistants
+ * can sit behind one host and differ only there. The empty string when the URL
+ * names no host, which is nothing to key on.
+ */
+function gatewayLabel(gatewayUrl: string): string {
+  const url = new URL(gatewayUrl);
+  if (!url.host) {
+    return "";
+  }
+  return `${url.host}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+/**
  * The local id a pairing registers under: a `--name` slug, or
- * `paired-<gateway host>`. The HOST keys the default because it is what stays
- * the same across re-pairings of one assistant, so a second pairing lands on
- * the existing entry instead of adding another; the device id is minted fresh
- * per attempt and would strand every previous pairing in the lockfile. Never
- * the remote assistantId, which is typically "self" and would collide across
- * hosts.
+ * `paired-<gateway label>`. The {@link gatewayLabel} keys the default because
+ * it is what stays the same across re-pairings of one assistant, so a second
+ * pairing lands on the existing entry instead of adding another; the device id
+ * is minted fresh per attempt and would strand every previous pairing in the
+ * lockfile. Never the remote assistantId, which is typically "self" and would
+ * collide across hosts.
+ *
+ * The label carries the path prefix, so two assistants behind one host get
+ * distinct ids. Keying on the host alone would make the second nameless import
+ * read as a re-pair of the first and take over its entry and guardian token.
  *
  * The id is a path component for `saveGuardianToken`, so it is always
  * slugified (no `../` traversal) and falls back to a random id when it
@@ -108,13 +127,13 @@ function derivePairedAssistantId(name?: string, gatewayUrl?: string): string {
   if (name) {
     return slugify(name);
   }
-  let host = "";
+  let label = "";
   try {
-    host = new URL(gatewayUrl ?? "").host;
+    label = gatewayLabel(gatewayUrl ?? "");
   } catch {
     /* an unparseable URL names no host, so the random id below applies */
   }
-  return `paired-${slugify(host) || nanoid()}`;
+  return `paired-${slugify(label) || nanoid()}`;
 }
 
 /** The raw lockfile entry already holding `localId`, if any. */
@@ -219,9 +238,9 @@ export function pairAssistant(
   configDir: string,
   { credentials, name }: PairOptions,
 ): PairResult {
-  let gatewayHost: string;
+  let label: string;
   try {
-    gatewayHost = new URL(credentials.gatewayUrl).host;
+    label = gatewayLabel(credentials.gatewayUrl);
   } catch {
     return {
       ok: false,
@@ -296,7 +315,10 @@ export function pairAssistant(
     lockfilePaths,
     {
       assistantId: localId,
-      name: name ?? `paired (${gatewayHost})`,
+      // The label, not the bare host: two assistants behind one host differ
+      // only in their path prefix, and a display name that dropped it would
+      // make them indistinguishable in a chooser.
+      name: name ?? `paired (${label})`,
       runtimeUrl: credentials.gatewayUrl,
       // Paired entries are reached by bearer token at the remote runtimeUrl
       // (a non-"vellum" cloud selects the bearer-token auth path in client.ts).
@@ -370,6 +392,15 @@ const DEFAULT_PAIRING_POLL_INTERVAL_SECONDS = 5;
  * is 5s, so this is generous.
  */
 const MAX_PAIRING_POLL_INTERVAL_SECONDS = 60;
+
+/**
+ * Floors that same cadence. Without one, an assistant naming `1e-9` has the
+ * caller poll it as fast as the round trip allows for the code's whole
+ * ten-minute TTL, which is a tight loop against that host and this machine
+ * alike. The gateway's own cadence is 5s, so a floor a fifth of that slows no
+ * legitimate deployment.
+ */
+const MIN_PAIRING_POLL_INTERVAL_SECONDS = 1;
 
 /** Caps how long a single pairing request may occupy the caller. */
 const PAIRING_REQUEST_TIMEOUT_MS = 15_000;
@@ -800,16 +831,23 @@ function clampedDeadlineMs(value: unknown, ceilingMs: number): number {
 }
 
 /**
- * A remote-named cadence in seconds, capped at
+ * A remote-named cadence in seconds, held between
+ * {@link MIN_PAIRING_POLL_INTERVAL_SECONDS} and
  * {@link MAX_PAIRING_POLL_INTERVAL_SECONDS}. Non-finite values fall back:
  * JSON.parse reads `1e400` as Infinity, which a caller turns into a wait that
- * never ends or a timeout that overflows and fires immediately.
+ * never ends or a timeout that overflows and fires immediately. Both ends
+ * matter because callers turn this straight into a wait: the cap stops an
+ * assistant from parking the attempt, and the floor stops it from driving a
+ * tight poll loop.
  */
-function positiveSeconds(value: unknown, fallback: number): number {
+function clampedIntervalSeconds(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return fallback;
   }
-  return Math.min(value, MAX_PAIRING_POLL_INTERVAL_SECONDS);
+  return Math.min(
+    Math.max(value, MIN_PAIRING_POLL_INTERVAL_SECONDS),
+    MAX_PAIRING_POLL_INTERVAL_SECONDS,
+  );
 }
 
 function openPairingSession(
@@ -906,7 +944,7 @@ export async function pairingStart(
         challenge.expiresAt,
         Date.now() + REMOTE_WEB_PAIRING_CODE_TTL_MS,
       ),
-      intervalSeconds: positiveSeconds(
+      intervalSeconds: clampedIntervalSeconds(
         challenge.intervalSeconds,
         DEFAULT_PAIRING_POLL_INTERVAL_SECONDS,
       ),
@@ -955,7 +993,9 @@ export async function pairingPoll(
   // is spent, so a collision found after the exchange burns the code and costs
   // the user a fresh pairing link. Nothing is spent here: the code is
   // untouched and the session stays pollable, so correcting the name and
-  // polling again completes the same attempt.
+  // polling again completes the same attempt. `import-precheck` is what tells
+  // the caller that, distinguishing it from the post-exchange `import`
+  // refusal, which does spend the code.
   const { refusal } = resolvePairedDestination(
     lockfilePaths,
     localName,
@@ -964,7 +1004,7 @@ export async function pairingPoll(
   if (refusal) {
     return {
       ok: false,
-      reason: "import",
+      reason: "import-precheck",
       status: refusal.status,
       error: refusal.error,
     };
@@ -1008,7 +1048,7 @@ export async function pairingPoll(
       pending?.expiresAt,
       session.expiresAtMs,
     );
-    session.intervalSeconds = positiveSeconds(
+    session.intervalSeconds = clampedIntervalSeconds(
       pending?.intervalSeconds,
       session.intervalSeconds,
     );

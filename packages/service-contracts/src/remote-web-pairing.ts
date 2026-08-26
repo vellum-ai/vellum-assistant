@@ -314,31 +314,30 @@ export function tunnelProviderWebsiteName(url: string): string | null {
 }
 
 /**
- * A URL that reaches a listener on the machine dialing it: the whole reserved
- * `localhost` namespace (RFC 6761, so `foo.localhost` counts), `127.x.x.x`,
- * `[::1]`, and the wildcard binds `0.0.0.0` / `[::]`, in their dotted, hex,
- * and IPv4-mapped spellings. A pairing link that encodes one is unreachable
- * from the scanning device, and a host that POSTs to one is calling a service
- * on its own machine.
- *
- * This is the one loopback predicate the whole pairing path reads (the pasted
- * address, and the gatewayUrl an import registers), so the same address class
- * can never be refused by one entry point and accepted by another.
+ * A URL's comparable host: root dot stripped and IPv6 brackets removed, or
+ * null when the value is not a parseable URL.
  */
-export function isLoopbackPublicUrl(url: string): boolean {
-  let hostname: string;
+function comparableHost(url: string): string | null {
   try {
     // WHATWG URL canonicalizes hostnames: IPv6 loopback is always "[::1]", a
     // bare "0" is "0.0.0.0", and encoded IPv4 literals become dotted quads.
-    hostname = hostnameWithoutRootDot(new URL(url).hostname);
+    return hostnameWithoutRootDot(new URL(url).hostname).replace(
+      /^\[|\]$/g,
+      "",
+    );
   } catch {
-    return false;
+    return null;
   }
-  // Strip URL brackets so IPv6 literals compare on the bare address.
-  const host = hostname.replace(/^\[|\]$/g, "");
+}
+
+/**
+ * Hosts that reach the dialing machine without a resolver having to agree:
+ * `localhost`, `127.x.x.x`, `[::1]`, and the wildcard binds `0.0.0.0` / `[::]`,
+ * in their dotted, hex, and IPv4-mapped spellings.
+ */
+function isDnsIndependentLoopbackHost(host: string): boolean {
   return (
     host === "localhost" ||
-    host.endsWith(".localhost") ||
     host === "::1" ||
     host === "0:0:0:0:0:0:0:1" ||
     /^127(?:\.\d{1,3}){3}$/.test(host) ||
@@ -354,6 +353,45 @@ export function isLoopbackPublicUrl(url: string): boolean {
     /^(?:0:0:0:0:0|:):ffff:0\.0\.0\.0$/.test(host) ||
     /^(?:0:0:0:0:0|:):ffff:0:0$/.test(host)
   );
+}
+
+/**
+ * A URL that reaches a listener on the machine dialing it, judged wide: the
+ * literals {@link isDnsIndependentLoopbackHost} covers PLUS the whole reserved
+ * `localhost` namespace (RFC 6761, so `foo.localhost` counts). A pairing link
+ * that encodes one is unreachable from the scanning device, and a host that
+ * POSTs to one is calling a service on its own machine.
+ *
+ * This is the one loopback predicate the whole pairing path reads (the pasted
+ * address, and the gatewayUrl an import registers), so the same address class
+ * can never be refused by one entry point and accepted by another. Every read
+ * of it REFUSES the address it matches, which is why it is the wide one.
+ * A guard that GRANTS something to loopback reads
+ * {@link isDnsIndependentLoopbackUrl} instead.
+ */
+export function isLoopbackPublicUrl(url: string): boolean {
+  const host = comparableHost(url);
+  if (host === null) {
+    return false;
+  }
+  return host.endsWith(".localhost") || isDnsIndependentLoopbackHost(host);
+}
+
+/**
+ * A URL that reaches this machine whatever the resolver does, judged narrow:
+ * exact `localhost` and the loopback/wildcard IP literals, and NOT the
+ * reserved `.localhost` namespace. RFC 6761 says a resolver should map that
+ * namespace to loopback, but glibc does not by default, so `evil.localhost`
+ * is an ordinary DNS name that can answer with any address at all.
+ *
+ * Read this wherever loopback EARNS a privilege a public host does not get,
+ * such as accepting a plaintext channel as confidential; read the wider
+ * {@link isLoopbackPublicUrl} wherever loopback is refused. Both directions
+ * then fail safe on a name that only might be local.
+ */
+export function isDnsIndependentLoopbackUrl(url: string): boolean {
+  const host = comparableHost(url);
+  return host !== null && isDnsIndependentLoopbackHost(host);
 }
 
 /** Canonical dotted-quad as its four octets, or null when it is not one. */
@@ -676,7 +714,14 @@ export type PairingFailureReason =
    */
   | "gateway"
   /** The credentials arrived, but registering them locally was refused. */
-  | "import";
+  | "import"
+  /**
+   * The local destination was refused BEFORE the exchange, so the one-time
+   * code is untouched and the session is still pollable. Only a caller that
+   * changes what it asked for (a different `name`) can get past it, so it is
+   * not worth another identical attempt.
+   */
+  | "import-precheck";
 
 /**
  * Every reason, mapped to whether another attempt against the same session can
@@ -689,12 +734,17 @@ export type PairingFailureReason =
  *   releases the challenge before a repairable failure (a transient error, or
  *   the `GUARDIAN_REPAIR_REQUIRED` 503), so the same code stays exchangeable.
  *
- * Everything else is settled and ends the attempt. `invalid-address` and
- * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
- * one-time code is already spent; and `gateway` means the assistant answered
- * with something this device cannot use (an over-cap body, credentials it
- * cannot persist, a 200 that is not a pairing reply), past which the code is
- * spent rather than released.
+ * Everything else ends the attempt. `invalid-address` and `unknown-session`
+ * cannot resolve by waiting; `expired` and `import` mean the one-time code is
+ * already spent; `gateway` means the assistant answered with something this
+ * device cannot use (an over-cap body, credentials it cannot persist, a 200
+ * that is not a pairing reply), past which the code is spent rather than
+ * released; and `import-precheck` refused the local destination before the
+ * exchange, so an identical attempt is refused identically.
+ *
+ * `import-precheck` is the one of those that leaves the SESSION alive, which
+ * is a separate question from whether to retry: see
+ * {@link pairingSessionSurvives}.
  *
  * The `satisfies` clause keeps the map exhaustive, so a new reason does not
  * compile until it is classified here.
@@ -707,6 +757,7 @@ const PAIRING_REASON_RETRYABLE = {
   "gateway-retryable": true,
   gateway: false,
   import: false,
+  "import-precheck": false,
 } satisfies Record<PairingFailureReason, boolean>;
 
 /** The reasons {@link isRetryablePairingReason} accepts. */
@@ -726,4 +777,40 @@ export function isRetryablePairingReason(
   reason: PairingFailureReason | null | undefined,
 ): boolean {
   return reason != null && RETRYABLE_PAIRING_REASONS.has(reason);
+}
+
+/**
+ * Every reason, mapped to whether the pairing session it came from is still
+ * live host-side. A caller holding the handle reads this to decide whether to
+ * release the session: releasing a live one throws away a device code that is
+ * still good and costs the user a fresh pairing link.
+ *
+ * This is deliberately NOT the retryable map. `import-precheck` is the reason
+ * the two disagree on: nothing was spent and the same handle still polls, but
+ * only once the caller changes the name it asked for, so a blind retry is
+ * futile while dropping the session is destructive.
+ *
+ * `invalid-address` never had a session to begin with, so it reads false the
+ * same way a dead one does: there is nothing to hold onto either way.
+ */
+const PAIRING_REASON_SESSION_LIVE = {
+  "invalid-address": false,
+  "unknown-session": false,
+  expired: false,
+  unreachable: true,
+  "gateway-retryable": true,
+  gateway: false,
+  import: false,
+  "import-precheck": true,
+} satisfies Record<PairingFailureReason, boolean>;
+
+/**
+ * Whether the session behind a refused pairing step is still pollable. An
+ * unlabelled failure reads as settled, so a host too old to name a reason has
+ * its session released rather than left to time out.
+ */
+export function pairingSessionSurvives(
+  reason: PairingFailureReason | null | undefined,
+): boolean {
+  return reason != null && PAIRING_REASON_SESSION_LIVE[reason] === true;
 }
