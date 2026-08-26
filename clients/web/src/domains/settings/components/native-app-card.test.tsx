@@ -8,6 +8,8 @@ import {
 } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { ANDROID_PLAY_STORE_URL } from "@/hooks/use-native-app-nudge";
+
 let iosWeb = false;
 let androidWeb = false;
 
@@ -72,7 +74,7 @@ describe("NativeAppCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
 
     expect(open).toHaveBeenCalledWith(
-      "https://play.google.com/store/apps/details?id=ai.vellum.assistant",
+      ANDROID_PLAY_STORE_URL,
       "_blank",
       "noopener,noreferrer",
     );
