@@ -11,7 +11,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getAvatarDir, getAvatarImagePath } from "../util/platform.js";
+import { getAvatarImagePath, getWorkspaceDir } from "../util/platform.js";
 import { type AvatarState, readAvatarState } from "./avatar-manifest.js";
 import { writeTraitsAndRenderAvatar } from "./traits-png-sync.js";
 
@@ -37,8 +37,10 @@ function isWithin(dir: string, filePath: string): boolean {
 export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
   let fd: number | undefined;
   try {
+    // Anchored on the real workspace root: a data/avatar symlink pointing at
+    // another workspace resolves outside it and is rejected.
     const realDir = realpathSync(dirname(rasterPath));
-    if (!isWithin(realpathSync(getAvatarDir()), realDir)) {
+    if (!isWithin(realpathSync(getWorkspaceDir()), realDir)) {
       return null;
     }
     const realPath = join(realDir, basename(rasterPath));
@@ -61,7 +63,7 @@ export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
     // (fresh realpath resolves outside) or is swapped back (the inside file
     // is a different inode than the opened fd). Node has no openat.
     const reopenedPath = realpathSync(rasterPath);
-    if (!isWithin(realpathSync(getAvatarDir()), reopenedPath)) {
+    if (!isWithin(realpathSync(getWorkspaceDir()), reopenedPath)) {
       return null;
     }
     const reopenedStats = lstatSync(reopenedPath);

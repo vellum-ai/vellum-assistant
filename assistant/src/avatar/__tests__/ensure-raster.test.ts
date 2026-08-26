@@ -120,6 +120,21 @@ describe("ensureAvatarRaster", () => {
     expect(await ensureAvatarRaster()).toBeNull();
   });
 
+  test("returns null when the avatar dir is a symlink to another workspace", async () => {
+    const foreign = mkdtempSync(join(tmpdir(), "foreign-avatar-"));
+    writeFileSync(join(foreign, IMAGE_FILENAME), FAKE_PNG);
+    rmSync(avatarDir, { recursive: true, force: true });
+    symlinkSync(foreign, avatarDir);
+    writeManifestFile({
+      kind: "image",
+      traits: null,
+      source: "upload",
+      image: { updatedAt: new Date().toISOString(), etag: "0123456789abcdef" },
+    });
+    expect(await ensureAvatarRaster()).toBeNull();
+    rmSync(foreign, { recursive: true, force: true });
+  });
+
   test("returns null for an image avatar whose PNG is missing", async () => {
     writeManifestFile({
       kind: "image",
