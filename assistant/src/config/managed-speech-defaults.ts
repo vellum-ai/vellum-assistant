@@ -27,7 +27,12 @@ import {
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
 import { sttProviderKeyResolves } from "../providers/speech-to-text/resolve.js";
-import { sttCatalogKeyForRole, type SttRole } from "../stt/roles.js";
+import {
+  STT_ROLES,
+  sttCatalogKeyForRole,
+  type SttRole,
+  sttRoleCapabilityGap,
+} from "../stt/roles.js";
 import type { SttProviderId } from "../stt/types.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
 import type { TtsProviderId } from "../tts/types.js";
@@ -132,6 +137,48 @@ export async function resolveEffectiveSpeechProviders(
 }
 
 /**
+ * Whether a provider can serve every consumer, or only the one that chose it.
+ *
+ * `vellum` covers every boundary, so substituting it is safe everywhere. A
+ * narrowing row like `vellum-flux` streams and nothing else, and the roles it
+ * fails are exactly the consumers that must not be moved onto it.
+ */
+function servesEveryRole(provider: SttProviderId): boolean {
+  const selection = sttConfigForCatalogKey(provider);
+  return STT_ROLES.every(
+    (role) => sttRoleCapabilityGap(role, selection) === null,
+  );
+}
+
+/**
+ * The writes that put `selection` in force as the global provider.
+ *
+ * The family is always written, including the base one. Substituting away
+ * from a variant leaves its `model` behind otherwise, and the next load
+ * resolves straight back to the variant this substitution just rejected: the
+ * provider would read as plain vellum while running Flux, with batch and
+ * telephony quietly unavailable. A provider with no families has no name to
+ * write, and no variant to have left a stale value behind either.
+ */
+function globalSttUpdates(selection: {
+  provider: string;
+  model?: string | undefined;
+}): { path: string; provider: string }[] {
+  const updates = [
+    { path: "services.stt.provider", provider: selection.provider },
+  ];
+  const family =
+    selection.model ?? baseModelFamilyFor(selection.provider as SttProviderId);
+  if (family !== undefined) {
+    updates.push({
+      path: `services.stt.providers.${selection.provider}.model`,
+      provider: family,
+    });
+  }
+  return updates;
+}
+
+/**
  * Persist the effective speech providers resolved by
  * {@link resolveEffectiveSpeechProviders} whenever they differ from the
  * configured ones.
@@ -151,24 +198,30 @@ export async function maybeDefaultSpeechToManaged(): Promise<void> {
       // the pair that selects it. Writing the key itself would put an id the
       // schema rejects on disk, and an unparseable services block is how the
       // loader's salvage ladder ends up resetting the whole section.
-      const sttConfig = sttConfigForCatalogKey(effective.stt);
-      updates.push({
-        path: "services.stt.provider",
-        provider: sttConfig.provider,
-      });
-      // Always write the family, including the base one. Substituting away
-      // from a variant leaves its `model` behind otherwise, and the next load
-      // resolves straight back to the variant this substitution just
-      // rejected: the provider would read as plain vellum while running Flux,
-      // with batch and telephony quietly unavailable.
-      // A provider with no families has no name to write, and no variant to
-      // have left a stale value behind either.
-      const family = sttConfig.model ?? baseModelFamilyFor(sttConfig.provider);
-      if (family !== undefined) {
+      const standIn = sttConfigForCatalogKey(effective.stt);
+      if (servesEveryRole(effective.stt)) {
+        updates.push(...globalSttUpdates(standIn));
+      } else {
+        // A stand-in that cannot serve every consumer belongs to the one that
+        // chose it. Live voice is that consumer: provider turn detection is
+        // the only reason managedStandInFor reaches for a narrow row, and
+        // writing that row globally would take batch transcription and
+        // telephony from every other consumer in a single write.
         updates.push({
-          path: `services.stt.providers.${sttConfig.provider}.model`,
-          provider: family,
+          path: "services.stt.roles.liveVoice.provider",
+          provider: standIn.provider,
         });
+        if (standIn.model !== undefined) {
+          updates.push({
+            path: "services.stt.roles.liveVoice.model",
+            provider: standIn.model,
+          });
+        }
+        // The other consumers still need a provider that answers, and the
+        // narrow stand-in's own base is the managed row that serves them.
+        if (servesEveryRole(standIn.provider as SttProviderId)) {
+          updates.push(...globalSttUpdates({ provider: standIn.provider }));
+        }
       }
     }
     if (effective.tts !== services.tts.provider) {
