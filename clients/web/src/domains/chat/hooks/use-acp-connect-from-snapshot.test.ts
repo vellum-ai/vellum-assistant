@@ -30,6 +30,7 @@ describe("raiseAcpConnectFromSnapshot", () => {
     useInteractionStore.setState({
       pendingAcpConnect: null,
       dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
     });
   });
 
@@ -96,5 +97,55 @@ describe("raiseAcpConnectFromSnapshot", () => {
     expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
       "tool-new",
     );
+  });
+});
+
+describe("raiseAcpConnectFromSnapshot: retiring a prompt the daemon dropped", () => {
+  beforeEach(() => {
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-1",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+    });
+  });
+
+  test("clears the prompt when the snapshot carries no marker", () => {
+    // A client disconnected when the token landed never heard the
+    // invalidation, and this prompt skips the connected-state self-heal, so
+    // the reconnect snapshot is its only way to learn the card is stale.
+    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })]);
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("clears the prompt on an empty snapshot", () => {
+    raiseAcpConnectFromSnapshot([]);
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("leaves the prompt alone while this tab owns a live Connect flow", () => {
+    // The flow's own token write triggers the invalidation; clearing the card
+    // underneath it loses the confirmation and the auto-continue it is about
+    // to request.
+    useInteractionStore.setState({ acpConnectFlowActive: true });
+
+    raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })]);
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
+    ).toBe("tool-1");
+  });
+
+  test("a still-marked run keeps the prompt rather than clearing it", () => {
+    raiseAcpConnectFromSnapshot([run()]);
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
+    ).toBe("tool-1");
   });
 });

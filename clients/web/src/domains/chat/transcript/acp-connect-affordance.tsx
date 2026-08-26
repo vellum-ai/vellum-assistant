@@ -125,6 +125,17 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // auto-continue the failed task (via a hidden "retry" send) so the user
   // doesn't have to re-ask. One-shot — the continuation's own send clears the
   // card, but guard so a re-render can't re-trigger it.
+  // Publish that this tab owns a live flow, so the invalidation its own token
+  // write triggers does not dismiss the card before it can auto-continue.
+  // Cleared on unmount so a tab that navigates away stops claiming it.
+  const flowActive = connection.phase !== "idle";
+  useEffect(() => {
+    useInteractionStore.getState().setAcpConnectFlowActive(flowActive);
+    return () => {
+      useInteractionStore.getState().setAcpConnectFlowActive(false);
+    };
+  }, [flowActive]);
+
   const continuedRef = useRef(false);
   useEffect(() => {
     if (connection.phase === "connected" && !continuedRef.current) {

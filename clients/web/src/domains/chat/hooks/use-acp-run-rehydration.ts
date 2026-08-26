@@ -226,6 +226,28 @@ export function raiseAcpConnectFromSnapshot(entries: AcpRunEntry[]): void {
     });
     return;
   }
+  // No marker in an authoritative snapshot means the daemon retired it, which
+  // a client that was disconnected when the token landed never heard. Its
+  // prompt skips the connected-state self-heal and survives conversation
+  // resets, so without this the stale card outlives the reconnect that should
+  // have cleared it.
+  retireStaleAcpConnectPrompt();
+}
+
+/**
+ * Drop a restored `auth_required` prompt the daemon no longer backs.
+ *
+ * Left alone while this tab owns a live Connect flow: that flow's own token
+ * write is what triggers the invalidation, and clearing the card underneath it
+ * loses both the success confirmation and the auto-continue it is about to
+ * request.
+ */
+function retireStaleAcpConnectPrompt(): void {
+  const state = useInteractionStore.getState();
+  if (state.acpConnectFlowActive || !state.pendingAcpConnect) {
+    return;
+  }
+  state.dismissAcpConnect();
 }
 
 /** Active run ids in the store that belong to `conversationId`. */
@@ -320,9 +342,12 @@ export function useAcpRunRehydration(
     ) {
       return;
     }
-    if (useInteractionStore.getState().pendingAcpConnect) {
-      useInteractionStore.getState().dismissAcpConnect();
-    }
+    // Not while this tab is the one connecting. The daemon cannot tag the
+    // origin (the retirement fires from the credential-write seam, which has
+    // no request context), so the writer receives its own echo, and dismissing
+    // here would unmount the card before it reaches `connected` and asks for
+    // the auto-continue. That flow clears the card itself.
+    retireStaleAcpConnectPrompt();
     if (!assistantId || !conversationId) {
       return;
     }

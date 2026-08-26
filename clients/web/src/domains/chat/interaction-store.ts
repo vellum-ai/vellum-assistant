@@ -108,6 +108,19 @@ export interface InteractionState {
    */
   pendingAcpContinue: boolean;
 
+  /**
+   * Whether this tab is currently running the Connect flow.
+   *
+   * A token write publishes an `acp:auth-recovery` invalidation that reaches
+   * every client including the writer, and the daemon cannot tag the origin:
+   * the retirement fires from the credential-write seam, which has no request
+   * context to carry a client id. Acting on that echo here would dismiss the
+   * card mid-flow, before it reaches `connected` and asks for the
+   * auto-continue, so the tab running the flow ignores its own echo and lets
+   * the flow finish clearing the card.
+   */
+  acpConnectFlowActive: boolean;
+
   /** Tool call IDs whose risk level was "unknown" when the user approved
    *  them — triggers the "command not recognized" nudge below their chip. */
   unknownNudgeToolCallIds: Set<string>;
@@ -164,6 +177,7 @@ export interface InteractionActions {
   showAcpConnect: (payload: PendingAcpConnectState) => void;
   dismissAcpConnect: () => void;
   requestAcpContinue: () => void;
+  setAcpConnectFlowActive: (active: boolean) => void;
   clearAcpContinue: () => void;
 
   // Nudge tracking
@@ -204,6 +218,7 @@ const INITIAL_STATE: InteractionState = {
 
   pendingAcpConnect: null,
   dismissedAcpConnectToolUseIds: new Set<string>(),
+  acpConnectFlowActive: false,
   pendingAcpContinue: false,
 
   unknownNudgeToolCallIds: new Set<string>(),
@@ -386,6 +401,8 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   // Skip a restore the user already dismissed this session. The live-failure
   // path passes a fresh tool-use id (never dismissed), so only history reseeds
   // of an already-handled failure are suppressed.
+  setAcpConnectFlowActive: (active) => set({ acpConnectFlowActive: active }),
+
   showAcpConnect: (payload) =>
     set((state) =>
       state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)
