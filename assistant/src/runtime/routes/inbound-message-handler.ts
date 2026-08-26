@@ -1091,10 +1091,11 @@ export async function handleChannelInbound({
     !result.duplicate &&
     !guardianReplyResult.skipApprovalInterception
   ) {
-    // Extract the original approval message timestamp for Slack button
-    // cleanup. When a Slack block_actions payload is forwarded, the gateway
-    // sets sourceMetadata.messageId to the ts of the message containing
-    // the button. This lets us edit the message after resolution.
+    // The id of the message holding the approval buttons, for editing the
+    // card after resolution. The gateway sets sourceMetadata.messageId on
+    // every button-press forward: Slack's block_actions carry the ts of the
+    // message containing the button, Telegram's callback_query the id of the
+    // message the keyboard is attached to.
     const approvalMessageId =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
