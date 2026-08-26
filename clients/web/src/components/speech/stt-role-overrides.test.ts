@@ -11,8 +11,9 @@ import { sttRoleOverrideEntries } from "@/components/speech/stt-role-overrides";
 
 describe("sttRoleOverrideEntries", () => {
   test("an assistant with no roles field reports nothing", () => {
-    // Also the pre-JARVIS-1640 daemon: the field is absent, so the section
-    // does not render, which is the feature-off state.
+    // An assistant that does not serve the field at all reports no entries,
+    // so the section does not render. That absence IS the compatibility
+    // story: there is no version gate behind it.
     expect(sttRoleOverrideEntries({ provider: "vellum" })).toEqual([]);
     expect(sttRoleOverrideEntries(undefined)).toEqual([]);
   });

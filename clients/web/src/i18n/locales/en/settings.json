@@ -1856,6 +1856,7 @@
   },
   "sttRoleOverrides": {
     "clear": "Reset",
+    "clearAria": "Reset {feature}",
     "clearFailed": "Could not reset",
     "role": {
       "batch": "File transcription",

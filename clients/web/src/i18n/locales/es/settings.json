@@ -1854,6 +1854,19 @@
     "subtitle": "Configura cómo tu asistente transcribe el habla",
     "title": "Voz a texto"
   },
+  "sttRoleOverrides": {
+    "clear": "Restablecer",
+    "clearAria": "Restablecer {feature}",
+    "clearFailed": "No se pudo restablecer",
+    "role": {
+      "batch": "Transcripción de archivos",
+      "dictation": "Dictado",
+      "liveVoice": "Voz en vivo",
+      "telephony": "Llamadas",
+      "watch": "Observación"
+    },
+    "title": "Por función"
+  },
   "systemTasksSection": {
     "consolidationName": "Consolidación",
     "consolidationPausedHelper": "La memoria está desactivada, así que la consolidación está en pausa.",

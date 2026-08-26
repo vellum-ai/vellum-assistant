@@ -190,6 +190,12 @@ export function SttRoleOverrides({ assistantId }: { assistantId: string }) {
               <Button
                 variant="ghost"
                 size="compact"
+                // Sibling text does not reach a button's accessible name, so
+                // several rows would otherwise offer a screen reader a column
+                // of buttons all called "Reset".
+                aria-label={t("sttRoleOverrides.clearAria", {
+                  feature: labelKey ? t(labelKey) : entry.role,
+                })}
                 // Ghost resolves to `--content-default`, which reads louder
                 // than the provider it sits beside. The value is what the row
                 // exists to report; this is only the way out of it.

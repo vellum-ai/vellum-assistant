@@ -1853,6 +1853,19 @@
     "subtitle": "Настройка того, как ассистент слышит слова",
     "title": "Речь в текст"
   },
+  "sttRoleOverrides": {
+    "clear": "Сбросить",
+    "clearAria": "Сбросить: {feature}",
+    "clearFailed": "Не удалось сбросить",
+    "role": {
+      "batch": "Транскрипция файлов",
+      "dictation": "Диктовка",
+      "liveVoice": "Голосовой режим",
+      "telephony": "Звонки",
+      "watch": "Наблюдение"
+    },
+    "title": "По функциям"
+  },
   "systemTasksSection": {
     "consolidationName": "Консолидация",
     "consolidationPausedHelper": "Память выключена, поэтому консолидация на паузе.",
