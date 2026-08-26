@@ -331,6 +331,7 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     command: string;
     parentToolUseId?: string;
     cancelled?: boolean;
+    credentialGeneration?: number;
   }) {
     const manager = new AcpSessionManager(1);
     const parentId = `parent-${opts.id}`;
@@ -350,6 +351,10 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     if (opts.cancelled) {
       entry.state.status = "cancelled";
     }
+    if (opts.credentialGeneration !== undefined) {
+      (entry as { credentialGeneration?: number }).credentialGeneration =
+        opts.credentialGeneration;
+    }
 
     await fire(manager, opts.id, entry).catch(() => {});
     if (!opts.cancelled) {
@@ -368,6 +373,23 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       persistedContent: firstPersist?.[0].content,
     };
   }
+
+  test("a rejection under a superseded credential raises no recovery surface", async () => {
+    // A token replacement completing mid-prompt clears every marker and takes
+    // the registry with it. This run's rejection describes the credential that
+    // replacement retired, so raising the event or re-marking the registry
+    // would leave a card for auth that already works and nothing to clear it.
+    const r = await driveAuthFailure({
+      id: "sess-auth-superseded",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-stale",
+      // Any generation the live counter has moved past.
+      credentialGeneration: -1,
+    });
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised("parent-sess-auth-superseded")).toBe(false);
+  });
 
   test("claude failure with an anchor raises the full surface: event, registry mark, guidance", async () => {
     const r = await driveAuthFailure({

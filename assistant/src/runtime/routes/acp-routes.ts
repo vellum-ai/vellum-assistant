@@ -819,7 +819,22 @@ function listMergedSessions(opts: {
     });
   }
 
-  return Array.from(merged.values())
-    .sort((a, b) => b.startedAt - a.startedAt)
-    .slice(0, opts.limit);
+  const ordered = Array.from(merged.values()).sort(
+    (a, b) => b.startedAt - a.startedAt,
+  );
+  const page = ordered.slice(0, opts.limit);
+  // Marked rows survive the truncation that the page itself is subject to.
+  // Reaching them is the whole point of including them: a conversation with
+  // more recent runs than the page holds would otherwise drop the one row a
+  // client restores the Connect card from, and the reload would find no way
+  // back to auth. Deliberately lets the recovery snapshot run past the
+  // ordinary page size, bounded by the marker, which a successful token write
+  // clears.
+  const paged = new Set(page.map((s) => s.id));
+  for (const session of ordered) {
+    if (session.authErrorCode !== undefined && !paged.has(session.id)) {
+      page.push(session);
+    }
+  }
+  return page;
 }

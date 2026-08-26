@@ -1165,7 +1165,27 @@ export class AcpSessionManager {
             errorCode !== undefined && current.state.status !== "cancelled"
               ? current.parentToolUseId
               : undefined;
-          if (errorCode !== undefined && recoveryAnchor !== undefined) {
+          // A run that read its token under an older generation and only now
+          // reports it rejected is describing auth that has since been
+          // repaired, and the bulk clear that would have retired its mark has
+          // already run. The whole recovery surface turns on this, not just
+          // the persisted mark: the live event raises a card that deliberately
+          // skips connected-state self-healing, and the registry entry
+          // redirects the secure-prompt fallback at that card. Raising either
+          // for a superseded rejection leaves the user with a card for a
+          // working token and nothing left to clear it.
+          // Suppress only on positive evidence of supersession. An entry
+          // carrying no generation is not proof of anything, and recovery is
+          // the user's only route back to auth, so the unknown case raises it.
+          const credentialStillCurrent =
+            typeof current.credentialGeneration !== "number" ||
+            current.credentialGeneration ===
+              currentClaudeCredentialGeneration();
+          if (
+            errorCode !== undefined &&
+            recoveryAnchor !== undefined &&
+            credentialStillCurrent
+          ) {
             current.sendToVellum({
               type: "acp_auth_required",
               acpSessionId,
@@ -1181,19 +1201,7 @@ export class AcpSessionManager {
             // code goes on the state so `persistTerminal` (called just below)
             // carries it to the history row, which is what a client that
             // reopens the conversation re-raises the card from.
-            //
-            // Unless the credential has already been replaced. A run that read
-            // its token under an older generation and only now reports it
-            // rejected is describing auth that has since been repaired, and
-            // the bulk clear that would have retired the mark has already run.
-            // Marking anyway would raise a Connect card for a working token
-            // with nothing left to clear it.
-            if (
-              current.credentialGeneration ===
-              currentClaudeCredentialGeneration()
-            ) {
-              current.state.authErrorCode = errorCode;
-            }
+            current.state.authErrorCode = errorCode;
           }
 
           // Persist the terminal row before teardown clears the buffer.
