@@ -11,6 +11,7 @@ import { eq, inArray } from "drizzle-orm";
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
 import { findConversation } from "../daemon/conversation-registry.js";
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -1227,6 +1228,22 @@ export class AcpSessionManager {
             // carries it to the history row, which is what a client that
             // reopens the conversation re-raises the card from.
             current.state.authErrorCode = errorCode;
+            // Tell clients to re-read the snapshot, which is the only thing
+            // that can withdraw this card. The check above reads the vault
+            // and then this branch runs, so a replacement completing in
+            // between publishes its own invalidation before the event goes
+            // out, and a client that acted on it would never look again. This
+            // nudge lands after, so whatever the snapshot says wins.
+            void import("../runtime/sync/sync-publisher.js")
+              .then(({ publishSyncInvalidation }) =>
+                publishSyncInvalidation([SYNC_TAGS.acpAuthRecovery]),
+              )
+              .catch((err: unknown) => {
+                log.warn(
+                  { err },
+                  "failed to publish ACP auth recovery invalidation",
+                );
+              });
             // Named beside the code so the marker can answer for itself later.
             // Without it the row says auth broke but not on what, and a reader
             // has no way to tell a failure the user has since repaired from one

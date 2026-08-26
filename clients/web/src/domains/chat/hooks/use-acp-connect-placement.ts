@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -82,9 +82,11 @@ export function useAcpConnectPlacement(): AcpConnectPlacement {
   const toolUseId = prompt?.toolUseId ?? null;
   const promptConversationId = prompt?.conversationId ?? null;
   const activeConversationId = useConversationStore.use.activeConversationId();
+  const flowActive = useInteractionStore.use.acpConnectFlowActive();
+  const held = useInteractionStore.use.acpConnectPlacement();
   const messages = useTranscriptMessages();
 
-  return useMemo(
+  const computed = useMemo(
     () =>
       decideAcpConnectPlacement(
         messages,
@@ -94,6 +96,36 @@ export function useAcpConnectPlacement(): AcpConnectPlacement {
       ),
     [messages, toolUseId, promptConversationId, activeConversationId],
   );
+
+  // Recorded only while no flow is running, so what it holds through one is
+  // the position the card was last rendered at. Written from an effect rather
+  // than during render: this is a note about what was committed, and both the
+  // transcript and the composer ask, so it must not depend on which of them
+  // renders first.
+  useEffect(() => {
+    if (flowActive) {
+      return;
+    }
+    useInteractionStore
+      .getState()
+      .setAcpConnectPlacement(
+        toolUseId ? { toolUseId, placement: computed } : null,
+      );
+  }, [flowActive, toolUseId, computed]);
+
+  // A flow in progress pins the card where it already is. The user sending
+  // another message is what would otherwise move it, and they can do that
+  // while a browser tab is away at the OAuth consent screen. Keyed by the
+  // anchor, so a newer prompt is placed on its own merits.
+  if (
+    flowActive &&
+    toolUseId &&
+    held?.toolUseId === toolUseId &&
+    held.placement !== null
+  ) {
+    return held.placement;
+  }
+  return computed;
 }
 
 /**

@@ -120,6 +120,19 @@ export interface InteractionState {
    * the flow finish clearing the card.
    */
   acpConnectFlowActive: boolean;
+  /**
+   * Where the Connect card is currently rendered, with the anchor it was
+   * decided for.
+   *
+   * Held here rather than in either component that asks, so the transcript and
+   * the composer cannot disagree about it, and so an in-progress OAuth flow can
+   * pin the card in place: moving it between those two trees unmounts the
+   * affordance that owns the flow.
+   */
+  acpConnectPlacement: {
+    toolUseId: string;
+    placement: "inline" | "docked" | null;
+  } | null;
 
   /**
    * Bumped every time a Connect prompt is raised.
@@ -206,6 +219,12 @@ export interface InteractionActions {
   dismissAcpConnect: () => void;
   requestAcpContinue: () => void;
   setAcpConnectFlowActive: (active: boolean) => void;
+  setAcpConnectPlacement: (
+    placement: {
+      toolUseId: string;
+      placement: "inline" | "docked" | null;
+    } | null,
+  ) => void;
   clearAcpContinue: () => void;
 
   // Nudge tracking
@@ -247,6 +266,7 @@ const INITIAL_STATE: InteractionState = {
   pendingAcpConnect: null,
   dismissedAcpConnectToolUseIds: new Set<string>(),
   acpConnectFlowActive: false,
+  acpConnectPlacement: null,
   acpConnectRevision: 0,
   pendingAcpContinue: false,
 
@@ -431,6 +451,14 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   // path passes a fresh tool-use id (never dismissed), so only history reseeds
   // of an already-handled failure are suppressed.
   setAcpConnectFlowActive: (active) => set({ acpConnectFlowActive: active }),
+
+  setAcpConnectPlacement: (placement) =>
+    set((state) =>
+      state.acpConnectPlacement?.toolUseId === placement?.toolUseId &&
+      state.acpConnectPlacement?.placement === placement?.placement
+        ? state
+        : { acpConnectPlacement: placement },
+    ),
 
   showAcpConnect: (payload) =>
     set((state) => {

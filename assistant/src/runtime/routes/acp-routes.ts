@@ -56,6 +56,18 @@ const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
 
 const log = getLogger("acp-routes");
 
+/**
+ * How many of a conversation's newest marked rows are read to learn which
+ * agents to resolve credentials for.
+ *
+ * Enough to be sure of covering the agents in play, small enough that a long
+ * failure history costs a fixed read rather than a growing one. A marker under
+ * an agent older than this window is not reached, which trades an exotic case
+ * (the newest twenty failures all under agents whose credentials have since
+ * changed, with an older alias still current) for a bounded query.
+ */
+const MARKER_AGENT_SCAN_LIMIT = 20;
+
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;
 
@@ -933,8 +945,14 @@ async function findRecoveryMarker(
   resolvedFor: (agentId: string) => Promise<string | undefined>,
 ): Promise<MergedSession | undefined> {
   const db = getDb();
-  const markedAgents = db
-    .selectDistinct({ agentId: acpSessionHistory.agentId })
+  // Agents taken from the newest marked rows rather than from every one of
+  // them. A distinct over the whole set still visits each row, and a
+  // conversation can carry marked runs under aliases that have since been
+  // removed from config, so both the scan and the per-agent fan-out below
+  // would grow with the failure history. The row a client wants is the newest
+  // that still matches, so the newest markers are where to look for its agent.
+  const recentMarkedAgents = db
+    .select({ agentId: acpSessionHistory.agentId })
     .from(acpSessionHistory)
     .where(
       and(
@@ -942,10 +960,15 @@ async function findRecoveryMarker(
         isNotNull(acpSessionHistory.authErrorCode),
       ),
     )
+    .orderBy(desc(acpSessionHistory.startedAt))
+    .limit(MARKER_AGENT_SCAN_LIMIT)
     .all();
+  const markedAgents = [
+    ...new Set(recentMarkedAgents.map((row) => row.agentId)),
+  ];
 
   let newest: typeof acpSessionHistory.$inferSelect | undefined;
-  for (const { agentId } of markedAgents) {
+  for (const agentId of markedAgents) {
     const resolved = await resolvedFor(agentId);
     const row = db
       .select()

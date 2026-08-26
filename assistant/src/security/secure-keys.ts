@@ -680,6 +680,16 @@ async function onCredentialsWritten(accounts: string[]): Promise<void> {
     return;
   }
   try {
+    // Only a value a spawn could actually use retires anything. A bulk restore
+    // can land an api-key-shaped token, or one whose policy blocks the
+    // `acp_spawn` read, and the marker comparison keeps serving the card for
+    // exactly that reason. Forgetting the registry anyway would stop the
+    // credential prompt redirecting at a card that is still up, and open the
+    // second prompt this registry exists to suppress.
+    const { hasAcpClaudeToken } = await import("../acp/acp-claude-oauth.js");
+    if (!(await hasAcpClaudeToken())) {
+      return;
+    }
     const { takeConversationsWithAcpConnectCard } =
       await import("../acp/acp-connect-card-state.js");
     // In-memory and about a card on screen rather than about the credential,
