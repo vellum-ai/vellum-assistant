@@ -142,7 +142,7 @@ const { MIN_VERSION } =
 const {
   canFetchRowAvatarViaPlatformProxy,
   chooserRowAvatarQueryKeyPrefix,
-  releaseRowAvatarUrls,
+  forgetAssistantAvatar,
   useChooserRowAvatar,
 } = await import("@/hooks/use-chooser-row-avatar");
 const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
@@ -769,7 +769,7 @@ describe("useChooserRowAvatar", () => {
     });
   });
 
-  describe("releaseRowAvatarUrls", () => {
+  describe("forgetAssistantAvatar", () => {
     test("revokes the live and cached object urls held for a removed assistant", async () => {
       fetchAvatarState.mockResolvedValue(imageState);
       fetchAvatarImageUrlResult.mockResolvedValue(found("blob:row-image"));
@@ -790,7 +790,7 @@ describe("useChooserRowAvatar", () => {
         expect(cached.result.current.imageUrl).toBe("blob:cached-image");
       });
 
-      releaseRowAvatarUrls(new QueryClient(), "other");
+      forgetAssistantAvatar(new QueryClient(), "other");
 
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:row-image");
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:cached-image");
@@ -818,7 +818,7 @@ describe("useChooserRowAvatar", () => {
         imageUrl: null,
       });
 
-      releaseRowAvatarUrls(queryClient, "other");
+      forgetAssistantAvatar(queryClient, "other");
 
       expect(
         queryClient.getQueryData([
@@ -835,6 +835,39 @@ describe("useChooserRowAvatar", () => {
       expect(
         queryClient.getQueryData(chooserRowAvatarCacheQueryKey("kept")),
       ).toBeDefined();
+    });
+
+    test("an in-flight row fetch that resolves afterwards drops its blob and writes nothing", async () => {
+      let resolveImage: (result: FileResult<string>) => void = () => {};
+      fetchAvatarImageUrlResult.mockImplementationOnce(
+        () =>
+          new Promise<FileResult<string>>((resolve) => {
+            resolveImage = resolve;
+          }),
+      );
+      fetchAvatarState.mockResolvedValue(imageState);
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      renderHook(() => useChooserRowAvatar(platformRow("other")), {
+        wrapper: createWrapper(queryClient),
+      });
+      await waitFor(() => {
+        expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
+      });
+
+      forgetAssistantAvatar(queryClient, "other");
+      resolveImage(found("blob:late"));
+      await waitFor(() => {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:late");
+      });
+      await settle();
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+
+      // Nothing was registered for the late blob: a second release has nothing to revoke.
+      revokeObjectURL.mockClear();
+      forgetAssistantAvatar(queryClient, "other");
+      expect(revokeObjectURL).not.toHaveBeenCalled();
     });
   });
 

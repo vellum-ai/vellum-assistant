@@ -6,18 +6,24 @@
 export interface GenerationGuard {
   claim(key: string): number;
   isCurrent(key: string, generation: number): boolean;
+  /** Supersede every in-flight operation for `key` without starting a new one. */
+  invalidate(key: string): void;
 }
 
 export function createGenerationGuard(): GenerationGuard {
   const generations = new Map<string, number>();
+  const claim = (key: string) => {
+    const generation = (generations.get(key) ?? 0) + 1;
+    generations.set(key, generation);
+    return generation;
+  };
   return {
-    claim(key) {
-      const generation = (generations.get(key) ?? 0) + 1;
-      generations.set(key, generation);
-      return generation;
-    },
+    claim,
     isCurrent(key, generation) {
       return generations.get(key) === generation;
+    },
+    invalidate(key) {
+      claim(key);
     },
   };
 }
