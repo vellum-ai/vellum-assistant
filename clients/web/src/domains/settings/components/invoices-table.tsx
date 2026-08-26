@@ -16,6 +16,7 @@ import {
 } from "@/generated/api/sdk.gen";
 import type { InvoiceListResponse } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { openExternalUrl } from "@/runtime/browser";
 import { assertHasResponse, toApiError } from "@/utils/api-errors";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
@@ -79,14 +80,13 @@ function formatDate(unixSeconds: number): string {
   });
 }
 
+// Stripe hosts the invoice PDF, so this is an external open rather than a
+// Vellum-owned save: a cross-origin fetch would be CORS-blocked, and the
+// browser view is Stripe's own hosted invoice page. `openExternalUrl` covers
+// every shell (a hand-rolled target="_blank" anchor is a no-op in the
+// Capacitor WKWebView).
 function downloadPdf(url: string): void {
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  void openExternalUrl(url);
 }
 
 export function InvoicesTable() {
