@@ -546,6 +546,42 @@ test("streams remote recording chunks before reporting stopped", async () => {
   ]);
 });
 
+test("retries an idempotent stopped status after a lost response", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const statuses: string[] = [];
+  let stoppedAttempts = 0;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+      if (status === "stopped" && stoppedAttempts++ === 0) {
+        throw new Error("response lost after processing");
+      }
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+
+  expect(statuses).toEqual(["started", "stopped", "stopped"]);
+  expect(track.stopped).toBeTrue();
+});
+
 test("only the client that wins the claim starts capture", async () => {
   const election: { owner: string | null } = { owner: null };
   const capture = mock(async () => {
@@ -704,6 +740,181 @@ test("uses the legacy path when an older assistant lacks claim routes", async ()
   expect(claimRecordingMock).not.toHaveBeenCalled();
   expect(recorder.state).toBe("recording");
   expect(statuses).toEqual(["started"]);
+});
+
+test("reports remote recording as unsupported on an older assistant", async () => {
+  const capture = mock(async () => {
+    throw new Error("capture should not start");
+  });
+  const transfer = mock(async () => ({}));
+  const failures: string[] = [];
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status, details) => {
+      if (status === "failed" && details?.error) {
+        failures.push(details.error);
+      }
+    },
+    requiresTransfer: () => true,
+    supportsOwnership: () => false,
+    transferRecording: transfer,
+  });
+
+  await controller.handle(startEvent, "assistant-remote");
+
+  expect(capture).not.toHaveBeenCalled();
+  expect(transfer).not.toHaveBeenCalled();
+  expect(failures).toEqual([
+    "Screen recording on another computer requires an updated assistant.",
+  ]);
+});
+
+const createPendingCancellationController = (overrides: {
+  claimRecording?: (
+    assistantId: string,
+    recordingId: string,
+  ) => Promise<"claimed" | "occupied" | "missing">;
+  supportsOwnership: () => boolean;
+  waitForAssistantVersion: () => Promise<void>;
+  waitBeforeRetry?: (delayMs: number) => Promise<void>;
+}) => {
+  const statuses: string[] = [];
+  const capture = mock(async () => {
+    throw new Error("capture should not start");
+  });
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    ...overrides,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => new FakeRecorder() as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+    },
+  });
+  return { capture, controller, statuses };
+};
+
+test("acknowledges stop while assistant version is resolving", async () => {
+  let resolveVersion!: () => void;
+  const claim = mock(async () => "claimed" as const);
+  const { capture, controller, statuses } = createPendingCancellationController(
+    {
+      claimRecording: claim,
+      supportsOwnership: () => true,
+      waitForAssistantVersion: () =>
+        new Promise<void>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    },
+  );
+
+  const start = controller.handle(startEvent, "assistant-1");
+  await Promise.resolve();
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  resolveVersion();
+  await start;
+
+  expect(claim).toHaveBeenCalledTimes(1);
+  expect(statuses).toEqual(["restart_cancelled"]);
+  expect(capture).not.toHaveBeenCalled();
+});
+
+test("claims once more to acknowledge stop during claim resolution", async () => {
+  let resolveClaim!: (outcome: "claimed") => void;
+  let firstClaim = true;
+  const claim = mock(() => {
+    if (!firstClaim) {
+      return Promise.resolve("claimed" as const);
+    }
+    firstClaim = false;
+    return new Promise<"claimed">((resolve) => {
+      resolveClaim = resolve;
+    });
+  });
+  const { controller, statuses } = createPendingCancellationController({
+    claimRecording: claim,
+    supportsOwnership: () => true,
+    waitForAssistantVersion: async () => undefined,
+  });
+
+  const start = controller.handle(startEvent, "assistant-1");
+  await Promise.resolve();
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  resolveClaim("claimed");
+  await start;
+
+  expect(claim).toHaveBeenCalledTimes(2);
+  expect(statuses).toEqual(["restart_cancelled"]);
+});
+
+test("an occupied contender does not acknowledge another owner's stop", async () => {
+  const claim = mock(async () => "occupied" as const);
+  let markWaiting!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    markWaiting = resolve;
+  });
+  let continueRetry!: () => void;
+  const { controller, statuses } = createPendingCancellationController({
+    claimRecording: claim,
+    supportsOwnership: () => true,
+    waitForAssistantVersion: async () => undefined,
+    waitBeforeRetry: () => {
+      markWaiting();
+      return new Promise<void>((resolve) => {
+        continueRetry = resolve;
+      });
+    },
+  });
+  const start = controller.handle(startEvent, "assistant-1");
+  await waiting;
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  continueRetry();
+  await start;
+
+  expect(claim).toHaveBeenCalledTimes(2);
+  expect(statuses).toEqual([]);
+});
+
+test("legacy cancellation acknowledges stop without claiming", async () => {
+  let resolveVersion!: () => void;
+  const claim = mock(async () => "claimed" as const);
+  const { controller, statuses } = createPendingCancellationController({
+    claimRecording: claim,
+    supportsOwnership: () => false,
+    waitForAssistantVersion: () =>
+      new Promise<void>((resolve) => {
+        resolveVersion = resolve;
+      }),
+  });
+
+  const start = controller.handle(startEvent, "assistant-1");
+  await Promise.resolve();
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-1",
+  );
+  resolveVersion();
+  await start;
+
+  expect(claim).not.toHaveBeenCalled();
+  expect(statuses).toEqual(["restart_cancelled"]);
 });
 
 test("waits for an unhydrated assistant version before claiming", async () => {

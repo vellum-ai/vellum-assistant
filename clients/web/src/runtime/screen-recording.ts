@@ -27,6 +27,13 @@ type RecordingStatus =
   | "paused"
   | "resumed";
 
+interface RecordingStatusDetails {
+  filePath?: string;
+  attachmentId?: string;
+  durationMs?: number;
+  error?: string;
+}
+
 interface ActiveRecording {
   assistantId: string;
   event: RecordingStartEvent;
@@ -163,12 +170,7 @@ export const postStatus = async (
   assistantId: string,
   event: RecordingStartEvent,
   status: RecordingStatus,
-  details: {
-    filePath?: string;
-    attachmentId?: string;
-    durationMs?: number;
-    error?: string;
-  } = {},
+  details: RecordingStatusDetails = {},
 ): Promise<void> => {
   const desktopClientId = getDeviceId();
   const { response } = await client.post({
@@ -389,7 +391,7 @@ export class ScreenRecordingController {
     };
     this.pending = pending;
     await this.dependencies.waitForAssistantVersion(assistantId);
-    if (pending.cancelled || this.pending !== pending) {
+    if (this.pending !== pending) {
       return;
     }
     const ownershipSupport = this.dependencies.supportsOwnership(assistantId);
@@ -398,8 +400,37 @@ export class ScreenRecordingController {
       return;
     }
     const usesOwnership = ownershipSupport;
+    const requiresTransfer = this.dependencies.requiresTransfer(assistantId);
     pending.claimed = !usesOwnership;
+    if (pending.cancelled) {
+      await this.acknowledgePendingCancellation(
+        assistantId,
+        event,
+        pending,
+        usesOwnership,
+      );
+      if (this.pending === pending) {
+        this.pending = null;
+      }
+      return;
+    }
+    if (requiresTransfer && !usesOwnership) {
+      this.pending = null;
+      await this.dependencies.reportStatus(assistantId, event, "failed", {
+        error:
+          "Screen recording on another computer requires an updated assistant.",
+      });
+      return;
+    }
     if (usesOwnership && !(await this.claimWithRetry(assistantId, pending))) {
+      if (pending.cancelled) {
+        await this.acknowledgePendingCancellation(
+          assistantId,
+          event,
+          pending,
+          usesOwnership,
+        );
+      }
       if (this.pending === pending) {
         this.pending = null;
       }
@@ -417,11 +448,10 @@ export class ScreenRecordingController {
     let recorder: MediaRecorder | null = null;
     let fileStarted = false;
     let transferStarted = false;
-    const requiresTransfer = this.dependencies.requiresTransfer(assistantId);
     try {
       if (pending.cancelled) {
         if (!pending.ownershipLost) {
-          await this.dependencies.reportStatus(
+          await this.reportStatusWithRetry(
             assistantId,
             event,
             "restart_cancelled",
@@ -438,7 +468,7 @@ export class ScreenRecordingController {
         capture.close();
         capture = null;
         if (!pending.ownershipLost) {
-          await this.dependencies.reportStatus(
+          await this.reportStatusWithRetry(
             assistantId,
             event,
             "restart_cancelled",
@@ -470,7 +500,7 @@ export class ScreenRecordingController {
           transferStarted = false;
         }
         if (!pending.ownershipLost) {
-          await this.dependencies.reportStatus(
+          await this.reportStatusWithRetry(
             assistantId,
             event,
             "restart_cancelled",
@@ -587,15 +617,10 @@ export class ScreenRecordingController {
               transferStarted = false;
             }
             this.release(active);
-            await this.dependencies.reportStatus(
-              assistantId,
-              event,
-              "stopped",
-              {
-                ...(attachmentId ? { attachmentId } : { filePath }),
-                durationMs: this.dependencies.now() - active.startedAt,
-              },
-            );
+            await this.reportStatusWithRetry(assistantId, event, "stopped", {
+              ...(attachmentId ? { attachmentId } : { filePath }),
+              durationMs: this.dependencies.now() - active.startedAt,
+            });
             resolveStopped();
           } catch (error) {
             if (!localFinished) {
@@ -671,7 +696,7 @@ export class ScreenRecordingController {
         return;
       }
       if (pending.cancelled) {
-        await this.dependencies.reportStatus(
+        await this.reportStatusWithRetry(
           assistantId,
           event,
           "restart_cancelled",
@@ -727,6 +752,57 @@ export class ScreenRecordingController {
     return false;
   }
 
+  private async acknowledgePendingCancellation(
+    assistantId: string,
+    event: RecordingStartEvent,
+    pending: PendingRecording,
+    usesOwnership: boolean,
+  ): Promise<void> {
+    if (pending.ownershipLost) {
+      return;
+    }
+    if (usesOwnership && !pending.claimed) {
+      try {
+        const outcome = await this.dependencies.claimRecording(
+          assistantId,
+          event.recordingId,
+        );
+        if (outcome !== "claimed") {
+          return;
+        }
+        pending.claimed = true;
+      } catch {
+        return;
+      }
+    }
+    await this.reportStatusWithRetry(assistantId, event, "restart_cancelled");
+  }
+
+  private async reportStatusWithRetry(
+    assistantId: string,
+    event: RecordingStartEvent,
+    status: RecordingStatus,
+    details: RecordingStatusDetails = {},
+  ): Promise<void> {
+    const maxAttempts = 4;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        await this.dependencies.reportStatus(
+          assistantId,
+          event,
+          status,
+          details,
+        );
+        return;
+      } catch (error) {
+        if (attempt === maxAttempts - 1) {
+          throw error;
+        }
+        await this.dependencies.waitBeforeRetry(250 * 2 ** attempt);
+      }
+    }
+  }
+
   private async transferWithRetry(
     assistantId: string,
     recordingId: string,
@@ -747,10 +823,7 @@ export class ScreenRecordingController {
           attachToConversationId,
         );
       } catch (error) {
-        if (
-          isMissingRecordingState(error) ||
-          attempt === maxAttempts - 1
-        ) {
+        if (isMissingRecordingState(error) || attempt === maxAttempts - 1) {
           throw error;
         }
         await this.dependencies.waitBeforeRetry(250 * 2 ** attempt);
