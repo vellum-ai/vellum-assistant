@@ -99,10 +99,11 @@ mock.module(
   "@/domains/intelligence/components/skills/skill-detail",
   (): Partial<typeof SkillDetailModule> => ({
     parseSkillDetailTab,
-    SkillDetail: ({ skill, tab, onTabChange, onBack }) => (
+    SkillDetail: ({ skill, tab, onTabChange, onBack, backToConversation }) => (
       <div>
         <span>Detail: {skill.name}</span>
         <span>Tab: {tab}</span>
+        <span>BackDest: {backToConversation ? "conversation" : "skills"}</span>
         <button type="button" onClick={() => onTabChange("history")}>
           Open history
         </button>
@@ -403,6 +404,8 @@ describe("SkillDetailPage back navigation", () => {
     await waitFor(() => {
       expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
     });
+    // The back control announces the conversation destination, not the list.
+    expect(screen.getByText("BackDest: conversation")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Back to skills"));
 
@@ -411,6 +414,25 @@ describe("SkillDetailPage back navigation", () => {
         screen.getByText(
           "Conversation at: [/assistant/conversations/conv-1?scrollToMessage=msg-9]",
         ),
+      ).toBeTruthy();
+    });
+  });
+
+  test("the not-found exit is labelled for the conversation origin", async () => {
+    renderDetail({
+      skillId: "missing-skill",
+      backTo: "/assistant/conversations/conv-1",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Skill not found")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to conversation"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Conversation at: [/assistant/conversations/conv-1]"),
       ).toBeTruthy();
     });
   });

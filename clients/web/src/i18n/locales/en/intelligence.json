@@ -279,6 +279,7 @@
     "workspace": "Workspace"
   },
   "skillDetail": {
+    "backToConversationAriaLabel": "Back to conversation",
     "backToSkillsAriaLabel": "Back to skills",
     "filesTab": "Files",
     "fileViewModeAriaLabel": "File view mode",
@@ -295,6 +296,7 @@
     "source": "Source"
   },
   "skillDetailPage": {
+    "backToConversation": "Back to conversation",
     "backToSuperpowers": "Back to My Superpowers",
     "notFoundSubtitle": "This skill may have been removed, or the link is out of date.",
     "notFoundTitle": "Skill not found"

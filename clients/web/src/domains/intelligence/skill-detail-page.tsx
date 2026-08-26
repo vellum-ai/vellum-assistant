@@ -213,7 +213,11 @@ export function SkillDetailPage() {
           leftIcon={<ArrowLeft aria-hidden />}
           onClick={handleBack}
         >
-          {t("skillDetailPage.backToSuperpowers")}
+          {t(
+            backTo
+              ? "skillDetailPage.backToConversation"
+              : "skillDetailPage.backToSuperpowers",
+          )}
         </Button>
       </SkillsStateCard>
     );
@@ -223,6 +227,7 @@ export function SkillDetailPage() {
     assistantId,
     skill,
     onBack: handleBack,
+    backToConversation: backTo !== null,
     onInstall: () => handleInstall(skill),
     onRemove: () => handleRemove(skill),
     isInstalling: isInstallingSkill(skill),

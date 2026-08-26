@@ -52,5 +52,15 @@ export function skillDetailBackState(location: {
   search: string;
   hash: string;
 }): { backTo: string } {
-  return { backTo: `${location.pathname}${location.search}${location.hash}` };
+  // `?prompt=` / `?relay=` are auto-send commands (use-auto-send-effects.ts).
+  // Relay callers deliberately keep them in the URL after dispatch, so a
+  // return trip would remount the chat view, reset its consumed-prompt ref,
+  // and send the prompt again. Strip them from the return location.
+  const params = new URLSearchParams(location.search);
+  params.delete("prompt");
+  params.delete("relay");
+  const search = params.toString();
+  return {
+    backTo: `${location.pathname}${search ? `?${search}` : ""}${location.hash}`,
+  };
 }
