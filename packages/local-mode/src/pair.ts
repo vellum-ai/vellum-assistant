@@ -93,14 +93,28 @@ export type PairRefusal = Extract<PairResult, { ok: false }>;
 
 /**
  * The local id a pairing registers under: a `--name` slug, or
- * `paired-<deviceId>` (deviceId is unique per pairing). Never the remote
- * assistantId, which is typically "self" and would collide across hosts. The
- * deviceId may be untrusted and is used as a path component by
- * `saveGuardianToken`, so it MUST be slugified (no `../` traversal); it falls
- * back to a random id when it sanitizes to empty.
+ * `paired-<gateway host>`. The HOST keys the default because it is what stays
+ * the same across re-pairings of one assistant, so a second pairing lands on
+ * the existing entry instead of adding another; the device id is minted fresh
+ * per attempt and would strand every previous pairing in the lockfile. Never
+ * the remote assistantId, which is typically "self" and would collide across
+ * hosts.
+ *
+ * The id is a path component for `saveGuardianToken`, so it is always
+ * slugified (no `../` traversal) and falls back to a random id when it
+ * sanitizes to empty.
  */
-function derivePairedAssistantId(name?: string, deviceId?: string): string {
-  return name ? slugify(name) : `paired-${slugify(deviceId ?? "") || nanoid()}`;
+function derivePairedAssistantId(name?: string, gatewayUrl?: string): string {
+  if (name) {
+    return slugify(name);
+  }
+  let host = "";
+  try {
+    host = new URL(gatewayUrl ?? "").host;
+  } catch {
+    /* an unparseable URL names no host, so the random id below applies */
+  }
+  return `paired-${slugify(host) || nanoid()}`;
 }
 
 /** The raw lockfile entry already holding `localId`, if any. */
@@ -145,25 +159,48 @@ function refusePairedAssistantId(
   return null;
 }
 
+/** Where a pairing would land locally, and whether it may. */
+interface PairedDestination {
+  localId: string;
+  /** The raw lockfile entry already holding `localId`, if any. */
+  existing: Record<string, unknown> | undefined;
+  /** Why the id cannot be used, or null when it is free. */
+  refusal: PairRefusal | null;
+}
+
+/**
+ * The single derivation-plus-refusal every pairing caller runs, so a
+ * pre-check and the registration it precedes cannot drift apart.
+ *
+ * A pre-check is not a reservation: another process can claim the id in
+ * between. It closes the common case; the check inside `pairAssistant` is
+ * still what guarantees the id.
+ */
+function resolvePairedDestination(
+  lockfilePaths: string[],
+  name: string | undefined,
+  gatewayUrl?: string,
+): PairedDestination {
+  const localId = derivePairedAssistantId(name, gatewayUrl);
+  const existing = findRawAssistant(lockfilePaths, localId);
+  return {
+    localId,
+    existing,
+    refusal: refusePairedAssistantId(localId, existing),
+  };
+}
+
 /**
  * The refusal {@link pairAssistant} would return for a `--name`, or null when
  * the name is usable. Lets a caller reject a colliding name BEFORE spending a
  * one-time pairing code, which the gateway records a device for even when the
  * local write then fails.
- *
- * This is a pre-check, not a reservation: another process can claim the id
- * between here and the import. It closes the common case; the real check
- * inside `pairAssistant` is still what guarantees the id.
  */
 export function checkPairedAssistantName(
   lockfilePaths: string[],
   name: string,
 ): PairRefusal | null {
-  const localId = derivePairedAssistantId(name);
-  return refusePairedAssistantId(
-    localId,
-    findRawAssistant(lockfilePaths, localId),
-  );
+  return resolvePairedDestination(lockfilePaths, name).refusal;
 }
 
 /**
@@ -203,13 +240,15 @@ export function pairAssistant(
       status: 422,
       error:
         "A paired assistant needs a non-loopback gateway URL; run `vellum pair` " +
-        "with --url pointing at a tunnel or LAN address.",
+        "with --url pointing at a tunnel or public https address.",
     };
   }
 
-  const localId = derivePairedAssistantId(name, credentials.deviceId);
-  const existing = findRawAssistant(lockfilePaths, localId);
-  const refusal = refusePairedAssistantId(localId, existing);
+  const { localId, existing, refusal } = resolvePairedDestination(
+    lockfilePaths,
+    name,
+    credentials.gatewayUrl,
+  );
   if (refusal) {
     return refusal;
   }
@@ -322,6 +361,15 @@ const MAX_PAIRING_ADDRESS_LENGTH = 2 * 1024;
 
 /** Poll cadence used until the gateway names its own. */
 const DEFAULT_PAIRING_POLL_INTERVAL_SECONDS = 5;
+
+/**
+ * Caps the cadence the assistant at a pasted address may set. That address is
+ * untrusted and callers turn the cadence straight into a wait, so an absurd
+ * interval parks the attempt forever, and one past `2**31-1` ms overflows a
+ * `setTimeout` into a tight loop against that host. The gateway's own cadence
+ * is 5s, so this is generous.
+ */
+const MAX_PAIRING_POLL_INTERVAL_SECONDS = 60;
 
 /** Caps how long a single pairing request may occupy the caller. */
 const PAIRING_REQUEST_TIMEOUT_MS = 15_000;
@@ -728,7 +776,11 @@ function usableRefreshExpiry(value: unknown): value is string | number {
   return Number.isFinite(parsed) && parsed > 0;
 }
 
-/** An ISO instant as epoch ms, or `fallback` when it isn't one. */
+/**
+ * An ISO instant as epoch ms, or `fallback` when it isn't one. `Date.parse`
+ * answers NaN for an unparseable or out-of-range date, so the result is always
+ * a real instant; how far out it may sit is the caller's to bound.
+ */
 function instantMs(value: unknown, fallback: number): number {
   if (typeof value !== "string") {
     return fallback;
@@ -737,8 +789,27 @@ function instantMs(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * A session deadline the remote named, which may only move EARLIER than
+ * `ceilingMs`. A remote that keeps reporting a fresh expiry would otherwise
+ * hold a session open indefinitely, on its own TTL rather than the one the
+ * pairing code was minted with.
+ */
+function clampedDeadlineMs(value: unknown, ceilingMs: number): number {
+  return Math.min(instantMs(value, ceilingMs), ceilingMs);
+}
+
+/**
+ * A remote-named cadence in seconds, capped at
+ * {@link MAX_PAIRING_POLL_INTERVAL_SECONDS}. Non-finite values fall back:
+ * JSON.parse reads `1e400` as Infinity, which a caller turns into a wait that
+ * never ends or a timeout that overflows and fires immediately.
+ */
 function positiveSeconds(value: unknown, fallback: number): number {
-  return typeof value === "number" && value > 0 ? value : fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.min(value, MAX_PAIRING_POLL_INTERVAL_SECONDS);
 }
 
 function openPairingSession(
@@ -828,7 +899,10 @@ export async function pairingStart(
       publicBaseUrl: parsed.publicBaseUrl,
       deviceCode: challenge.deviceCode,
       deviceId,
-      expiresAtMs: instantMs(
+      // A challenge expires somewhere inside the code's own TTL, so that TTL
+      // is the ceiling: a remote naming a further instant cannot buy itself a
+      // longer-lived session.
+      expiresAtMs: clampedDeadlineMs(
         challenge.expiresAt,
         Date.now() + REMOTE_WEB_PAIRING_CODE_TTL_MS,
       ),
@@ -875,6 +949,27 @@ export async function pairingPoll(
     return expiredCode();
   }
 
+  const localName = typeof name === "string" && name ? name : undefined;
+  // Refuse a destination this machine cannot register BEFORE the exchange.
+  // The device code is one-time and the gateway records a device the moment it
+  // is spent, so a collision found after the exchange burns the code and costs
+  // the user a fresh pairing link. Nothing is spent here: the code is
+  // untouched and the session stays pollable, so correcting the name and
+  // polling again completes the same attempt.
+  const { refusal } = resolvePairedDestination(
+    lockfilePaths,
+    localName,
+    session.publicBaseUrl,
+  );
+  if (refusal) {
+    return {
+      ok: false,
+      reason: "import",
+      status: refusal.status,
+      error: refusal.error,
+    };
+  }
+
   const posted = await postPairingRequest(
     session.publicBaseUrl,
     PAIRING_TOKEN_PATH,
@@ -909,7 +1004,10 @@ export async function pairingPoll(
   if (posted.status === 202) {
     const pending =
       posted.body as Partial<RemoteWebPairingTokenPendingResponse> | null;
-    session.expiresAtMs = instantMs(pending?.expiresAt, session.expiresAtMs);
+    session.expiresAtMs = clampedDeadlineMs(
+      pending?.expiresAt,
+      session.expiresAtMs,
+    );
     session.intervalSeconds = positiveSeconds(
       pending?.intervalSeconds,
       session.intervalSeconds,
@@ -956,7 +1054,7 @@ export async function pairingPoll(
       refreshTokenExpiresAt: approved.refreshTokenExpiresAt,
       refreshAfter: approved.refreshAfter,
     },
-    name: typeof name === "string" && name ? name : undefined,
+    name: localName,
   });
   if (!result.ok) {
     return {
@@ -1001,9 +1099,12 @@ export function pairingCancel(handle: unknown): boolean {
 
 // ── Legacy base64 bundle import ─────────────────────────────────────────────
 //
-// The pre-pairing-link import path, still reached by the Electron IPC channel,
-// the CLI dev-server route, and the Vite middleware. It shares `pairAssistant`
-// with the pairing-session flow above and adds only base64 decoding.
+// The pre-pairing-link import path. Its one caller is `vellum connect import`
+// (cli/src/commands/connect/import.ts), which falls back to it for a bundle
+// minted by a host on the previous release; nothing mints bundles any more, so
+// this section goes once that release is out of support. It shares
+// `pairAssistant` with the pairing-session flow above and adds only base64
+// decoding.
 
 /** Bounds what an untrusted bundle import can make a host buffer and decode. */
 const MAX_BUNDLE_LENGTH = 64 * 1024;

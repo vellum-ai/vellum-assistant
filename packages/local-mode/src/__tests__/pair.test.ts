@@ -90,12 +90,27 @@ const credentials = (
   ...overrides,
 });
 
+/** The nameless id the default credentials' gateway host derives. */
+const DEFAULT_PAIRED_ID = "paired-10-0-0-5-7830";
+
 /** A syntactically valid JWT whose `exp` is 2030-01-01T00:00:00Z. */
 const JWT_EXP_S = 1893456000;
 const jwtWithExp = `h.${Buffer.from(JSON.stringify({ exp: JWT_EXP_S })).toString("base64")}.s`;
 
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+/**
+ * A reply whose JSON is written out literally, so a value `JSON.stringify`
+ * cannot express reaches the parser exactly as a remote sends it. `1e400`
+ * parses back as Infinity, which is how a hostile or broken assistant names an
+ * unbounded cadence.
+ */
+const rawJson = (status: number, text: string): Response =>
+  new Response(text, {
     status,
     headers: { "Content-Type": "application/json" },
   });
@@ -182,7 +197,7 @@ describe("pairAssistant", () => {
     if (!result.ok) {
       return;
     }
-    expect(result.assistantId).toBe("paired-dev-aaa");
+    expect(result.assistantId).toBe(DEFAULT_PAIRED_ID);
     expect(result.updated).toBe(false);
     expect(result.accessOnly).toBe(true);
 
@@ -191,7 +206,7 @@ describe("pairAssistant", () => {
     const onDisk = readLockfileFromDisk();
     const entry = (onDisk.assistants as Array<Record<string, unknown>>)[0]!;
     expect(entry).toEqual({
-      assistantId: "paired-dev-aaa",
+      assistantId: DEFAULT_PAIRED_ID,
       name: "paired (10.0.0.5:7830)",
       runtimeUrl: "http://10.0.0.5:7830",
       cloud: "paired",
@@ -209,7 +224,7 @@ describe("pairAssistant", () => {
     // Importing never reassigns the active assistant.
     expect(onDisk.activeAssistant ?? null).toBeNull();
 
-    const tokenPath = guardianTokenPath(configDir, "paired-dev-aaa");
+    const tokenPath = guardianTokenPath(configDir, DEFAULT_PAIRED_ID);
     const raw = fs.readFileSync(tokenPath, "utf-8");
     expect(raw.endsWith("\n")).toBe(true);
     const token = JSON.parse(raw) as Record<string, unknown>;
@@ -250,7 +265,7 @@ describe("pairAssistant", () => {
     });
     expect(result.ok).toBe(true);
 
-    const token = readGuardianToken("paired-dev-exp");
+    const token = readGuardianToken(DEFAULT_PAIRED_ID);
     const dayMs = 24 * 60 * 60 * 1000;
     expect(token.accessTokenExpiresAt as number).toBeGreaterThanOrEqual(
       before + dayMs,
@@ -276,7 +291,7 @@ describe("pairAssistant", () => {
       return;
     }
     expect(result.accessOnly).toBe(false);
-    const token = readGuardianToken("paired-dev-refresh");
+    const token = readGuardianToken("paired-gw-example-com");
     expect(token.refreshToken).toBe("refresh-tok");
     expect(token.refreshTokenExpiresAt).toBe("2027-01-01T00:00:00.000Z");
     expect(token.refreshAfter).toBe("2026-07-01T00:00:00.000Z");
@@ -293,9 +308,9 @@ describe("pairAssistant", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(readGuardianToken("paired-dev-num").refreshTokenExpiresAt).toBe(
-      1893456000000,
-    );
+    expect(
+      readGuardianToken("paired-gw-example-com").refreshTokenExpiresAt,
+    ).toBe(1893456000000);
   });
 
   test("refuses loopback gateway URLs so a pairing can't alias local services", () => {
@@ -327,9 +342,23 @@ describe("pairAssistant", () => {
     }
     // Nothing was written for any refused pairing.
     expect(fs.existsSync(lockfilePath)).toBe(false);
-    expect(fs.existsSync(guardianTokenPath(configDir, "paired-dev-loop"))).toBe(
-      false,
-    );
+    expect(fs.existsSync(path.join(configDir, "assistants"))).toBe(false);
+  });
+
+  test("a loopback refusal points at an address that can still work", () => {
+    // Private-network literals are refused before a pairing is ever minted, so
+    // advice to retry with a LAN address would send the user into a guaranteed
+    // second failure.
+    const result = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ gatewayUrl: "http://localhost:7830" }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("tunnel or public https address");
+    expect(result.error).not.toContain("LAN");
   });
 
   test("a non-loopback plaintext http gateway is access-only even with a refresh token", () => {
@@ -383,7 +412,7 @@ describe("pairAssistant", () => {
     expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 
-  test("a malicious deviceId is slugified out of the path", () => {
+  test("the derived id is path-safe whatever the deviceId carries", () => {
     const result = pairAssistant([lockfilePath], configDir, {
       credentials: credentials({ deviceId: "-/../../tmp/x" }),
     });
@@ -392,16 +421,17 @@ describe("pairAssistant", () => {
     if (!result.ok) {
       return;
     }
-    expect(result.assistantId).not.toContain("/");
-    expect(result.assistantId).not.toContain("..");
+    // The id keys on the gateway host, so an untrusted deviceId never reaches
+    // the token path at all.
+    expect(result.assistantId).toBe(DEFAULT_PAIRED_ID);
     expect(
       fs.existsSync(guardianTokenPath(configDir, result.assistantId)),
     ).toBe(true);
   });
 
-  test("a missing deviceId falls back to a random path-safe id", () => {
+  test("a gatewayUrl with no host falls back to a random path-safe id", () => {
     const result = pairAssistant([lockfilePath], configDir, {
-      credentials: credentials({ deviceId: undefined }),
+      credentials: credentials({ gatewayUrl: "mailto:ops@example.com" }),
     });
 
     expect(result.ok).toBe(true);
@@ -409,6 +439,56 @@ describe("pairAssistant", () => {
       return;
     }
     expect(result.assistantId).toMatch(/^paired-[A-Za-z0-9_-]{21}$/);
+  });
+
+  test("re-pairing with no name updates the entry instead of adding another", () => {
+    // Every attempt mints a fresh device id, so keying the default id on it
+    // would strand the previous pairing in the lockfile (and its guardian
+    // token on disk) every time a user re-paired the same assistant.
+    const first = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ deviceId: "dev-one", token: "t1" }),
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
+    expect(first.updated).toBe(false);
+
+    const second = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ deviceId: "dev-two", token: "t2" }),
+    });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) {
+      return;
+    }
+    expect(second.assistantId).toBe(first.assistantId);
+    expect(second.updated).toBe(true);
+
+    const assistants = readLockfileFromDisk().assistants as Array<
+      Record<string, unknown>
+    >;
+    expect(assistants).toHaveLength(1);
+    // One credential on disk, holding the newest pairing's device.
+    expect(fs.readdirSync(path.join(configDir, "assistants"))).toEqual([
+      DEFAULT_PAIRED_ID,
+    ]);
+    const token = readGuardianToken(DEFAULT_PAIRED_ID);
+    expect(token.accessToken).toBe("t2");
+    expect(token.deviceId).toBe("dev-two");
+  });
+
+  test("a --name still wins over the gateway-derived default", () => {
+    const result = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials(),
+      name: "Desk",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.assistantId).toBe("desk");
   });
 
   test("refuses to clobber an existing non-paired assistant", () => {
@@ -445,9 +525,10 @@ describe("pairAssistant", () => {
     expect(fs.existsSync(guardianTokenPath(configDir, "desk"))).toBe(false);
   });
 
-  test("re-importing over an existing paired entry updates it in place", () => {
+  test("re-importing under the same name updates it in place, address and all", () => {
     const first = pairAssistant([lockfilePath], configDir, {
       credentials: credentials({ deviceId: "dev-re", token: "t1" }),
+      name: "desk",
     });
     expect(first.ok).toBe(true);
 
@@ -457,6 +538,7 @@ describe("pairAssistant", () => {
         token: "t2",
         gatewayUrl: "https://new.example.com",
       }),
+      name: "desk",
     });
 
     expect(second.ok).toBe(true);
@@ -469,7 +551,7 @@ describe("pairAssistant", () => {
     >;
     expect(assistants).toHaveLength(1);
     expect(assistants[0]!.runtimeUrl).toBe("https://new.example.com");
-    expect(readGuardianToken("paired-dev-re").accessToken).toBe("t2");
+    expect(readGuardianToken("desk").accessToken).toBe("t2");
   });
 
   test("deletes the just-written token when the lockfile write fails", () => {
@@ -478,7 +560,7 @@ describe("pairAssistant", () => {
     // has already been written.
     const notADir = path.join(tmpDir, "not-a-dir");
     fs.writeFileSync(notADir, "");
-    const tokenPath = guardianTokenPath(configDir, "paired-dev-aaa");
+    const tokenPath = guardianTokenPath(configDir, DEFAULT_PAIRED_ID);
 
     const result = pairAssistant(
       [path.join(notADir, "lockfile.json")],
@@ -497,7 +579,7 @@ describe("pairAssistant", () => {
       credentials: credentials({ deviceId: "dev-re", token: "t1" }),
     });
     expect(first.ok).toBe(true);
-    const tokenPath = guardianTokenPath(configDir, "paired-dev-re");
+    const tokenPath = guardianTokenPath(configDir, DEFAULT_PAIRED_ID);
     const priorContents = fs.readFileSync(tokenPath, "utf-8");
 
     // Reads fall back to the real lockfile (so the existing entry is found
@@ -626,6 +708,61 @@ describe("pairingStart", () => {
     expect(JSON.stringify(started)).not.toContain("device-code-abc");
   });
 
+  test("clamps the poll cadence a challenge names", async () => {
+    // The address is user-pasted, so the assistant answering it is untrusted:
+    // a caller turns this straight into a wait, and an unbounded one either
+    // parks the attempt forever or overflows a timer and spins.
+    const cadences: Array<[string, number]> = [
+      ["1e400", 5],
+      ["-1e400", 5],
+      ["null", 5],
+      ["0", 5],
+      ["86400", 60],
+      // A sub-second cadence the gateway is free to name is honored.
+      ["0.01", 0.01],
+      ["3", 3],
+    ];
+    for (const [literal, expected] of cadences) {
+      respond = () =>
+        rawJson(
+          200,
+          `{"deviceCode":"device-code-abc","userCode":"ABCD-EFGH",` +
+            `"expiresAt":"${new Date(Date.now() + 600_000).toISOString()}",` +
+            `"intervalSeconds":${literal}}`,
+        );
+
+      const started = await pairingStart("https://gw.example.com");
+
+      expect(started.ok).toBe(true);
+      if (!started.ok) {
+        continue;
+      }
+      expect(started.intervalSeconds).toBe(expected);
+    }
+  });
+
+  test("bounds the session by the code TTL, not by the instant the assistant reports", async () => {
+    respond = () =>
+      json(
+        200,
+        challengeBody({
+          expiresAt: new Date(Date.now() + 400 * 86_400_000).toISOString(),
+        }),
+      );
+
+    const started = await pairingStart("https://gw.example.com");
+
+    expect(started.ok).toBe(true);
+    if (!started.ok) {
+      return;
+    }
+    // A remote naming a further instant cannot buy itself a longer session.
+    expect(new Date(started.expiresAt).getTime()).toBeLessThanOrEqual(
+      Date.now() + 10 * 60_000,
+    );
+    expect(new Date(started.expiresAt).getTime()).toBeGreaterThan(Date.now());
+  });
+
   test("a challenge response missing its codes is a gateway failure", async () => {
     respond = () => json(200, { verificationUri: "https://gw.example.com" });
 
@@ -715,6 +852,10 @@ describe("pairingStart", () => {
     const cases: Array<[string, string]> = [
       ["http://localhost:7830", "loopback"],
       ["https://127.0.0.1", "loopback"],
+      // The reserved `.localhost` namespace resolves to loopback, and a
+      // trailing DNS root dot names the same host.
+      ["https://foo.localhost", "loopback"],
+      ["https://localhost.", "loopback"],
       ["https://10.0.0.1", "private-address"],
       ["https://192.168.1.5", "private-address"],
       // The cloud instance metadata endpoint, the classic blind-SSRF target.
@@ -770,6 +911,39 @@ describe("pairingStart", () => {
     }
     expect(started.error).toContain("too long");
     expect(fetchCalls).toHaveLength(0);
+  });
+});
+
+describe("loopback refusals agree across the pairing path", () => {
+  // One predicate backs both entry points, so an address class can never be
+  // refused by the one the user pasted into and accepted by the one an import
+  // goes through.
+  test.each([
+    ["https://localhost", "bare localhost"],
+    ["https://foo.localhost", "reserved .localhost namespace"],
+    ["https://a.b.localhost.", "absolute .localhost namespace"],
+    ["https://localhost.", "absolute localhost name"],
+    ["https://127.0.0.1.", "absolute IPv4 loopback literal"],
+    ["https://[::1]", "IPv6 loopback"],
+    ["https://0.0.0.0", "IPv4 wildcard bind"],
+  ])("refuses %s (%s) at both entry points", async (address) => {
+    const started = await pairingStart(address);
+    expect(started.ok).toBe(false);
+    if (started.ok) {
+      return;
+    }
+    expect(started.reason).toBe("invalid-address");
+    expect(started.rejection).toBe("loopback");
+
+    const imported = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ gatewayUrl: address }),
+    });
+    expect(imported.ok).toBe(false);
+    if (imported.ok) {
+      return;
+    }
+    expect(imported.status).toBe(422);
+    expect(imported.error).toContain("non-loopback");
   });
 });
 
@@ -864,6 +1038,147 @@ describe("pairingPoll", () => {
       return;
     }
     expect(imported.status).toBe("imported");
+  });
+
+  test("a 202 may shorten the deadline but never extend it", async () => {
+    const started = await pairingStart(
+      "https://gw.example.com/assistant/pair#device_code=device-code-abc",
+    );
+    expect(started.ok).toBe(true);
+    if (!started.ok) {
+      return;
+    }
+    const openedAtMs = new Date(started.expiresAt).getTime();
+
+    // A remote that keeps naming a fresh expiry would otherwise hold the
+    // session open on its own TTL rather than the code's.
+    respond = () =>
+      json(
+        202,
+        pendingBody({
+          expiresAt: new Date(Date.now() + 365 * 86_400_000).toISOString(),
+        }),
+      );
+    const extended = await pairingPoll([lockfilePath], configDir, {
+      handle: started.handle,
+    });
+    expect(extended.ok).toBe(true);
+    if (!extended.ok || extended.status !== "pending") {
+      return;
+    }
+    expect(new Date(extended.expiresAt).getTime()).toBe(openedAtMs);
+
+    // Shortening is the gateway's to do: the code may be revoked early.
+    const sooner = new Date(Date.now() + 30_000).toISOString();
+    respond = () => json(202, pendingBody({ expiresAt: sooner }));
+    const shortened = await pairingPoll([lockfilePath], configDir, {
+      handle: started.handle,
+    });
+    expect(shortened.ok).toBe(true);
+    if (!shortened.ok || shortened.status !== "pending") {
+      return;
+    }
+    expect(shortened.expiresAt).toBe(sooner);
+  });
+
+  test("clamps the poll cadence a pending reply names", async () => {
+    for (const [literal, expected] of [
+      ["1e400", 5],
+      ["86400", 60],
+      ["0.01", 0.01],
+      ["7", 7],
+    ] as Array<[string, number]>) {
+      respond = () =>
+        rawJson(
+          202,
+          `{"status":"pending",` +
+            `"expiresAt":"${new Date(Date.now() + 300_000).toISOString()}",` +
+            `"intervalSeconds":${literal}}`,
+        );
+      const handle = await startFromLink();
+
+      const pending = await pairingPoll([lockfilePath], configDir, { handle });
+
+      expect(pending.ok).toBe(true);
+      if (!pending.ok || pending.status !== "pending") {
+        continue;
+      }
+      expect(pending.intervalSeconds).toBe(expected);
+    }
+  });
+
+  test("a colliding name is refused before the one-time code is spent", async () => {
+    writeLockfile({
+      assistants: [
+        {
+          assistantId: "desk",
+          cloud: "local",
+          runtimeUrl: "http://127.0.0.1:7830",
+        },
+      ],
+      activeAssistant: "desk",
+    });
+    respond = () => json(200, approvedBody());
+    const handle = await startFromLink();
+
+    const refused = await pairingPoll([lockfilePath], configDir, {
+      handle,
+      name: "desk",
+    });
+
+    expect(refused.ok).toBe(false);
+    if (refused.ok) {
+      return;
+    }
+    expect(refused.reason).toBe("import");
+    expect(refused.status).toBe(409);
+    // The exchange never went out, so the code is still exchangeable and the
+    // user does not need a fresh pairing link.
+    expect(fetchCalls).toHaveLength(0);
+
+    // The very same session completes once the caller picks a free name.
+    const imported = await pairingPoll([lockfilePath], configDir, {
+      handle,
+      name: "spare",
+    });
+    expect(imported.ok).toBe(true);
+    if (!imported.ok || imported.status !== "imported") {
+      return;
+    }
+    expect(imported.assistantId).toBe("spare");
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("re-pairing the same assistant with no name updates its entry", async () => {
+    // Each attempt mints its own device id, so a default id keyed on that
+    // would register a second entry (and a second guardian token) for the
+    // assistant the user was told to re-pair.
+    respond = () => json(200, approvedBody({ accessToken: "acc-1" }));
+    const first = await pairingPoll([lockfilePath], configDir, {
+      handle: await startFromLink(),
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.status !== "imported") {
+      return;
+    }
+    expect(first.updated).toBe(false);
+
+    respond = () => json(200, approvedBody({ accessToken: "acc-2" }));
+    const second = await pairingPoll([lockfilePath], configDir, {
+      handle: await startFromLink(),
+    });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok || second.status !== "imported") {
+      return;
+    }
+    expect(second.assistantId).toBe(first.assistantId);
+    expect(second.updated).toBe(true);
+    expect(readLockfileFromDisk().assistants).toHaveLength(1);
+    expect(fs.readdirSync(path.join(configDir, "assistants"))).toEqual([
+      first.assistantId,
+    ]);
+    expect(readGuardianToken(first.assistantId).accessToken).toBe("acc-2");
   });
 
   test("records the platform the caller names, defaulting to desktop", async () => {
@@ -1466,7 +1781,7 @@ describe("connectImport", () => {
 
     expect(result).toEqual({
       ok: true,
-      assistantId: "paired-dev-nn",
+      assistantId: "paired-gw-example-com",
       updated: false,
       accessOnly: true,
     });
