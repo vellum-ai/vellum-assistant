@@ -126,10 +126,12 @@ absent. Scanning a connect link switches the native shell to the validated
 server, opens `<server>/assistant/pair`, and keeps an existing server path
 prefix intact. Cold and warm app launches use the same route.
 
-Only the validated server base is saved after the pairing page loads; the
-same deferred write appends the server, with its label, to the remembered
-list. The one-time device code is kept out of app preferences and the
-generated Capacitor configuration. HTTPS is required except for `localhost`,
+The server, with its label, joins the remembered list as soon as the link is
+scanned, matching iOS, so the chooser can still offer it when the pairing page
+never loads. Only the active slot is deferred: it is written after that page
+loads, so a server that turns out to be unreachable never displaces the one
+already working. The one-time device code is kept out of app preferences and
+the generated Capacitor configuration. HTTPS is required except for `localhost`,
 `127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
 when a physical development device needs to reach a service through
 `localhost`.
@@ -157,9 +159,13 @@ If Android terminates the app before the pairing page loads, scan the connect
 link again. The shell intentionally does not save the one-time code for process
 restoration.
 
-If a saved or newly scanned server cannot load, the native recovery dialog can
-retry it or clear the saved server and return to Vellum Cloud. A failed new
-server is never promoted over the last server that loaded successfully.
+If a saved or newly scanned server cannot load, whether the connection is
+refused outright or a tunnel provider answers on the server's behalf with its
+own error page, the native recovery dialog offers Retry or Choose Assistant.
+Choose Assistant clears the active slot and recreates onto the Vellum Cloud
+chooser, which lists every remembered server including the one that just
+failed. A failed new server is never promoted over the last server that loaded
+successfully.
 
 ## Biometric Session Recovery
 
