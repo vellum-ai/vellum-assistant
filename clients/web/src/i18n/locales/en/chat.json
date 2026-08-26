@@ -417,11 +417,11 @@
     "loadingProfiles": "Loading profiles…",
     "modelProfile": "Model Profile",
     "modelProfileTitle": "Model profile",
-    "newProfile": "New Profile",
     "profileAria": "Model profile: {label}",
     "profileAriaFallback": "Model profile",
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
-    "profileSwitchFallback": "Failed to switch profile. Please try again."
+    "profileSwitchFallback": "Failed to switch profile. Please try again.",
+    "quickAdd": "New Model"
   },
   "confirmationActions": {
     "submitFailed": "Failed to submit confirmation. Please try again.",

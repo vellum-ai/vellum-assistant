@@ -64,6 +64,7 @@ import {
   Button,
   Menu,
   PanelItem,
+  ScrollShadow,
   Tooltip,
 } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -639,7 +640,7 @@ export function ComposerSettingsMenu({
       variant="ghost"
       size="compact"
       iconOnly={<Plus className="h-3.5 w-3.5" />}
-      aria-label={tChat("composerSettingsMenu.newProfile")}
+      aria-label={tChat("composerSettingsMenu.quickAdd")}
       disabled={!profilesLoaded}
       aria-disabled={!profilesLoaded}
       onClick={() => {
@@ -683,7 +684,7 @@ export function ComposerSettingsMenu({
     <Tooltip
       content={
         profilesLoaded
-          ? tChat("composerSettingsMenu.newProfile")
+          ? tChat("composerSettingsMenu.quickAdd")
           : tChat("composerSettingsMenu.loadingProfiles")
       }
       side="top"
@@ -976,6 +977,17 @@ export function ComposerSettingsMenu({
     );
   });
 
+  // The profile list grows with the workspace and the menu has no ceiling of
+  // its own, so a long one runs off the top of the composer. Cap it at about
+  // seven rows and scroll the rest, with the design library's edge fade
+  // signalling that there is more below. Radix keeps the focused row in view
+  // as the arrow keys walk past the cap.
+  const profileMenuList = (
+    <ScrollShadow className="max-h-[13rem]" size={16}>
+      {profileMenuItems}
+    </ScrollShadow>
+  );
+
   const menuLabelClass =
     "mb-1 text-label-small-default normal-case tracking-normal";
   const profileMenuLabel = (
@@ -1034,7 +1046,7 @@ export function ComposerSettingsMenu({
             </>
           )}
           {profileMenuLabel}
-          {profileMenuItems}
+          {profileMenuList}
         </Menu.Content>
       </Menu.Root>
     );
@@ -1149,7 +1161,7 @@ export function ComposerSettingsMenu({
           <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
             {profileMenuLabel}
-            {profileMenuItems}
+            {profileMenuList}
           </Menu.Content>
         </Menu.Root>
       )}

@@ -417,11 +417,11 @@
     "loadingProfiles": "Cargando perfiles…",
     "modelProfile": "Perfil del modelo",
     "modelProfileTitle": "Perfil del modelo",
-    "newProfile": "Nuevo perfil",
     "profileAria": "Perfil del modelo: {label}",
     "profileAriaFallback": "Perfil del modelo",
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
-    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo.",
+    "quickAdd": "Nuevo modelo"
   },
   "confirmationActions": {
     "submitFailed": "No se pudo enviar la confirmación. Inténtalo de nuevo.",

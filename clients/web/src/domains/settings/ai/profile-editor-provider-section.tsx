@@ -4,6 +4,7 @@ import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
+import { SearchableSelect } from "@vellumai/design-library/components/searchable-select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -506,17 +507,24 @@ export function ProfileEditorProviderSection({
             </Button>
           </>
         ) : (
-          <Select
+          // A catalog provider lists dozens of models, so the field filters as
+          // you type. The free-text escape hatch is `sticky`, which holds it
+          // on screen however far the list is scrolled and keeps it offered
+          // when the query matches no catalog model at all.
+          <SearchableSelect
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
             aria-label={t("profileEditorProviderSection.modelAriaLabel")}
-            // Radix reserves the empty string, and the leading row this used
-            // to fake is what `placeholder` is for: an unset field, not a
-            // choosable option.
             placeholder={
               modelEmptyStateCopy?.placeholder ??
               t("profileEditorProviderSection.selectModelPlaceholder")
+            }
+            emptyText={t("profileEditorProviderSection.modelNoMatches")}
+            announceResults={(count) =>
+              t("profileEditorProviderSection.modelResultsAnnouncement", {
+                count,
+              })
             }
             options={[
               ...modelOptions.map((m) => ({
@@ -527,7 +535,10 @@ export function ProfileEditorProviderSection({
                 ? [
                     {
                       value: CUSTOM_MODEL_OPTION_VALUE,
-                      label: t("profileEditorProviderSection.enterCustomModelIdOption"),
+                      label: t(
+                        "profileEditorProviderSection.enterCustomModelIdOption",
+                      ),
+                      sticky: true,
                     },
                   ]
                 : []),

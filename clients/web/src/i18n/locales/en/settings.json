@@ -1400,7 +1400,6 @@
     "enableExtendedThinkingLabel": "Enable extended thinking",
     "maxOutputTokensLabel": "Max Output Tokens",
     "reset": "Reset",
-    "snapshotsHint": "Fields left at their default are saved with the values shown and won't change if the assistant defaults change later.",
     "speedLabel": "Speed",
     "streamThinkingTokensLabel": "Stream thinking tokens",
     "temperatureLabel": "Temperature",
@@ -1418,12 +1417,12 @@
     "unknown": "Saved, but a test request through this profile failed: {detail}"
   },
   "profileDetailPanel": {
-    "createProfile": "Create Profile",
+    "create": "Create Model",
+    "createTitle": "New Model",
     "defaultTitle": "Profile",
     "delete": "Delete",
     "deleting": "Deleting…",
     "managedTag": "Managed by Vellum",
-    "newProfileTitle": "New Profile",
     "save": "Save",
     "saveAsNew": "Save As New",
     "saveChanges": "Save Changes",
@@ -1432,6 +1431,9 @@
   "profileEditor": {
     "maxTokensNoInputRoom": "Max tokens ({maxTokens}) reserves the entire {window}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).",
     "maxTokensOverCap": "Max tokens ({maxTokens}) exceeds the model's maximum output of {cap} tokens. Reduce it to {cap} or less.",
+    "nameRequired": "Name is required",
+    "nameTaken": "This name is already taken",
+    "providerRequired": "Select a provider",
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
   },
   "profileEditorFields": {
@@ -1442,9 +1444,7 @@
     "descriptionLabel": "Description <optional>(optional)</optional>",
     "descriptionPlaceholder": "Describe when to use this profile",
     "displayNameLabel": "Display Name",
-    "displayNamePlaceholder": "e.g. Fast & Cheap",
-    "keyLabel": "Key",
-    "keyPlaceholder": "e.g. fast-cheap",
+    "displayNamePlaceholder": "e.g. Claude Opus 4.8",
     "nameLabel": "Name",
     "newProviderNote": "New provider connection will show up in the Providers section.",
     "providerLabel": "Provider",
@@ -1454,8 +1454,8 @@
   "profileEditorModal": {
     "cancel": "Cancel",
     "close": "Close",
+    "createTitle": "New Model",
     "editProfileTitle": "Edit Profile",
-    "newProfileTitle": "New Profile",
     "platformTag": "Platform",
     "profileFallbackTitle": "Profile",
     "save": "Save",
@@ -1476,6 +1476,8 @@
     "modelEmptyUnknownHint": "No models are available for this provider in this app version. Update the app, or enter a custom model ID.",
     "modelEmptyUnknownPlaceholder": "No models available",
     "modelLabel": "Model",
+    "modelNoMatches": "No matching models",
+    "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
     "noProviderConnectionsHint": "No provider connections. Open Providers to add one.",
     "providerLabel": "Provider",
     "providerNotFoundSuffix": "(not found)",

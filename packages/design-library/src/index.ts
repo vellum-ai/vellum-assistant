@@ -263,6 +263,11 @@ export {
   type ComboboxOptionProps,
 } from "./components/combobox";
 export {
+  SearchableSelect,
+  type SearchableSelectProps,
+  type SearchableSelectOption,
+} from "./components/searchable-select";
+export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,

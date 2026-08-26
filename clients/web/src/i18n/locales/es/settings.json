@@ -1400,7 +1400,6 @@
     "enableExtendedThinkingLabel": "Habilitar pensamiento extendido",
     "maxOutputTokensLabel": "Máximo de tokens de salida",
     "reset": "Restablecer",
-    "snapshotsHint": "Los campos que dejes en su valor predeterminado se guardan con los valores mostrados y no cambiarán si los valores predeterminados del asistente cambian más adelante.",
     "speedLabel": "Velocidad",
     "streamThinkingTokensLabel": "Transmitir tokens de pensamiento",
     "temperatureLabel": "Temperatura",
@@ -1418,12 +1417,12 @@
     "unknown": "Guardado, pero una solicitud de prueba con este perfil falló: {detail}"
   },
   "profileDetailPanel": {
-    "createProfile": "Crear perfil",
+    "create": "Crear modelo",
+    "createTitle": "Nuevo modelo",
     "defaultTitle": "Perfil",
     "delete": "Eliminar",
     "deleting": "Eliminando…",
     "managedTag": "Administrado por Vellum",
-    "newProfileTitle": "Perfil nuevo",
     "save": "Guardar",
     "saveAsNew": "Guardar como nuevo",
     "saveChanges": "Guardar cambios",
@@ -1432,6 +1431,9 @@
   "profileEditor": {
     "maxTokensNoInputRoom": "El máximo de tokens ({maxTokens}) reserva toda la ventana de contexto de {window} tokens para la salida, sin dejar espacio para tus mensajes. Redúcelo (p. ej., 8000).",
     "maxTokensOverCap": "El máximo de tokens ({maxTokens}) supera la salida máxima del modelo de {cap} tokens. Redúcelo a {cap} o menos.",
+    "nameRequired": "El nombre es obligatorio",
+    "nameTaken": "Este nombre ya está en uso",
+    "providerRequired": "Selecciona un proveedor",
     "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
   },
   "profileEditorFields": {
@@ -1442,9 +1444,7 @@
     "descriptionLabel": "Descripción <optional>(opcional)</optional>",
     "descriptionPlaceholder": "Describe cuándo usar este perfil",
     "displayNameLabel": "Nombre para mostrar",
-    "displayNamePlaceholder": "p. ej., Rápido y económico",
-    "keyLabel": "Clave",
-    "keyPlaceholder": "p. ej., rapido-economico",
+    "displayNamePlaceholder": "p. ej., Claude Opus 4.8",
     "nameLabel": "Nombre",
     "newProviderNote": "La nueva conexión de proveedor aparecerá en la sección Proveedores.",
     "providerLabel": "Proveedor",
@@ -1454,8 +1454,8 @@
   "profileEditorModal": {
     "cancel": "Cancelar",
     "close": "Cerrar",
+    "createTitle": "Nuevo modelo",
     "editProfileTitle": "Editar perfil",
-    "newProfileTitle": "Nuevo perfil",
     "platformTag": "Plataforma",
     "profileFallbackTitle": "Perfil",
     "save": "Guardar",
@@ -1476,6 +1476,8 @@
     "modelEmptyUnknownHint": "No hay modelos disponibles para este proveedor en esta versión de la app. Actualiza la app o introduce un ID de modelo personalizado.",
     "modelEmptyUnknownPlaceholder": "No hay modelos disponibles",
     "modelLabel": "Modelo",
+    "modelNoMatches": "No hay modelos coincidentes",
+    "modelResultsAnnouncement": "{count, plural, one {# modelo disponible} other {# modelos disponibles}}. Usa las flechas arriba y abajo para recorrerlos y Intro para elegir uno.",
     "noProviderConnectionsHint": "No hay conexiones de proveedor. Abre Proveedores para añadir una.",
     "providerLabel": "Proveedor",
     "providerNotFoundSuffix": "(no encontrado)",

@@ -1387,7 +1387,6 @@
     "enableExtendedThinkingLabel": "Включить расширенное размышление",
     "maxOutputTokensLabel": "Макс. токенов на выход",
     "reset": "Сбросить",
-    "snapshotsHint": "Поля, оставленные по умолчанию, сохраняются с показанными значениями и не изменятся, если значения ассистента по умолчанию позже сменятся.",
     "speedLabel": "Скорость",
     "streamThinkingTokensLabel": "Стримить токены размышления",
     "temperatureLabel": "Температура",
@@ -1405,12 +1404,12 @@
     "unknown": "Сохранено, но тестовый запрос через этот профиль не прошёл: {detail}"
   },
   "profileDetailPanel": {
-    "createProfile": "Создать профиль",
+    "create": "Создать модель",
+    "createTitle": "Новая модель",
     "defaultTitle": "Профиль",
     "delete": "Удалить",
     "deleting": "Удаление…",
     "managedTag": "Управляет Vellum",
-    "newProfileTitle": "Новый профиль",
     "save": "Сохранить",
     "saveAsNew": "Сохранить как новый",
     "saveChanges": "Сохранить изменения",
@@ -1419,6 +1418,9 @@
   "profileEditor": {
     "maxTokensNoInputRoom": "Макс. токенов ({maxTokens}) занимает всё контекстное окно в {window} токенов под выход, и для сообщений места не остаётся. Уменьшение значения (например, 8000).",
     "maxTokensOverCap": "Макс. токенов ({maxTokens}) больше максимального выхода модели в {cap} токенов. Уменьшение до {cap} или меньше.",
+    "nameRequired": "Укажите имя",
+    "nameTaken": "Это имя уже занято",
+    "providerRequired": "Выбор провайдера",
     "subscriptionSteeringHint": "Подписка ChatGPT доступна как провайдер ChatGPT."
   },
   "profileEditorFields": {
@@ -1429,9 +1431,7 @@
     "descriptionLabel": "Описание <optional>(необязательно)</optional>",
     "descriptionPlaceholder": "Когда использовать этот профиль",
     "displayNameLabel": "Отображаемое имя",
-    "displayNamePlaceholder": "например, Быстрый и дешёвый",
-    "keyLabel": "Ключ",
-    "keyPlaceholder": "например, fast-cheap",
+    "displayNamePlaceholder": "например, Claude Opus 4.8",
     "nameLabel": "Имя",
     "newProviderNote": "Новое подключение провайдера появится в разделе «Провайдеры».",
     "providerLabel": "Провайдер",
@@ -1441,8 +1441,8 @@
   "profileEditorModal": {
     "cancel": "Отмена",
     "close": "Закрыть",
+    "createTitle": "Новая модель",
     "editProfileTitle": "Изменить профиль",
-    "newProfileTitle": "Новый профиль",
     "platformTag": "Платформа",
     "profileFallbackTitle": "Профиль",
     "save": "Сохранить",
