@@ -265,6 +265,72 @@ describe("readLockfileAssistantAvatar", () => {
     }
   });
 
+  const swapAvatarDirForOutsideLink = (outside: string): void => {
+    fs.renameSync(avatarDir, `${avatarDir}.moved`);
+    fs.symlinkSync(outside, avatarDir);
+  };
+  const restoreAvatarDir = (): void => {
+    fs.unlinkSync(avatarDir);
+    fs.renameSync(`${avatarDir}.moved`, avatarDir);
+  };
+  const writeOutsideImage = (): string => {
+    const outside = path.join(tempDir, "outside");
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "avatar-image.png"), "host-only");
+    return outside;
+  };
+  // Swap the validated dir for an outside symlink after the containment
+  // check so lstat and open both see the outside file.
+  const swapAtFirstLstat = (outside: string): { mockRestore(): void } => {
+    const realLstat = fs.lstatSync;
+    let swapped = false;
+    return spyOn(fs, "lstatSync").mockImplementation(((file: fs.PathLike) => {
+      if (!swapped) {
+        swapped = true;
+        swapAvatarDirForOutsideLink(outside);
+      }
+      return realLstat(file);
+    }) as typeof fs.lstatSync);
+  };
+
+  test("an avatar dir swapped for an outside symlink after the containment check is rejected", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+    writeAvatarFile("avatar-image.png", png);
+    const lstat = swapAtFirstLstat(writeOutsideImage());
+    try {
+      expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+    } finally {
+      lstat.mockRestore();
+    }
+  });
+
+  test("an avatar dir swapped out before lstat and back after open is rejected", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+    writeAvatarFile("avatar-image.png", png);
+    const lstat = swapAtFirstLstat(writeOutsideImage());
+    const realOpen = fs.openSync;
+    const open = spyOn(fs, "openSync").mockImplementation(((
+      file: fs.PathLike,
+      flags: fs.OpenMode,
+    ) => {
+      const fd = realOpen(file, flags);
+      restoreAvatarDir();
+      return fd;
+    }) as typeof fs.openSync);
+    try {
+      expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+    } finally {
+      open.mockRestore();
+      lstat.mockRestore();
+    }
+  });
+
   test("manifest image whose PNG is missing is a failure", () => {
     writeAvatarFile(
       "avatar.json",

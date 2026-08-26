@@ -36,7 +36,8 @@ function isBeneath(dir: string, filePath: string): boolean {
  * Serve only a regular file that truly lives under the workspace: a symlinked
  * PNG (or a symlinked ancestor) would let the workspace hand the renderer an
  * arbitrary host file. Validation and the read share one descriptor so a
- * concurrent swap of the path cannot slip a different file past the checks.
+ * concurrent swap of the path cannot slip a different file past the checks,
+ * and the opened descriptor's location is revalidated after the open.
  */
 function readAvatarImage(
   workspaceDir: string,
@@ -62,6 +63,22 @@ function readAvatarImage(
       !stats.isFile() ||
       stats.dev !== linkStats.dev ||
       stats.ino !== linkStats.ino
+    ) {
+      return { ok: false, error: "avatar image unreadable" };
+    }
+    // O_NOFOLLOW guards only the last component; an ancestor swapped for an
+    // outside symlink between the check and the open either stays swapped
+    // (fresh realpath resolves outside) or is swapped back (the inside file
+    // is a different inode than the opened fd). Node has no openat.
+    const reopenedPath = fs.realpathSync(imagePath);
+    if (!isBeneath(fs.realpathSync(workspaceDir), reopenedPath)) {
+      return { ok: false, error: "avatar image unreadable" };
+    }
+    const reopenedStats = fs.lstatSync(reopenedPath);
+    if (
+      !reopenedStats.isFile() ||
+      reopenedStats.dev !== stats.dev ||
+      reopenedStats.ino !== stats.ino
     ) {
       return { ok: false, error: "avatar image unreadable" };
     }
