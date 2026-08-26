@@ -256,7 +256,12 @@ mock.module("@/stores/auth-store", () => ({
   useIsSessionInitializing: () => false,
 }));
 
+// Spread the real module so shared utilities that import other exports
+// (e.g. `isCancelledError` via `captureError`) keep resolving; only the
+// hooks under test are overridden.
+const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
+  ...actualReactQuery,
   useQuery: () => ({ data: { id: "asst-1" }, isLoading: false }),
   useMutation: () => ({ mutate: mock(() => {}), isPending: false }),
   useQueryClient: () => queryClientMock,

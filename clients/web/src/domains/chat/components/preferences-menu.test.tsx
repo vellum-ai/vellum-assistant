@@ -107,10 +107,16 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
 
 const billingRef = {
   data: undefined as
-    { effective_balance: string; available_usage_balance?: string } | undefined,
+    | { effective_balance: string; available_usage_balance?: string }
+    | undefined,
 };
 
+// Spread the real module so shared utilities that import other exports
+// (e.g. `isCancelledError` via `captureError`) keep resolving; only the
+// hook under test's read is overridden.
+const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
+  ...actualReactQuery,
   useQuery: () => ({ data: billingRef.data, isLoading: false, isError: false }),
 }));
 
@@ -168,7 +174,11 @@ mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
       // The real panel drops the strip's button with the handler, so the stub
       // has to as well.
       onAddCredits
-        ? createElement("button", { onClick: onAddCredits }, "Add usage credits")
+        ? createElement(
+            "button",
+            { onClick: onAddCredits },
+            "Add usage credits",
+          )
         : null,
     );
   },
@@ -473,9 +483,7 @@ describe("PreferencesMenu", () => {
     });
 
     expect(screen.getByTestId("credits-card")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Add credits" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add credits" })).toBeTruthy();
   });
 });
 
