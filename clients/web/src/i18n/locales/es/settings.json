@@ -1693,12 +1693,11 @@
     "copySuccess": "¡Copiado al portapapeles!",
     "creditsEarned": "Créditos ganados",
     "friendsReferred": "Amigos referidos",
-    "gatedNotice": "Ahora mismo no estás ganando créditos por referidos. Compra créditos o mejora a Pro para empezar a ganar - tu enlace de invitación sigue funcionando mientras tanto.",
+    "gatedTooltip": "¡Suscríbete o compra créditos para empezar a ganar!",
     "loadError": "No se pudo cargar la información de referidos.",
     "loading": "Cargando...",
     "shareLink": "Compartir enlace",
     "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
-    "subtitleGated": "Invita amigos a Vellum. Empezarás a ganar créditos por referidos cuando hayas comprado créditos o mejorado a Pro.",
     "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
   },
   "referralModal": {
