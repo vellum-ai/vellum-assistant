@@ -1,10 +1,9 @@
-import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import { fetchAvatarState } from "@/assistant/avatar-api";
 import {
-  type AvatarRead,
   type LegacyAvatarRead,
+  avatarQueryKey,
   fetchAvatarViaManifest,
   readAvatarViaLegacyFiles,
   releaseAssistantAvatarUrl,
@@ -13,12 +12,18 @@ import {
 } from "@/hooks/use-assistant-avatar";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
-import { readLastSeenAvatar } from "@/lib/avatar-last-seen-cache";
+import {
+  deleteLastSeenAvatar,
+  readLastSeenAvatar,
+} from "@/lib/avatar-last-seen-cache";
 import { versionSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import { createGenerationGuard } from "@/lib/generation-guard";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
-import { persistLastSeenAvatar } from "@/lib/persist-last-seen-avatar";
+import {
+  chooserRowAvatarCacheQueryKey,
+  persistLastSeenAvatar,
+} from "@/lib/persist-last-seen-avatar";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import {
   canReadAvatarFromLocalHost,
@@ -28,9 +33,9 @@ import {
   type ResolvedAssistant,
   useResolvedAssistantsStore,
 } from "@/stores/resolved-assistants-store";
+import type { AvatarRead } from "@/types/avatar";
 
 const QUERY_KEY_PREFIX = "chooserRowAvatar";
-const CACHE_QUERY_KEY_PREFIX = "chooserRowAvatarCache";
 
 type RowManifestSupport = "supported" | "unsupported" | "unknown";
 
@@ -69,10 +74,6 @@ function chooserRowAvatarHostQueryKey(assistantId: string) {
   return [...chooserRowAvatarQueryKeyPrefix(assistantId), "host"] as const;
 }
 
-function chooserRowAvatarCacheQueryKey(assistantId: string) {
-  return [CACHE_QUERY_KEY_PREFIX, assistantId] as const;
-}
-
 const EMPTY_AVATAR: AvatarRead = { traits: null, imageUrl: null };
 
 /**
@@ -93,13 +94,33 @@ const fetchGenerations = createGenerationGuard();
 
 /**
  * Revoke every object URL held for a removed assistant, across this module's
- * maps and the live hook's. The query entries themselves are left to React
- * Query's garbage collection.
+ * maps and the live hook's, and drop the query entries that hold those
+ * (now dead) `blob:` strings, or re-pairing the same id within gcTime would
+ * render a revoked image.
  */
-export function releaseRowAvatarUrls(assistantId: string): void {
+export function releaseRowAvatarUrls(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
   trackBlobUrl(activeBlobUrls, assistantId, null);
   trackBlobUrl(cachedBlobUrls, assistantId, null);
   releaseAssistantAvatarUrl(assistantId);
+  for (const queryKey of [
+    chooserRowAvatarQueryKeyPrefix(assistantId),
+    chooserRowAvatarCacheQueryKey(assistantId),
+    avatarQueryKey(assistantId),
+  ]) {
+    queryClient.removeQueries({ queryKey });
+  }
+}
+
+/** Full avatar cleanup for an assistant leaving this device: cache entry, URLs, queries. */
+export function forgetAssistantAvatar(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
+  void deleteLastSeenAvatar(assistantId);
+  releaseRowAvatarUrls(queryClient, assistantId);
 }
 
 /**
@@ -143,9 +164,12 @@ function conclusive(read: AvatarRead): LegacyAvatarRead {
 
 /**
  * A data URL sidesteps blob lifecycle management for host-sourced bytes.
- * A successful read with no avatar is a conclusive none; `ok: false` is not.
+ * A successful read with no avatar is a conclusive none that evicts the
+ * last-seen entry; `ok: false` is not. Host-disk reads are durable, so a
+ * found avatar never feeds the cache.
  */
 async function readRowAvatarViaHost(
+  queryClient: QueryClient,
   assistantId: string,
 ): Promise<LegacyAvatarRead> {
   const result = await readAssistantAvatarHost(assistantId);
@@ -153,6 +177,7 @@ async function readRowAvatarViaHost(
     return { ...EMPTY_AVATAR, conclusive: false };
   }
   if (result.avatar === null) {
+    void persistLastSeenAvatar(queryClient, assistantId, EMPTY_AVATAR);
     return conclusive(EMPTY_AVATAR);
   }
   return conclusive(
@@ -167,12 +192,11 @@ async function readRowAvatarViaHost(
 
 /**
  * Manifest reads for runtimes known to serve `/avatar/state`; legacy sidecar
- * reads for runtimes known not to. An unknown version probes the manifest
- * first and falls back to the sidecars when the probe fails, but a failed
- * probe may also mean the runtime is unreachable (the platform proxy answers
- * 404 for an asleep sibling), so an empty fallback read is inconclusive
- * there. A manifest that promises an image whose content fails throws
- * (never a false "none").
+ * reads for runtimes known not to (an unknown version probes the manifest
+ * first). The platform proxy answers 404 for an asleep sibling, so two
+ * sidecar 404s cannot be told from an unreachable runtime: an empty sidecar
+ * read is inconclusive here. A manifest that promises an image whose
+ * content fails throws (never a false "none").
  */
 async function fetchRowAvatar(
   assistant: ResolvedAssistant,
@@ -186,19 +210,20 @@ async function fetchRowAvatar(
     if (state !== null) {
       return conclusive(await resolveAvatarFromState(assistant.id, state));
     }
-    const legacy = await readAvatarViaLegacyFiles(assistant.id);
-    return isEmptyAvatar(legacy) ? { ...legacy, conclusive: false } : legacy;
   }
-  return readAvatarViaLegacyFiles(assistant.id);
+  const legacy = await readAvatarViaLegacyFiles(assistant.id);
+  return isEmptyAvatar(legacy) ? { ...legacy, conclusive: false } : legacy;
 }
 
 /**
  * Runs one fetch generation for `assistant`. A re-key (manifest support
  * flipping) can start a newer fetch while this one is in flight; when the
  * older one finishes last it must not revoke the URL the newer query renders,
- * so it drops its own blob instead.
+ * so it drops its own blob instead. A conclusive read is what the row falls
+ * back to once the assistant is unreachable, so it feeds the last-seen cache.
  */
 async function fetchRowAvatarGeneration(
+  queryClient: QueryClient,
   assistant: ResolvedAssistant,
   manifestSupport: RowManifestSupport,
 ): Promise<LegacyAvatarRead> {
@@ -211,6 +236,9 @@ async function fetchRowAvatarGeneration(
     return { ...avatar, imageUrl: null };
   }
   trackBlobUrl(activeBlobUrls, assistant.id, avatar.imageUrl);
+  if (avatar.conclusive) {
+    void persistLastSeenAvatar(queryClient, assistant.id, avatar);
+  }
   return avatar;
 }
 
@@ -240,8 +268,8 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  *    read their workspace through the host when one can serve it.
  * 4. The last-seen cache: whatever a live source last resolved for this id,
  *    so a row keeps its avatar while the assistant is unreachable.
- * Only live sources (1 and 2) feed the cache (1 does so inside
- * `useAssistantAvatar`); a conclusive none from any source evicts it.
+ * Only live sources (1 and 2) feed the cache, at fetch time (1 does so
+ * inside `useAssistantAvatar`); a conclusive none from any source evicts it.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
  */
@@ -249,14 +277,14 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isConnectedRow = assistant.id === activeAssistantId;
   const isOrgReady = useIsOrgReady();
-  const queryClient = useQueryClient();
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
   const manifestSupport = rowManifestSupport(assistant);
   const rowQuery = useQuery<LegacyAvatarRead>({
     queryKey: chooserRowAvatarQueryKey(assistant.id, manifestSupport),
-    queryFn: () => fetchRowAvatarGeneration(assistant, manifestSupport),
+    queryFn: ({ client }) =>
+      fetchRowAvatarGeneration(client, assistant, manifestSupport),
     enabled:
       !isConnectedRow &&
       isOrgReady &&
@@ -284,13 +312,12 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
   const showLive =
     liveConclusive || (live !== undefined && !isEmptyAvatar(live));
 
-  // Host-disk reads are durable, so they render directly and never feed the
-  // last-seen cache; a conclusive none still evicts a stale entry. The
-  // connected row only needs one once its live read has settled empty.
+  // The connected row only needs a host read once its live read has
+  // settled empty.
   const liveSettledEmpty = !connected.isLoading && !showLive;
   const hostQuery = useQuery<LegacyAvatarRead>({
     queryKey: chooserRowAvatarHostQueryKey(assistant.id),
-    queryFn: () => readRowAvatarViaHost(assistant.id),
+    queryFn: ({ client }) => readRowAvatarViaHost(client, assistant.id),
     enabled:
       canReadRowAvatarViaHost(assistant) &&
       (!isConnectedRow || liveSettledEmpty),
@@ -302,25 +329,6 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
     !showLive &&
     hostQuery.data !== undefined &&
     (hostConclusive || !isEmptyAvatar(hostQuery.data));
-  const hostNone = hostConclusive && isEmptyAvatar(hostQuery.data);
-
-  const rowConclusive = !isConnectedRow && liveConclusive;
-  const syncCache = rowConclusive || hostNone;
-  const syncTraits = rowConclusive ? (live?.traits ?? null) : null;
-  const syncImageUrl = rowConclusive ? (live?.imageUrl ?? null) : null;
-  useEffect(() => {
-    if (!syncCache) {
-      return;
-    }
-    void persistLastSeenAvatar(assistant.id, {
-      traits: syncTraits,
-      imageUrl: syncImageUrl,
-    }).then(() =>
-      queryClient.invalidateQueries({
-        queryKey: chooserRowAvatarCacheQueryKey(assistant.id),
-      }),
-    );
-  }, [assistant.id, syncCache, syncTraits, syncImageUrl, queryClient]);
 
   const cacheQuery = useQuery<AvatarRead>({
     queryKey: chooserRowAvatarCacheQueryKey(assistant.id),

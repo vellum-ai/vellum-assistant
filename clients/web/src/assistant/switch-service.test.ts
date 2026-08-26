@@ -7,6 +7,7 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
 
 // --- mutable mock state (set per test) --- //
 
@@ -45,14 +46,11 @@ mock.module("@/lib/local-mode", () => ({
   removePairedAssistantFromLockfile: removePairedFromLockfileMock,
 }));
 
-const deleteLastSeenAvatarMock = mock(async (_id: string) => {});
-mock.module("@/lib/avatar-last-seen-cache", () => ({
-  deleteLastSeenAvatar: deleteLastSeenAvatarMock,
-}));
-const releaseRowAvatarUrlsMock = mock((_id: string) => {});
+const forgetAssistantAvatarMock = mock((_qc: QueryClient, _id: string) => {});
 mock.module("@/hooks/use-chooser-row-avatar", () => ({
-  releaseRowAvatarUrls: releaseRowAvatarUrlsMock,
+  forgetAssistantAvatar: forgetAssistantAvatarMock,
 }));
+const queryClient = new QueryClient();
 
 const connectPairedAssistantMock = mock(async (_id: string) => {
   if (connectPairedShouldThrow) {
@@ -112,8 +110,7 @@ beforeEach(() => {
   connectPlatformAssistantMock.mockClear();
   setSelectedAssistantMock.mockClear();
   setActiveAssistantIdMock.mockClear();
-  deleteLastSeenAvatarMock.mockClear();
-  releaseRowAvatarUrlsMock.mockClear();
+  forgetAssistantAvatarMock.mockClear();
 });
 
 describe("switchToAssistant", () => {
@@ -261,11 +258,10 @@ describe("removePairedAssistant", () => {
     selectedAssistant = { assistantId: "pr1" };
     activeAssistantId = "pr1";
 
-    const outcome = await removePairedAssistant("pr1");
+    const outcome = await removePairedAssistant(queryClient, "pr1");
 
     expect(removePairedFromLockfileMock).toHaveBeenCalledWith("pr1");
-    expect(deleteLastSeenAvatarMock).toHaveBeenCalledWith("pr1");
-    expect(releaseRowAvatarUrlsMock).toHaveBeenCalledWith("pr1");
+    expect(forgetAssistantAvatarMock).toHaveBeenCalledWith(queryClient, "pr1");
     expect(setActiveAssistantIdMock).toHaveBeenCalledWith(null);
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
@@ -283,7 +279,7 @@ describe("removePairedAssistant", () => {
     selectedAssistant = { assistantId: "m1" };
     activeAssistantId = "m1";
 
-    const outcome = await removePairedAssistant("pr1");
+    const outcome = await removePairedAssistant(queryClient, "pr1");
 
     expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
     expect(outcome.ok).toBe(true);
@@ -297,14 +293,13 @@ describe("removePairedAssistant", () => {
     activeAssistantId = "pr1";
     removeFromLockfileResult = { ok: false, error: "host says no" };
 
-    const outcome = await removePairedAssistant("pr1");
+    const outcome = await removePairedAssistant(queryClient, "pr1");
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.error).toBe("host says no");
     }
-    expect(deleteLastSeenAvatarMock).not.toHaveBeenCalled();
-    expect(releaseRowAvatarUrlsMock).not.toHaveBeenCalled();
+    expect(forgetAssistantAvatarMock).not.toHaveBeenCalled();
     expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
   });
 
@@ -315,7 +310,7 @@ describe("removePairedAssistant", () => {
       throw new Error("ipc channel gone");
     });
 
-    const outcome = await removePairedAssistant("pr1");
+    const outcome = await removePairedAssistant(queryClient, "pr1");
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {

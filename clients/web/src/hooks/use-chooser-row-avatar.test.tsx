@@ -145,6 +145,9 @@ const {
   releaseRowAvatarUrls,
   useChooserRowAvatar,
 } = await import("@/hooks/use-chooser-row-avatar");
+const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
+const { chooserRowAvatarCacheQueryKey } =
+  await import("@/lib/persist-last-seen-avatar");
 
 /** Past the window a bare avatar stays fresh for. */
 const A_MINUTE_LATER = 61_000;
@@ -787,10 +790,51 @@ describe("useChooserRowAvatar", () => {
         expect(cached.result.current.imageUrl).toBe("blob:cached-image");
       });
 
-      releaseRowAvatarUrls("other");
+      releaseRowAvatarUrls(new QueryClient(), "other");
 
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:row-image");
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:cached-image");
+    });
+
+    test("drops the query entries that held the revoked urls", async () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      queryClient.setQueryData(
+        [...chooserRowAvatarQueryKeyPrefix("other"), "supported"],
+        { traits: null, imageUrl: "blob:row-image", conclusive: true },
+      );
+      queryClient.setQueryData(chooserRowAvatarCacheQueryKey("other"), {
+        traits: null,
+        imageUrl: "blob:cached-image",
+      });
+      queryClient.setQueryData([...avatarQueryKey("other"), true], {
+        components: null,
+        traits: null,
+        customImageUrl: "blob:live-image",
+      });
+      queryClient.setQueryData(chooserRowAvatarCacheQueryKey("kept"), {
+        traits,
+        imageUrl: null,
+      });
+
+      releaseRowAvatarUrls(queryClient, "other");
+
+      expect(
+        queryClient.getQueryData([
+          ...chooserRowAvatarQueryKeyPrefix("other"),
+          "supported",
+        ]),
+      ).toBeUndefined();
+      expect(
+        queryClient.getQueryData(chooserRowAvatarCacheQueryKey("other")),
+      ).toBeUndefined();
+      expect(
+        queryClient.getQueryData([...avatarQueryKey("other"), true]),
+      ).toBeUndefined();
+      expect(
+        queryClient.getQueryData(chooserRowAvatarCacheQueryKey("kept")),
+      ).toBeDefined();
     });
   });
 
@@ -890,7 +934,7 @@ describe("useChooserRowAvatar", () => {
       expect(writeLastSeenAvatar).not.toHaveBeenCalled();
     });
 
-    test("a legacy row whose sidecars are both absent evicts the cache and shows the glyph", async () => {
+    test("a legacy row whose sidecars are both absent keeps its cached avatar (the proxy 404s for an asleep sibling)", async () => {
       readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
       const { result } = renderHook(
         () =>
@@ -900,14 +944,14 @@ describe("useChooserRowAvatar", () => {
         { wrapper: createWrapper() },
       );
       await waitFor(() => {
-        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
-          "other",
-          expect.any(Number),
-        );
+        expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
       });
-      expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
       expect(writeLastSeenAvatar).not.toHaveBeenCalled();
-      expect(result.current).toEqual({ traits: null, imageUrl: null });
     });
 
     test("a manifest image whose content fails keeps the cached image and does not evict it", async () => {
