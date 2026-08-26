@@ -139,6 +139,7 @@ test("claim keepalive preserves a paused transfer beyond the idle timeout", asyn
     expect(store.keepAlive(recordingId, "client-1")).toBeTrue();
   }
 
+  jest.useRealTimers();
   expect(await store.finish(recordingId, "client-1")).toBe("attachment-paused");
 });
 
@@ -156,6 +157,7 @@ test("a stale owner cannot renew another client's transfer", async () => {
   jest.advanceTimersByTime(TRANSFER_IDLE_TIMEOUT_MS - 1);
   expect(store.keepAlive(recordingId, "client-2")).toBeFalse();
   jest.advanceTimersByTime(1);
+  jest.useRealTimers();
   await Promise.resolve();
 
   await expect(store.finish(recordingId, "client-1")).rejects.toThrow(
