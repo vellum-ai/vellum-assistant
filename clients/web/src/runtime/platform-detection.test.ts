@@ -73,6 +73,12 @@ const DESKTOP_SAFARI_UA =
 const WINDOWS_TOUCH_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const CHROMEOS_TOUCH_UA =
+  "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const LINUX_TOUCH_UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const ORIGINAL_MATCH_MEDIA = window.matchMedia;
 
 function setUserAgent(ua: string): void {
@@ -318,6 +324,37 @@ describe("isMobileBrowser", () => {
     setUserAgentData({ mobile: false });
     setMediaMatches({ "(pointer: coarse)": true, "(hover: none)": false });
     expect(isMobileBrowser()).toBe(false);
+  });
+
+  test("is false on a hoverless Windows tablet", () => {
+    // Coarse and hoverless input is an input signal, not a platform one. A
+    // Windows tablet reports both and is still a desktop.
+    setUserAgent(WINDOWS_TOUCH_UA);
+    setUserAgentData({ mobile: false });
+    setMediaMatches({ "(pointer: coarse)": true, "(hover: none)": true });
+    expect(isMobileBrowser()).toBe(false);
+  });
+
+  test("is false on a hoverless ChromeOS tablet", () => {
+    setUserAgent(CHROMEOS_TOUCH_UA);
+    setUserAgentData({ mobile: false });
+    setMediaMatches({ "(pointer: coarse)": true, "(hover: none)": true });
+    expect(isMobileBrowser()).toBe(false);
+  });
+
+  test("is false on a hoverless Linux touch device", () => {
+    setUserAgent(LINUX_TOUCH_UA);
+    setUserAgentData({ mobile: false });
+    setMediaMatches({ "(pointer: coarse)": true, "(hover: none)": true });
+    expect(isMobileBrowser()).toBe(false);
+  });
+
+  test("is still true for iPadOS in desktop mode", () => {
+    // A Mac user agent with coarse hoverless input is an iPad requesting the
+    // desktop site, so `Macintosh` must stay out of the desktop exclusion.
+    setUserAgent(DESKTOP_SAFARI_UA);
+    setMediaMatches({ "(pointer: coarse)": true, "(hover: none)": true });
+    expect(isMobileBrowser()).toBe(true);
   });
 
   test("is false without a navigator", () => {

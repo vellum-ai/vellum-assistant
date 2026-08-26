@@ -143,6 +143,14 @@ export function isMobileBrowser(): boolean {
   if (typeof window.matchMedia !== "function") {
     return false;
   }
+  // Input capability is a separate axis from platform (docs/PLATFORM_ADAPTATION.md),
+  // so this last resort must not promote a desktop OS on its own: a Windows,
+  // ChromeOS, or Linux tablet reports coarse hoverless input and is still a
+  // desktop. `Macintosh` is deliberately absent, since no Mac has a touchscreen
+  // and that user agent plus coarse input is iPadOS in desktop mode.
+  if (/Windows NT|CrOS|X11/i.test(navigator.userAgent)) {
+    return false;
+  }
   // Touchscreen laptops report `pointer: coarse` but keep `hover: hover`, so
   // the hover clause is what keeps them out of the mobile bucket.
   return (
