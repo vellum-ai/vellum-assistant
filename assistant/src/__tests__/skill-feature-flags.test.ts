@@ -233,6 +233,7 @@ describe("resolveSkillStates with feature flags", () => {
     const skill = {
       ...makeSkill("client-platform-skill"),
       platforms: [clientPlatform],
+      requiredHostCapabilities: ["host_bash"],
     } as SkillSummary;
     const config = makeConfig();
 

@@ -58,6 +58,8 @@
  * The next compaction clears the store and resets both layers.
  */
 
+import { isSkillCompatibleWithContext } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
 import {
   isMemoryEnabled,
@@ -68,7 +70,6 @@ import {
   queueConversationNotice,
 } from "../../../../daemon/conversation-notices.js";
 import { isPersonalMemoryAllowed } from "../../../../daemon/trust-context.js";
-import { isSkillCompatibleWithContext } from "../../../../skills/platform-compatibility.js";
 import {
   type InjectionBlock,
   type Injector,

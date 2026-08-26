@@ -14,10 +14,8 @@
 // This file must not import from any other substrate module — it is the
 // leaf of the substrate dependency graph.
 
+import type { HostProxyCapability, SkillPlatform } from "@vellumai/plugin-api";
 import { z } from "zod";
-
-import type { HostProxyCapability } from "../../../../channels/types.js";
-import type { SkillPlatform } from "../../../../skills/platform-compatibility.js";
 
 // ---------------------------------------------------------------------------
 // Concept pages

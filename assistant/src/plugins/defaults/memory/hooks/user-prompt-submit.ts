@@ -362,7 +362,7 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
           {
             clientOs: conversation.currentTurnClientOs,
             isInteractive: !conversation.hasNoClient,
-            sourceActorPrincipalId: conversation.getTurnActorPrincipalId(),
+            sourceActorPrincipalId: conversation.getTurnActorPrincipalId?.(),
           },
         ),
     );

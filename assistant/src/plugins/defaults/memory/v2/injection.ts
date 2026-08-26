@@ -23,11 +23,12 @@
 // user message only — prior turns' attachments are left alone. This keeps the
 // cached prefix bytes-identical across turns.
 
-import type { AssistantConfig } from "../../../../config/types.js";
 import {
   isSkillCompatibleWithContext,
   type SkillPlatformContext,
-} from "../../../../skills/platform-compatibility.js";
+} from "@vellumai/plugin-api";
+
+import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import {

@@ -9,11 +9,14 @@
 // eviction of v2/v3 per-conversation state.
 // ---------------------------------------------------------------------------
 
-import type {
-  AssistantEvent,
-  ContentBlock,
-  ImageContent,
-  Message,
+import {
+  type AssistantEvent,
+  type ContentBlock,
+  type ImageContent,
+  isSkillCompatibleWithContext,
+  type Message,
+  type PlatformScopedSkill,
+  type SkillPlatformContext,
 } from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -32,11 +35,6 @@ import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdra
 import { conversations } from "../../../../persistence/schema/conversations.js";
 import { memorySummaries } from "../../../../persistence/schema/index.js";
 import { getCachedCatalogSync } from "../../../../skills/catalog-cache.js";
-import {
-  isSkillCompatibleWithContext,
-  type PlatformScopedSkill,
-  type SkillPlatformContext,
-} from "../../../../skills/platform-compatibility.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
