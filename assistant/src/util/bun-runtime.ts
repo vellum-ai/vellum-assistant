@@ -22,7 +22,7 @@ import { arch, homedir, platform } from "node:os";
 import { basename, join } from "node:path";
 
 import { getLogger } from "./logger.js";
-import { getBinDir } from "./platform.js";
+import { getBinDir, isWindows } from "./platform.js";
 
 const log = getLogger("bun-runtime");
 
@@ -81,19 +81,31 @@ export function findBun(): string | undefined {
     return process.execPath;
   }
 
+  const exe = isWindows() ? "bun.exe" : "bun";
+
   // 2. Previously downloaded copy
-  const downloaded = join(getBinDir(), "bun");
+  const downloaded = join(getBinDir(), exe);
   if (existsSync(downloaded)) {
     return downloaded;
   }
 
   // 3. Common install locations
   const home = homedir();
-  for (const p of [
-    join(home, ".bun", "bin", "bun"),
-    "/opt/homebrew/bin/bun",
-    "/usr/local/bin/bun",
-  ]) {
+  const candidates = isWindows()
+    ? [
+        join(home, ".bun", "bin", exe),
+        join(
+          process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"),
+          "bun",
+          exe,
+        ),
+      ]
+    : [
+        join(home, ".bun", "bin", exe),
+        "/opt/homebrew/bin/bun",
+        "/usr/local/bin/bun",
+      ];
+  for (const p of candidates) {
     if (existsSync(p)) {
       return p;
     }

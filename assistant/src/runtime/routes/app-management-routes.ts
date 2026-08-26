@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { z } from "zod";
@@ -54,6 +54,7 @@ import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
+import { getUserAppDataDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getOriginClientId,
@@ -74,13 +75,7 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 
 function getSharedAppsDir(): string {
-  return join(
-    homedir(),
-    "Library",
-    "Application Support",
-    "vellum-assistant",
-    "shared-apps",
-  );
+  return join(getUserAppDataDir(), "vellum-assistant", "shared-apps");
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,14 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import {
+  basename,
+  delimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  sep,
+} from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
@@ -47,6 +55,49 @@ export function isLinux(): boolean {
 
 export function isWindows(): boolean {
   return process.platform === "win32";
+}
+
+/**
+ * Per-user application data root: `~/Library/Application Support` on macOS,
+ * `%APPDATA%` on Windows, `$XDG_DATA_HOME` (default `~/.local/share`) elsewhere.
+ */
+export function getUserAppDataDir(): string {
+  if (isMacOS()) {
+    return join(homedir(), "Library", "Application Support");
+  }
+  if (isWindows()) {
+    return process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+  }
+  return process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+}
+
+/**
+ * Extra directories to prepend to PATH so daemon-spawned tools are found
+ * even when launched from a minimal environment (macOS .app bundle). Empty
+ * on Windows, where PATH already carries the installer-managed entries.
+ */
+export function getExtraToolPathDirs(): string[] {
+  if (isWindows()) {
+    return [];
+  }
+  return [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    join(homedir(), ".local", "bin"),
+  ];
+}
+
+/** Add missing `dirs` to a PATH string using the platform delimiter. */
+export function prependToPath(
+  current: string | undefined,
+  dirs: string[],
+  position: "front" | "back" = "front",
+): string {
+  const entries = (current ?? "").split(delimiter).filter(Boolean);
+  const missing = dirs.filter((d) => !entries.includes(d));
+  const merged =
+    position === "front" ? [...missing, ...entries] : [...entries, ...missing];
+  return merged.join(delimiter);
 }
 
 /**
