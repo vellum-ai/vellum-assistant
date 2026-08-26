@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ShortcutKeys, parseAccelerator } from "./shortcut-keys";
+import {
+  ShortcutKeys,
+  formatAcceleratorHint,
+  parseAccelerator,
+} from "./shortcut-keys";
 
 describe("parseAccelerator", () => {
   test("maps modifiers to macOS symbols", () => {
@@ -37,6 +41,34 @@ describe("parseAccelerator", () => {
   test("returns an empty array for an empty accelerator", () => {
     expect(parseAccelerator("")).toEqual([]);
   });
+
+  test("maps tokens to text labels on Windows", () => {
+    expect(parseAccelerator("CmdOrCtrl+Shift+N", "windows")).toEqual([
+      "Ctrl",
+      "Shift",
+      "N",
+    ]);
+    expect(parseAccelerator("Super+Alt+Escape", "windows")).toEqual([
+      "Win",
+      "Alt",
+      "Esc",
+    ]);
+    expect(parseAccelerator("Control+Up", "windows")).toEqual([
+      "Ctrl",
+      "\u2191",
+    ]);
+  });
+});
+
+describe("formatAcceleratorHint", () => {
+  test("runs glyphs together on mac and plus-joins labels on Windows", () => {
+    expect(formatAcceleratorHint("CmdOrCtrl+Shift+O", "mac")).toBe(
+      "\u2318\u21e7O",
+    );
+    expect(formatAcceleratorHint("CmdOrCtrl+Shift+O", "windows")).toBe(
+      "Ctrl+Shift+O",
+    );
+  });
 });
 
 describe("ShortcutKeys", () => {
@@ -47,6 +79,16 @@ describe("ShortcutKeys", () => {
     const caps = html.match(/<kbd/g) ?? [];
     expect(caps).toHaveLength(3);
     expect(html).toContain('data-slot="shortcut-keys"');
+  });
+
+  test("renders platform labels when asked", () => {
+    const html = renderToStaticMarkup(
+      createElement(ShortcutKeys, {
+        accelerator: "CmdOrCtrl+K",
+        platform: "windows",
+      }),
+    );
+    expect(html).toContain(">Ctrl<");
   });
 
   test("renders nothing for a disabled (empty) binding", () => {
