@@ -362,7 +362,8 @@ export interface LiveVoiceSessionOptions {
   /**
    * Deepgram Flux turn-detection tuning. The production factory seeds this
    * from `liveVoice.flux` config when unset; absent fields fall back to the
-   * schema defaults, which leave `turnEnd.enabled` false.
+   * schema defaults, which leave `turnEnd.enabled` on. A test that needs the
+   * local silence boundary has to say so.
    */
   fluxConfig?: Partial<LiveVoiceFluxConfig>;
   /**
