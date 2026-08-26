@@ -36,6 +36,9 @@ let trayRuntime: TrayRuntime | null = null;
 mock.module("@vellumai/electron-desktop/status-icon", () => ({
   configureStatusIconFallback: () => undefined,
 }));
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  readOnboardingActive: () => false,
+}));
 mock.module("@vellumai/electron-desktop/about", () => ({
   openAboutWindow: () => undefined,
 }));

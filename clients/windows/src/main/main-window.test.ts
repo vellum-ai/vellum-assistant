@@ -185,6 +185,7 @@ const writeTitleBarOverlayThemeMock = mock(
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   restoreBounds: () => restoredBounds,
   track: trackMock,
+  readOnboardingActive: () => false,
   writeOnboardingActive: writeOnboardingActiveMock,
   readTitleBarOverlayTheme: () => persistedOverlayTheme,
   writeTitleBarOverlayTheme: writeTitleBarOverlayThemeMock,

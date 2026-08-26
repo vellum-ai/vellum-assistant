@@ -110,6 +110,14 @@ mock.module("electron", () => ({
     },
   },
 }));
+const restoreBounds = mock(
+  (_key: string, defaults: { width: number; height: number }) => defaults,
+);
+const trackWindowState = mock((_key: string, _win: unknown) => undefined);
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  restoreBounds,
+  track: trackWindowState,
+}));
 mock.module("./windows.client", () => ({ createWindow }));
 mock.module("./ipc.client", () => ({
   handle: (channel: string, _schema: unknown, listener: Listener) => {
@@ -282,6 +290,11 @@ describe("Windows auxiliary windows", () => {
     popout.emit("ready-to-show");
     handleListeners.get("vellum:popout:open")?.(["conv-123"]);
     expect(popout.isDestroyed()).toBe(false);
+    expect(restoreBounds).toHaveBeenCalledWith("thread.conv-123", {
+      width: 720,
+      height: 800,
+    });
+    expect(trackWindowState).toHaveBeenCalledWith("thread.conv-123", popout);
     expect(options.browserWindow).not.toHaveProperty("parent");
     expect(options.backgroundThrottling).toBe(false);
     expect(popout.loadURL).toHaveBeenCalledWith(
