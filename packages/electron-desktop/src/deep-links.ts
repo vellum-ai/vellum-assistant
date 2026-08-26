@@ -107,11 +107,12 @@ export function resolveAcceptedSchemes(env: string): string[] {
 // deep link, so garbage never reaches the renderer's billing route.
 const CHECKOUT_SESSION_ID_RE = /^cs_[A-Za-z0-9_]{1,255}$/;
 
-// Device codes are base64url text (43 characters from the gateway's 32 random
-// bytes). The length bound is deliberately loose so a code minted by a gateway
-// of another vintage still parses; anything else on `connect?code=` is dropped
-// before it reaches the renderer.
-const DEVICE_CODE_RE = /^[A-Za-z0-9_-]{1,128}$/;
+// A device code is opaque on the wire, so the shape check bounds it rather
+// than spelling its alphabet: `buildAppConnectUrl` emits whatever the gateway
+// minted, including values like `a+b/c=`. Only whitespace and control
+// characters are refused, since a code carrying those never came from a
+// gateway and would not survive being rebuilt into a pairing URL.
+const DEVICE_CODE_RE = /^[^\s\u0000-\u001f\u007f]{1,256}$/;
 
 const currentEnv = resolveEnvironmentName(process.env);
 const REGISTERED_SCHEMES = resolveRegisteredSchemes(currentEnv);

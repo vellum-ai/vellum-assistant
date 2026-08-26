@@ -359,7 +359,18 @@ describe("parseVellumUrl", () => {
     });
   });
 
-  test("connect drops a code whose shape is not the gateway's", () => {
+  test("connect carries an opaque code, not just base64url", () => {
+    // `buildAppConnectUrl` emits whatever the gateway minted, and its own test
+    // pins `a+b/c=` surviving the encoding. Refusing it here would silently
+    // drop an approved code and drop the user into a fresh approval flow.
+    expect(
+      parseVellumUrl(
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=a%2Bb%2Fc%3D",
+      ),
+    ).toEqual({ kind: "connect", url: "https://h.example", code: "a+b/c=" });
+  });
+
+  test("connect drops a code that cannot have come from a gateway", () => {
     expect(
       parseVellumUrl(
         "vellum://connect?url=https%3A%2F%2Fh.example&code=has%20a%20space",
@@ -367,7 +378,12 @@ describe("parseVellumUrl", () => {
     ).toEqual({ kind: "connect", url: "https://h.example" });
     expect(
       parseVellumUrl(
-        `vellum://connect?url=https%3A%2F%2Fh.example&code=${"a".repeat(129)}`,
+        "vellum://connect?url=https%3A%2F%2Fh.example&code=%00control",
+      ),
+    ).toEqual({ kind: "connect", url: "https://h.example" });
+    expect(
+      parseVellumUrl(
+        `vellum://connect?url=https%3A%2F%2Fh.example&code=${"a".repeat(257)}`,
       ),
     ).toEqual({ kind: "connect", url: "https://h.example" });
   });
