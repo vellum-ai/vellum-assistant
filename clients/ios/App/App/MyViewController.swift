@@ -486,13 +486,13 @@ extension MyViewController: WebViewNavigationFailureObserver {
     /// outside the configured base.
     ///
     /// The `SelfHostedServer.contains` check matters because the shell loads
-    /// other URLs into the same web view — most notably Universal Links via
-    /// `AppDelegate.navigateWebView`. Without it, an unrelated failure would
-    /// offer to clear a valid preference. Scoping to the base rather than its
-    /// host is what keeps that true for a base carrying a path prefix or a
-    /// nondefault port. The configured server's own failures (boot load,
-    /// foreground reload, the deferred connect pair-page load) all sit under
-    /// the base and still alert.
+    /// other URLs into the same web view, Universal Links through
+    /// `AppDelegate.navigateWebView` above all. Without it, an unrelated
+    /// failure would offer to clear a valid preference. Scoping to the base
+    /// rather than its host is what keeps that true for a base carrying a path
+    /// prefix or a nondefault port. The configured server's own failures (boot
+    /// load, foreground reload, the deferred connect pair-page load) all sit
+    /// under the base and still alert.
     ///
     /// Cancelling an error response in the proxy makes WebKit report a second,
     /// `WebKitErrorDomain` failure for the same load; the alert's own liveness
