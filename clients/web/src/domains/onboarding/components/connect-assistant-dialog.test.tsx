@@ -1,10 +1,12 @@
 /**
  * Behavioral tests for the one-field connect dialog: a pairing link imports on
  * the first poll with no intermediate state, a bare address shows its approval
- * code and polls until the host approves, host failures render their structured
- * error copy verbatim, an unreachable host is polled through without losing
- * the approval code, an access-only pairing interposes the expiry warning
- * before `onImported`, and cancelling drops the host-side session.
+ * code and polls until the host approves, a refused address renders the
+ * dialog's own catalog copy while every other host failure renders the host's
+ * verbatim, the countdown follows the deadline each poll reports, an
+ * unreachable host is polled through without losing the approval code, an
+ * access-only pairing interposes the expiry warning before `onImported`, and
+ * cancelling drops the host-side session.
  * Self-contained mocks: run this file solo (`mock.module` leaks across a shared
  * `bun test` run).
  */
@@ -20,6 +22,7 @@ import {
 import {
   isRetryablePairingReason,
   type PairingFailureReason,
+  type PublicBaseUrlRejection,
 } from "@vellumai/service-contracts/remote-web-pairing";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
@@ -34,7 +37,7 @@ type StartResult =
       expiresAt: string;
       intervalSeconds: number;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; rejection?: PublicBaseUrlRejection };
 
 type PollResult =
   | { ok: true; status: "pending"; expiresAt: string; intervalSeconds: number }
@@ -243,6 +246,39 @@ describe("ConnectAssistantDialog", () => {
     );
   });
 
+  test("the countdown follows the deadline each pending poll reports", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+      // Nearly spent: the rendered countdown starts at 0:04.
+      expiresAt: new Date(Date.now() + 4_000).toISOString(),
+    }));
+    let polls = 0;
+    pollAssistantPairingMock.mockImplementation(async () => {
+      polls += 1;
+      if (polls === 1) {
+        // The gateway extended the attempt; the dialog has to follow it or
+        // the countdown reads 0:00 while the loop is still polling.
+        return {
+          ok: true,
+          status: "pending",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          intervalSeconds: 0,
+        };
+      }
+      return new Promise<PollResult>(() => {});
+    });
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Expires in (?:10:00|9:5\d)/)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/Expires in 0:0\d/)).toBeNull();
+  });
+
   test("Connect stays disabled until an address is entered", () => {
     renderDialog();
 
@@ -274,6 +310,41 @@ describe("ConnectAssistantDialog", () => {
     await waitFor(() => expect(screen.getByText(error)).toBeTruthy());
     expect(onImportedMock).not.toHaveBeenCalled();
   });
+
+  test.each([
+    [
+      "loopback" as const,
+      "https://localhost:7830",
+      "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
+    ],
+    [
+      "non-https" as const,
+      "http://gw.example.com",
+      "The URL must use https so your devices can connect securely.",
+    ],
+    [
+      "service-website" as const,
+      "https://login.tailscale.com/admin",
+      "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+    ],
+  ])(
+    "a refused address renders the catalog copy, not the host's English: %s",
+    async (rejection, address, copy) => {
+      const hostEnglish = "Host copy that must not reach the user.";
+      startAssistantPairingMock.mockImplementation(async () => ({
+        ok: false,
+        error: hostEnglish,
+        rejection,
+      }));
+      renderDialog();
+
+      fillAddress(address);
+      fireEvent.click(screen.getByText("Connect"));
+
+      await waitFor(() => expect(screen.getByText(copy)).toBeTruthy());
+      expect(screen.queryByText(hostEnglish)).toBeNull();
+    },
+  );
 
   test("an expired code returns to the form with the host's error", async () => {
     startAssistantPairingMock.mockImplementation(async () => ({
@@ -495,10 +566,10 @@ describe("ConnectAssistantDialog", () => {
     expect(onImportedMock).toHaveBeenCalledWith("paired-new");
   });
 
-  test("initialAddress prefills the field and guidanceMessage renders", () => {
+  test("initialAddress prefills the field and guidanceKind renders its copy", () => {
     renderDialog({
       initialAddress: "https://gw.example.com",
-      guidanceMessage: "Open this page from a pairing link to prefill it.",
+      guidanceKind: "legacy",
     });
 
     expect(
@@ -506,7 +577,19 @@ describe("ConnectAssistantDialog", () => {
         .value,
     ).toBe("https://gw.example.com");
     expect(
-      screen.getByText("Open this page from a pairing link to prefill it."),
+      screen.getByText(
+        "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("the generic guidance kind renders the QR-link copy", () => {
+    renderDialog({ guidanceKind: "generic" });
+
+    expect(
+      screen.getByText(
+        "This link came from a pairing QR code. To connect this device, paste the pairing link from the assistant's machine here.",
+      ),
     ).toBeTruthy();
   });
 

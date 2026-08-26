@@ -934,6 +934,7 @@ describe("vellum:localMode:pairing handlers", () => {
     intervalSeconds?: number;
     reason?: string;
     error?: string;
+    rejection?: string;
   };
   type PollResult = {
     ok: boolean;
@@ -1079,6 +1080,8 @@ describe("vellum:localMode:pairing handlers", () => {
     expect(started.ok).toBe(false);
     expect(started.reason).toBe("invalid-address");
     expect(started.error).toContain("this machine");
+    // The renderer localizes off this, rather than showing the host's English.
+    expect(started.rejection).toBe("loopback");
     expect(await pairingStart(undefined)).toMatchObject({
       ok: false,
       reason: "invalid-address",

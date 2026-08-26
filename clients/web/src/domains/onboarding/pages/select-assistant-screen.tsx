@@ -208,10 +208,10 @@ export function SelectAssistantScreen() {
     originEntries.length > 0 ||
     cloudOrigin !== null;
 
-  // Unpairing and importing a pairing bundle both rewrite the lockfile
-  // through the local-mode host, and a pairing is device-local regardless of
-  // platform session: one gate covers the paired-removal and connect
-  // affordances (never shown in remote-gateway mode or hostless browsers).
+  // Unpairing and completing a pairing both rewrite the lockfile through the
+  // local-mode host, and a pairing is device-local regardless of platform
+  // session: one gate covers the paired-removal and connect affordances
+  // (never shown in remote-gateway mode or hostless browsers).
   const localModeHostAvailable = isLocalModeHostAvailable();
   // A locked platform entry can be forgotten on this device (dropped from the
   // lockfile) only where that same host is present and the user is logged out.
@@ -249,7 +249,7 @@ export function SelectAssistantScreen() {
   // opens it on mount, carrying an address prefill or guidance copy.
   const connectDialogOpen = useConnectDialogStore.use.open();
   const connectInitialAddress = useConnectDialogStore.use.initialAddress();
-  const connectGuidanceMessage = useConnectDialogStore.use.guidanceMessage();
+  const connectGuidanceKind = useConnectDialogStore.use.guidanceKind();
   // Electron buffers deep links that arrive before the renderer exists and
   // drains them shortly after mount; the auto-skip below defers until that
   // drain settles so a cold-start connect link opens the dialog first.
@@ -582,10 +582,16 @@ export function SelectAssistantScreen() {
     );
   };
 
-  const handleOriginAdded = (origin: RememberedOrigin) => {
+  // `deviceCode` is one-time credential material and is never persisted: the
+  // store holds the base alone, and the code lives just long enough to ride
+  // the navigation into the origin's own pair page.
+  const handleOriginAdded = (
+    origin: RememberedOrigin,
+    deviceCode: string | null,
+  ) => {
     setAddOriginOpen(false);
     // Landing on the origin runs its own pair flow when no session exists.
-    void switchToOrigin(origin);
+    void switchToOrigin(origin, deviceCode ?? undefined);
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
@@ -819,8 +825,9 @@ export function SelectAssistantScreen() {
               />
             )}
             {/* Hostless surfaces (hub browser, remote-gateway mode, native
-              mobile) add origins by URL; local desktop clients keep the
-              bundle-paste connect flow above instead. */}
+              mobile) add an origin by address or pairing link and navigate to
+              it; clients with a local-mode host pair in place through the
+              connect dialog above instead. */}
             {!localModeHostAvailable && (
               <DashedActionButton
                 icon={<Globe className="h-4 w-4" />}
@@ -872,7 +879,7 @@ export function SelectAssistantScreen() {
       <ConnectAssistantDialog
         open={connectDialogOpen}
         initialAddress={connectInitialAddress ?? undefined}
-        guidanceMessage={connectGuidanceMessage ?? undefined}
+        guidanceKind={connectGuidanceKind ?? undefined}
         onClose={() => useConnectDialogStore.getState().closeConnectDialog()}
         onImported={handleImported}
       />

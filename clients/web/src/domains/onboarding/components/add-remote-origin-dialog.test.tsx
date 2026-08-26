@@ -1,10 +1,11 @@
 /**
  * Behavioral tests for the URL-only add-remote-origin dialog: the address is
- * normalized through the real `normalizeOriginUrl` before the store add,
- * invalid input renders the inline error without touching the store, a store
- * failure keeps the dialog open with its copy, and a successful add completes
- * via `onAdded`. Self-contained mocks: run this file solo (`mock.module`
- * leaks across a shared `bun test` run).
+ * reduced to its public base before the store add, a pasted pairing link keeps
+ * its device code for the caller while only the base is stored, invalid input
+ * renders the inline error without touching the store, a store failure keeps
+ * the dialog open with its copy, and a successful add completes via `onAdded`.
+ * Self-contained mocks: run this file solo (`mock.module` leaks across a
+ * shared `bun test` run).
  */
 
 import {
@@ -32,16 +33,15 @@ const addOriginMock = mock(
 );
 
 const onCloseMock = mock(() => {});
-const onAddedMock = mock((_origin: RememberedOrigin) => {});
+const onAddedMock = mock(
+  (_origin: RememberedOrigin, _deviceCode: string | null) => {},
+);
 
 // --- Mocks --------------------------------------------------------------------
 
-// The real normalizer, captured before the module mock below replaces the
-// registry entry, so the dialog validates with production semantics.
-const { normalizeOriginUrl } = await import("@/stores/remembered-origins-store");
-
+// Only the store is stubbed: address validation is the real
+// `parsePairingAddress`, so the dialog is exercised with production semantics.
 mock.module("@/stores/remembered-origins-store", () => ({
-  normalizeOriginUrl,
   useRememberedOriginsStore: {
     getState: () => ({ addOrigin: addOriginMock }),
   },
@@ -83,9 +83,8 @@ mock.module("@vellumai/design-library/components/modal", () => ({
   },
 }));
 
-const { AddRemoteOriginDialog } = await import(
-  "@/domains/onboarding/components/add-remote-origin-dialog"
-);
+const { AddRemoteOriginDialog } =
+  await import("@/domains/onboarding/components/add-remote-origin-dialog");
 
 // --- Helpers ------------------------------------------------------------------
 
@@ -141,9 +140,39 @@ describe("AddRemoteOriginDialog", () => {
     await waitFor(() =>
       expect(onAddedMock).toHaveBeenCalledWith(
         expect.objectContaining({ url: "https://host.example/assistant-1" }),
+        null,
       ),
     );
   });
+
+  // The one-click artifact the docs point phones and tablets at. The code is
+  // credential material: it reaches the caller for the navigation and never
+  // reaches the store.
+  test.each([
+    "https://host.example/assistant/pair#device_code=ABCD-1234",
+    "https://host.example/assistant/pair#deviceCode=ABCD-1234",
+    "https://host.example/assistant/pair?device_code=ABCD-1234",
+  ])(
+    "a pairing link keeps its device code out of the store: %s",
+    async (link) => {
+      renderDialog();
+
+      fillAddress(link);
+      fireEvent.click(screen.getByText("Add"));
+
+      await waitFor(() =>
+        expect(onAddedMock).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "https://host.example" }),
+          "ABCD-1234",
+        ),
+      );
+      expect(addOriginMock).toHaveBeenCalledWith({
+        url: "https://host.example",
+      });
+      const stored = JSON.stringify(addOriginMock.mock.calls);
+      expect(stored).not.toContain("ABCD-1234");
+    },
+  );
 
   // The dialog tells users to paste the link their pairing page gave them,
   // so the app-route tail has to reduce to the public base; otherwise
@@ -178,16 +207,19 @@ describe("AddRemoteOriginDialog", () => {
     "http://host.example/assistant-1",
     "javascript:alert(1)",
     "not a url",
-  ])("invalid input renders the inline error without a store add: %s", async (value) => {
-    renderDialog();
+  ])(
+    "invalid input renders the inline error without a store add: %s",
+    async (value) => {
+      renderDialog();
 
-    fillAddress(value);
-    fireEvent.click(screen.getByText("Add"));
+      fillAddress(value);
+      fireEvent.click(screen.getByText("Add"));
 
-    await waitFor(() => expect(screen.getByText(INVALID_COPY)).toBeTruthy());
-    expect(addOriginMock).not.toHaveBeenCalled();
-    expect(onAddedMock).not.toHaveBeenCalled();
-  });
+      await waitFor(() => expect(screen.getByText(INVALID_COPY)).toBeTruthy());
+      expect(addOriginMock).not.toHaveBeenCalled();
+      expect(onAddedMock).not.toHaveBeenCalled();
+    },
+  );
 
   test("a store failure keeps the dialog open with the failure copy", async () => {
     addOriginMock.mockImplementation(async () => ({ ok: false }));

@@ -813,8 +813,15 @@ async function handleLocalEndpoints(
           intervalSeconds: result.intervalSeconds,
         });
       }
+      // `rejection` rides along so the renderer can show its own localized
+      // copy for a refused address instead of this host's English.
       return Response.json(
-        { ok: false, reason: result.reason, error: result.error },
+        {
+          ok: false,
+          reason: result.reason,
+          error: result.error,
+          rejection: result.rejection,
+        },
         { status: result.status },
       );
     }

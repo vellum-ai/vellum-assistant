@@ -511,7 +511,14 @@ export const installLocalMode = (): void => {
     async ([address]): Promise<LocalPairingStartResult> => {
       const result = await pairingStart(address);
       if (!result.ok) {
-        return { ok: false, reason: result.reason, error: result.error };
+        // `rejection` rides along so the renderer can show its own localized
+        // copy for a refused address instead of this host's English.
+        return {
+          ok: false,
+          reason: result.reason,
+          error: result.error,
+          rejection: result.rejection,
+        };
       }
       return {
         ok: true,

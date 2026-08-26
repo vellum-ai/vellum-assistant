@@ -626,7 +626,15 @@ function pairingMiddleware(
                 expiresAt: result.expiresAt,
                 intervalSeconds: result.intervalSeconds,
               }
-            : { ok: false, reason: result.reason, error: result.error },
+            : // `rejection` rides along so the renderer can show its own
+              // localized copy for a refused address instead of this host's
+              // English.
+              {
+                ok: false,
+                reason: result.reason,
+                error: result.error,
+                rejection: result.rejection,
+              },
         );
         return;
       }

@@ -628,6 +628,44 @@ describe("assistant pairing", () => {
     expect(loadLockfileHost).not.toHaveBeenCalled();
   });
 
+  // The dialog renders its own catalog copy for a refused address, so the
+  // structured reason has to survive the wrapper.
+  test("a refused address keeps its rejection reason", async () => {
+    pairingStartHost.mockResolvedValueOnce({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address points back at this machine.",
+      rejection: "loopback",
+    });
+
+    const result = await startAssistantPairing("https://localhost:7830");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address points back at this machine.",
+      rejection: "loopback",
+    });
+  });
+
+  test("a rejection reason with no copy degrades to the host's message", async () => {
+    pairingStartHost.mockResolvedValueOnce({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address is not usable.",
+      rejection: "reason-from-a-newer-host",
+    } as unknown as localModeHost.LocalPairingStartResult);
+
+    const result = await startAssistantPairing("https://gw.example.com");
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "invalid-address",
+      error: "That address is not usable.",
+      rejection: undefined,
+    });
+  });
+
   test("an error-less host failure still reports something displayable", async () => {
     pairingStartHost.mockResolvedValueOnce({ ok: false, error: "" });
 

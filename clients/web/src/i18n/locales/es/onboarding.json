@@ -86,23 +86,25 @@
   },
   "addRemoteOriginDialog": {
     "title": "Añadir un asistente remoto",
-    "body": "Pega el enlace https que te dio la página de emparejamiento de tu asistente.",
+    "body": "Pega el enlace https que te dio la página de vinculación de tu asistente.",
     "addressLabel": "Dirección del asistente"
   },
   "connectAssistantDialog": {
     "title": "Conectar un asistente remoto",
     "instruction": "Pega el enlace de vinculación de los ajustes «Vincular un dispositivo» del asistente, o solo su dirección, y aprueba allí la solicitud.",
+    "linkGuidance": "Este enlace proviene de un código QR de vinculación. Para conectar este dispositivo, pega aquí el enlace de vinculación del equipo del asistente.",
+    "legacyLinkGuidance": "Este enlace proviene de una versión anterior de la aplicación y ya no se puede usar. Genera un nuevo enlace de vinculación en el equipo del asistente y pégalo aquí.",
     "addressLabel": "Dirección o enlace de vinculación",
     "addressPlaceholder": "https://your-assistant.ts.net",
     "nameLabel": "Nombre (opcional)",
     "approveOnHost": "Aprueba este código en la máquina del asistente para terminar de conectar.",
     "waitingForApproval": "Esperando la aprobación…",
-    "retrying": "El asistente aún no está listo para emparejarse. Se seguirá intentando hasta que caduque el código.",
+    "retrying": "El asistente aún no está listo para vincularse. Se seguirá intentando hasta que caduque el código.",
     "expiresIn": "Caduca en {time}",
-    "retryExpired": "El código de emparejamiento caducó antes de que el asistente estuviera listo para emparejarse. Empieza de nuevo para obtener uno nuevo.",
+    "retryExpired": "El código de vinculación caducó antes de que el asistente estuviera listo para vincularse. Empieza de nuevo para obtener uno nuevo.",
     "submitError": "No se pudo conectar con ese asistente. Inténtalo de nuevo.",
-    "importedTitle": "Emparejamiento importado",
-    "importedBody": "Este emparejamiento es solo de acceso: funciona ahora, pero su acceso caduca y no puede renovarse por sí solo. Cuando caduque, genera un nuevo enlace de emparejamiento en la máquina del asistente y pégalo aquí para volver a emparejar."
+    "importedTitle": "Vinculación importada",
+    "importedBody": "Esta vinculación es solo de acceso: funciona ahora, pero su acceso caduca y no puede renovarse por sí solo. Cuando caduque, genera un nuevo enlace de vinculación en la máquina del asistente y pégalo aquí para volver a vincular."
   },
   "connectRecoveryDialog": {
     "repairTitle": "¿Reparar el asistente?",

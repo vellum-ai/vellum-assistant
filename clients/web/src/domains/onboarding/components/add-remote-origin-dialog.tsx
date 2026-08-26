@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
-import { normalizePairingBaseUrl } from "@vellumai/service-contracts/remote-web-pairing";
+import { parsePairingAddress } from "@vellumai/service-contracts/remote-web-pairing";
 
 import {
-  normalizeOriginUrl,
   useRememberedOriginsStore,
   type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
@@ -20,17 +19,24 @@ interface AddRemoteOriginDialogProps {
   onClose: () => void;
   /**
    * Fired once the origin is remembered on this device, so the caller can
-   * navigate to it.
+   * navigate to it. `deviceCode` is the approved code a pasted pairing link
+   * carried, for the caller to spend on that navigation; it is never stored.
    */
-  onAdded: (origin: RememberedOrigin) => void;
+  onAdded: (origin: RememberedOrigin, deviceCode: string | null) => void;
 }
 
 /**
  * URL-only dialog for remembering a remote assistant origin in the hub
- * chooser. The address is validated as an https base on submit; invalid
+ * chooser. The field takes the same artifact every other pairing surface
+ * takes: a pairing link, whose approved device code rides out to the caller
+ * for the navigation, or the bare https base, which lands on the origin's own
+ * pair page to mint a code there. The address is validated on submit; invalid
  * input renders inline. No name field: the label arrives via pairing
  * artifacts (a `?register` handoff), so the hostname stands in as the
  * entry's title until then.
+ *
+ * Only the base is remembered. The device code is one-time credential
+ * material: it stays in this call and never reaches the origin store.
  */
 function AddRemoteOriginDialog({
   open,
@@ -63,12 +69,12 @@ function AddRemoteOriginDialog({
       return;
     }
     // Reduce an address copied out of a browser to the public base the store
-    // remembers: the app-route tail is dropped, a path prefix survives
+    // remembers, keeping the device code a pairing link carries: the app-route
+    // tail is dropped, a path prefix survives
     // (`https://host/assistant-123/assistant/pair` yields
     // `https://host/assistant-123`).
-    const parsed = normalizeOriginUrl(url);
-    const normalized = parsed === null ? null : normalizePairingBaseUrl(parsed);
-    if (normalized === null) {
+    const parsed = parsePairingAddress(url);
+    if (!parsed.ok) {
       setError(
         "Enter the full https address, like https://example.com/assistant-1.",
       );
@@ -79,9 +85,9 @@ function AddRemoteOriginDialog({
     try {
       const result = await useRememberedOriginsStore
         .getState()
-        .addOrigin({ url: normalized });
+        .addOrigin({ url: parsed.publicBaseUrl });
       if (result.ok) {
-        onAdded(result.origin);
+        onAdded(result.origin, parsed.deviceCode);
         return;
       }
       setError(ADD_FAILED_COPY);

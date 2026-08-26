@@ -20,8 +20,12 @@ let nativeSwitchAccepts = true;
 const nativeSwitchToOriginMock = mock(
   async (_url: string | null) => nativeSwitchAccepts,
 );
+const nativeSwitchToOriginPathMock = mock(
+  async (_url: string | null, _path: string) => nativeSwitchAccepts,
+);
 mock.module("@/runtime/self-hosted-servers", () => ({
   nativeSwitchToOrigin: nativeSwitchToOriginMock,
+  nativeSwitchToOriginPath: nativeSwitchToOriginPathMock,
 }));
 
 let remoteGatewayMode = false;
@@ -58,6 +62,7 @@ beforeEach(() => {
   publicBaseUrl = "https://gateway.example/assistant-1";
   assignMock.mockClear();
   nativeSwitchToOriginMock.mockClear();
+  nativeSwitchToOriginPathMock.mockClear();
 });
 
 describe("switchToOrigin", () => {
@@ -94,6 +99,38 @@ describe("switchToOrigin", () => {
     await switchToOrigin(origin("https://host.example"));
 
     expect(assignMock).toHaveBeenCalledWith("https://host.example/assistant");
+  });
+
+  test("a device code lands on the origin's pair page carrying the code", async () => {
+    await switchToOrigin(origin("https://host.example/assistant-1"), "CODE-1");
+
+    expect(assignMock).toHaveBeenCalledWith(
+      "https://host.example/assistant-1/assistant/pair#device_code=CODE-1",
+    );
+  });
+
+  test("a native shell swaps origin and route together for a device code", async () => {
+    isNativeMobileValue = true;
+
+    await switchToOrigin(origin("https://host.example"), "CODE-1");
+
+    expect(nativeSwitchToOriginPathMock).toHaveBeenCalledWith(
+      "https://host.example",
+      "pair#device_code=CODE-1",
+    );
+    expect(nativeSwitchToOriginMock).not.toHaveBeenCalled();
+    expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("a shell without path support still reaches the pair page", async () => {
+    isNativeMobileValue = true;
+    nativeSwitchAccepts = false;
+
+    await switchToOrigin(origin("https://host.example"), "CODE-1");
+
+    expect(assignMock).toHaveBeenCalledWith(
+      "https://host.example/assistant/pair#device_code=CODE-1",
+    );
   });
 });
 

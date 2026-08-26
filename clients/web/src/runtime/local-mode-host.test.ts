@@ -491,6 +491,39 @@ describe("pairing hosts", () => {
     });
   });
 
+  // The renderer localizes a refused address off `rejection`, so the seam has
+  // to carry it rather than leaving only the host's English behind.
+  test("web/dev host carries the address rejection across the seam", async () => {
+    globalThis.fetch = mock(async () => ({
+      json: async () => ({
+        ok: false,
+        reason: "invalid-address",
+        error: "That address points back at this machine.",
+        rejection: "loopback",
+      }),
+    })) as unknown as typeof fetch;
+
+    expect(await pairingStartHost("https://localhost:7830")).toMatchObject({
+      reason: "invalid-address",
+      rejection: "loopback",
+    });
+  });
+
+  test("Electron host carries the address rejection across the bridge", async () => {
+    setElectronBridge({
+      pairingStart: mock(async () => ({
+        ok: false as const,
+        reason: "invalid-address" as const,
+        error: "That address points back at this machine.",
+        rejection: "loopback" as const,
+      })),
+    });
+
+    expect(await pairingStartHost("https://localhost:7830")).toMatchObject({
+      rejection: "loopback",
+    });
+  });
+
   test("Electron host pairs through the bridge and never touches fetch", async () => {
     const pairingStart = mock(async () => started);
     const pairingPoll = mock(async () => ({

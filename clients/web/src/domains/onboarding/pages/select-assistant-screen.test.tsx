@@ -79,7 +79,9 @@ const addOriginMock = mock(
     },
   }),
 );
-const switchToOriginMock = mock(async (_origin: RememberedOrigin) => {});
+const switchToOriginMock = mock(
+  async (_origin: RememberedOrigin, _deviceCode?: string) => {},
+);
 const nativeSwitchToOriginMock = mock(async (_url: string | null) => true);
 let isNativeMobileValue = false;
 const installNativeRememberedOriginsMock = mock(() => {});
@@ -195,13 +197,13 @@ mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
   ConnectAssistantDialog: ({
     open,
     initialAddress,
-    guidanceMessage,
+    guidanceKind,
     onClose,
     onImported,
   }: {
     open: boolean;
     initialAddress?: string;
-    guidanceMessage?: string;
+    guidanceKind?: "legacy" | "generic";
     onClose: () => void;
     onImported: (assistantId: string) => void;
   }) =>
@@ -209,7 +211,7 @@ mock.module("@/domains/onboarding/components/connect-assistant-dialog", () => ({
       <div>
         Connect dialog open
         {initialAddress && <div>{`address:${initialAddress}`}</div>}
-        {guidanceMessage && <div>{guidanceMessage}</div>}
+        {guidanceKind && <div>{`guidance:${guidanceKind}`}</div>}
         <button onClick={onClose}>Close dialog</button>
         <button onClick={() => onImported("paired-new")}>
           Simulate import
@@ -228,7 +230,7 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
   }: {
     open: boolean;
     onClose: () => void;
-    onAdded: (origin: RememberedOrigin) => void;
+    onAdded: (origin: RememberedOrigin, deviceCode: string | null) => void;
   }) =>
     open ? (
       <div>
@@ -236,13 +238,29 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
         <button onClick={onClose}>Close add dialog</button>
         <button
           onClick={() =>
-            onAdded({
-              url: "https://added.example/assistant-1",
-              addedAt: "2026-01-01T00:00:00.000Z",
-            })
+            onAdded(
+              {
+                url: "https://added.example/assistant-1",
+                addedAt: "2026-01-01T00:00:00.000Z",
+              },
+              null,
+            )
           }
         >
           Simulate origin add
+        </button>
+        <button
+          onClick={() =>
+            onAdded(
+              {
+                url: "https://added.example/assistant-1",
+                addedAt: "2026-01-01T00:00:00.000Z",
+              },
+              "DEVICE-CODE-1",
+            )
+          }
+        >
+          Simulate paired origin add
         </button>
       </div>
     ) : null,
@@ -807,18 +825,16 @@ describe("SelectAssistantScreen paired assistants", () => {
     expect(screen.getByText("address:https://gw.example.com")).toBeTruthy();
   });
 
-  test("an address-less connect deep link opens the dialog with its guidance copy", () => {
-    useConnectDialogStore.getState().openConnectDialog({
-      guidanceMessage: "Paste the pairing link from the assistant's machine.",
-    });
+  test("an address-less connect deep link opens the dialog with its guidance kind", () => {
+    useConnectDialogStore
+      .getState()
+      .openConnectDialog({ guidanceKind: "legacy" });
     localModeHostAvailableValue = true;
     assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
 
     render(<SelectAssistantScreen />);
 
-    expect(
-      screen.getByText("Paste the pairing link from the assistant's machine."),
-    ).toBeTruthy();
+    expect(screen.getByText("guidance:legacy")).toBeTruthy();
   });
 
   test("closing the dialog clears the parked deep-link payload", () => {
@@ -1289,9 +1305,26 @@ describe("SelectAssistantScreen add-remote-assistant affordance", () => {
     await waitFor(() =>
       expect(switchToOriginMock).toHaveBeenCalledWith(
         expect.objectContaining({ url: "https://added.example/assistant-1" }),
+        undefined,
       ),
     );
     expect(screen.queryByText("Add origin dialog open")).toBeNull();
+  });
+
+  test("a pasted pairing link carries its device code into the switch", async () => {
+    assistantsValue = [makePairedAssistant(), makePlatformAssistant()];
+
+    render(<SelectAssistantScreen />);
+
+    fireEvent.click(screen.getByText("Add a remote assistant"));
+    fireEvent.click(screen.getByText("Simulate paired origin add"));
+
+    await waitFor(() =>
+      expect(switchToOriginMock).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "https://added.example/assistant-1" }),
+        "DEVICE-CODE-1",
+      ),
+    );
   });
 
   test("closing the dialog leaves the chooser untouched", () => {

@@ -15,7 +15,10 @@
  * interface; the renderer references the payload types (from `./types.ts`)
  * in its ambient declaration.
  */
-import type { PairingFailureReason } from "@vellumai/service-contracts/remote-web-pairing";
+import type {
+  PairingFailureReason,
+  PublicBaseUrlRejection,
+} from "@vellumai/service-contracts/remote-web-pairing";
 
 import type {
   AppVersionInfo,
@@ -84,11 +87,17 @@ export type ElectronHostOS = "macos" | "windows";
  */
 export type LocalPairingFailureReason = PairingFailureReason;
 
-/** A refused pairing step. `error` is ready to display. */
+/**
+ * A refused pairing step. `error` is ready to display, and is what a caller
+ * with no copy of its own shows. `rejection` accompanies an `invalid-address`
+ * refusal and says why the address was refused, so a localized caller renders
+ * its own catalog copy instead of the host's English.
+ */
 export interface LocalPairingFailure {
   ok: false;
   error: string;
   reason?: LocalPairingFailureReason;
+  rejection?: PublicBaseUrlRejection;
 }
 
 /**
