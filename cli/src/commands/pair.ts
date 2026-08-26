@@ -278,11 +278,9 @@ export async function pair(): Promise<void> {
   const jsonOutput = rawArgs.includes("--json");
   const webApproval = rawArgs.includes("--web-approve");
   const appVariant = rawArgs.includes("--app");
-  // `--qr` is accepted and ignored, not retired: QR output is unconditional,
-  // and iOS builds already on devices carry Settings copy naming
-  // `vellum pair --qr` (the in-repo plist drops the flag, but those installs
-  // never receive that text). Kept out of --help: a compatibility shim, not
-  // part of the command's surface.
+  // `--qr` is accepted and ignored: QR output is unconditional, and iOS
+  // Settings copy in the field names `vellum pair --qr`. Out of --help as a
+  // compatibility shim, not part of the command's surface.
   let args = rawArgs.filter(
     (a) => a !== "--json" && a !== "--app" && a !== "--qr",
   );

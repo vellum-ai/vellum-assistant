@@ -223,8 +223,9 @@ The advertised URL must be public HTTPS — e.g.
 refuses loopback, private-network, plain-HTTP, and tunnel-provider website
 addresses. It mints a pairing challenge and approves it locally (running it on
 the host is the proof of presence), then prints the pairing link and the same
-link rendered as a QR code. The QR and the printed link are one artifact in two
-renderings.
+link rendered as a QR code, one artifact in two renderings. The exception is
+`vellum pair --app`, whose QR carries an app link instead, with the https link
+printed beneath it (see [Using the Vellum iOS app](#5-using-the-vellum-ios-app)).
 
 On the device you're pairing:
 
@@ -298,8 +299,15 @@ Approve this pairing on the assistant's machine:
 Run that command on the host and the import finishes on the next poll. The
 **Pair a device** card approves the same codes without the terminal: pending
 requests appear there with their code, so you can check it against what the
-waiting device shows and click **Approve**. Codes expire in 10 minutes like
-any other, and Ctrl-C on the waiting device cancels the attempt.
+waiting device shows and click **Approve**, or **Deny** to turn it down. Codes
+expire in 10 minutes like any other.
+
+Ctrl-C on the waiting device stops that side only. It drops the code that
+device was holding, so the attempt can no longer complete, but the request
+itself stays in the host's pending list, still shown and still approvable,
+until it expires 10 minutes after it was minted. To withdraw it before then,
+click **Deny** beside it on the **Pair a device** card; the CLI has no deny
+command.
 
 ## 5. Using the Vellum iOS app
 
