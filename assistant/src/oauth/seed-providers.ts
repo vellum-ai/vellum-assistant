@@ -706,6 +706,12 @@ export const PROVIDER_SEED_DATA: Record<
     // adds expiry/refresh/revocation but is opt-in per app version in the
     // Developer Center and posts JSON (not form-encoded) credentials, so it
     // is deliberately not used here.
+    //
+    // Scopes below are restricted to what the legacy Developer Center
+    // actually offers. items:read/items:write exist only on the OAuth 2.1
+    // authorization server; requesting them here makes monday reject the
+    // entire authorization request with invalid_scope, because every
+    // requested scope must be enabled on the app.
     defaultScopes: [
       "me:read",
       "account:read",
@@ -714,9 +720,8 @@ export const PROVIDER_SEED_DATA: Record<
       "workspaces:read",
       "boards:read",
       "boards:write",
-      "items:read",
-      "items:write",
       "docs:read",
+      "docs:write",
       "updates:read",
       "updates:write",
       "assets:read",
@@ -741,7 +746,6 @@ export const PROVIDER_SEED_DATA: Record<
         scope: "teams:read",
         description: "Read information about the account's teams",
       },
-      { scope: "teams:write", description: "Modify the account's teams" },
       {
         scope: "workspaces:read",
         description: "Read a user's workspaces data",
@@ -752,8 +756,6 @@ export const PROVIDER_SEED_DATA: Record<
       },
       { scope: "boards:read", description: "Read a user's board data" },
       { scope: "boards:write", description: "Modify a user's board data" },
-      { scope: "items:read", description: "Read a user's item data" },
-      { scope: "items:write", description: "Modify a user's item data" },
       { scope: "docs:read", description: "Read a user's docs" },
       { scope: "docs:write", description: "Modify a user's docs" },
       {
