@@ -75,10 +75,10 @@ export function appIconNameForAvatar(state: AvatarState | null): string | null {
 
 /**
  * True when the applied icon is one this feature put there, whatever the
- * avatar says today. Settings needs this to keep offering Reset after a
- * successful match, and after an avatar changes to one with no icon of its
- * own: the applied name is the only record that we ever swapped, since nothing
- * here resets an icon on its own.
+ * avatar says today. The applied name is the only record that anything was ever
+ * swapped, since nothing here resets an icon on its own, so this is what lets
+ * {@link traitsForAppIconName} read a pair back out of it and what keeps
+ * Settings previewing the icon a user chose after their avatar moves on.
  */
 export function isAvatarAppIcon(name: string | null): boolean {
   return name !== null && name.startsWith(AVATAR_ICON_PREFIX);

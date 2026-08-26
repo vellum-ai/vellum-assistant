@@ -2,13 +2,12 @@
  * The shell's alternate-app-icon snapshot, shared by every `useAppIconSync`
  * consumer.
  *
- * This is one fact about one device, and more than one surface asks about it:
- * the root match prompt and the settings card are mounted at the same time
- * whenever the Privacy page is open. Held per hook instance, an apply from one
- * leaves the other reporting the icon that was applied before it, so the card
- * keeps offering "Match avatar" for an icon that is already on the home screen
- * and pressing it fires a second iOS swap alert. Held here, both re-render on
- * the same write.
+ * This is one fact about one device: which alternate the home screen shows and
+ * which ones the installed build carries. Held per hook instance, a surface
+ * that mounts beside another reports the icon that was applied before it, so it
+ * draws a stale preview and lets the user press Set on an icon they already
+ * have, which fires a second iOS swap alert. Held here, every consumer
+ * re-renders on the same write.
  *
  * The store is a cache of what the shell last answered, never a wish: only
  * `useAppIconSync`'s refresh writes it, always from `getAppIconState()`.

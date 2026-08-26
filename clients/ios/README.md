@@ -352,6 +352,17 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   icon is unchanged and actool writes the avatar sets into `CFBundleIcons` ->
   `CFBundleAlternateIcons` (and the `~ipad` variant), which
   `AppIconPlugin.swift` reads back at runtime.
+- Which alternate is showing is a user's choice, made in the web app under
+  Settings -> General -> Preferences -> App icon
+  (`clients/web/src/domains/settings/components/app-icon-modal.tsx`) and gated
+  on the dark `ios-avatar-app-icon` flag. The picker cycles eyes and color over
+  the same component library the artwork is generated from, seeds from the
+  assistant's avatar in one tap when that avatar is a character one, and resets
+  back to the target's primary icon. Applying is always a press: iOS puts up a
+  system alert of its own on every icon change, so nothing swaps on its own.
+  A composed name is applied only when the installed shell lists it in
+  `available`, which is how an old shell running new web reads as a disabled
+  button rather than a failed swap.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.

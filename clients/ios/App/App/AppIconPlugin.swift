@@ -3,8 +3,8 @@ import Foundation
 import UIKit
 
 /// Capacitor plugin exposing the alternate app icons this build ships, so the
-/// web layer (`clients/web/src/runtime/app-icon.ts`) can match the home-screen
-/// icon to the assistant's character avatar.
+/// web layer (`clients/web/src/runtime/app-icon.ts`) can put the icon a user
+/// picked in Settings on the home screen.
 ///
 /// Methods:
 /// - `getState` resolves `{ supported, current, available }`. `available` is
