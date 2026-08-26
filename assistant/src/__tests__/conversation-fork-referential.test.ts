@@ -38,6 +38,11 @@ import {
   memoryRetrospectiveState,
   messages,
 } from "../persistence/schema/index.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
+import { loadRetrospectiveRunMessages } from "../plugins/defaults/memory/memory-retrospective-fork-boundary.js";
 import { getWorkspaceConfigPath } from "../util/platform.js";
 
 await initializeDb();
@@ -415,5 +420,62 @@ describe("referential forking with unfinalized rows", () => {
       "here is a first pass",
       "tweak the timeline",
     ]);
+  });
+
+  test("loadRetrospectiveRunMessages attributes only owned rows on a reference fork", async () => {
+    const source = await seedSource("Launch");
+    setForkStrategy("reference");
+    const tip = getMessages(source.id).at(-1)!;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    const instruction = await addMessage(
+      fork.id,
+      "user",
+      "review this conversation",
+      {
+        metadata: {
+          kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+          hidden: true,
+        },
+        skipIndexing: true,
+      },
+    );
+    const remember = await addMessage(fork.id, "assistant", "remembered a fact", {
+      skipIndexing: true,
+    });
+
+    const runRows = await loadRetrospectiveRunMessages(
+      fork.id,
+      MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    );
+    expect(runRows?.map((m) => m.id)).toEqual([instruction.id, remember.id]);
+    expect(runRows?.every((m) => m.conversationId === fork.id)).toBe(true);
+  });
+
+  test("loadRetrospectiveRunMessages returns an empty owned tail on a reference fork with no run rows", async () => {
+    const source = await seedSource("Launch");
+    setForkStrategy("reference");
+    const tip = getMessages(source.id).at(-1)!;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // Lineage still presents the source prefix, but none of those rows are
+    // owned by the fork. Empty owned set is determined output, not
+    // indeterminate.
+    expect(getMessages(fork.id).length).toBeGreaterThan(0);
+    const runRows = await loadRetrospectiveRunMessages(
+      fork.id,
+      MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    );
+    expect(runRows).toEqual([]);
   });
 });
