@@ -43,6 +43,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -478,12 +479,13 @@ const PHONE_NO_SETUP_FLOWS_RULE =
  * caller's language (the transcriber is already listening in it, see
  * media-stream-stt-session.ts and providers/speech-to-text/resolve.ts), so it
  * outranks the English default; "multi" and unset mean auto-detect, where
- * English remains the fallback. The pin only counts when the active provider
+ * English remains the fallback. The pin only counts when the provider
  * honors manual language selection (see pinnedListeningLanguage):
  * auto-detecting providers (gemini, whisper) ignore a persisted language
  * entirely, so greeting in it would contradict what the transcriber
- * actually hears. Exported for tests: the default test config exercises
- * only the auto-detect branch.
+ * actually hears. `sttProvider` is the telephony role's catalog key, since
+ * that is the transcriber the caller is heard by. Exported for tests: the
+ * default test config exercises only the auto-detect branch.
  */
 export function preSpeechLanguageRuleFragment(
   sttLanguage: string | undefined,
@@ -590,7 +592,7 @@ function buildVoiceCallControlPrompt(opts: {
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
     `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, config.services.stt.provider)}.`,
+    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
     `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 

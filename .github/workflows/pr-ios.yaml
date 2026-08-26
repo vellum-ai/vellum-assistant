@@ -8,11 +8,6 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/ios/**'
-      # The launcher and app icon assets embed the quirky eye geometry; the
-      # drift tests in clients/ios/scripts/__tests__ pin them to the avatar
-      # component library.
-      - 'assistant/src/avatar/**'
-      - 'clients/android/app/src/main/res/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
       - '.github/workflows/pr-ios.yaml'
@@ -50,13 +45,6 @@ jobs:
         working-directory: clients/web
         run: bun install --frozen-lockfile --filter=@vellumai/web
 
-      - name: Check app icon geometry drift
-        working-directory: clients/ios
-        # Asserts the icon assets still embed the avatar library's eye
-        # geometry verbatim. Runs from `clients/ios` because the repo-root
-        # `test-preload.ts` rejects a root `bun test`.
-        run: bun test scripts/__tests__/
-
       - name: Capacitor sync
         working-directory: clients/web
         env:
@@ -74,6 +62,21 @@ jobs:
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
+
+      - name: Unit tests
+        working-directory: clients/ios/App
+        # The `AppTests` bundle links none of the app targets, so this costs
+        # seconds rather than a second full build. The simulator is picked at
+        # runtime: the runner image's device names follow whichever iOS
+        # runtime ships with Xcode.
+        run: |
+          simulator=$(xcrun simctl list devices available --json \
+            | jq -er '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          xcodebuild test \
+            -project App.xcodeproj \
+            -scheme AppTests \
+            -destination "platform=iOS Simulator,id=$simulator" \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Build (unsigned)
         working-directory: clients/ios/App

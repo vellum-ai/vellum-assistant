@@ -1,21 +1,69 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
 import {
-  clearCheckoutIntent,
-  readCheckoutIntent,
-  saveCheckoutIntent,
-} from "@/lib/billing/checkout-intent";
-import { nativeAuthErrorDetail } from "@/domains/account/native-auth-error";
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
-import { ONBOARDED_HATCH_AGE_MS } from "@/domains/onboarding/onboarded-assistant";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { routes } from "@/utils/routes";
+type StartAuthOptions = {
+  baseURL: string;
+  loginHint?: string;
+  intent?: string;
+  attribution?: Record<string, string>;
+  postAuthDestination: string;
+};
 
-import {
+let nativePlatform = false;
+let platform = "web";
+
+const startAuth = mock(async (_options: StartAuthOptions) => ({
+  sessionToken: "session-token",
+}));
+const readInstallReferrer = mock(
+  async (): Promise<{ referrer?: string }> => ({}),
+);
+
+const nativePlugins: Record<string, unknown> = {
+  NativeAuth: { startAuth, consumeRestoredAuth: async () => ({}) },
+  InstallReferrer: { read: readInstallReferrer },
+};
+
+mock.module("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => nativePlatform,
+    getPlatform: () => platform,
+  },
+  registerPlugin: (name: string) => nativePlugins[name] ?? {},
+}));
+
+// `completeNativeLogin` polls the session endpoint before navigating. Answer
+// "authenticated" immediately so the native tests don't sit through the
+// backoff or reach the network.
+mock.module("@/lib/auth/allauth-client", () => ({
+  getSession: async () => ({ ok: true, data: { user: { id: "user-1" } } }),
+}));
+
+const {
   clearStaleNativeCheckoutStash,
   resolveNativePostAuthDestination,
   startAuthFlow,
-} from "./native-auth";
+  startNativeLogin,
+} = await import("./native-auth");
+const { clearCheckoutIntent, readCheckoutIntent, saveCheckoutIntent } =
+  await import("@/lib/billing/checkout-intent");
+const { nativeAuthErrorDetail } = await import(
+  "@/domains/account/native-auth-error"
+);
+const { ONBOARDED_HATCH_AGE_MS } = await import(
+  "@/domains/onboarding/onboarded-assistant"
+);
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
+const { routes } = await import("@/utils/routes");
 
 describe("resolveNativePostAuthDestination", () => {
   beforeEach(() => {
@@ -209,5 +257,237 @@ describe("clearStaleNativeCheckoutStash", () => {
       kind: "package",
       packageKey: "super",
     });
+  });
+});
+
+describe("startAuthFlow attribution on native", () => {
+  const INSTALL_REFERRER_KEY = "device:install_referrer";
+  const originalLocation = Object.getOwnPropertyDescriptor(window, "location");
+
+  /**
+   * Swap in a plain `location`: happy-dom would try to navigate on the `href`
+   * assignment that ends the flow, and a plain object lets the test read back
+   * the destination that was chosen.
+   */
+  function setLocation(search: string): void {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: {
+        protocol: "https:",
+        host: "app.vellum.ai",
+        search,
+        href: "https://app.vellum.ai/account/signup",
+      },
+    });
+  }
+
+  function lastStartAuthOptions(): StartAuthOptions {
+    const options = startAuth.mock.calls.at(-1)?.[0];
+    if (!options) {
+      throw new Error("startAuth was never called");
+    }
+    return options;
+  }
+
+  async function runSignup(): Promise<void> {
+    await startAuthFlow("workos", "/account/provider/callback", {
+      intent: "signup",
+      returnTo: "/assistant/home",
+    });
+  }
+
+  beforeEach(() => {
+    nativePlatform = true;
+    platform = "android";
+    localStorage.clear();
+    sessionStorage.clear();
+    clearCheckoutIntent();
+    useResolvedAssistantsStore.setState({ assistants: [] });
+    // Keep `completeNativeLogin`'s biometric branch out of the way; it is
+    // opt-out, so an unset preference would reach the secure-storage plugin.
+    localStorage.setItem("device:biometric_enabled", "false");
+    mock.clearAllMocks();
+    startAuth.mockResolvedValue({ sessionToken: "session-token" });
+    readInstallReferrer.mockResolvedValue({});
+    setLocation("");
+  });
+
+  afterEach(() => {
+    nativePlatform = false;
+    platform = "web";
+    useResolvedAssistantsStore.setState({ assistants: [] });
+  });
+
+  afterAll(() => {
+    if (originalLocation) {
+      Object.defineProperty(window, "location", originalLocation);
+    }
+  });
+
+  test("forwards the allowlisted URL params to the shell", async () => {
+    setLocation("?utm_source=newsletter&utm_campaign=spring&not_a_param=x");
+
+    await runSignup();
+
+    expect(startAuth).toHaveBeenCalledTimes(1);
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "newsletter",
+      utm_campaign: "spring",
+    });
+    // A live URL source short-circuits the install-referrer bridge entirely.
+    expect(readInstallReferrer).not.toHaveBeenCalled();
+  });
+
+  test("captures and forwards the Play install referrer when the URL has none", async () => {
+    readInstallReferrer.mockResolvedValueOnce({
+      referrer: "utm_source=google-play&utm_medium=organic&anid=admob",
+    });
+
+    await runSignup();
+
+    expect(readInstallReferrer).toHaveBeenCalledTimes(1);
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "google-play",
+      utm_medium: "organic",
+    });
+  });
+
+  test("omits attribution entirely when neither source has any", async () => {
+    await runSignup();
+
+    const options = lastStartAuthOptions();
+    expect(Object.keys(options).sort()).toEqual([
+      "baseURL",
+      "intent",
+      "postAuthDestination",
+    ]);
+    expect(options).toEqual({
+      baseURL: "https://app.vellum.ai",
+      intent: "signup",
+      postAuthDestination: "/assistant/onboarding/privacy",
+    });
+  });
+
+  test("sends one source, never a merge of both", async () => {
+    setLocation("?utm_source=newsletter");
+    localStorage.setItem(
+      INSTALL_REFERRER_KEY,
+      "utm_source=google-play&utm_medium=organic&gclid=abc123",
+    );
+
+    await runSignup();
+
+    // The platform stores a row as one coherent source, so the stored
+    // referrer's fields must not be spliced into the URL's.
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "newsletter",
+    });
+  });
+
+  test("an explicit attribution option outranks both discovered sources", async () => {
+    setLocation("?utm_source=newsletter");
+    localStorage.setItem(INSTALL_REFERRER_KEY, "utm_source=google-play");
+
+    await startAuthFlow("workos", "/account/provider/callback", {
+      intent: "signup",
+      returnTo: "/assistant/home",
+      attribution: { utm_source: "explicit" },
+    });
+
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "explicit",
+    });
+  });
+
+  test("spends the stored referrer once the session is real", async () => {
+    localStorage.setItem(INSTALL_REFERRER_KEY, "utm_source=google-play");
+
+    await runSignup();
+
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "google-play",
+    });
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe("");
+    expect(window.location.href).toBe("/assistant/onboarding/privacy");
+  });
+
+  test("resolves attribution on the direct login entry too", async () => {
+    // `login-page.tsx` calls `startNativeLogin` itself, and it is the entry an
+    // unauthenticated fresh Play install actually reaches.
+    setLocation("?utm_source=newsletter&not_a_param=x");
+
+    await startNativeLogin({ returnTo: "/assistant/home" });
+
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "newsletter",
+    });
+  });
+
+  test("captures the install referrer on the direct login entry", async () => {
+    readInstallReferrer.mockResolvedValueOnce({
+      referrer: "utm_source=google-play&utm_medium=organic",
+    });
+
+    await startNativeLogin({ returnTo: "/assistant/home" });
+
+    expect(readInstallReferrer).toHaveBeenCalledTimes(1);
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "google-play",
+      utm_medium: "organic",
+    });
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe("");
+  });
+
+  test("a login that captured no referrer leaves the next one retryable", async () => {
+    // The shell answered nothing here, so this login had nothing to spend and
+    // the next flow gets to ask again.
+    await runSignup();
+    expect(lastStartAuthOptions().attribution).toBeUndefined();
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBeNull();
+
+    readInstallReferrer.mockResolvedValueOnce({
+      referrer: "utm_source=google-play&utm_medium=organic",
+    });
+    await runSignup();
+
+    expect(lastStartAuthOptions().attribution).toEqual({
+      utm_source: "google-play",
+      utm_medium: "organic",
+    });
+  });
+
+  test("an iOS login records no spend", async () => {
+    platform = "ios";
+
+    await runSignup();
+
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBeNull();
+  });
+
+  test("leaves the stored referrer in place when native auth fails", async () => {
+    localStorage.setItem(INSTALL_REFERRER_KEY, "utm_source=google-play");
+    startAuth.mockRejectedValueOnce(
+      Object.assign(new Error("auth failed"), { code: "AUTH_FAILED" }),
+    );
+
+    await expect(runSignup()).rejects.toThrow("auth failed");
+
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe(
+      "utm_source=google-play",
+    );
+  });
+
+  test("leaves the stored referrer in place when the user cancels", async () => {
+    localStorage.setItem(INSTALL_REFERRER_KEY, "utm_source=google-play");
+    startAuth.mockRejectedValueOnce(
+      Object.assign(new Error("cancelled"), { code: "USER_CANCELLED" }),
+    );
+
+    await runSignup();
+
+    expect(localStorage.getItem(INSTALL_REFERRER_KEY)).toBe(
+      "utm_source=google-play",
+    );
   });
 });

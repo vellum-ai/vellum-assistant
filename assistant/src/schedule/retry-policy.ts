@@ -41,15 +41,19 @@ export function decideRetry(
 export async function applyRetryDecision(params: {
   job: RetryPolicyJob;
   isOneShot: boolean;
-  errorMsg: string;
   decision: RetryDecision;
   scheduleRetry: (id: string, nextRetryAt: number) => void | Promise<void>;
   failOneShotPermanently: (id: string) => void | Promise<void>;
   resetRetryCount: (id: string) => void | Promise<void>;
-  emitAlert: (title: string, summary: string, dedupKey: string) => void;
+  /**
+   * Fired exactly once, when retries are exhausted. This is the single
+   * user-facing alert for a failed schedule (per-attempt failures are
+   * retried silently), and the caller owns its content and dedupe key.
+   */
+  emitAlert: () => void;
   log: Logger;
 }): Promise<void> {
-  const { job, isOneShot, errorMsg, decision } = params;
+  const { job, isOneShot, decision } = params;
 
   if (decision.action === "retry") {
     await params.scheduleRetry(job.id, decision.nextRetryAt);
@@ -69,11 +73,7 @@ export async function applyRetryDecision(params: {
     } else {
       await params.resetRetryCount(job.id);
     }
-    params.emitAlert(
-      `${job.name}: Retries exhausted`,
-      `Failed after ${job.retryCount + 1} attempt(s): ${errorMsg}`,
-      `schedule-retries-exhausted:${job.id}:${Date.now()}`,
-    );
+    params.emitAlert();
     params.log.warn(
       { jobId: job.id, name: job.name, attempts: job.retryCount + 1 },
       "Schedule retries exhausted",

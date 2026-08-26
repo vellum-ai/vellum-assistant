@@ -634,6 +634,26 @@ describe("default call protocol numbered rules", () => {
     }
   });
 
+  test("the pre-speech pin reads the telephony role, not the global provider", async () => {
+    // Whisper ignores services.stt.language, so reading the global provider
+    // drops the pin and opens in English. The caller is transcribed by the
+    // telephony role's deepgram, which is listening in Spanish.
+    setConfig("services", {
+      stt: {
+        provider: "openai-whisper",
+        language: "es",
+        roles: { telephony: { provider: "deepgram" } },
+      },
+    });
+    try {
+      const installed = captureInstalledPrompt();
+      await startVoiceTurn(makeTurnOptions());
+      expect(installed()).toContain('configured listening language ("es")');
+    } finally {
+      setConfig("services", {});
+    }
+  });
+
   test("a language pin on an auto-detecting provider keeps the English fallback", () => {
     // google-gemini and openai-whisper ignore services.stt.language entirely
     // (languageSelection: "auto"), so a persisted "es" pin must not force a
