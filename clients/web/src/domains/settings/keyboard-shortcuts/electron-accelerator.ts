@@ -128,9 +128,9 @@ export const eventToAccelerator = (
 };
 
 /**
- * Modifier spellings Electron treats as the platform's primary modifier.
- * Legacy Windows overrides were recorded as `Control+...`, which Electron
- * binds identically to `CmdOrCtrl+...` there, so both must compare equal.
+ * Modifier spellings Electron binds to the same physical key as `CmdOrCtrl`
+ * on each host (Command on macOS, Control on Windows), so accelerators that
+ * differ only in that spelling are the same chord.
  */
 const PRIMARY_ALIASES: Record<ElectronHostOS, ReadonlySet<string>> = {
   macos: new Set(["Command", "Cmd", "CommandOrControl"]),
