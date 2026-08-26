@@ -360,9 +360,11 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   assistant's avatar in one tap when that avatar is a character one, and resets
   back to the target's primary icon. Applying is always a press: iOS puts up a
   system alert of its own on every icon change, so nothing swaps on its own.
-  A composed name is applied only when the installed shell lists it in
-  `available`, which is how an old shell running new web reads as a disabled
-  button rather than a failed swap.
+  Version skew degrades in two layers, neither an error: a shell without the
+  `AppIcon` plugin reports unsupported, so the picker row does not render at
+  all, and on a shell that has the plugin a composed name is applied only when
+  the shell lists it in `available`, so a missing name reads as a disabled
+  Set button rather than a failed swap.
 - `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
   imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
   background with a centered white V — same palette as the icon.
