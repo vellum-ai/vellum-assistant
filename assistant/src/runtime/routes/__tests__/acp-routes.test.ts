@@ -1151,3 +1151,83 @@ describe("GET /v1/acp/sessions: retired markers do not accumulate past the page"
     expect(body.sessions.map((s) => s.id)).toContain("hist-live-marker");
   });
 });
+
+describe("GET /v1/acp/sessions: current markers are bounded too", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+
+  test("only the newest marked run escapes the page", async () => {
+    // Repeated failures against a credential that is still current all keep
+    // their markers, since nothing clears them. The restore path takes the
+    // newest marked run and stops, so letting the rest escape would grow the
+    // response by a full event log apiece for no one's benefit.
+    for (let i = 0; i < 5; i++) {
+      insertHistoryRow({
+        id: `hist-marked-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-marked-${i}`,
+        parentConversationId: "conv-repeat",
+        startedAt: 1000 + i,
+        completedAt: 2000 + i,
+        status: "failed",
+        eventLogJson: "[]",
+        parentToolUseId: `tool-${i}`,
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: REFUSED,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      insertHistoryRow({
+        id: `hist-recent-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-recent-${i}`,
+        parentConversationId: "conv-repeat",
+        startedAt: 9000 + i,
+        completedAt: 9500 + i,
+        status: "completed",
+        eventLogJson: "[]",
+      });
+    }
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-repeat", limit: "2" },
+    })) as ResponseShape;
+
+    // The page, plus exactly one escaped marker: the newest of the five.
+    expect(body.sessions).toHaveLength(3);
+    expect(body.sessions[2].id).toBe("hist-marked-4");
+  });
+
+  test("markers inside the page are all returned", async () => {
+    // The cap is on escaping the page, not on markers as such.
+    for (let i = 0; i < 3; i++) {
+      insertHistoryRow({
+        id: `hist-inpage-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-inpage-${i}`,
+        parentConversationId: "conv-inpage",
+        startedAt: 1000 + i,
+        completedAt: 2000 + i,
+        status: "failed",
+        eventLogJson: "[]",
+        parentToolUseId: `tool-in-${i}`,
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: REFUSED,
+      });
+    }
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-inpage", limit: "10" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(3);
+    expect(
+      body.sessions.every(
+        (s) => s.authErrorCode === "acp_claude_auth_required",
+      ),
+    ).toBe(true);
+  });
+});

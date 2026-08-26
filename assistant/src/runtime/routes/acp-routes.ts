@@ -47,6 +47,23 @@ const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
 
 const log = getLogger("acp-routes");
 
+/**
+ * How many marked rows may escape the page.
+ *
+ * One, because one is what a client uses: the restore path takes the newest
+ * marked run and stops. `ordered` is newest-first, so that is the one this
+ * reaches. Repeated failures against a credential that is still current keep
+ * their markers, since nothing clears them, and letting every one escape would
+ * grow the response by a full event log apiece without limit.
+ *
+ * Safe to take only the newest because every marked row is one a client can
+ * use: the session manager sets `authErrorCode` only alongside a recovery
+ * anchor, which requires a spawning tool call and a run the user did not
+ * cancel. The client skips rows missing either, but the daemon never writes
+ * one.
+ */
+const MAX_ESCAPED_MARKERS = 1;
+
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;
 
@@ -915,9 +932,14 @@ function pageWithMarkedRows(
 ): SessionEntry[] {
   const page = ordered.slice(0, limit);
   const paged = new Set(page.map((s) => s.id));
+  let escaped = 0;
   for (const session of ordered) {
+    if (escaped >= MAX_ESCAPED_MARKERS) {
+      break;
+    }
     if (session.authErrorCode !== undefined && !paged.has(session.id)) {
       page.push(session);
+      escaped += 1;
     }
   }
   return page;
