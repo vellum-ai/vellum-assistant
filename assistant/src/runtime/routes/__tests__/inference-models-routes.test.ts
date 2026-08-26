@@ -76,7 +76,7 @@ describe("GET inference/models/openrouter/lookup", () => {
 
   test("404s when OpenRouter does not list the id", async () => {
     globalThis.fetch = (async () =>
-      new Response("{}", { status: 404 })) as typeof fetch;
+      new Response("{}", { status: 404 })) as unknown as typeof fetch;
     await expect(
       lookup({ queryParams: { id: "missing/model" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
@@ -95,7 +95,7 @@ describe("GET inference/models/openrouter/lookup", () => {
           },
         }),
         { status: 200 },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     await expect(
       lookup({ queryParams: { id: "openrouter/test-model" } }),
@@ -111,7 +111,7 @@ describe("GET inference/models/openrouter/lookup", () => {
   test("502s when OpenRouter is unreachable", async () => {
     globalThis.fetch = (async () => {
       throw new Error("network down");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     await expect(
       lookup({ queryParams: { id: "openrouter/test-model" } }),
     ).rejects.toBeInstanceOf(BadGatewayError);

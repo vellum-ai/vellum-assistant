@@ -61,7 +61,7 @@ describe("lookupOpenRouterModel", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await expect(lookupOpenRouterModel("x-ai/grok-4.6", fetchImpl)).resolves.toEqual(
       {
@@ -78,7 +78,7 @@ describe("lookupOpenRouterModel", () => {
     const fetchImpl = (async () =>
       new Response(JSON.stringify({ error: { message: "Not Found" } }), {
         status: 404,
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
 
     await expect(
       lookupOpenRouterModel("missing/model", fetchImpl),
@@ -90,7 +90,7 @@ describe("lookupOpenRouterModel", () => {
     const fetchImpl = (async () => {
       called = true;
       return new Response("{}", { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await expect(
       lookupOpenRouterModel("not-a-model", fetchImpl),

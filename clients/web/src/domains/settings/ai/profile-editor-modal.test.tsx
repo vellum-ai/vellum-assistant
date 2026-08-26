@@ -63,6 +63,16 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
       data: createdConnection,
       response: { ok: true, status: 200 },
     }),
+  inferenceModelsOpenrouterLookupGet: () =>
+    Promise.resolve({
+      data: { id: "tencent/hy3", displayName: "HY3" },
+      response: { ok: true, status: 200 },
+    }),
+  configPatch: () =>
+    Promise.resolve({
+      data: { llm: { customModels: { openrouter: [] } } },
+      response: { ok: true, status: 200 },
+    }),
 }));
 
 // Stub the credential hooks so the inline ProviderCreateForm renders without
@@ -1599,16 +1609,21 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     const modelInput = getInputByPlaceholder("provider/model-id");
     fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
 
+    // OpenRouter ids stay unselected until Add validates them against the API.
+    expect(getSaveBtn().disabled).toBe(true);
+    fireEvent.click(getButton("Add"));
+
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
     });
     fireEvent.click(getSaveBtn());
 
-    // THEN the typed id is persisted exactly as entered
+    // THEN the validated id is persisted, marked as an unlisted catalog id
     await waitFor(() => {
       expect(saveCalls.length).toBe(1);
     });
     expect(saveCalls[0].entry.model).toBe("tencent/hy3");
+    expect(saveCalls[0].entry.allowUnlisted).toBe(true);
   });
 
   test("withholds the custom-model option from a subscription-restricted connection", () => {
