@@ -1854,6 +1854,18 @@
     "subtitle": "Configure how your assistant transcribes speech",
     "title": "Speech-to-Text"
   },
+  "sttRoleOverrides": {
+    "clear": "Reset",
+    "clearFailed": "Could not reset",
+    "role": {
+      "batch": "File transcription",
+      "dictation": "Dictation",
+      "liveVoice": "Live voice",
+      "telephony": "Phone calls",
+      "watch": "Watch"
+    },
+    "title": "Per feature"
+  },
   "systemTasksSection": {
     "consolidationName": "Consolidation",
     "consolidationPausedHelper": "Memory is off, so consolidation is paused.",
