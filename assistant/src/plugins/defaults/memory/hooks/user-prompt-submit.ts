@@ -51,9 +51,9 @@ import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
-import { stripIncompatibleSkillCardsFromMessages } from "../substrate/skill-card-compatibility.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
+import { stripIncompatibleSkillCardsFromMessages } from "../v3/skill-card-compatibility.js";
 
 /**
  * Whether to run legacy graph-memory retrieval this turn. It gates BOTH

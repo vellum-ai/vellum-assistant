@@ -16,6 +16,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { getMemorySqlite } from "../persistence/db-connection.js";
+import { ensureMemoryV3EverInjectedSchema } from "../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import { setConfig } from "./helpers/set-config.js";
 
 let memoryState: {
@@ -91,6 +93,10 @@ describe("PKB injector v2 cutover behavior", () => {
   // passing a flag.
   beforeEach(() => {
     registerDefaultPluginInjectors();
+    const memorySqlite = getMemorySqlite();
+    if (memorySqlite) {
+      ensureMemoryV3EverInjectedSchema(memorySqlite);
+    }
     setV2Active(false);
     mkdirSync(getPkbRoot(), { recursive: true });
     writeFileSync(
