@@ -16,6 +16,7 @@ import {
   expect,
   mock,
   setSystemTime,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -374,6 +375,41 @@ describe("syncAvatarToPlatform", () => {
       key: expect.stringMatching(/^https:\/\/platform\.a\|asst-1\|image:/),
       syncedAt: start + AVATAR_SYNC_KEY_TTL_MS,
     });
+  });
+
+  test("arms an unref'd timer that re-uploads at the TTL without a caller", async () => {
+    const armed: Array<{ delay: number; fire: () => void }> = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const spy = spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      delay?: number,
+    ) => {
+      if (
+        delay !== undefined &&
+        delay > AVATAR_SYNC_KEY_TTL_MS - 1000 &&
+        delay <= AVATAR_SYNC_KEY_TTL_MS
+      ) {
+        armed.push({ delay, fire: fn });
+        return { unref: () => undefined } as unknown as NodeJS.Timeout;
+      }
+      return realSetTimeout(fn, delay);
+    }) as typeof setTimeout);
+    try {
+      syncAvatarToPlatform();
+      await settle();
+      expect(patches).toHaveLength(1);
+      expect(armed).toHaveLength(1);
+
+      setSystemTime(new Date(Date.now() + AVATAR_SYNC_KEY_TTL_MS));
+      armed[0]!.fire();
+      await settle();
+    } finally {
+      spy.mockRestore();
+      setSystemTime();
+    }
+
+    expect(patches).toHaveLength(2);
+    expect(armed).toHaveLength(2);
   });
 
   test("a corrupt persisted key re-uploads", async () => {

@@ -9,10 +9,11 @@
  * syncs. The last synced key is persisted outside the workspace repo at
  * `<protected dir>/platform-sync/avatar.json` so a daemon restart does not
  * re-upload an unchanged raster and the record never dirties the workspace.
- * A synced key older than `AVATAR_SYNC_KEY_TTL_MS` no longer dedups, whether
- * seeded from disk or set in-process, so an avatar lost server-side while id
- * and base URL are unchanged is re-pushed within a week even by a daemon
- * that never restarts (API-key auth cannot read the record to verify it).
+ * A synced key older than `AVATAR_SYNC_KEY_TTL_MS` does not dedup, whether
+ * seeded from disk or set in-process, and the queue re-enqueues itself when
+ * the key expires, so an avatar lost server-side while id and base URL are
+ * unchanged is re-pushed within a week even by a daemon that never restarts
+ * (API-key auth cannot read the record to verify it).
  * `avatar_base64: null` is sent only when the avatar is actually removed; a
  * non-none avatar whose raster is missing (image PNG gone, character
  * re-render unavailable) is skipped so the platform keeps the last synced
@@ -51,6 +52,7 @@ let queue: PlatformPatchQueue<void> | null = null;
 
 /** Recreates the queue so the next sync re-seeds its dedup key from disk. */
 export function _resetSyncAvatarStateForTests(): void {
+  queue?.dispose();
   queue = null;
 }
 
