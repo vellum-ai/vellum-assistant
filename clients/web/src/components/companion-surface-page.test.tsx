@@ -784,11 +784,9 @@ describe("the companion's own menu", () => {
 });
 
 /**
- * The glow is the assistant's own light, not the surface's.
- *
- * Before this, the resting colour came only from a running call, so a companion
- * nobody was talking to glowed the component's teal whatever colour the
- * assistant actually is.
+ * The glow is the assistant's own light, not the surface's: an idle companion
+ * with no call running glows its character's accent, and a running call's
+ * accent wins over it.
  */
 describe("the companion's accent colour", () => {
   const CHARACTER = {
@@ -812,8 +810,8 @@ describe("the companion's accent colour", () => {
   /**
    * The pill carries `--accent` in every phase; the glow only draws at rest.
    *
-   * Awaited, because the state the colour comes from arrives after mount the
-   * way it does from main, so the first render is always the default.
+   * Awaited, because the state the colour comes from arrives after mount, so
+   * the first render is always the default.
    */
   const expectAccent = async (
     container: HTMLElement,

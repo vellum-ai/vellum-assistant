@@ -166,8 +166,7 @@ export const Resting: Story = {
 /**
  * The same circle in an assistant's own colour, which is what the desktop
  * actually shows: the glow is the character's palette hex, not the surface's
- * teal default. Here to make the colour a thing that can be reviewed rather
- * than something only a live call ever produced.
+ * teal default. Here so the resting colour is reviewable without a live call.
  */
 export const RestingInItsOwnColour: Story = {
   args: {
