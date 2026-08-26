@@ -438,6 +438,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
     const proc = Bun.spawn({
       cmd: [bunPath, "--smol", workerPath, this.model, modelCacheDir],
+      windowsHide: true,
       env: { ...workerMemoryEnv(), ...workerComputeEnv() },
       stdin: "pipe",
       stdout: "pipe",
