@@ -149,8 +149,11 @@ export interface BusEventMap {
    */
   "download.started": { filename: string };
   /**
-   * Terminal report for a download the Electron main process saved (or
-   * failed to save) on this window's behalf. `id` accompanies
+   * Terminal report for an Electron-host download: pushed by the main
+   * process once it saved (or failed to save) a download this window
+   * started, and published by `saveFile` itself when a URL source fails to
+   * fetch before any download could start (the shell denies the anchor
+   * fallback, so that failure has no other signal). `id` accompanies
    * `state: "completed"` and keys the file-manager reveal
    * (`revealDownload`). Off Electron this never fires; the browser host
    * publishes `download.started` at handoff instead.

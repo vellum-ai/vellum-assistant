@@ -73,11 +73,14 @@ export async function saveFile(
   if (isElectron() && typeof source === "string") {
     try {
       saveFileWeb(await toBlob(source), filename);
-      return;
     } catch {
-      // Unreachable for same-origin sources. Fall through to the plain anchor
-      // rather than dropping the download entirely.
+      // No anchor fallback exists here: a cross-origin anchor click is a
+      // top-level navigation the shell denies, so no download would ever
+      // start and the failure would be silent. Report the terminal outcome
+      // on the same channel main uses so the one feedback owner shows it.
+      publish("download.done", { filename, state: "interrupted" });
     }
+    return;
   }
   saveFileWeb(source, filename);
   // Each host reports the download's outcome through the signal it actually
