@@ -146,8 +146,8 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     // provisioned in every environment, and it alone selects the upstream:
     // `provider` below is the provider-agnostic managed sentinel, so
     // `getManagedUpstream` resolves the real upstream from the model's catalog
-    // owner.
-    model: "claude-haiku-4-5-20251001",
+    // owner. This model is the one live-voice TTFT drives validated.
+    model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
     label: "Speed",
@@ -226,7 +226,7 @@ const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
     },
   },
   "latency-optimized-backup": {
-    model: "gemini-3.6-flash",
+    model: "claude-haiku-4-5-20251001",
     provider: "vellum",
     source: "managed",
     label: "Speed Backup",
