@@ -168,13 +168,16 @@ const options: BrowserOptions = {
     // rejections working-as-designed (TanStack/query#9877). Manual
     // captures are gated by `captureError()` + `isCancellationError()`;
     // these patterns close the same gap for the SDK's automatic paths.
-    // Each engine words the DOMException differently:
-    /^signal is aborted without reason$/, // Chromium, abort() without reason
-    /^The user aborted a request\.?$/, // Chromium (older), fetch abort
-    /^The operation was aborted\.?$/, // Firefox
-    /^Fetch is aborted$/, // Safari
-    /^AbortError:/, // WKWebView surfaces the name-prefixed form
-    /^CancelledError$/, // TanStack Query's cancellation sentinel
+    //
+    // Both patterns are anchored on the exception *type*: the inbound
+    // filter tests each pattern against the bare value and against
+    // `${type}: ${value}`, and a bare exception value never starts with
+    // its own type prefix. Anchoring this way covers every engine's
+    // wording of the abort DOMException while a first-party error whose
+    // message merely reads like one (say, an `ApiError` carrying "The
+    // operation was aborted.") stays reportable.
+    /^AbortError:/, // any AbortError-typed DOMException, all engines
+    /^Error: CancelledError$/, // TanStack Query's cancellation sentinel
   ],
   denyUrls: [
     // Browser-extension schemes.

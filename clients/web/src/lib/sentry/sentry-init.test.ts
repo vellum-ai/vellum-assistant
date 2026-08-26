@@ -249,4 +249,17 @@ describe("initSentry cancellation ignoreErrors", () => {
       matchesIgnoreErrors("Error", "Failed to create provider connection"),
     ).toBe(false);
   });
+
+  test("keeps first-party errors whose message merely reads like an abort", () => {
+    expect(matchesIgnoreErrors("ApiError", "The operation was aborted.")).toBe(
+      false,
+    );
+    expect(matchesIgnoreErrors("Error", "The user aborted a request.")).toBe(
+      false,
+    );
+    expect(
+      matchesIgnoreErrors("ApiError", "signal is aborted without reason"),
+    ).toBe(false);
+    expect(matchesIgnoreErrors("ApiError", "CancelledError")).toBe(false);
+  });
 });
