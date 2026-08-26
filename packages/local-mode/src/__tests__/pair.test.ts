@@ -161,6 +161,16 @@ const pendingBody = (
   ...overrides,
 });
 
+/** Resolve once `count` pairing requests are actually in flight. */
+const requestsInFlight = async (count: number): Promise<void> => {
+  while (fetchCalls.length < count) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+};
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 describe("pairAssistant", () => {
   test("writes the lockfile entry and guardian token with the exact CLI shapes and modes", () => {
     const result = pairAssistant([lockfilePath], configDir, {
@@ -579,7 +589,7 @@ describe("pairingStart", () => {
     expect(started.status).toBe(502);
   });
 
-  test("a refused challenge is a gateway failure carrying the status", async () => {
+  test("a refused challenge is retryable and carries the status", async () => {
     respond = () => json(429, { error: { code: "RATE_LIMITED" } });
 
     const started = await pairingStart("https://gw.example.com");
@@ -588,7 +598,8 @@ describe("pairingStart", () => {
     if (started.ok) {
       return;
     }
-    expect(started.reason).toBe("gateway");
+    // Nothing was minted, so the same address is worth another attempt.
+    expect(started.reason).toBe("gateway-retryable");
     expect(started.error).toContain("429");
   });
 
@@ -891,6 +902,35 @@ describe("pairingPoll", () => {
     expect(imported.ok).toBe(true);
   });
 
+  test("a repairable gateway refusal stays retryable and pollable", async () => {
+    respond = () => json(503, { error: { code: "GUARDIAN_REPAIR_REQUIRED" } });
+    const handle = await startFromLink();
+
+    const refused = await pairingPoll([lockfilePath], configDir, { handle });
+
+    expect(refused.ok).toBe(false);
+    if (refused.ok) {
+      return;
+    }
+    // The gateway releases the challenge on a repairable failure, so this is
+    // the retryable class rather than a settled rejection.
+    expect(refused.reason).toBe("gateway-retryable");
+    expect(refused.status).toBe(502);
+    expect(refused.error).toContain("503");
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+
+    // The same session exchanges the still-live code once the gateway is
+    // repaired; the user never has to mint and approve another one.
+    respond = () => json(200, approvedBody());
+    const imported = await pairingPoll([lockfilePath], configDir, { handle });
+    expect(imported.ok).toBe(true);
+    if (!imported.ok) {
+      return;
+    }
+    expect(imported.status).toBe("imported");
+    expect(fetchCalls).toHaveLength(2);
+  });
+
   test("an unusable approval body is a gateway failure", async () => {
     respond = () => json(200, { status: "approved" });
     const handle = await startFromLink();
@@ -1116,13 +1156,6 @@ describe("pairingCancel", () => {
     return () => release();
   };
 
-  /** Resolve once the exchange request is actually in flight. */
-  const exchangeInFlight = async (): Promise<void> => {
-    while (fetchCalls.length === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  };
-
   const startLinkSession = async (): Promise<string> => {
     const started = await pairingStart(
       "https://gw.example.com/assistant/pair#device_code=device-code-abc",
@@ -1137,7 +1170,7 @@ describe("pairingCancel", () => {
     const approve = heldApproval();
     const handle = await startLinkSession();
     const polled = pairingPoll([lockfilePath], configDir, { handle });
-    await exchangeInFlight();
+    await requestsInFlight(1);
 
     expect(pairingCancel(handle)).toBe(true);
     // The gateway approves anyway, after the caller walked away.
@@ -1164,7 +1197,7 @@ describe("pairingCancel", () => {
       });
     const handle = await startLinkSession();
     const polled = pairingPoll([lockfilePath], configDir, { handle });
-    await exchangeInFlight();
+    await requestsInFlight(1);
 
     expect(pairingCancel(handle)).toBe(true);
     const result = await polled;
@@ -1185,7 +1218,7 @@ describe("pairingCancel", () => {
     const approve = heldApproval();
     const handle = await startLinkSession();
     const polled = pairingPoll([lockfilePath], configDir, { handle });
-    await exchangeInFlight();
+    await requestsInFlight(1);
 
     approve();
     const result = await polled;
@@ -1207,6 +1240,52 @@ describe("pairingCancel", () => {
   test("a non-string handle is refused rather than throwing", () => {
     expect(pairingCancel(undefined)).toBe(false);
     expect(pairingCancel(7)).toBe(false);
+  });
+
+  test("a session the expiry sweep evicts mid-exchange persists nothing", async () => {
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    respond = async (call) => {
+      if (call.url.includes("pairing-challenge")) {
+        return json(
+          200,
+          challengeBody({
+            expiresAt: new Date(Date.now() + 200).toISOString(),
+          }),
+        );
+      }
+      await held;
+      return json(200, approvedBody());
+    };
+    const started = await pairingStart("https://gw.example.com");
+    expect(started.ok).toBe(true);
+    if (!started.ok) {
+      return;
+    }
+
+    const polled = pairingPoll([lockfilePath], configDir, {
+      handle: started.handle,
+    });
+    await requestsInFlight(2);
+    // The challenge's TTL runs out with the exchange still open, then any
+    // pairing entry point sweeps the session out of the map.
+    await sleep(300);
+    expect(pairingCancel("no-such-handle")).toBe(false);
+
+    // The gateway approves after the sweep, for a session nobody holds.
+    release();
+    const result = await polled;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe("unknown-session");
+    expect(result.status).toBe(404);
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+    expect(fs.existsSync(path.join(configDir, "assistants"))).toBe(false);
   });
 });
 

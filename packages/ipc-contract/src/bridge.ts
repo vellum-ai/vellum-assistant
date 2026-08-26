@@ -82,6 +82,7 @@ export type LocalPairingFailureReason =
   | "unknown-session"
   | "expired"
   | "unreachable"
+  | "gateway-retryable"
   | "gateway"
   | "import";
 

@@ -507,20 +507,25 @@ export async function removePairedAssistantFromLockfile(
 const PAIRING_FALLBACK_ERROR = "Failed to connect to that assistant.";
 
 /**
- * Pairing failures worth another attempt: the assistant could not be reached
- * at all, which is the transport class (a thrown fetch, a timeout, a refused
- * redirect, a body that errored mid-stream). The host leaves the session and
- * the device code untouched on those, so polling simply continues.
+ * Pairing failures worth another attempt, which are the two classes that leave
+ * the device code exchangeable host-side:
+ *
+ * - `unreachable`, the transport class (a thrown fetch, a timeout, a refused
+ *   redirect, a body that errored mid-stream). Nothing reached the assistant,
+ *   so the session and the code are untouched.
+ * - `gateway-retryable`, a non-200 the assistant answered with. The gateway
+ *   releases the challenge on a repairable failure (a transient error, or the
+ *   `GUARDIAN_REPAIR_REQUIRED` 503), so the same code stays exchangeable.
  *
  * Everything else is settled and ends the attempt. `invalid-address` and
  * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
- * one-time code is already spent; and `gateway` means the assistant ANSWERED
- * with something unusable (an over-cap body, credentials this device cannot
- * persist, an unexpected status), which is a definitive rejection rather than
- * a dropped connection. `vellum connect import` classifies the same way.
+ * one-time code is already spent; and `gateway` means the assistant answered
+ * with something this device cannot use (an over-cap body, credentials it
+ * cannot persist, a 200 that is not a pairing reply), past which the code is
+ * spent rather than released.
  */
 const RETRYABLE_PAIRING_REASONS: ReadonlySet<LocalPairingFailureReason> =
-  new Set(["unreachable"]);
+  new Set(["unreachable", "gateway-retryable"]);
 
 /**
  * Whether a refused pairing step is worth polling through. A host too old to

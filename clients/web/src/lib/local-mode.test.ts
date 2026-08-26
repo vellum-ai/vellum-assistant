@@ -651,13 +651,14 @@ describe("assistant pairing", () => {
     expect(await cancelAssistantPairing("handle-1")).toBeUndefined();
   });
 
-  test("only an unreachable host is worth polling through", () => {
+  test.each([
+    // Nothing reached the assistant, so the code is untouched.
+    "unreachable",
+    // The assistant refused with a status that released the code.
+    "gateway-retryable",
+  ] as const)("a %s failure is worth polling through", (reason) => {
     expect(
-      isRetryablePairingFailure({
-        ok: false,
-        reason: "unreachable",
-        error: "Could not reach that assistant.",
-      }),
+      isRetryablePairingFailure({ ok: false, reason, error: "not yet" }),
     ).toBe(true);
   });
 
@@ -665,6 +666,8 @@ describe("assistant pairing", () => {
     "invalid-address",
     "unknown-session",
     "expired",
+    // The assistant answered with something unusable, past which the code is
+    // spent rather than released.
     "gateway",
     "import",
   ] as const)("a %s failure ends the attempt", (reason) => {

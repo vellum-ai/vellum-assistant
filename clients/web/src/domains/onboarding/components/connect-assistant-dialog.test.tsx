@@ -37,6 +37,7 @@ type PairingFailureReason =
   | "unknown-session"
   | "expired"
   | "unreachable"
+  | "gateway-retryable"
   | "gateway"
   | "import";
 
@@ -83,7 +84,7 @@ mock.module("@/lib/local-mode", () => ({
   pollAssistantPairing: pollAssistantPairingMock,
   cancelAssistantPairing: cancelAssistantPairingMock,
   isRetryablePairingFailure: (failure: { reason?: PairingFailureReason }) =>
-    failure.reason === "unreachable",
+    failure.reason === "unreachable" || failure.reason === "gateway-retryable",
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
@@ -334,7 +335,7 @@ describe("ConnectAssistantDialog", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "Can't reach the assistant. Still trying until the code expires.",
+          "The assistant isn't ready to pair yet. Still trying until the code expires.",
         ),
       ).toBeTruthy(),
     );
@@ -359,6 +360,42 @@ describe("ConnectAssistantDialog", () => {
     expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
   });
 
+  test("a repairable gateway refusal retries without losing the approval code", async () => {
+    startAssistantPairingMock.mockImplementation(async () => ({
+      ...startedFromLink,
+      userCode: "ABCD-EFGH",
+    }));
+    let polls = 0;
+    pollAssistantPairingMock.mockImplementation(async () => {
+      polls += 1;
+      if (polls === 1) {
+        return {
+          ok: false,
+          reason: "gateway-retryable",
+          error: "The assistant could not finish the pairing (HTTP 503).",
+        };
+      }
+      return {
+        ok: true,
+        status: "imported",
+        assistantId: "paired-new",
+        accessOnly: false,
+      };
+    });
+    renderDialog();
+
+    fillAddress("https://gw.example.com");
+    fireEvent.click(screen.getByText("Connect"));
+
+    // The gateway released the code, so the approved session finishes on the
+    // next attempt rather than sending the user back to mint another code.
+    await waitFor(() =>
+      expect(onImportedMock).toHaveBeenCalledWith("paired-new"),
+    );
+    expect(cancelAssistantPairingMock).not.toHaveBeenCalled();
+    expect(pollAssistantPairingMock).toHaveBeenCalledTimes(2);
+  });
+
   test("a settled failure ends the session and returns to the form", async () => {
     startAssistantPairingMock.mockImplementation(async () => ({
       ...startedFromLink,
@@ -367,7 +404,8 @@ describe("ConnectAssistantDialog", () => {
     pollAssistantPairingMock.mockImplementation(async () => ({
       ok: false,
       reason: "gateway",
-      error: "The assistant's pairing reply could not be used (HTTP 502).",
+      error:
+        "The assistant approved the pairing but returned credentials this device cannot use.",
     }));
     renderDialog();
 
@@ -377,7 +415,7 @@ describe("ConnectAssistantDialog", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "The assistant's pairing reply could not be used (HTTP 502).",
+          "The assistant approved the pairing but returned credentials this device cannot use.",
         ),
       ).toBeTruthy(),
     );
@@ -407,7 +445,7 @@ describe("ConnectAssistantDialog", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "The pairing code expired before the assistant could be reached. Start over to get a new one.",
+          "The pairing code expired before the assistant was ready to pair. Start over to get a new one.",
         ),
       ).toBeTruthy(),
     );

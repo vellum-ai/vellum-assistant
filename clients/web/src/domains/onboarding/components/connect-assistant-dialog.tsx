@@ -59,9 +59,10 @@ const isPastDeadline = (expiresAt: string): boolean => {
  * The exchange itself runs in the local-mode host, so the device code and the
  * credentials it buys never reach the renderer; this component holds only the
  * opaque session handle. Settled host failures (an unusable address, an
- * expired code, a name collision) render inline and end the attempt, an
- * unreachable host is polled through until the code expires, and an
- * access-only pairing interposes an expiry warning before completing.
+ * expired code, a name collision) render inline and end the attempt, a host
+ * that is unreachable or not yet able to complete the exchange is polled
+ * through until the code expires, and an access-only pairing interposes an
+ * expiry warning before completing.
  */
 function ConnectAssistantDialog({
   open,
@@ -177,15 +178,16 @@ function ConnectAssistantDialog({
       }
 
       // The approval wait promises to run until the code is approved or
-      // expires, so an unreachable host backs off and polls again rather than
+      // expires, so a host that cannot be reached or answers a refusal that
+      // leaves the code exchangeable backs off and polls again rather than
       // abandoning a session the host is deliberately keeping alive. Minting
       // the challenge already proved this address reachable, so a later
-      // failure to reach it is transient.
+      // failure against it is transient.
       //
       // A pairing link is the other case: it opens a session without any
       // request, so nothing has proved the host is up, and there is no
-      // approval to wait for. An unreachable host is reported at once there
-      // instead of hanging for the link's full TTL.
+      // approval to wait for. A failure is reported at once there instead of
+      // hanging for the link's full TTL.
       const retryTransientFailures = started.userCode !== null;
       let expiresAt = started.expiresAt;
       let intervalSeconds = started.intervalSeconds;
