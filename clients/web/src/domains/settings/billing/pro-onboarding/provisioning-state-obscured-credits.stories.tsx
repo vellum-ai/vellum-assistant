@@ -23,20 +23,18 @@ import {
   takeoverQueryDecorator,
 } from "./takeover-story-support";
 
-// Writing the store during render would update every subscriber mid-render,
-// and the flag must not outlive these stories, so it is set in an effect and
-// handed back on unmount.
+// Written straight into the store rather than through `setFlags`, which layers
+// local and env overrides back on top (an override to `false` would win) and
+// marks the store hydrated as if a server response had landed. The write sits
+// in an effect because the tree below subscribes to this store, and the whole
+// previous state is handed back on unmount so nothing set here outlives the
+// story.
 const obscureCreditsDecorator: Decorator = function ObscureCreditsFlag(Story) {
   useLayoutEffect(() => {
-    const previous =
-      useClientFeatureFlagStore.getState().obscureCredits === true;
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: true }, null);
+    const previous = useClientFeatureFlagStore.getState();
+    useClientFeatureFlagStore.setState({ obscureCredits: true });
     return () => {
-      useClientFeatureFlagStore
-        .getState()
-        .setFlags({ obscureCredits: previous }, null);
+      useClientFeatureFlagStore.setState(previous, true);
     };
   }, []);
   return <Story />;
