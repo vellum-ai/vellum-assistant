@@ -66,6 +66,16 @@ export async function handleRemoteWebPairingToken(
   // device code is the credential either way; the id only selects per-device
   // revocability and body-delivered refresh.
   const deviceId = jsonStringField(body, "deviceId");
+  // A blank deviceId is a client bug, not a browser exchange: falling through
+  // to the cookie path would hand a host a credential it cannot read.
+  if (deviceId === null && typeof body.deviceId === "string") {
+    return noStore(
+      errorResponse("BAD_REQUEST", "deviceId must not be blank", 400),
+    );
+  }
+  // The single discriminator for both minting and delivery. Everything the
+  // browser path needs beyond it is data, never the branch condition.
+  const deviceBound = deviceId !== null;
   const clientReportedName = jsonStringField(body, "clientReportedName");
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
@@ -101,10 +111,10 @@ export async function handleRemoteWebPairingToken(
   let pair: RefreshableTokenPair;
   // Set on the browser path only: a device-bound pairing carries its refresh
   // token in the body, so there is no cookie to scope.
-  let refreshCookiePath: string | null = null;
+  let refreshCookiePath: string | undefined;
   try {
     guardianPrincipalId = await ensureVellumGuardianBinding();
-    if (deviceId) {
+    if (deviceBound) {
       pair = mintAndRecordDeviceBoundTokenPair({
         guardianPrincipalId,
         deviceId,
@@ -155,7 +165,15 @@ export async function handleRemoteWebPairingToken(
     assistantId: getExternalAssistantId(),
   };
 
-  if (refreshCookiePath) {
+  // Delivery follows the same discriminator the mint did. A browser exchange
+  // never serializes its refresh token into the body, whatever the cookie
+  // path helper returns.
+  if (deviceBound) {
+    approved.refreshToken = pair.refreshToken;
+    approved.refreshTokenExpiresAt = new Date(
+      pair.refreshTokenExpiresAt,
+    ).toISOString();
+  } else {
     for (const cookie of buildRemoteWebBrowserAuthCookies({
       refreshToken: pair.refreshToken,
       refreshTokenExpiresAtMs: pair.refreshTokenExpiresAt,
@@ -163,11 +181,6 @@ export async function handleRemoteWebPairingToken(
     })) {
       headers.append("Set-Cookie", cookie);
     }
-  } else {
-    approved.refreshToken = pair.refreshToken;
-    approved.refreshTokenExpiresAt = new Date(
-      pair.refreshTokenExpiresAt,
-    ).toISOString();
   }
 
   return Response.json(approved, { headers });
