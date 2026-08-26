@@ -2,26 +2,11 @@ import { z } from "zod";
 
 export const MemoryRetrospectiveConfigSchema = z
   .object({
-    // This kill switch exists only because conversation forking is expensive:
-    // a fork full-copies the source conversation (messages + attachments), so
-    // on a large conversation the retrospective's write burst can lock the
-    // SQLite table against other writers. Until forking is referential, an
-    // operator needs a way to stop retrospectives without turning off memory.
     enabled: z
       .boolean({ error: "memory.retrospective.enabled must be a boolean" })
       .default(true)
       .describe(
         "Whether the memory-retrospective background pass runs. When false, no retrospective is enqueued by any trigger (interval, message count, pre-compaction, scheduled sweep), the scheduled sweep job stops being queued, and any row already queued completes as a no-op. The rest of the memory system (extraction, retrieval, embeddings, `<memory>` injection) is unaffected. Use `memory.enabled` to disable memory as a whole.",
-      ),
-
-    forkStrategy: z
-      .enum(["cloning", "reference"], {
-        error:
-          "memory.retrospective.forkStrategy must be 'cloning' or 'reference'",
-      })
-      .default("cloning")
-      .describe(
-        "How a retrospective's fork of the source conversation is materialized. `cloning` (default) full-copies the source conversation's messages and attachments into the fork. `reference` makes the fork referential: it holds only its own messages and reads the source's through `fork_parent_message_id`, so a fork costs a single row instead of a full copy of the conversation.",
       ),
 
     timeThresholdMs: z
@@ -102,7 +87,7 @@ export const MemoryRetrospectiveConfigSchema = z
       })
       .default(false)
       .describe(
-        "When false (default), superseded retrospective conversations are deleted once a newer run succeeds — the persisted remembered_log on memory_retrospective_state is the dedup baseline (the most recent run is scanned only as a fallback for state rows that predate the log column), so older runs are dead weight (fork-based runs each carry a full copy of the source conversation's messages). Operators who want to retain the full run history set this to true; retained runs also skip the startup orphan sweep so they survive restarts.",
+        "When false (default), superseded retrospective conversations are deleted once a newer run succeeds. The persisted remembered_log on memory_retrospective_state is the dedup baseline (the most recent run is scanned only as a fallback for state rows that predate the log column), so older runs are leftover review transcripts. Operators who want to retain the full run history set this to true; retained runs also skip the startup orphan sweep so they survive restarts.",
       ),
 
     matchConversationProfile: z
@@ -130,6 +115,3 @@ export const MemoryRetrospectiveConfigSchema = z
 export type MemoryRetrospectiveConfig = z.infer<
   typeof MemoryRetrospectiveConfigSchema
 >;
-
-/** How a retrospective materializes its fork of the source conversation. */
-export type MemoryForkStrategy = MemoryRetrospectiveConfig["forkStrategy"];
