@@ -42,33 +42,22 @@ function isManagedProvider(provider: string): boolean {
 }
 
 /**
- * Languages that family serves. Outside them the relay refuses the dial, so
- * turning this on would leave the microphone dead rather than less precise.
- * Kept in step with `fluxSupportedLanguages` in the relay and
- * `FLUX_MULTILINGUAL_SUBTAGS` in the daemon.
+ * Whether the configured language has a model in that family, given the
+ * roster the daemon reports for this provider.
+ *
+ * An absent roster means the daemon predates the field, and an absent or
+ * code-switching language leaves the family to choose, so both read as
+ * supported rather than hiding a control that would work.
  */
-const TURN_DETECTING_LANGUAGES = new Set([
-  "de",
-  "en",
-  "es",
-  "fr",
-  "hi",
-  "it",
-  "ja",
-  "nl",
-  "pt",
-  "ru",
-]);
-
-/** Whether the configured language has a model in that family. */
 export function languageSupportsTurnDetection(
   language: string | undefined,
+  supported: readonly string[] | undefined,
 ): boolean {
   const normalized = language?.trim().toLowerCase();
-  if (!normalized || normalized === "multi") {
+  if (!normalized || normalized === "multi" || supported === undefined) {
     return true;
   }
-  return TURN_DETECTING_LANGUAGES.has(normalized.split("-")[0] ?? normalized);
+  return supported.includes(normalized.split("-")[0] ?? normalized);
 }
 
 interface SttShape {
@@ -110,12 +99,18 @@ export function TurnDetectionRow() {
     return null;
   }
 
-  const languageOk = languageSupportsTurnDetection(stt?.language);
+  const languageOk = languageSupportsTurnDetection(
+    stt?.language,
+    catalogEntry?.turnDetectionLanguages,
+  );
   // Managed live voice resolves to the turn-detecting family when nothing is
   // named, so an unset selection reads as on rather than off. Without that the
   // row would report a state the session does not run.
-  const named =
-    stt?.roles?.liveVoice?.model ?? stt?.providers?.[provider]?.model;
+  // A role entry is a complete selection to the daemon: it does not inherit
+  // `services.stt.providers.<id>.model`. Falling back to the global family
+  // when a role exists would report a family the session never runs.
+  const role = stt?.roles?.liveVoice;
+  const named = role ? role.model : stt?.providers?.[provider]?.model;
   const checked =
     named === undefined
       ? isManagedProvider(provider) && languageOk
@@ -175,7 +170,9 @@ export function TurnDetectionRow() {
       </p>
       <Toggle
         checked={checked}
-        disabled={saving || !languageOk}
+        // Never disabled while on: a language change can strand a session
+        // the resolver now refuses, and this is the only visible way back.
+        disabled={saving || (!languageOk && !checked)}
         onChange={(next) => void apply(next)}
         aria-label={t("voicePage.turnDetectionLabel")}
       />

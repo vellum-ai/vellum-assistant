@@ -17,6 +17,7 @@ import {
   baseModelFamilyFor,
   listProviderEntries,
   listProviderModelFamilies,
+  turnDetectionLanguagesFor,
 } from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
@@ -283,6 +284,11 @@ function handleListProviders() {
     // needs to write the non-variant family is not depending on array order
     // across the wire.
     baseModelFamily: baseModelFamilyFor(e.id),
+    // The spoken languages this provider's turn-detecting family serves, when
+    // it has one. Reported rather than left for a client to know, so the
+    // roster lives in one place instead of being copied into every surface
+    // that has to decide whether to offer turn detection.
+    turnDetectionLanguages: turnDetectionLanguagesFor(e.id),
     subtitle: e.subtitle,
     setupMode: e.setupMode,
     setupHint: e.setupHint,
@@ -474,6 +480,7 @@ export const ROUTES: RouteDefinition[] = [
           // Optional on the wire so older generated clients keep validating.
           modelFamilies: z.array(z.string()).optional(),
           baseModelFamily: z.string().optional(),
+          turnDetectionLanguages: z.array(z.string()).optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),

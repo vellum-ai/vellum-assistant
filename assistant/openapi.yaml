@@ -31226,6 +31226,10 @@ paths:
                             type: string
                         baseModelFamily:
                           type: string
+                        turnDetectionLanguages:
+                          type: array
+                          items:
+                            type: string
                         credentialsGuide:
                           type: string
                       required:
