@@ -88,7 +88,10 @@ import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
-import { SKILL_CARD_SUPPRESSIONS_METADATA_KEY } from "../plugins/defaults/memory/skill-card-suppression.js";
+import {
+  MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY,
+  SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
+} from "../plugins/defaults/memory/skill-card-suppression.js";
 import { renderCardsBlockInner } from "../plugins/defaults/memory/v3/render-injection.js";
 
 beforeEach(() => {
@@ -487,6 +490,48 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(rendered).toContain("Concept example.");
     expect(rendered).not.toContain("Real card.");
     expect(rendered).toContain("Adjacent concept.");
+  });
+
+  test("restart keeps a replaced metadata-less legacy block suppressed", async () => {
+    mockConversation = defaultConv();
+    const legacyBlock = [
+      "# memory/concepts/project.md",
+      "Old concept content.",
+      "# Skill: windows-automation",
+      'The "Windows Automation" skill (windows-automation) is available. Old card.',
+    ].join("\n\n");
+    const reconnectedBlock = renderCardsBlockInner([
+      '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Current card.',
+      "# memory/concepts/page-a.md\nCurrent concept.",
+    ]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Disconnected turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: legacyBlock,
+          [MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY]: ["conv-1"],
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "Reconnect turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: reconnectedBlock,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const rendered = JSON.stringify(conversation.getMessages());
+
+    expect(rendered).not.toContain("Old concept content.");
+    expect(rendered).not.toContain("Old card.");
+    expect(rendered).toContain("Current card.");
+    expect(rendered).toContain("Current concept.");
   });
 
   test("restart strips suppressed v1 skill entries and keeps ordinary memory", async () => {

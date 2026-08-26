@@ -13,6 +13,8 @@ const V1_SKILL_ENTRY_REGEX =
 export const SKILL_CARD_SUPPRESSIONS_METADATA_KEY =
   "memorySkillCardSuppressions";
 export const MEMORY_V3_CARD_SLUGS_METADATA_KEY = "memoryV3InjectedCardSlugs";
+export const MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY =
+  "memoryV3LegacyBlockSuppressions";
 
 function stripV2SkillSection(
   inner: string,
@@ -198,4 +200,27 @@ export function suppressedSkillIdsForConversation(
     (metadata as Record<string, unknown>)[SKILL_CARD_SUPPRESSIONS_METADATA_KEY],
   );
   return new Set(suppressions[conversationId] ?? []);
+}
+
+export function isMemoryV3LegacyBlockSuppressed(
+  metadata: unknown,
+  conversationId: string,
+): boolean {
+  if (metadata == null || typeof metadata !== "object") {
+    return false;
+  }
+  const suppressions = (metadata as Record<string, unknown>)[
+    MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY
+  ];
+  return normalizeMemoryV3LegacyBlockSuppressions(suppressions).includes(
+    conversationId,
+  );
+}
+
+export function normalizeMemoryV3LegacyBlockSuppressions(
+  value: unknown,
+): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
+    : [];
 }

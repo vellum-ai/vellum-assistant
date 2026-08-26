@@ -6,16 +6,16 @@ const realSkillStore = await import("../skill-store.js");
 let mockActive = true;
 const WINDOWS_CARD =
   '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Automates native Windows applications.';
-const getMessagesMock = mock(async (_conversationId: string) => [
-  {
-    id: "row-old",
-    metadata: JSON.stringify({
-      memoryV3InjectedBlock: WINDOWS_CARD,
-      memoryV3InjectedCardSlugs: ["skills/windows-automation"],
-      memorySkillCardSuppressions: { "conv-other": ["other-skill"] },
-    }),
-  },
-]);
+const persistedRow = {
+  id: "row-old",
+  metadata: JSON.stringify({
+    memoryV3InjectedBlock: WINDOWS_CARD,
+    memoryV3InjectedCardSlugs: ["skills/windows-automation"],
+    memorySkillCardSuppressions: { "conv-other": ["other-skill"] },
+  }),
+};
+let persistedRows = [persistedRow];
+const getMessagesMock = mock(async (_conversationId: string) => persistedRows);
 const updateMessageMetadataMock = mock(
   async (_messageId: string, _updates: Record<string, unknown>) => {},
 );
@@ -62,8 +62,58 @@ const { stripIncompatibleSkillCardsFromMessages } =
   await import("../skill-card-compatibility.js");
 
 beforeEach(() => {
+  persistedRows = [persistedRow];
   getMessagesMock.mockClear();
   updateMessageMetadataMock.mockClear();
+});
+
+test("persists row suppression for a stripped metadata-less legacy block", async () => {
+  const legacyBlock = [
+    "# memory/concepts/project.md",
+    "Concept lead.",
+    "# Skill: windows-automation",
+    'The "Windows Automation" skill (windows-automation) is available.',
+  ].join("\n\n");
+  persistedRows = [
+    {
+      id: "row-legacy",
+      metadata: JSON.stringify({ memoryV3InjectedBlock: legacyBlock }),
+    },
+    {
+      id: "row-not-live",
+      metadata: JSON.stringify({
+        memoryV3InjectedBlock: `${legacyBlock}\n\nDifferent stored occurrence.`,
+      }),
+    },
+  ];
+  const messages = [
+    {
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text: `<memory>\n${legacyBlock}\n</memory>`,
+        },
+      ],
+    },
+  ];
+
+  await stripIncompatibleSkillCardsFromMessages(
+    messages,
+    {
+      clientOs: "windows",
+      isInteractive: true,
+      sourceActorPrincipalId: "actor-a",
+      hostPlatforms: [],
+    },
+    { conversationId: "conv-1" },
+  );
+
+  expect(messages[0]!.content).toEqual([]);
+  expect(updateMessageMetadataMock).toHaveBeenCalledTimes(1);
+  expect(updateMessageMetadataMock).toHaveBeenCalledWith("row-legacy", {
+    memoryV3LegacyBlockSuppressions: ["conv-1"],
+  });
 });
 
 afterAll(() => {

@@ -427,6 +427,7 @@ export const messageMetadataSchema = z
      *  not import the memory feature. */
     memoryV3InjectedBlock: z.string().optional(),
     memoryV3InjectedCardSlugs: z.array(z.string()).optional(),
+    memoryV3LegacyBlockSuppressions: z.array(z.string()).optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

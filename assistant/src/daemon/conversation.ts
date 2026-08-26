@@ -72,6 +72,7 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  isMemoryV3LegacyBlockSuppressed,
   MEMORY_V3_CARD_SLUGS_METADATA_KEY,
   stripSuppressedSkillCards,
   suppressedSkillIdsForConversation,
@@ -1246,6 +1247,10 @@ export class Conversation {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
+            const suppressLegacyBlock = isMemoryV3LegacyBlockSuppressed(
+              meta,
+              this.conversationId,
+            );
             const legacyCardSlugs = Array.isArray(
               meta[MEMORY_V3_CARD_SLUGS_METADATA_KEY],
             )
@@ -1253,14 +1258,16 @@ export class Conversation {
                   (slug): slug is string => typeof slug === "string",
                 )
               : undefined;
-            const v3Resident = filterPrunedCardSections(
-              stripSuppressedSkillCards(
-                unwrapMemoryBlock(v3Block),
-                suppressedSkillIds,
-                { legacyCardSlugs },
-              ),
-              v3PrunedSlugs(),
-            );
+            const v3Resident = suppressLegacyBlock
+              ? ""
+              : filterPrunedCardSections(
+                  stripSuppressedSkillCards(
+                    unwrapMemoryBlock(v3Block),
+                    suppressedSkillIds,
+                    { legacyCardSlugs },
+                  ),
+                  v3PrunedSlugs(),
+                );
             if (v3Resident.length > 0) {
               content = [
                 { type: "text" as const, text: wrapMemoryBlock(v3Resident) },

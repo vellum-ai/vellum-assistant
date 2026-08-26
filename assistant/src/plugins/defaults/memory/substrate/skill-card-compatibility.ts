@@ -12,6 +12,8 @@ import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import { parseCardSections } from "./card-block-sections.js";
 import {
   MEMORY_V3_CARD_SLUGS_METADATA_KEY,
+  MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY,
+  normalizeMemoryV3LegacyBlockSuppressions,
   normalizeSkillCardSuppressions,
   SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
   stripSuppressedSkillCards,
@@ -50,23 +52,32 @@ export function filterCompatibleEverInjected(
 async function persistIncompatibleSkillSuppressions(
   conversationId: string,
   incompatibleIds: ReadonlySet<string>,
+  strippedLegacyBlocks: ReadonlySet<string>,
 ): Promise<void> {
   const rows = await getMessages(conversationId);
   await Promise.all(
     rows.map(async (row) => {
       const metadata = await parseMessageMetadata(row.metadata);
+      const v3Block = metadata?.memoryV3InjectedBlock;
+      const v3Inner =
+        typeof v3Block === "string" ? unwrapMemoryBlock(v3Block) : "";
+      const legacyCardSlugs = Array.isArray(
+        metadata?.[MEMORY_V3_CARD_SLUGS_METADATA_KEY],
+      )
+        ? metadata[MEMORY_V3_CARD_SLUGS_METADATA_KEY].filter(
+            (slug): slug is string => typeof slug === "string",
+          )
+        : undefined;
+      const suppressLegacyBlock =
+        v3Inner.length > 0 &&
+        !parseCardSections(v3Inner).framed &&
+        !legacyCardSlugs &&
+        strippedLegacyBlocks.has(v3Inner);
       const rowIncompatibleIds = [...incompatibleIds].filter((id) =>
         PERSISTED_BLOCK_KEYS.some((key) => {
           const block = metadata?.[key];
           const inner =
             typeof block === "string" ? unwrapMemoryBlock(block) : "";
-          const legacyCardSlugs = Array.isArray(
-            metadata?.[MEMORY_V3_CARD_SLUGS_METADATA_KEY],
-          )
-            ? metadata[MEMORY_V3_CARD_SLUGS_METADATA_KEY].filter(
-                (slug): slug is string => typeof slug === "string",
-              )
-            : undefined;
           if (
             key === "memoryV3InjectedBlock" &&
             !parseCardSections(inner).framed &&
@@ -82,21 +93,33 @@ async function persistIncompatibleSkillSuppressions(
           );
         }),
       );
-      if (rowIncompatibleIds.length === 0) {
+      if (rowIncompatibleIds.length === 0 && !suppressLegacyBlock) {
         return;
       }
       const suppressions = normalizeSkillCardSuppressions(
         metadata?.[SKILL_CARD_SUPPRESSIONS_METADATA_KEY],
       );
-      suppressions[conversationId] = [
-        ...new Set([
-          ...(suppressions[conversationId] ?? []),
-          ...rowIncompatibleIds,
-        ]),
-      ];
-      await updateMessageMetadata(row.id, {
-        [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: suppressions,
-      });
+      const updates: Record<string, unknown> = {};
+      if (rowIncompatibleIds.length > 0) {
+        suppressions[conversationId] = [
+          ...new Set([
+            ...(suppressions[conversationId] ?? []),
+            ...rowIncompatibleIds,
+          ]),
+        ];
+        updates[SKILL_CARD_SUPPRESSIONS_METADATA_KEY] = suppressions;
+      }
+      if (suppressLegacyBlock) {
+        const existing =
+          metadata?.[MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY];
+        updates[MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY] = [
+          ...new Set([
+            ...normalizeMemoryV3LegacyBlockSuppressions(existing),
+            conversationId,
+          ]),
+        ];
+      }
+      await updateMessageMetadata(row.id, updates);
     }),
   );
 }
@@ -116,6 +139,7 @@ export async function stripIncompatibleSkillCardsFromMessages(
   const incompatibleIds = new Set(incompatibleSkills.map((skill) => skill.id));
 
   let strippedBlocks = 0;
+  const strippedLegacyBlocks = new Set<string>();
   for (const message of messages) {
     if (message.role !== "user") {
       continue;
@@ -139,6 +163,9 @@ export async function stripIncompatibleSkillCardsFromMessages(
       }
       changed = true;
       strippedBlocks += 1;
+      if (!parseCardSections(inner).framed) {
+        strippedLegacyBlocks.add(inner);
+      }
       if (filtered.length > 0) {
         content.push({ type: "text", text: wrapMemoryBlock(filtered) });
       }
@@ -151,6 +178,7 @@ export async function stripIncompatibleSkillCardsFromMessages(
     await persistIncompatibleSkillSuppressions(
       options.conversationId,
       incompatibleIds,
+      strippedLegacyBlocks,
     );
   }
   return strippedBlocks;
