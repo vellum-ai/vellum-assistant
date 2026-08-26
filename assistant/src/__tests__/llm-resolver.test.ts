@@ -909,6 +909,25 @@ describe("mix profiles", () => {
     ).toBeUndefined();
   });
 
+  test("resolveSingleRouteProfileKey honors the dispatch resolvability predicate", () => {
+    // A pin whose provider dispatch cannot resolve (e.g. a force-deleted
+    // connection) must not be claimed as a scope: selection falls through to
+    // the active mix exactly as dispatch does, which then refuses to name a
+    // route.
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
+        overrideProfile: "a",
+        isResolvableProvider: () => false,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
+        overrideProfile: "a",
+        isResolvableProvider: () => true,
+      }),
+    ).toBe("a");
+  });
+
   test("all dereference spots in a turn agree for the same seed", () => {
     // mainAgent (mix as activeProfile) and a non-main call site resolving the
     // same mix as its call-site profile must pick the same arm when given the

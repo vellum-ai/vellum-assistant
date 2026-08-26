@@ -13,6 +13,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
+import { dispatchProviderResolvable } from "../providers/provider-resolvability.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
@@ -275,6 +276,9 @@ function resolveScheduleProviderScope(job: ScheduleJob): string | undefined {
       ...(job.inferenceProfile
         ? { overrideProfile: job.inferenceProfile }
         : {}),
+      // Dispatch's own resolvability predicate, so a stale pin dispatch
+      // rejected (force-deleted connection) is not accepted as the scope.
+      isResolvableProvider: dispatchProviderResolvable,
     });
   } catch {
     return undefined;

@@ -30,6 +30,7 @@ import type { AttentionHints } from "../notifications/signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import type { TitleOrigin } from "../persistence/conversation-title-service.js";
+import { dispatchProviderResolvable } from "../providers/provider-resolvability.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -415,11 +416,13 @@ export async function runBackgroundJob(
       };
       // The provider scope is the profile key the resolver actually used for
       // this call site (the override when usable, else the site's own
-      // winner), so failures on different provider routes cannot collapse
-      // into one notification. A mix winner, no named winner, or a config
-      // read failing on this path all yield no scope, and the key falls back
-      // to per-job: a mix's arm is picked per conversation and can span
-      // providers, so no single route can be named for it after the fact.
+      // winner), resolved with the same provider-resolvability predicate
+      // dispatch uses, so this recomputation cannot accept a profile that
+      // dispatch rejected (e.g. a pin whose connection was force-deleted).
+      // A mix winner, no named winner, or a config read failing on this path
+      // all yield no scope, and the key falls back to per-job: a mix's arm
+      // is picked per conversation and can span providers, so no single
+      // route can be named for it after the fact.
       let providerScope: string | undefined;
       try {
         providerScope = resolveSingleRouteProfileKey(
@@ -429,6 +432,7 @@ export async function runBackgroundJob(
             ...(opts.overrideProfile
               ? { overrideProfile: opts.overrideProfile }
               : {}),
+            isResolvableProvider: dispatchProviderResolvable,
           },
         );
       } catch {
