@@ -299,17 +299,34 @@ describe("QuestionPromptCard minimize", () => {
     expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
   });
 
-  test("a batch carries no position counter in either state", () => {
-    // The pager is the whole account of where you are in a batch. A counter
-    // beside it said the same thing twice, and in the minimized row it said it
-    // about rows that were no longer on screen.
+  test("a batch announces its position rather than drawing it", () => {
+    // The pager offers movement without saying where from, and the header has
+    // a wrapped question to fit on a phone. The count is carried by a status
+    // line a reader hears and a screen does not show.
     renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
-    expect(screen.queryByText("1 of 2")).toBeNull();
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("1 of 2");
+    expect(status.className).toContain("sr-only");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next question" }));
+
+    // A live region, so paging is heard rather than only reachable.
+    expect(screen.getByRole("status").textContent).toBe("2 of 2");
+  });
+
+  test("a minimized batch has no position to report", () => {
+    renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
     fireEvent.click(toggleButton());
 
-    expect(screen.queryByText("1 of 2")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  test("a single question announces no position at all", () => {
+    renderCard();
+
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   test("a minimized card keeps no chevron of its own", () => {
@@ -416,27 +433,11 @@ describe("QuestionPromptCard minimize", () => {
     expect(document.activeElement).toBe(toggleButton());
   });
 
-  test("the card advertises no swipe of its own", () => {
-    // The gesture is still there, on both pointer kinds. What is gone is the
-    // grabber bar that used to announce it: a shortcut for whoever finds it,
-    // not the way the card asks to be operated.
-    const GRABBER = '[data-slot="question-card-grabber"]';
-
-    const fine = renderCard();
-    expect(fine.container.querySelector(GRABBER)).toBeNull();
-
-    cleanup();
-    setPointer(true);
-    const coarse = renderCard();
-    expect(coarse.container.querySelector(GRABBER)).toBeNull();
-  });
-
   test("the hotkey badges follow the pointer changing under a mounted card", () => {
     // The pointer read is subscribed rather than sampled once, so a convertible
-    // folding into tablet mode reaches a card that is already on screen. The
-    // badges are what shows it now that the grabber is gone, and since
-    // `useSwipeEngine` reads the same signal this stands for the gesture arming
-    // and disarming with them.
+    // folding into tablet mode reaches a card that is already on screen.
+    // `useSwipeEngine` reads the same signal, so the badges standing down is
+    // the gesture arming.
     const { container } = renderCard();
 
     expect(hotkeyBadges(container)).not.toHaveLength(0);

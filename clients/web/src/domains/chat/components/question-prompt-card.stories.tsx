@@ -93,8 +93,8 @@ export const Expanded: Story = {
 /**
  * A batch. The pager shares the trailing cluster with the minimize chevron, and
  * both leave when the card minimizes, since each of them acts on rows that are
- * on screen. The pager is the whole account of where you are in the batch;
- * there is no counter beside it saying the same thing again.
+ * on screen. Which question you are on is announced to a screen reader and not
+ * drawn: a sighted reader has the options changing under them to say it.
  */
 export const Batched: Story = {
   args: { entries: [MARKONE, CADENCE] },
@@ -137,9 +137,8 @@ export const Minimized: Story = {
 };
 
 /**
- * A minimized batch, which is a plain one-line row: the pager has gone with the
- * options it pages between, and there is no counter left behind to describe a
- * batch the reader can no longer see.
+ * A minimized batch, which is a plain one-line row: no pager, since there are
+ * no options on screen to page between, and no position to report.
  */
 export const MinimizedBatched: Story = {
   args: { entries: [MARKONE, CADENCE] },
