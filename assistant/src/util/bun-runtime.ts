@@ -120,6 +120,11 @@ export function findBun(): string | undefined {
   return undefined;
 }
 
+/** Escape a string for a PowerShell single-quoted literal. */
+function psQuote(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 /**
  * Download a pinned bun release into the given directory.
  * Returns the absolute path to the downloaded binary.
@@ -154,7 +159,7 @@ async function downloadBun(installDir: string): Promise<string> {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            `Expand-Archive -LiteralPath '${tmpZip}' -DestinationPath '${installDir}' -Force`,
+            `Expand-Archive -LiteralPath '${psQuote(tmpZip)}' -DestinationPath '${psQuote(installDir)}' -Force`,
           ]
         : ["unzip", "-o", tmpZip, "-d", installDir],
       stdout: "ignore",

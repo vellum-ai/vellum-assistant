@@ -76,8 +76,7 @@ const log = getLogger("app-management-routes");
 
 function getSharedAppsDir(): string {
   const dir = join(getUserAppDataDir(), "vellum-assistant", "shared-apps");
-  // Pre-existing Linux installs wrote under the macOS path; keep reading it
-  // until the platform root has data of its own.
+  // The macOS path wins while it holds data and the platform root is empty.
   const legacy = join(
     homedir(),
     "Library",
