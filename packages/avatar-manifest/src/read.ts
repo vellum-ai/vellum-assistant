@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -14,8 +14,12 @@ export type WorkspaceAvatar =
   | { kind: "image"; imagePath: string }
   | { kind: "none" };
 
+/** Symlinked sidecars are treated as absent so a workspace cannot point them at host files. */
 function readJsonFile(filePath: string): unknown {
   try {
+    if (!lstatSync(filePath).isFile()) {
+      return undefined;
+    }
     return JSON.parse(readFileSync(filePath, "utf-8")) as unknown;
   } catch {
     return undefined;

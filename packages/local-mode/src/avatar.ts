@@ -27,14 +27,30 @@ type LockfileAssistantAvatarResult =
 
 const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-function readAvatarImage(imagePath: string): LockfileAssistantAvatarResult {
+function isBeneath(dir: string, filePath: string): boolean {
+  const rel = path.relative(dir, filePath);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
+ * Serve only a regular file that truly lives under the workspace: a symlinked
+ * PNG (or a symlinked ancestor) would let the workspace hand the renderer an
+ * arbitrary host file.
+ */
+function readAvatarImage(
+  workspaceDir: string,
+  imagePath: string,
+): LockfileAssistantAvatarResult {
   try {
-    const stats = fs.statSync(imagePath);
+    const stats = fs.lstatSync(imagePath);
     if (!stats.isFile()) {
       return { ok: false, error: "avatar image unreadable" };
     }
     if (stats.size > AVATAR_IMAGE_MAX_BYTES) {
       return { ok: false, error: "avatar image too large" };
+    }
+    if (!isBeneath(fs.realpathSync(workspaceDir), fs.realpathSync(imagePath))) {
+      return { ok: false, error: "avatar image unreadable" };
     }
     const imageBase64 = fs.readFileSync(imagePath).toString("base64");
     return { ok: true, avatar: { kind: "image", imageBase64 } };
@@ -61,14 +77,13 @@ export function readLockfileAssistantAvatar(
   if (!resolved.instanceDir) {
     return { ok: true, avatar: null };
   }
-  const avatar = readWorkspaceAvatar(
-    path.join(resolved.instanceDir, ".vellum", "workspace"),
-  );
+  const workspaceDir = path.join(resolved.instanceDir, ".vellum", "workspace");
+  const avatar = readWorkspaceAvatar(workspaceDir);
   switch (avatar.kind) {
     case "character":
       return { ok: true, avatar: { kind: "character", traits: avatar.traits } };
     case "image":
-      return readAvatarImage(avatar.imagePath);
+      return readAvatarImage(workspaceDir, avatar.imagePath);
     case "none":
       return { ok: true, avatar: null };
   }

@@ -767,6 +767,60 @@ describe("useChooserRowAvatar", () => {
       });
       expect(readAssistantAvatarHost).toHaveBeenCalledTimes(2);
     });
+    test("a host read stays cached within the stale window", async () => {
+      const wrapper = createWrapper();
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const first = renderHook(() => useChooserRowAvatar(localRow("other")), {
+        wrapper,
+      });
+      await waitFor(() => {
+        expect(first.result.current.traits).toEqual(traits);
+      });
+      first.unmount();
+
+      const second = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        { wrapper },
+      );
+      await waitFor(() => {
+        expect(second.result.current.traits).toEqual(traits);
+      });
+      await settle();
+      expect(readAssistantAvatarHost).toHaveBeenCalledTimes(1);
+    });
+
+    test("a host read goes stale so a later mount re-reads the disk", async () => {
+      const wrapper = createWrapper();
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const first = renderHook(() => useChooserRowAvatar(localRow("other")), {
+        wrapper,
+      });
+      await waitFor(() => {
+        expect(first.result.current.traits).toEqual(traits);
+      });
+      first.unmount();
+
+      setSystemTime(new Date(Date.now() + A_MINUTE_LATER));
+      const updated = { ...traits, color: "sunset-orange" };
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits: updated },
+      });
+      const second = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        { wrapper },
+      );
+      await waitFor(() => {
+        expect(second.result.current.traits).toEqual(updated);
+      });
+      expect(readAssistantAvatarHost).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe("forgetAssistantAvatar", () => {

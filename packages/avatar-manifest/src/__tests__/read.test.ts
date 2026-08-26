@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,5 +59,14 @@ describe("readWorkspaceAvatar", () => {
       kind: "character",
       traits,
     });
+  });
+
+  test("symlinked sidecars are treated as absent", () => {
+    const outside = join(workspaceDir, "outside.json");
+    writeFileSync(outside, JSON.stringify({ kind: "character", traits }));
+    mkdirSync(avatarDir, { recursive: true });
+    symlinkSync(outside, join(avatarDir, "avatar.json"));
+    symlinkSync(outside, join(avatarDir, "character-traits.json"));
+    expect(readWorkspaceAvatar(workspaceDir)).toEqual({ kind: "none" });
   });
 });

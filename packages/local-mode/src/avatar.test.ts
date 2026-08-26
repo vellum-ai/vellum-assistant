@@ -212,6 +212,39 @@ describe("readLockfileAssistantAvatar", () => {
     expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
   });
 
+  test("symlinked PNG is a failure even when it points inside the avatar dir", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+    writeAvatarFile("real.png", png);
+    fs.symlinkSync("real.png", path.join(avatarDir, "avatar-image.png"));
+
+    expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+  });
+
+  test("symlinked PNG escaping the workspace is a failure", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+    const secret = path.join(tempDir, "secret.txt");
+    fs.writeFileSync(secret, "host-only");
+    fs.symlinkSync(secret, path.join(avatarDir, "avatar-image.png"));
+
+    expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+  });
+
+  test("symlinked avatar dir escaping the workspace is a failure", () => {
+    const outside = path.join(tempDir, "outside");
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "avatar-image.png"), png);
+    fs.mkdirSync(path.dirname(avatarDir), { recursive: true });
+    fs.symlinkSync(outside, avatarDir);
+
+    expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+  });
+
   test("manifest image whose PNG is missing is a failure", () => {
     writeAvatarFile(
       "avatar.json",

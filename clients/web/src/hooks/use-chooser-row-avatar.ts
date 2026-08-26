@@ -83,6 +83,13 @@ const EMPTY_AVATAR: AvatarRead = { traits: null, imageUrl: null };
  */
 const EMPTY_AVATAR_STALE_TIME_MS = 60_000;
 
+/**
+ * A host read is a disk snapshot with no invalidation signal for a sibling
+ * assistant (only the active one broadcasts resource changes), so let it age
+ * out on a clock and re-read when the chooser is shown again.
+ */
+const HOST_AVATAR_STALE_TIME_MS = 60_000;
+
 /** Separate from `use-assistant-avatar`'s map so the two caches never revoke each other's URLs. */
 const activeBlobUrls = new Map<string, string>();
 
@@ -323,7 +330,7 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
     enabled:
       canReadRowAvatarViaHost(assistant) &&
       (!isConnectedRow || liveSettledEmpty),
-    staleTime: Infinity,
+    staleTime: HOST_AVATAR_STALE_TIME_MS,
     retry: false,
   });
   const hostConclusive = hostQuery.isSuccess && hostQuery.data.conclusive;
