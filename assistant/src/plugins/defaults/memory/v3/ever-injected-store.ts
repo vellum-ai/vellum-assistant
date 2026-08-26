@@ -27,7 +27,7 @@
  *     not contain, suppressing their re-injection forever.
  */
 
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 import { memoryV3EverInjected } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
@@ -41,6 +41,25 @@ const pendingReinjections = new Map<
 >();
 
 type MemoryDb = NonNullable<ReturnType<typeof memoryDbOrNull>>;
+
+function queueReinjections(
+  conversationId: string,
+  entries: Array<{ slug: string; bytes: number; injectedAt: number }>,
+): void {
+  if (entries.length === 0) {
+    return;
+  }
+  const pending = pendingReinjections.get(conversationId) ?? new Map();
+  const pruned = lastKnownPrunedSlugs.get(conversationId);
+  for (const entry of entries) {
+    pending.set(entry.slug, {
+      bytes: entry.bytes,
+      injectedAt: entry.injectedAt,
+    });
+    pruned?.delete(entry.slug);
+  }
+  pendingReinjections.set(conversationId, pending);
+}
 
 function persistPendingReinjections(
   mdb: MemoryDb,
@@ -79,6 +98,14 @@ function persistPendingReinjections(
   }
 }
 
+function retryPendingReinjections(mdb: MemoryDb, conversationId: string): void {
+  try {
+    persistPendingReinjections(mdb, conversationId);
+  } catch (err) {
+    log.warn({ err }, "failed to retry pending card accounting; continuing");
+  }
+}
+
 function currentPrunedSnapshot(conversationId: string): Set<string> {
   const slugs = new Set(lastKnownPrunedSlugs.get(conversationId) ?? []);
   for (const slug of pendingReinjections.get(conversationId)?.keys() ?? []) {
@@ -94,6 +121,13 @@ function currentPrunedSnapshot(conversationId: string): Set<string> {
  * in `conversation-crud.ts` so all three agree on the key.
  */
 export const MEMORY_V3_INJECTED_BLOCK_METADATA_KEY = "memoryV3InjectedBlock";
+/** Durable ordering marker used to recover a card whose accounting write failed. */
+export const MEMORY_V3_INJECTED_AT_METADATA_KEY = "memoryV3InjectedAt";
+
+export function _resetEverInjectedRuntimeStateForTests(): void {
+  lastKnownPrunedSlugs.clear();
+  pendingReinjections.clear();
+}
 
 export interface EverInjectedEntry {
   bytes: number;
@@ -133,8 +167,9 @@ export function getInjected(
 export function getActiveSlugs(conversationId: string): Set<string> {
   const mdb = memoryDbOrNull("getActiveSlugs");
   if (!mdb) {
-    return new Set();
+    return new Set(pendingReinjections.get(conversationId)?.keys() ?? []);
   }
+  retryPendingReinjections(mdb, conversationId);
   const rows = mdb
     .select({ slug: memoryV3EverInjected.slug })
     .from(memoryV3EverInjected)
@@ -145,7 +180,10 @@ export function getActiveSlugs(conversationId: string): Set<string> {
       ),
     )
     .all();
-  return new Set(rows.map((row) => row.slug));
+  return new Set([
+    ...rows.map((row) => row.slug),
+    ...(pendingReinjections.get(conversationId)?.keys() ?? []),
+  ]);
 }
 
 /** One active (resident) row of the prune valve's candidate set. */
@@ -166,9 +204,12 @@ export function getActiveEntries(
 ): ActiveInjectedEntry[] {
   const mdb = memoryDbOrNull("getActiveEntries");
   if (!mdb) {
-    return [];
+    return [...(pendingReinjections.get(conversationId) ?? [])].map(
+      ([slug, entry]) => ({ slug, ...entry }),
+    );
   }
-  return mdb
+  retryPendingReinjections(mdb, conversationId);
+  const rows = mdb
     .select({
       slug: memoryV3EverInjected.slug,
       bytes: memoryV3EverInjected.bytes,
@@ -182,6 +223,11 @@ export function getActiveEntries(
       ),
     )
     .all();
+  const entries = new Map(rows.map((row) => [row.slug, row]));
+  for (const [slug, entry] of pendingReinjections.get(conversationId) ?? []) {
+    entries.set(slug, { slug, ...entry });
+  }
+  return [...entries.values()];
 }
 
 /**
@@ -228,13 +274,10 @@ export function recordInjected(
   if (entries.length === 0) {
     return;
   }
-  const pending = pendingReinjections.get(conversationId) ?? new Map();
-  const pruned = lastKnownPrunedSlugs.get(conversationId);
-  for (const entry of entries) {
-    pending.set(entry.slug, { bytes: entry.bytes, injectedAt: at });
-    pruned?.delete(entry.slug);
-  }
-  pendingReinjections.set(conversationId, pending);
+  queueReinjections(
+    conversationId,
+    entries.map((entry) => ({ ...entry, injectedAt: at })),
+  );
   // Best-effort — a derived injection-accounting write must never abort the
   // agent turn, so a degraded memory connection or a failed statement only
   // logs a warning.
@@ -246,6 +289,53 @@ export function recordInjected(
     persistPendingReinjections(mdb, conversationId);
   } catch (err) {
     log.warn({ err }, "failed to record ever-injected cards; continuing");
+  }
+}
+
+/** Restore accounting from card blocks that were durably attached to messages. */
+export function reconcilePersistedInjections(
+  conversationId: string,
+  entries: Array<{ slug: string; bytes: number; injectedAt: number }>,
+): void {
+  if (entries.length === 0) {
+    return;
+  }
+  try {
+    const mdb = memoryDbOrNull("reconcilePersistedInjections");
+    if (!mdb) {
+      return;
+    }
+    const latest = new Map<string, (typeof entries)[number]>();
+    for (const entry of entries) {
+      const prior = latest.get(entry.slug);
+      if (!prior || entry.injectedAt > prior.injectedAt) {
+        latest.set(entry.slug, entry);
+      }
+    }
+    const stored = new Map(
+      mdb
+        .select({
+          slug: memoryV3EverInjected.slug,
+          injectedAt: memoryV3EverInjected.injectedAt,
+          prunedAt: memoryV3EverInjected.prunedAt,
+        })
+        .from(memoryV3EverInjected)
+        .where(eq(memoryV3EverInjected.conversationId, conversationId))
+        .all()
+        .map((row) => [row.slug, row]),
+    );
+    const recoverable = [...latest.values()].filter((entry) => {
+      const row = stored.get(entry.slug);
+      if (!row) {
+        return true;
+      }
+      const accountedThrough = row.prunedAt ?? row.injectedAt;
+      return entry.injectedAt > accountedThrough;
+    });
+    queueReinjections(conversationId, recoverable);
+    persistPendingReinjections(mdb, conversationId);
+  } catch (err) {
+    log.warn({ err }, "failed to reconcile persisted card accounting");
   }
 }
 
@@ -313,23 +403,10 @@ export function clearConversation(conversationId: string): void {
 
 /** Total bytes of resident (non-pruned) cards — the prune-valve input. */
 export function residentBytes(conversationId: string): number {
-  const mdb = memoryDbOrNull("residentBytes");
-  if (!mdb) {
-    return 0;
-  }
-  const row = mdb
-    .select({
-      total: sql<number>`COALESCE(SUM(${memoryV3EverInjected.bytes}), 0)`,
-    })
-    .from(memoryV3EverInjected)
-    .where(
-      and(
-        eq(memoryV3EverInjected.conversationId, conversationId),
-        isNull(memoryV3EverInjected.prunedAt),
-      ),
-    )
-    .get();
-  return row?.total ?? 0;
+  return getActiveEntries(conversationId).reduce(
+    (total, entry) => total + entry.bytes,
+    0,
+  );
 }
 
 /**

@@ -76,12 +76,32 @@ const realEverInjectedStore = {
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSlugs = new Set<string>();
+let mockReconciledInjections: Array<{
+  slug: string;
+  bytes: number;
+  injectedAt: number;
+}> = [];
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
   getPrunedSlugs: (conversationId: string) =>
     lifecycleStoreMockActive
       ? mockPrunedSlugs
       : realEverInjectedStore.getPrunedSlugs(conversationId),
+  reconcilePersistedInjections: (
+    conversationId: string,
+    entries: Array<{ slug: string; bytes: number; injectedAt: number }>,
+  ) => {
+    if (!lifecycleStoreMockActive) {
+      return realEverInjectedStore.reconcilePersistedInjections(
+        conversationId,
+        entries,
+      );
+    }
+    mockReconciledInjections = entries;
+    for (const entry of entries) {
+      mockPrunedSlugs.delete(entry.slug);
+    }
+  },
 }));
 
 import {
@@ -97,6 +117,7 @@ import { renderCardsBlockInner } from "../plugins/defaults/memory/v3/render-inje
 beforeEach(() => {
   lifecycleStoreMockActive = true;
   mockPrunedSlugs = new Set();
+  mockReconciledInjections = [];
 });
 
 afterAll(() => {
@@ -624,6 +645,35 @@ describe("loadFromDb metadata injection rehydration", () => {
     // No memory block at all — an instruction header with zero cards carries
     // no content (matches the live strip, which removes the emptied block).
     expect(messages[0].content).toEqual([{ type: "text", text: "First turn" }]);
+  });
+
+  test("durable injection metadata reconciles a stale prune before rehydration", async () => {
+    mockConversation = defaultConv();
+    mockPrunedSlugs = new Set(["page-a"]);
+    const card = "# memory/concepts/page-a.md\nhead a";
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Re-injection turn" }],
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: renderCardsBlockInner([card]),
+          memoryV3InjectedAt: 3_000,
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(mockReconciledInjections).toEqual([
+      {
+        slug: "page-a",
+        bytes: Buffer.byteLength(card, "utf8"),
+        injectedAt: 3_000,
+      },
+    ]);
+    expect(JSON.stringify(conversation.getMessages())).toContain("head a");
   });
 
   test("defensively-wrapped memoryV3InjectedBlock rehydrates singly-wrapped", async () => {

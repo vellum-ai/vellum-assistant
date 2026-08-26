@@ -72,6 +72,7 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
+  extractFramedCardEntries,
   isMemoryV3LegacyBlockSuppressed,
   MEMORY_V3_CARD_SLUGS_METADATA_KEY,
   stripSuppressedSkillCards,
@@ -79,7 +80,9 @@ import {
 } from "../plugins/defaults/memory/skill-card-suppression.js";
 import {
   getPrunedSlugs,
+  MEMORY_V3_INJECTED_AT_METADATA_KEY,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  reconcilePersistedInjections,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
 import {
@@ -1130,6 +1133,36 @@ export class Conversation {
     // in the HTTP-auth-disabled dev bypass, so a turn with no bound actor
     // resolves the same way on both paths.
     const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
+    const persistedV3Injections: Array<{
+      slug: string;
+      bytes: number;
+      injectedAt: number;
+    }> = [];
+    for (const message of slicedDbMessages.slice(preStrippedCount)) {
+      if (message.role !== "user" || !message.metadata) {
+        continue;
+      }
+      try {
+        const metadata = JSON.parse(message.metadata) as Record<
+          string,
+          unknown
+        >;
+        const block = metadata[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
+        const injectedAt = metadata[MEMORY_V3_INJECTED_AT_METADATA_KEY];
+        if (typeof block !== "string" || typeof injectedAt !== "number") {
+          continue;
+        }
+        const entries = extractFramedCardEntries(unwrapMemoryBlock(block));
+        if (entries) {
+          persistedV3Injections.push(
+            ...entries.map((entry) => ({ ...entry, injectedAt })),
+          );
+        }
+      } catch {
+        // Malformed metadata is ignored by the rehydration path below too.
+      }
+    }
+    reconcilePersistedInjections(this.conversationId, persistedV3Injections);
     // Pruned v3 card slugs, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
     // prune valve marks cards pruned in the everInjected store instead of

@@ -57,7 +57,10 @@ import {
   MEMORY_V3_CARD_SLUGS_METADATA_KEY,
 } from "../skill-card-suppression.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
-import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
+import {
+  MEMORY_V3_INJECTED_AT_METADATA_KEY,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+} from "../v3/ever-injected-store.js";
 import { stripIncompatibleSkillCardsFromMessages } from "../v3/skill-card-compatibility.js";
 
 /**
@@ -260,6 +263,7 @@ async function persistInjectionBlocks(
     if (blocks.memoryV3InjectedBlock) {
       metadataUpdates[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] =
         blocks.memoryV3InjectedBlock;
+      metadataUpdates[MEMORY_V3_INJECTED_AT_METADATA_KEY] = Date.now();
       const cardSlugs = extractFramedCardSlugs(blocks.memoryV3InjectedBlock);
       if (cardSlugs) {
         metadataUpdates[MEMORY_V3_CARD_SLUGS_METADATA_KEY] = cardSlugs;

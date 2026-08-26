@@ -61,14 +61,17 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 }));
 
 const {
+  _resetEverInjectedRuntimeStateForTests,
   clearConversation,
   forkEverInjected,
+  getActiveEntries,
   getActiveSlugs,
   getInjected,
   getPrunedSlugs,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected,
+  reconcilePersistedInjections,
   residentBytes,
   seedEverInjectedFromSlugs,
 } = await import("./ever-injected-store.js");
@@ -77,6 +80,7 @@ beforeEach(() => {
   storeMockActive = true;
   memoryDbAvailable = true;
   makeDb();
+  _resetEverInjectedRuntimeStateForTests();
   for (const conversationId of ["conv-1", "conv-parent", "conv-child"]) {
     clearConversation(conversationId);
   }
@@ -333,14 +337,14 @@ describe("fail-soft without a memory database", () => {
     expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
   });
 
-  test("reads return empty and writes no-op when the memory DB is unavailable", () => {
+  test("durable reads are empty while pending accounting remains active", () => {
     memoryDbAvailable = false;
     expect(() =>
       recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000),
     ).not.toThrow();
-    expect(getActiveSlugs("conv-1").size).toBe(0);
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
     expect(getInjected("conv-1").size).toBe(0);
-    expect(residentBytes("conv-1")).toBe(0);
+    expect(residentBytes("conv-1")).toBe(100);
     expect(() => clearConversation("conv-1")).not.toThrow();
   });
 
@@ -352,6 +356,11 @@ describe("fail-soft without a memory database", () => {
     memoryDbAvailable = false;
     recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
     expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveEntries("conv-1")).toEqual([
+      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
+    ]);
+    expect(residentBytes("conv-1")).toBe(140);
 
     memoryDbAvailable = true;
     expect(getPrunedSlugs("conv-1")).toEqual(new Set());
@@ -359,6 +368,35 @@ describe("fail-soft without a memory database", () => {
       bytes: 140,
       prunedAt: null,
     });
+  });
+
+  test("recovers a durable re-injection after runtime state is lost", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+
+    memoryDbAvailable = false;
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    memoryDbAvailable = true;
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
+    ]);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(residentBytes("conv-1")).toBe(140);
+  });
+
+  test("does not recover a persisted card older than its prune", () => {
+    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
+    markPruned("conv-1", ["topics/page-a"], 2_000);
+    _resetEverInjectedRuntimeStateForTests();
+
+    reconcilePersistedInjections("conv-1", [
+      { slug: "topics/page-a", bytes: 100, injectedAt: 1_500 },
+    ]);
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
   });
 });
 
@@ -401,6 +439,8 @@ describe("fail-soft when the underlying statement fails", () => {
     `);
     recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
     expect(getPrunedSlugs("conv-1")).toEqual(new Set());
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(residentBytes("conv-1")).toBe(140);
     expect(getInjected("conv-1").get("topics/page-a")?.prunedAt).toBe(2_000);
 
     memorySqlite.run("DROP TRIGGER fail_reinjection");

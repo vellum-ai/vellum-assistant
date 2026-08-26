@@ -1,4 +1,5 @@
 export {
+  extractFramedCardEntries,
   extractFramedCardSlugs,
   isMemoryV3LegacyBlockSuppressed,
   MEMORY_V3_CARD_SLUGS_METADATA_KEY,

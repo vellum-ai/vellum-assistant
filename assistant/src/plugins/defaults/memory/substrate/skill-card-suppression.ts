@@ -16,6 +16,11 @@ export const MEMORY_V3_CARD_SLUGS_METADATA_KEY = "memoryV3InjectedCardSlugs";
 export const MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY =
   "memoryV3LegacyBlockSuppressions";
 
+export interface FramedCardEntry {
+  slug: string;
+  bytes: number;
+}
+
 function stripV2SkillSection(
   inner: string,
   incompatibleIds: ReadonlySet<string>,
@@ -99,22 +104,30 @@ function legacyPiecesFromSlugs(
   };
 }
 
-export function extractFramedCardSlugs(inner: string): string[] | null {
+export function extractFramedCardEntries(
+  inner: string,
+): FramedCardEntry[] | null {
   const parsed = parseCardSections(inner);
   if (!parsed.framed) {
     return null;
   }
   return parsed.pieces.flatMap((piece) => {
     if (piece.kind === "card") {
-      return [piece.slug];
+      return [
+        { slug: piece.slug, bytes: Buffer.byteLength(piece.text, "utf8") },
+      ];
     }
     const skillId = extractSkillIdFromV3Card(piece.text);
     if (skillId) {
-      return [`skills/${skillId}`];
+      return [{ slug: `skills/${skillId}`, bytes: 0 }];
     }
     const command = piece.text.match(/^# CLI command: ([^\r\n]+)/)?.[1];
-    return command ? [`cli-commands/${command}`] : [];
+    return command ? [{ slug: `cli-commands/${command}`, bytes: 0 }] : [];
   });
+}
+
+export function extractFramedCardSlugs(inner: string): string[] | null {
+  return extractFramedCardEntries(inner)?.map((entry) => entry.slug) ?? null;
 }
 
 export function stripSuppressedSkillCards(

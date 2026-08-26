@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { frameCardSection } from "../card-block-sections.js";
 import {
+  extractFramedCardEntries,
   extractFramedCardSlugs,
   SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
   stripSuppressedSkillCards,
@@ -23,6 +24,17 @@ describe("skill card suppression", () => {
       "project",
       "skills/windows-automation",
       "cli-commands/status",
+    ]);
+    expect(extractFramedCardEntries(block)).toEqual([
+      {
+        slug: "project",
+        bytes: Buffer.byteLength(
+          "# memory/concepts/project.md\nConcept.",
+          "utf8",
+        ),
+      },
+      { slug: "skills/windows-automation", bytes: 0 },
+      { slug: "cli-commands/status", bytes: 0 },
     ]);
   });
 
