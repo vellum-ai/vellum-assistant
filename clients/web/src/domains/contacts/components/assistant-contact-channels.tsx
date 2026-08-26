@@ -3,6 +3,9 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
+import { useNavigate } from "react-router";
+
+import { routes } from "@/utils/routes";
 import { useTranslation } from "@/i18n";
 import type {
   AssistantChannelState,
@@ -101,6 +104,7 @@ function ChannelRow({
   onDisconnect,
 }: ChannelRowProps) {
   const { t } = useTranslation("contacts");
+  const navigate = useNavigate();
   // Two axes, two decisions. `configured` owns the action and the address,
   // because a channel that is merely not delivering still has credentials
   // worth keeping and an address worth showing, and offering Connect would
@@ -136,9 +140,11 @@ function ChannelRow({
               <Icon className="h-3 w-3" />
               {label}
             </span>
-            {/* No handler means no action exists for this row (email has no
-                disconnect route at all), so the button disappears rather than
-                sitting permanently disabled. */}
+            {/* No handler means no one-click disconnect exists for this row:
+                either the daemon predates the channel's delete route, or the
+                channel declares none because tearing it down is a multi-step
+                decision (email). The row links to the channel's panel, where
+                the real controls live, instead of a permanently dead button. */}
             {onDisconnect ? (
               <Button
                 variant="danger"
@@ -147,7 +153,16 @@ function ChannelRow({
               >
                 {pending ? t("actions.disconnecting") : t("actions.disconnect")}
               </Button>
-            ) : null}
+            ) : (
+              <Button
+                variant="outlined"
+                onClick={() =>
+                  navigate(`${routes.channels}?setup=${channel.key}`)
+                }
+              >
+                {t("actions.manage")}
+              </Button>
+            )}
           </>
         ) : onConnect ? (
           <Button variant="outlined" onClick={onConnect} disabled={pending}>
