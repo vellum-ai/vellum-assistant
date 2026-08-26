@@ -159,7 +159,6 @@ export function CatchUpWidgetPreview({
               ) : (
                 <VellumAppIconMark
                   size={WIDGET_TILE_ICON_SIZE * scale}
-                  appearance={appearance}
                   flattened={flattened}
                 />
               )

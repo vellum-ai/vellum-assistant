@@ -69,17 +69,6 @@ enum WidgetTheme {
     /// this answers to the card rather than to the Home Screen behind it.
     static let onBrand = fixed("#FFFFFF")
 
-    /// The green the app icon is built on, in the P3 the icon declares it in
-    /// (`fill.solid` in `App/AppIcon.icon/icon.json`). Fixed rather than
-    /// dynamic: an app icon does not change color with the Home Screen behind
-    /// it, and neither does the mark standing for it.
-    static let appIconGround = Color(
-        .displayP3,
-        red: 0.37749,
-        green: 0.60064,
-        blue: 0.34581
-    )
-
     /// The mark's eye whites and pupils, carrying the values the product's
     /// avatar compositor draws with so the widget's stand-in is recognizably
     /// the same character. Fixed rather than dynamic for the same reason a

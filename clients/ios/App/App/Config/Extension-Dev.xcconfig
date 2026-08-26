@@ -10,6 +10,11 @@
 APP_GROUP_ID = group.ai.vocify-inc.vellum-assistant-ios.dev
 BUNDLE_DISPLAY_NAME = Vellum Dev
 BUNDLE_URL_SCHEME = vellum-assistant-dev
+
+// The ground the app's mark is drawn on, which must equal `fill.solid`
+// in `App/AppIcon-Dev.icon/icon.json`: the widget draws the containing app's
+// icon, and this build's icon is not the production one.
+APP_ICON_GROUND = display-p3:1.00000,0.53333,0.78824,1.00000
 PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity
 
 // Exact portal profile name; must equal release-ios.yaml's `ext_profile_name`.

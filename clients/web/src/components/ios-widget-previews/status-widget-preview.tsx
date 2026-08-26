@@ -205,7 +205,6 @@ export function StatusWidgetPreview({
                 ) : (
                   <VellumAppIconMark
                     size={WIDGET_TILE_ICON_SIZE * scale}
-                    appearance={appearance}
                     flattened={flattened}
                   />
                 )
@@ -240,7 +239,6 @@ export function StatusWidgetPreview({
             tint={
               flattened ? "#FFFFFF" : resolveColor(accent.onFill, appearance)
             }
-            appearance={appearance}
             avatarImageUrl={avatarImageUrl}
             flattened={flattened}
           />
@@ -298,7 +296,6 @@ function ChatPill({
   height,
   fill,
   tint,
-  appearance,
   avatarImageUrl,
   flattened,
 }: {
@@ -306,7 +303,6 @@ function ChatPill({
   height: number;
   fill: string;
   tint: string;
-  appearance: WidgetAppearance;
   avatarImageUrl: string | null;
   flattened: boolean;
 }) {
@@ -337,11 +333,7 @@ function ChatPill({
           }}
         />
       ) : (
-        <VellumAppIconMark
-          size={iconSize}
-          appearance={appearance}
-          flattened={flattened}
-        />
+        <VellumAppIconMark size={iconSize} flattened={flattened} />
       )}
       <span style={{ fontSize: 15 * scale, fontWeight: 600 }}>Chat</span>
     </div>

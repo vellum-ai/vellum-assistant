@@ -40,23 +40,35 @@ enum WidgetFlattenedFill {
     static let chip = Color.white.opacity(0.12)
 }
 
-/// The app's own mark, at the size a control wears it: the icon's green square
-/// with the eyes on it.
+/// The app's own mark, at the size a control wears it: this build's icon
+/// ground with the icon's own eyes on it.
 ///
-/// Composed rather than shipped as a second copy of the icon's artwork. The
-/// icon is eyes on a green ground, and ``WidgetAvatarEyes`` already draws those
-/// eyes from shapes the extension carries anyway, so the mark is those two
-/// facts put together and stays sharp at every size.
+/// The eyes are `VellumAppIconEyes`, the same `eyes.svg` the three Icon
+/// Composer bundles embed, pinned to the avatar component library's quirky
+/// style by `clients/ios/scripts/__tests__/ios-default-icon-geometry.test.ts`.
+/// Drawing the widget's own ``WidgetAvatarEyes`` here would be a different
+/// face: that pair is a 61x33 egg arrangement, while the icon's is 233x176 in
+/// its own canvas, and the two do not read as the same mark.
 ///
-/// The ground goes away once the system flattens the widget. A solid block
-/// survives flattening as a solid block, which would swallow the eyes on it,
-/// and the control underneath already supplies a ground of its own.
+/// The ground comes from the running bundle (``AppIconGround``), because
+/// Staging and Dev do not ship the production green.
+///
+/// Both go away once the system flattens the widget. A solid ground survives
+/// flattening as a solid block, which would swallow the eyes on it, and the
+/// control underneath already supplies a ground of its own.
 struct VellumAppIconMark: View {
     let size: CGFloat
 
-    /// The pair's height as a share of the square, picked so the eyes sit in
-    /// the icon's own proportion rather than filling their box.
-    private static let eyeHeightRatio: CGFloat = 0.335
+    /// The artwork's canvas is mostly empty: the pair occupies the middle
+    /// third, the way it does in the icon, which scales and offsets it rather
+    /// than drawing it edge to edge. These mirror that framing so the mark
+    /// reads at a control's size. The byte pin above is what catches artwork
+    /// that moves out from under them.
+    private static let artworkScale: CGFloat = 1.94
+    private static let artworkOffsetXRatio: CGFloat = 0.074
+
+    /// A corner in the family the icon's own squircle is drawn with.
+    private static let cornerRadiusRatio: CGFloat = 0.28
 
     @Environment(\.widgetRenderingMode) private var renderingMode
 
@@ -65,16 +77,28 @@ struct VellumAppIconMark: View {
     var body: some View {
         eyes
             .frame(width: size, height: size)
-            .background {
-                if !isFlattened {
-                    RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                        .fill(WidgetTheme.appIconGround)
-                }
-            }
+            .background { ground }
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: size * Self.cornerRadiusRatio,
+                    style: .continuous
+                )
+            )
     }
 
     private var eyes: some View {
-        WidgetAvatarEyes(eyeHeight: size * Self.eyeHeightRatio)
+        Image("VellumAppIconEyes")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size * Self.artworkScale, height: size * Self.artworkScale)
+            .offset(x: size * Self.artworkOffsetXRatio)
+    }
+
+    @ViewBuilder
+    private var ground: some View {
+        if !isFlattened, let ground = AppIconGround.current {
+            ground
+        }
     }
 }
 

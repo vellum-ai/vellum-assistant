@@ -4,6 +4,7 @@ import { CatchUpWidgetPreview } from "./catch-up-widget-preview";
 import { ReplicaNotice } from "./replica-notice";
 import { QuickActionsWidgetPreview } from "./quick-actions-widget-preview";
 import { StatusWidgetPreview } from "./status-widget-preview";
+import { VellumAppIconMark } from "./vellum-app-icon-mark";
 import type { WidgetAppearance } from "./widget-tokens";
 
 /**
@@ -254,6 +255,33 @@ export const StatusStates: Story = {
         </div>
       )}
     />
+  ),
+};
+
+/**
+ * The mark the New Chat surfaces fall back to when no avatar has synced, which
+ * is the state the widget gallery renders on the Add Widget sheet.
+ *
+ * It is the containing app's icon, and the three builds do not ship the same
+ * one: a Dev widget advertising the production green would be advertising an
+ * icon that build does not have. On the device the ground comes from the
+ * running bundle; here it is an arg.
+ *
+ * The eyes are the avatar library's `quirky` style, the same geometry the icon
+ * bundles embed. They are deliberately not the widget's own eyes, which are a
+ * wider, rounder pair and read as a different face.
+ */
+export const AppIconMark: Story = {
+  name: "App icon mark / per build",
+  render: () => (
+    <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+      <VellumAppIconMark size={72} environment="production" />
+      <VellumAppIconMark size={72} environment="staging" />
+      <VellumAppIconMark size={72} environment="dev" />
+      <span style={{ background: "#141416", padding: 12, borderRadius: 14 }}>
+        <VellumAppIconMark size={72} flattened />
+      </span>
+    </div>
   ),
 };
 
