@@ -100,5 +100,10 @@ describe("ReferralContent", () => {
     expect(container.textContent).toContain("Credits Earned");
     const button = getByTestId("referral-copy-button") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+    const hintId = button.getAttribute("aria-describedby");
+    expect(hintId).toBeTruthy();
+    expect(document.getElementById(hintId as string)?.textContent).toContain(
+      "Subscribe or purchase credits to start earning!",
+    );
   });
 });

@@ -1,9 +1,10 @@
 import { Check, Coins, Copy, Loader2, Users } from "lucide-react";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback, useId, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useHoverCapable } from "@/hooks/use-hover-affordance";
 import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { cn } from "@vellumai/design-library";
@@ -72,6 +73,8 @@ export function ReferralContent() {
   );
 
   const creditsGated = data?.is_eligible_for_credits === false;
+  const hoverCapable = useHoverCapable();
+  const gatedHintId = useId();
 
   const subtitle = data
     ? t("referralContent.subtitleWithAmounts", {
@@ -87,6 +90,7 @@ export function ReferralContent() {
       // the tooltip's span trigger instead for the gated hint to open.
       className={cn("shrink-0", creditsGated && "pointer-events-none")}
       disabled={creditsGated}
+      aria-describedby={creditsGated ? gatedHintId : undefined}
       onClick={() => handleCopy(data.referral_url)}
       leftIcon={
         copied ? (
@@ -119,25 +123,43 @@ export function ReferralContent() {
       ) : isError || !data ? (
         <Notice tone="error">{t("referralContent.loadError")}</Notice>
       ) : (
-        <div className="flex flex-wrap items-start gap-2">
-          <StatChip
-            icon={<Coins className="h-3.5 w-3.5" />}
-            value={stripDecimals(data.total_earned)}
-            label={t("referralContent.creditsEarned")}
-          />
-          <StatChip
-            icon={<Users className="h-3.5 w-3.5" />}
-            value={data.referred_count}
-            label={t("referralContent.friendsReferred")}
-          />
-          {creditsGated ? (
-            <Tooltip content={t("referralContent.gatedTooltip")}>
-              <span className="inline-flex shrink-0">{shareButton}</span>
-            </Tooltip>
-          ) : (
-            shareButton
+        <>
+          <div className="flex flex-wrap items-start gap-2">
+            <StatChip
+              icon={<Coins className="h-3.5 w-3.5" />}
+              value={stripDecimals(data.total_earned)}
+              label={t("referralContent.creditsEarned")}
+            />
+            <StatChip
+              icon={<Users className="h-3.5 w-3.5" />}
+              value={data.referred_count}
+              label={t("referralContent.friendsReferred")}
+            />
+            {creditsGated ? (
+              <Tooltip content={t("referralContent.gatedTooltip")}>
+                <span className="inline-flex shrink-0">{shareButton}</span>
+              </Tooltip>
+            ) : (
+              shareButton
+            )}
+          </div>
+          {creditsGated && (
+            // The tooltip only mounts where the device can hover, and the
+            // disabled button cannot take focus, so this hint is the surface
+            // touch and assistive-tech users reach: visible text on no-hover
+            // devices, screen-reader-only where the tooltip covers hover.
+            <Typography
+              as="p"
+              id={gatedHintId}
+              variant="body-small-default"
+              className={
+                hoverCapable ? "sr-only" : "text-[var(--content-tertiary)]"
+              }
+            >
+              {t("referralContent.gatedTooltip")}
+            </Typography>
           )}
-        </div>
+        </>
       )}
     </div>
   );
