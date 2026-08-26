@@ -1317,7 +1317,8 @@
         "vellum": {
           "platforms": [
             "macos",
-            "windows"
+            "windows",
+            "linux"
           ],
           "category": "voice",
           "display-name": "Voice Setup",

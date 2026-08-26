@@ -9,6 +9,7 @@ metadata:
     platforms:
       - macos
       - windows
+      - linux
     category: "voice"
     display-name: "Voice Setup"
     includes: ["elevenlabs-voice", "deepgram-voice"]
