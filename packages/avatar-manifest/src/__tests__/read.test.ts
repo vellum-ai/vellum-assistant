@@ -87,6 +87,22 @@ describe("readWorkspaceAvatar", () => {
     });
   });
 
+  test("a symlinked avatar dir is treated as absent", () => {
+    const foreign = mkdtempSync(join(tmpdir(), "foreign-avatar-"));
+    writeFileSync(
+      join(foreign, "character-traits.json"),
+      JSON.stringify({
+        bodyShape: "blob",
+        eyeStyle: "curious",
+        color: "green",
+      }),
+    );
+    rmSync(avatarDir, { recursive: true, force: true });
+    symlinkSync(foreign, avatarDir);
+    expect(readWorkspaceAvatar(workspaceDir)).toEqual({ kind: "none" });
+    rmSync(foreign, { recursive: true, force: true });
+  });
+
   test("symlinked sidecars are treated as absent", () => {
     const outside = join(workspaceDir, "outside.json");
     writeFileSync(outside, JSON.stringify({ kind: "character", traits }));
