@@ -9,7 +9,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import type { AvatarState } from "../avatar/avatar-manifest.js";
 
@@ -339,6 +347,33 @@ describe("syncAvatarToPlatform", () => {
     const refreshed = JSON.parse(readFileSync(syncStatePath, "utf-8"));
     expect(refreshed.key).toBe(stale.key);
     expect(refreshed.syncedAt).toBeGreaterThan(stale.syncedAt);
+  });
+
+  test("a key older than the TTL re-uploads without a restart", async () => {
+    const start = Date.now();
+    setSystemTime(new Date(start));
+    try {
+      syncAvatarToPlatform();
+      await settle();
+      setSystemTime(new Date(start + AVATAR_SYNC_KEY_TTL_MS - 1));
+      syncAvatarToPlatform();
+      await settle();
+      expect(patches).toHaveLength(1);
+
+      setSystemTime(new Date(start + AVATAR_SYNC_KEY_TTL_MS));
+      syncAvatarToPlatform();
+      await settle();
+      syncAvatarToPlatform();
+      await settle();
+    } finally {
+      setSystemTime();
+    }
+
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8"))).toEqual({
+      key: expect.stringMatching(/^https:\/\/platform\.a\|asst-1\|image:/),
+      syncedAt: start + AVATAR_SYNC_KEY_TTL_MS,
+    });
   });
 
   test("a corrupt persisted key re-uploads", async () => {

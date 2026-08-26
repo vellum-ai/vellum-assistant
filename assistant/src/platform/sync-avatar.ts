@@ -9,9 +9,10 @@
  * syncs. The last synced key is persisted outside the workspace repo at
  * `<protected dir>/platform-sync/avatar.json` so a daemon restart does not
  * re-upload an unchanged raster and the record never dirties the workspace.
- * A persisted key older than `AVATAR_SYNC_KEY_TTL_MS` is ignored, so an
- * avatar lost server-side while id and base URL are unchanged is re-pushed
- * within a week (API-key auth cannot read the record to verify it).
+ * A synced key older than `AVATAR_SYNC_KEY_TTL_MS` no longer dedups, whether
+ * seeded from disk or set in-process, so an avatar lost server-side while id
+ * and base URL are unchanged is re-pushed within a week even by a daemon
+ * that never restarts (API-key auth cannot read the record to verify it).
  * `avatar_base64: null` is sent only when the avatar is actually removed; a
  * non-none avatar whose raster is missing (image PNG gone, character
  * re-render unavailable) is skipped so the platform keeps the last synced
@@ -34,6 +35,7 @@ import {
   createPlatformPatchQueue,
   type PatchPayload,
   type PlatformPatchQueue,
+  type SyncedKey,
 } from "./platform-patch-queue.js";
 
 const log = getLogger("sync-avatar");
@@ -64,6 +66,7 @@ export function syncAvatarToPlatform(): void {
     buildPayload,
     loadSyncedKey: readPersistedKey,
     saveSyncedKey: persistKey,
+    maxAgeMs: AVATAR_SYNC_KEY_TTL_MS,
   });
   queue.enqueue();
 }
@@ -72,8 +75,8 @@ function syncStatePath(): string {
   return join(getProtectedDir(), ...SYNC_STATE_SUBPATH);
 }
 
-/** Returns the persisted key, or null when missing, malformed, or expired. */
-function readPersistedKey(): string | null {
+/** Returns the persisted key, or null when missing or malformed. */
+function readPersistedKey(): SyncedKey | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(syncStatePath(), "utf-8"));
     const { key, syncedAt } = (parsed ?? {}) as {
@@ -83,18 +86,18 @@ function readPersistedKey(): string | null {
     if (typeof key !== "string" || typeof syncedAt !== "number") {
       return null;
     }
-    return Date.now() - syncedAt < AVATAR_SYNC_KEY_TTL_MS ? key : null;
+    return { key, syncedAt };
   } catch {
     return null;
   }
 }
 
-function persistKey(key: string): void {
+function persistKey(synced: SyncedKey): void {
   try {
     const path = syncStatePath();
     mkdirSync(dirname(path), { recursive: true });
     const tmpPath = `${path}.tmp.${process.pid}`;
-    writeFileSync(tmpPath, JSON.stringify({ key, syncedAt: Date.now() }));
+    writeFileSync(tmpPath, JSON.stringify(synced));
     renameSync(tmpPath, path);
   } catch (err) {
     log.warn({ err }, "Failed to persist avatar sync state");
