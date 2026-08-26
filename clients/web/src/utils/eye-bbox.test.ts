@@ -4,7 +4,7 @@
  * The two functions answer different questions and both answers are load
  * bearing, so the cases below are mostly the same path measured twice:
  * `pathBBox` reports the box the control polygon reaches (what the peeking and
- * voice-room eyes have always framed against, pinned here so it cannot drift),
+ * voice-room eyes intentionally frame against, pinned here so it cannot drift),
  * and `tightPathBBox` reports the box the ink reaches (what has to agree with
  * an independently rasterized copy of the same artwork).
  *
