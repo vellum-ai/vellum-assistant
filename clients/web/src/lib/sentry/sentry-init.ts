@@ -178,6 +178,15 @@ const options: BrowserOptions = {
     // operation was aborted.") stays reportable.
     /^AbortError:/, // any AbortError-typed DOMException, all engines
     /^Error: CancelledError$/, // TanStack Query's cancellation sentinel
+    // iOS in-app browsers (the Google and Facebook apps) inject script
+    // that bridges page navigation to their native shells through
+    // `window.webkit.messageHandlers.navigationPerformanceLoggerWithReply`.
+    // The bridge races the handler's registration, and the injected
+    // `setupIosCallbackHandler` then throws dereferencing it. Neither name
+    // exists anywhere in this repo, so the handler name is a precise
+    // injected-script signature rather than a message pattern our own
+    // errors could ever match (WEB-8Z).
+    /navigationPerformanceLoggerWithReply/,
   ],
   denyUrls: [
     // Browser-extension schemes.

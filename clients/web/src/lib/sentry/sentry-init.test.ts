@@ -209,18 +209,18 @@ describe("initSentry commit-pressure enrichment", () => {
   });
 });
 
-describe("initSentry cancellation ignoreErrors", () => {
-  // Sentry's inbound filter tests each pattern against the exception value
-  // and against `${type}: ${value}`, so both forms are checked here.
-  // Reference: https://docs.sentry.io/platforms/javascript/configuration/filtering/#using-ignore-errors
-  const matchesIgnoreErrors = (type: string, value: string): boolean => {
-    initSentry();
-    const patterns = (syncedOptions?.ignoreErrors ?? []).filter(
-      (p): p is RegExp => p instanceof RegExp,
-    );
-    return patterns.some((p) => p.test(value) || p.test(`${type}: ${value}`));
-  };
+// Sentry's inbound filter tests each pattern against the exception value
+// and against `${type}: ${value}`, so both forms are checked here.
+// Reference: https://docs.sentry.io/platforms/javascript/configuration/filtering/#using-ignore-errors
+const matchesIgnoreErrors = (type: string, value: string): boolean => {
+  initSentry();
+  const patterns = (syncedOptions?.ignoreErrors ?? []).filter(
+    (p): p is RegExp => p instanceof RegExp,
+  );
+  return patterns.some((p) => p.test(value) || p.test(`${type}: ${value}`));
+};
 
+describe("initSentry cancellation ignoreErrors", () => {
   test("filters cancellation rejections in every engine wording", () => {
     expect(
       matchesIgnoreErrors("AbortError", "signal is aborted without reason"),
@@ -261,5 +261,25 @@ describe("initSentry cancellation ignoreErrors", () => {
       matchesIgnoreErrors("ApiError", "signal is aborted without reason"),
     ).toBe(false);
     expect(matchesIgnoreErrors("ApiError", "CancelledError")).toBe(false);
+  });
+});
+
+describe("initSentry injected-script ignoreErrors", () => {
+  test("filters the iOS in-app-browser navigation bridge error", () => {
+    expect(
+      matchesIgnoreErrors(
+        "TypeError",
+        "undefined is not an object (evaluating 'window.webkit.messageHandlers.navigationPerformanceLoggerWithReply.postMessage')",
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps first-party webkit bridge errors reportable", () => {
+    expect(
+      matchesIgnoreErrors(
+        "TypeError",
+        "undefined is not an object (evaluating 'window.webkit.messageHandlers.bridge.postMessage')",
+      ),
+    ).toBe(false);
   });
 });
