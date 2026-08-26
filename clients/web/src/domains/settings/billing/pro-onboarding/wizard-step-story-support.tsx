@@ -16,6 +16,7 @@ export function makeStoryAssistant(id: string): Assistant {
     id,
     name: "Velly",
     handle: "velly",
+    avatar_url: null,
     description: null,
     status: "active",
     created: "2026-07-01T00:00:00Z",
