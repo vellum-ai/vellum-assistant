@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_APP_ICON_TRAITS,
   appIconNameForAvatar,
   appIconNameForTraits,
   isAvatarAppIcon,
   resolveAppIconTarget,
+  traitsForAppIconName,
 } from "./avatar-app-icon";
 import type { AvatarState } from "@/types/avatar";
 
@@ -200,5 +202,47 @@ describe("isAvatarAppIcon", () => {
 
   test("an alternate from some other feature is not one of ours", () => {
     expect(isAvatarAppIcon("seasonal-winter")).toBe(false);
+  });
+});
+
+describe("traitsForAppIconName", () => {
+  test("a composed name reads back as the pair it was composed from", () => {
+    expect(
+      traitsForAppIconName(appIconNameForTraits("grumpy", "green")),
+    ).toEqual({ eyeStyle: "grumpy", color: "green" });
+  });
+
+  test("a color id with a dash in it survives the round trip", () => {
+    const name = appIconNameForTraits("curious", "cosmic-purple");
+    expect(traitsForAppIconName(name)).toEqual({
+      eyeStyle: "curious",
+      color: "cosmic-purple",
+    });
+  });
+
+  test("the default icon reads as no pair", () => {
+    expect(traitsForAppIconName(null)).toBeNull();
+  });
+
+  test("an alternate from some other feature reads as no pair", () => {
+    expect(traitsForAppIconName("seasonal-winter")).toBeNull();
+  });
+
+  test("a name with a half of the pair missing reads as no pair", () => {
+    expect(traitsForAppIconName("avatar-eyes-grumpy")).toBeNull();
+    expect(traitsForAppIconName("avatar-eyes-grumpy-")).toBeNull();
+    expect(traitsForAppIconName("avatar-eyes--green")).toBeNull();
+  });
+});
+
+describe("DEFAULT_APP_ICON_TRAITS", () => {
+  // Pinned to `clients/ios/App/App/AppIcon.icon`, which draws quirky eyes on
+  // the green field. A preview of "no alternate applied" is only honest while
+  // these two agree.
+  test("names the pair the shipped default icon is drawn from", () => {
+    expect(DEFAULT_APP_ICON_TRAITS).toEqual({
+      eyeStyle: "quirky",
+      color: "green",
+    });
   });
 });

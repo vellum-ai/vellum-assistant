@@ -21,8 +21,25 @@ export interface AppIconTarget {
   availableMatch: boolean;
 }
 
+/** An eyes-on-color pair, the whole of what an icon name carries. */
+export interface AppIconTraits {
+  eyeStyle: string;
+  color: string;
+}
+
 /** The namespace every icon this feature applies is emitted under. */
 const AVATAR_ICON_PREFIX = "avatar-eyes-";
+
+/**
+ * The pair the icon shipped as the app's default is drawn from
+ * (`clients/ios/App/App/AppIcon.icon`): quirky eyes on the green field. It
+ * carries no alternate-icon name of its own, so a surface previewing "no
+ * alternate applied" draws this instead.
+ */
+export const DEFAULT_APP_ICON_TRAITS: AppIconTraits = {
+  eyeStyle: "quirky",
+  color: "green",
+};
 
 /**
  * Composes the bundled icon name for an eyes-on-color pair. The picker builds
@@ -65,6 +82,30 @@ export function appIconNameForAvatar(state: AvatarState | null): string | null {
  */
 export function isAvatarAppIcon(name: string | null): boolean {
   return name !== null && name.startsWith(AVATAR_ICON_PREFIX);
+}
+
+/**
+ * Read an applied icon name back into the pair it was composed from, the
+ * inverse of {@link appIconNameForTraits}. The picker opens on whatever is
+ * already on the home screen, and this is what tells it which pair that is.
+ *
+ * The seam is the first dash after the prefix, because eye style ids carry
+ * none of their own while color ids may, so a color like `cosmic-purple`
+ * survives the round trip. Any name this feature did not compose, the default
+ * icon included, reads as null and callers fall back to a pair of their own.
+ */
+export function traitsForAppIconName(
+  name: string | null,
+): AppIconTraits | null {
+  if (name === null || !isAvatarAppIcon(name)) {
+    return null;
+  }
+  const pair = name.slice(AVATAR_ICON_PREFIX.length);
+  const seam = pair.indexOf("-");
+  if (seam <= 0 || seam === pair.length - 1) {
+    return null;
+  }
+  return { eyeStyle: pair.slice(0, seam), color: pair.slice(seam + 1) };
 }
 
 /**
