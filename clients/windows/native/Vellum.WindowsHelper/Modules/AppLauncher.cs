@@ -130,15 +130,24 @@ public static partial class AppLauncher
         {
             using (process)
             {
-                if (process.MainWindowHandle == IntPtr.Zero || !Matches(process, name, resolved))
+                IntPtr handle;
+                try
                 {
-                    continue;
+                    handle = process.MainWindowHandle;
+                    if (handle == IntPtr.Zero || !Matches(process, name, resolved))
+                    {
+                        continue;
+                    }
                 }
-                if (IsIconic(process.MainWindowHandle))
+                catch (Exception err) when (err is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
-                    _ = ShowWindow(process.MainWindowHandle, 9); // SW_RESTORE
+                    continue; // exited or inaccessible mid-enumeration
                 }
-                if (!SetForegroundWindow(process.MainWindowHandle))
+                if (IsIconic(handle))
+                {
+                    _ = ShowWindow(handle, 9); // SW_RESTORE
+                }
+                if (!SetForegroundWindow(handle))
                 {
                     throw new InvalidOperationException(
                         $"{resolved} is running but Windows refused to bring it to the foreground");
@@ -151,20 +160,11 @@ public static partial class AppLauncher
 
     private static bool Matches(Process process, string name, string resolved)
     {
-        string title;
-        try
-        {
-            title = process.MainWindowTitle;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
         var compact = resolved.Replace(" ", "", StringComparison.Ordinal);
         return process.ProcessName.Equals(compact, StringComparison.OrdinalIgnoreCase) ||
             process.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-            title.Equals(resolved, StringComparison.OrdinalIgnoreCase) ||
-            title.EndsWith("- " + resolved, StringComparison.OrdinalIgnoreCase);
+            process.MainWindowTitle.Equals(resolved, StringComparison.OrdinalIgnoreCase) ||
+            process.MainWindowTitle.EndsWith("- " + resolved, StringComparison.OrdinalIgnoreCase);
     }
 
     [LibraryImport("user32.dll")]
