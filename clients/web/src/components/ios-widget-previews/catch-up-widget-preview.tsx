@@ -264,11 +264,7 @@ function Row({
   textPrimary: string;
   textSecondary: string;
 }) {
-  // `renderedSubtitle`: a group the producer sent as an empty string is a
-  // subtitle with nothing in it to draw, and the glyph's inset asks the same
-  // question, so the two answer from one place.
-  const rawSubtitle = conversation.subtitle ?? "";
-  const subtitle = rawSubtitle.length > 0 ? rawSubtitle : null;
+  const subtitle = conversation.subtitle ?? null;
   const glyphTopInset =
     subtitle === null ? GLYPH_TITLE_ONLY_TOP_INSET : GLYPH_TWO_LINE_TOP_INSET;
   // Working beats unread, and staleness beats working.
