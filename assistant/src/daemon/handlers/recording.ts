@@ -201,6 +201,32 @@ export function hasRecordingClaim(recordingId: string): boolean {
   return recordingClientClaims.has(recordingId);
 }
 
+export function restoreMissingRecordingClaim(
+  recordingId: string,
+  clientId: string,
+): boolean {
+  if (
+    standaloneRecordingConversationId.has(recordingId) ||
+    recordingClientClaims.has(recordingId)
+  ) {
+    return false;
+  }
+  recordingClientClaims.set(recordingId, {
+    clientId,
+    expiresAt: Date.now() + RECORDING_CLAIM_LEASE_MS,
+  });
+  return true;
+}
+
+export function releaseRecordingClaim(
+  recordingId: string,
+  clientId: string,
+): void {
+  if (recordingClientClaims.get(recordingId)?.clientId === clientId) {
+    recordingClientClaims.delete(recordingId);
+  }
+}
+
 // ─── Stop ────────────────────────────────────────────────────────────────────
 
 /**

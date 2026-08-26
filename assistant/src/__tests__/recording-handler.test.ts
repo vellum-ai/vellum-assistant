@@ -20,6 +20,7 @@ mock.module("../util/logger.js", () => ({
 // Conversation store mock
 const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
+let mockConversationExists = true;
 
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
@@ -40,7 +41,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
     return msg;
   },
   createConversation: () => ({ id: "conv-mock" }),
-  getConversation: () => ({ id: "conv-mock" }),
+  getConversation: (id: string) =>
+    mockConversationExists ? { id, createdAt: Date.now() } : null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -146,9 +148,22 @@ mock.module("node:fs", () => {
 
 // Capture broadcastMessage calls
 const broadcastedMessages: Array<{ type: string; [k: string]: unknown }> = [];
+const mockClients = new Map<
+  string,
+  {
+    clientId: string;
+    interfaceId: "macos" | "windows" | "web";
+    actorPrincipalId: string;
+  }
+>();
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => {
     broadcastedMessages.push(msg as { type: string; [k: string]: unknown });
+  },
+  assistantEventHub: {
+    getClientById: (clientId: string) => mockClients.get(clientId),
+    getActorPrincipalIdForClient: (clientId: string) =>
+      mockClients.get(clientId)?.actorPrincipalId,
   },
 }));
 
@@ -161,14 +176,35 @@ import {
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
+  hasRecordingClaim,
 } from "../daemon/handlers/recording.js";
 import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
+import { ROUTES } from "../runtime/routes/recording-routes.js";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
 function createSent(): Array<{ type: string; [k: string]: unknown }> {
   broadcastedMessages.length = 0;
   return broadcastedMessages;
+}
+
+const statusRouteHandler = ROUTES.find(
+  (route) => route.operationId === "recordings_status_post",
+)!.handler;
+
+function registerMockClient(
+  clientId: string,
+  actorPrincipalId: string,
+  interfaceId: "macos" | "windows" | "web" = "macos",
+): void {
+  mockClients.set(clientId, { clientId, actorPrincipalId, interfaceId });
+}
+
+function statusHeaders(clientId: string, actorPrincipalId: string) {
+  return {
+    "x-vellum-client-id": clientId,
+    "x-vellum-actor-principal-id": actorPrincipalId,
+  };
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -183,6 +219,8 @@ describe("handleRecordingStart", () => {
     mockLinkAttachmentToMessage.mockClear();
     mockFileExists = true;
     mockFileSize = 1024;
+    mockConversationExists = true;
+    mockClients.clear();
   });
 
   test("sends recording_start event and returns a UUID", () => {
@@ -277,6 +315,103 @@ describe("handleRecordingStart", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe("recording_start");
     expect(sent[0].recordingId).toBe(id1);
+  });
+});
+
+describe("recording status restart fallback", () => {
+  beforeEach(() => {
+    __resetRecordingState();
+    mockMessages.length = 0;
+    mockAttachments.length = 0;
+    mockMessageIdCounter = 0;
+    mockAttachmentIdCounter = 0;
+    mockFileExists = true;
+    mockFileSize = 1024;
+    mockConversationExists = true;
+    mockClients.clear();
+  });
+
+  test("attaches a completed recording after assistant state is lost", async () => {
+    const conversationId = "conv-recording-restart-fallback";
+    const recordingId = "00000000-0000-4000-8000-000000000091";
+    registerMockClient("desktop-1", "actor-1", "windows");
+
+    await expect(
+      statusRouteHandler({
+        body: {
+          conversationId: recordingId,
+          attachToConversationId: conversationId,
+          status: "stopped",
+          filePath: `${ALLOWED_RECORDINGS_DIR}/${recordingId}.webm`,
+        },
+        headers: statusHeaders("desktop-1", "actor-1"),
+      } as never),
+    ).resolves.toEqual({ ok: true });
+
+    expect(mockAttachments).toHaveLength(1);
+    expect(mockMessages.at(-1)?.content).toContain("Screen recording complete");
+    expect(hasRecordingClaim(recordingId)).toBeFalse();
+  });
+
+  test("rejects restart fallback from the wrong actor", async () => {
+    registerMockClient("desktop-actor", "actor-1");
+
+    await expect(
+      statusRouteHandler({
+        body: {
+          conversationId: "00000000-0000-4000-8000-000000000092",
+          attachToConversationId: "conv-recording-wrong-actor",
+          status: "failed",
+        },
+        headers: statusHeaders("desktop-actor", "actor-2"),
+      } as never),
+    ).rejects.toThrow("does not match");
+  });
+
+  test("rejects restart fallback from a non-desktop client", async () => {
+    registerMockClient("web-client", "actor-1", "web");
+
+    await expect(
+      statusRouteHandler({
+        body: {
+          conversationId: "00000000-0000-4000-8000-000000000093",
+          attachToConversationId: "conv-recording-wrong-client",
+          status: "failed",
+        },
+        headers: statusHeaders("web-client", "actor-1"),
+      } as never),
+    ).rejects.toThrow("desktop client");
+  });
+
+  test("rejects restart fallback for an unknown conversation", async () => {
+    mockConversationExists = false;
+    registerMockClient("desktop-conversation", "actor-1");
+
+    await expect(
+      statusRouteHandler({
+        body: {
+          conversationId: "00000000-0000-4000-8000-000000000094",
+          attachToConversationId: "conv-recording-does-not-exist",
+          status: "stopped",
+        },
+        headers: statusHeaders("desktop-conversation", "actor-1"),
+      } as never),
+    ).rejects.toThrow("Conversation not found");
+  });
+
+  test("rejects a non-terminal restart fallback status", async () => {
+    registerMockClient("desktop-non-terminal", "actor-1");
+
+    await expect(
+      statusRouteHandler({
+        body: {
+          conversationId: "00000000-0000-4000-8000-000000000095",
+          attachToConversationId: "conv-recording-non-terminal",
+          status: "started",
+        },
+        headers: statusHeaders("desktop-non-terminal", "actor-1"),
+      } as never),
+    ).rejects.toThrow("another client");
   });
 });
 

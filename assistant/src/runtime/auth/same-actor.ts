@@ -76,7 +76,8 @@ export type SameActorOp =
   | "host_browser"
   | "host_app_control"
   | "host_transfer"
-  | "host_ui_snapshot";
+  | "host_ui_snapshot"
+  | "screen_recording";
 
 /**
  * Args for the live-lookup variant: caller supplies the hub + target client
@@ -138,9 +139,7 @@ function detectRejection(
     ? args.hub.getActorPrincipalIdForClient(targetClientId)
     : (args.targetActorPrincipalId ??
       (isHttpAuthDisabled()
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
-            targetClientId,
-          )
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
         : undefined));
 
   let reason: RejectionReason | undefined;

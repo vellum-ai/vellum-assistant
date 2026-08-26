@@ -25,18 +25,24 @@ import {
   hasRecordingClaim,
   isRecordingIdle,
   ownsRecordingClaim,
+  releaseRecordingClaim,
+  restoreMissingRecordingClaim,
 } from "../../daemon/handlers/recording.js";
 import type {
   RecordingOptions,
   RecordingStatus,
 } from "../../daemon/message-protocol.js";
 import { recordingTransferStore } from "../../daemon/recording-transfer.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { enforceSameActorOrThrow } from "../auth/same-actor.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
   ConflictError,
+  ForbiddenError,
   InternalError,
   NotFoundError,
 } from "./errors.js";
@@ -103,17 +109,75 @@ function requireRecordingOwner(recordingId: string, clientId: string): void {
   }
 }
 
-function requireStatusOwner(recordingId: string, clientId: string): void {
+const TERMINAL_RECORDING_STATUSES = new Set([
+  "stopped",
+  "failed",
+  "restart_cancelled",
+]);
+
+async function restoreRestartFallbackOwner(
+  body: Record<string, unknown>,
+  headers: Record<string, string> | undefined,
+  recordingId: string,
+  clientId: string,
+): Promise<boolean> {
+  if (
+    typeof body.status !== "string" ||
+    !TERMINAL_RECORDING_STATUSES.has(body.status) ||
+    typeof body.attachToConversationId !== "string"
+  ) {
+    return false;
+  }
+
+  const client = assistantEventHub.getClientById(clientId);
+  if (
+    !client ||
+    (client.interfaceId !== "macos" && client.interfaceId !== "windows")
+  ) {
+    throw new ForbiddenError("Recording status requires a desktop client");
+  }
+
+  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+  enforceSameActorOrThrow({
+    sourceActorPrincipalId: actorPrincipalId,
+    targetActorPrincipalId: client.actorPrincipalId,
+    targetClientId: clientId,
+    op: "screen_recording",
+    hubForMissingTarget: assistantEventHub,
+  });
+
+  if (!getConversation(body.attachToConversationId)) {
+    throw new NotFoundError("Conversation not found");
+  }
+
+  return restoreMissingRecordingClaim(recordingId, clientId);
+}
+
+async function requireStatusOwner(
+  body: Record<string, unknown>,
+  headers: Record<string, string> | undefined,
+  recordingId: string,
+  clientId: string,
+): Promise<boolean> {
   if (ownsRecordingClaim(recordingId, clientId)) {
-    return;
+    return false;
   }
   if (hasRecordingClaim(recordingId)) {
     throw new ConflictError("Recording belongs to another client");
   }
   const outcome = claimRecordingOutcome(recordingId, clientId);
-  if (outcome !== "claimed") {
-    throw new ConflictError("Recording belongs to another client");
+  if (outcome === "claimed") {
+    return false;
   }
+  if (
+    outcome === "missing" &&
+    (await restoreRestartFallbackOwner(body, headers, recordingId, clientId))
+  ) {
+    return true;
+  }
+  throw new ConflictError("Recording belongs to another client");
 }
 
 async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
@@ -285,7 +349,13 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError(`Invalid status: ${body.status}`);
   }
 
-  requireStatusOwner(body.conversationId, requireClientId(headers));
+  const clientId = requireClientId(headers);
+  const restoredOwner = await requireStatusOwner(
+    body,
+    headers,
+    body.conversationId,
+    clientId,
+  );
 
   const msg: RecordingStatus = {
     ...(body as Omit<RecordingStatus, "type">),
@@ -295,6 +365,9 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
   try {
     await handleRecordingStatusCore(msg);
   } catch (err) {
+    if (restoredOwner) {
+      releaseRecordingClaim(body.conversationId, clientId);
+    }
     log.error(
       { err, conversationId: body.conversationId, status: body.status },
       "Recording status handler failed",
