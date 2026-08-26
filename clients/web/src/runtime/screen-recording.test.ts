@@ -274,6 +274,37 @@ test("finalizes the source recording when the selected assistant changes", async
   expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
 });
 
+test("finalizes active capture when the lifecycle owner unmounts", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const statuses: string[] = [];
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, _event, status) => {
+      statuses.push(status);
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+  await controller.handleLifecycleOwnerUnmount();
+
+  expect(statuses).toEqual(["started", "stopped"]);
+  expect(recorder.state).toBe("inactive");
+  expect(track.stopped).toBeTrue();
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+});
+
 test("reports restart cancellation when the source picker is denied", async () => {
   const statuses: string[] = [];
   const controller = new ScreenRecordingController({

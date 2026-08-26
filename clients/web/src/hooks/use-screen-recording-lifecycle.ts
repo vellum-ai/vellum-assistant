@@ -6,6 +6,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import {
   handleScreenRecordingAssistantChange,
   handleScreenRecordingEvent,
+  handleScreenRecordingLifecycleUnmount,
 } from "@/runtime/screen-recording";
 
 type RecordingLifecycleEvent = Extract<
@@ -28,6 +29,17 @@ const isRecordingLifecycleEvent = (
   event.type === "recording_resume";
 
 export function useScreenRecordingLifecycle(assistantId: string | null): void {
+  useEffect(
+    () => () => {
+      void handleScreenRecordingLifecycleUnmount().catch((error) => {
+        captureError(error, {
+          context: "screen_recording_lifecycle_unmount",
+        });
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     void handleScreenRecordingAssistantChange(assistantId).catch((error) => {
       captureError(error, {

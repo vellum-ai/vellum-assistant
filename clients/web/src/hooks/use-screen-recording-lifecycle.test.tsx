@@ -8,9 +8,11 @@ import {
 
 const handleScreenRecordingEvent = mock(async () => undefined);
 const handleScreenRecordingAssistantChange = mock(async () => undefined);
+const handleScreenRecordingLifecycleUnmount = mock(async () => undefined);
 mock.module("@/runtime/screen-recording", () => ({
   handleScreenRecordingAssistantChange,
   handleScreenRecordingEvent,
+  handleScreenRecordingLifecycleUnmount,
 }));
 
 const { useScreenRecordingLifecycle } =
@@ -51,6 +53,7 @@ beforeEach(() => {
   __resetForTesting();
   handleScreenRecordingAssistantChange.mockClear();
   handleScreenRecordingEvent.mockClear();
+  handleScreenRecordingLifecycleUnmount.mockClear();
 });
 
 test("stops source-assistant recording control during a switch", () => {
@@ -117,4 +120,12 @@ test("handles recording events after the chat route unmounts", () => {
     },
     "assistant-1",
   );
+});
+
+test("stops recording control when the lifecycle owner unmounts", () => {
+  const view = render(<RootSubscriber route="chat" />);
+
+  view.unmount();
+
+  expect(handleScreenRecordingLifecycleUnmount).toHaveBeenCalledTimes(1);
 });

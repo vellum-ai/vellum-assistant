@@ -385,17 +385,32 @@ export class ScreenRecordingController {
     ) {
       return;
     }
-    if (this.pending && this.pending.assistantId !== assistantId) {
+    await this.finalizeLifecycleWork(assistantId);
+  }
+
+  async handleLifecycleOwnerUnmount(): Promise<void> {
+    if (
+      !isElectron() ||
+      !window.vellum?.screenRecording ||
+      !this.dependencies.ownsLifecycle()
+    ) {
+      return;
+    }
+    await this.finalizeLifecycleWork();
+  }
+
+  private async finalizeLifecycleWork(keptAssistantId?: string): Promise<void> {
+    if (this.pending && this.pending.assistantId !== keptAssistantId) {
       this.pending.cancelled = true;
     }
     const queuedCancellations = [...this.queuedStarts.values()]
-      .filter((queued) => queued.assistantId !== assistantId)
+      .filter((queued) => queued.assistantId !== keptAssistantId)
       .map((queued) =>
         this.cancelQueuedStart(queued.event.recordingId, queued.assistantId),
       );
     const active = this.active;
     const activeStop =
-      active && active.assistantId !== assistantId
+      active && active.assistantId !== keptAssistantId
         ? this.stop(active.event.recordingId, active.assistantId)
         : Promise.resolve();
     await Promise.all([activeStop, ...queuedCancellations]);
@@ -1143,3 +1158,6 @@ export const handleScreenRecordingEvent = (
 export const handleScreenRecordingAssistantChange = (
   assistantId: string | null,
 ): Promise<void> => controller.handleAssistantChange(assistantId);
+
+export const handleScreenRecordingLifecycleUnmount = (): Promise<void> =>
+  controller.handleLifecycleOwnerUnmount();
