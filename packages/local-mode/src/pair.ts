@@ -6,6 +6,7 @@ import {
   REMOTE_WEB_PAIRING_CODE_TTL_MS,
   resolveRemoteWebPairingPlatform,
   tunnelProviderWebsiteName,
+  type PairingFailureReason,
   type PublicBaseUrlRejection,
   type RemoteWebPairingChallengeRequest,
   type RemoteWebPairingChallengeResponse,
@@ -335,28 +336,12 @@ const MAX_PAIRING_RESPONSE_BYTES = 64 * 1024;
 const PAIRING_CHALLENGE_PATH = "/v1/remote-web/pairing-challenge";
 const PAIRING_TOKEN_PATH = "/v1/remote-web/pairing-token";
 
-/** What a pairing attempt failed on, for callers picking recovery copy. */
-export type PairingFailureReason =
-  /** The pasted address is not a usable assistant address. */
-  | "invalid-address"
-  /** No live session for this handle: it was cancelled or never existed. */
-  | "unknown-session"
-  /** The device code expired, was denied, or was already spent. */
-  | "expired"
-  /** The assistant could not be reached. */
-  | "unreachable"
-  /**
-   * The assistant refused the request with a status that left the device code
-   * exchangeable, so the same session is worth another attempt.
-   */
-  | "gateway-retryable"
-  /**
-   * The assistant answered, but with a reply this device cannot use. The code
-   * behind it is spent or unknowable, so the attempt is settled.
-   */
-  | "gateway"
-  /** The credentials arrived, but registering them locally was refused. */
-  | "import";
+/**
+ * What a pairing attempt failed on. Defined by
+ * `@vellumai/service-contracts/remote-web-pairing`, which also owns the
+ * retryable classification every pairing surface reads.
+ */
+export type { PairingFailureReason };
 
 export interface PairingFailure {
   ok: false;

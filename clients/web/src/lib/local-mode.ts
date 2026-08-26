@@ -3,6 +3,7 @@ import {
   isLoopbackGatewayCloud,
   isUsableRuntimeUrl,
 } from "@vellumai/local-mode/contract";
+import { isRetryablePairingReason } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
@@ -45,7 +46,6 @@ import type {
   LockfileAssistant,
   LocalAssistantResources,
   LocalPairingFailure,
-  LocalPairingFailureReason,
   LocalPairingPollResult,
   LocalPairingStartResult,
   LocalRetireResult,
@@ -507,37 +507,13 @@ export async function removePairedAssistantFromLockfile(
 const PAIRING_FALLBACK_ERROR = "Failed to connect to that assistant.";
 
 /**
- * Pairing failures worth another attempt, which are the two classes that leave
- * the device code exchangeable host-side:
- *
- * - `unreachable`, the transport class (a thrown fetch, a timeout, a refused
- *   redirect, a body that errored mid-stream). Nothing reached the assistant,
- *   so the session and the code are untouched.
- * - `gateway-retryable`, a non-200 the assistant answered with. The gateway
- *   releases the challenge on a repairable failure (a transient error, or the
- *   `GUARDIAN_REPAIR_REQUIRED` 503), so the same code stays exchangeable.
- *
- * Everything else is settled and ends the attempt. `invalid-address` and
- * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
- * one-time code is already spent; and `gateway` means the assistant answered
- * with something this device cannot use (an over-cap body, credentials it
- * cannot persist, a 200 that is not a pairing reply), past which the code is
- * spent rather than released.
- */
-const RETRYABLE_PAIRING_REASONS: ReadonlySet<LocalPairingFailureReason> =
-  new Set(["unreachable", "gateway-retryable"]);
-
-/**
- * Whether a refused pairing step is worth polling through. A host too old to
- * name a reason reads as settled, so an unlabelled failure ends the attempt
- * rather than spinning against a host that cannot say why it refused.
+ * Whether a refused pairing step is worth polling through, classified by the
+ * shared reason table so the dialog and `vellum connect import` cannot drift.
  */
 export function isRetryablePairingFailure(
   failure: LocalPairingFailure,
 ): boolean {
-  return (
-    failure.reason != null && RETRYABLE_PAIRING_REASONS.has(failure.reason)
-  );
+  return isRetryablePairingReason(failure.reason);
 }
 
 /**

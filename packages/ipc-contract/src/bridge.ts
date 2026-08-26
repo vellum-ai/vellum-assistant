@@ -15,6 +15,8 @@
  * interface; the renderer references the payload types (from `./types.ts`)
  * in its ambient declaration.
  */
+import type { PairingFailureReason } from "@vellumai/service-contracts/remote-web-pairing";
+
 import type {
   AppVersionInfo,
   AssistantStatus,
@@ -73,18 +75,13 @@ export interface LocalUpgradeOptions {
 export type ElectronHostOS = "macos" | "windows";
 
 /**
- * What a pairing step failed on, for callers picking recovery copy.
- * Structural duplicate of `@vellumai/local-mode`'s `PairingFailureReason`,
- * declared here for the same reason as {@link LocalPairedDeviceRecord}.
+ * What a pairing step failed on, for callers picking recovery copy. The
+ * bridge's name for `@vellumai/service-contracts`'s `PairingFailureReason`,
+ * which owns the union and the retryable classification read off it. That
+ * package is zod-only and environment-neutral, so the preload takes on nothing
+ * at runtime: this is a type-only import.
  */
-export type LocalPairingFailureReason =
-  | "invalid-address"
-  | "unknown-session"
-  | "expired"
-  | "unreachable"
-  | "gateway-retryable"
-  | "gateway"
-  | "import";
+export type LocalPairingFailureReason = PairingFailureReason;
 
 /** A refused pairing step. `error` is ready to display. */
 export interface LocalPairingFailure {

@@ -15,9 +15,8 @@ import {
   pairingPoll,
   pairingStart,
   resolveConfigDir,
-  type PairingFailure,
-  type PairingFailureReason,
 } from "@vellumai/local-mode";
+import { isRetryablePairingReason } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { extractFlag } from "../../lib/arg-utils.js";
 import { getLockfilePaths } from "../../lib/environments/paths.js";
@@ -59,33 +58,6 @@ EXAMPLES:
     vellum connect import https://your-assistant.ts.net
     vellum connect import https://your-assistant.ts.net --name desk
 `);
-}
-
-/**
- * Pairing failures worth another attempt. `unreachable` is the transport class
- * (a thrown fetch, a timeout, a refused redirect, a body that errored
- * mid-stream). `gateway-retryable` is a refusal the gateway answered but which
- * left the device code exchangeable, because the route releases the challenge
- * before a repairable failure. Local-mode keeps the session pollable for both,
- * so polling simply continues.
- *
- * Everything else is settled and ends the attempt. `invalid-address` and
- * `unknown-session` cannot resolve by waiting; `expired` and `import` mean the
- * one-time code is already spent; and `gateway` means the assistant answered
- * with something unusable (an over-cap body, or credentials this device cannot
- * persist) after spending the code, which is a definitive rejection.
- *
- * This set must stay in agreement with `RETRYABLE_PAIRING_REASONS` in
- * `clients/web/src/lib/local-mode.ts`, which classifies the same reasons for
- * the desktop dialog.
- */
-const RETRYABLE_PAIRING_REASONS: ReadonlySet<PairingFailureReason> = new Set([
-  "unreachable",
-  "gateway-retryable",
-]);
-
-function isRetryablePairingFailure(failure: PairingFailure): boolean {
-  return RETRYABLE_PAIRING_REASONS.has(failure.reason);
 }
 
 /** Caps a retry backoff so a long attempt still polls on a useful cadence. */
@@ -247,7 +219,10 @@ export async function connectImport(): Promise<void> {
       });
 
       if (!result.ok) {
-        if (!retryTransientFailures || !isRetryablePairingFailure(result)) {
+        if (
+          !retryTransientFailures ||
+          !isRetryablePairingReason(result.reason)
+        ) {
           console.error(formatImportFailure(result.status, result.error));
           process.exit(1);
         }
