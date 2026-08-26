@@ -12,8 +12,20 @@
  * Source of truth is the Swift, always. When the two disagree the Swift is
  * right and this file is stale.
  *
+ * The derived colors are NOT transcribed. `darkenHex`, `blendHex` and
+ * `contrastForeground` come from `@/utils/avatar-tone`, which the Swift names
+ * as its own source of truth (`UIColor.contrastingForeground` mirrors that
+ * file's `contrastForeground`, and `blendHex`/`darkenHex` mirror its
+ * namesakes). A second copy here would be a second copy that drifts, and its
+ * first victim would be the foreground: a YIQ-style brightness rule picks white
+ * on a mid-tone teal where the WCAG derivation both sides actually use picks
+ * dark.
+ *
  * @see clients/ios/App/VoiceActivity/Widgets/WidgetTheme.swift
+ * @see clients/ios/App/App/Shared/CSSHexColor.swift
  */
+
+import { blendHex, contrastForeground, darkenHex } from "@/utils/avatar-tone";
 
 /** A color that resolves from the appearance the widget is rendered in. */
 export interface WidgetAppearanceColor {
@@ -58,60 +70,20 @@ const DARK_SURFACE_FACTOR = 0.79;
 const SOFT_ACCENT_LIGHT_WASH = 0.105;
 const SOFT_ACCENT_DARK_WASH = 0.22;
 
-interface Rgb {
-  r: number;
-  g: number;
-  b: number;
-}
-
-function parseHex(hex: string): Rgb {
-  const value = hex.replace("#", "");
-  const full =
-    value.length === 3
-      ? value
-          .split("")
-          .map((c) => c + c)
-          .join("")
-      : value;
-  return {
-    r: Number.parseInt(full.slice(0, 2), 16),
-    g: Number.parseInt(full.slice(2, 4), 16),
-    b: Number.parseInt(full.slice(4, 6), 16),
-  };
-}
-
-function toHex({ r, g, b }: Rgb): string {
-  const channel = (n: number) =>
-    Math.max(0, Math.min(255, Math.round(n)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${channel(r)}${channel(g)}${channel(b)}`;
-}
-
-function darken(hex: string, factor: number): string {
-  const { r, g, b } = parseHex(hex);
-  return toHex({ r: r * factor, g: g * factor, b: b * factor });
-}
-
-function blend(base: string, overlay: string, alpha: number): string {
-  const a = parseHex(base);
-  const b = parseHex(overlay);
-  return toHex({
-    r: a.r + (b.r - a.r) * alpha,
-    g: a.g + (b.g - a.g) * alpha,
-    b: a.b + (b.b - a.b) * alpha,
-  });
-}
-
 /**
- * Relative luminance, the input to `UIColor.contrastingForeground`'s choice of
- * a foreground that survives the card it is drawn on. A yellow avatar and a
- * deep green one both have to produce a legible card, which a fixed white
- * cannot.
+ * `UIColor.contrastingForeground`'s two answers, which are
+ * `avatar-tone.ts`'s own `FG_DARK` / `FG_LIGHT`. Named here only so the fill
+ * weighting below can tell which one it was handed.
  */
-function isLight(hex: string): boolean {
-  const { r, g, b } = parseHex(hex);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+const FG_DARK = "#1A1A1A";
+
+function withAlpha(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (m === null) {
+    return hex;
+  }
+  const n = Number.parseInt(m[1]!, 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
 }
 
 /** `WidgetAvatarPalette`: the colors a card painted with an accent draws from. */
@@ -122,16 +94,13 @@ export interface WidgetAvatarPalette {
   controlFill: (onWhite: number, onDark: number) => WidgetAppearanceColor;
 }
 
-function withAlpha(hex: string, alpha: number): string {
-  const { r, g, b } = parseHex(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 export function avatarPalette(accentHex: string | null): WidgetAvatarPalette {
   if (accentHex === null) {
     return {
       surface: widgetTheme.brandCardSurface,
       onSurface: widgetTheme.onBrand,
+      // The brand card is a deep green in both appearances, so what sits on it
+      // is white in both, and a white wash is what lifts it.
       controlFill: (onWhite) => ({
         light: withAlpha("#FFFFFF", onWhite),
         dark: withAlpha("#FFFFFF", onWhite),
@@ -139,15 +108,18 @@ export function avatarPalette(accentHex: string | null): WidgetAvatarPalette {
     };
   }
   const light = accentHex;
-  const dark = darken(accentHex, DARK_SURFACE_FACTOR);
-  const lightOn = isLight(light) ? "#111417" : "#FFFFFF";
-  const darkOn = isLight(dark) ? "#111417" : "#FFFFFF";
+  const dark = darkenHex(accentHex, DARK_SURFACE_FACTOR);
+  const lightOn = contrastForeground(light);
+  const darkOn = contrastForeground(dark);
   return {
     surface: { light, dark },
     onSurface: { light: lightOn, dark: darkOn },
+    // `weighted(_:onWhite:onDark:)`: a white wash lifts a dark card further
+    // than a black wash deepens a light one, so the two weights differ and the
+    // foreground's own brightness picks between them.
     controlFill: (onWhite, onDark) => ({
-      light: withAlpha(lightOn, isLight(lightOn) ? onWhite : onDark),
-      dark: withAlpha(darkOn, isLight(darkOn) ? onWhite : onDark),
+      light: withAlpha(lightOn, lightOn === FG_DARK ? onDark : onWhite),
+      dark: withAlpha(darkOn, darkOn === FG_DARK ? onDark : onWhite),
     }),
   };
 }
@@ -164,12 +136,16 @@ export function softAccent(accentHex: string | null): WidgetSoftAccent {
   }
   return {
     fill: {
-      light: blend(
+      light: blendHex(
         widgetTheme.surface.light,
         accentHex,
         SOFT_ACCENT_LIGHT_WASH,
       ),
-      dark: blend(widgetTheme.surface.dark, accentHex, SOFT_ACCENT_DARK_WASH),
+      dark: blendHex(
+        widgetTheme.surface.dark,
+        accentHex,
+        SOFT_ACCENT_DARK_WASH,
+      ),
     },
     onFill: widgetTheme.textPrimary,
   };
@@ -184,6 +160,13 @@ export const WIDGET_DESIGN_SIZE = {
   small: { width: 160, height: 161 },
   medium: { width: 339, height: 161 },
 } as const;
+
+/**
+ * The ground a flattened card is composited over. The system supplies its own
+ * material on a themed Home Screen; this stands in for it so the
+ * translucent-white control fills have something to read against.
+ */
+export const FLATTENED_CARD_GROUND = "rgba(30, 30, 32, 1)";
 
 /**
  * The system draws a widget's corner, not the widget. Approximated here so the

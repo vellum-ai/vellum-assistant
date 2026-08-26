@@ -26,6 +26,7 @@ import {
 } from "./widget-glyphs";
 import { WidgetCard } from "./widget-card";
 import {
+  FLATTENED_CARD_GROUND,
   resolveColor,
   softAccent,
   widgetTheme,
@@ -107,7 +108,7 @@ export function CatchUpWidgetPreview({
       family="medium"
       scale={scale}
       appearance={appearance}
-      background={flattened ? "rgba(30, 30, 32, 1)" : widgetTheme.surface}
+      background={flattened ? FLATTENED_CARD_GROUND : widgetTheme.surface}
     >
       <div
         style={{

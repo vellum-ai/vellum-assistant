@@ -26,8 +26,11 @@ import {
 } from "./widget-avatar-eyes";
 import { WidgetCard } from "./widget-card";
 import { WidgetUnreadMark } from "./widget-unread-mark";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
+
 import {
   avatarPalette,
+  FLATTENED_CARD_GROUND,
   resolveColor,
   type WidgetAppearance,
 } from "./widget-tokens";
@@ -48,6 +51,11 @@ const FLATTENED_CIRCLE_FILL = "rgba(255, 255, 255, 0.14)";
 const CONTROL_FILL_ON_WHITE = 0.14;
 const CONTROL_FILL_ON_DARK = 0.1;
 const MARK_CHIP_GAP = 12;
+
+/** `BlurredAvatarBackground`: the card a custom photo makes. */
+const AVATAR_BLUR_RADIUS = 30;
+const AVATAR_BLUR_OVERSCAN = AVATAR_BLUR_RADIUS * 2;
+const AVATAR_SCRIM_OPACITY = 0.55;
 
 /** `chipAllowance(for:scale:)`: the width the chip needs at this count. */
 function chipAllowance(count: number, scale: number): number {
@@ -86,9 +94,15 @@ export function QuickActionsWidgetPreview({
         palette.controlFill(CONTROL_FILL_ON_WHITE, CONTROL_FILL_ON_DARK),
         appearance,
       );
+  // `QuickActionsCardBackground`: a photo avatar makes the card the blurred
+  // photo over its own near-black ground, not the accent, since an uploaded
+  // avatar carries no accent to tint with.
+  const hasPhotoCard = avatarImageUrl !== null && !flattened;
   const background = flattened
-    ? "rgba(30, 30, 32, 1)"
-    : resolveColor(palette.surface, appearance);
+    ? FLATTENED_CARD_GROUND
+    : hasPhotoCard
+      ? SURFACE_GROUND
+      : resolveColor(palette.surface, appearance);
 
   const contentWidth = 160 * scale - CONTENT_MARGIN * scale * 2;
   const markWidth =
@@ -105,18 +119,33 @@ export function QuickActionsWidgetPreview({
       appearance={appearance}
       background={background}
     >
-      {avatarImageUrl !== null && !flattened ? (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundImage: `url(${avatarImageUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(18px)",
-            transform: "scale(1.3)",
-          }}
-        />
+      {hasPhotoCard ? (
+        <>
+          {/* `BlurredAvatarBackground`: the blur samples transparency past the
+              layer's edge, so the photo grows beyond the card by twice the
+              radius per side and the clip trims the excess. Without that the
+              perimeter fades into the ground. */}
+          <div
+            style={{
+              position: "absolute",
+              inset: -AVATAR_BLUR_OVERSCAN * scale,
+              // Quoted: a data URI carries unencoded parentheses, which an
+              // unquoted `url()` reads as its own closing paren and drops the
+              // image entirely.
+              backgroundImage: `url("${avatarImageUrl}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              filter: `blur(${AVATAR_BLUR_RADIUS * scale}px)`,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `rgba(0, 0, 0, ${AVATAR_SCRIM_OPACITY})`,
+            }}
+          />
+        </>
       ) : null}
       <div
         style={{
@@ -169,6 +198,7 @@ export function QuickActionsWidgetPreview({
               count={unreadCount}
               scale={scale}
               onSurface={onSurface}
+              appearance={appearance}
               flattened={flattened}
             />
           </div>
@@ -261,11 +291,13 @@ function UnreadChip({
   count,
   scale,
   onSurface,
+  appearance,
   flattened,
 }: {
   count: number;
   scale: number;
   onSurface: string;
+  appearance: WidgetAppearance;
   flattened: boolean;
 }) {
   return (
@@ -281,7 +313,13 @@ function UnreadChip({
         color: onSurface,
       }}
     >
-      <WidgetUnreadMark filled={false} size={16 * scale} color={onSurface} />
+      <WidgetUnreadMark
+        filled={false}
+        size={16 * scale}
+        color={onSurface}
+        appearance={appearance}
+        flattened={flattened}
+      />
       <span
         style={{
           fontSize: 16 * scale,

@@ -27,6 +27,7 @@ import {
 import { WidgetCard } from "./widget-card";
 import { WidgetUnreadMark } from "./widget-unread-mark";
 import {
+  FLATTENED_CARD_GROUND,
   resolveColor,
   softAccent,
   widgetTheme,
@@ -80,7 +81,7 @@ export function StatusWidgetPreview({
       family="small"
       scale={scale}
       appearance={appearance}
-      background={flattened ? "rgba(30, 30, 32, 1)" : widgetTheme.surface}
+      background={flattened ? FLATTENED_CARD_GROUND : widgetTheme.surface}
     >
       <div
         style={{
