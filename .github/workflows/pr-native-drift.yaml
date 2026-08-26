@@ -56,7 +56,13 @@ jobs:
 
       - name: Install dependencies
         working-directory: clients/web
-        run: bun install --frozen-lockfile --filter=@vellumai/web
+        # `@vellumai/assistant` is here for the avatar icon drift check:
+        # rasterizing the icons needs its native `@resvg/resvg-js` binding
+        # and its workspace dependencies.
+        run: |
+          bun install --frozen-lockfile \
+            --filter=@vellumai/web \
+            --filter=@vellumai/assistant
 
       - name: Check drift guards
         working-directory: clients/ios
