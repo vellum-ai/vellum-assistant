@@ -482,14 +482,17 @@ extension MyViewController: WebViewNavigationFailureObserver {
     /// main document fails to load, or comes back an HTTP error. A no-op when no
     /// override is active (the baked Vellum Cloud URL keeps its existing
     /// behavior), when the failure is a programmatic cancellation (e.g. a
-    /// superseding navigation), or when the failed navigation targeted some
-    /// other host.
+    /// superseding navigation), or when the failed navigation targeted anything
+    /// outside the configured base.
     ///
-    /// The host check matters because the shell loads other URLs into the same
-    /// web view — most notably Universal Links via `AppDelegate.navigateWebView`.
-    /// Without it, an unrelated failure would offer to clear a valid preference.
-    /// The configured server's own failures (boot load, foreground reload, the
-    /// deferred connect pair-page load — all to the configured host) still alert.
+    /// The `SelfHostedServer.contains` check matters because the shell loads
+    /// other URLs into the same web view — most notably Universal Links via
+    /// `AppDelegate.navigateWebView`. Without it, an unrelated failure would
+    /// offer to clear a valid preference. Scoping to the base rather than its
+    /// host is what keeps that true for a base carrying a path prefix or a
+    /// nondefault port. The configured server's own failures (boot load,
+    /// foreground reload, the deferred connect pair-page load) all sit under
+    /// the base and still alert.
     ///
     /// Cancelling an error response in the proxy makes WebKit report a second,
     /// `WebKitErrorDomain` failure for the same load; the alert's own liveness
@@ -500,8 +503,8 @@ extension MyViewController: WebViewNavigationFailureObserver {
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
             return
         }
-        guard let failedHost = Self.failingURL(for: nsError)?.host?.lowercased(),
-              failedHost == configured.host?.lowercased()
+        guard let failedURL = Self.failingURL(for: nsError),
+              SelfHostedServer.contains(failedURL, base: configured)
         else {
             return
         }
@@ -631,8 +634,10 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
         target.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
     }
 
-    /// Refuse a main document the configured self-hosted origin answers with an
-    /// HTTP error, and report it as a load failure.
+    /// Refuse a main document the configured self-hosted base answers with an
+    /// HTTP error, and report it as a load failure. Scoped by
+    /// `SelfHostedServer.contains` for the same reason the failure observer is:
+    /// another path or port on the same host is not this server.
     ///
     /// A dead tunnel usually answers rather than refusing the connection: ngrok
     /// serves its own `ERR_NGROK_*` page with a 4xx, which is a perfectly good
@@ -653,8 +658,8 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
               let response = navigationResponse.response as? HTTPURLResponse,
               response.statusCode >= 400,
               let url = response.url,
-              let configuredHost = SelfHostedServer.configuredURL()?.host?.lowercased(),
-              url.host?.lowercased() == configuredHost
+              let configured = SelfHostedServer.configuredURL(),
+              SelfHostedServer.contains(url, base: configured)
         else {
             decisionHandler(.allow)
             return
