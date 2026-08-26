@@ -1,7 +1,7 @@
 /**
- * The sign-up screen's handoff to AuthKit: one flow at a time, and a failure
- * that hands the screen back. The handoff is not instant, so a second
- * activation would otherwise replace the flow already running, which the
+ * The sign-up screen's handoff to AuthKit: one flow at a time, and a screen
+ * handed back however that flow settles. The handoff is not instant, so a
+ * second activation would otherwise replace the flow already running, which the
  * native plugin rejects as a failure the user never caused.
  */
 
@@ -16,14 +16,17 @@ import {
 
 import * as nativeAuth from "@/runtime/native-auth";
 
-/** Rejecters for the flows started so far, so each one stays pending. */
-const startedFlows: ((err: unknown) => void)[] = [];
+/** Settlers for the flows started so far, so each one stays pending. */
+const startedFlows: {
+  resolve: () => void;
+  reject: (err: unknown) => void;
+}[] = [];
 
 mock.module("@/runtime/native-auth", (): typeof nativeAuth => ({
   ...nativeAuth,
   startAuthFlow: () =>
-    new Promise<void>((_resolve, reject) => {
-      startedFlows.push(reject);
+    new Promise<void>((resolve, reject) => {
+      startedFlows.push({ resolve, reject });
     }),
 }));
 
@@ -71,7 +74,7 @@ describe("SignupScreen auth handoff", () => {
 
   test("a failed handoff hands the screen back", async () => {
     fireEvent.click(screen.getByText("Continue"));
-    startedFlows[0]?.(new Error("handoff refused"));
+    startedFlows[0]?.reject(new Error("handoff refused"));
 
     await waitFor(() => {
       expect(screen.getByText(GENERIC_FAILURE)).toBeTruthy();
@@ -82,5 +85,22 @@ describe("SignupScreen auth handoff", () => {
 
     expect(startedFlows).toHaveLength(2);
     expect(screen.queryByText(GENERIC_FAILURE)).toBeNull();
+  });
+
+  test("a dismissed auth sheet hands the screen back", async () => {
+    fireEvent.click(screen.getByText("Continue"));
+    // A native cancellation is swallowed, so the flow resolves with the screen
+    // still up and nothing to report.
+    startedFlows[0]?.resolve();
+
+    await waitFor(() => {
+      expect(continueButton()?.disabled).toBe(false);
+    });
+    expect(signInButton()?.disabled).toBe(false);
+    expect(screen.queryByText(GENERIC_FAILURE)).toBeNull();
+
+    fireEvent.click(screen.getByText("Continue"));
+
+    expect(startedFlows).toHaveLength(2);
   });
 });
