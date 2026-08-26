@@ -22,7 +22,7 @@ describe("opencode adapter factory", () => {
     });
     expect(adapter).toBeInstanceOf(OpenCodeProvider);
     expect(adapter).toBeInstanceOf(OpenAIChatCompletionsProvider);
-    expect(adapter.name).toBe("opencode");
+    expect(adapter?.name).toBe("opencode");
   });
 
   test("defaults to OpenCode Zen when no baseURL is set", () => {
