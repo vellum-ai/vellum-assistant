@@ -4,9 +4,22 @@ import { expect, screen, userEvent, waitFor } from "storybook/test";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 
+function connection(provider: string): ProviderConnection {
+  return {
+    name: provider,
+    label: null,
+    provider,
+    // The auth shape is load-bearing: the Model field reads it to decide
+    // whether the connection restricts the model set, so a fixture without
+    // it takes the picker down as soon as a provider is chosen.
+    auth: { type: "api_key", credential: `credential/${provider}/api_key` },
+    models: null,
+  } as unknown as ProviderConnection;
+}
+
 const CONNECTIONS: ProviderConnection[] = [
-  { name: "anthropic", provider: "anthropic" } as ProviderConnection,
-  { name: "openai", provider: "openai" } as ProviderConnection,
+  connection("anthropic"),
+  connection("openai"),
 ];
 
 const meta: Meta<typeof ProfileEditorModal> = {

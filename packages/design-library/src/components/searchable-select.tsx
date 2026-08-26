@@ -139,6 +139,11 @@ export function SearchableSelect({
     Boolean(helperText),
   );
 
+  /** True for the field itself, which Radix reads as outside the popover. */
+  function isInsideField(target: EventTarget | null): boolean {
+    return target instanceof Node && anchorRef.current?.contains(target) === true;
+  }
+
   function close() {
     setOpen(false);
     setQuery(null);
@@ -252,10 +257,20 @@ export function SearchableSelect({
             className="w-[var(--radix-popover-trigger-width)] p-1"
             onOpenAutoFocus={(event) => event.preventDefault()}
             onCloseAutoFocus={(event) => event.preventDefault()}
+            // Radix measures "outside" against the popover's own DOM, and the
+            // field is not in it: it is the anchor, not the content. Both
+            // dismissals therefore have to spare it, or the very interaction
+            // that opens the list closes it again. The focus one is not
+            // theoretical - a pointer press focuses the field, React mounts
+            // the list inside that dispatch, and the same `focusin` then
+            // reaches the freshly-mounted layer.
             onPointerDownOutside={(event) => {
-              // A press on the field is not "outside": the field is what
-              // opened the list, and dismissing on it would race the reopen.
-              if (anchorRef.current?.contains(event.target as Node)) {
+              if (isInsideField(event.detail.originalEvent.target)) {
+                event.preventDefault();
+              }
+            }}
+            onFocusOutside={(event) => {
+              if (isInsideField(event.detail.originalEvent.target)) {
                 event.preventDefault();
               }
             }}
