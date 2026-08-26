@@ -96,10 +96,14 @@ function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
   if (typeof recordingId !== "string") {
     throw new BadRequestError("recordingId is required");
   }
-  const outcome = claimRecordingOutcome(recordingId, requireClientId(headers), {
+  const clientId = requireClientId(headers);
+  const outcome = claimRecordingOutcome(recordingId, clientId, {
     isClientConnected: (clientId) =>
       Boolean(assistantEventHub.getClientById(clientId)),
   });
+  if (outcome === "claimed") {
+    recordingTransferStore.keepAlive(recordingId, clientId);
+  }
   return { claimed: outcome === "claimed", outcome };
 }
 

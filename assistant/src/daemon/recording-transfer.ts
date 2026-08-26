@@ -5,7 +5,7 @@ import path from "node:path";
 import { uploadFileBackedAttachment } from "../persistence/attachments-store.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
-const TRANSFER_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+export const TRANSFER_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 
 interface RecordingTransferSession {
   filePath: string;
@@ -189,6 +189,15 @@ export class RecordingTransferStore {
     this.release(recordingId, session);
     await session.write.catch(() => undefined);
     await rm(session.filePath, { force: true });
+  }
+
+  keepAlive(recordingId: string, clientId: string): boolean {
+    const session = this.sessions.get(recordingId);
+    if (!session || session.ownerClientId !== clientId || session.finish) {
+      return false;
+    }
+    this.refreshTimeout(recordingId, session);
+    return true;
   }
 
   private getOwned(

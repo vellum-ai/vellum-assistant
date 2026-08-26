@@ -150,6 +150,7 @@ mock.module("../daemon/recording-transfer.js", () => ({
         ownerClientId,
       });
     },
+    keepAlive: () => false,
   },
 }));
 

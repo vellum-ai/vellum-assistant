@@ -50,10 +50,19 @@ interface ActiveRecording {
 }
 
 interface PendingRecording {
+  assistantId: string;
   recordingId: string;
   cancelled: boolean;
   claimed: boolean;
   ownershipLost: boolean;
+}
+
+interface QueuedRecording {
+  assistantId: string;
+  event: RecordingStartEvent;
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
 }
 
 interface CapturedMedia {
@@ -303,6 +312,8 @@ export const requiresRecordingTransfer = (assistantId: string): boolean => {
 export class ScreenRecordingController {
   private active: ActiveRecording | null = null;
   private pending: PendingRecording | null = null;
+  private readonly queuedStarts = new Map<string, QueuedRecording>();
+  private drainingQueuedStart = false;
 
   constructor(
     private readonly dependencies: {
@@ -354,7 +365,7 @@ export class ScreenRecordingController {
         await this.start(event, assistantId);
         break;
       case "recording_stop":
-        await this.stop(event.recordingId);
+        await this.stop(event.recordingId, assistantId);
         break;
       case "recording_pause":
         await this.pause(event.recordingId);
@@ -371,19 +382,31 @@ export class ScreenRecordingController {
   ): Promise<void> {
     const bridge = window.vellum!.screenRecording!;
     if (this.active) {
+      if (
+        this.active.assistantId === assistantId &&
+        this.active.event.recordingId === event.recordingId
+      ) {
+        return;
+      }
+      await this.enqueueStart(event, assistantId);
       return;
     }
     if (this.pending) {
       if (
-        this.pending.recordingId === event.recordingId ||
-        this.pending.claimed
+        this.pending.assistantId === assistantId &&
+        this.pending.recordingId === event.recordingId
       ) {
+        return;
+      }
+      if (this.pending.claimed) {
+        await this.enqueueStart(event, assistantId);
         return;
       }
       this.pending.cancelled = true;
       this.pending = null;
     }
     const pending: PendingRecording = {
+      assistantId,
       recordingId: event.recordingId,
       cancelled: false,
       claimed: false,
@@ -674,7 +697,7 @@ export class ScreenRecordingController {
       this.active = active;
       for (const track of capture.stream.getVideoTracks()) {
         track.addEventListener("ended", () => {
-          void this.stop(event.recordingId).catch(() => undefined);
+          void this.stop(event.recordingId, assistantId).catch(() => undefined);
         });
       }
       recorder.start(1_000);
@@ -727,6 +750,9 @@ export class ScreenRecordingController {
       }
       if (this.active?.event.recordingId !== event.recordingId) {
         stopClaimMaintenance();
+      }
+      if (!this.active && !this.pending) {
+        this.drainQueuedStarts();
       }
     }
   }
@@ -786,6 +812,100 @@ export class ScreenRecordingController {
       }
     }
     await this.reportStatusWithRetry(assistantId, event, "restart_cancelled");
+  }
+
+  private queuedStartKey(assistantId: string, recordingId: string): string {
+    return `${assistantId}:${recordingId}`;
+  }
+
+  private enqueueStart(
+    event: RecordingStartEvent,
+    assistantId: string,
+  ): Promise<void> {
+    const key = this.queuedStartKey(assistantId, event.recordingId);
+    const existing = this.queuedStarts.get(key);
+    if (existing) {
+      return existing.promise;
+    }
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    this.queuedStarts.set(key, {
+      assistantId,
+      event,
+      promise,
+      resolve,
+      reject,
+    });
+    return promise;
+  }
+
+  private async cancelQueuedStart(
+    recordingId: string,
+    assistantId: string,
+  ): Promise<boolean> {
+    const key = this.queuedStartKey(assistantId, recordingId);
+    const queued = this.queuedStarts.get(key);
+    if (!queued) {
+      return false;
+    }
+    this.queuedStarts.delete(key);
+    try {
+      await this.acknowledgeQueuedCancellation(queued);
+      queued.resolve();
+    } catch (error) {
+      queued.reject(error);
+      throw error;
+    }
+    return true;
+  }
+
+  private async acknowledgeQueuedCancellation(
+    queued: QueuedRecording,
+  ): Promise<void> {
+    await this.dependencies.waitForAssistantVersion(queued.assistantId);
+    const ownershipSupport = this.dependencies.supportsOwnership(
+      queued.assistantId,
+    );
+    if (ownershipSupport) {
+      const outcome = await this.dependencies.claimRecording(
+        queued.assistantId,
+        queued.event.recordingId,
+      );
+      if (outcome !== "claimed") {
+        return;
+      }
+    }
+    await this.reportStatusWithRetry(
+      queued.assistantId,
+      queued.event,
+      "restart_cancelled",
+    );
+  }
+
+  private drainQueuedStarts(): void {
+    if (this.drainingQueuedStart || this.active || this.pending) {
+      return;
+    }
+    const queued = this.queuedStarts.values().next().value as
+      | QueuedRecording
+      | undefined;
+    if (!queued) {
+      return;
+    }
+    this.queuedStarts.delete(
+      this.queuedStartKey(queued.assistantId, queued.event.recordingId),
+    );
+    this.drainingQueuedStart = true;
+    void this.start(queued.event, queued.assistantId)
+      .then(queued.resolve, queued.reject)
+      .finally(() => {
+        this.drainingQueuedStart = false;
+        this.drainQueuedStarts();
+      });
   }
 
   private async reportStatusWithRetry(
@@ -910,8 +1030,14 @@ export class ScreenRecordingController {
     active.stopClaimMaintenance();
   }
 
-  private async stop(recordingId: string): Promise<void> {
-    if (this.pending?.recordingId === recordingId) {
+  private async stop(recordingId: string, assistantId: string): Promise<void> {
+    if (await this.cancelQueuedStart(recordingId, assistantId)) {
+      return;
+    }
+    if (
+      this.pending?.assistantId === assistantId &&
+      this.pending.recordingId === recordingId
+    ) {
       this.pending.cancelled = true;
       return;
     }
@@ -940,6 +1066,7 @@ export class ScreenRecordingController {
     if (this.active === active) {
       this.active = null;
     }
+    this.drainQueuedStarts();
   }
 
   private async pause(recordingId: string): Promise<void> {

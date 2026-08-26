@@ -22,10 +22,10 @@ beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
-test("enables ownership from the endpoint's first dev build", () => {
-  expect(check("0.11.6-dev.202608260142.fffffff")).toBeFalse();
+test("enables ownership from the final claim contract's first dev build", () => {
+  expect(check("0.11.6-dev.202608260331.fffffff")).toBeFalse();
   expect(check(MIN_VERSION)).toBeTrue();
-  expect(check("0.11.6-dev.202608260144.abcdef0")).toBeTrue();
+  expect(check("0.11.6-dev.202608260333.abcdef0")).toBeTrue();
 });
 
 test("uses the legacy path across the stable release boundary", () => {

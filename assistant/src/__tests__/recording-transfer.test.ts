@@ -1,13 +1,17 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, jest, mock, test } from "bun:test";
 
-import { RecordingTransferStore } from "../daemon/recording-transfer.js";
+import {
+  RecordingTransferStore,
+  TRANSFER_IDLE_TIMEOUT_MS,
+} from "../daemon/recording-transfer.js";
 
 const testDirs: string[] = [];
 
 afterEach(async () => {
+  jest.useRealTimers();
   await Promise.all(
     testDirs
       .splice(0)
@@ -115,4 +119,45 @@ test("returns the same attachment when finish is retried", async () => {
   expect(await store.finish(recordingId, "client-1")).toBe("attachment-1");
   expect(await store.finish(recordingId, "client-1")).toBe("attachment-1");
   expect(registerAttachment).toHaveBeenCalledTimes(1);
+});
+
+test("claim keepalive preserves a paused transfer beyond the idle timeout", async () => {
+  jest.useFakeTimers();
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment: () => ({ id: "attachment-paused" }),
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000002";
+
+  await store.begin(recordingId, "client-1");
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1]));
+  for (let elapsed = 0; elapsed < 90; elapsed += 30) {
+    jest.advanceTimersByTime(30 * 60 * 1000);
+    expect(store.keepAlive(recordingId, "client-1")).toBeTrue();
+  }
+
+  expect(await store.finish(recordingId, "client-1")).toBe("attachment-paused");
+});
+
+test("a stale owner cannot renew another client's transfer", async () => {
+  jest.useFakeTimers();
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment: () => ({ id: "attachment-stale" }),
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000003";
+
+  await store.begin(recordingId, "client-1");
+  jest.advanceTimersByTime(TRANSFER_IDLE_TIMEOUT_MS - 1);
+  expect(store.keepAlive(recordingId, "client-2")).toBeFalse();
+  jest.advanceTimersByTime(1);
+  await Promise.resolve();
+
+  await expect(store.finish(recordingId, "client-1")).rejects.toThrow(
+    "not found",
+  );
 });

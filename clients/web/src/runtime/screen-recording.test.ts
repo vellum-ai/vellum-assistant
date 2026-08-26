@@ -456,6 +456,125 @@ test("releases the prior recorder before a synchronous restart start", async () 
   expect(recorders[1].state).toBe("recording");
 });
 
+test("queues and coalesces another assistant's start until release", async () => {
+  const replacementId = "00000000-0000-4000-8000-000000000002";
+  const recorders = [new FakeRecorder(), new FakeRecorder()];
+  const tracks = [new FakeTrack(), new FakeTrack()];
+  const capturedIds: string[] = [];
+  const statuses: Array<{
+    assistantId: string;
+    recordingId: string;
+    status: string;
+  }> = [];
+  let recorderIndex = 0;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async (event) => {
+      capturedIds.push(event.recordingId);
+      const track = tracks[capturedIds.length - 1];
+      return {
+        stream: {
+          getTracks: () => [track],
+          getVideoTracks: () => [track],
+        } as unknown as MediaStream,
+        close: () => track.stop(),
+      };
+    },
+    chooseMimeType: () => "video/webm",
+    createRecorder: () =>
+      recorders[recorderIndex++] as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (assistantId, event, status) => {
+      statuses.push({ assistantId, recordingId: event.recordingId, status });
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-a");
+  const queued = controller.handle(
+    { ...startEvent, recordingId: replacementId },
+    "assistant-b",
+  );
+  const duplicate = controller.handle(
+    { ...startEvent, recordingId: replacementId },
+    "assistant-b",
+  );
+  await Promise.resolve();
+
+  expect(capturedIds).toEqual([recordingId]);
+
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-a",
+  );
+  await Promise.all([queued, duplicate]);
+
+  expect(capturedIds).toEqual([recordingId, replacementId]);
+  expect(
+    statuses.filter(
+      (entry) =>
+        entry.assistantId === "assistant-b" && entry.status === "started",
+    ),
+  ).toEqual([
+    {
+      assistantId: "assistant-b",
+      recordingId: replacementId,
+      status: "started",
+    },
+  ]);
+  expect(recorders[1].state).toBe("recording");
+});
+
+test("cancels a queued start without interrupting the active assistant", async () => {
+  const queuedId = "00000000-0000-4000-8000-000000000002";
+  const capture = mock(async () => {
+    const track = new FakeTrack();
+    return {
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    };
+  });
+  const recorder = new FakeRecorder();
+  const statuses: Array<{
+    assistantId: string;
+    recordingId: string;
+    status: string;
+  }> = [];
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (assistantId, event, status) => {
+      statuses.push({ assistantId, recordingId: event.recordingId, status });
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-a");
+  const queued = controller.handle(
+    { ...startEvent, recordingId: queuedId },
+    "assistant-b",
+  );
+  await controller.handle(
+    { type: "recording_stop", recordingId: queuedId },
+    "assistant-b",
+  );
+  await queued;
+
+  expect(capture).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
+  expect(statuses).toContainEqual({
+    assistantId: "assistant-b",
+    recordingId: queuedId,
+    status: "restart_cancelled",
+  });
+});
+
 test("streams remote recording chunks before reporting stopped", async () => {
   const recorder = new FakeRecorder();
   const track = new FakeTrack();
@@ -1308,8 +1427,10 @@ test("replays the complete local recording when transfer state disappears before
   );
 });
 
-test("a busy non-owner stays silent so an idle client can claim", async () => {
-  const busyClaim = mock(async () => "claimed" as const);
+test("a busy controller stays silent when another client owns its queue", async () => {
+  const busyClaim = mock(async (_assistantId: string, candidateId: string) =>
+    candidateId === recordingId ? "claimed" : "occupied",
+  );
   const busyStatuses: string[] = [];
   const makeCapture = async () => {
     const track = new FakeTrack();
@@ -1348,10 +1469,15 @@ test("a busy non-owner stays silent so an idle client can claim", async () => {
   };
 
   await busy.handle(startEvent, "assistant-1");
-  await busy.handle(contender, "assistant-1");
+  const queued = busy.handle(contender, "assistant-1");
   await idle.handle(contender, "assistant-1");
+  await busy.handle(
+    { type: "recording_stop", recordingId: contender.recordingId },
+    "assistant-1",
+  );
+  await queued;
 
-  expect(busyClaim).toHaveBeenCalledTimes(1);
+  expect(busyClaim).toHaveBeenCalledTimes(2);
   expect(busyStatuses).toEqual(["started"]);
 });
 
