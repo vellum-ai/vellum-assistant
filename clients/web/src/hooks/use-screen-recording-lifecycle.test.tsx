@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-
-import { __resetForTesting, publish } from "@/lib/event-bus";
+import {
+  __resetForTesting,
+  publish,
+  type SourcedAssistantEventEnvelope,
+} from "@/lib/event-bus";
 
 const handleScreenRecordingEvent = mock(async () => undefined);
 mock.module("@/runtime/screen-recording", () => ({
@@ -12,9 +14,19 @@ mock.module("@/runtime/screen-recording", () => ({
 const { useScreenRecordingLifecycle } =
   await import("./use-screen-recording-lifecycle");
 
-function RootSubscriber({ route }: { route: "chat" | "settings" }) {
-  useScreenRecordingLifecycle("assistant-1");
-  return route === "chat" ? <ChatRoute /> : <div>settings</div>;
+function RootSubscriber({
+  route,
+  selectedAssistantId = "assistant-1",
+}: {
+  route: "chat" | "settings";
+  selectedAssistantId?: string;
+}) {
+  useScreenRecordingLifecycle();
+  return route === "chat" ? (
+    <ChatRoute />
+  ) : (
+    <div>{`settings:${selectedAssistantId}`}</div>
+  );
 }
 
 function ChatRoute() {
@@ -25,16 +37,49 @@ function publishRecordingStop(): void {
   publish("sse.event", {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
+    sourceAssistantId: "assistant-1",
     message: {
       type: "recording_stop",
       recordingId: "00000000-0000-4000-8000-000000000001",
     },
-  } as AssistantEventEnvelope);
+  } as SourcedAssistantEventEnvelope);
 }
 
 beforeEach(() => {
   __resetForTesting();
   handleScreenRecordingEvent.mockClear();
+});
+
+test("routes a buffered event to its source assistant during a switch", () => {
+  const view = render(
+    <RootSubscriber route="chat" selectedAssistantId="assistant-old" />,
+  );
+
+  view.rerender(
+    <RootSubscriber route="settings" selectedAssistantId="assistant-new" />,
+  );
+  act(() => {
+    publish("sse.event", {
+      id: "evt-old",
+      emittedAt: new Date().toISOString(),
+      sourceAssistantId: "assistant-old",
+      message: {
+        type: "recording_start",
+        recordingId: "00000000-0000-4000-8000-000000000002",
+        attachToConversationId: "conv-old",
+      },
+    } as SourcedAssistantEventEnvelope);
+  });
+
+  expect(handleScreenRecordingEvent).toHaveBeenCalledTimes(1);
+  expect(handleScreenRecordingEvent).toHaveBeenCalledWith(
+    expect.objectContaining({ recordingId: expect.any(String) }),
+    "assistant-old",
+  );
+  expect(handleScreenRecordingEvent).not.toHaveBeenCalledWith(
+    expect.anything(),
+    "assistant-new",
+  );
 });
 
 afterEach(() => {

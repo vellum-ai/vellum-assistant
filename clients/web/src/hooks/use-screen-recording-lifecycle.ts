@@ -23,17 +23,19 @@ const isRecordingLifecycleEvent = (
   event.type === "recording_pause" ||
   event.type === "recording_resume";
 
-export function useScreenRecordingLifecycle(assistantId: string | null): void {
+export function useScreenRecordingLifecycle(): void {
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
-    if (!assistantId || !isRecordingLifecycleEvent(event)) {
+    if (!isRecordingLifecycleEvent(event)) {
       return;
     }
-    void handleScreenRecordingEvent(event, assistantId).catch((error) => {
-      captureError(error, {
-        context: "screen_recording_lifecycle",
-        tags: { eventType: event.type },
-      });
-    });
+    void handleScreenRecordingEvent(event, envelope.sourceAssistantId).catch(
+      (error) => {
+        captureError(error, {
+          context: "screen_recording_lifecycle",
+          tags: { eventType: event.type },
+        });
+      },
+    );
   });
 }

@@ -396,7 +396,17 @@ export class ScreenRecordingController {
     }
     const ownershipSupport = this.dependencies.supportsOwnership(assistantId);
     if (ownershipSupport === null) {
-      this.pending = null;
+      try {
+        await this.reportStatusWithRetry(
+          assistantId,
+          event,
+          "restart_cancelled",
+        );
+      } finally {
+        if (this.pending === pending) {
+          this.pending = null;
+        }
+      }
       return;
     }
     const usesOwnership = ownershipSupport;

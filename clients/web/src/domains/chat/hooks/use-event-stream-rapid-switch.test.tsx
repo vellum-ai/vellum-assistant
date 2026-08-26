@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import { __resetForTesting, publish } from "@/lib/event-bus";
+import {
+  __resetForTesting,
+  publish,
+  type SourcedAssistantEventEnvelope,
+} from "@/lib/event-bus";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type CapturedEvent = {
@@ -66,12 +69,13 @@ function publishDelta(conversationId: string): void {
     id: `evt-${Math.random().toString(36).slice(2, 6)}`,
     conversationId,
     emittedAt: new Date().toISOString(),
+    sourceAssistantId: "asst-1",
     message: {
       type: "assistant_text_delta",
       conversationId,
       text: `delta-${Math.random().toString(36).slice(2, 6)}`,
     },
-  } as AssistantEventEnvelope);
+  } as SourcedAssistantEventEnvelope);
 }
 
 beforeEach(() => {
@@ -221,22 +225,24 @@ describe("useEventStream — rapid conversation switch stress", () => {
     publish("sse.event", {
       id: "evt-sync-1",
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "sync_changed",
         tags: ["assistant:self:identity"],
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     act(() => {
       rerender({ key: "conv-B" });
     });
     publish("sse.event", {
       id: "evt-sync-2",
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "sync_changed",
         tags: ["assistant:self:avatar"],
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     expect(captured).toHaveLength(2);
     expect((captured[0]!.event as { type: string }).type).toBe("sync_changed");
     expect((captured[1]!.event as { type: string }).type).toBe("sync_changed");

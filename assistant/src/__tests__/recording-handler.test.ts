@@ -431,6 +431,43 @@ describe("recording status restart fallback", () => {
     expect(hasRecordingClaim(recordingId!)).toBeFalse();
   });
 
+  test("accepts duplicate desktop cancellation acknowledgements", async () => {
+    const conversationId = "conv-recording-version-timeout";
+    const recordingId = handleRecordingStart(conversationId, undefined)!;
+    registerMockClient("renderer-timeout-1", "actor-1", "web");
+    registerMockClient("desktop-timeout-1", "actor-1", "windows");
+    registerMockClient("renderer-timeout-2", "actor-1", "web");
+    registerMockClient("desktop-timeout-2", "actor-1", "macos");
+    const body = {
+      conversationId: recordingId,
+      attachToConversationId: conversationId,
+      status: "restart_cancelled",
+    };
+
+    await expect(
+      statusRouteHandler({
+        body,
+        headers: statusHeaders(
+          "renderer-timeout-1",
+          "actor-1",
+          "desktop-timeout-1",
+        ),
+      } as never),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      statusRouteHandler({
+        body,
+        headers: statusHeaders(
+          "renderer-timeout-2",
+          "actor-1",
+          "desktop-timeout-2",
+        ),
+      } as never),
+    ).resolves.toEqual({ ok: true });
+
+    expect(hasRecordingClaim(recordingId)).toBeFalse();
+  });
+
   test("restarts a lost transfer under the authenticated desktop owner", async () => {
     const recordingId = "00000000-0000-4000-8000-000000000096";
     const headers = statusHeaders(

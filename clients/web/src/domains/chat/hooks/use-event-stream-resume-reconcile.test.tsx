@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import { __resetForTesting, publish } from "@/lib/event-bus";
+import {
+  __resetForTesting,
+  publish,
+  type SourcedAssistantEventEnvelope,
+} from "@/lib/event-bus";
 import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import { __resetLocalSeqForTesting } from "@/lib/streaming/local-seq";
 
@@ -147,12 +150,13 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       conversationId: "conv-A",
       seq: 5,
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "assistant_text_delta",
         conversationId: "conv-A",
         text: "a",
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
 
     // WHEN a later event arrives with a seq gap (events were evicted)
     publish("sse.event", {
@@ -160,12 +164,13 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       conversationId: "conv-A",
       seq: 5000,
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "assistant_text_delta",
         conversationId: "conv-A",
         text: "b",
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     // THEN the gap heal reconcile runs with the authoritative flag set

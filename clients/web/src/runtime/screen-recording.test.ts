@@ -966,6 +966,49 @@ test("waits for the selected assistant version after a switch", async () => {
   expect(recorder.state).toBe("recording");
 });
 
+test("acknowledges a version timeout and accepts a subsequent start", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  const capture = mock(async () => ({
+    stream: {
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+    } as unknown as MediaStream,
+    close: () => track.stop(),
+  }));
+  const statuses: Array<{ recordingId: string; status: string }> = [];
+  let ownershipSupport: boolean | null = null;
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture,
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: async (_assistantId, event, status) => {
+      statuses.push({ recordingId: event.recordingId, status });
+    },
+    supportsOwnership: () => ownershipSupport,
+    waitForAssistantVersion: async () => undefined,
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+
+  ownershipSupport = true;
+  const replacementId = "00000000-0000-4000-8000-000000000002";
+  await controller.handle(
+    { ...startEvent, recordingId: replacementId },
+    "assistant-1",
+  );
+
+  expect(statuses).toEqual([
+    { recordingId, status: "restart_cancelled" },
+    { recordingId: replacementId, status: "started" },
+  ]);
+  expect(capture).toHaveBeenCalledTimes(1);
+  expect(recorder.state).toBe("recording");
+});
+
 test("cancels an obsolete start while its version is resolving", async () => {
   const replacementId = "00000000-0000-4000-8000-000000000002";
   const recorder = new FakeRecorder();

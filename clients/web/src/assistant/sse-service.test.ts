@@ -163,7 +163,10 @@ describe("sseService.attach — connection lifecycle", () => {
 
     activeOnEvent!(envelope);
 
-    expect(publishSpy).toHaveBeenCalledWith("sse.event", envelope);
+    expect(publishSpy).toHaveBeenCalledWith("sse.event", {
+      ...envelope,
+      sourceAssistantId: "asst-1",
+    });
   });
 
   test("publishes sse.opened with cause=fresh once the stream establishes", () => {

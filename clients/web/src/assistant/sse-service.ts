@@ -199,7 +199,10 @@ export const sseService: SseService = {
       const stream = subscribeEvents(
         assistantId,
         (envelope) => {
-          publish("sse.event", envelope);
+          publish("sse.event", {
+            ...envelope,
+            sourceAssistantId: assistantId,
+          });
         },
         (err) => {
           Sentry.addBreadcrumb({

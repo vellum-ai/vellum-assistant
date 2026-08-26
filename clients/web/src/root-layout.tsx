@@ -176,7 +176,7 @@ export function RootLayout() {
   useNotificationIntentSync(assistantId);
   useWebPresenceReport(assistantId);
   usePushRegistration(assistantId);
-  useScreenRecordingLifecycle(assistantId);
+  useScreenRecordingLifecycle();
   useNotificationTapNavigation();
   useSoundEffects(assistantId, isAssistantActive);
   useDocumentEditorSync();

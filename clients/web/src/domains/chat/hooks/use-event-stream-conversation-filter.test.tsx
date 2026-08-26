@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import { __resetForTesting, publish } from "@/lib/event-bus";
+import {
+  __resetForTesting,
+  publish,
+  type SourcedAssistantEventEnvelope,
+} from "@/lib/event-bus";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
@@ -41,12 +44,13 @@ function publishDelta(conversationId: string): void {
     id: "evt-1",
     conversationId,
     emittedAt: new Date().toISOString(),
+    sourceAssistantId: "asst-1",
     message: {
       type: "assistant_text_delta",
       conversationId,
       text: "hi",
     },
-  } as AssistantEventEnvelope);
+  } as SourcedAssistantEventEnvelope);
 }
 
 beforeEach(() => {
@@ -98,11 +102,12 @@ describe("useEventStream — conversation-switch filtering", () => {
     publish("sse.event", {
       id: "evt-sync",
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "sync_changed",
         tags: ["assistant:self:identity"],
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -118,11 +123,12 @@ describe("useEventStream — conversation-switch filtering", () => {
     publish("sse.event", {
       id: "evt-no-conv",
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "assistant_text_delta",
         text: "should be rejected",
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -133,12 +139,13 @@ describe("useEventStream — conversation-switch filtering", () => {
       id: "evt-msg",
       conversationId: "conv-A",
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "message_complete",
         conversationId: "conv-A",
         messageId: "m1",
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -149,12 +156,13 @@ describe("useEventStream — conversation-switch filtering", () => {
       id: "evt-tool",
       conversationId: "conv-B",
       emittedAt: new Date().toISOString(),
+      sourceAssistantId: "asst-1",
       message: {
         type: "assistant_text_delta",
         conversationId: "conv-B",
         text: "should be dropped",
       },
-    } as AssistantEventEnvelope);
+    } as SourcedAssistantEventEnvelope);
     expect(handler).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import { __resetForTesting, publish, subscribe } from "@/lib/event-bus";
+import {
+  __resetForTesting,
+  publish,
+  subscribe,
+  type SourcedAssistantEventEnvelope,
+} from "@/lib/event-bus";
 
-function avatarEnvelope(): AssistantEventEnvelope {
+function avatarEnvelope(): SourcedAssistantEventEnvelope {
   return {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
+    sourceAssistantId: "asst-1",
     message: { type: "avatar_updated", avatarPath: "/tmp/avatar.png" },
   };
 }
