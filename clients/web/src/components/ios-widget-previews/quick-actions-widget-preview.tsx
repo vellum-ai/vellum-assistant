@@ -118,8 +118,14 @@ export function QuickActionsWidgetPreview({
   // `QuickActionsCardBackground`: a photo avatar makes the card the blurred
   // photo over its own near-black ground, not the accent, since an uploaded
   // avatar carries no accent to tint with.
-  const hasPhotoCard =
-    avatarKind === "image" && avatarImageUrl !== null && !flattened;
+  // One owner of "is this card wearing a photo", so the placement and the mark
+  // cannot disagree and hang the photo off a line drawn for something else.
+  const drawsPhotoMark = avatarKind === "image" && avatarImageUrl !== null;
+  const hasPhotoCard = drawsPhotoMark && !flattened;
+  // The eyes lean past centre into the rightward glance their pupils already
+  // have. A photo has no glance to lean into, and the same nudge only reads as
+  // a square hung crooked, so it sits on the line.
+  const quietMarkOffset = drawsPhotoMark ? 0 : QUIET_MARK_CENTER_OFFSET;
   const background = flattened
     ? FLATTENED_CARD_GROUND
     : hasPhotoCard
@@ -190,7 +196,7 @@ export function QuickActionsWidgetPreview({
               display: "flex",
               justifyContent: "center",
               paddingTop: MARK_INSET * scale,
-              transform: `translateX(${QUIET_MARK_CENTER_OFFSET * scale}px)`,
+              transform: `translateX(${quietMarkOffset * scale}px)`,
             }}
           >
             <AvatarMark
@@ -198,7 +204,7 @@ export function QuickActionsWidgetPreview({
               imageSize={AVATAR_IMAGE_SIZE * scale}
               cornerRadius={AVATAR_IMAGE_CORNER_RADIUS * scale}
               appearance={appearance}
-              kind={avatarKind}
+              drawsPhoto={drawsPhotoMark}
               avatarImageUrl={avatarImageUrl}
               flattened={flattened}
             />
@@ -217,7 +223,7 @@ export function QuickActionsWidgetPreview({
                 imageSize={fittedImageSize(markWidth, scale)}
                 cornerRadius={AVATAR_IMAGE_CORNER_RADIUS * scale}
                 appearance={appearance}
-                kind={avatarKind}
+                drawsPhoto={drawsPhotoMark}
                 avatarImageUrl={avatarImageUrl}
                 flattened={flattened}
               />
@@ -276,7 +282,7 @@ function AvatarMark({
   imageSize,
   cornerRadius,
   appearance,
-  kind,
+  drawsPhoto,
   avatarImageUrl,
   flattened,
 }: {
@@ -284,11 +290,11 @@ function AvatarMark({
   imageSize: number;
   cornerRadius: number;
   appearance: WidgetAppearance;
-  kind: WidgetAvatarKind;
+  drawsPhoto: boolean;
   avatarImageUrl: string | null;
   flattened: boolean;
 }) {
-  if (kind === "image" && avatarImageUrl !== null) {
+  if (drawsPhoto && avatarImageUrl !== null) {
     return (
       <img
         src={avatarImageUrl}

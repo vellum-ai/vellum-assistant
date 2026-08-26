@@ -4,8 +4,8 @@
  * hatch/retire/wake lifecycle ops) over a loopback HTTP boundary. Consumed by the
  * CLI `client` server and the web app's dev-server middleware so the local
  * endpoint behaviour is defined exactly once instead of one host reaching into
- * another's source tree. `@vellumai/environments` is its only workspace
- * dependency.
+ * another's source tree. `@vellumai/environments` and the source-only
+ * `@vellumai/avatar-manifest` are its only workspace dependencies.
  */
 export {
   stripSensitiveFields,
@@ -73,6 +73,7 @@ export type {
 export { runUpgrade, isValidReleaseVersion } from "./upgrade";
 export type { UpgradeOptions, UpgradeResult } from "./upgrade";
 export { getLocalAssistantStatus } from "./status";
+export { readLockfileAssistantAvatar } from "./avatar";
 export type {
   LocalAssistantRuntimeState,
   LocalAssistantStatusResult,

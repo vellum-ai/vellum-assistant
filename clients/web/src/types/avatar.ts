@@ -37,6 +37,12 @@ export type CharacterComponents = CharacterComponentsResponse;
 
 export type CharacterTraits = NonNullable<AvatarStateResponse["traits"]>;
 
+/** A resolved avatar render mode: character traits, a custom image url, or neither. */
+export interface AvatarRead {
+  traits: CharacterTraits | null;
+  imageUrl: string | null;
+}
+
 export function isCharacterTraits(value: unknown): value is CharacterTraits {
   if (typeof value !== "object" || value === null) {
     return false;

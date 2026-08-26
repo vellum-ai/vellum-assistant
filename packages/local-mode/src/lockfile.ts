@@ -9,8 +9,10 @@ import {
 import { withLockfileLock } from "./lockfile-lock";
 import { stripSensitiveFields } from "./util";
 
+/** `raw` is the authoritative file's parsed JSON (unknown fields intact). */
 export type LockfileResult =
-  { ok: true; data: Lockfile } | { ok: false; status: number; error?: string };
+  | { ok: true; data: Lockfile; raw: Record<string, unknown> }
+  | { ok: false; status: number; error?: string };
 
 export function getLockfileData(lockfilePaths: string[]): LockfileResult {
   let raw: string | undefined;
@@ -26,7 +28,8 @@ export function getLockfileData(lockfilePaths: string[]): LockfileResult {
   }
 
   if (!raw) {
-    return { ok: true, data: { assistants: [], activeAssistant: null } };
+    const empty = { assistants: [], activeAssistant: null };
+    return { ok: true, data: empty, raw: empty };
   }
 
   let data: Record<string, unknown>;
@@ -36,7 +39,7 @@ export function getLockfileData(lockfilePaths: string[]): LockfileResult {
     return { ok: false, status: 500 };
   }
   stripSensitiveFields(data);
-  return { ok: true, data: parseLockfile(data) };
+  return { ok: true, data: parseLockfile(data), raw: data };
 }
 
 /**

@@ -41,6 +41,7 @@ describe("getLockfileData", () => {
     expect(result).toEqual({
       ok: true,
       data: { assistants: [], activeAssistant: null },
+      raw: { assistants: [], activeAssistant: null },
     });
   });
 

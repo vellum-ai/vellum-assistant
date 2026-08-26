@@ -131,6 +131,7 @@
     "@types/js-yaml": "4.0.9",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@vellumai/avatar-manifest": "workspace:*",
     "@vitejs/plugin-react": "6.0.1",
     "eslint": "10.2.0",
     "eslint-plugin-react-hooks": "7.1.1",

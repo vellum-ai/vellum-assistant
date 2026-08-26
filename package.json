@@ -12,6 +12,7 @@
     "credential-executor",
     "gateway",
     "packages/assistant-client",
+    "packages/avatar-manifest",
     "packages/ces-client",
     "packages/credential-storage",
     "packages/design-library",

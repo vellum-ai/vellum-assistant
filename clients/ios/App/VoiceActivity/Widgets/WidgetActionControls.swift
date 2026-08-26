@@ -40,6 +40,68 @@ enum WidgetFlattenedFill {
     static let chip = Color.white.opacity(0.12)
 }
 
+/// The app's own mark, at the size a control wears it: this build's icon
+/// ground with the icon's own eyes on it.
+///
+/// The eyes are `VellumAppIconEyes`, the same `eyes.svg` the three Icon
+/// Composer bundles embed, pinned to the avatar component library's quirky
+/// style by `clients/ios/scripts/__tests__/ios-default-icon-geometry.test.ts`.
+/// Drawing the widget's own ``WidgetAvatarEyes`` here would be a different
+/// face: that pair is a 61x33 egg arrangement, while the icon's is 233x176 in
+/// its own canvas, and the two do not read as the same mark.
+///
+/// The ground comes from the running bundle (``AppIconGround``), because
+/// Staging and Dev do not ship the production green.
+///
+/// Both go away once the system flattens the widget. A solid ground survives
+/// flattening as a solid block, which would swallow the eyes on it, and the
+/// control underneath already supplies a ground of its own.
+struct VellumAppIconMark: View {
+    let size: CGFloat
+
+    /// The artwork's canvas is mostly empty: the pair occupies the middle
+    /// third, the way it does in the icon, which scales and offsets it rather
+    /// than drawing it edge to edge. These mirror that framing so the mark
+    /// reads at a control's size. The byte pin above is what catches artwork
+    /// that moves out from under them.
+    private static let artworkScale: CGFloat = 1.94
+    private static let artworkOffsetXRatio: CGFloat = 0.074
+
+    /// A corner in the family the icon's own squircle is drawn with.
+    private static let cornerRadiusRatio: CGFloat = 0.28
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
+    var body: some View {
+        eyes
+            .frame(width: size, height: size)
+            .background { ground }
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: size * Self.cornerRadiusRatio,
+                    style: .continuous
+                )
+            )
+    }
+
+    private var eyes: some View {
+        Image("VellumAppIconEyes")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size * Self.artworkScale, height: size * Self.artworkScale)
+            .offset(x: size * Self.artworkOffsetXRatio)
+    }
+
+    @ViewBuilder
+    private var ground: some View {
+        if !isFlattened, let ground = AppIconGround.current {
+            ground
+        }
+    }
+}
+
 /// One tile in an action column: a glyph over a word, filling a rounded
 /// square, wired to an App Intent.
 ///
@@ -57,7 +119,11 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     private static var labelSize: CGFloat { 8 }
 
     let intent: ActionIntent
-    let icon: Image
+
+    /// The symbol a tile standing for an action draws. Absent on the tile that
+    /// stands for the app itself, which draws ``VellumAppIconMark``.
+    var icon: Image? = nil
+
     let title: String
     let fill: Color
     let tint: Color
@@ -73,6 +139,12 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     /// the assistant keep their symbol, and because nothing has synced yet on a
     /// fresh install.
     var avatarImage: UIImage? = nil
+
+    /// Whether this tile stands for the app itself, so it falls back to the
+    /// app's mark rather than to ``icon``. What the widget gallery shows: a
+    /// card with nothing synced has no avatar to draw, and the tile that starts
+    /// a chat with the assistant should still look like the app.
+    var showsAppIcon: Bool = false
 
     /// The owning card's ratio to the size it was designed at, so the tile
     /// keeps its share of a card that renders larger or smaller than the
@@ -127,7 +199,9 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     private var glyph: some View {
         if let avatarImage {
             WidgetAvatarImageView(image: avatarImage, size: Self.iconSize * scale)
-        } else {
+        } else if showsAppIcon {
+            VellumAppIconMark(size: Self.iconSize * scale)
+        } else if let icon {
             icon
                 .font(.system(size: Self.iconSize * scale))
                 .foregroundStyle(tint)
@@ -148,12 +222,12 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
     static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil, scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
-            icon: Image("VellumV"),
             title: "New Chat",
             fill: accent.fill,
             tint: accent.onFill,
             carriesAccent: true,
             avatarImage: avatarImage,
+            showsAppIcon: true,
             scale: scale
         )
     }
@@ -208,7 +282,10 @@ struct CircleActionButton<ActionIntent: AppIntent>: View {
 /// A full-width capsule running an App Intent, glyph beside a word.
 struct PillActionButton<ActionIntent: AppIntent>: View {
     let intent: ActionIntent
-    let icon: Image
+
+    /// See ``WidgetActionTile/icon``.
+    var icon: Image? = nil
+
     let title: String
     let fill: Color
     let tint: Color
@@ -222,6 +299,9 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
 
     /// See ``WidgetActionTile/avatarImage``.
     var avatarImage: UIImage? = nil
+
+    /// See ``WidgetActionTile/showsAppIcon``.
+    var showsAppIcon: Bool = false
 
     /// See ``WidgetActionTile/scale``. The glyph already follows the height;
     /// this scales the word beside it.
@@ -270,7 +350,9 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     private var glyph: some View {
         if let avatarImage {
             WidgetAvatarImageView(image: avatarImage, size: iconSize)
-        } else {
+        } else if showsAppIcon {
+            VellumAppIconMark(size: iconSize)
+        } else if let icon {
             icon
                 .font(.system(size: iconSize))
         }

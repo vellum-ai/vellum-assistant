@@ -606,6 +606,7 @@
     "wordCount": "{count, plural, one {# word} other {# words}}"
   },
   "documentViewerPage": {
+    "exportFailed": "Failed to export PDF",
     "notFound": "Document not found."
   },
   "dynamicPageSurface": {

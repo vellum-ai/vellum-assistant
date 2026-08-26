@@ -100,18 +100,3 @@ export function EllipsisGlyph({ size, color }: GlyphProps) {
     </svg>
   );
 }
-
-/** The `VellumV` asset. */
-export function VellumVGlyph({ size, color }: GlyphProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      fill={color}
-    >
-      <path d="M4.4 5.2h3.5l4.1 11 4.1-11h3.5l-6 15.2H10.4L4.4 5.2Z" />
-    </svg>
-  );
-}

@@ -186,8 +186,19 @@ struct QuickActionsWidgetView: View {
             scale: scale
         )
         .frame(maxWidth: .infinity)
-        .offset(x: Self.quietMarkCenterOffset * scale)
+        .offset(x: quietMarkOffset * scale)
         .padding(.top, Self.markInset * scale)
+    }
+
+    /// How far off the center line the quiet mark rests, which is a question
+    /// about what the mark is.
+    ///
+    /// The eyes lean past center into the rightward glance their pupils already
+    /// have, so the face reads as looking across the card. A photo has no
+    /// glance to lean into: it is a square of someone's own picture, and the
+    /// same nudge only reads as a square hung crooked. So it sits on the line.
+    private var quietMarkOffset: CGFloat {
+        drawsPhotoMark ? 0 : Self.quietMarkCenterOffset
     }
 
     /// Height the eyes can afford beside the chip. The pair's own width is its
@@ -213,7 +224,7 @@ struct QuickActionsWidgetView: View {
     /// account and belongs in one place.
     @ViewBuilder
     private func avatarMark(eyeHeight: CGFloat, imageSize: CGFloat, scale: CGFloat) -> some View {
-        if entry.avatarKind == .image, let image = entry.avatarImage {
+        if drawsPhotoMark, let image = entry.avatarImage {
             WidgetAvatarImageView(
                 image: image,
                 size: imageSize,
@@ -222,6 +233,14 @@ struct QuickActionsWidgetView: View {
         } else {
             WidgetAvatarEyes(eyeHeight: eyeHeight)
         }
+    }
+
+    /// Whether the mark this card draws is the account's own photo rather than
+    /// the eyes. The placement above and the mark below both ask it, and a card
+    /// that answered differently in the two places would hang the photo off a
+    /// line drawn for something else.
+    private var drawsPhotoMark: Bool {
+        entry.avatarKind == .image && entry.avatarImage != nil
     }
 
     /// How many conversations are waiting, and the way to them.

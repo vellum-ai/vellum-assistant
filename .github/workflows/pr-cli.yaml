@@ -10,6 +10,7 @@ on:
       - 'cli/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-manifest/**'
       - '.github/workflows/pr-cli.yaml'
 
 concurrency:

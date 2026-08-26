@@ -12,6 +12,9 @@ let secureKeyStore: Record<string, string | undefined> = {};
 const metadataUpserts: Array<{ service: string; field: string }> = [];
 const metadataDeletes: Array<{ service: string; field: string }> = [];
 let providerRefreshCalls = 0;
+let identitySyncCalls = 0;
+let avatarSyncCalls = 0;
+let failSecureKeyWrites = false;
 
 const PLATFORM_BASE_URL = "https://platform.example.com";
 const ASSISTANT_API_KEY_PATH = credentialKey("vellum", "assistant_api_key");
@@ -73,6 +76,9 @@ mock.module("../security/secure-keys.js", () => ({
     unreachable: false,
   }),
   setSecureKeyAsync: async (key: string, value: string) => {
+    if (failSecureKeyWrites) {
+      return false;
+    }
     secureKeyStore[key] = value;
     return true;
   },
@@ -97,6 +103,19 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // to a no-op; its behavior is covered by boot-maintenance.test.ts.
 mock.module("../plugins/defaults/memory/substrate/boot-maintenance.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
+}));
+
+// Live platform registration (`vellum login` against a running assistant)
+// must re-enqueue the name and avatar syncs that no-op'd at startup.
+mock.module("../platform/sync-identity.js", () => ({
+  syncWorkspaceIdentityToPlatform: () => {
+    identitySyncCalls++;
+  },
+}));
+mock.module("../platform/sync-avatar.js", () => ({
+  syncAvatarToPlatform: () => {
+    avatarSyncCalls++;
+  },
 }));
 
 // secret-routes evicts conversations after a credential change so the next turn
@@ -164,6 +183,9 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
+    identitySyncCalls = 0;
+    avatarSyncCalls = 0;
+    failSecureKeyWrites = false;
     getDb()
       .delete(providerConnections)
       .where(eq(providerConnections.name, "openrouter-connection"))
@@ -299,6 +321,39 @@ describe("secret routes managed proxy registry sync", () => {
 
     // THEN the provider refresh does not run.
     expect(providerRefreshCalls).toBe(0);
+  });
+
+  test("storing a platform registration credential enqueues name and avatar syncs", async () => {
+    for (const name of [
+      "vellum:assistant_api_key",
+      "vellum:platform_assistant_id",
+      "vellum:platform_base_url",
+    ]) {
+      identitySyncCalls = 0;
+      avatarSyncCalls = 0;
+      await addCredential(name, "value");
+      expect(identitySyncCalls).toBe(1);
+      expect(avatarSyncCalls).toBe(1);
+    }
+  });
+
+  test("unrelated credentials do not enqueue platform syncs", async () => {
+    await addCredential("openrouter:api_key", "openrouter-key");
+    await addCredential("vellum:platform_user_id", "user-1");
+
+    expect(identitySyncCalls).toBe(0);
+    expect(avatarSyncCalls).toBe(0);
+  });
+
+  test("a failed platform credential write does not enqueue platform syncs", async () => {
+    failSecureKeyWrites = true;
+
+    await expect(
+      addCredential("vellum:platform_assistant_id", "asst-1"),
+    ).rejects.toThrow("Failed to store credential");
+
+    expect(identitySyncCalls).toBe(0);
+    expect(avatarSyncCalls).toBe(0);
   });
 
   test("storing vellum:platform_base_url sets override and triggers initializeProviders", async () => {

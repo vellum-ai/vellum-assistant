@@ -4,6 +4,7 @@ import { CatchUpWidgetPreview } from "./catch-up-widget-preview";
 import { ReplicaNotice } from "./replica-notice";
 import { QuickActionsWidgetPreview } from "./quick-actions-widget-preview";
 import { StatusWidgetPreview } from "./status-widget-preview";
+import { VellumAppIconMark } from "./vellum-app-icon-mark";
 import type { WidgetAppearance } from "./widget-tokens";
 
 /**
@@ -179,6 +180,12 @@ export const QuickActionsUnread: Story = {
  * The character in the middle carries a face raster alongside its accent,
  * which production payloads do. It keeps its accent and its eyes: presence of
  * a raster is not what makes a card a photo card.
+ *
+ * Quiet cards, because that is where the mark is drawn full size and where its
+ * placement shows: the eyes rest a nudge right of centre, leaning into the
+ * glance their pupils already have, while a photo sits on the line. A photo has
+ * no glance to lean into, and the same nudge only reads as a square hung
+ * crooked.
  */
 export const QuickActionsAvatars: Story = {
   name: "Quick Actions / avatar kinds",
@@ -188,14 +195,12 @@ export const QuickActionsAvatars: Story = {
         <div style={{ display: "flex", gap: 12 }}>
           <QuickActionsWidgetPreview
             appearance={appearance}
-            unreadCount={5}
             avatarKind="image"
             accentHex={null}
             avatarImageUrl={AVATAR_PHOTO}
           />
           <QuickActionsWidgetPreview
             appearance={appearance}
-            unreadCount={5}
             avatarKind="character"
             accentHex="#0E9B8B"
             avatarImageUrl={AVATAR_PHOTO}
@@ -250,6 +255,33 @@ export const StatusStates: Story = {
         </div>
       )}
     />
+  ),
+};
+
+/**
+ * The mark the New Chat surfaces fall back to when no avatar has synced, which
+ * is the state the widget gallery renders on the Add Widget sheet.
+ *
+ * It is the containing app's icon, and the three builds do not ship the same
+ * one: a Dev widget advertising the production green would be advertising an
+ * icon that build does not have. On the device the ground comes from the
+ * running bundle; here it is an arg.
+ *
+ * The eyes are the avatar library's `quirky` style, the same geometry the icon
+ * bundles embed. They are deliberately not the widget's own eyes, which are a
+ * wider, rounder pair and read as a different face.
+ */
+export const AppIconMark: Story = {
+  name: "App icon mark / per build",
+  render: () => (
+    <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+      <VellumAppIconMark size={72} environment="production" />
+      <VellumAppIconMark size={72} environment="staging" />
+      <VellumAppIconMark size={72} environment="dev" />
+      <span style={{ background: "#141416", padding: 12, borderRadius: 14 }}>
+        <VellumAppIconMark size={72} flattened />
+      </span>
+    </div>
   ),
 };
 
