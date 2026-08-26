@@ -10,6 +10,8 @@ public static class DictationServiceTests
     {
         public string Tap => "fake";
 
+        public bool HeardAudio => false;
+
         public bool Finished;
         public bool Cancelled;
         public bool Disposed;
@@ -95,6 +97,54 @@ public static class DictationServiceTests
         Assert(SpinWait.SpinUntil(() => engine.Disposed, TimeSpan.FromSeconds(1)));
         manager.AppendAudio(Convert.ToBase64String(new byte[] { 3, 4 }));
         Assert(engine.Chunks.Count == 0);
+
+        // A tap session that stays silent is retried once on the server
+        // path; a session that spoke up is left alone.
+        events.Clear();
+        var silent = new FakeEngine();
+        var online = new FakeEngine();
+        var requests = new List<DictationEngineRequest>();
+        manager = new DictationSessionManager(
+            request =>
+            {
+                requests.Add(request);
+                return request.RequireOnDevice ? silent : online;
+            },
+            Notify,
+            TimeSpan.FromMilliseconds(50));
+        manager.SetPartials(true, false, 16000);
+        Assert(SpinWait.SpinUntil(() => silent.Cancelled, TimeSpan.FromSeconds(2)));
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":true", StringComparison.Ordinal)));
+        Assert(requests.Count == 2 && !requests[1].RequireOnDevice);
+        silent.EmitPartial("stale");
+        online.EmitPartial("server");
+        Assert(!events.Any(e => e.Json.Contains("stale", StringComparison.Ordinal)));
+        Assert(events.Any(e => e.Method == "dictation.partial" &&
+            e.Json.Contains("server", StringComparison.Ordinal)));
+
+        events.Clear();
+        var talkative = new FakeEngine();
+        manager = new DictationSessionManager(
+            _ => talkative, Notify, TimeSpan.FromMilliseconds(50));
+        manager.SetPartials(true, false, 16000);
+        talkative.EmitPartial("hi");
+        Thread.Sleep(150);
+        Assert(!talkative.Cancelled);
+        Assert(!events.Any(e => e.Method == "dictation.error"));
+
+        // Pushed-audio sessions never move to the server path, and an
+        // on-device failure there stays terminal.
+        events.Clear();
+        var pushed = new FakeEngine();
+        manager = new DictationSessionManager(
+            _ => pushed, Notify, TimeSpan.FromMilliseconds(50));
+        manager.SetPartials(true, true, 16000);
+        Thread.Sleep(150);
+        Assert(!pushed.Cancelled);
+        pushed.EmitFailure("gone");
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":false", StringComparison.Ordinal)));
 
         // Restarting cancels the replaced session: it is torn down and its
         // late events are dropped without a finalized transcript.
