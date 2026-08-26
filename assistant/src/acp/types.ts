@@ -13,20 +13,12 @@ export interface AcpAgentConfig {
   description?: string;
   env?: Record<string, string>;
   /**
-   * Identity of the Claude token `prepareAgentEnv` read from the vault into
-   * `env`. Compared against the token believed stored when a run reports its
-   * credential rejected, which is how a rejection of an already-replaced token
-   * is told apart from a real one. Absent for agents that read no Claude
-   * credential, and for a configured token, which carries no vault identity.
+   * Identity of the Claude token `prepareAgentEnv` resolved into `env`,
+   * whichever source it came from. Recorded on the history row when Claude
+   * refuses it, so the marker can later be compared against the credential a
+   * spawn would resolve now. Absent for agents that use no Claude credential.
    */
   credentialDigest?: string;
-  credentialFromConfig?: boolean;
-  /**
-   * Credential generation current when a configured Claude token was taken.
-   * A rejection is recorded against this, not against the generation at
-   * failure, so a replacement written in between counts as superseding it.
-   */
-  configCredentialGeneration?: number;
 }
 
 /**
@@ -53,6 +45,10 @@ export interface AcpSessionState {
    * inline Connect card, and cleared there when a replacement token lands.
    */
   authErrorCode?: string;
+  /** Digest of the Claude token that failure was refused on, carried to the
+   *  history row so the marker can be compared against the credential a later
+   *  spawn resolves. */
+  authErrorCredential?: string;
   /** Latest context-window usage gauge, from the most recent `usage_update`. */
   latestUsage?: AcpUsageSnapshot;
 }

@@ -5,10 +5,7 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import {
-  claudeTokenDigest,
-  publishClaudeTokenDigest,
-} from "./acp-auth-marker-store.js";
+import { claudeTokenDigest } from "./acp-auth-marker-store.js";
 import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
@@ -375,25 +372,28 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       parentId,
       authEvent: events.find((e) => e.type === "acp_auth_required"),
       persistedContent: firstPersist?.[0].content,
+      persistedAuthErrorCredential: (
+        entry.state as { authErrorCredential?: string }
+      ).authErrorCredential,
     };
   }
 
-  test("a rejection under a superseded credential raises no recovery surface", async () => {
-    publishClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-current"));
-    // A token replacement completing mid-prompt clears every marker and takes
-    // the registry with it. This run's rejection describes the credential that
-    // replacement retired, so raising the event or re-marking the registry
-    // would leave a card for auth that already works and nothing to clear it.
+  test("the marker names the credential the run was refused on", async () => {
+    // The failure path does not judge whether the rejection still matters. It
+    // records what was refused, and the read path compares that against the
+    // credential a spawn would resolve. Deciding here would mean guessing
+    // about writes that have not finished, and guessing toward suppression
+    // spends the rejection that would have raised the card.
+    const digest = claudeTokenDigest("sk-ant-oat-refused");
     const r = await driveAuthFailure({
-      id: "sess-auth-superseded",
+      id: "sess-auth-credential",
       command: "claude-agent-acp",
-      parentToolUseId: "tool-anchor-stale",
-      // A token that is not the one storage holds.
-      credentialDigest: claudeTokenDigest("sk-ant-oat-replaced"),
+      parentToolUseId: "tool-anchor-credential",
+      credentialDigest: digest,
     });
 
-    expect(r.authEvent).toBeUndefined();
-    expect(hasAcpConnectCardRaised("parent-sess-auth-superseded")).toBe(false);
+    expect(r.authEvent).toBeDefined();
+    expect(r.persistedAuthErrorCredential).toBe(digest);
   });
 
   test("claude failure with an anchor raises the full surface: event, registry mark, guidance", async () => {

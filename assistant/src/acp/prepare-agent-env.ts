@@ -33,8 +33,8 @@ import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
 import {
   claudeTokenDigest,
-  configClaudeTokenSuperseded,
-  currentClaudeCredentialGeneration,
+  claudeTokenRefusedByClaude,
+  storedClaudeTokenDigest,
 } from "./acp-auth-marker-store.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
@@ -287,8 +287,6 @@ export async function prepareAgentEnv(
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
   const adapterCommand = basename(agentConfig.command);
   let credentialDigest: string | undefined;
-  let credentialFromConfig = false;
-  let configCredentialGeneration: number | undefined;
 
   if (adapterCommand === "claude-agent-acp") {
     // A config `env` override or a legacy vault entry can hold an Anthropic API
@@ -310,15 +308,25 @@ export async function prepareAgentEnv(
     };
 
     dropApiKeyOauthToken();
-    // A configured token that Claude already rejected stands down once a real
-    // token has been written since, which is the user completing Connect.
-    // Config otherwise wins over the vault, so honouring it here would resolve
-    // the same revoked value and raise the card again on every retry.
+    // A configured token Claude has already refused stands down in favour of
+    // the vault. Config otherwise wins, so honouring it here would resolve the
+    // same revoked value and raise the card again on every retry.
+    //
+    // Read from the marker rows, so a daemon restart does not forget the
+    // refusal and trust the revoked value on sight again. Only stands down
+    // when the vault actually offers something else: with nothing to fall back
+    // to, dropping it would trade a token that fails for no token at all.
     if (
       env.CLAUDE_CODE_OAUTH_TOKEN &&
-      configClaudeTokenSuperseded(env.CLAUDE_CODE_OAUTH_TOKEN)
+      claudeTokenRefusedByClaude(env.CLAUDE_CODE_OAUTH_TOKEN)
     ) {
-      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      const stored = await storedClaudeTokenDigest();
+      if (
+        stored !== undefined &&
+        stored !== claudeTokenDigest(env.CLAUDE_CODE_OAUTH_TOKEN)
+      ) {
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      }
     }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
@@ -328,19 +336,6 @@ export async function prepareAgentEnv(
         "CLAUDE_CODE_OAUTH_TOKEN",
         ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
       );
-      // The identity of the token actually injected. No before/after dance and
-      // no retry: a digest describes the value in hand, so a write racing this
-      // read cannot mislabel it.
-      if (env.CLAUDE_CODE_OAUTH_TOKEN) {
-        credentialDigest = claudeTokenDigest(env.CLAUDE_CODE_OAUTH_TOKEN);
-      }
-    } else {
-      credentialFromConfig = true;
-      // The generation the configured value was taken under. Recording the
-      // rejection against this, rather than against whatever the generation is
-      // when the run fails, is what lets a write landing in between count as
-      // the replacement that supersedes it.
-      configCredentialGeneration = currentClaudeCredentialGeneration();
     }
     // Any api-key-shaped value still standing here came from the vault read:
     // the config override was already dropped above, and the read only runs
@@ -349,6 +344,13 @@ export async function prepareAgentEnv(
       env.CLAUDE_CODE_OAUTH_TOKEN !== undefined &&
       classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key";
     dropApiKeyOauthToken();
+    // Identity of the token this spawn will actually run with, whichever
+    // source survived the resolution above. Recorded on the history row if
+    // Claude refuses it, which is what lets the marker be compared against the
+    // credential a later spawn would resolve instead of relying on a sweep.
+    credentialDigest = env.CLAUDE_CODE_OAUTH_TOKEN
+      ? claudeTokenDigest(env.CLAUDE_CODE_OAUTH_TOKEN)
+      : undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       // The operator's record of WHY the spawn has no token. `missReason` is
       // the broker's own reason string and the rest are policy verdicts, so no
@@ -419,14 +421,9 @@ export async function prepareAgentEnv(
     ]);
   }
 
-  // `credentialDigest` identifies the token that came from the vault read; a
-  // configured `CLAUDE_CODE_OAUTH_TOKEN` skips that read and carries none, and
-  // `configCredentialGeneration` covers that source instead.
   return {
     ...agentConfig,
     env,
     credentialDigest,
-    credentialFromConfig,
-    configCredentialGeneration,
   };
 }

@@ -30,6 +30,8 @@ export interface HistoryRow {
   cost_currency: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  auth_error_code: string | null;
+  auth_error_credential: string | null;
 }
 
 export function clearHistory(): void {
@@ -62,6 +64,8 @@ export function insertHistoryRow(row: {
   costCurrency?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  authErrorCode?: string | null;
+  authErrorCredential?: string | null;
 }): void {
   getSqlite()
     .query(
@@ -70,8 +74,8 @@ export function insertHistoryRow(row: {
          started_at, completed_at, status, stop_reason, error,
          event_log_json, cwd, task, parent_tool_use_id,
          used_tokens, context_size, cost_amount, cost_currency,
-         input_tokens, output_tokens
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         input_tokens, output_tokens, auth_error_code, auth_error_credential
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.id,
@@ -93,6 +97,8 @@ export function insertHistoryRow(row: {
       row.costCurrency ?? null,
       row.inputTokens ?? null,
       row.outputTokens ?? null,
+      row.authErrorCode ?? null,
+      row.authErrorCredential ?? null,
     );
 }
 
@@ -103,7 +109,8 @@ export function readHistoryRow(id: string): HistoryRow | null {
               started_at, completed_at, status, stop_reason, error,
               event_log_json, cwd, task, parent_tool_use_id,
               used_tokens, context_size, cost_amount, cost_currency,
-              input_tokens, output_tokens
+              input_tokens, output_tokens, auth_error_code,
+              auth_error_credential
        FROM acp_session_history WHERE id = ?`,
     )
     .get(id) as HistoryRow | null;

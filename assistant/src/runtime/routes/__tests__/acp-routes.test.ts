@@ -116,6 +116,16 @@ mock.module("../../assistant-event-hub.js", () => ({
   },
 }));
 
+// The credential a spawn would resolve, which every credential-failure marker
+// is compared against before it is served. Spreading the real module keeps the
+// comparison itself real: only the vault read is under the test's control.
+let fakeStoredCredential: string | undefined;
+const realMarkerStore = await import("../../../acp/acp-auth-marker-store.js");
+mock.module("../../../acp/acp-auth-marker-store.js", () => ({
+  ...realMarkerStore,
+  storedClaudeTokenDigest: async () => fakeStoredCredential,
+}));
+
 /** Drain pending micro/macrotasks so background resume work settles. */
 const flushAsync = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -169,6 +179,7 @@ interface ResponseShape {
     inputTokens?: number;
     outputTokens?: number;
     eventLog?: unknown[];
+    authErrorCode?: string;
   }>;
 }
 
@@ -185,6 +196,7 @@ beforeEach(() => {
   approvalBehavior = "allow";
   confirmationRequests.length = 0;
   broadcasts.length = 0;
+  fakeStoredCredential = undefined;
 });
 
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
@@ -876,5 +888,96 @@ describe("POST /v1/acp/:id/steer: resume approval gate", () => {
     expect(confirmationRequests).toHaveLength(0);
     expect(body).toEqual({ acpSessionId: "live-2", steered: true });
     expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /v1/acp/sessions: a marker answers for itself", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const REPLACEMENT = realMarkerStore.claudeTokenDigest("sk-ant-oat-new");
+
+  function markedRow(overrides: Record<string, unknown> = {}) {
+    insertHistoryRow({
+      id: "hist-auth",
+      agentId: "claude",
+      acpSessionId: "proto-auth",
+      parentConversationId: "conv-auth",
+      startedAt: 5000,
+      completedAt: 6000,
+      status: "failed",
+      eventLogJson: "[]",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+      ...overrides,
+    });
+  }
+
+  test("serves the marker while the refused credential is still the stored one", async () => {
+    markedRow();
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("withholds it once a different credential is stored", async () => {
+    // The user completed Connect. Nothing swept the row; the comparison is
+    // what stops the card rendering, so it needs no ordering to be right.
+    markedRow();
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBeUndefined();
+  });
+
+  test("withholding it twice gives the same answer", async () => {
+    // The sweep this replaced could only run once, which is why a restart or a
+    // second client used to be able to lose the answer.
+    markedRow();
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const first = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+    const second = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(first.sessions[0].authErrorCode).toBeUndefined();
+    expect(second.sessions[0].authErrorCode).toBeUndefined();
+  });
+
+  test("serves a marker naming no credential rather than hiding it", async () => {
+    // Written before the credential column existed. An unknown credential is
+    // no evidence the failure was repaired.
+    markedRow({ authErrorCredential: null });
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("serves the marker when the vault holds nothing", async () => {
+    markedRow();
+    fakeStoredCredential = undefined;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
   });
 });

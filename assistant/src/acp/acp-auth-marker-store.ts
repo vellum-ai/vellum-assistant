@@ -1,111 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 
-import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { takeConversationsWithAcpConnectCard } from "./acp-connect-card-state.js";
+import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "./acp-credentials.js";
 
 const log = getLogger("acp-auth-marker-store");
-
-/**
- * Clear the credential-failure marker from every ACP history row.
- *
- * Called when a replacement Claude token is stored, which is the one moment
- * it is known that the failures these markers describe are repaired. Nothing
- * else can tell: the connected check answers on whether a token is present,
- * not on whether Claude accepts it, so a client holding a restored card
- * cannot retire it on its own.
- *
- * Every row rather than a tracked subset. The alternative is the process-local
- * set of conversations that raised a card, which a daemon restart empties
- * while the persisted markers survive, stranding them forever. The write
- * touches only rows that carry a marker, and a workspace holds few of them.
- *
- * Never throws: the token is stored either way, and a stale marker costs a
- * card offering to connect something already connected.
- */
-export function clearAcpAuthMarkers(): void {
-  try {
-    getDb()
-      .update(acpSessionHistory)
-      .set({ authErrorCode: null })
-      .where(isNotNull(acpSessionHistory.authErrorCode))
-      .run();
-  } catch (err) {
-    log.error(
-      { err },
-      "clearing ACP auth markers failed; a stale Connect card may reappear",
-    );
-  }
-}
-
-/**
- * Bumped every time a Claude token is written, so a caller that read the
- * credential earlier can tell whether it is still the current one.
- *
- * A run that started under an older generation and only now reports its
- * credential rejected is describing a token that has since been replaced.
- * Raising recovery for it would offer a Connect card for auth that already
- * works, after the sweep that would have retired it has run.
- *
- * In-memory, which is the right lifetime: sessions do not outlive the process
- * either, so a restart leaves no run holding a stale generation.
- */
-let claudeCredentialGeneration = 0;
-
-/** Current generation of the stored Claude credential. */
-export function currentClaudeCredentialGeneration(): number {
-  return claudeCredentialGeneration;
-}
-
-/**
- * Digest of the Claude token a write has actually published, or `undefined`
- * before any write in this process has succeeded.
- *
- * Identity rather than a version counter. A counter only answers "is this the
- * token stored now" by proxy, and that proxy needs the read and the write
- * serialized to stay true: publish the token before bumping and a read landing
- * in between captures the new token under the old number, which then reads as
- * superseded and suppresses a real rejection. Comparing the token itself has
- * no such window, because the answer travels with the thing it describes.
- *
- * Only a write that succeeded lands here. One still in flight is a pending
- * claim below instead, because a write that fails leaves the old token in
- * storage and must not have suppressed anything on its way to failing.
- */
-let publishedClaudeTokenDigest: string | undefined;
-
-/**
- * Tokens whose writes have started and not yet returned, counted so two
- * writers of the same value cannot drop each other's claim.
- *
- * A write is not a fact until `set()` returns. In between, storage holds
- * either the outgoing token or the incoming one and this process cannot tell
- * which, so both read as current: the outgoing one matches
- * `publishedClaudeTokenDigest`, the incoming one matches a pending claim.
- *
- * Deliberately the permissive answer, because the two mistakes are not
- * symmetric. Suppressing recovery during a write that then fails leaves the
- * user holding a rejected token with no Connect card, and no later event to
- * raise one, since the rejection that would have raised it has already been
- * consumed. Allowing it raises a card for auth that may already work, which
- * is an affordance the user can act on or dismiss.
- *
- * One case that costs more than the usual spurious card, and is accepted
- * rather than solved: a claim stays live while a *different* write publishes
- * and retires. A rejection of the still-claimed token then raises a card that
- * the retirement has already passed by, and if that claim's write goes on to
- * fail, no later write retires it. Reversing the guard there is worse, not
- * better, because the same interleaving can end with that write succeeding,
- * and then storage holds exactly the rejected token the suppression left with
- * no route back to auth. Retiring such a raise on the claim's failure needs
- * the raise recorded per token, which is a follow-up rather than something to
- * bolt onto this path.
- */
-const pendingClaudeTokenDigests = new Map<string, number>();
 
 /** Digest a Claude token for identity comparison. Never stores the token. */
 export function claudeTokenDigest(token: string): string {
@@ -113,196 +17,86 @@ export function claudeTokenDigest(token: string): string {
 }
 
 /**
- * Register a Claude token whose write has started but not yet returned.
+ * Whether a credential-failure marker is still worth showing a card for.
  *
- * Claimed *before* the backing write, so a read landing between the two is
- * covered whichever of the two tokens it gets.
+ * The marker names the credential the run was refused on. It stops being worth
+ * showing the moment a spawn would resolve a different one, because that is
+ * the user having repaired the auth the card exists to send them to.
+ *
+ * Answered by comparing, not by remembering. Nothing has to run at the right
+ * moment for a repaired marker to stop rendering, which is the difference
+ * between this and a retirement sweep: a sweep has to be ordered against every
+ * in-flight write and in-flight read, and a daemon restart loses whatever it
+ * was tracking. A comparison has no ordering to get wrong and no lifetime.
+ *
+ * Fails toward showing the card. A marker with no credential named predates
+ * this column or was written by a path that had none, and an unknown
+ * credential is no evidence the failure was repaired.
  */
-export function claimPendingClaudeTokenDigest(digest: string): void {
-  pendingClaudeTokenDigests.set(
-    digest,
-    (pendingClaudeTokenDigests.get(digest) ?? 0) + 1,
+export function acpAuthMarkerStillCurrent(
+  markerCredential: string | null | undefined,
+  resolvedCredential: string | undefined,
+): boolean {
+  if (markerCredential == null || resolvedCredential === undefined) {
+    return true;
+  }
+  return markerCredential === resolvedCredential;
+}
+
+/**
+ * Whether Claude has refused this token on some run whose marker still stands.
+ *
+ * Read from the marker rows rather than a process-local set. A configured
+ * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` outlives the daemon, so a
+ * rejection remembered only in memory is forgotten by the next restart and the
+ * revoked value is trusted on sight again, which reopens the Connect loop it
+ * was recorded to close.
+ *
+ * Never throws: this only ever widens or narrows which token a spawn prefers,
+ * and a read failure must not take the spawn with it.
+ */
+export function claudeTokenRefusedByClaude(token: string): boolean {
+  const digest = claudeTokenDigest(token);
+  try {
+    const row = getDb()
+      .select({ id: acpSessionHistory.id })
+      .from(acpSessionHistory)
+      .where(
+        and(
+          isNotNull(acpSessionHistory.authErrorCode),
+          eq(acpSessionHistory.authErrorCredential, digest),
+        ),
+      )
+      .limit(1)
+      .get();
+    return row !== undefined;
+  } catch (err) {
+    log.error(
+      { err },
+      "reading ACP auth markers failed; treating the token as untried",
+    );
+    return false;
+  }
+}
+
+/**
+ * Digest of the Claude OAuth token secure storage holds right now, or
+ * `undefined` when it holds none.
+ *
+ * The credential a marker is judged against. A configured
+ * `CLAUDE_CODE_OAUTH_TOKEN` that Claude has already refused stands down at the
+ * next spawn, so once a token carries a marker the vault value is what a spawn
+ * goes on to resolve, and comparing against it answers whether the marker
+ * still describes the credential in use.
+ *
+ * Read on demand rather than cached. The vault is the authority on what it
+ * holds, and a copy of that answer in this process is a second one that has to
+ * be kept in step with every write, including writes this process did not
+ * make.
+ */
+export async function storedClaudeTokenDigest(): Promise<string | undefined> {
+  const token = await getSecureKeyAsync(
+    credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
   );
-}
-
-function releasePendingClaudeTokenDigest(digest: string): void {
-  const outstanding = pendingClaudeTokenDigests.get(digest);
-  if (outstanding === undefined) {
-    return;
-  }
-  if (outstanding <= 1) {
-    pendingClaudeTokenDigests.delete(digest);
-    return;
-  }
-  pendingClaudeTokenDigests.set(digest, outstanding - 1);
-}
-
-/**
- * Record that this token is the one a write actually published.
- *
- * Called in the continuation of the `set()` that published it, so overlapping
- * writes settle in the order they resolved rather than the order they started,
- * and the one that landed last owns the answer.
- */
-export function publishClaudeTokenDigest(digest: string): void {
-  publishedClaudeTokenDigest = digest;
-  releasePendingClaudeTokenDigest(digest);
-}
-
-/**
- * Drop a claim whose write never landed.
- *
- * Nothing to undo beyond the claim itself. A pending claim never displaced the
- * published digest, so a failed write leaves the answer exactly as the last
- * successful one left it, and a late drop cannot clobber a newer claim.
- */
-export function dropPendingClaudeTokenDigest(digest: string): void {
-  releasePendingClaudeTokenDigest(digest);
-}
-
-/**
- * Whether a run holding `digest` is still holding a credential worth
- * recovering.
- *
- * Suppress only on positive evidence of supersession: some write succeeded,
- * and what it published is neither what this run holds nor anything still in
- * flight. Unknown answers `true`, because nothing in this process has written
- * a token, so there is no evidence the run's was replaced and this path must
- * fail toward leaving the user a route back to auth rather than suppressing
- * one.
- */
-export function claudeCredentialStillCurrent(
-  digest: string | undefined,
-): boolean {
-  if (digest === undefined || publishedClaudeTokenDigest === undefined) {
-    return true;
-  }
-  if (pendingClaudeTokenDigests.has(digest)) {
-    return true;
-  }
-  return digest === publishedClaudeTokenDigest;
-}
-
-/**
- * Whether a run that took its Claude token from agent config is still holding
- * the credential the user is working with.
- *
- * The digest check above cannot answer this. A configured token is never the
- * one in secure storage, so comparing identities would report every config
- * run as superseded and suppress every one of their cards. What matters for
- * this source is not identity but a clock: has a token been written since the
- * run took its value? If one has, the user completed Connect while the run was
- * still going, `retireAcpAuthRecovery` already swept the cards and markers,
- * and `configClaudeTokenSuperseded` has already stood this value down for the
- * next spawn. Recreating the card from this run's late rejection would reopen
- * a loop the write just closed.
- *
- * Unknown answers `true`, matching the digest check: no captured generation is
- * no evidence, and this path fails toward leaving the user a route back to
- * auth.
- *
- * The generation is bumped after the write it describes is published, so a
- * value captured inside that window reads as superseded a moment early. That
- * errs toward suppressing a card rather than stranding one, and it is the same
- * window `configClaudeTokenSuperseded` already resolves the same way.
- */
-export function configClaudeCredentialStillCurrent(
-  generationAtInjection: number | undefined,
-): boolean {
-  if (generationAtInjection === undefined) {
-    return true;
-  }
-  return claudeCredentialGeneration <= generationAtInjection;
-}
-
-/**
- * Retire everything a past Claude auth failure left behind, because a new
- * token has just been written.
- *
- * Called from `setSecureKeyAsync`, the seam every writer of that vault field
- * converges on, rather than from the writers themselves. A token repaired
- * through any of them repairs the ACP runs equally, and hanging this off the
- * seam is what keeps the behaviour from depending on a list of callers that
- * drifts as new write paths appear.
- *
- * The generation bump comes first, so a rejection racing this write sees the
- * newer generation and declines to re-mark rather than landing after the
- * sweep.
- */
-export function retireAcpAuthRecovery(): void {
-  claudeCredentialGeneration += 1;
-  clearAcpAuthMarkers();
-  takeConversationsWithAcpConnectCard();
-  // Other clients cannot discover this on their own: a restored
-  // `auth_required` prompt deliberately skips the connected-state self-heal,
-  // and nothing refetches the ACP snapshot until navigation or reconnect, so
-  // they would keep offering Connect for the token just replaced. Published
-  // after the writes above so a client that refetches on the invalidation sees
-  // the cleared state. Imported on demand to keep the event hub out of this
-  // module's load path, and never awaited: the retirement is already done, and
-  // a broadcast failure must not fail the token write that triggered it.
-  void import("../runtime/sync/sync-publisher.js")
-    .then(({ publishSyncInvalidation }) =>
-      publishSyncInvalidation([SYNC_TAGS.acpAuthRecovery]),
-    )
-    .catch((err: unknown) => {
-      log.warn({ err }, "failed to publish ACP auth recovery invalidation");
-    });
-}
-
-/**
- * Generation current when each rejected config-supplied Claude token was
- * refused, keyed by a digest of the token itself.
- *
- * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` takes precedence over the
- * vault, so a revoked value there is not something Connect can fix by writing
- * secure storage: the next spawn resolves the same configured token and raises
- * the card again. Remembering which token was rejected, and when, lets a later
- * read stand down exactly that value.
- *
- * Keyed by token rather than held as one process-global flag: several agent
- * aliases can each carry their own configured token, and a global one-shot is
- * consumed by whichever alias prepares first, which both discards that alias's
- * perfectly good token and leaves the rejected one trusted again.
- *
- * A digest, not the token: this outlives the spawn that produced it, and a
- * rejected credential is still a credential.
- */
-const rejectedConfigTokens = new Map<string, number>();
-
-const configTokenDigest = claudeTokenDigest;
-
-/**
- * Record that this configured Claude token was the one Claude rejected.
- *
- * `generationAtInjection` is the generation current when the run took the
- * value, not when it failed. A token write landing between those two moments
- * would otherwise be recorded as the rejection's own generation, leaving
- * `configClaudeTokenSuperseded` comparing a number against itself and
- * reporting the revoked value as still trustworthy.
- */
-export function noteConfigClaudeTokenRejected(
-  token: string,
-  generationAtInjection: number,
-): void {
-  rejectedConfigTokens.set(configTokenDigest(token), generationAtInjection);
-}
-
-/**
- * Whether this configured Claude token should stand down in favour of the
- * vault.
- *
- * True once a token has been written after this one was rejected: that write
- * is the user completing Connect, and honouring the config value over it would
- * loop the card forever.
- *
- * The record is kept, not consumed. A revoked value the user never removes
- * from config is resolved by every later spawn too, so a one-shot only spares
- * the first one and lets the next reopen the loop. Keying by digest is what
- * makes retention safe: a config value the user actually fixes hashes
- * differently and was never recorded, so it is trusted on sight.
- */
-export function configClaudeTokenSuperseded(token: string): boolean {
-  const rejectedAt = rejectedConfigTokens.get(configTokenDigest(token));
-  return rejectedAt !== undefined && claudeCredentialGeneration > rejectedAt;
+  return token ? claudeTokenDigest(token) : undefined;
 }

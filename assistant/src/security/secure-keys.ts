@@ -61,6 +61,7 @@ export type {
   DeleteResult,
 } from "./credential-backend.js";
 import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp/acp-credentials.js";
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 
 /**
  * Re-export shared-package secure-key abstractions so downstream consumers
@@ -659,91 +660,40 @@ export async function getSecureKeyAsync(
 }
 
 /**
- * A claim on the identity of the Claude OAuth token a write is about to
- * publish, settled once that write resolves.
- */
-interface AcpClaudeTokenClaim {
-  /**
-   * Promote the claim to published, now that the write has landed.
-   *
-   * Two writes can overlap, and the claims alone only record the order they
-   * *started*: A claims, B claims, then B publishes before A, leaving storage
-   * holding A while the answer still describes B. A run carrying A would read
-   * as superseded and lose its recovery. Publishing here runs in the
-   * continuation of `set()`, so the claims settle in the order the writes
-   * actually resolved, and the one that landed last owns the answer.
-   */
-  confirm: () => Promise<void>;
-  /**
-   * Drop the claim, because the write never landed.
-   *
-   * Storage still holds whatever it held before, and the claim never displaced
-   * that, so there is nothing to put back.
-   */
-  discard: () => Promise<void>;
-}
-
-/**
- * Record the identity of a Claude OAuth token about to be published, returning
- * the handle that settles the claim once the write resolves.
- *
- * `undefined` for every other credential, so the cost on the common path is
- * one string comparison. Imported on demand and only on a match, so the ACP
- * module graph stays out of this module's load path.
- */
-async function claimAcpClaudeTokenDigest(
-  credentials: { account: string; value: string }[],
-): Promise<AcpClaudeTokenClaim | undefined> {
-  const acpAccount = credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
-  const entry = credentials.find((c) => c.account === acpAccount);
-  if (!entry) {
-    return undefined;
-  }
-  try {
-    const { claudeTokenDigest, claimPendingClaudeTokenDigest } =
-      await import("../acp/acp-auth-marker-store.js");
-    const claimed = claudeTokenDigest(entry.value);
-    claimPendingClaudeTokenDigest(claimed);
-    return {
-      confirm: async () => {
-        const { publishClaudeTokenDigest } =
-          await import("../acp/acp-auth-marker-store.js");
-        publishClaudeTokenDigest(claimed);
-      },
-      discard: async () => {
-        const { dropPendingClaudeTokenDigest } =
-          await import("../acp/acp-auth-marker-store.js");
-        dropPendingClaudeTokenDigest(claimed);
-      },
-    };
-  } catch (err) {
-    log.warn({ err }, "failed to claim the Claude token digest before a write");
-    return undefined;
-  }
-}
-
-/**
  * Post-write side effects keyed on which credential was actually stored.
  *
  * Every path that lands a credential runs through this, single writes and bulk
  * restores alike, so a behaviour that has to follow a credential does not
- * depend on a list of call sites that drifts as write paths are added. Today
- * that is one thing: a new Claude OAuth token retires the ACP auth markers and
- * the card registry that asked for it.
+ * depend on a list of call sites that drifts as write paths are added.
  *
- * Imported on demand and only on a match, so the persistence graph behind the
- * marker store stays out of this module's load path.
+ * Deliberately not where a Connect card is retired. A card is retired by the
+ * marker it came from no longer matching the credential a spawn would resolve,
+ * which is a comparison made when the marker is read. Nothing here has to fire
+ * at the right moment for that to happen, so this is a notification rather
+ * than a mechanism, and a failure costs freshness rather than correctness.
+ *
+ * Imported on demand and only on a match, so the ACP module graph stays out of
+ * this module's load path.
  */
 async function onCredentialsWritten(accounts: string[]): Promise<void> {
   if (!accounts.includes(credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD))) {
     return;
   }
   try {
-    const { retireAcpAuthRecovery } =
-      await import("../acp/acp-auth-marker-store.js");
-    retireAcpAuthRecovery();
+    const { takeConversationsWithAcpConnectCard } =
+      await import("../acp/acp-connect-card-state.js");
+    // In-memory and about a card on screen rather than about the credential,
+    // so it has no marker to answer for it. Left standing, the credential
+    // prompt keeps redirecting at a card the new token just made stale.
+    takeConversationsWithAcpConnectCard();
+    const { publishSyncInvalidation } =
+      await import("../runtime/sync/sync-publisher.js");
+    // Other clients hold a card already rendered and refetch nothing on their
+    // own, so they need telling to look again. Only they can act on this; the
+    // marker itself has already stopped matching.
+    await publishSyncInvalidation([SYNC_TAGS.acpAuthRecovery]);
   } catch (err) {
-    log.warn({ err }, "ACP auth recovery retirement failed after a write");
+    log.warn({ err }, "ACP Connect card notification failed after a write");
   }
 }
 
@@ -759,20 +709,7 @@ export async function setSecureKeyAsync(
 ): Promise<boolean> {
   return withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync({ forceReconnect: true });
-    // Claim the new token's identity before publishing it. While the write is
-    // in flight, storage holds either the outgoing token or this one, so the
-    // claim is what keeps a run that read either of them from being mistaken
-    // for one carrying a credential that has been replaced.
-    const digestClaim = await claimAcpClaudeTokenDigest([{ account, value }]);
     const ok = await backend.set(account, value);
-    if (ok) {
-      // Settle in resolution order, so a write that overlapped this one cannot
-      // leave the answer describing the token that landed first.
-      await digestClaim?.confirm();
-    } else {
-      // Nothing was published, so storage still holds what it held before.
-      await digestClaim?.discard();
-    }
     if (!ok) {
       log.warn(
         { account, backend: backend.name },
@@ -820,11 +757,6 @@ export async function bulkSetSecureKeysAsync(
   return withCredentialTimeout(
     async () => {
       const backend = await resolveBackendAsync({ forceReconnect: true });
-      // Same claim as the single-write path: a bundle carrying the Claude
-      // token publishes a new credential, and a run that read the imported
-      // token while the bundle was still in flight would otherwise be
-      // classified as superseded and lose its recovery.
-      const digestClaim = await claimAcpClaudeTokenDigest(credentials);
       let results: Array<{ account: string; ok: boolean }>;
       if (backend.bulkSet) {
         results = await backend.bulkSet(credentials);
@@ -843,17 +775,7 @@ export async function bulkSetSecureKeysAsync(
         }
         updateCesHttpReachability(backend, anyFailed);
       }
-      const acpAccount = credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
       const written = results.filter((r) => r.ok).map((r) => r.account);
-      if (written.includes(acpAccount)) {
-        // Same settle as the single-write path: the bundle published the
-        // token, so this claim is the one that resolved last.
-        await digestClaim?.confirm();
-      } else {
-        // The bundle carried it but the write did not land, so storage still
-        // holds what it held before.
-        await digestClaim?.discard();
-      }
       await onCredentialsWritten(written);
       const succeeded = results.filter((r) => r.ok).length;
       const failed = results.filter((r) => !r.ok).length;

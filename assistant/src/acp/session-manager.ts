@@ -15,12 +15,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
-import {
-  claudeCredentialStillCurrent,
-  configClaudeCredentialStillCurrent,
-  currentClaudeCredentialGeneration,
-  noteConfigClaudeTokenRejected,
-} from "./acp-auth-marker-store.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
@@ -119,24 +113,12 @@ interface SessionEntry {
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
   command: string;
-  /** Whether this session's Claude token came from agent config rather than
-   *  the vault. A rejection of a configured token cannot be repaired by
-   *  writing secure storage, so it marks that source superseded instead. */
-  credentialFromConfig?: boolean;
-  /** The configured Claude token this session ran with, when it came from
-   *  config. A rejection marks exactly this value superseded, so one alias's
-   *  bad token cannot stand down another alias's good one. */
-  configClaudeToken?: string;
-  /** Identity of the Claude token this session read from the vault. Compared
-   *  against the token believed stored when the run reports its credential
-   *  rejected, which is how an already-replaced token's rejection is told
-   *  apart from a real one. Absent for a configured token and for agents that
-   *  read no Claude credential. */
+  /** Identity of the Claude token this session ran with, whichever source it
+   *  came from. Recorded on the history row alongside the failure code, so the
+   *  marker can be compared against the credential a later spawn resolves
+   *  rather than needing a sweep to retire it. Absent for agents that use no
+   *  Claude credential. */
   credentialDigest?: string;
-  /** Credential generation the configured token was taken under, when this
-   *  session used one. The rejection is recorded against this rather than the
-   *  generation at failure. */
-  configCredentialGeneration?: number;
 }
 
 /**
@@ -399,12 +381,6 @@ export class AcpSessionManager {
       task: opts.task,
       command: basename(opts.agentConfig.command),
       credentialDigest: opts.agentConfig.credentialDigest,
-      configCredentialGeneration: opts.agentConfig.configCredentialGeneration,
-      credentialFromConfig: opts.agentConfig.credentialFromConfig === true,
-      configClaudeToken:
-        opts.agentConfig.credentialFromConfig === true
-          ? opts.agentConfig.env?.CLAUDE_CODE_OAUTH_TOKEN
-          : undefined,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -1004,6 +980,7 @@ export class AcpSessionManager {
       task: entry.state.task ?? null,
       parentToolUseId: entry.state.parentToolUseId ?? null,
       authErrorCode: entry.state.authErrorCode ?? null,
+      authErrorCredential: entry.state.authErrorCredential ?? null,
       usedTokens: usage?.usedTokens ?? null,
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,
@@ -1190,51 +1167,14 @@ export class AcpSessionManager {
             errorCode !== undefined && current.state.status !== "cancelled"
               ? current.parentToolUseId
               : undefined;
-          // A configured token Claude rejected is recorded as such, so the
-          // next read stands it down in favour of whatever Connect writes.
-          // Without this the retry resolves the same revoked config value and
-          // raises the card again, forever. Recorded against the generation
-          // the value was injected under, so a replacement written while this
-          // run was still going counts as superseding it.
-          const rejectedConfigToken =
-            current.credentialFromConfig === true
-              ? current.configClaudeToken
-              : undefined;
-          if (errorCode !== undefined && rejectedConfigToken !== undefined) {
-            noteConfigClaudeTokenRejected(
-              rejectedConfigToken,
-              current.configCredentialGeneration ??
-                currentClaudeCredentialGeneration(),
-            );
-          }
-          // The whole recovery surface turns on this, not just the persisted
-          // mark: the live event raises a card that deliberately skips
-          // connected-state self-healing, and the registry entry redirects the
-          // secure-prompt fallback at that card. Raising either for a
-          // superseded rejection leaves the user with a card for a working
-          // token and nothing left to clear it.
-          //
-          // Suppress only on positive evidence of supersession: the run's
-          // token is not the one storage holds. A run with no recorded
-          // identity, or a process that has written no token, proves nothing,
-          // and recovery is the user's only route back to auth.
-          //
-          // Which evidence counts depends on where the token came from. A
-          // vault token is compared by identity. A configured one never has a
-          // stored identity to compare, so the digest check would wave every
-          // config run through; the generation it was captured under is the
-          // evidence for that source.
-          const credentialStillCurrent =
-            current.credentialFromConfig === true
-              ? configClaudeCredentialStillCurrent(
-                  current.configCredentialGeneration,
-                )
-              : claudeCredentialStillCurrent(current.credentialDigest);
-          if (
-            errorCode !== undefined &&
-            recoveryAnchor !== undefined &&
-            credentialStillCurrent
-          ) {
+          // Raised whenever there is an anchor to hang it on. Nothing is
+          // compared here: whether this failure is still worth showing a card
+          // for is decided when the marker is read, against the credential a
+          // spawn would resolve then. Deciding it now would be guessing about
+          // writes that have not finished, and guessing wrong in the
+          // suppressing direction costs the user the only route back to auth,
+          // because the rejection that would have raised the card is spent.
+          if (errorCode !== undefined && recoveryAnchor !== undefined) {
             current.sendToVellum({
               type: "acp_auth_required",
               acpSessionId,
@@ -1251,6 +1191,11 @@ export class AcpSessionManager {
             // carries it to the history row, which is what a client that
             // reopens the conversation re-raises the card from.
             current.state.authErrorCode = errorCode;
+            // Named beside the code so the marker can answer for itself later.
+            // Without it the row says auth broke but not on what, and a reader
+            // has no way to tell a failure the user has since repaired from one
+            // still waiting on them.
+            current.state.authErrorCredential = current.credentialDigest;
           }
 
           // Persist the terminal row before teardown clears the buffer.
@@ -1269,9 +1214,9 @@ export class AcpSessionManager {
               current,
               `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}` +
                 // Same predicate as the recovery surface above. Telling the
-                // model a Connect card is waiting when the guard raised none
-                // sends it to an affordance that does not exist.
-                (recoveryAnchor !== undefined && credentialStillCurrent
+                // model a Connect card is waiting when none was raised sends
+                // it to an affordance that does not exist.
+                (recoveryAnchor !== undefined
                   ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`
                   : ""),
             );

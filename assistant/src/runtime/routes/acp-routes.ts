@@ -9,6 +9,10 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  acpAuthMarkerStillCurrent,
+  storedClaudeTokenDigest,
+} from "../../acp/acp-auth-marker-store.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
@@ -427,10 +431,20 @@ function closeSession({ pathParams }: RouteHandlerArgs) {
   return { acpSessionId: id, closed: true };
 }
 
-function listSessions({ queryParams }: RouteHandlerArgs) {
+async function listSessions({ queryParams }: RouteHandlerArgs) {
   const limit = parseLimit(queryParams?.limit);
   const conversationId = queryParams?.conversationId;
-  const sessions = listMergedSessions({ limit, conversationId });
+  // The credential a spawn would resolve now. Every credential-failure marker
+  // is served or withheld by comparing against this, which is what retires a
+  // Connect card: not a sweep that has to run at the right moment, but the
+  // marker no longer describing the credential in use. Read once per request
+  // rather than per row.
+  const resolvedCredential = await storedClaudeTokenDigest();
+  const sessions = listMergedSessions({
+    limit,
+    conversationId,
+    resolvedCredential,
+  });
   return { sessions };
 }
 
@@ -707,7 +721,11 @@ function parseLimit(raw: string | null | undefined): number {
 function listMergedSessions(opts: {
   limit: number;
   conversationId?: string;
+  resolvedCredential?: string;
 }): SessionEntry[] {
+  /** Whether a row's marker still describes the credential in use. */
+  const markerCurrent = (credential: string | null | undefined) =>
+    acpAuthMarkerStillCurrent(credential, opts.resolvedCredential);
   const manager = getAcpSessionManager();
   const inMemory = manager.getStatus() as AcpSessionState[];
 
@@ -728,7 +746,9 @@ function listMergedSessions(opts: {
       stopReason: s.stopReason ?? null,
       task: s.task,
       parentToolUseId: s.parentToolUseId,
-      authErrorCode: s.authErrorCode,
+      authErrorCode: markerCurrent(s.authErrorCredential)
+        ? s.authErrorCode
+        : undefined,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,
@@ -761,9 +781,10 @@ function listMergedSessions(opts: {
   // page. The inline Connect card is restored from this marker, so paging it
   // out is the difference between a user having a way back to auth and not:
   // a conversation with more recent runs than the page holds would otherwise
-  // hide the one row that matters. Bounded by the marker itself, which the
-  // daemon clears on the next successful token write, so this adds a row only
-  // while auth is actually broken.
+  // hide the one row that matters. Markers that no longer describe the
+  // credential in use are dropped below rather than filtered here, so this
+  // stays one query whose cost is bounded by how many failures a conversation
+  // has actually had.
   const markedRows = opts.conversationId
     ? db
         .select()
@@ -808,7 +829,9 @@ function listMergedSessions(opts: {
       stopReason: row.stopReason,
       task: row.task ?? undefined,
       parentToolUseId: row.parentToolUseId ?? undefined,
-      authErrorCode: row.authErrorCode ?? undefined,
+      authErrorCode: markerCurrent(row.authErrorCredential)
+        ? (row.authErrorCode ?? undefined)
+        : undefined,
       usedTokens: row.usedTokens ?? undefined,
       contextSize: row.contextSize ?? undefined,
       costAmount: row.costAmount ?? undefined,
@@ -827,9 +850,9 @@ function listMergedSessions(opts: {
   // Reaching them is the whole point of including them: a conversation with
   // more recent runs than the page holds would otherwise drop the one row a
   // client restores the Connect card from, and the reload would find no way
-  // back to auth. Deliberately lets the recovery snapshot run past the
-  // ordinary page size, bounded by the marker, which a successful token write
-  // clears.
+  // back to auth. Only rows whose marker survived the credential comparison
+  // above still carry `authErrorCode`, so a repaired failure neither renders
+  // nor escapes the page limit.
   const paged = new Set(page.map((s) => s.id));
   for (const session of ordered) {
     if (session.authErrorCode !== undefined && !paged.has(session.id)) {
