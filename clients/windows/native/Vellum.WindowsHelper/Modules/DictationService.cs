@@ -578,6 +578,8 @@ internal sealed class SystemSpeechEngine : IDictationEngine
 /// </summary>
 internal sealed class OnlineSpeechEngine : IDictationEngine
 {
+    private static readonly TimeSpan StartupTimeout = TimeSpan.FromSeconds(5);
+
     private readonly WinRtSpeechRecognizer _recognizer;
     private readonly object _gate = new();
     private string _committed = "";
@@ -627,28 +629,32 @@ internal sealed class OnlineSpeechEngine : IDictationEngine
     public event Action<string>? Finalized;
     public event Action<string>? Failed;
 
-    // Compile and start off the caller's thread: the session manager
-    // holds its lock during Start, and the online path can stall on the
-    // network. Failures (offline, online speech privacy setting off)
-    // surface through `Failed`.
-    public void Start() => _ = StartAsync();
+    // Startup is synchronous so `dictation.setPartials` only acknowledges
+    // a session that is really listening, but bounded: the session manager
+    // holds its lock meanwhile and the online path can stall on the
+    // network. Throws when offline or the online speech setting is off.
+    public void Start()
+    {
+        var startup = StartAsync();
+        var settled = Task.WhenAny(startup, Task.Delay(StartupTimeout))
+            .GetAwaiter().GetResult();
+        if (!ReferenceEquals(settled, startup))
+        {
+            Cancel();
+            throw new TimeoutException("online recognition did not start in time");
+        }
+        startup.GetAwaiter().GetResult();
+    }
 
     private async Task StartAsync()
     {
-        try
+        var compiled = await _recognizer.CompileConstraintsAsync();
+        if (compiled.Status != SpeechRecognitionResultStatus.Success)
         {
-            var compiled = await _recognizer.CompileConstraintsAsync();
-            if (compiled.Status != SpeechRecognitionResultStatus.Success)
-            {
-                Complete($"online recognition unavailable ({compiled.Status})");
-                return;
-            }
-            await _recognizer.ContinuousRecognitionSession.StartAsync();
+            throw new InvalidOperationException(
+                $"online recognition unavailable ({compiled.Status})");
         }
-        catch (Exception err)
-        {
-            Complete(err.Message);
-        }
+        await _recognizer.ContinuousRecognitionSession.StartAsync();
     }
 
     public void Append(byte[] pcm)
