@@ -182,9 +182,9 @@ async function readRowAvatarViaHost(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<LegacyAvatarRead> {
-  // Claimed before the read so a live persist that lands mid-flight outranks
-  // a stale host "none"; the eviction only runs while this claim is current.
-  const generation = lastSeenAvatarGenerations.claim(assistantId);
+  // Peeked, not claimed, so the read never cancels an in-flight live persist;
+  // a live persist that lands mid-flight still outranks a stale host "none".
+  const generation = lastSeenAvatarGenerations.current(assistantId);
   const result = await readAssistantAvatarHost(assistantId);
   if (!result.ok) {
     return { ...EMPTY_AVATAR, conclusive: false };

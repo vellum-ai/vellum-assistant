@@ -5,6 +5,8 @@
  */
 export interface GenerationGuard {
   claim(key: string): number;
+  /** The latest generation for `key` without advancing it (0 when none). */
+  current(key: string): number;
   isCurrent(key: string, generation: number): boolean;
   /** Supersede every in-flight operation for `key` without starting a new one. */
   invalidate(key: string): void;
@@ -19,6 +21,9 @@ export function createGenerationGuard(): GenerationGuard {
   };
   return {
     claim,
+    current(key) {
+      return generations.get(key) ?? 0;
+    },
     isCurrent(key, generation) {
       return generations.get(key) === generation;
     },

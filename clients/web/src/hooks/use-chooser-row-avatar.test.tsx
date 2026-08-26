@@ -681,6 +681,27 @@ describe("useChooserRowAvatar", () => {
       expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
     });
 
+    test("a host read never advances the last-seen generation", async () => {
+      const before =
+        actualLastSeenCache.lastSeenAvatarGenerations.current("other");
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        {
+          wrapper: createWrapper(),
+        },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(
+        actualLastSeenCache.lastSeenAvatarGenerations.current("other"),
+      ).toBe(before);
+    });
+
     test("resolves to nulls when the host and the cache have nothing", async () => {
       const { result } = renderHook(
         () => useChooserRowAvatar(localRow("other")),
