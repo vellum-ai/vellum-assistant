@@ -175,8 +175,23 @@ interface ContactRecord {
   channels?: Array<{ id?: string; type?: string; address?: string }>;
 }
 
+export interface GatewayContactsRuntime {
+  resolveTargetAssistant: typeof resolveTargetAssistant;
+  loopbackSafeFetch: typeof loopbackSafeFetch;
+  loadGuardianToken: typeof loadGuardianToken;
+  refreshGuardianTokenResult: typeof refreshGuardianTokenResult;
+}
+
+const defaultRuntime: GatewayContactsRuntime = {
+  resolveTargetAssistant,
+  loopbackSafeFetch,
+  loadGuardianToken,
+  refreshGuardianTokenResult,
+};
+
 export async function executeGatewayContactsCommand(
   parsed: ParsedGatewayContactsCommand,
+  runtime: GatewayContactsRuntime = defaultRuntime,
 ): Promise<number> {
   if (parsed.kind === "help") {
     console.log(gatewayContactsUsage());
@@ -189,14 +204,18 @@ export async function executeGatewayContactsCommand(
     return 1;
   }
 
-  const entry = resolveTargetAssistant(parsed.assistantId);
+  const entry = runtime.resolveTargetAssistant(parsed.assistantId);
   const gatewayUrl = entry.localUrl || entry.runtimeUrl;
   if (!gatewayUrl) {
     console.error("No gateway URL found for this assistant.");
     return 1;
   }
 
-  const token = await resolveAccessToken(gatewayUrl, entry.assistantId);
+  const token = await resolveAccessToken(
+    gatewayUrl,
+    entry.assistantId,
+    runtime,
+  );
   if (!token) {
     return 1;
   }
@@ -211,7 +230,9 @@ export async function executeGatewayContactsCommand(
     if (parsed.role) {
       url.searchParams.set("role", parsed.role);
     }
-    const response = await loopbackSafeFetch(url.toString(), { headers });
+    const response = await runtime.loopbackSafeFetch(url.toString(), {
+      headers,
+    });
     if (!response.ok) {
       return failHttp(response.status, await readError(response));
     }
@@ -238,7 +259,7 @@ export async function executeGatewayContactsCommand(
   }
 
   if (parsed.kind === "get") {
-    const response = await loopbackSafeFetch(
+    const response = await runtime.loopbackSafeFetch(
       `${gatewayUrl.replace(/\/+$/, "")}/v1/contacts/${parsed.contactId}`,
       { headers },
     );
@@ -267,7 +288,7 @@ export async function executeGatewayContactsCommand(
     return 0;
   }
 
-  const existing = await loopbackSafeFetch(
+  const existing = await runtime.loopbackSafeFetch(
     `${gatewayUrl.replace(/\/+$/, "")}/v1/contacts/${parsed.contactId}`,
     { headers },
   );
@@ -289,7 +310,7 @@ export async function executeGatewayContactsCommand(
     return 1;
   }
 
-  const response = await loopbackSafeFetch(
+  const response = await runtime.loopbackSafeFetch(
     `${gatewayUrl.replace(/\/+$/, "")}/v1/contacts`,
     {
       method: "POST",
@@ -329,8 +350,9 @@ export async function gatewayContacts(): Promise<void> {
 async function resolveAccessToken(
   gatewayUrl: string,
   assistantId: string,
+  runtime: GatewayContactsRuntime,
 ): Promise<string | null> {
-  const tokenData = loadGuardianToken(assistantId);
+  const tokenData = runtime.loadGuardianToken(assistantId);
   if (!tokenData) {
     console.error(
       "No guardian token found for this assistant. Run 'vellum hatch' or 'vellum wake'.",
@@ -341,7 +363,10 @@ async function resolveAccessToken(
   if (Number.isFinite(expiresAt) && expiresAt > Date.now() + 5_000) {
     return tokenData.accessToken;
   }
-  const refreshed = await refreshGuardianTokenResult(gatewayUrl, assistantId);
+  const refreshed = await runtime.refreshGuardianTokenResult(
+    gatewayUrl,
+    assistantId,
+  );
   if (!refreshed.ok) {
     console.error(refreshed.error);
     return null;

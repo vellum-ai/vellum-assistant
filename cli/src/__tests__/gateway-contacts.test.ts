@@ -1,18 +1,17 @@
 /**
  * Tests for `vellum gateway contacts` argument parsing and the
- * set-threshold HTTP write.
+ * set-threshold HTTP write. Runtime deps are injected so this file
+ * does not register `mock.module` stubs that leak into other CLI tests.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEntry } from "../lib/assistant-config.js";
+import type { GatewayContactsRuntime } from "../commands/gateway/contacts.js";
+import {
+  executeGatewayContactsCommand,
+  parseGatewayContactsArgs,
+} from "../commands/gateway/contacts.js";
 
 const fetchCalls: Array<{
   url: string;
@@ -20,28 +19,30 @@ const fetchCalls: Array<{
   body?: unknown;
 }> = [];
 
-let tokenExpiresAt = new Date(Date.now() + 60_000).toISOString();
+let fetchResponses: Response[] = [];
 
-mock.module("../lib/assistant-config.js", () => ({
+const runtime: GatewayContactsRuntime = {
   resolveTargetAssistant: () =>
     ({
       assistantId: "asst-1",
       localUrl: "http://127.0.0.1:7830",
     }) as AssistantEntry,
-}));
-
-mock.module("../lib/guardian-token.js", () => ({
   loadGuardianToken: () => ({
+    guardianPrincipalId: "principal-1",
     accessToken: "guardian-token",
-    accessTokenExpiresAt: tokenExpiresAt,
+    accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    refreshToken: "refresh-token",
+    refreshTokenExpiresAt: new Date(Date.now() + 120_000).toISOString(),
+    refreshAfter: new Date(Date.now() + 30_000).toISOString(),
+    isNew: false,
+    deviceId: "device-1",
+    leasedAt: new Date().toISOString(),
   }),
   refreshGuardianTokenResult: async () => ({
     ok: false,
+    status: 500,
     error: "refresh should not run",
   }),
-}));
-
-mock.module("../lib/loopback-fetch.js", () => ({
   loopbackSafeFetch: async (url: string, init?: RequestInit) => {
     let body: unknown;
     if (typeof init?.body === "string") {
@@ -54,20 +55,10 @@ mock.module("../lib/loopback-fetch.js", () => ({
     }
     return queued;
   },
-}));
-
-const { executeGatewayContactsCommand, parseGatewayContactsArgs } =
-  await import("../commands/gateway/contacts.js");
-
-let fetchResponses: Response[] = [];
+};
 
 beforeEach(() => {
   fetchCalls.length = 0;
-  fetchResponses = [];
-  tokenExpiresAt = new Date(Date.now() + 60_000).toISOString();
-});
-
-afterEach(() => {
   fetchResponses = [];
 });
 
@@ -125,19 +116,24 @@ describe("vellum gateway contacts set-threshold", () => {
       logs.push(parts.map(String).join(" "));
     };
     try {
-      const code = await executeGatewayContactsCommand({
-        kind: "set-threshold",
-        contactId: "contact-1",
-        threshold: "high",
-        json: false,
-      });
+      const code = await executeGatewayContactsCommand(
+        {
+          kind: "set-threshold",
+          contactId: "contact-1",
+          threshold: "high",
+          json: false,
+        },
+        runtime,
+      );
       expect(code).toBe(0);
     } finally {
       console.log = log;
     }
 
     expect(fetchCalls).toHaveLength(2);
-    expect(fetchCalls[0]?.url).toBe("http://127.0.0.1:7830/v1/contacts/contact-1");
+    expect(fetchCalls[0]?.url).toBe(
+      "http://127.0.0.1:7830/v1/contacts/contact-1",
+    );
     expect(fetchCalls[1]).toEqual({
       url: "http://127.0.0.1:7830/v1/contacts",
       method: "POST",
@@ -173,12 +169,15 @@ describe("vellum gateway contacts set-threshold", () => {
     const log = console.log;
     console.log = () => {};
     try {
-      const code = await executeGatewayContactsCommand({
-        kind: "set-threshold",
-        contactId: "contact-1",
-        threshold: null,
-        json: false,
-      });
+      const code = await executeGatewayContactsCommand(
+        {
+          kind: "set-threshold",
+          contactId: "contact-1",
+          threshold: null,
+          json: false,
+        },
+        runtime,
+      );
       expect(code).toBe(0);
     } finally {
       console.log = log;
@@ -199,12 +198,15 @@ describe("vellum gateway contacts set-threshold", () => {
       errors.push(parts.map(String).join(" "));
     };
     try {
-      const code = await executeGatewayContactsCommand({
-        kind: "set-threshold",
-        contactId: "contact-missing",
-        threshold: "high",
-        json: false,
-      });
+      const code = await executeGatewayContactsCommand(
+        {
+          kind: "set-threshold",
+          contactId: "contact-missing",
+          threshold: "high",
+          json: false,
+        },
+        runtime,
+      );
       expect(code).toBe(1);
     } finally {
       console.error = error;
