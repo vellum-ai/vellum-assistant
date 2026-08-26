@@ -235,3 +235,34 @@ describe("raiseAcpConnectFromSnapshot: snapshots older than the prompt", () => {
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 });
+
+describe("raiseAcpConnectFromSnapshot: stale marked snapshots", () => {
+  test("does not replace a newer prompt with an older marked run", () => {
+    // Requested before a newer run failed, delivered after its live event
+    // raised the newest anchor. Raising from it would walk the card back to
+    // the older failure.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+    });
+    const revisionAtFetch =
+      useInteractionStore.getState().acpConnectRevision;
+
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-newest",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    raiseAcpConnectFromSnapshot(
+      [run({ parentToolUseId: "tool-older" })],
+      "conv-1",
+      revisionAtFetch,
+    );
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
+    ).toBe("tool-newest");
+  });
+});

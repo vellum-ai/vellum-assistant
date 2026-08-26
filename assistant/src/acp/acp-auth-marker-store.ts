@@ -97,6 +97,24 @@ export function setStoredClaudeTokenDigest(
 }
 
 /**
+ * Undo a claim, but only if it is still the standing one.
+ *
+ * Two writes can overlap: A claims, B claims and publishes successfully, then
+ * A fails. An unconditional restore would put back the digest from before A
+ * and leave the cache describing a token older than what storage now holds, so
+ * a run using B's token would read as superseded and lose its recovery. The
+ * conditional makes a late rollback a no-op against a newer claim.
+ */
+export function rollbackStoredClaudeTokenDigest(
+  claimed: string | undefined,
+  previous: string | undefined,
+): void {
+  if (storedClaudeTokenDigest === claimed) {
+    storedClaudeTokenDigest = previous;
+  }
+}
+
+/**
  * Whether a run holding `digest` is still holding the stored credential.
  *
  * Unknown answers `true`: nothing in this process has written a token, so

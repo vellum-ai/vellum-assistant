@@ -215,6 +215,14 @@ export function raiseAcpConnectFromSnapshot(
   snapshotConversationId: string | null = null,
   revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
 ): void {
+  // A response can be older than the prompt on screen: requested before a
+  // newer run failed, delivered after its live event raised the newest anchor.
+  // Raising from it would replace that prompt with an older one, so a snapshot
+  // that no longer speaks for the current prompt raises nothing and retires
+  // nothing.
+  if (useInteractionStore.getState().acpConnectRevision !== revisionAtFetch) {
+    return;
+  }
   for (const entry of entries) {
     if (
       entry.authErrorCode !== ACP_CLAUDE_AUTH_REQUIRED_CODE ||
@@ -343,11 +351,21 @@ export function useAcpRunRehydration(
     }
     let cancelled = false;
     const priorActiveIds = activeRunIdsFor(conversationId);
+    // Captured before the request, like the reconnect paths. A default
+    // evaluated at apply time samples the prompt a live `acp_auth_required`
+    // raised while this was in flight, which is exactly the prompt the stale
+    // response must not speak for.
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       if (cancelled) {
         return;
       }
-      applyAcpSnapshot(entries, priorActiveIds, conversationId ?? null);
+      applyAcpSnapshot(
+        entries,
+        priorActiveIds,
+        conversationId ?? null,
+        revisionAtFetch,
+      );
     });
     return () => {
       cancelled = true;

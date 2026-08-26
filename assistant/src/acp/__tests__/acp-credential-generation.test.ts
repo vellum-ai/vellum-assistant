@@ -18,6 +18,7 @@ import {
   currentClaudeCredentialGeneration,
   noteConfigClaudeTokenRejected,
   retireAcpAuthRecovery,
+  rollbackStoredClaudeTokenDigest,
   setStoredClaudeTokenDigest,
 } from "../acp-auth-marker-store.js";
 
@@ -135,5 +136,39 @@ describe("config rejection recorded against the injection generation", () => {
     noteConfigClaudeTokenRejected("sk-ant-oat-config-raced", atInjection);
 
     expect(configClaudeTokenSuperseded("sk-ant-oat-config-raced")).toBe(true);
+  });
+});
+
+describe("rollbackStoredClaudeTokenDigest", () => {
+  test("undoes a claim whose write never landed", () => {
+    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-live"));
+    const claimed = claudeTokenDigest("sk-ant-oat-failed");
+    const previous = setStoredClaudeTokenDigest(claimed);
+
+    rollbackStoredClaudeTokenDigest(claimed, previous);
+
+    expect(
+      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-live")),
+    ).toBe(true);
+  });
+
+  test("a late rollback cannot clobber a newer successful claim", () => {
+    // Write A claims, write B claims and publishes, then A fails. An
+    // unconditional restore would leave the cache describing a token older
+    // than what storage holds, so a run using B's token would read as
+    // superseded and lose its recovery.
+    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-original"));
+    const claimedA = claudeTokenDigest("sk-ant-oat-a");
+    const previousA = setStoredClaudeTokenDigest(claimedA);
+    setStoredClaudeTokenDigest(claudeTokenDigest("sk-ant-oat-b"));
+
+    rollbackStoredClaudeTokenDigest(claimedA, previousA);
+
+    expect(
+      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-b")),
+    ).toBe(true);
+    expect(
+      claudeCredentialStillCurrent(claudeTokenDigest("sk-ant-oat-original")),
+    ).toBe(false);
   });
 });

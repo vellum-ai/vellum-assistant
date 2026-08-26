@@ -673,20 +673,22 @@ export async function getSecureKeyAsync(
  * module graph stays out of this module's load path.
  */
 async function claimAcpClaudeTokenDigest(
-  account: string,
-  value: string,
+  credentials: { account: string; value: string }[],
 ): Promise<(() => Promise<void>) | undefined> {
-  if (account !== credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)) {
+  const acpAccount = credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
+  const entry = credentials.find((c) => c.account === acpAccount);
+  if (!entry) {
     return undefined;
   }
   try {
     const { claudeTokenDigest, setStoredClaudeTokenDigest } =
       await import("../acp/acp-auth-marker-store.js");
-    const previous = setStoredClaudeTokenDigest(claudeTokenDigest(value));
+    const claimed = claudeTokenDigest(entry.value);
+    const previous = setStoredClaudeTokenDigest(claimed);
     return async () => {
-      const { setStoredClaudeTokenDigest: restore } =
+      const { rollbackStoredClaudeTokenDigest } =
         await import("../acp/acp-auth-marker-store.js");
-      restore(previous);
+      rollbackStoredClaudeTokenDigest(claimed, previous);
     };
   } catch (err) {
     log.warn({ err }, "failed to claim the Claude token digest before a write");
@@ -732,7 +734,7 @@ export async function setSecureKeyAsync(
     // first makes the window harmless in both directions: a read before the
     // publish gets the old token, which genuinely is superseded, and a read
     // after gets the new one, which matches.
-    const restoreDigest = await claimAcpClaudeTokenDigest(account, value);
+    const restoreDigest = await claimAcpClaudeTokenDigest([{ account, value }]);
     const ok = await backend.set(account, value);
     if (!ok) {
       // Nothing was published, so the claim described a token that never
@@ -786,6 +788,11 @@ export async function bulkSetSecureKeysAsync(
   return withCredentialTimeout(
     async () => {
       const backend = await resolveBackendAsync({ forceReconnect: true });
+      // Same claim as the single-write path: a bundle carrying the Claude
+      // token publishes a new credential, and a cache still describing the old
+      // one would classify a run using the imported token as superseded and
+      // suppress its recovery.
+      const restoreDigest = await claimAcpClaudeTokenDigest(credentials);
       let results: Array<{ account: string; ok: boolean }>;
       if (backend.bulkSet) {
         results = await backend.bulkSet(credentials);
@@ -804,9 +811,14 @@ export async function bulkSetSecureKeysAsync(
         }
         updateCesHttpReachability(backend, anyFailed);
       }
-      await onCredentialsWritten(
-        results.filter((r) => r.ok).map((r) => r.account),
-      );
+      const acpAccount = credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD);
+      const written = results.filter((r) => r.ok).map((r) => r.account);
+      if (!written.includes(acpAccount)) {
+        // The bundle carried it but the write did not land, so the claim
+        // describes a token that was never published.
+        await restoreDigest?.();
+      }
+      await onCredentialsWritten(written);
       const succeeded = results.filter((r) => r.ok).length;
       const failed = results.filter((r) => !r.ok).length;
       if (succeeded > 0 || failed > 0) {
