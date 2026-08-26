@@ -41,19 +41,33 @@ function toSentryUser(user: AuthUser | null): { id: string } | null {
   return { id };
 }
 
+function applyCurrentUser(): void {
+  selectSentryFlavor().setUser(toSentryUser(useAuthStore.getState().user));
+}
+
+/**
+ * Re-stamp the current identity on the active flavor. `sentry-control`
+ * calls this after every successful client initialization: on Capacitor,
+ * a `setUser` issued while consent was closed lands on the JS scope only,
+ * and `@sentry/capacitor` forwards scope users to the native SDK solely
+ * for calls made AFTER `init`; it does not replay the scope's stored
+ * user. Without the reapply, an opt-in after boot leaves native crash
+ * envelopes unidentified until the next auth transition.
+ */
+export function reapplySentryUser(): void {
+  applyCurrentUser();
+}
+
 /**
  * Stamp the current user and follow the auth store. Returns a cleanup
  * function that stops following (the scope keeps its last value; sign-out
  * itself flows through the subscription as `user: null`).
  */
 export function installSentryUserSync(): () => void {
-  const apply = (user: AuthUser | null): void => {
-    selectSentryFlavor().setUser(toSentryUser(user));
-  };
-  apply(useAuthStore.getState().user);
+  applyCurrentUser();
   return useAuthStore.subscribe((state, prevState) => {
     if (state.user !== prevState.user) {
-      apply(state.user);
+      applyCurrentUser();
     }
   });
 }

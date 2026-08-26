@@ -25,7 +25,8 @@ mock.module(
   }),
 );
 
-const { installSentryUserSync } = await import("@/lib/sentry/user-sync");
+const { installSentryUserSync, reapplySentryUser } =
+  await import("@/lib/sentry/user-sync");
 const { useAuthStore } = await import("@/stores/auth-store");
 
 const PLATFORM_USER: AuthUser = {
@@ -100,6 +101,13 @@ describe("installSentryUserSync", () => {
       user: { ...PLATFORM_USER, id: PLATFORM_USER.username },
     });
     expect(setUserMock).toHaveBeenLastCalledWith(null);
+  });
+
+  test("reapplySentryUser re-stamps the current identity on demand", () => {
+    useAuthStore.setState({ user: PLATFORM_USER });
+    setUserMock.mockClear();
+    reapplySentryUser();
+    expect(setUserMock).toHaveBeenLastCalledWith({ id: "user-uuid-1" });
   });
 
   test("stops following after cleanup", () => {
