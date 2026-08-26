@@ -23,6 +23,7 @@ import {
   handleRecordingStatusCore,
   handleRecordingStop,
   isRecordingIdle,
+  ownsRecordingClaim,
 } from "../../daemon/handlers/recording.js";
 import type {
   RecordingOptions,
@@ -96,6 +97,12 @@ function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
   };
 }
 
+function requireRecordingOwner(recordingId: string, clientId: string): void {
+  if (!ownsRecordingClaim(recordingId, clientId)) {
+    throw new ConflictError("Recording belongs to another client");
+  }
+}
+
 async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
   const recordingId = body?.recordingId;
   const operation = body?.operation;
@@ -109,12 +116,11 @@ async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
 
   switch (operation) {
     case "begin":
-      if (!claimRecording(recordingId, clientId)) {
-        throw new ConflictError("Recording belongs to another client");
-      }
+      requireRecordingOwner(recordingId, clientId);
       await recordingTransferStore.begin(recordingId, clientId);
       return { ok: true };
     case "append": {
+      requireRecordingOwner(recordingId, clientId);
       if (typeof body?.data !== "string") {
         throw new BadRequestError("data is required");
       }
@@ -144,6 +150,7 @@ async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
       return { ok: true };
     }
     case "finish":
+      requireRecordingOwner(recordingId, clientId);
       return {
         ok: true,
         attachmentId: await recordingTransferStore.finish(
@@ -152,6 +159,7 @@ async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
         ),
       };
     case "abort":
+      requireRecordingOwner(recordingId, clientId);
       await recordingTransferStore.abort(recordingId, clientId);
       return { ok: true };
     default:
@@ -247,7 +255,7 @@ const VALID_RECORDING_STATUSES = [
   "resumed",
 ] as const;
 
-async function handlePostRecordingStatus({ body }: RouteHandlerArgs) {
+async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
   if (!body?.conversationId || typeof body.conversationId !== "string") {
     throw new BadRequestError("conversationId is required");
   }
@@ -263,6 +271,8 @@ async function handlePostRecordingStatus({ body }: RouteHandlerArgs) {
   ) {
     throw new BadRequestError(`Invalid status: ${body.status}`);
   }
+
+  requireRecordingOwner(body.conversationId, requireClientId(headers));
 
   const msg: RecordingStatus = {
     ...(body as Omit<RecordingStatus, "type">),

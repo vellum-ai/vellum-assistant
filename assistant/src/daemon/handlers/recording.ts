@@ -177,6 +177,13 @@ export function claimRecording(
   return true;
 }
 
+export function ownsRecordingClaim(
+  recordingId: string,
+  clientId: string,
+): boolean {
+  return recordingClientClaims.get(recordingId)?.clientId === clientId;
+}
+
 // ─── Stop ────────────────────────────────────────────────────────────────────
 
 /**

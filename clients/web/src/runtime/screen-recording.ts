@@ -28,6 +28,7 @@ interface ActiveRecording {
   stopped: Promise<void>;
   stopping: boolean;
   released: boolean;
+  ownershipLost: boolean;
   closeCapture: () => void;
   stopClaimMaintenance: () => void;
 }
@@ -35,6 +36,7 @@ interface ActiveRecording {
 interface PendingRecording {
   recordingId: string;
   cancelled: boolean;
+  ownershipLost: boolean;
 }
 
 interface CapturedMedia {
@@ -99,11 +101,32 @@ export const transferRecording = async (
 const maintainRecordingClaim = (
   assistantId: string,
   recordingId: string,
+  onLost: () => void,
 ): (() => void) => {
+  let stopped = false;
+  let checking = false;
   const timer = setInterval(() => {
-    void claimRecording(assistantId, recordingId).catch(() => undefined);
+    if (checking) {
+      return;
+    }
+    checking = true;
+    void claimRecording(assistantId, recordingId)
+      .then((claimed) => {
+        if (!claimed && !stopped) {
+          stopped = true;
+          clearInterval(timer);
+          onLost();
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        checking = false;
+      });
   }, 10_000);
-  return () => clearInterval(timer);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 };
 
 const postStatus = async (
@@ -257,7 +280,7 @@ export class ScreenRecordingController {
       maintainClaim: typeof maintainRecordingClaim;
       requiresTransfer: typeof requiresRecordingTransfer;
       transferRecording: typeof transferRecording;
-      waitBeforeTransferRetry: (delayMs: number) => Promise<void>;
+      waitBeforeRetry: (delayMs: number) => Promise<void>;
     } = {
       capture: captureStream,
       chooseMimeType: recorderMimeType,
@@ -270,7 +293,7 @@ export class ScreenRecordingController {
       maintainClaim: maintainRecordingClaim,
       requiresTransfer: requiresRecordingTransfer,
       transferRecording,
-      waitBeforeTransferRetry: (delayMs) =>
+      waitBeforeRetry: (delayMs) =>
         new Promise((resolve) => setTimeout(resolve, delayMs)),
     },
   ) {}
@@ -310,27 +333,35 @@ export class ScreenRecordingController {
     if (this.active || this.pending) {
       return;
     }
-    if (
-      !(await this.dependencies.claimRecording(assistantId, event.recordingId))
-    ) {
+    const pending: PendingRecording = {
+      recordingId: event.recordingId,
+      cancelled: false,
+      ownershipLost: false,
+    };
+    this.pending = pending;
+    if (!(await this.claimWithRetry(assistantId, pending))) {
+      if (this.pending === pending) {
+        this.pending = null;
+      }
       return;
     }
     const stopClaimMaintenance = this.dependencies.maintainClaim(
       assistantId,
       event.recordingId,
+      () => this.loseOwnership(event.recordingId),
     );
-
-    const pending: PendingRecording = {
-      recordingId: event.recordingId,
-      cancelled: false,
-    };
-    this.pending = pending;
     let capture: CapturedMedia | null = null;
     let recorder: MediaRecorder | null = null;
     let fileStarted = false;
     let transferStarted = false;
     const requiresTransfer = this.dependencies.requiresTransfer(assistantId);
     try {
+      if (pending.cancelled) {
+        if (!pending.ownershipLost) {
+          await this.dependencies.reportStatus(assistantId, event, "stopped");
+        }
+        return;
+      }
       const mimeType = this.dependencies.chooseMimeType();
       if (!mimeType) {
         throw new Error("This desktop cannot encode a screen recording");
@@ -339,7 +370,9 @@ export class ScreenRecordingController {
       if (pending.cancelled) {
         capture.close();
         capture = null;
-        await this.dependencies.reportStatus(assistantId, event, "stopped");
+        if (!pending.ownershipLost) {
+          await this.dependencies.reportStatus(assistantId, event, "stopped");
+        }
         return;
       }
       if (requiresTransfer) {
@@ -365,7 +398,9 @@ export class ScreenRecordingController {
           );
           transferStarted = false;
         }
-        await this.dependencies.reportStatus(assistantId, event, "stopped");
+        if (!pending.ownershipLost) {
+          await this.dependencies.reportStatus(assistantId, event, "stopped");
+        }
         return;
       }
 
@@ -386,11 +421,12 @@ export class ScreenRecordingController {
         if (requiresTransfer) {
           const sequence = chunkSequence++;
           transferWrites = transferWrites.then(async () => {
-            await this.appendTransferChunk(
+            await this.transferWithRetry(
               assistantId,
               event.recordingId,
-              sequence,
+              "append",
               await bytes,
+              sequence,
             );
           });
         }
@@ -411,6 +447,7 @@ export class ScreenRecordingController {
         stopped,
         stopping: false,
         released: false,
+        ownershipLost: false,
         closeCapture: capture.close,
         stopClaimMaintenance,
       };
@@ -421,10 +458,16 @@ export class ScreenRecordingController {
             await localWrites;
             const { filePath } = await bridge.finish(event.recordingId);
             localFinished = true;
+            if (active.ownershipLost) {
+              void transferWrites.catch(() => undefined);
+              this.release(active);
+              resolveStopped();
+              return;
+            }
             await transferWrites;
             let attachmentId: string | undefined;
             if (requiresTransfer) {
-              const uploaded = await this.dependencies.transferRecording(
+              const uploaded = await this.transferWithRetry(
                 assistantId,
                 event.recordingId,
                 "finish",
@@ -451,6 +494,12 @@ export class ScreenRecordingController {
           } catch (error) {
             if (!localFinished) {
               await bridge.abort(event.recordingId);
+            }
+            if (active.ownershipLost) {
+              void transferWrites.catch(() => undefined);
+              this.release(active);
+              resolveStopped();
+              return;
             }
             if (transferStarted) {
               await this.dependencies
@@ -487,6 +536,10 @@ export class ScreenRecordingController {
       recorder.start(1_000);
       await this.dependencies.reportStatus(assistantId, event, "started");
     } catch (error) {
+      const ownershipLost =
+        pending.ownershipLost ||
+        (this.active?.event.recordingId === event.recordingId &&
+          this.active.ownershipLost);
       if (recorder) {
         recorder.onstop = null;
         if (recorder.state !== "inactive") {
@@ -500,10 +553,13 @@ export class ScreenRecordingController {
       if (fileStarted) {
         await bridge.abort(event.recordingId);
       }
-      if (transferStarted) {
+      if (transferStarted && !ownershipLost) {
         await this.dependencies
           .transferRecording(assistantId, event.recordingId, "abort")
           .catch(() => undefined);
+      }
+      if (ownershipLost) {
+        return;
       }
       if (pending.cancelled) {
         await this.dependencies.reportStatus(assistantId, event, "stopped");
@@ -527,29 +583,75 @@ export class ScreenRecordingController {
     }
   }
 
-  private async appendTransferChunk(
+  private async claimWithRetry(
+    assistantId: string,
+    pending: PendingRecording,
+  ): Promise<boolean> {
+    const maxAttempts = 7;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (pending.cancelled) {
+        return false;
+      }
+      try {
+        if (
+          await this.dependencies.claimRecording(
+            assistantId,
+            pending.recordingId,
+          )
+        ) {
+          return true;
+        }
+      } catch {
+        // Retry while the recording may still need an owner.
+      }
+      if (attempt === maxAttempts - 1) {
+        return false;
+      }
+      await this.dependencies.waitBeforeRetry(5_000);
+    }
+    return false;
+  }
+
+  private async transferWithRetry(
     assistantId: string,
     recordingId: string,
-    sequence: number,
-    chunk: Uint8Array,
-  ): Promise<void> {
+    operation: "append" | "finish",
+    chunk?: Uint8Array,
+    sequence?: number,
+  ): Promise<{ attachmentId?: string }> {
     const maxAttempts = 4;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        await this.dependencies.transferRecording(
+        return await this.dependencies.transferRecording(
           assistantId,
           recordingId,
-          "append",
+          operation,
           chunk,
           sequence,
         );
-        return;
       } catch (error) {
         if (attempt === maxAttempts - 1) {
           throw error;
         }
-        await this.dependencies.waitBeforeTransferRetry(250 * 2 ** attempt);
+        await this.dependencies.waitBeforeRetry(250 * 2 ** attempt);
       }
+    }
+    throw new Error("Recording transfer retry loop exhausted");
+  }
+
+  private loseOwnership(recordingId: string): void {
+    if (this.pending?.recordingId === recordingId) {
+      this.pending.cancelled = true;
+      this.pending.ownershipLost = true;
+    }
+    const active = this.active;
+    if (!active || active.event.recordingId !== recordingId) {
+      return;
+    }
+    active.ownershipLost = true;
+    active.stopClaimMaintenance();
+    if (active.recorder.state !== "inactive") {
+      active.recorder.stop();
     }
   }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -12,7 +13,14 @@ interface RecordingTransferSession {
   write: Promise<void>;
   nextSequence: number;
   pendingSequences: Map<number, Promise<void>>;
+  finish: Promise<string> | null;
   timeout: NodeJS.Timeout | null;
+}
+
+interface RecordingTransferCompletion {
+  attachmentId: string;
+  ownerClientId: string;
+  timeout: NodeJS.Timeout;
 }
 
 interface RecordingTransferDependencies {
@@ -27,6 +35,8 @@ interface RecordingTransferDependencies {
 
 export class RecordingTransferStore {
   private readonly sessions = new Map<string, RecordingTransferSession>();
+  private readonly completions = new Map<string, RecordingTransferCompletion>();
+  private readonly beginOperations = new Map<string, Promise<void>>();
 
   constructor(
     private readonly dependencies: RecordingTransferDependencies = {
@@ -41,13 +51,47 @@ export class RecordingTransferStore {
   ) {}
 
   async begin(recordingId: string, clientId: string): Promise<void> {
-    if (this.sessions.has(recordingId)) {
-      throw new Error("Recording transfer already exists");
+    const prior = this.beginOperations.get(recordingId) ?? Promise.resolve();
+    const operation = prior.then(() => this.beginCore(recordingId, clientId));
+    this.beginOperations.set(recordingId, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.beginOperations.get(recordingId) === operation) {
+        this.beginOperations.delete(recordingId);
+      }
+    }
+  }
+
+  private async beginCore(
+    recordingId: string,
+    clientId: string,
+  ): Promise<void> {
+    const existing = this.sessions.get(recordingId);
+    if (existing?.ownerClientId === clientId) {
+      return;
+    }
+    if (existing) {
+      this.release(recordingId, existing);
+      if (existing.finish) {
+        await existing.finish.catch(() => undefined);
+      } else {
+        await existing.write.catch(() => undefined);
+        await rm(existing.filePath, { force: true });
+      }
+    }
+    const completion = this.completions.get(recordingId);
+    if (completion?.ownerClientId === clientId) {
+      throw new Error("Recording transfer already finished");
+    }
+    if (completion) {
+      clearTimeout(completion.timeout);
+      this.completions.delete(recordingId);
     }
     await mkdir(this.dependencies.rootDir, { recursive: true });
     const filePath = path.join(
       this.dependencies.rootDir,
-      `screen-recording-${recordingId}.webm`,
+      `screen-recording-${recordingId}-${randomUUID()}.webm`,
     );
     await writeFile(filePath, new Uint8Array());
     const session: RecordingTransferSession = {
@@ -56,6 +100,7 @@ export class RecordingTransferStore {
       write: Promise.resolve(),
       nextSequence: 0,
       pendingSequences: new Map(),
+      finish: null,
       timeout: null,
     };
     this.sessions.set(recordingId, session);
@@ -69,6 +114,9 @@ export class RecordingTransferStore {
     chunk: Uint8Array,
   ): Promise<void> {
     const session = this.getOwned(recordingId, clientId);
+    if (session.finish) {
+      throw new Error("Recording transfer is finishing");
+    }
     if (sequence < session.nextSequence) {
       return;
     }
@@ -97,25 +145,42 @@ export class RecordingTransferStore {
   }
 
   async finish(recordingId: string, clientId: string): Promise<string> {
-    const session = this.getOwned(recordingId, clientId);
-    this.release(recordingId, session);
-    try {
-      await session.write;
-      const sizeBytes = (await stat(session.filePath)).size;
-      const attachment = this.dependencies.registerAttachment(
-        path.basename(session.filePath),
-        "video/webm",
-        session.filePath,
-        sizeBytes,
-      );
-      return attachment.id;
-    } catch (error) {
-      await rm(session.filePath, { force: true });
-      throw error;
+    const completion = this.completions.get(recordingId);
+    if (completion) {
+      this.assertOwner(completion, clientId);
+      return completion.attachmentId;
     }
+    const session = this.getOwned(recordingId, clientId);
+    if (!session.finish) {
+      session.finish = (async () => {
+        try {
+          await session.write;
+          const sizeBytes = (await stat(session.filePath)).size;
+          const attachment = this.dependencies.registerAttachment(
+            path.basename(session.filePath),
+            "video/webm",
+            session.filePath,
+            sizeBytes,
+          );
+          this.release(recordingId, session);
+          this.rememberCompletion(recordingId, clientId, attachment.id);
+          return attachment.id;
+        } catch (error) {
+          this.release(recordingId, session);
+          await rm(session.filePath, { force: true });
+          throw error;
+        }
+      })();
+    }
+    return session.finish;
   }
 
   async abort(recordingId: string, clientId: string): Promise<void> {
+    const completion = this.completions.get(recordingId);
+    if (completion) {
+      this.assertOwner(completion, clientId);
+      return;
+    }
     const session = this.sessions.get(recordingId);
     if (!session) {
       return;
@@ -139,7 +204,7 @@ export class RecordingTransferStore {
   }
 
   private assertOwner(
-    session: RecordingTransferSession,
+    session: { ownerClientId: string },
     clientId: string,
   ): void {
     if (session.ownerClientId !== clientId) {
@@ -166,10 +231,28 @@ export class RecordingTransferStore {
     recordingId: string,
     session: RecordingTransferSession,
   ): void {
-    this.sessions.delete(recordingId);
+    if (this.sessions.get(recordingId) === session) {
+      this.sessions.delete(recordingId);
+    }
     if (session.timeout) {
       clearTimeout(session.timeout);
     }
+  }
+
+  private rememberCompletion(
+    recordingId: string,
+    ownerClientId: string,
+    attachmentId: string,
+  ): void {
+    const timeout = setTimeout(() => {
+      this.completions.delete(recordingId);
+    }, TRANSFER_IDLE_TIMEOUT_MS);
+    timeout.unref?.();
+    this.completions.set(recordingId, {
+      attachmentId,
+      ownerClientId,
+      timeout,
+    });
   }
 }
 

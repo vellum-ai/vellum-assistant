@@ -61,3 +61,58 @@ test("rejects transfer writes from a client that did not begin it", async () => 
   ).rejects.toThrow("another client");
   await store.abort(recordingId, "client-1");
 });
+
+test("replaces an abandoned transfer when ownership changes", async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  const registerAttachment = mock(
+    (
+      _filename: string,
+      _mimeType: string,
+      _filePath: string,
+      _sizeBytes: number,
+    ) => ({ id: "attachment-2" }),
+  );
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment,
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000001";
+
+  await store.begin(recordingId, "client-1");
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1, 2]));
+  await store.begin(recordingId, "client-2");
+  await expect(
+    store.append(recordingId, "client-1", 1, new Uint8Array([3])),
+  ).rejects.toThrow("another client");
+  await store.append(recordingId, "client-2", 0, new Uint8Array([4, 5]));
+  await store.finish(recordingId, "client-2");
+
+  const [, , filePath] = registerAttachment.mock.calls[0]!;
+  expect([...(await readFile(filePath))]).toEqual([4, 5]);
+});
+
+test("returns the same attachment when finish is retried", async () => {
+  const rootDir = await mkdtemp(path.join(tmpdir(), "recording-transfer-"));
+  testDirs.push(rootDir);
+  const registerAttachment = mock(
+    (
+      _filename: string,
+      _mimeType: string,
+      _filePath: string,
+      _sizeBytes: number,
+    ) => ({ id: "attachment-1" }),
+  );
+  const store = new RecordingTransferStore({
+    rootDir,
+    registerAttachment,
+  });
+  const recordingId = "00000000-0000-4000-8000-000000000001";
+
+  await store.begin(recordingId, "client-1");
+  await store.append(recordingId, "client-1", 0, new Uint8Array([1]));
+
+  expect(await store.finish(recordingId, "client-1")).toBe("attachment-1");
+  expect(await store.finish(recordingId, "client-1")).toBe("attachment-1");
+  expect(registerAttachment).toHaveBeenCalledTimes(1);
+});
