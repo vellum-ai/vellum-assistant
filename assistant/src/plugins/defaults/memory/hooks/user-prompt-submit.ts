@@ -32,6 +32,7 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 import {
+  resolveSkillTurnIsInteractive,
   updateMessageMetadata,
   VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
 } from "@vellumai/plugin-api";
@@ -49,7 +50,6 @@ import {
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
-import { resolveSkillTurnIsInteractive } from "../../../../skills/platform-compatibility.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";

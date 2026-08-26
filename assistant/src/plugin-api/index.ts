@@ -107,6 +107,7 @@ export {
   type HostProxyCapability,
   isSkillCompatibleWithContext,
   type PlatformScopedSkill,
+  resolveSkillTurnIsInteractive,
   type SkillPlatform,
   type SkillPlatformContext,
 } from "./skill-platform.js";

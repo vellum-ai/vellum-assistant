@@ -1,6 +1,7 @@
 import type { HostProxyCapability } from "../channels/types.js";
 import {
   isSkillCompatibleWithContext as isHostSkillCompatibleWithContext,
+  resolveSkillTurnIsInteractive as resolveHostSkillTurnIsInteractive,
   type SkillPlatform,
 } from "../skills/platform-compatibility.js";
 
@@ -24,4 +25,11 @@ export function isSkillCompatibleWithContext(
   context: SkillPlatformContext,
 ): boolean {
   return isHostSkillCompatibleWithContext(skill, context);
+}
+
+export function resolveSkillTurnIsInteractive(params: {
+  isNonInteractive?: boolean;
+  hasNoClient?: boolean;
+}): boolean {
+  return resolveHostSkillTurnIsInteractive(params);
 }

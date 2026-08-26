@@ -26,6 +26,7 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { resolveSkillTurnIsInteractive } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
@@ -33,7 +34,6 @@ import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migra
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
-import { resolveSkillTurnIsInteractive } from "../../../../../skills/platform-compatibility.js";
 import type { InjectionBlock, TurnContext } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
 import { stripIncompatibleSkillCardsFromMessages } from "../../substrate/skill-card-compatibility.js";
