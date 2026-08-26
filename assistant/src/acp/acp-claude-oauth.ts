@@ -18,8 +18,7 @@ import {
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { clearAcpAuthMarkers } from "./acp-auth-marker-store.js";
-import { takeConversationsWithAcpConnectCard } from "./acp-connect-card-state.js";
+import { retireAcpAuthRecovery } from "./acp-auth-marker-store.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
@@ -119,25 +118,6 @@ export function parseManualClaudeCode(input: string): {
  * `acp_spawn` read and lift any domain restriction. Throws when the backing
  * store rejects the write.
  */
-/**
- * Bumped every time a Claude token is stored, so a caller that read the
- * credential earlier can tell whether it is still the current one.
- *
- * A run that started under an older generation and only now reports its
- * credential rejected is describing a token that has since been replaced.
- * Recording that failure would raise a Connect card for auth that already
- * works, and the bulk clear that would have retired it has already run.
- *
- * In-memory, which is the right lifetime: sessions do not outlive the process
- * either, so a restart leaves no run holding a stale generation.
- */
-let claudeCredentialGeneration = 0;
-
-/** Current generation of the stored Claude credential. */
-export function currentClaudeCredentialGeneration(): number {
-  return claudeCredentialGeneration;
-}
-
 export async function storeAcpClaudeToken(token: string): Promise<void> {
   const stored = await setSecureKeyAsync(
     credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD),
@@ -160,11 +140,7 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
   // rejection they describe unless cleared here. The marker clear sweeps every
   // row rather than the registry's conversations, so a daemon that restarted
   // between the rejection and this write still retires them.
-  // Bumped before the clear, so a failure racing this write sees the newer
-  // generation and declines to re-mark rather than landing after the sweep.
-  claudeCredentialGeneration += 1;
-  clearAcpAuthMarkers();
-  takeConversationsWithAcpConnectCard();
+  retireAcpAuthRecovery();
 }
 
 /**

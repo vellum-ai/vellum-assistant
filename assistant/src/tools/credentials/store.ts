@@ -27,6 +27,7 @@
 import {
   ACP_SERVICE,
   assertAcpCredentialFormat,
+  isAcpClaudeOauthField,
 } from "../../acp/acp-credentials.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { normalizeSecretValue } from "../../security/secret-normalize.js";
@@ -128,6 +129,16 @@ export async function storeCredentialValue(
     throw new CredentialStorageError(
       `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
     );
+  }
+
+  // A Claude OAuth token written through any path repairs the ACP runs that
+  // failed on the old one, so the markers and the prompt-dedup registry are
+  // retired here too, not only in the Connect flow. Imported on demand to
+  // keep the persistence graph behind it out of this module's load path.
+  if (isAcpClaudeOauthField(service, field)) {
+    const { retireAcpAuthRecovery } =
+      await import("../../acp/acp-auth-marker-store.js");
+    retireAcpAuthRecovery();
   }
 
   // The stored plaintext may already sit in recent transcripts: the user

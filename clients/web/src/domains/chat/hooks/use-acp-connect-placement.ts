@@ -32,9 +32,9 @@ export type AcpConnectPlacement = "inline" | "docked" | null;
  *
  * The prompt deliberately outlives a conversation switch (`resetAll` carries
  * it over), so a transcript that does not hold the anchor is ambiguous on its
- * own. `promptConversationId` settles it: a different conversation renders
- * nothing, since docking there would offer Connect against the assistant the
- * user navigated to. The same conversation with the anchor out of the loaded
+ * own. `promptConversationId` settles it: any conversation but its own renders
+ * nothing, a new chat with no id yet included, since docking there would offer
+ * Connect against the assistant the user navigated to. The same conversation with the anchor out of the loaded
  * window docks, because history opens at the latest 50 messages and a long
  * background run's spawn call is often above that, and a user at the composer
  * has no other way to reach the flow while the daemon still redirects the
@@ -55,9 +55,11 @@ export function decideAcpConnectPlacement(
   if (!toolUseId) {
     return null;
   }
+  // A missing active conversation is a mismatch, not an absence of opinion: a
+  // new chat has no id yet, and passing on it put the carried card above that
+  // chat's composer, wired to whichever assistant had become active.
   if (
     promptConversationId != null &&
-    activeConversationId != null &&
     promptConversationId !== activeConversationId
   ) {
     return null;

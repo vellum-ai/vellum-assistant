@@ -31,6 +31,7 @@ import {
 } from "../tools/credentials/metadata-store.js";
 import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
+import { currentClaudeCredentialGeneration } from "./acp-auth-marker-store.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
@@ -388,5 +389,13 @@ export async function prepareAgentEnv(
     ]);
   }
 
-  return { ...agentConfig, env };
+  // Sampled here, with the credential read, rather than later at session
+  // registration: a replacement landing in between would leave the session
+  // recording a generation newer than the token it actually holds, and a
+  // rejection of that older token would then pass for current.
+  return {
+    ...agentConfig,
+    env,
+    credentialGeneration: currentClaudeCredentialGeneration(),
+  };
 }

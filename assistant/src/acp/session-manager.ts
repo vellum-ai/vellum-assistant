@@ -15,7 +15,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
-import { currentClaudeCredentialGeneration } from "./acp-claude-oauth.js";
+import { currentClaudeCredentialGeneration } from "./acp-auth-marker-store.js";
 import { markAcpConnectCardRaised } from "./acp-connect-card-state.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import {
@@ -114,10 +114,12 @@ interface SessionEntry {
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
   command: string;
-  /** Claude credential generation this session read its token under. A
-   *  rejection reported after a newer token landed describes a credential
-   *  that has already been replaced, so it must not re-mark the row. */
-  credentialGeneration: number;
+  /** Claude credential generation this session read its token under, from the
+   *  config `prepareAgentEnv` returned. A rejection reported after a newer
+   *  token landed describes a credential that has already been replaced, so it
+   *  must not re-raise recovery. Absent for agents that read no Claude
+   *  credential, which never reach the auth-failure path. */
+  credentialGeneration?: number;
 }
 
 /**
@@ -379,7 +381,7 @@ export class AcpSessionManager {
       parentToolUseId: opts.parentToolUseId,
       task: opts.task,
       command: basename(opts.agentConfig.command),
-      credentialGeneration: currentClaudeCredentialGeneration(),
+      credentialGeneration: opts.agentConfig.credentialGeneration,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -1219,7 +1221,10 @@ export class AcpSessionManager {
             this.notifyParent(
               current,
               `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}` +
-                (recoveryAnchor !== undefined
+                // Same predicate as the recovery surface above. Telling the
+                // model a Connect card is waiting when the guard raised none
+                // sends it to an affordance that does not exist.
+                (recoveryAnchor !== undefined && credentialStillCurrent
                   ? `\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`
                   : ""),
             );

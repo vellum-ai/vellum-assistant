@@ -94,6 +94,12 @@ describe("decideAcpConnectPlacement", () => {
     ).toBeNull();
   });
 
+  test("renders nowhere in a new chat that has no conversation id yet", () => {
+    // The prompt survives `resetAll`, so an owned prompt must not follow the
+    // user into a brand new chat and offer Connect against its assistant.
+    expect(decideAcpConnectPlacement([], ANCHOR, "conv-1", null)).toBeNull();
+  });
+
   test("renders nowhere on an empty transcript with no owner", () => {
     expect(decideAcpConnectPlacement([], ANCHOR)).toBeNull();
   });

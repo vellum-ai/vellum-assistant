@@ -12,6 +12,13 @@ export interface AcpAgentConfig {
   args: string[];
   description?: string;
   env?: Record<string, string>;
+  /**
+   * Claude credential generation current when `prepareAgentEnv` read the token
+   * into `env`. Sampling it later, at session registration, would miss a
+   * replacement that landed in between and let a rejection of the older token
+   * pass for current. Absent for agents that read no Claude credential.
+   */
+  credentialGeneration?: number;
 }
 
 /**

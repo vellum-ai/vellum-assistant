@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { currentClaudeCredentialGeneration } from "../acp-claude-oauth.js";
+import { currentClaudeCredentialGeneration } from "../acp-auth-marker-store.js";
 
 describe("currentClaudeCredentialGeneration", () => {
   test("reports a stable generation while no token is written", () => {
