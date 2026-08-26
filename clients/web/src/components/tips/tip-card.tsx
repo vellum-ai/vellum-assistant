@@ -12,6 +12,7 @@
 import { ChevronLeft, ChevronRight, Lightbulb, X } from "lucide-react";
 import { Link } from "react-router";
 
+import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 import type { Tip } from "@/utils/tips-catalog";
 
@@ -92,6 +93,7 @@ export function TipCard({
   onPrevTip,
   onNextTip,
 }: TipCardProps) {
+  const { t } = useTranslation();
   return (
     <div
       data-slot="tip-card"
@@ -109,7 +111,7 @@ export function TipCard({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t("tipCard.dismiss")}
           className={cn(headerButtonClassName, "-mr-1")}
         >
           <X className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
@@ -143,7 +145,7 @@ export function TipCard({
             type="button"
             onClick={onPrevTip}
             disabled={carouselIndex === 0}
-            aria-label="Previous tip"
+            aria-label={t("tipCard.previousTip")}
             data-slot="tip-card-prev"
             className={carouselButtonClassName}
           >
@@ -157,7 +159,7 @@ export function TipCard({
           <button
             type="button"
             onClick={onNextTip}
-            aria-label="Next tip"
+            aria-label={t("tipCard.nextTip")}
             data-slot="tip-card-next"
             className={carouselButtonClassName}
           >

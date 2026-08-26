@@ -39,13 +39,14 @@ import {
 } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
+import type { ProfilePatchEntryWritable } from "@/generated/daemon/types.gen";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
 import {
   configGetSetQueryData,
   inferenceProviderconnectionsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface OpenProfileQuickAddArgs {
@@ -81,6 +82,7 @@ const ProfileQuickAddContext =
   createContext<ProfileQuickAddContextValue | null>(null);
 
 export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const queryClient = useQueryClient();
@@ -134,7 +136,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // new name, dropping every existing profile's position. Reading the latest
   // config here keeps the append authoritative regardless of stale inputs.
   const handleSave = useCallback(
-    async (name: string, entry: ProfilePatchEntry) => {
+    async (name: string, entry: ProfilePatchEntryWritable) => {
       if (!assistantId) {
         return;
       }
@@ -193,9 +195,11 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       pendingRef.current?.onCreated?.(name, label);
       closePending();
       setIsOpen(false);
-      toast.success(`Profile "${label ?? name}" created`);
+      toast.success(
+        t("profileQuickAddProvider.created", { name: label ?? name }),
+      );
     },
-    [assistantId, queryClient, closePending],
+    [assistantId, queryClient, closePending, t],
   );
 
   const value = useMemo<ProfileQuickAddContextValue>(

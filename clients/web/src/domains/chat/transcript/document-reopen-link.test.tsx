@@ -196,6 +196,24 @@ describe("DocumentReopenLink", () => {
     expect(screen.getByText("Quarterly notes")).toBeTruthy();
   });
 
+  test("reads as pressed while its own document is open", () => {
+    openDocument(SURFACE_ID);
+    renderLink([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]);
+
+    expect(
+      screen.getByTestId("document-reopen-link").getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  test("reads as unpressed while a different document is open", () => {
+    openDocument("surf-other");
+    renderLink([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]);
+
+    expect(
+      screen.getByTestId("document-reopen-link").getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
   test("stays visible while a different document is open", () => {
     openDocument("surf-other");
     renderLink([{ surfaceId: SURFACE_ID, title: "Quarterly notes" }]);

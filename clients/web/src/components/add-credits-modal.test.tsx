@@ -61,8 +61,12 @@ const SUMMARY: BillingSummaryResponse = {
 // Captures the modal's `browserFinished` subscriber so a test can fire the
 // Capacitor sheet-dismissal signal on demand.
 let browserFinishedCallback: (() => void) | null = null;
+let openedUrl: string | null = null;
 mock.module("@/runtime/browser", () => ({
-  openUrl: () => Promise.resolve(),
+  openUrl: (url: string) => {
+    openedUrl = url;
+    return Promise.resolve();
+  },
   openUrlFinishedListener: (callback: () => void) => {
     browserFinishedCallback = callback;
     return () => {
@@ -121,6 +125,7 @@ beforeEach(() => {
 afterEach(() => {
   nativeAndroid = false;
   nativePlatform = false;
+  openedUrl = null;
   delete (window as { vellum?: unknown }).vellum;
   checkoutCalls.length = 0;
   cleanup();
@@ -140,15 +145,22 @@ function renderModal(onOpenChange: (open: boolean) => void = () => {}) {
 }
 
 describe("AddCreditsModal", () => {
-  test("native Android renders website guidance without checkout links", () => {
+  test("native Android opens the web billing page and closes instead of rendering", async () => {
     nativeAndroid = true;
-    renderModal();
+    const closes: boolean[] = [];
+    renderModal((open) => closes.push(open));
 
-    expect(
-      screen.getByText("Manage your subscription on our website."),
-    ).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        new URL(
+          routes.settings.usageBilling,
+          window.location.origin,
+        ).toString(),
+      ),
+    );
+    expect(closes).toEqual([false]);
+    expect(screen.queryByText("Add Credits")).toBeNull();
+    expect(checkoutCalls.length).toBe(0);
   });
 
   test("renders the updated copy and labels", () => {

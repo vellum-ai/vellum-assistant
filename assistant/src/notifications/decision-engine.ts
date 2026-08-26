@@ -48,8 +48,11 @@ import { composeFallbackCopy, resolveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
+  buildQuestionDeliveryText,
   hasGuardianRequestCodeInstruction,
+  parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
+  resolveGuardianInstructionModeFromPayload,
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
   stripGuardianRequestCodeInstructions,
@@ -745,6 +748,55 @@ function ensureSeedContentBlocks(
 }
 
 /**
+ * Pin a question's channel text to the question itself.
+ *
+ * Every other notification's copy is composed here, and for most of them a
+ * paraphrase is an improvement. A question is the exception: the guardian is
+ * being asked to choose between these words, and the composed copy replaces
+ * `title` / `body` / `deliveryText` wholesale, so a summary of the question
+ * arrives where the question should be and the options never appear at all.
+ * Runs on every decision path for the same reason the seed-block guard does.
+ *
+ * Scoped to answer mode. A `pending_question` carrying a tool name is a voice
+ * tool approval, where composed copy is the right thing.
+ */
+function pinQuestionDeliveryCopy(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== "guardian.question") {
+    return decision;
+  }
+  const parsed = parseGuardianQuestionPayload(signal.contextPayload);
+  if (
+    !parsed ||
+    parsed.requestKind !== "pending_question" ||
+    resolveGuardianInstructionModeFromPayload(parsed).mode !== "answer"
+  ) {
+    return decision;
+  }
+
+  const text = buildQuestionDeliveryText(parsed);
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) {
+      continue;
+    }
+    nextCopy[channel] = {
+      ...copy,
+      body: text,
+      deliveryText: text,
+      conversationSeedMessage: text,
+    };
+  }
+
+  return { ...decision, renderedCopy: nextCopy };
+}
+
+/**
  * Tool-approval and tool-grant notifications need a Surface card with
  * Approve/Reject buttons on all decision paths.
  */
@@ -943,6 +995,7 @@ function buildPassThroughDecision(params: {
   };
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceToolApprovalSeedBlocks(decision, signal);
+  decision = pinQuestionDeliveryCopy(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
   decision = enforceGuardianRequestConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(
@@ -1068,6 +1121,7 @@ export async function evaluateSignal(
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceToolApprovalSeedBlocks(decision, signal);
+    decision = pinQuestionDeliveryCopy(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
     decision = enforceGuardianRequestConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
@@ -1098,6 +1152,7 @@ export async function evaluateSignal(
 
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceToolApprovalSeedBlocks(decision, signal);
+  decision = pinQuestionDeliveryCopy(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
   decision = enforceGuardianRequestConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(

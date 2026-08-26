@@ -1642,29 +1642,6 @@ function mapTogglePluginError(err: unknown): RouteError {
 }
 
 /**
- * Converge plugin-declared schedules against the sentinel this route just
- * wrote, so a disabled plugin's rows disarm now rather than at the
- * reconciler's next backstop sweep.
- *
- * Fire-and-forget: the toggle itself already succeeded on disk, so a reconcile
- * failure must not turn it into a route error. Imported lazily, matching the
- * plugin source reconcile's own hook, to keep the schedule and notification
- * modules out of this route module's static graph. The scheduler applies the
- * sentinel at fire time as well, so a slow or failed pass here delays the row
- * bookkeeping without letting a disabled plugin run.
- */
-function reconcilePluginSchedulesInBackground(): void {
-  void import("../../schedule/plugin-schedule-reconciler.js")
-    .then(({ reconcilePluginSchedules }) => reconcilePluginSchedules())
-    .catch((err: unknown) => {
-      log.error(
-        { err },
-        "plugin schedule reconcile after a plugin toggle failed",
-      );
-    });
-}
-
-/**
  * Toggle a plugin's `.disabled` sentinel through the shared toggle-plugin lib,
  * then publish a generic `sync_changed(plugins:list)` so every client refetches
  * `GET /v1/plugins`. Enable and disable emit the SAME invalidation — the tag
@@ -1694,15 +1671,22 @@ async function handleEnablePlugin({
   return { ok: true };
 }
 
-function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+async function handleDisablePlugin({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
   try {
     disablePlugin(pathParams.name ?? "");
-    publishPluginsChanged(getOriginClientId(headers));
-    reconcilePluginSchedulesInBackground();
-    return { ok: true };
   } catch (err) {
     throw mapTogglePluginError(err);
   }
+  // Same poke enable uses. The sentinel hides tools and hooks at read time,
+  // but a plugin that already ran `init` still owns in-process work (a live
+  // gRPC subscribe, a poll worker). The source reconcile is what runs
+  // `shutdown` and drops that work before this route returns.
+  await reconcilePluginSourcesNow();
+  publishPluginsChanged(getOriginClientId(headers));
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -2146,7 +2130,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Disable a plugin",
     description:
-      "Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.",
+      "Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant plugins disable <name>`. Awaits the same source reconcile enable uses so the plugin's shutdown hook runs. Tools, injectors, and hook gates also honor the sentinel at read time. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.",
     tags: ["plugins"],
     pathParams: [
       {

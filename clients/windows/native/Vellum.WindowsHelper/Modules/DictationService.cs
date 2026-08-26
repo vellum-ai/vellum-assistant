@@ -7,12 +7,10 @@ using Vellum.WindowsHelper.Rpc;
 namespace Vellum.WindowsHelper.Modules;
 
 /// <summary>
-/// Streaming dictation over the same JSON-RPC surface as the macOS helper:
-/// `dictation.setPartials` / `dictation.appendAudio` requests with
-/// `dictation.partial` / `finalized` / `error` notifications. Audio is
-/// pushed by the renderer as base64 16 kHz mono Int16 LE PCM; without
-/// pushed audio the recognizer taps the system default input device.
-/// Audio and transcripts only ever live in memory for the session.
+/// Streaming and one-shot dictation over the same JSON-RPC surface as the
+/// macOS helper. Audio is pushed by the renderer as base64 16 kHz mono
+/// Int16 LE PCM; without pushed audio the recognizer taps the system default
+/// input device. Audio and transcripts only ever live in memory.
 /// </summary>
 public sealed class DictationService : IRpcModule, IDictationSink
 {
@@ -22,8 +20,11 @@ public sealed class DictationService : IRpcModule, IDictationSink
 
     public string CapabilityId => "dictation";
 
-    public IReadOnlyCollection<string> Methods { get; } =
-        ["dictation.setPartials", "dictation.appendAudio"];
+    public IReadOnlyCollection<string> Methods { get; } = [
+        "dictation.setPartials",
+        "dictation.appendAudio",
+        "dictation.transcribe",
+    ];
 
     public ValueTask<object?> InvokeAsync(
         string method, JsonElement? parameters, CancellationToken cancellationToken)
@@ -37,6 +38,10 @@ public sealed class DictationService : IRpcModule, IDictationSink
                 Prop(parameters, "sampleRate")?.GetInt32() ?? 16000),
             "dictation.appendAudio" => _manager.AppendAudio(
                 Prop(parameters, "audio")?.GetString() ?? ""),
+            "dictation.transcribe" => _manager.Transcribe(
+                Prop(parameters, "audio")?.GetString() ?? "",
+                Prop(parameters, "sampleRate")?.GetInt32() ?? 16000,
+                Prop(parameters, "requestId")?.GetString() ?? ""),
             _ => throw new RpcMethodNotFoundException(method),
         };
         return ValueTask.FromResult<object?>(result);
@@ -62,7 +67,7 @@ public interface IDictationEngine : IDisposable
 
     void Start();
     void Append(byte[] pcm);
-    void Finish();
+    void Finish(TimeSpan completionTimeout);
     void Cancel();
 }
 
@@ -74,9 +79,16 @@ public sealed class DictationSessionManager(
     Func<DictationEngineRequest, IDictationEngine> engineFactory,
     Action<string, object> notify)
 {
+    private static readonly TimeSpan StreamingCompletionTimeout =
+        TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan TranscriptionCompletionGrace =
+        TimeSpan.FromSeconds(3);
+
     private readonly object _gate = new();
     private IDictationEngine? _engine;
     private int _generation;
+    private IDictationEngine? _transcriptionEngine;
+    private int _transcriptionGeneration;
 
     public object SetPartials(bool enable, bool pushAudio, int sampleRate)
     {
@@ -85,7 +97,7 @@ public sealed class DictationSessionManager(
             if (!enable)
             {
                 // Graceful stop: let recognition drain into `finalized`.
-                _engine?.Finish();
+                _engine?.Finish(StreamingCompletionTimeout);
                 _engine = null;
                 return new { enabled = false };
             }
@@ -159,6 +171,69 @@ public sealed class DictationSessionManager(
         return new { ok = true };
     }
 
+    public object Transcribe(string base64, int sampleRate, string requestId)
+    {
+        byte[] pcm;
+        try
+        {
+            pcm = Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            return new { ok = false, reason = "invalid audio" };
+        }
+        if (pcm.Length == 0)
+        {
+            return new { ok = false, reason = "empty audio" };
+        }
+        if (string.IsNullOrEmpty(requestId))
+        {
+            return new { ok = false, reason = "missing request id" };
+        }
+
+        lock (_gate)
+        {
+            CancelTranscriptionLocked();
+            var generation = ++_transcriptionGeneration;
+            IDictationEngine engine;
+            try
+            {
+                engine = engineFactory(new DictationEngineRequest(true, sampleRate));
+            }
+            catch (DictationUnavailableException err)
+            {
+                return new { ok = false, reason = err.Message };
+            }
+
+            engine.Failed += _ => ReleaseTranscriptionIfCurrent(
+                generation,
+                engine,
+                () => notify("dictation.transcribed", new { requestId, text = "" }));
+            engine.Finalized += text => ReleaseTranscriptionIfCurrent(
+                generation,
+                engine,
+                () => notify("dictation.transcribed", new { requestId, text }));
+            _transcriptionEngine = engine;
+            try
+            {
+                engine.Start();
+                engine.Append(pcm);
+                engine.Finish(TranscriptionCompletionTimeout(pcm.Length, sampleRate));
+            }
+            catch (Exception err)
+            {
+                if (ReferenceEquals(_transcriptionEngine, engine))
+                {
+                    _transcriptionGeneration++;
+                    _transcriptionEngine = null;
+                    engine.Dispose();
+                }
+                return new { ok = false, reason = err.Message };
+            }
+            return new { ok = true };
+        }
+    }
+
     private void CancelLocked()
     {
         _generation++;
@@ -167,9 +242,27 @@ public sealed class DictationSessionManager(
         _engine = null;
     }
 
+    private void CancelTranscriptionLocked()
+    {
+        _transcriptionGeneration++;
+        _transcriptionEngine?.Cancel();
+        _transcriptionEngine?.Dispose();
+        _transcriptionEngine = null;
+    }
+
     private void NotifyStartFailure(string message) =>
         notify("dictation.error",
             new { message, onDevice = true, willRetryServer = false });
+
+    private static TimeSpan TranscriptionCompletionTimeout(
+        int pcmByteLength,
+        int sampleRate)
+    {
+        var bytesPerSecond = Math.Max(sampleRate, 1) * (double)sizeof(short);
+        return TimeSpan.FromSeconds(
+            pcmByteLength / bytesPerSecond) +
+            TranscriptionCompletionGrace;
+    }
 
     private void IfCurrent(int generation, Action action)
     {
@@ -199,6 +292,26 @@ public sealed class DictationSessionManager(
                 _engine = null;
             }
             action();
+        }
+    }
+
+    private void ReleaseTranscriptionIfCurrent(
+        int generation,
+        IDictationEngine engine,
+        Action action)
+    {
+        lock (_gate)
+        {
+            if (generation != _transcriptionGeneration)
+            {
+                return;
+            }
+            if (ReferenceEquals(_transcriptionEngine, engine))
+            {
+                _transcriptionEngine = null;
+            }
+            action();
+            _ = Task.Run(engine.Dispose);
         }
     }
 }
@@ -275,7 +388,7 @@ internal sealed class SystemSpeechEngine : IDictationEngine
 
     public void Append(byte[] pcm) => _pushStream?.Push(pcm);
 
-    public void Finish()
+    public void Finish(TimeSpan completionTimeout)
     {
         lock (_gate)
         {
@@ -284,7 +397,7 @@ internal sealed class SystemSpeechEngine : IDictationEngine
         _pushStream?.Complete();
         _engine.RecognizeAsyncStop();
         // Guard against a recognizer that never completes after stop.
-        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => Complete(null));
+        _ = Task.Delay(completionTimeout).ContinueWith(_ => Complete(null));
     }
 
     public void Cancel()

@@ -274,6 +274,7 @@ export const routes = {
 
   docs: {
     hostingOptions: r("/docs/hosting-options"),
+    pairADevice: r("/docs/hosting-options/pair-a-device"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),
@@ -358,6 +359,11 @@ export function isAboutAssistantPath(pathname: string): boolean {
   );
 }
 
+/** Whether `pathname` is the `/assistant` index, trailing slash tolerated. */
+function isAssistantIndexPath(pathname: string): boolean {
+  return pathname === routes.assistant || pathname === `${routes.assistant}/`;
+}
+
 /**
  * Whether `pathname` falls inside the conversation *area* — the `/assistant`
  * index (draft conversation) or anything under `/assistant/conversations/`,
@@ -369,10 +375,34 @@ export function isAboutAssistantPath(pathname: string): boolean {
  */
 export function isConversationPath(pathname: string): boolean {
   return (
-    pathname === routes.assistant ||
-    pathname === `${routes.assistant}/` ||
+    isAssistantIndexPath(pathname) ||
     pathname.startsWith(`${routes.conversations}/`)
   );
+}
+
+/**
+ * The conversation id `pathname` names, or `null` when it names none. Matches
+ * exactly `/assistant/conversations/:id` (a trailing slash is tolerated), so
+ * both the `/assistant` index, which mounts a chat surface without naming a
+ * conversation, and conversation subroutes such as the inspector
+ * (`/assistant/conversations/:id/inspect`) yield `null`.
+ *
+ * Sole owner of the conversation URL shape: {@link isConversationChatPath}
+ * derives from it, and callers wanting the id itself rather than a yes/no read
+ * it here, so the two cannot drift apart.
+ */
+export function conversationIdForPath(pathname: string): string | null {
+  const prefix = `${routes.conversations}/`;
+  if (!pathname.startsWith(prefix)) {
+    return null;
+  }
+  // Exactly one path segment after the prefix (a bare conversation id,
+  // tolerating a trailing slash); deeper segments are other pages.
+  const id = pathname.slice(prefix.length).replace(/\/+$/, "");
+  if (id.length === 0 || id.includes("/")) {
+    return null;
+  }
+  return id;
 }
 
 /**
@@ -385,17 +415,9 @@ export function isConversationPath(pathname: string): boolean {
  * replaces `ChatPage` and has no composer.
  */
 export function isConversationChatPath(pathname: string): boolean {
-  if (pathname === routes.assistant || pathname === `${routes.assistant}/`) {
-    return true;
-  }
-  const prefix = `${routes.conversations}/`;
-  if (!pathname.startsWith(prefix)) {
-    return false;
-  }
-  // Exactly one path segment after the prefix (a bare conversation id,
-  // tolerating a trailing slash) — deeper segments are other pages.
-  const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
-  return rest.length > 0 && !rest.includes("/");
+  return (
+    isAssistantIndexPath(pathname) || conversationIdForPath(pathname) !== null
+  );
 }
 
 const WWW_DOMAIN = "vellum.ai";

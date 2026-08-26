@@ -20,5 +20,6 @@ export {
   type LocalUpgradeOptions,
   type LocalWakeOptions,
   type VellumBridge,
+  VELLUM_BRIDGE_KEYS,
 } from "./bridge";
 export * from "./channels";

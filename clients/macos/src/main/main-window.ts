@@ -153,14 +153,17 @@ const createMainWindow = (): BrowserWindow => {
   const loadTarget = getRendererRootUrl(app.isPackaged);
 
   // Onboarding and the main app share the same sizing: restore the user's
-  // saved main-app state — which defaults to maximized (work-area bounds)
-  // when nothing has been persisted yet. A saved fullscreen session's
-  // `fullscreen` flag rides the spread into the `BrowserWindow` constructor.
-  // The window can't be dragged below the 800×600 floor (mirroring the Swift
-  // client's `contentMinSize`). The persisted onboarding flag now only drives
-  // the traffic-light position (compact surfaces have no inline title bar).
+  // saved main-app state, which defaults to maximized (work-area bounds)
+  // when nothing has been persisted yet. A saved fullscreen session includes
+  // `fullscreen: true` on the constructor; a windowed session omits the key
+  // so Electron keeps the native fullscreen button (`AXFullScreenButton`)
+  // and Control+Command+F. `fullscreenable: true` keeps the green traffic
+  // light as the Spaces fullscreen control rather than zoom. The window
+  // can't be dragged below the 800×600 floor (mirroring the Swift client's
+  // `contentMinSize`). The persisted onboarding flag only drives the
+  // traffic-light position (compact surfaces have no inline title bar).
   const onboardingActive = readOnboardingActive();
-  const { maximized: _maximized, ...restoredBounds } = restoreBounds(
+  const { maximized: _maximized, fullscreen, ...restoredBounds } = restoreBounds(
     "main",
     MAIN_DEFAULT_STATE,
   );
@@ -168,6 +171,8 @@ const createMainWindow = (): BrowserWindow => {
     ...restoredBounds,
     minWidth: MAIN_MIN_SIZE.width,
     minHeight: MAIN_MIN_SIZE.height,
+    fullscreenable: true,
+    ...(fullscreen === true ? { fullscreen: true } : {}),
   };
 
   const win = createWindow({
@@ -181,6 +186,11 @@ const createMainWindow = (): BrowserWindow => {
     // a floating panel on screen) while the user works in another app.
     backgroundThrottling: false,
   });
+  // AppKit needs `.fullScreenPrimary` on the collection behavior so the
+  // green button stays a native Spaces fullscreen control and
+  // Control+Command+F keeps `AXFullScreenButton`. `titleBarStyle: "hidden"`
+  // alone does not guarantee that mask on macOS Tahoe.
+  win.setFullScreenable(true);
 
   // Main owns the window title (the active assistant's name). Block the
   // renderer's static `<title>` ("Vellum Assistant") from overriding it via

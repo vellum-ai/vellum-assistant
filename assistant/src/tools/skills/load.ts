@@ -21,6 +21,10 @@ import {
   validateIncludeCycles,
 } from "../../skills/include-graph.js";
 import { renderInlineCommands } from "../../skills/inline-command-render.js";
+import {
+  isSkillCompatibleWithPlatform,
+  skillPlatformUnavailableMessage,
+} from "../../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
@@ -210,6 +214,13 @@ export const skillLoadTool = {
     }
 
     const skill = loaded.skill;
+
+    if (!isSkillCompatibleWithPlatform(skill)) {
+      return {
+        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
+        isError: true,
+      };
+    }
 
     // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
     // outside the conversation's effective set must not have its instructions
@@ -420,6 +431,9 @@ export const skillLoadTool = {
         // Skip a child whose owning plugin is outside this conversation's
         // effective set — do not list it, load its body, or surface its tools.
         if (childOutOfPluginScope(child)) {
+          continue;
+        }
+        if (!isSkillCompatibleWithPlatform(child)) {
           continue;
         }
         const childFlagKey = skillFlagKey(child);

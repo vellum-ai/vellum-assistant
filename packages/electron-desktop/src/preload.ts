@@ -1,14 +1,26 @@
 import type { IpcRenderer, IpcRendererEvent } from "electron";
 
-import {
-  BUNDLE_CONFIRM_GET_DATA,
-  BUNDLE_CONFIRM_RESPOND,
-  type BundleScanData,
-  type DeepLink,
-  type VellumBridge,
+import type {
+  BundleScanData,
+  DeepLink,
+  ResolvedHotkey,
+  UpdateState,
+  VellumBridge,
 } from "@vellumai/ipc-contract";
 
 type RendererIpc = Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
+
+const subscribe =
+  <Payload>(ipc: RendererIpc, channel: string) =>
+  (callback: (payload: Payload) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, payload: Payload): void => {
+      callback(payload);
+    };
+    ipc.on(channel, handler);
+    return () => {
+      ipc.off(channel, handler);
+    };
+  };
 
 export const createDeepLinksBridge = (
   ipc: RendererIpc,
@@ -35,12 +47,35 @@ export const createLaunchAtLoginBridge = (
     ipc.invoke("vellum:launchAtLogin:set", enabled) as Promise<void>,
 });
 
-export const createBundleConfirmationBridge = (
+/** Renderer side of `installHotkeysIpc`. */
+export const createHotkeysBridge = (
+  ipc: RendererIpc,
+): VellumBridge["hotkeys"] => ({
+  get: () => ipc.invoke("vellum:hotkeys:get") as Promise<ResolvedHotkey[]>,
+  set: (key, accelerator) =>
+    ipc.invoke("vellum:hotkeys:set", key, accelerator) as Promise<void>,
+  onChange: subscribe<ResolvedHotkey[]>(ipc, "vellum:hotkeys:changed"),
+});
+
+/** Renderer side of `installBundleConfirmation`. */
+export const createBundleConfirmBridge = (
   ipc: RendererIpc,
 ): VellumBridge["bundleConfirm"] => ({
   getData: () =>
-    ipc.invoke(BUNDLE_CONFIRM_GET_DATA) as Promise<BundleScanData | null>,
+    ipc.invoke(
+      "vellum:bundleConfirm:getData",
+    ) as Promise<BundleScanData | null>,
   respond: (accepted) => {
-    ipc.send(BUNDLE_CONFIRM_RESPOND, accepted);
+    ipc.send("vellum:bundleConfirm:respond", accepted);
   },
+});
+
+/** Renderer side of `installAutoUpdate`. */
+export const createUpdateBridge = (
+  ipc: RendererIpc,
+): VellumBridge["update"] => ({
+  getState: () => ipc.invoke("vellum:update:getState") as Promise<UpdateState>,
+  check: () => ipc.invoke("vellum:update:check") as Promise<void>,
+  install: () => ipc.invoke("vellum:update:install") as Promise<void>,
+  onState: subscribe<UpdateState>(ipc, "vellum:update:state"),
 });

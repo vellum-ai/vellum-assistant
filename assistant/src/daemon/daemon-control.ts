@@ -413,6 +413,7 @@ async function startDaemonLocked(): Promise<{
   const child = spawn(bunPath, ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],
+    windowsHide: true,
     env: spawnEnv,
   });
 

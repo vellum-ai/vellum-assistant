@@ -6,6 +6,7 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
+import { useTranslation } from "@/i18n";
 import { handleLogout } from "@/lib/auth/handle-logout";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -49,6 +50,7 @@ export function ActiveAssistantGate() {
 }
 
 function ActiveAssistantPlaceholder() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   // Keep an auth escape hatch reachable while the assistant lifecycle is
   // unresolved: Log Out with a platform session, Log In without one.
@@ -63,15 +65,15 @@ function ActiveAssistantPlaceholder() {
     >
       <Loader2 className="size-6 animate-spin" aria-hidden="true" />
       <Typography variant="body-medium-default">
-        Connecting to your assistant…
+        {t("activeAssistantGate.connecting")}
       </Typography>
       {hasPlatformSession ? (
         <Button variant="ghost" onClick={() => void handleLogout(navigate)}>
-          Log Out
+          {t("activeAssistantGate.logOut")}
         </Button>
       ) : (
         <Button variant="ghost" onClick={() => void login()}>
-          Log In
+          {t("activeAssistantGate.logIn")}
         </Button>
       )}
     </div>

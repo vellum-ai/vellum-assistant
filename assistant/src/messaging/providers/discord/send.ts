@@ -66,6 +66,57 @@ export interface DiscordSendResult {
 }
 
 /**
+ * Discord's rendering of a settled message.
+ *
+ * `-# ` is Discord's subtext markdown, which it describes as the same size and
+ * colour as the dismiss line under a bot message. It is the closest thing
+ * Discord has to Slack's context block, and it applies per line, so every line
+ * carries the marker rather than only the first.
+ *
+ * @see https://support.discord.com/hc/en-us/articles/210298617
+ */
+function mutedText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line.trim().length === 0 ? line : `-# ${line}`))
+    .join("\n");
+}
+
+/**
+ * Replace a message the assistant already sent.
+ *
+ * Never posts. A failed edit throws so the original stands alone rather than
+ * gaining a duplicate beside it, which is the whole reason editing is its own
+ * capability.
+ *
+ * Deliberately does not chunk. An edit addresses one message, and a
+ * replacement too long for one is a condition the caller has to know about
+ * rather than one this can paper over by dropping the tail. Discord rejects an
+ * over-length body and that rejection propagates.
+ *
+ * @see https://discord.com/developers/docs/resources/message#edit-message
+ */
+export async function editDiscordMessage(
+  target: DiscordSendTarget,
+  messageId: string,
+  text: string,
+  options?: { emphasis?: "muted" },
+): Promise<void> {
+  await callDiscordApi<DiscordMessage>(
+    "PATCH",
+    `${messagesRoute(target)}/${encodeURIComponent(messageId)}`,
+    {
+      content: options?.emphasis === "muted" ? mutedText(text) : text,
+      allowed_mentions: DISCORD_ALLOWED_MENTIONS,
+    },
+  );
+  log.debug(
+    { channelId: target.channelId, messageId },
+    "Discord message edited",
+  );
+}
+
+/**
  * Send a text reply, split across as many messages as Discord's content cap
  * requires. Chunks post in order so the reply reads top to bottom.
  */

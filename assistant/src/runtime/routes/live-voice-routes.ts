@@ -5,6 +5,11 @@
  * then report whether the daemon can run both audio legs of a live voice
  * session. Lets the web client verify voice is configured BEFORE opening the
  * voice-room WebSocket, instead of opening it and reacting to an error frame.
+ *
+ * POST /v1/live-voice/session/end releases whatever session holds the
+ * daemon's single live-voice slot. The out-of-band half of session closure:
+ * the in-band `end` frame needs a working transport, and the case that needs
+ * ending most is the one where the transport is already gone.
  */
 
 import { z } from "zod";
@@ -24,6 +29,17 @@ async function handleLiveVoicePreflight() {
 
   await maybeDefaultSpeechToManaged();
   return resolveLiveVoiceCredentialReadiness();
+}
+
+async function handleLiveVoiceSessionEnd() {
+  const { getLiveVoiceSessionManager } =
+    await import("../../live-voice/live-voice-manager.js");
+
+  const result = await getLiveVoiceSessionManager().endActiveSession();
+  return {
+    ended: result.released,
+    sessionId: result.released ? result.sessionId : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -61,5 +77,23 @@ export const ROUTES: RouteDefinition[] = [
       userMessage: z.string().optional(),
     }),
     handler: handleLiveVoicePreflight,
+  },
+  {
+    operationId: "live_voice_session_end_post",
+    endpoint: "live-voice/session/end",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "End the active live voice session",
+    description:
+      "Release the assistant's single live-voice session slot, whichever client holds it. Reports whether a session was actually ended; a slot already tearing down reports false, since that teardown releases it on its own.",
+    tags: ["live-voice"],
+    responseBody: z.object({
+      ended: z.boolean(),
+      sessionId: z.string().nullable(),
+    }),
+    handler: handleLiveVoiceSessionEnd,
   },
 ];

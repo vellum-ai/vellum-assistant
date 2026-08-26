@@ -37,7 +37,6 @@ import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -152,30 +151,10 @@ export const WithDismiss: Story = {
   args: { onDismiss: () => {} },
 };
 
-/**
- * No CTA and no dismiss collapses the whole right-hand column. The credit wall
- * on native Android is the surface that reaches this shape (see
- * `Upsell Walls/Credit Wall`); it renders `detached` on top of it.
- */
+/** No CTA and no dismiss collapses the whole right-hand column. */
 export const NoActionNoDismiss: Story = {
   name: "No CTA and no dismiss",
   args: { action: undefined, onDismiss: undefined },
-};
-
-/**
- * The low-balance wall on native Android: the purchase CTA is suppressed and
- * the subtitle points at the website, but the dismiss stays, because
- * `LowBalanceBanner` passes `onDismiss` unconditionally. The other two composer
- * walls are not purchase surfaces and are unaffected on Android.
- */
-export const AndroidLowBalance: Story = {
-  name: "Low balance on native Android",
-  args: {
-    ariaLabel: `Your credits are running low. ${ANDROID_BILLING_MESSAGE}`,
-    action: undefined,
-    onDismiss: () => {},
-    subtitle: ANDROID_BILLING_MESSAGE,
-  },
 };
 
 /** An icon slot sits before the copy; the daily-limit wall uses one. */

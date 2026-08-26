@@ -69,6 +69,8 @@ mock.module("@stripe/stripe-js", () => ({
 }));
 
 import * as sdkGen from "@/generated/api/sdk.gen";
+import * as platformDetection from "@/runtime/platform-detection";
+import * as runtimeBrowser from "@/runtime/browser";
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -77,6 +79,21 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: { client_secret: "seti_123_secret_456" },
       response: { ok: true },
     }),
+}));
+
+let nativeAndroid = false;
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
+}));
+
+let openedUrl: string | null = null;
+mock.module("@/runtime/browser", () => ({
+  ...runtimeBrowser,
+  openUrl: (url: string) => {
+    openedUrl = url;
+    return Promise.resolve();
+  },
 }));
 
 // The modal reads VITE_STRIPE_PUBLISHABLE_KEY into module-scope `STRIPE_PK`
@@ -143,6 +160,8 @@ beforeEach(() => {
   paymentElementProps = null;
   addressElementProps = null;
   confirmSetupCalls = [];
+  nativeAndroid = false;
+  openedUrl = null;
 });
 
 afterEach(cleanup);
@@ -150,6 +169,36 @@ afterEach(cleanup);
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("AutoTopUpPaymentMethodModal on native Android", () => {
+  test("opens the web billing page and closes instead of mounting Stripe Elements", async () => {
+    nativeAndroid = true;
+    const closes: number[] = [];
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const { queryByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AutoTopUpPaymentMethodModal
+          open
+          onClose={() => closes.push(1)}
+          onSavedOptimistic={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(openedUrl).toBe(
+        `${window.location.origin}/assistant/settings/usage?tab=billing`,
+      ),
+    );
+    expect(closes.length).toBe(1);
+    expect(queryByTestId("stripe-address-element")).toBeNull();
+  });
+});
 
 describe("AutoTopUpPaymentMethodModal billing address", () => {
   test("renders a billing-mode AddressElement alongside the PaymentElement once the client_secret loads", async () => {

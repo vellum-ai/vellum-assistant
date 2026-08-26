@@ -286,6 +286,34 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expectNothingCommitted();
   });
 
+  test("PUT on a managed backup profile is rejected as code-owned", async () => {
+    // Backups are code-owned too, and they carry no on-disk entry, so the
+    // code-owned rejection has to win over the availability gate: reporting
+    // "not currently available" would be wrong for a profile the picker
+    // lists and the user can select.
+    seedRawConfig({ llm: { profiles: {} } });
+
+    for (const name of [
+      "balanced-backup",
+      "quality-optimized-backup",
+      "cost-optimized-backup",
+      "latency-optimized-backup",
+    ]) {
+      for (const body of [
+        { label: "Zippy" },
+        { status: "active" as const },
+        { status: null },
+      ]) {
+        await expect(
+          replaceRoute.handler({ pathParams: { name }, body }),
+        ).rejects.toThrow(
+          `Profile "${name}" is code-owned and cannot be edited.`,
+        );
+      }
+    }
+    expectNothingCommitted();
+  });
+
   test("PUT { status: null } on managed profile clears status (back to active-by-absence)", async () => {
     seedRawConfig({
       llm: {
@@ -1090,7 +1118,7 @@ describe("code-owned default profiles — wire view and write normalization", ()
     });
     const response = (await getRoute.handler({})) as Record<string, any>;
     const wireBalanced = response.llm.profiles.balanced;
-    expect(wireBalanced.model).toBe("gpt-5.6-luna");
+    expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
     expect(wireBalanced.provider).toBe("vellum");
     expect(wireBalanced.provider_connection).toBeUndefined();
     expect(wireBalanced.status).toBe("disabled");
@@ -1337,7 +1365,9 @@ describe("code-owned default profiles — echoes over stale on-disk bodies", () 
     });
     const response = (await getRoute.handler({})) as Record<string, any>;
     // The wire view serves catalog content, not the stale body.
-    expect(response.llm.profiles.balanced.model).toBe("gpt-5.6-luna");
+    expect(response.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
     const result = await patchRoute.handler({
       body: { llm: { profiles: response.llm.profiles } },
     });

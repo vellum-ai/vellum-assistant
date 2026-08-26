@@ -137,6 +137,49 @@ export interface TelegramSendResult {
  * Send a Telegram text reply, splitting long messages and optionally
  * attaching inline keyboard buttons for approval prompts.
  */
+/**
+ * Replace a Telegram message in place.
+ *
+ * Telegram rejects an edit whose text already matches the message. That is the
+ * request having been satisfied rather than a failure, so it resolves. Every
+ * other rejection throws: an edit that quietly became a new message would
+ * leave the original sitting beside it, which reads as answering twice.
+ *
+ * Unlike a send, this cannot split long text across messages, because an edit
+ * addresses exactly one. Telegram rejects text past its limit, and that
+ * rejection reaches the caller rather than being papered over.
+ *
+ * The empty `reply_markup` is load-bearing. `editMessageText` leaves an
+ * existing inline keyboard alone when the field is omitted, so a message
+ * revised to read as settled would keep its live buttons beside that text.
+ * Every caller here edits a message into a settled state, and the approval
+ * interception path says so outright, so the keyboard goes with the revision.
+ */
+export async function editTelegramMessage(
+  chatId: string,
+  messageId: string,
+  text: string,
+): Promise<void> {
+  try {
+    await callTelegramBotApi<TelegramMessage>("editMessageText", {
+      chat_id: chatId,
+      message_id: Number(messageId),
+      text,
+      reply_markup: { inline_keyboard: [] },
+    });
+  } catch (err) {
+    if (
+      err instanceof TelegramNonRetryableError &&
+      err.description?.includes("message is not modified")
+    ) {
+      log.debug({ chatId, messageId }, "Telegram edit already applied");
+      return;
+    }
+    throw err;
+  }
+  log.debug({ chatId, messageId }, "Telegram message edited");
+}
+
 export async function sendTelegramReply(
   chatId: string,
   text: string,

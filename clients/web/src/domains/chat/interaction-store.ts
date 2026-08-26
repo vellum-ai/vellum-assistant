@@ -78,20 +78,21 @@ export interface InteractionState {
    * prompt, anchored to the failed tool call. Unlike the other prompts this is
    * NOT a turn-blocking interaction — the turn already ended in error; it is a
    * remediation CTA. It is restored on a `/messages` reseed from the failed
-   * tool call's persisted `errorCode` marker (so a reload/reconnect no longer
-   * loses it), but to avoid nagging from history — the reason it was originally
-   * kept off the reseed path — a dismissal (explicit X, or the implicit
-   * dismiss-on-send) is recorded in `dismissedAcpConnectToolUseIds` and
-   * suppresses any later restore of that same failed spawn.
+   * tool call's persisted `errorCode` marker, so a reload or reconnect does
+   * not lose it. To avoid nagging from history, a dismissal (the connect
+   * flow's auto-continue, or the already-connected self-heal) is recorded in
+   * `dismissedAcpConnectToolUseIds` and suppresses any later restore of that
+   * same failed spawn.
    */
   pendingAcpConnect: PendingAcpConnectState | null;
 
   /**
-   * Failed-`acp_spawn` tool-call ids whose Connect prompt the user already
-   * dealt with this session (dismissed via X or superseded by a send). The
+   * Failed-`acp_spawn` tool-call ids whose Connect prompt was already retired
+   * this session (by the connect flow's auto-continue or by the
+   * already-connected self-heal). The
    * `errorCode` marker lives permanently in history, so without this a reseed
    * would re-raise the card on every turn until Claude is connected; recording
-   * the id lets `showAcpConnect` no-op a restore the user already dismissed. A
+   * the id lets `showAcpConnect` no-op a restore of a retired prompt. A
    * genuine new failure gets a fresh tool-use id, so it is never suppressed.
    * Cleared with the rest of the store on conversation switch (`resetAll`).
    */

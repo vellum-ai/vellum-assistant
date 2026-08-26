@@ -28,7 +28,6 @@ import {
   setLocalBool,
   watchSetting,
 } from "@/utils/local-settings";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
@@ -165,7 +164,6 @@ export function DiskPressureBannerSlot({
   assistantStateKind,
 }: DiskPressureBannerSlotProps) {
   const navigate = useNavigate();
-  const isNativeAndroid = useIsNativeAndroid();
 
   const { visibleMode, dismissWarning } = visibility;
 
@@ -189,7 +187,7 @@ export function DiskPressureBannerSlot({
           void navigate(`${routes.workspace}?sort=size`)
         }
         onUpgradeStorage={
-          assistantStateKind === "active" && !isNativeAndroid
+          assistantStateKind === "active"
             ? () => void navigate(routes.plans)
             : null
         }

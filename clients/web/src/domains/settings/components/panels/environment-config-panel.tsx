@@ -1,17 +1,19 @@
 import { DetailCard } from "@/components/detail-card";
+import { useTranslation } from "@/i18n";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function EnvironmentConfigPanel() {
+  const { t } = useTranslation("settings");
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
   const setEnvironment = useEnvironmentStore.use.setEnvironment();
 
   return (
     <DetailCard
-      title="Environment"
-      subtitle="Environment configuration overrides for this session."
+      title={t("environmentConfigPanel.title")}
+      subtitle={t("environmentConfigPanel.subtitle")}
     >
       <div className="space-y-2">
         <div className="flex items-start gap-3 py-3">
@@ -19,16 +21,19 @@ export function EnvironmentConfigPanel() {
             <Toggle
               checked={isNonProduction}
               onChange={(next) => setEnvironment({ isNonProduction: next })}
-              aria-label={`Non-Production is ${isNonProduction ? "on" : "off"}`}
+              aria-label={
+                isNonProduction
+                  ? t("environmentConfigPanel.nonProductionOnAriaLabel")
+                  : t("environmentConfigPanel.nonProductionOffAriaLabel")
+              }
             />
           </div>
           <div className="min-w-0 flex-1 space-y-0.5">
             <span className="text-body-medium-default text-[var(--content-default)]">
-              Non-Production
+              {t("environmentConfigPanel.nonProduction")}
             </span>
             <span className="block text-body-small-default text-[var(--content-tertiary)]">
-              Indicates a non-production environment. Enables dev-only UI
-              surfaces and diagnostics.
+              {t("environmentConfigPanel.nonProductionDescription")}
             </span>
           </div>
         </div>
@@ -38,10 +43,10 @@ export function EnvironmentConfigPanel() {
           </div>
           <div className="min-w-0 flex-1 space-y-0.5">
             <span className="text-body-medium-default text-[var(--content-default)]">
-              Email Root Domain
+              {t("environmentConfigPanel.emailRootDomain")}
             </span>
             <span className="block text-body-small-default text-[var(--content-tertiary)]">
-              Root domain used for assistant email addresses (e.g. vellum.me).
+              {t("environmentConfigPanel.emailRootDomainDescription")}
             </span>
           </div>
         </div>

@@ -194,6 +194,51 @@ describe("renderConversationMenuItems", () => {
     expect(html).toContain("Archive");
   });
 
+  test("renders Delete when onDelete is provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
+          onDelete: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Delete");
+  });
+
+  test("omits Delete when onDelete is not provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
+          onArchive: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Archive");
+    expect(html).not.toContain("Delete");
+  });
+
+  test("renders Delete for read-only conversations when wired", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          t,
+          isReadonly: true,
+          onArchive: () => {},
+          onDelete: () => {},
+          onMarkUnread: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Archive");
+    expect(html).toContain("Delete");
+    expect(html).not.toContain("Mark as unread");
+  });
+
   test("renders Unarchive when isArchived and onUnarchive are provided", () => {
     const html = renderToStaticMarkup(
       <>
@@ -270,6 +315,7 @@ describe("renderConversationMenuItems", () => {
           onPinToggle: () => {},
           onRename: () => {},
           onArchive: () => {},
+          onDelete: () => {},
         })}
       </>,
     );
@@ -284,6 +330,7 @@ describe("renderConversationMenuItems", () => {
       "Pin",
       "Rename",
       "Archive",
+      "Delete",
     ];
     const positions = order.map((label) => html.indexOf(label));
     expect(positions).not.toContain(-1);
@@ -698,6 +745,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
           onPinToggle: () => {},
           onRename: () => {},
           onArchive: () => {},
+          onDelete: () => {},
           onClose: () => {},
         })}
       </>,
@@ -705,6 +753,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
     expect(html).toContain("Archive");
+    expect(html).toContain("Delete");
   });
 
   test("renders the channel source link row when provided", () => {

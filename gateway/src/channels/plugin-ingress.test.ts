@@ -168,6 +168,26 @@ describe("parsePluginIngressManifest", () => {
     ).toThrow(/only valid for websocket/);
   });
 
+  it("accepts a standard-webhooks verification descriptor", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [
+        {
+          path: "events-linq",
+          kind: "http",
+          verification: {
+            kind: "standard-webhooks",
+            secret: { field: "linq_webhook_secret" },
+          },
+          description: "inbound linq deliveries",
+        },
+      ],
+    });
+    expect(manifest.routes[0]!.verification).toEqual({
+      kind: "standard-webhooks",
+      secret: { field: "linq_webhook_secret" },
+    });
+  });
+
   it("accepts a verification descriptor on an http route", () => {
     const manifest = parsePluginIngressManifest({
       routes: [

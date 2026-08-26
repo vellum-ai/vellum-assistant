@@ -109,7 +109,7 @@ export function OauthIntegrationsContent() {
                     </td>
                     <td className="py-3 pr-4">OAuth2</td>
                     <td className="py-3 pr-4">
-                      Gmail, Calendar, Drive, and Contacts
+                      Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts
                     </td>
                     <td className="py-3">
                       Single OAuth connection covers all Google services. Can be revoked in Google Account settings.

@@ -96,21 +96,63 @@ export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
 }
 
 /**
+ * Selector for drag-to-set controls that own horizontal drags across their
+ * whole hit area: native range inputs, ARIA slider thumbs, and composite
+ * slider widgets opted in via `data-owns-horizontal-drag` (a Radix slider's
+ * root and track carry no `role="slider"` of their own, so a touch landing
+ * there needs the marker).
+ */
+const VALUE_DRAG_SURFACE_SELECTOR =
+  'input[type="range"], [role="slider"], [data-owns-horizontal-drag]';
+
+/**
+ * How the touched surface relates to horizontal drags:
+ *
+ * - `"value"`: a drag-to-set control such as a slider. Any drag on it
+ *   manipulates the value, so the gesture must never arm here, edge strip
+ *   included; arming would move the control and the drawer together.
+ * - `"text"`: a text-interaction surface ({@link ownsHorizontalTextDrag}).
+ *   A bare drag only places the caret or extends a selection, so deliberate
+ *   edge swipes stay worth preserving over it; only the widened band yields.
+ * - `"none"`: everything else; the widened band arms freely.
+ */
+export type HorizontalDragSurface = "none" | "text" | "value";
+
+/** Classify the touched element per {@link HorizontalDragSurface}. */
+export function classifyHorizontalDragSurface(
+  target: EventTarget | null,
+): HorizontalDragSurface {
+  if (
+    target instanceof Element &&
+    target.closest(VALUE_DRAG_SURFACE_SELECTOR) !== null
+  ) {
+    return "value";
+  }
+  if (ownsHorizontalTextDrag(target)) {
+    return "text";
+  }
+  return "none";
+}
+
+/**
  * Whether a touch at `clientX` may arm the gesture, given the viewport width
- * and whether it began on a surface that owns horizontal text drags. Edge
- * touches (within `EDGE_SWIPE_HIT_ZONE_PX`) always arm, preserving deliberate
- * edge swipe-back everywhere; the widened band beyond the edge arms only off
- * text-drag surfaces.
+ * and the kind of drag-owning surface it began on. Drag-to-set controls
+ * never arm. Edge touches (within `EDGE_SWIPE_HIT_ZONE_PX`) otherwise always
+ * arm, preserving deliberate edge swipe-back; the widened band beyond the
+ * edge arms only off text-drag surfaces.
  */
 export function shouldArmAt(
   clientX: number,
   viewportWidth: number,
-  ownsTextDrag: boolean,
+  surface: HorizontalDragSurface,
 ): boolean {
   if (clientX > activationZonePx(viewportWidth)) {
     return false;
   }
-  if (ownsTextDrag && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
+  if (surface === "value") {
+    return false;
+  }
+  if (surface === "text" && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
     return false;
   }
   return true;
@@ -291,7 +333,7 @@ export function useEdgeSwipe({
         !shouldArmAt(
           touch.clientX,
           window.innerWidth,
-          ownsHorizontalTextDrag(event.target),
+          classifyHorizontalDragSurface(event.target),
         )
       ) {
         return;

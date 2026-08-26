@@ -2,28 +2,50 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { isWindows } from "../../../../util/platform.js";
 
 const PANES = {
   microphone: {
-    url: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
     label: "Microphone privacy",
-    instruction: "Please toggle Vellum Assistant on.",
+    urls: {
+      macos:
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+      windows: "ms-settings:privacy-microphone",
+    },
   },
   speech_recognition: {
-    url: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
     label: "Speech Recognition privacy",
-    instruction: "Please toggle Vellum Assistant on.",
+    urls: {
+      macos:
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
+      windows: "ms-settings:privacy-speech",
+    },
   },
 } as const;
 
 type PaneName = keyof typeof PANES;
+type SettingsPlatform = keyof (typeof PANES)[PaneName]["urls"];
 
+const VALID_PLATFORMS: SettingsPlatform[] = ["macos", "windows"];
 const VALID_PANES = Object.keys(PANES) as PaneName[];
 
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const requestedPlatform = input.platform as string | undefined;
+  if (
+    requestedPlatform !== undefined &&
+    !VALID_PLATFORMS.includes(requestedPlatform as SettingsPlatform)
+  ) {
+    return {
+      content: `Error: unknown platform "${requestedPlatform}". Valid platforms: ${VALID_PLATFORMS.join(
+        ", ",
+      )}`,
+      isError: true,
+    };
+  }
+
   const pane = input.pane as string;
   if (!VALID_PANES.includes(pane as PaneName)) {
     return {
@@ -34,20 +56,23 @@ export async function run(
     };
   }
 
+  const platform =
+    (requestedPlatform as SettingsPlatform | undefined) ??
+    (isWindows() ? "windows" : "macos");
   const meta = PANES[pane as PaneName];
 
-  // Send open_url to the client - the x-apple.systempreferences: scheme
-  // opens System Settings directly without a browser confirmation dialog.
   if (context.sendToClient) {
     context.sendToClient({
       type: "open_url",
-      url: meta.url,
+      url: meta.urls[platform],
       conversationId: context.conversationId,
     });
   }
 
+  const settingsName =
+    platform === "windows" ? "Windows Settings" : "System Settings";
   return {
-    content: `Opened System Settings to ${meta.label}. ${meta.instruction}`,
+    content: `Opened ${settingsName} to ${meta.label}. Please enable Vellum Assistant.`,
     isError: false,
   };
 }

@@ -111,6 +111,26 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
         "I'd like to verify a contact's Telegram identity. Can you walk me through it?",
     },
   },
+  discord: {
+    id: "discord",
+    label: "Discord",
+    subtitle: "Message your assistant from Discord",
+    // A Lucide name, per this field's contract, and the same one Slack
+    // carries: both name their text channels with a hash. A client with room
+    // for a brand mark uses one, which is how Slack's header already works.
+    icon: "hash",
+    // Verification needs nothing channel-specific here. The inbound intercept
+    // that matches a code takes the source channel as data, Discord inbound
+    // reaches it through the same `handleInbound` every channel uses, and a
+    // Discord user id canonicalizes as opaque, which is what it is.
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on Discord. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's Discord identity. Can you walk me through it?",
+    },
+  },
   phone: {
     id: "phone",
     label: "Phone Calling",

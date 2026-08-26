@@ -1,15 +1,18 @@
 ---
 name: vellum-sounds
-description: Customize the macOS app's sound effects — add sound files to the workspace, enable sounds globally, set volume, and assign sounds to 9 app events (message sent, task complete, notifications, etc.)
+description: Customize the desktop app's sound effects by adding sound files to the workspace, enabling sounds, setting volume, and assigning sounds to app events
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔊"
   vellum:
+    platforms:
+      - macos
+      - windows
     category: "content"
     display-name: "Sounds"
 ---
 
-You are helping the user customize the sound effects their macOS app plays. Sounds are configured in two places — a `data/sounds/` directory of audio files, and a `data/sounds/config.json` that controls what plays when, at what volume, and whether it's enabled at all. The macOS app's Settings → Sounds tab reads the same files, so whatever you change here appears there live (no restart needed).
+You are helping the user customize the sound effects their desktop app plays. Sounds are configured in two places: a `data/sounds/` directory of audio files and a `data/sounds/config.json` that controls what plays, at what volume, and whether it is enabled. The Settings > Sounds tab reads the same files on macOS and Windows, so changes appear there live without a restart.
 
 **All commands in this skill use the `bash` tool.** `$VELLUM_WORKSPACE_DIR` is available in the sandbox environment — do not use `host_bash`.
 
@@ -17,16 +20,16 @@ You are helping the user customize the sound effects their macOS app plays. Soun
 
 Two stores, both under `$VELLUM_WORKSPACE_DIR/data/sounds/`:
 
-- **Sound files** — `.aiff`, `.wav`, `.mp3`, `.m4a`, or `.caf`. No other extensions are accepted. The macOS app scans this directory to populate the dropdown for each event.
-- **`config.json`** — a single JSON file that stores the global on/off switch, the master volume, and a per-event map of `{ enabled, sounds }`. Each event's `sounds` is a **pool** of filenames; the app picks one at random on playback. An empty pool falls back to the default macOS blip.
+- **Sound files:** `.aiff`, `.wav`, `.mp3`, `.m4a`, or `.caf`. No other extensions are accepted. The app scans this directory to populate the dropdown for each event. Prefer `.wav`, `.mp3`, or `.m4a` when the same file must play on both macOS and Windows.
+- **`config.json`:** a single JSON file that stores the global on/off switch, the master volume, and a per-event map of `{ enabled, sounds }`. Each event's `sounds` is a **pool** of filenames; the app picks one at random on playback. An empty pool falls back to the platform's default blip.
 
-## The 9 events
+## Sound events
 
-These are the only valid event keys. Other keys are ignored by the app.
+macOS supports all nine events below. Windows supports the eight events other than `app_open`. Do not configure `app_open` on Windows because it is not displayed or played there. Other keys are ignored by the app.
 
 | Event key          | Fires when                                 |
 | ------------------ | ------------------------------------------ |
-| `app_open`         | App launches (first time per session)      |
+| `app_open`         | App launches (macOS only)                  |
 | `task_complete`    | Conversation transitions processing → idle |
 | `needs_input`      | Conversation enters waiting-for-input      |
 | `task_failed`      | Conversation enters error state            |
@@ -76,7 +79,7 @@ bun run scripts/update-config.ts --event task_complete --sound null   # clear th
 
 ### Mode 3a: Sound pools
 
-Each event can hold **one or more** sounds. When the event fires, the macOS app picks one entry at random from the pool. This is how you build variety (e.g. three different "poke" sounds that rotate when the user clicks the avatar). An empty pool falls back to the default macOS blip.
+Each event can hold **one or more** sounds. When the event fires, the app picks one entry at random from the pool. This is how you build variety, such as three different "poke" sounds that rotate when the user clicks the avatar. An empty pool falls back to the platform's default blip.
 
 ```bash
 # Replace the pool with three sounds
@@ -102,7 +105,7 @@ Flag reference:
 | ------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--global-enabled` | `true` or `false`         | Master switch. If `false`, NOTHING plays regardless of per-event settings.                                                                                                 |
 | `--volume`         | `0.0`–`1.0` (clamped)     | Master volume. `0.7` is the default.                                                                                                                                       |
-| `--event`          | one of the 9 keys above   | Scopes the next flags to a single event.                                                                                                                                   |
+| `--event`          | a supported key above     | Scopes the next flags to a single event.                                                                                                                                   |
 | `--enabled`        | `true` or `false`         | Per-event on/off (requires `--event`).                                                                                                                                     |
 | `--sound`          | filename or `null`        | Single-sound convenience (requires `--event`). **Replaces** the entire pool with one entry, or clears it when given `null`. The file must already exist in `data/sounds/`. |
 | `--sounds`         | comma-separated filenames | Replaces the pool with the given list (requires `--event`). Every filename must already exist in `data/sounds/`. Use `--clear-sounds` to empty.                            |
@@ -128,21 +131,21 @@ bun run scripts/update-config.ts --event <key> --remove-sound "<filename>"
 bun run scripts/update-config.ts --event <key> --clear-sounds
 ```
 
-(The macOS app already falls back to the default blip if every referenced file is missing, but cleaning up the config is tidier.)
+(The app already falls back to the platform's default blip if every referenced file is missing, but cleaning up the config is tidier.)
 
 ## UX Guidelines
 
 - **Always check current state first.** Don't ask "what do you want to do" if they already have sounds configured — summarize what's set up, then ask what to change.
 - **The master switch is the #1 gotcha.** `globalEnabled` defaults to `false`. If the user assigns a sound to an event and doesn't hear anything, check that flag first. When assigning the user's first sound, offer to flip the master switch on for them.
 - **Per-event enabled is the #2 gotcha.** Each event has its own `enabled` bool. Setting a sound alone doesn't enable the event.
-- **Pool editing in the UI.** The macOS Settings → Sounds tab also supports pool editing — users can add and remove entries there without running this script. Power users can weight a sound more heavily by hand-editing `config.json` to include duplicates (e.g. `["a.wav","a.wav","b.wav"]` makes `a.wav` twice as likely). The script de-dupes on `--add-sound` but does not re-sort or de-dupe on read, so hand-edited duplicates survive round-trips.
+- **Pool editing in the UI.** The Settings > Sounds tab supports pool editing on macOS and Windows. Users can add and remove entries there without running this script. Power users can weight a sound more heavily by hand-editing `config.json` to include duplicates. For example, `["a.wav","a.wav","b.wav"]` makes `a.wav` twice as likely. The script de-dupes on `--add-sound` but does not re-sort or de-dupe on read, so hand-edited duplicates survive round-trips.
 - **Filename sanity.** When the user sends a file named something like `Screen Recording 2026-04-13 at 11.47.23.m4a`, rename it to something memorable before copying — they'll have to pick it from a dropdown later.
-- **Confirm after changes.** Tell the user the Settings → Sounds tab will reflect changes live. Offer to open it: "You can preview it in Settings → Sounds, or I can play it for you next time that event fires."
-- **Don't invent events.** The 9 event keys above are the complete list. There is currently no event for voice-mode activation or typing indicators — if the user asks for those, tell them it'd need a code change to the macOS app.
+- **Confirm after changes.** Tell the user the Settings > Sounds tab will reflect changes live. Offer to open it: "You can preview it in Settings > Sounds, or I can play it for you next time that event fires."
+- **Don't invent events.** macOS supports the nine keys above, while Windows supports eight and excludes `app_open`. There is currently no event for voice-mode activation or typing indicators. If the user asks for those, tell them it needs a desktop app code change.
 
 ## Config shape reference
 
-If the user inspects `config.json` directly, this is what they'll see. Defaults match the macOS app's `SoundsConfig.defaultConfig`.
+If the user inspects `config.json` directly, this is the macOS superset they may see. On Windows, omit the `app_open` entry. Defaults otherwise match the shared desktop sound configuration.
 
 ```json
 {

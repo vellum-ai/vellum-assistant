@@ -24,8 +24,14 @@
  */
 
 import { getLogger } from "../logger.js";
+import {
+  defaultSchedule,
+  type CancelTimer,
+  type ScheduleFn,
+} from "../util/schedule.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
+import type { ChannelConnectionHealth } from "../channels/types.js";
 import { admitDiscordMessage } from "./admit.js";
 import { AdmissionDropLog } from "./admission-log.js";
 import {
@@ -109,17 +115,6 @@ export interface GatewaySocketLike {
     listener: (event: { data?: unknown; code?: number }) => void,
   ): void;
 }
-
-/** Cancel handle returned by {@link ScheduleFn}. */
-export type CancelTimer = () => void;
-
-/** Injectable timer: schedule `fn` after `delayMs`, return a cancel handle. */
-export type ScheduleFn = (fn: () => void, delayMs: number) => CancelTimer;
-
-const defaultSchedule: ScheduleFn = (fn, delayMs) => {
-  const timer = setTimeout(fn, delayMs);
-  return () => clearTimeout(timer);
-};
 
 export interface DiscordGatewayClientOptions {
   botToken: string;
@@ -208,6 +203,28 @@ export class DiscordGatewayClient {
     }
     this.sessionState = new DiscordSessionState(baseUrl);
     this.openSocket();
+  }
+
+  /**
+   * Whether this client currently holds a live Gateway connection.
+   *
+   * Reported in the same shape as the other socket channels so a reader does
+   * not need to know which protocol proved it. Discord's proof of liveness is
+   * an op 11 ACK rather than a pong.
+   *
+   * `connected` requires an established session, not merely a socket pointer.
+   * `openSocket` assigns `this.ws` as soon as the socket is constructed, and
+   * the connection carries nothing until op 10 HELLO arrives, so a socket
+   * whose handshake stalls would otherwise report itself live for the whole
+   * HELLO deadline. A recorded heartbeat interval is the establishment
+   * signal: it is set from HELLO and cleared on every reset.
+   */
+  getConnectionHealth(): ChannelConnectionHealth {
+    return {
+      connected:
+        this.ws !== null && this.heartbeat.heartbeatIntervalMs !== undefined,
+      lastLivenessAt: this.heartbeat.lastAckAt,
+    };
   }
 
   /**

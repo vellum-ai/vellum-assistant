@@ -20,9 +20,7 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -51,7 +49,6 @@ export function EmailManagedContent({
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const isNativeAndroid = useIsNativeAndroid();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [subdomainDraft, setSubdomainDraft] = useState("");
@@ -314,18 +311,12 @@ export function EmailManagedContent({
         icon={<Mail className="h-4 w-4" aria-hidden />}
         title={t("emailManagedContent.upgradeNoticeTitle")}
         actions={
-          isNativeAndroid ? undefined : (
-            <Button size="compact" onClick={() => navigate(routes.plans)}>
-              {t("emailManagedContent.upgradeButton")}
-            </Button>
-          )
+          <Button size="compact" onClick={() => navigate(routes.plans)}>
+            {t("emailManagedContent.upgradeButton")}
+          </Button>
         }
       >
-        {isNativeAndroid ? (
-          ANDROID_BILLING_MESSAGE
-        ) : (
-          t("emailManagedContent.upgradeNoticeBody")
-        )}
+        {t("emailManagedContent.upgradeNoticeBody")}
       </Notice>
     );
   }

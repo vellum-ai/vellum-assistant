@@ -1,12 +1,11 @@
 /**
  * Visual reference for the sidebar's assistant switcher (Figma 7984:9239).
  *
- * The switcher derives everything from stores: the switchable list, the flag
- * gate, and each row's avatar. Every story therefore seeds the resolved
- * assistants, the assistant-switcher flag, a live platform session, and a
- * query cache carrying one character avatar per entry; a story that seeds a
- * single assistant shows the affordance-free pill the short list collapses
- * to.
+ * The switcher derives everything from stores: the switchable list and each
+ * row's avatar. Every story therefore seeds the resolved assistants, a live
+ * platform session, and a query cache carrying one character avatar per
+ * entry; a story that seeds a single assistant shows the affordance-free pill
+ * the short list collapses to.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,7 +16,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   useResolvedAssistantsStore,
   type ResolvedAssistant,
@@ -67,7 +65,6 @@ function seedStores(assistants: ResolvedAssistant[]): void {
     assistantsHydrated: true,
     activeAssistantId: "asst-1",
   });
-  useClientFeatureFlagStore.setState({ assistantSwitcher: true });
   /* `useSwitchableAssistants` only counts platform entries where a platform
      session is live; a story has no session of its own. */
   useAuthStore.setState({ platformSession: "present" });

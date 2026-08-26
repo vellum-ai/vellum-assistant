@@ -15,6 +15,7 @@ import {
   parseWeatherData,
 } from "@/domains/chat/components/surfaces/weather-utils";
 import { cn } from "@/utils/misc";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -38,6 +39,7 @@ function UnitToggle({
   useFahrenheit: boolean;
   onToggle: (f: boolean) => void;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex overflow-hidden rounded-md border border-[var(--border-element)]">
       <button
@@ -50,7 +52,7 @@ function UnitToggle({
             : "bg-transparent text-[var(--content-quiet)]",
         )}
       >
-        &deg;F
+        {t("weatherForecastDisplay.fahrenheit")}
       </button>
       <button
         type="button"
@@ -62,7 +64,7 @@ function UnitToggle({
             : "bg-transparent text-[var(--content-quiet)]",
         )}
       >
-        &deg;C
+        {t("weatherForecastDisplay.celsius")}
       </button>
     </div>
   );
@@ -79,6 +81,7 @@ function HeroSection({
   useFahrenheit: boolean;
   onToggle: (f: boolean) => void;
 }) {
+  const { t } = useTranslation("chat");
   const locationName = data.location;
   const currentTempStr = displayTemp(
     data.currentTemp,
@@ -136,12 +139,12 @@ function HeroSection({
       <div className="mt-2 flex flex-wrap items-center gap-3">
         {feelsLikeStr !== null && (
           <span className="text-body-small-default text-[var(--content-quiet)]">
-            Feels like {feelsLikeStr}&deg;
+            {t("weatherForecastDisplay.feelsLike", { temp: feelsLikeStr })}
           </span>
         )}
         {todayHighStr !== null && todayLowStr !== null && (
           <span className="text-body-small-default text-[var(--content-quiet)]">
-            H:{todayHighStr}&deg; L:{todayLowStr}&deg;
+            {t("weatherForecastDisplay.highLow", { high: todayHighStr, low: todayLowStr })}
           </span>
         )}
         {windStr && (
@@ -170,6 +173,7 @@ function HourlySection({
   sourceIsFahrenheit: boolean;
   useFahrenheit: boolean;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="mt-3 border-t border-[var(--border-element)] pt-3">
       <div className="flex gap-3 overflow-x-auto">
@@ -192,7 +196,7 @@ function HourlySection({
                     : "text-label-medium-default text-[var(--content-quiet)]"
                 }
               >
-                {isNow ? "Now" : item.time}
+                {isNow ? t("weatherForecastDisplay.now") : item.time}
               </span>
               <WeatherIcon icon={item.icon} size={18} />
               {tempStr !== null && (

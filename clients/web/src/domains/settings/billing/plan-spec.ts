@@ -63,6 +63,13 @@ export interface PackageSpecsOptions {
    * instead of naming an amount.
    */
   obscuredUsageLabel?: string;
+  /**
+   * Localized chip text for a package with a `usage_label` (e.g.
+   * "Mighty Usage included" via `planCard.usageIncludedChip`). Supplied by
+   * the caller because this pure module has no `t()`; without it the chip
+   * falls back to the untranslated dollar wording.
+   */
+  usageIncludedLabel?: string;
 }
 
 /**
@@ -84,12 +91,17 @@ export function packageSpecs(
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    // Cents-aware like every other price on these surfaces, so a sub-dollar
-    // bundle reads "$0.50 in credits included" rather than "$0.5".
+    // `usageIncludedLabel` carries the localized wording for the catalog's
+    // `usage_label` ("Mighty Usage"), the bundle's Stripe product name, so
+    // the chip matches the invoice line. The dollar fallback covers a package
+    // with no usage label. It is cents-aware like every other price on these
+    // surfaces, so a sub-dollar bundle reads "$0.50 in credits included"
+    // rather than "$0.5".
     {
       icon: Coins,
       label:
         opts?.obscuredUsageLabel ??
+        opts?.usageIncludedLabel ??
         `${formatDollars(credits * 100)} in credits included`,
       ownRow: true,
     },
@@ -129,7 +141,9 @@ export function packageHighlights(
   return [
     `${machineLabel(pkg)} machine${resources ? ` (${resources})` : ""}`,
     storageRowLabel(storage),
-    creditRowLabel(credits),
+    // Named for the package's usage allowance where one exists, matching the
+    // invoice line; the dollar wording covers packages with no usage label.
+    pkg?.usage_label ?? creditRowLabel(credits),
     ...extra,
   ];
 }
@@ -175,20 +189,18 @@ export function currentTierRows(
     rows.push(`${current.storageGib} GB`);
   }
   if (current.creditTier != null) {
-    // Built from the structured `credits_usd` rather than `CreditTier.label`:
-    // the label is server-owned copy, so composing a cadence onto it would read
-    // as "50 credits/mo/mo" the day it starts carrying one itself.
+    // The catalog label is preferred: it is the bundle's Stripe product name
+    // ("Mighty Usage" for the offered tiers, "50 credits" for a grandfathered
+    // retired one), so this row matches the subscriber's invoice line.
     //
-    // A held/deprecated tier absent from the catalog has no structured amount,
-    // so it falls back to the tier key (credits_<usd>) and the paid bundle
-    // still shows instead of being silently dropped.
-    const usd =
-      findCreditTier(proPlan, current.creditTier)?.credits_usd ??
-      creditTierKeyUsd(current.creditTier);
-    // Credits refresh every month, unlike the machine and storage rows, which
-    // are standing capacity. A bundle whose amount can't be resolved at all
+    // A held/deprecated tier absent from the catalog has no label, so it
+    // falls back to the amount recovered from the tier key (credits_<usd>)
+    // with its monthly cadence, and the paid bundle still shows instead of
+    // being silently dropped. A bundle whose amount can't be resolved at all
     // stays generic rather than claiming a cadence for an unknown quantity.
-    rows.push(usd != null ? `${usd} credits/mo` : "Credit bundle");
+    const label = findCreditTier(proPlan, current.creditTier)?.label;
+    const usd = creditTierKeyUsd(current.creditTier);
+    rows.push(label ?? (usd != null ? `${usd} credits/mo` : "Credit bundle"));
   }
   return rows;
 }

@@ -280,7 +280,7 @@ matches_safe_line_pattern() {
             # `.yaml`/`.yml` file path AND a following line that looks like
             # a YAML schema annotation (`type:`, `$ref:`, `description:`,
             # etc.). Without either, treat the line as a potential secret.
-            if [ "$pattern" = '^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
+            if [ "$pattern" = '^[[:space:]]+[a-zA-Z0-9_-]*[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$' ]; then
                 if [[ ! "$file" =~ \.(yaml|yml)$ ]]; then
                     continue
                 fi
@@ -969,6 +969,15 @@ while IFS= read -r -d '' FILE; do
         continue
     fi
 
+    # i18n catalogs hold user-facing display copy, so a credential-field label
+    # ("Client Secret", "Enter your client secret") reads as a secret
+    # assignment to the keyword patterns. Entries are filtered per line below:
+    # prose passes, a credential-shaped value is still reported.
+    IS_I18N_CATALOG=0
+    if [[ "$FILE" =~ /i18n/locales/.*\.json$ ]]; then
+        IS_I18N_CATALOG=1
+    fi
+
     # Skip release scripts — they reference password variables for SSH auth
     # via shell parameter expansions, not hardcoded secrets.
     if [[ "$FILE" =~ ^scripts/.*-release\.sh$ ]]; then
@@ -995,6 +1004,14 @@ while IFS= read -r -d '' FILE; do
             fi
             MATCH_LINENO="${line%%:*}"
             CONTENT="${line#*:}"
+            # An i18n entry whose value carries no credential-shaped token (a
+            # 16+ character unbroken run of key alphabet) is display copy.
+            # Checked on the value alone: a camelCase key such as
+            # `clientSecretPlaceholder` is itself a long run.
+            if [ "$IS_I18N_CATALOG" -eq 1 ] &&
+                ! printf '%s\n' "${CONTENT#*: }" | grep -qE '[A-Za-z0-9+/=_-]{16,}'; then
+                continue
+            fi
             # Context-aware patterns need the line that follows the match
             # in the staged blob (e.g. to confirm a bare `clientSecret:` key
             # sits in an OpenAPI schema). Compute lazily — only when needed.

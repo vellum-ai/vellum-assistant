@@ -418,6 +418,7 @@ describe("vellum upgrade local", () => {
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
       join(tempDir, ".vellum", "workspace"),
+      "local-assistant",
     );
     expect(waitForReadyMock).toHaveBeenCalledWith("http://127.0.0.1:7830");
     expect(commitWorkspaceViaGatewayMock).toHaveBeenCalledWith(

@@ -5,8 +5,11 @@ import type {
   CapabilityModule,
 } from "@vellumai/electron-desktop/capability-registry";
 import {
+  HELPER_DICTATION_FINALIZED_EVENT,
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
+  HELPER_DICTATION_TRANSCRIBE,
+  HELPER_DICTATION_TRANSCRIBED_EVENT,
   HELPER_GET_STATE,
   HELPER_PING,
   HELPER_RESTART,
@@ -56,7 +59,12 @@ const dictation: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
           HELPER_DICTATION_PARTIAL_EVENT,
         ),
         onFinalized: subscribe<DictationPartialEvent>(
-          "vellum:helper:dictation:finalized",
+          HELPER_DICTATION_FINALIZED_EVENT,
+        ),
+        transcribe: (audio) =>
+          ipcRenderer.invoke(HELPER_DICTATION_TRANSCRIBE, audio),
+        onTranscribed: subscribe<DictationPartialEvent>(
+          HELPER_DICTATION_TRANSCRIBED_EVENT,
         ),
       },
     });

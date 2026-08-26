@@ -23,7 +23,6 @@ import {
   setLocalNumber,
   watchSetting,
 } from "@/utils/local-settings";
-import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 const DISMISS_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -53,6 +52,8 @@ function readSuppressed(suppressedKey: string | null): boolean {
 export interface ResourcePressureBannerSlotProps {
   resourcePressure: UseResourcePressureMonitorResult;
   assistantId: string | null;
+  /** Display name for the banner title; null falls back to generic copy. */
+  assistantName: string | null;
   /** `"active"` for platform-hosted assistants that have an upgrade path. */
   assistantStateKind: string;
   /**
@@ -71,11 +72,11 @@ export interface ResourcePressureBannerSlotProps {
 export function ResourcePressureBannerSlot({
   resourcePressure,
   assistantId,
+  assistantName,
   assistantStateKind,
   hidden = false,
 }: ResourcePressureBannerSlotProps) {
   const navigate = useNavigate();
-  const isNativeAndroid = useIsNativeAndroid();
 
   const dismissedUntilKey = assistantId
     ? `vellum:resourcePressureDismissedUntil:${assistantId}`
@@ -206,9 +207,10 @@ export function ResourcePressureBannerSlot({
           and permanently suppress the wrong assistant's warning. */}
       <ResourcePressureBanner
         key={assistantId ?? "no-assistant"}
+        assistantName={assistantName}
         onDismiss={dismiss}
         onUpgrade={
-          assistantStateKind === "active" && !isNativeAndroid
+          assistantStateKind === "active"
             ? () => void navigate(routes.plans)
             : null
         }

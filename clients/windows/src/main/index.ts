@@ -48,7 +48,12 @@ import { ensureVisible } from "./main-window";
 import { installWebContentsSecurity } from "./windows.client";
 
 /**
- * Windows Electron shell for the Vellum Assistant web renderer.
+ * Windows shell for the Vellum Assistant: a hardened BrowserWindow loading
+ * the clients/web renderer (Vite dev server in dev, `app://` static serving
+ * of `resources/web-dist` in packaged builds). Every desktop capability is a
+ * module under `./features/`, composed through the capability registry once
+ * the app is ready; `docs/parity-matrix.md` maps them to their macOS
+ * counterparts.
  */
 
 // Dev-only: override the package `name` (`@vellumai/windows`) so
@@ -135,6 +140,8 @@ const registerAppProtocol = (): void => {
   const lockfilePaths = resolveLockfilePaths(process.env);
   const getAllowedGatewayPorts = (): Set<number> =>
     readAllowedGatewayPorts(lockfilePaths);
+  // Prefer the watcher's in-memory snapshot so paired requests never read
+  // disk; the direct read covers only the window before the watcher installs.
   const getPairedGatewayTargets = (): Map<string, string> => {
     const watched = getWatchedLockfileSnapshot();
     return watched
@@ -143,23 +150,32 @@ const registerAppProtocol = (): void => {
   };
 
   protocol.handle(APP_PROTOCOL, async (request) => {
-    const gatewayProxied = await forwardGatewayRequest(
+    // The renderer addresses local gateways at the same `app://` origin via
+    // `/assistant/__gateway/{port}/*`. Forward those to loopback here so the
+    // secure renderer never touches an insecure `http://127.0.0.1` origin
+    // directly; the lockfile allowlist is the security boundary. Mirrors the
+    // Vite dev-server proxy (`clients/web/vite-plugin-local-mode.ts`).
+    const proxied = await forwardGatewayRequest(
       request,
       getAllowedGatewayPorts,
       gatewayForwardFetcher,
     );
-    if (gatewayProxied) {
-      return gatewayProxied;
+    if (proxied) {
+      return proxied;
     }
 
-    const pairedGatewayProxied = await forwardPairedGatewayRequest(
+    // Paired remote gateways ride the same-origin path too, via
+    // `/assistant/__gateway-paired/{assistantId}/*`; the WebRequest guard
+    // admits only trusted app frames, and the lockfile's paired entries
+    // allowlist the remote targets.
+    const pairedProxied = await forwardPairedGatewayRequest(
       request,
       getPairedGatewayTargets,
       getPairedGuardianAccessToken,
       gatewayForwardFetcher,
     );
-    if (pairedGatewayProxied) {
-      return pairedGatewayProxied;
+    if (pairedProxied) {
+      return pairedProxied;
     }
 
     const platformProxied = await forwardPlatformRequest(
@@ -187,9 +203,6 @@ const registerAppProtocol = (): void => {
   });
 };
 
-const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
-  net.fetch(url, init);
-
 // Synchronous config snapshot the preload reads at startup and exposes to the
 // renderer as `window.__VELLUM_CONFIG__`.
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
@@ -202,6 +215,9 @@ handleSync("vellum:config:get", () => ({
     ) || undefined,
   deviceId: getDeviceId(),
 }));
+
+const gatewayForwardFetcher: GatewayForwardFetcher = (url, init) =>
+  net.fetch(url, init);
 
 const forwardPlatformRequest = async (
   request: GlobalRequest,

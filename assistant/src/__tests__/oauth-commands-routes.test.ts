@@ -656,6 +656,95 @@ describe("POST oauth/request", () => {
     expect(result.body).toEqual({ hello: "world" });
   });
 
+  test("passes a pre-parsed string body through to the connection unchanged", async () => {
+    const multipart =
+      "--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--\r\n";
+
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/upload/drive/v3/files",
+          method: "POST",
+          headers: { "Content-Type": "multipart/related; boundary=boundary" },
+          parsed_data: multipart,
+        },
+      }),
+    );
+
+    expect(mockResolveRequests).toHaveLength(1);
+    const req = mockResolveRequests[0] as {
+      body: unknown;
+      headers: Record<string, string>;
+    };
+    expect(req.body).toBe(multipart);
+    expect(req.headers["Content-Type"]).toBe(
+      "multipart/related; boundary=boundary",
+    );
+  });
+
+  test("keeps a raw data string raw under a non-JSON Content-Type", async () => {
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/upload/drive/v3/files",
+          method: "POST",
+          headers: { "content-type": "text/csv" },
+          data: '{"looks":"like json"}',
+        },
+      }),
+    );
+
+    const req = mockResolveRequests[0] as { body: unknown };
+    expect(req.body).toBe('{"looks":"like json"}');
+  });
+
+  test("parses a raw data string as JSON under a JSON Content-Type", async () => {
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/v1/sheets",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          data: '{"title":"Sheet"}',
+        },
+      }),
+    );
+
+    const req = mockResolveRequests[0] as { body: unknown };
+    expect(req.body).toEqual({ title: "Sheet" });
+  });
+
+  test("base64-encodes binary response bodies for the JSON envelope", async () => {
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/octet-stream" },
+      body: binary,
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/drive/v3/files/file-123?alt=media",
+        },
+      }),
+    )) as {
+      ok: boolean;
+      status: number;
+      body: unknown;
+      bodyEncoding?: string;
+    };
+    expect(result.ok).toBe(true);
+    expect(result.body).toBe(binary.toString("base64"));
+    expect(result.bodyEncoding).toBe("base64");
+    expect(Buffer.from(String(result.body), "base64").equals(binary)).toBe(
+      true,
+    );
+  });
+
   test("rejects absolute URL host outside provider base host when no injection templates exist", async () => {
     await expect(
       getRoute("POST", "oauth/request").handler(

@@ -37,6 +37,7 @@ import type { BookmarksGetResponse } from "@/generated/daemon/types.gen";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
 import { captureError } from "@/lib/sentry/capture-error";
+import { t } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library";
 
@@ -189,8 +190,8 @@ export function useBookmarkToggle(): (
         captureError(error, { context: "bookmark_toggle" });
         toast.error(
           currentlyBookmarked
-            ? "Failed to remove bookmark."
-            : "Failed to bookmark message.",
+            ? t("useBookmarks.removeFailed")
+            : t("useBookmarks.addFailed"),
         );
       } finally {
         void queryClient.invalidateQueries({ queryKey });

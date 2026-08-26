@@ -7,6 +7,7 @@ import {
   organizationsBillingLowBalanceAlertRetrieveSetQueryData,
   organizationsBillingLowBalanceAlertUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { t, useTranslation } from "@/i18n";
 import { formatUsd } from "@/utils/format-usd";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -24,12 +25,12 @@ export function validateThreshold(raw: string): string | undefined {
   }
   const n = parseFloat(raw);
   if (!Number.isFinite(n) || n < 1 || n > 1000) {
-    return "Must be between $1 and $1,000";
+    return t("settings:lowBalanceAlertCard.errorRange");
   }
   // Reject more than two decimal places (backend requires exactly two; we
   // pad on save, but can't silently round away cents the user typed).
   if (!/^\d+(\.\d{1,2})?$/.test(raw.trim())) {
-    return "Use at most two decimal places";
+    return t("settings:lowBalanceAlertCard.errorDecimals");
   }
   return undefined;
 }
@@ -42,6 +43,7 @@ export function validateThreshold(raw: string): string | undefined {
  * global default threshold.
  */
 export function LowBalanceAlertCard() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const alertQuery = useQuery(
     organizationsBillingLowBalanceAlertRetrieveOptions(),
@@ -60,7 +62,7 @@ export function LowBalanceAlertCard() {
     return (
       <div data-testid="low-balance-alert-card">
         <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Loading…
+          {t("lowBalanceAlertCard.loading")}
         </p>
       </div>
     );
@@ -68,7 +70,7 @@ export function LowBalanceAlertCard() {
   if (alertQuery.isError || !alertQuery.data) {
     return (
       <div data-testid="low-balance-alert-card">
-        <Notice tone="error">Failed to load low-balance alert settings.</Notice>
+        <Notice tone="error">{t("lowBalanceAlertCard.loadError")}</Notice>
       </div>
     );
   }
@@ -129,8 +131,10 @@ export function LowBalanceAlertCard() {
           <Input
             type="number"
             step="0.01"
-            label="Alert me when my balance drops below"
-            helperText={`Default is ${formatUsd(config.default_threshold_usd)} when unset`}
+            label={t("lowBalanceAlertCard.label")}
+            helperText={t("lowBalanceAlertCard.helperText", {
+              amount: formatUsd(config.default_threshold_usd),
+            })}
             placeholder={config.effective_threshold_usd}
             value={value}
             onChange={onChange}
@@ -152,7 +156,7 @@ export function LowBalanceAlertCard() {
               disabled={updateMutation.isPending}
               data-testid="low-balance-alert-reset-button"
             >
-              Reset to default
+              {t("lowBalanceAlertCard.reset")}
             </Button>
           )}
           <Button
@@ -161,7 +165,7 @@ export function LowBalanceAlertCard() {
             disabled={updateMutation.isPending}
             data-testid="low-balance-alert-save-button"
           >
-            Save
+            {t("lowBalanceAlertCard.save")}
           </Button>
         </div>
       </div>
@@ -172,7 +176,7 @@ export function LowBalanceAlertCard() {
           className="mt-4"
           data-testid="low-balance-alert-update-error"
         >
-          Failed to save low-balance alert. Please try again.
+          {t("lowBalanceAlertCard.saveError")}
         </Notice>
       )}
     </div>

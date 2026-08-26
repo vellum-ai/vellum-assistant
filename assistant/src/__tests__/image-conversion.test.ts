@@ -1,9 +1,8 @@
 /**
- * Tests for the shared sips-backed image converter.
+ * Tests for the shared cross-platform image converter.
  *
  * Pure logic (ftyp sniffing, filename rewriting, passthrough behavior) runs
- * everywhere; actual conversion requires macOS `sips`, so those cases are
- * gated on darwin.
+ * everywhere; macOS-specific HEIC fixture generation is gated on Darwin.
  */
 
 import { createHash } from "node:crypto";
@@ -151,6 +150,41 @@ describe("isCompleteJpeg", () => {
   });
 });
 
+describe("convertImageToJpeg", () => {
+  test("converts PNG input with the cross-platform encoder", async () => {
+    const converted = await convertImageToJpeg(PNG_1PX_BYTES, {
+      resizeToPx: { width: 2, height: 2 },
+      quality: 82,
+    });
+
+    expect(converted).not.toBeNull();
+    expect(isCompleteJpeg(converted!)).toBe(true);
+    expect(hasValidJpegStructure(converted!)).toBe(true);
+  });
+
+  test("applies EXIF orientation before encoding", async () => {
+    const { default: sharp } = await import("sharp");
+    const source = await sharp({
+      create: {
+        width: 2,
+        height: 1,
+        channels: 3,
+        background: { r: 255, g: 0, b: 0 },
+      },
+    })
+      .jpeg()
+      .withMetadata({ orientation: 6 })
+      .toBuffer();
+
+    const converted = await convertImageToJpeg(source, { quality: 83 });
+    expect(converted).not.toBeNull();
+    const metadata = await sharp(converted!).metadata();
+    expect(metadata.width).toBe(1);
+    expect(metadata.height).toBe(2);
+    expect(metadata.orientation).toBeUndefined();
+  });
+});
+
 // Mirrors the converter's cache-key derivation so the test can plant a
 // poisoned entry at the exact path a conversion will consult.
 function cacheKeyFor(bytes: Uint8Array, quality: number): string {
@@ -256,7 +290,7 @@ describe("normalizeImageBytes passthrough", () => {
   });
 
   test("HEIF header with undecodable payload passes through", async () => {
-    // sips fails (or is absent off-macOS) → the original bytes are kept.
+    // The malformed container cannot be decoded, so the bytes are kept.
     const fake = fakeHeifHeaderBytes();
     const result = await normalizeImageBytes("image/heic", fake);
     expect(result.converted).toBe(false);

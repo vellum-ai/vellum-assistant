@@ -27,6 +27,47 @@ export const DEFAULT_PROFILE_KEYS = [
 export type DefaultProfileKey = (typeof DEFAULT_PROFILE_KEYS)[number];
 
 /**
+ * Stable keys of the managed backup profiles, one per default profile.
+ * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: that array drives picker
+ * order and the intent x provider matrix, while backups are companions of
+ * the managed (`vellum`) column only. Each backup pins a model at a
+ * different upstream provider than its primary, so an outage at the
+ * primary's provider can be served by re-sending on the backup (see the
+ * `fallbackProfile` field on `ProfileEntry`).
+ */
+export const BACKUP_PROFILE_KEYS = [
+  "balanced-backup",
+  "quality-optimized-backup",
+  "cost-optimized-backup",
+  "latency-optimized-backup",
+] as const;
+export type BackupProfileKey = (typeof BACKUP_PROFILE_KEYS)[number];
+
+/**
+ * The backup profile each default profile falls back to. Applied to the
+ * managed (`vellum`) column implementations only: BYOK installs may hold no
+ * credential for the backup's provider, so their columns carry no
+ * `fallbackProfile` pointers.
+ */
+export const FALLBACK_PROFILE_BY_KEY: Record<
+  DefaultProfileKey,
+  BackupProfileKey
+> = {
+  balanced: "balanced-backup",
+  "quality-optimized": "quality-optimized-backup",
+  "cost-optimized": "cost-optimized-backup",
+  "latency-optimized": "latency-optimized-backup",
+};
+
+export function isDefaultProfileKey(value: string): value is DefaultProfileKey {
+  return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(value);
+}
+
+export function isBackupProfileKey(value: string): value is BackupProfileKey {
+  return (BACKUP_PROFILE_KEYS as readonly string[]).includes(value);
+}
+
+/**
  * Flag-gated default profile: only available while the `os-beta` feature
  * flag has reconciled it into the workspace (see `sync-gated-profiles.ts`).
  * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: it is never

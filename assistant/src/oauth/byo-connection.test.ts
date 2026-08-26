@@ -358,6 +358,43 @@ describe("BYOOAuthConnection", () => {
       expect(headers.get("Content-Type")).toBe("application/json");
     });
 
+    test("sends a string body verbatim under the caller's Content-Type", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const multipart =
+        "--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--\r\n";
+
+      await conn.request({
+        method: "POST",
+        path: "/upload/drive/v3/files",
+        headers: { "Content-Type": "multipart/related; boundary=boundary" },
+        body: multipart,
+      });
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect((init as RequestInit).body).toBe(multipart);
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Content-Type")).toBe(
+        "multipart/related; boundary=boundary",
+      );
+    });
+
+    test("does not force a JSON Content-Type onto a string body", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "POST",
+        path: "/upload",
+        body: "name=sheet&kind=grid",
+      });
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect((init as RequestInit).body).toBe("name=sheet&kind=grid");
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.has("Content-Type")).toBe(false);
+    });
+
     test("retries once on 401 response", async () => {
       await setupCredential("google");
       const conn = createConnection();
@@ -418,6 +455,32 @@ describe("BYOOAuthConnection", () => {
 
       expect(result.status).toBe(200);
       expect(result.body).toBe("plain text response");
+    });
+
+    test("preserves non-ASCII binary bytes for media downloads", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const binary = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
+      ]);
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(binary, {
+            status: 200,
+            headers: { "content-type": "application/octet-stream" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/drive/v3/files/file-123?alt=media",
+      });
+
+      expect(result.status).toBe(200);
+      expect(Buffer.isBuffer(result.body)).toBe(true);
+      expect(Buffer.from(result.body as Uint8Array).equals(binary)).toBe(true);
     });
 
     test("returns response headers", async () => {

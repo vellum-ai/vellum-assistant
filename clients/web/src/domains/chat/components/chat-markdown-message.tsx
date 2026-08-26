@@ -56,6 +56,7 @@ import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
 import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import { useTranslation } from "@/i18n";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -132,9 +133,12 @@ const IMAGE_CLASSES =
   "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-element)] object-contain";
 
 function ImageErrorFallback({ alt }: { alt: string }) {
+  const { t } = useTranslation("chat");
   return (
     <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-      Image failed to load{alt ? ` (${alt})` : ""}
+      {alt
+        ? t("chatMarkdownMessage.imageFailedWithAlt", { alt })
+        : t("chatMarkdownMessage.imageFailed")}
     </span>
   );
 }
@@ -204,6 +208,7 @@ function WorkspaceInlineImage({
   assistantId: string | null | undefined;
   onOpenPreview?: (attachment: DisplayAttachment) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -258,7 +263,9 @@ function WorkspaceInlineImage({
   if (!objectUrl) {
     return (
       <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-        Loading image…{alt ? ` (${alt})` : ""}
+        {alt
+          ? t("chatMarkdownMessage.loadingImageWithAlt", { alt })
+          : t("chatMarkdownMessage.loadingImage")}
       </span>
     );
   }
@@ -274,7 +281,11 @@ function WorkspaceInlineImage({
       type="button"
       onClick={() => onOpenPreview(attachment)}
       className="cursor-zoom-in appearance-none border-0 bg-transparent p-0"
-      aria-label={alt ? `Expand image: ${alt}` : "Expand image"}
+      aria-label={
+              alt
+                ? t("chatMarkdownMessage.expandImageAriaWithAlt", { alt })
+                : t("chatMarkdownMessage.expandImageAria")
+            }
     >
       {image}
     </button>

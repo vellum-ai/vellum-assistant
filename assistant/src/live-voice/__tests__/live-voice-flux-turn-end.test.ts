@@ -410,7 +410,10 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     await waitFor(() => turnCalls.length === 1);
 
     const metricsFrame = await waitForTurnMetrics(frames);
-    expect(metricsFrame.endpointCommitLatencyMs).toBeGreaterThanOrEqual(250);
+    // Date.now() vs setTimeout can undershoot the sleep by a millisecond on
+    // a loaded runner. The assertion is that the speech-stop anchor saw the
+    // pause, not that the timer is exact.
+    expect(metricsFrame.endpointCommitLatencyMs).toBeGreaterThanOrEqual(240);
 
     await session.close("client_end");
   });
@@ -435,7 +438,10 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     // the two arms one population rather than two.
     const metricsFrame = await waitForTurnMetrics(frames);
     expect(metricsFrame.endpointDecisionSource).toBeUndefined();
-    expect(metricsFrame.endpointCommitLatencyMs).toBeGreaterThanOrEqual(40);
+    // The silence timer is 40 ms. CI clock jitter can report 39. The
+    // assertion is that the front-door path recorded a silence-scale
+    // latency, not that setTimeout fired on the exact millisecond.
+    expect(metricsFrame.endpointCommitLatencyMs).toBeGreaterThanOrEqual(30);
 
     await session.close("client_end");
   });
@@ -817,7 +823,10 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
 describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
   beforeEach(() => {
     setConfig("services", {
-      stt: { provider: "deepgram-flux", providers: {} },
+      stt: {
+        provider: "deepgram",
+        providers: { deepgram: { model: "flux" } },
+      },
     });
   });
 
@@ -910,7 +919,7 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     const gate = createDialGate();
     const { frames, session, transcribers, turnCalls } = createHarness({
       // No fluxConfig: `turnEnd.enabled` keeps its schema default of false
-      // while config still names deepgram-flux as the provider.
+      // while config still selects the flux model family.
       silenceThresholdMs: 40,
       resolveGate: gate.promise,
       startVoiceTurn: autoCompletingTurn(),

@@ -16,6 +16,7 @@ import { create } from "zustand";
 
 import { integrationsVercelConfigGet } from "@/generated/daemon/sdk.gen";
 import type { AppsByIdPublishPostResponse } from "@/generated/daemon/types.gen";
+import { t } from "@/i18n";
 import { createSelectors } from "@/utils/create-selectors";
 import { publishApp } from "@/utils/publish-app";
 import { shareApp as shareAppApi } from "@/utils/share-app";
@@ -78,15 +79,15 @@ function isCredentialError(result: AppsByIdPublishPostResponse): boolean {
 
 function showPublishResultToast(result: AppsByIdPublishPostResponse): void {
   if (result.publicUrl) {
-    toast.success("Deployed to Vercel", {
+    toast.success(t("deployStore.deployedToVercel"), {
       description: result.publicUrl,
       action: {
-        label: "Open",
+        label: t("deployStore.open"),
         onClick: () => window.open(result.publicUrl, "_blank"),
       },
     });
   } else {
-    toast.success("Deployed to Vercel");
+    toast.success(t("deployStore.deployedToVercel"));
   }
 }
 
@@ -116,9 +117,11 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     set({ isSharing: true });
     try {
       await shareAppApi(assistantId, appId, appName);
-      toast.success("App exported", { description: `${appName}.vellum` });
+      toast.success(t("deployStore.appExported"), {
+        description: `${appName}.vellum`,
+      });
     } catch (err) {
-      toast.error("Failed to share app", {
+      toast.error(t("deployStore.shareFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -162,13 +165,15 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
             isDeploying: false,
           });
         } else {
-          toast.error("Failed to deploy", { description: result.error });
+          toast.error(t("deployStore.deployFailed"), {
+            description: result.error,
+          });
         }
       } else {
         showPublishResultToast(result);
       }
     } catch (err) {
-      toast.error("Failed to deploy", {
+      toast.error(t("deployStore.deployFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -186,12 +191,14 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     try {
       const result = await publishApp(assistantId, pendingDeployAppId);
       if (!result.success) {
-        toast.error("Failed to deploy", { description: result.error });
+        toast.error(t("deployStore.deployFailed"), {
+          description: result.error,
+        });
       } else {
         showPublishResultToast(result);
       }
     } catch (err) {
-      toast.error("Failed to deploy", {
+      toast.error(t("deployStore.deployFailed"), {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {

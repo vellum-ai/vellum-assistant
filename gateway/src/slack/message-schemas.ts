@@ -221,6 +221,36 @@ const slackAppContextSchema = z.object({
 });
 
 /**
+ * A message as `conversations.history` / `conversations.replies` returns it.
+ *
+ * Not an event: the Web API returns message objects, and the reconnect catch-up
+ * maps them onto the event shape the live path understands. Validated here with
+ * the same tolerant field schemas the live events use, so `files` carries the
+ * checked shape rather than `unknown[]` forced into place at the boundary.
+ *
+ * `attachments` and `blocks` are passed through untouched and unread: nothing
+ * in the gateway reads them off an inbound message, and they reach the daemon
+ * only inside `raw`. They are typed as opaque arrays rather than modelled,
+ * which says exactly that.
+ */
+export const slackHistoryMessageSchema = z.object({
+  type: optionalString(),
+  subtype: optionalString(),
+  user: optionalString(),
+  bot_id: optionalString(),
+  text: optionalString(),
+  ts: z.string(),
+  thread_ts: optionalString(),
+  team: optionalString(),
+  files: z.array(slackFileSchema).optional().catch(undefined),
+  blocks: z.array(z.unknown()).optional().catch(undefined),
+  attachments: z.array(z.unknown()).optional().catch(undefined),
+  edited: slackEditedSchema,
+});
+
+export type SlackHistoryMessage = z.infer<typeof slackHistoryMessageSchema>;
+
+/**
  * Tolerant schema for the plain-message family — `app_mention`, direct
  * messages, and channel/group messages. The three differ only in discriminator
  * values (`type` / `channel_type`) and which fields the normalizer keys on, so

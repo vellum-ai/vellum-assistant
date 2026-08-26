@@ -1,7 +1,5 @@
 import type { Session } from "electron";
 
-import { getLockfileData } from "@vellumai/local-mode";
-
 import { capabilityToken } from "./capability-registry";
 import type { IpcRegistrar } from "./ipc";
 
@@ -13,29 +11,11 @@ export interface ActiveBundleGateway {
   port: number;
 }
 
-export const resolveActiveBundleGateway = (
-  lockfilePaths: string[],
-): ActiveBundleGateway | null => {
-  const result = getLockfileData(lockfilePaths);
-  if (!result.ok || !result.data.activeAssistant) {
-    return null;
-  }
-  const entry = result.data.assistants.find(
-    (assistant) => assistant.assistantId === result.data.activeAssistant,
-  );
-  const port = entry?.resources?.gatewayPort;
-  return entry && port ? { assistantId: entry.assistantId, port } : null;
-};
-
 export interface BundleHostProvider {
   resolveActiveGateway: () => ActiveBundleGateway | null;
   acquireGatewayToken: (assistantId: string) => Promise<string | null>;
   denyAllPermissions: (targetSession: Session) => void;
 }
-
-export const bundleHostProviderToken = capabilityToken<BundleHostProvider>(
-  "desktop.bundle-host-provider",
-);
 
 export const bundleFileHandlerToken = capabilityToken<
   (filePath: string) => Promise<void>

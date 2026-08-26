@@ -7,15 +7,17 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
-import { useAuthStore } from "@/stores/auth-store";
 import { clearConsentForUser } from "@/lib/consent/consent-persistence";
+import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export function DeleteAccountSection() {
+  const { t } = useTranslation("settings");
   // platformHostedOnly: deleting a Vellum platform account from a UI that
   // is actively connected to a self-hosted assistant is confusing /
   // disruptive — the user can switch to a platform-hosted assistant to
@@ -38,15 +40,13 @@ export function DeleteAccountSection() {
 
   const deleteMutation = useUserDeletionRequestCreateMutation({
     onSuccess: async () => {
-      toast.success(
-        "Account deletion requested. You will be logged out shortly.",
-      );
+      toast.success(t("deleteAccountSection.toastRequested"));
       clearConsentForUser(userId);
       await logout();
       hardNavigate(routes.account.login);
     },
     onError: () => {
-      toast.error("Failed to request account deletion. Please try again.");
+      toast.error(t("deleteAccountSection.toastFailed"));
     },
   });
 
@@ -78,15 +78,15 @@ export function DeleteAccountSection() {
     <>
       <section className="flex flex-col gap-2">
         <h3 className="text-title-small text-[var(--content-emphasised)]">
-          Delete Account
+          {t("deleteAccountSection.title")}
         </h3>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Permanently delete your account and all associated data.
+          {t("deleteAccountSection.description")}
         </p>
         <div className="mt-1">
           {platformGate === "disabled" ? (
             <PlatformLoginNotice>
-              Log in to the Vellum platform to delete your account.
+              {t("deleteAccountSection.platformLoginNotice")}
             </PlatformLoginNotice>
           ) : (
             <div className="flex items-center gap-2">
@@ -96,7 +96,7 @@ export function DeleteAccountSection() {
                 disabled={deleteMutation.isPending || isResolving}
                 className="self-start"
               >
-                Delete My Account
+                {t("deleteAccountSection.deleteMyAccount")}
               </Button>
               {isResolving && (
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
@@ -107,9 +107,9 @@ export function DeleteAccountSection() {
       </section>
       <ConfirmDialog
         open={confirmOpen}
-        title="Delete Account"
-        message="This will permanently delete your account and all associated data. This action cannot be undone."
-        confirmLabel="Delete Account"
+        title={t("deleteAccountSection.confirmTitle")}
+        message={t("deleteAccountSection.confirmMessage")}
+        confirmLabel={t("deleteAccountSection.confirmLabel")}
         destructive
         onConfirm={() => {
           // Defensive: the useEffect above closes the dialog when

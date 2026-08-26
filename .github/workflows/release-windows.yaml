@@ -1,0 +1,289 @@
+name: Release Windows
+
+# Reusable Windows desktop release: build, sign, verify, and publish the NSIS
+# installers and electron-updater feed for one environment. Called by
+# dev-release.yaml and release.yml behind the WINDOWS_<ENV>_RELEASE_ENABLED
+# variables; never dispatched on its own.
+#
+# External gates (per GitHub environment):
+#   vars.WINDOWS_SIGNING_PROVIDER   pfx | azure-trusted-signing | command
+#   pfx:     secrets.WINDOWS_SIGNING_PFX_BASE64, secrets.WINDOWS_SIGNING_PFX_PASSWORD
+#   azure:   secrets.AZURE_TENANT_ID, secrets.AZURE_CLIENT_ID, secrets.AZURE_CLIENT_SECRET,
+#            vars.AZURE_TRUSTED_SIGNING_ENDPOINT, vars.AZURE_TRUSTED_SIGNING_ACCOUNT,
+#            vars.AZURE_TRUSTED_SIGNING_PROFILE, vars.WINDOWS_SIGNING_PUBLISHER_NAME
+#   command: secrets.WINDOWS_SIGN_COMMAND (a signing CLI invocation with a {file} placeholder),
+#            vars.WINDOWS_SIGNING_PUBLISHER_NAME
+#   production observability: secrets.SENTRY_DSN_WINDOWS (main process and
+#             the renderer's VITE_SENTRY_DSN_WINDOWS), secrets.SENTRY_AUTH_TOKEN,
+#             vars.SENTRY_PROJECT_WINDOWS
+#   optional: vars.WINDOWS_SIGNING_TIMESTAMP_URL
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment: dev, staging, or production"
+        required: true
+        type: string
+      version:
+        description: "Release version string (e.g. 0.6.0, 0.6.1-staging.1)"
+        required: true
+        type: string
+
+concurrency:
+  group: windows-release-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Resolve release gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ inputs.environment }}
+    outputs:
+      sentry_upload: ${{ steps.gates.outputs.sentry_upload }}
+    steps:
+      - name: Validate inputs and signing gate
+        id: gates
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          VERSION: ${{ inputs.version }}
+          SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          HAS_PFX: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 != '' && secrets.WINDOWS_SIGNING_PFX_PASSWORD != '' }}
+          HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && vars.AZURE_TRUSTED_SIGNING_ACCOUNT != '' && vars.AZURE_TRUSTED_SIGNING_PROFILE != '' && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
+          HAS_COMMAND: ${{ contains(secrets.WINDOWS_SIGN_COMMAND, '{file}') && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
+          HAS_SENTRY: ${{ secrets.SENTRY_DSN_WINDOWS != '' && secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_PROJECT_WINDOWS != '' }}
+        run: |
+          case "$ENVIRONMENT" in
+            dev|staging|production) ;;
+            *) echo "::error::environment must be dev, staging, or production (got '$ENVIRONMENT')"; exit 1 ;;
+          esac
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::version '$VERSION' is not a release version"; exit 1
+          fi
+          case "$SIGNING_PROVIDER" in
+            pfx)
+              [ "$HAS_PFX" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=pfx needs secrets WINDOWS_SIGNING_PFX_BASE64 and WINDOWS_SIGNING_PFX_PASSWORD on the $ENVIRONMENT environment"; exit 1; } ;;
+            azure-trusted-signing)
+              [ "$HAS_AZURE" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=azure-trusted-signing needs AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET secrets and AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE, WINDOWS_SIGNING_PUBLISHER_NAME variables on the $ENVIRONMENT environment"; exit 1; } ;;
+            command)
+              [ "$HAS_COMMAND" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=command needs the WINDOWS_SIGN_COMMAND secret (containing a {file} placeholder) and the WINDOWS_SIGNING_PUBLISHER_NAME variable on the $ENVIRONMENT environment"; exit 1; } ;;
+            "")
+              echo "::error::Set the WINDOWS_SIGNING_PROVIDER variable (pfx, azure-trusted-signing, or command) on the $ENVIRONMENT environment. Unsigned Windows releases are never published."; exit 1 ;;
+            *)
+              echo "::error::Unknown WINDOWS_SIGNING_PROVIDER '$SIGNING_PROVIDER'"; exit 1 ;;
+          esac
+          if [ "$ENVIRONMENT" = "production" ] && [ "$HAS_SENTRY" != "true" ]; then
+            echo "::error::Production Windows releases need SENTRY_DSN_WINDOWS and SENTRY_AUTH_TOKEN secrets plus the SENTRY_PROJECT_WINDOWS variable"
+            exit 1
+          fi
+          if [ "$HAS_SENTRY" != "true" ]; then
+            echo "::warning::Windows Sentry reporting and renderer source-map upload are disabled for $ENVIRONMENT"
+          fi
+          echo "sentry_upload=$HAS_SENTRY" >> "$GITHUB_OUTPUT"
+
+  build-and-sign:
+    name: Build and sign (Windows ${{ matrix.arch }})
+    needs: [preflight]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    environment: ${{ inputs.environment }}
+    # The arm64 runner is a preview image; only dev tolerates it failing.
+    continue-on-error: ${{ matrix.arch == 'arm64' && inputs.environment == 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2025
+          - arch: arm64
+            runner: windows-11-vs2026-arm
+    defaults:
+      run:
+        working-directory: clients/windows
+    env:
+      ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
+      VELLUM_ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: clients/windows/native/global.json
+
+      # Kept out of the job env: dotnet also honors MSBUILD_EXE_PATH and
+      # would resolve SDKs through the Visual Studio MSBuild.
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if (-not $msbuild) { throw "MSBuild not found" }
+          "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Integrate vcpkg with MSBuild
+        run: vcpkg integrate install
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Before build:runtime: the app and every service compiled into the CLI
+      # runtime report the release version.
+      - name: Stamp release version into package.json
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          for pkg in package.json ../../assistant/package.json ../../gateway/package.json ../../cli/package.json ../../credential-executor/package.json; do
+            jq --arg v "$VERSION" '.version = $v' "$pkg" > "${pkg}.tmp" && mv "${pkg}.tmp" "$pkg"
+          done
+
+      - name: Build native helper
+        run: bun scripts/build-native-helper.ts --arch ${{ matrix.arch }}
+
+      - name: Build preview handler
+        env:
+          MSBUILD_EXE_PATH: ${{ steps.msbuild.outputs.path }}
+        run: bun scripts/build-preview-handler.ts --arch ${{ matrix.arch }}
+
+      - name: Build packaged runtime
+        env:
+          VITE_PLATFORM_MODE: "false"
+          # The renderer picks VITE_SENTRY_DSN_WINDOWS on a Windows host; the
+          # web DSN covers the SPA the bundled runtime serves to browsers.
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
+          VITE_SENTRY_ENVIRONMENT: ${{ inputs.environment }}
+          VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          VITE_APP_VERSION: ${{ inputs.version }}
+          SENTRY_UPLOAD_SOURCE_MAPS: ${{ needs.preflight.outputs.sentry_upload }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WINDOWS }}
+          # A source-map upload failure degrades to a warning instead of
+          # failing the release build (see clients/web/vite.config.ts).
+          SENTRY_ALLOW_UPLOAD_FAILURE: "true"
+        run: bun run build:runtime
+
+      - name: Build main and preload
+        env:
+          SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
+        run: bun run build
+
+      - name: Package and sign NSIS installer
+        env:
+          WINDOWS_SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT }}
+          AZURE_TRUSTED_SIGNING_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_PROFILE }}
+          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+        run: bunx electron-builder --win --config electron-builder.config.cjs --publish never
+
+      # Every binary in the signing manifest (app executable, CLI runtime,
+      # helper, preview-handler DLL) plus the installer must carry a valid
+      # Authenticode signature from one certificate.
+      - name: Verify signatures
+        shell: pwsh
+        run: |
+          $arch = "${{ matrix.arch }}"
+          $manifest = Get-Content "dist/signing-manifest-$arch.json" | ConvertFrom-Json
+          $appOutDir = if ($arch -eq "x64") { "dist/win-unpacked" } else { "dist/win-$arch-unpacked" }
+          $targets = @($manifest.files | ForEach-Object { Join-Path $appOutDir $_.path }) + @($manifest.installers | ForEach-Object { Join-Path "dist" $_.path })
+          if ($manifest.installers.Count -lt 1) { throw "signing manifest lists no installer" }
+          $bad = @(); $thumbprints = @{}
+          foreach ($file in $targets) {
+            $sig = Get-AuthenticodeSignature -FilePath $file
+            if ($sig.Status -ne "Valid") { $bad += "$file ($($sig.Status))"; continue }
+            $thumbprints[$sig.SignerCertificate.Thumbprint] = $true
+          }
+          if ($bad.Count -gt 0) { throw "Unsigned or invalid signatures:`n$($bad -join "`n")" }
+          if ($thumbprints.Count -ne 1) { throw "Expected one signing certificate, found $($thumbprints.Count)" }
+          Write-Host "Verified $($targets.Count) signatures (certificate $($thumbprints.Keys -join ','))"
+          if (-not (Test-Path "dist/latest.yml")) { throw "electron-builder did not write dist/latest.yml" }
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-release-${{ matrix.arch }}
+          path: |
+            clients/windows/dist/*.exe
+            clients/windows/dist/*.exe.blockmap
+            clients/windows/dist/latest.yml
+            clients/windows/dist/signing-manifest-*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish update feed
+    needs: [preflight, build-and-sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download x64 release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-release-x64
+          path: windows-artifacts/x64
+
+      - name: Download arm64 release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: ${{ inputs.environment == 'dev' }}
+        with:
+          name: windows-release-arm64
+          path: windows-artifacts/arm64
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      # Versioned installers and blockmaps land before the channel manifest so
+      # a client never reads a manifest that points at a missing installer.
+      # Feed layout: vellum-ai-<env>-releases/win-electron/<arch>/<env>.yml,
+      # matching resolveUpdateFeedUrl and autoUpdater.channel in the app.
+      - name: Upload Windows release artifacts to GCS
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$ENVIRONMENT" in
+            production) BUCKET=vellum-ai-prod-releases ;;
+            *) BUCKET="vellum-ai-${ENVIRONMENT}-releases" ;;
+          esac
+          for ARCH in x64 arm64; do
+            ARCH_DIR="windows-artifacts/${ARCH}"
+            if [ ! -d "$ARCH_DIR" ]; then
+              echo "::warning::No ${ARCH} artifacts; skipping"
+              continue
+            fi
+            PREFIX="win-electron/${ARCH}"
+            INSTALLER=$(find "$ARCH_DIR" -name "*.exe" -type f | grep -m1 .)
+            BLOCKMAP=$(find "$ARCH_DIR" -name "*.exe.blockmap" -type f | grep -m1 .)
+            YML="$ARCH_DIR/latest.yml"
+            if [ -z "$INSTALLER" ] || [ -z "$BLOCKMAP" ] || [ ! -f "$YML" ]; then
+              echo "::error::${ARCH} artifacts are incomplete (installer, blockmap, and latest.yml are required)"
+              exit 1
+            fi
+            gcloud storage cp "$INSTALLER" "gs://${BUCKET}/${PREFIX}/$(basename "$INSTALLER")"
+            gcloud storage cp "$BLOCKMAP" "gs://${BUCKET}/${PREFIX}/$(basename "$BLOCKMAP")"
+            gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${ENVIRONMENT}.yml"
+          done

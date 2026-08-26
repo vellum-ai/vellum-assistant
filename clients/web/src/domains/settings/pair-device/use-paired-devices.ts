@@ -47,9 +47,18 @@ export interface UsePairedDevicesOptions {
    * a pairing); leaves any open confirm dialog alone.
    */
   revalidateKey?: number;
+  /**
+   * Whether the device rows are on screen. The activity refresh only runs
+   * while they are: each refetch spawns a `vellum` subprocess through the
+   * host seam, which is not worth paying to keep a hidden label fresh.
+   */
+  isExpanded?: boolean;
 }
 
 const PAIRING_POLL_INTERVAL_MS = 5_000;
+
+/** Keeps the rendered activity label honest by resampling `lastUsedAt`. */
+const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
 
 /**
  * Drives the "Paired devices" accordion: fetches the selected assistant's
@@ -66,6 +75,7 @@ const PAIRING_POLL_INTERVAL_MS = 5_000;
 export function usePairedDevices({
   pollWhilePairing = false,
   revalidateKey,
+  isExpanded = false,
 }: UsePairedDevicesOptions = {}): PairedDevicesController {
   const [list, setList] = useState<FetchedDeviceList | null>(null);
   const [confirmTarget, setConfirmTarget] =
@@ -149,6 +159,22 @@ export function usePairedDevices({
     }
     return undefined;
   }, [pollWhilePairing, isRevoking, refresh]);
+
+  // Each row's activity label is formatted from the `lastUsedAt` this fetch
+  // sampled, so an expanded list ages one fixed instant and ends up claiming
+  // a device is idle while it is still talking to the gateway. Resample on a
+  // slow cadence, but only while the rows are actually expanded: a refetch
+  // costs a `vellum` subprocess on the host, so a collapsed accordion must
+  // not pay it. The pairing poll already refreshes faster than this, so stand
+  // down whenever it is running.
+  const hasDevices = (list?.devices.length ?? 0) > 0;
+  useEffect(() => {
+    if (!isExpanded || !hasDevices || pollWhilePairing || isRevoking) {
+      return undefined;
+    }
+    const id = setInterval(() => refresh(), ACTIVITY_REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [isExpanded, hasDevices, pollWhilePairing, isRevoking, refresh]);
 
   const requestRevoke = useCallback((device: LocalPairedDeviceRecord) => {
     setRevokeError(null);

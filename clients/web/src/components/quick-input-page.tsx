@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import { useTranslation } from "@/i18n";
 import { dismissQuickInput, submitQuickInput } from "@/runtime/quick-input";
 import { publicAsset } from "@/utils/public-asset";
 
@@ -21,6 +22,7 @@ import { publicAsset } from "@/utils/public-asset";
  * Off-Electron the page is inert — the runtime wrapper no-ops.
  */
 export function QuickInputPage() {
+  const { t } = useTranslation();
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -56,7 +58,7 @@ export function QuickInputPage() {
       >
         <img
           src={publicAsset("/vellum-logo.svg")}
-          alt="Vellum"
+          alt={t("quickInputPage.logoAlt")}
           width={24}
           height={24}
           className="shrink-0 dark:hidden"
@@ -64,7 +66,7 @@ export function QuickInputPage() {
         />
         <img
           src={publicAsset("/vellum-logo-white.svg")}
-          alt="Vellum"
+          alt={t("quickInputPage.logoAlt")}
           width={24}
           height={24}
           className="hidden shrink-0 dark:block"
@@ -76,7 +78,7 @@ export function QuickInputPage() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask Vellum anything..."
+          placeholder={t("quickInputPage.placeholder")}
           className="min-w-0 flex-1 bg-transparent text-sm text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
         />
         <button

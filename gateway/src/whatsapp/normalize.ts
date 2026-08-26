@@ -331,6 +331,8 @@ export function normalizeWhatsAppWebhook(
             updateId: msg.id,
             messageId: msg.id,
             chatType: "private",
+            // WhatsApp reaches the assistant only one-to-one.
+            conversationType: "dm" as const,
           },
           raw: payload,
         },

@@ -67,6 +67,11 @@ import {
   deleteManagedSkill,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
+import {
+  filterSkillsByPlatform,
+  isSkillCompatibleWithPlatform,
+  skillPlatformUnavailableMessage,
+} from "../../skills/platform-compatibility.js";
 import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
 import { createSkillsShProvider } from "../../skills/skillssh-files.js";
 import type { SkillAuditData } from "../../skills/skillssh-registry.js";
@@ -475,7 +480,7 @@ async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
 
   // All entries from the Vellum platform API are first-party.
   // Create SlimSkillResponses for catalog skills not already installed.
-  const available: SlimSkillResponse[] = catalogSkills
+  const available: SlimSkillResponse[] = filterSkillsByPlatform(catalogSkills)
     .filter((cs) => !installedIds.has(cs.id))
     .map((cs) => catalogSkillToSlim(cs));
 
@@ -1227,11 +1232,17 @@ export async function installSkill(spec: {
     // Bundled skills are already available — no install needed
     const catalog = loadSkillCatalog();
 
-    // Feature flag gate: reject install if the skill's flag is disabled
+    // Reject install if the skill is unsupported on this host or its flag is disabled
     const config = getConfig();
-    const flaggedSkill = catalog.find((s) => s.id === spec.slug);
-    if (flaggedSkill) {
-      const flagKey = skillFlagKey(flaggedSkill);
+    const catalogSkill = catalog.find((s) => s.id === spec.slug);
+    if (catalogSkill) {
+      if (!isSkillCompatibleWithPlatform(catalogSkill)) {
+        return {
+          success: false,
+          error: skillPlatformUnavailableMessage(spec.slug, catalogSkill),
+        };
+      }
+      const flagKey = skillFlagKey(catalogSkill);
       if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
         return {
           success: false,
@@ -1277,6 +1288,12 @@ export async function installSkill(spec: {
         const vellumCatalog = await getCatalog();
         const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
         if (catalogEntry) {
+          if (!isSkillCompatibleWithPlatform(catalogEntry)) {
+            return {
+              success: false,
+              error: skillPlatformUnavailableMessage(spec.slug, catalogEntry),
+            };
+          }
           // Default `overwrite` to true at the handler boundary to preserve
           // pre-existing HTTP API behaviour. CLI callers always pass an
           // explicit boolean (`opts.overwrite ?? false`) so the CLI surface
@@ -1476,10 +1493,11 @@ export async function searchSkills(
     // hard-coded as catalog/available.
     const catalog = loadSkillCatalog();
     const config = getConfig();
-    const resolved = resolveSkillStates(catalog, config);
+    const compatibleCatalog = filterSkillsByPlatform(catalog);
+    const resolved = resolveSkillStates(compatibleCatalog, config);
     const resolvedById = new Map(resolved.map((r) => [r.summary.id, r]));
 
-    const catalogMatches = filterByQuery(catalog, query, [
+    const catalogMatches = filterByQuery(compatibleCatalog, query, [
       (s) => s.id,
       (s) => s.displayName,
       (s) => s.description,

@@ -49,6 +49,7 @@ import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   pinnedListeningLanguage,
+  resolveSttCatalogKey,
   supportsBoundary,
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
@@ -71,7 +72,10 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { liveVoiceEndScreen } from "../telemetry/live-voice-funnel.js";
+import {
+  liveVoiceEndScreen,
+  liveVoiceSilenceReason,
+} from "../telemetry/live-voice-funnel.js";
 import { getToolOwner } from "../tools/registry.js";
 import {
   createReasoningTagFilter,
@@ -128,6 +132,7 @@ import {
 import {
   type LiveVoiceClientAttachImageFrame,
   type LiveVoiceClientFrame,
+  type LiveVoiceClientTextTurnFrame,
   type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
@@ -990,6 +995,19 @@ function createSyntheticUtterance(): UtteranceCycle {
   };
 }
 
+// Carrier cycle for a turn the user typed rather than spoke. Identical to the
+// announcement carrier except that it arrives with its transcript already
+// complete: the text the client sent is the finalized transcript, so the cycle
+// joins the pipeline exactly where STT would have handed one over. Like the
+// announcement carrier it is never installed as `currentUtterance`, so a typed
+// turn taken during a voice session cannot collide with the armed capture cycle.
+function createTypedUtterance(text: string): UtteranceCycle {
+  return {
+    ...createSyntheticUtterance(),
+    finalTranscriptSegments: [text],
+  };
+}
+
 // Objective handed to the background subagent that continues a barged-in turn.
 // The subagent forks the live conversation, so it already sees the interrupted
 // turn's completed tool calls in history and resumes from there. The request
@@ -1126,6 +1144,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * session that never failed.
    */
   private failureCode: LiveVoiceProtocolErrorCode | null = null;
+  /**
+   * How far a session that never produced a turn actually got. Latched rather
+   * than derived at close, because every one of these is a transient the
+   * teardown has already destroyed by then: `state` has moved on, the current
+   * utterance is gone, and the turn detector is disposed.
+   *
+   * A quarter of sessions end with no turn at all, and these three booleans are
+   * what separate a microphone that never opened from one that was muted from a
+   * user who simply left. See `telemetry/live-voice-funnel.ts`.
+   */
+  private reachedActive = false;
+  private receivedAudio = false;
+  private detectedSpeech = false;
+  private dispatchedTurn = false;
+  // The client declared a text input affordance on the start frame, so it can
+  // take a turn without the microphone. Governs one thing only: whether a
+  // missing speech-to-text leg is fatal to startup (see start()).
+  private readonly textInput: boolean;
+  // Whether this session's speech-to-text leg came up. False only when the
+  // preflight found it missing and `textInput` let the session open anyway, in
+  // which case nothing arms a transcriber and typed turns are the only input.
+  private audioInput = true;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
   // Base energy gate for server-VAD speech classification. During estimated
@@ -1381,6 +1421,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       context.startFrame.audio.sampleRate *
       2 *
       SERVER_VAD_PENDING_AUDIO_MAX_SECONDS;
+    this.textInput = context.startFrame.textInput === true;
   }
 
   get finalTranscriptText(): string {
@@ -1401,10 +1442,30 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.resolveCredentialReadiness) {
       const readiness = await this.resolveCredentialReadiness();
       if (readiness.status === "not-ready") {
-        return await this.failStartup(
-          readiness.userMessage,
-          LiveVoiceProtocolErrorCode.CredentialsUnavailable,
-        );
+        // A client that can type survives a dead speech-to-text leg: it opens
+        // text-only rather than not at all. Requires the gap to be entirely on
+        // the STT side, because the text-in path still speaks its reply, so a
+        // session missing the TTS leg has nothing left to degrade to.
+        //
+        // A not-ready verdict naming no gap is not a downgrade candidate:
+        // `every` is vacuously true over an empty list, and a resolver bug must
+        // not read as "only STT is missing" and quietly open a half-working
+        // session on the strength of it.
+        const sttOnlyGap =
+          readiness.missing.length > 0 &&
+          readiness.missing.every((gap) => gap.kind === "stt");
+        if (this.textInput && sttOnlyGap) {
+          this.audioInput = false;
+          log.warn(
+            { sessionId: this.context.sessionId, missing: readiness.missing },
+            "Live voice starting text-only: speech-to-text unavailable",
+          );
+        } else {
+          return await this.failStartup(
+            readiness.userMessage,
+            LiveVoiceProtocolErrorCode.CredentialsUnavailable,
+          );
+        }
       }
     }
 
@@ -1419,6 +1480,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // through the pending/pre-roll paths and flushes on arm. An arm failure
     // surfaces as a non-recoverable error frame instead of a start rejection.
     this.state = "active";
+    this.reachedActive = true;
     void this.armUtterance().catch(() => {});
     this.metrics.markReady();
     await this.sendFrame({
@@ -1426,6 +1488,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       sessionId: this.context.sessionId,
       conversationId: this.conversationId,
       turnDetection: this.turnDetector ? "server_vad" : "manual",
+      // Unconditional: it answers "does this daemon take text frames", which
+      // is a property of the daemon and not of what this client asked for.
+      // A client reading it back absent is talking to one that predates it.
+      textInput: true,
+      ...(this.audioInput ? {} : { audioInput: false }),
     });
   }
 
@@ -1454,7 +1521,62 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "attach_image":
         this.persistPhoto(frame);
         return;
+      case "text":
+        await this.handleTextTurn(frame);
+        return;
     }
+  }
+
+  /**
+   * Run a turn the user typed instead of spoke.
+   *
+   * Joins the pipeline at the point a finished transcript would have: the same
+   * turn runner, the same streaming TTS, the same activity and metrics. The
+   * reply is spoken, which is the whole point: this is the input half being
+   * text, not the session becoming a chat.
+   *
+   * Gated on {@link sessionTurnFloorBlocker}, the same check the continuation
+   * announcement uses: no turn in flight, no assistant audio still draining,
+   * no speech onset, and no utterance mid-capture. A typed turn asks the
+   * identical question, so it asks it in the identical way rather than growing
+   * a second set of conditions that could drift from the first.
+   *
+   * A blocked turn is refused rather than queued, and refused recoverably: the
+   * session is fine and the user can send again. Typing over a reply in
+   * progress reads as an interrupt, but making it one means choosing barge-in
+   * semantics for a modality that has no speech onset to measure, which is its
+   * own decision and not this seam's.
+   */
+  private async handleTextTurn(
+    frame: LiveVoiceClientTextTurnFrame,
+  ): Promise<void> {
+    if (!this.startVoiceTurn) {
+      return;
+    }
+
+    const blocker = this.sessionTurnFloorBlocker({
+      ignoreManualCapture: true,
+    });
+    if (blocker !== null) {
+      await this.sendFrame({
+        type: "error",
+        code: LiveVoiceProtocolErrorCode.InvalidFrame,
+        message: "The assistant is busy with the current turn. Send again.",
+        frameType: "text",
+        recoverable: true,
+      });
+      log.debug(
+        { sessionId: this.context.sessionId, blocker },
+        "Typed live-voice turn refused",
+      );
+      return;
+    }
+
+    const utterance = createTypedUtterance(frame.text);
+    // Before the launch, so the anchor is the moment the text arrived rather
+    // than whatever the dispatch costs.
+    this.markTypedTurnSubmitted(utterance);
+    await this.launchAssistantTurn(utterance, frame.text);
   }
 
   /**
@@ -1522,9 +1644,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // `recorded_at` minus the started row's, so it must be written before the
     // teardown below, which awaits a pending continuation and can run long.
     const failed = this.state === "failed";
+    // Only a session that never dispatched a turn gets a silence reason; for
+    // every other session the question is meaningless.
+    const silenceReason = this.dispatchedTurn
+      ? null
+      : liveVoiceSilenceReason({
+          reachedActive: this.reachedActive,
+          audioInput: this.audioInput,
+          receivedAudio: this.receivedAudio,
+          detectedSpeech: this.detectedSpeech,
+        });
     recordLiveVoiceSessionEnded({
       sessionId: this.context.sessionId,
-      screen: liveVoiceEndScreen(reason, failed ? this.failureCode : null),
+      screen: liveVoiceEndScreen(
+        reason,
+        failed ? this.failureCode : null,
+        silenceReason,
+      ),
       outcome: failed ? "failed" : "completed",
     });
 
@@ -1608,7 +1744,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // below.
       this.setProviderTurnEndActive(
         this.fluxConfig.turnEnd.enabled &&
-          supportsProviderTurnDetection(stt.provider as SttProviderId) &&
+          supportsProviderTurnDetection(resolveSttCatalogKey(stt)) &&
           this.turnDetector !== null,
       );
       const transcriber = await this.resolveTranscriber({
@@ -1807,6 +1943,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async armUtterance(): Promise<void> {
+    // Nothing to arm without a speech-to-text leg. Guarded here rather than at
+    // the call sites because there are several, and the post-turn re-arm
+    // reaches this through `scheduleRearmAfterTurn` from five of them: a
+    // text-only session that requested `server_vad` still holds a turn
+    // detector, so the re-arm is not skipped for want of one. Arming anyway
+    // would resolve a transcriber the preflight already said has no
+    // credential, fail the session, and close it after its first typed turn.
+    if (!this.audioInput) {
+      return;
+    }
+
     const result = await this.beginUtterance();
     if (result.status === "started" || result.status === "stale") {
       return;
@@ -1831,6 +1978,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async handleAudio(chunk: Buffer): Promise<void> {
+    // Both transports funnel through here, and this runs before any of the
+    // early returns below. The question it answers is "did the microphone ever
+    // open", which a chunk arriving at all settles regardless of what the
+    // session then does with it.
+    this.receivedAudio = true;
+    // A text-only session armed no transcriber, so there is nothing downstream
+    // to route this into. Dropped rather than errored: the client was told on
+    // `ready` that the microphone leg is dead, and a client still streaming is
+    // one that has not caught up, not one to end the session over. The flag
+    // above is still set, so telemetry keeps seeing that the mic did open.
+    if (!this.audioInput) {
+      return;
+    }
     if (this.turnDetector) {
       await this.handleServerVadAudio(this.turnDetector, chunk);
       return;
@@ -1849,6 +2009,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // The chunk belongs to an utterance the user is still holding the button
     // for, whether or not the transcriber has produced any text for it yet.
     utterance.manualAudioCaptured = true;
+    // Manual sessions have no VAD, so the user holding the talk button is
+    // the only speech signal available. Without this every abandoned manual
+    // session would be misfiled as `no_turn` instead of `no_speech`.
+    this.detectedSpeech = true;
     this.collectUserAudio(utterance, chunk);
     if (utterance.phase === "pending") {
       // The transcriber is still arming (session start overlaps the STT
@@ -1968,6 +2132,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // resets it.
     if (hasSpeech || this.vadPreRollHasSpeech) {
       utterance.speechRouted = true;
+      this.detectedSpeech = true;
     }
     for (const preRollChunk of this.takeVadPreRoll()) {
       await this.routeVadAudio(utterance, preRollChunk);
@@ -2221,6 +2386,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     if (preRollHadSpeech) {
       utterance.speechRouted = true;
+      this.detectedSpeech = true;
     }
   }
 
@@ -3076,6 +3242,41 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.pendingAnnouncement === null) {
       return "nothing_pending";
     }
+    return this.sessionTurnFloorBlocker();
+  }
+
+  /**
+   * Why the session may not start a turn of its own right now, or null when it
+   * may.
+   *
+   * "Of its own" means a turn with no released utterance behind it: a queued
+   * continuation announcement, or a turn the user typed. Both need the same
+   * assurance, that starting one would not talk over the assistant, cut off the
+   * user, or race a capture cycle already in flight, so both ask here rather
+   * than growing separate condition sets that could drift apart.
+   */
+  private sessionTurnFloorBlocker(opts?: {
+    /**
+     * Ignore `manualAudioCaptured` when judging whether an utterance is in
+     * flight. Set only for a typed turn.
+     *
+     * That flag means "manual capture routed at least one chunk into this
+     * cycle", and manual capture forwards from the moment the microphone
+     * opens rather than from a push-to-talk press. So in a manual session it
+     * latches on the first chunk of silence and, because a manual cycle only
+     * completes on release, never clears. Honouring it would refuse every
+     * typed turn a few milliseconds into the session.
+     *
+     * Safe to ignore here and nowhere else. The flag exists because
+     * transcript signals trail the provider, which would leave an
+     * announcement talking over someone who is mid-sentence with no text yet.
+     * A typed turn has evidence an announcement does not: the user is at the
+     * keyboard, and the act of sending is itself the signal that they are not
+     * currently speaking. The transcript-derived conditions still apply, so a
+     * cycle that has actually produced words still blocks.
+     */
+    readonly ignoreManualCapture?: boolean;
+  }): string | null {
     if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
       return "session_unavailable";
     }
@@ -3104,7 +3305,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !utterance.completed &&
       (utterance.released ||
         utterance.assistantTurnStarted ||
-        utterance.manualAudioCaptured ||
+        (utterance.manualAudioCaptured && opts?.ignoreManualCapture !== true) ||
         utterance.finalTranscriptSegments.length > 0 ||
         utterance.latestPartialText !== null)
     ) {
@@ -4725,6 +4926,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     };
 
     try {
+      // Latched before the await, not after: this flag only decides whether the
+      // end event carries a silence classification, and the dashboard decides
+      // silence from persisted turn rows instead. Setting it after would let a
+      // dispatch that persisted a turn and then threw stamp "this session was
+      // silent" onto a session that has turns, a contradictory row. Setting it
+      // before can at worst leave a silent session unexplained, which is a gap
+      // rather than a false statement.
+      this.dispatchedTurn = true;
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,
@@ -5897,6 +6106,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private markSpeechStart(utterance: UtteranceCycle): void {
     this.markUtteranceMetric(utterance, "speechStartAtMs", (turnId) =>
       this.metrics.markSpeechStart(turnId),
+    );
+  }
+
+  /**
+   * Stamp the moment a typed turn's text arrived as the end of the user's
+   * input.
+   *
+   * `roundTripMs` measures from the user finishing their turn to the first
+   * audio they hear, and it anchors on `utteranceEndAtMs ?? pttReleaseAtMs`.
+   * A typed turn produces neither, so without this every typed turn reports a
+   * null round trip and disappears from the latency numbers. That would bias
+   * them toward spoken turns rather than simply losing rows, which is the
+   * worse failure: the metric would still look healthy while describing less
+   * and less of the traffic.
+   *
+   * The text frame landing is the honest equivalent of an utterance closing:
+   * it is the instant the user stopped providing input and started waiting.
+   * `sttMs` and the partial-transcript durations stay null, because nothing
+   * was transcribed and claiming otherwise would invent a measurement.
+   */
+  private markTypedTurnSubmitted(utterance: UtteranceCycle): void {
+    this.markUtteranceMetric(utterance, "utteranceEndAtMs", (turnId) =>
+      this.metrics.markUtteranceEnd(turnId),
     );
   }
 

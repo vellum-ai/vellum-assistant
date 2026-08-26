@@ -11,8 +11,8 @@ trust rules, hooks, the SQLite database) as a .vbundle file. Credentials are
 NOT included — they live in the OS keychain / CES and users re-authenticate
 integrations after a restore (via the gateway). The automated worker runs on a configurable
 interval and writes to a local pool under ~/.vellum/backups/local/, optionally
-mirroring each snapshot to one or more offsite destinations (iCloud Drive by
-default).
+mirroring each snapshot to one or more offsite destinations. macOS uses
+encrypted iCloud Drive by default. Windows and Linux require an explicit path.
 
 Offsite destinations can be per-destination encrypted (AES-256-GCM) or
 plaintext — plaintext only makes sense when the user owns physical access to
@@ -70,11 +70,9 @@ Examples:
       description: "Manage offsite backup destinations",
       helpText: `
 Offsite destinations are absolute paths the backup worker writes a copy of
-each snapshot to after the local write succeeds. The default destination is
-the iCloud Drive VellumAssistant folder, and it is used implicitly until an
-explicit destinations array is configured. The first 'destinations add' or
-'destinations remove' materializes the iCloud default before applying the
-change, so the default is never lost on an accidental "clear all".
+each snapshot to after the local write succeeds. macOS uses the iCloud Drive
+VellumAssistant folder until an explicit destinations array is configured.
+Windows and Linux have no implicit offsite destination.
 
 Each destination has an 'encrypt' flag. When true (the default), snapshots
 are written as .vbundle.enc (AES-256-GCM). When false, snapshots are copied
@@ -90,9 +88,9 @@ Examples:
           name: "list",
           description: "List configured offsite destinations",
           helpText: `
-Resolves the current destinations array (materializing the iCloud default if
-no explicit array is configured) and prints a table with the path and
-encryption flag per row.
+Resolves the current destinations array and prints each path and encryption
+flag. On macOS this includes the implicit iCloud default when configured paths
+are null.
 
 Examples:
   $ assistant backup destinations list`,
@@ -114,9 +112,8 @@ Arguments:
          caller controls; the backup worker writes files inside this
          directory, not the directory itself.
 
-If backup.offsite.destinations is currently null (the implicit iCloud default),
-the iCloud default is materialized first so the new entry appends to a
-2-element array rather than replacing the default.
+On macOS, adding the first explicit destination preserves the implicit iCloud
+destination. Windows and Linux start with only the destination supplied here.
 
 Examples:
   $ assistant backup destinations add /Volumes/BackupSSD/vellum --plaintext

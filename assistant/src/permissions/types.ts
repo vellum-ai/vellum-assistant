@@ -1,3 +1,5 @@
+import type { ChannelConversationType } from "@vellumai/gateway-client";
+
 export type { AllowlistOption, ScopeOption } from "../tools/tool-types.js";
 export { RiskLevel } from "../tools/tool-types.js";
 
@@ -79,7 +81,7 @@ export interface PolicyContext {
    * Conversation type on the permission-matrix axis (dm | private | public),
    * for the channel-type tier of cell resolution.
    */
-  channelConversationType?: string;
+  channelConversationType?: ChannelConversationType;
   /**
    * Whether procedural-memory-as-skills is active for this assistant (memory-v3
    * is live). Precomputed in {@link buildPolicyContext} so the checker can gate

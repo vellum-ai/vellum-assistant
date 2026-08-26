@@ -53,9 +53,25 @@ const meta: Meta<typeof AssistantChannelsList> = {
     assistantId: "assistant-1",
     assistantName: "Example Assistant",
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "not_configured" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        canDisconnect: true,
+        address: "@example-assistant",
+      },
+      {
+        key: "telegram",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
+      {
+        key: "phone",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
     ],
     onSetup: () => {},
     onDisconnect: () => {},
@@ -129,9 +145,24 @@ export const ChannelsTabSlackDisconnected: Story = {
   parameters: selectedAdapter("slack"),
   args: {
     channels: [
-      { key: "slack", status: "not_configured" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "not_configured" },
+      {
+        key: "slack",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
+      {
+        key: "telegram",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
+      {
+        key: "phone",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
     ],
   },
 };
@@ -155,9 +186,26 @@ export const ChannelsTabTelegramConnected: Story = {
   parameters: selectedAdapter("telegram"),
   args: {
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "ready", address: "@example_bot" },
-      { key: "phone", status: "not_configured" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        canDisconnect: true,
+        address: "@example-assistant",
+      },
+      {
+        key: "telegram",
+        status: "ready",
+        configured: true,
+        canDisconnect: true,
+        address: "@example_bot",
+      },
+      {
+        key: "phone",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
     ],
     channelPolicies: { telegram: "trusted_contacts" },
     onChannelPolicyChange: () => {},
@@ -172,9 +220,26 @@ export const ChannelsTabPhoneConnected: Story = {
   parameters: selectedAdapter("phone"),
   args: {
     channels: [
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "not_configured" },
-      { key: "phone", status: "ready", address: "+15550100" },
+      {
+        key: "slack",
+        status: "ready",
+        configured: true,
+        canDisconnect: true,
+        address: "@example-assistant",
+      },
+      {
+        key: "telegram",
+        status: "not_configured",
+        configured: false,
+        canDisconnect: true,
+      },
+      {
+        key: "phone",
+        status: "ready",
+        configured: true,
+        canDisconnect: true,
+        address: "+15550100",
+      },
     ],
     channelPolicies: { phone: "trusted_contacts" },
     onChannelPolicyChange: () => {},

@@ -117,6 +117,71 @@ export type TokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; status: number; error: string };
 
+/**
+ * Prefix of the machine-readable line `vellum gateway token refresh` writes
+ * to stderr on failure so hosts can distinguish a spent credential (401)
+ * from an unreachable gateway (503) without scraping the human message.
+ */
+export const GUARDIAN_REFRESH_ERROR_PREFIX = "VELLUM_REFRESH_ERROR=";
+
+/** Encode a structured refresh failure for the CLI's stderr. */
+export function formatGuardianRefreshCliFailure(
+  status: number,
+  error: string,
+): string {
+  return `${GUARDIAN_REFRESH_ERROR_PREFIX}${JSON.stringify({ status, error })}`;
+}
+
+/**
+ * Read the structured status out of a failed `vellum gateway token refresh`.
+ * An unlabeled non-zero exit defaults to 503: this spawn only runs when the
+ * on-disk refresh token is still unexpired, so a bare CLI failure is an
+ * unreachable or still-starting gateway, not a spent credential.
+ */
+export function parseGuardianRefreshCliFailure(
+  stdout: string,
+  stderr: string,
+): TokenResult {
+  const blob = `${stderr}\n${stdout}`;
+  for (const line of blob.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(GUARDIAN_REFRESH_ERROR_PREFIX)) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(
+        trimmed.slice(GUARDIAN_REFRESH_ERROR_PREFIX.length),
+      );
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        !("status" in parsed) ||
+        typeof (parsed as { status: unknown }).status !== "number"
+      ) {
+        continue;
+      }
+      const status = (parsed as { status: number }).status;
+      if (status < 400 || status > 599) {
+        continue;
+      }
+      const errorText =
+        "error" in parsed &&
+        typeof (parsed as { error: unknown }).error === "string" &&
+        (parsed as { error: string }).error.trim() !== ""
+          ? (parsed as { error: string }).error
+          : "Failed to refresh guardian token";
+      return { ok: false, status, error: errorText };
+    } catch {
+      // Keep scanning; a later well-formed line still wins.
+    }
+  }
+  return {
+    ok: false,
+    status: 503,
+    error: "Failed to refresh guardian token",
+  };
+}
+
 export interface GuardianTokenOptions {
   /**
    * True when the entry was imported from another machine via `vellum pair`.
@@ -277,14 +342,21 @@ function refreshToken(
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, "gateway", "token", "refresh", assistantId],
-      { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: { ...process.env, ...env },
+      },
     );
 
     let stdout = "";
+    let stderr = "";
     let done = false;
 
     const finish = (result: TokenResult) => {
-      if (done) return;
+      if (done) {
+        return;
+      }
       done = true;
       clearTimeout(timeout);
       resolve(result);
@@ -303,6 +375,10 @@ function refreshToken(
       stdout += chunk.toString();
     });
 
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
     child.on("close", (code) => {
       if (code === 0) {
         const accessToken = stdout.trim();
@@ -312,11 +388,11 @@ function refreshToken(
           finish({ ok: false, status: 500, error: "CLI returned empty token" });
         }
       } else {
-        finish({
-          ok: false,
-          status: 401,
-          error: "Failed to refresh guardian token",
-        });
+        // This spawn only runs when the on-disk refresh token is still
+        // unexpired. A non-zero CLI exit is therefore a transport or
+        // gateway-availability failure unless the CLI labels a spent
+        // credential (401) or a local confidentiality refusal (403).
+        finish(parseGuardianRefreshCliFailure(stdout, stderr));
       }
     });
 

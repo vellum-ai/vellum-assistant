@@ -2,31 +2,28 @@ import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Surface } from "@/domains/chat/types/types";
+import type * as UsePinnedApps from "@/hooks/use-pinned-apps";
 
 mock.module("@/utils/app-html-cache", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),
   clearAppHtmlCache: () => {},
 }));
 
-mock.module("@/stores/pinned-apps-store", () => {
-  const emptyStore = {
-    use: {
-      pinnedApps: () => [],
-      pinnedAppIds: () => new Set<string>(),
-      togglePin: () => () => {},
-      isPinned: () => () => false,
-      onUnpin: () => () => () => {},
-    },
-    getState: () => ({
+// Pins come from the app list over React Query; stub the hook so this renders
+// without a QueryClient. These cases are about the surface, not about pinning.
+mock.module(
+  "@/hooks/use-pinned-apps",
+  (): Partial<typeof UsePinnedApps> => ({
+    usePinnedApps: () => ({
       pinnedApps: [],
       pinnedAppIds: new Set<string>(),
+      source: "daemon" as const,
       togglePin: () => {},
-      isPinned: () => false,
-      onUnpin: () => () => {},
+      unpin: () => {},
+      setColor: () => {},
     }),
-  };
-  return { usePinnedAppsStore: emptyStore };
-});
+  }),
+);
 
 import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface";
 

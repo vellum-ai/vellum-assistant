@@ -74,6 +74,7 @@ Host CU allows the assistant to proxy computer-use actions (screenshots, mouse/k
 - **Resolution**: Clients execute the CU action on the host and respond via:
   - `POST /v1/host-cu-result` — `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance? }`
 - **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-cu-routes.ts`.
+- **Conversation-agnostic observation**: `observeHostScreen()` in `host-observe.ts` issues a `computer_use_observe` request with no conversation, for callers outside an agent turn (`HostCuProxy` only exists inside one). It takes the initiating actor's principal id and reaches only that actor's own `host_cu` clients: `pickSameUserAutoResolve` picks the default target and `enforceSameActorOrErrorResult` gates an explicitly named one, both before the request is registered or broadcast. Its pending interaction carries no `conversationId`, so `host-cu-routes.ts` hands the raw observation fields straight to the waiting caller instead of routing through a conversation's CU proxy. On the desktop side the ordinary `host_cu` executor services the request.
 
 ### Host browser (desktop proxy CDP execution)
 

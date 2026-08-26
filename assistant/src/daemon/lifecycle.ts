@@ -1,5 +1,6 @@
 import { config as dotenvConfig } from "dotenv";
 
+import { reconcileAppPins } from "../apps/app-pin-reconciler.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
@@ -62,6 +63,7 @@ import {
   getWorkspaceDir,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { drainOrphanedWatchTimelineEntries } from "../watch/watch-timeline.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
@@ -383,6 +385,29 @@ export async function runDaemon(): Promise<void> {
       }
     } catch (err) {
       log.warn({ err }, "Profiler retention sweep failed — continuing startup");
+    }
+
+    // Reclaim watch-timeline entries whose conversation is gone. Their purge
+    // runs after the conversation row is already committed as deleted and
+    // cannot be retried by the caller, and nothing cascades into the table, so
+    // a failed purge or a crash between the two writes would otherwise keep
+    // narration, AX trees, and screenshots of the user's screen for as long as
+    // the database lives. Startup is the pass every install gets: the periodic
+    // pass runs from database maintenance on the memory plugin's jobs worker,
+    // which an install with that plugin disabled or `memory.enabled: false`
+    // never starts, so this is the only sweep that install's residue sees and
+    // it drains rather than taking one page. Best-effort inside the sweep,
+    // which reports zero rather than throwing.
+    try {
+      const sweptWatchEntries = await drainOrphanedWatchTimelineEntries();
+      if (sweptWatchEntries > 0) {
+        log.info(
+          { sweptWatchEntries },
+          "Swept watch timeline entries for deleted conversations on startup",
+        );
+      }
+    } catch (err) {
+      log.warn({ err }, "Watch timeline sweep failed, continuing startup");
     }
 
     // Backfill oauth_connection rows for manual-token providers (Telegram,
@@ -722,6 +747,7 @@ export async function runDaemon(): Promise<void> {
   // the same shape as schedule recovery above.
   try {
     await reconcilePluginSchedules();
+    reconcileAppPins();
   } catch (err) {
     log.error({ err }, "Plugin schedule reconcile failed, continuing startup");
   }

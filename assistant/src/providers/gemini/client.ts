@@ -720,14 +720,22 @@ export class GeminiProvider implements Provider {
         model,
         role,
       );
-      if (parts.length > 0) {
-        result.push({ role, parts });
+      // Gemini keeps functionResponse parts separate from other parts. Tool
+      // result media follows the function response before any remaining text.
+      const functionResponseParts = parts.filter(
+        (part) => part.functionResponse !== undefined,
+      );
+      const otherParts = parts.filter(
+        (part) => part.functionResponse === undefined,
+      );
+      if (functionResponseParts.length > 0) {
+        result.push({ role, parts: functionResponseParts });
       }
-      // Gemini requires that a Content with functionResponse parts must not
-      // contain non-functionResponse parts. Emit tool-result images in a
-      // separate user Content entry.
       if (toolResultMediaParts.length > 0) {
         result.push({ role: "user", parts: toolResultMediaParts });
+      }
+      if (otherParts.length > 0) {
+        result.push({ role, parts: otherParts });
       }
     }
 

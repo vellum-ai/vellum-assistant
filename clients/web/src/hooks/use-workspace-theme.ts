@@ -28,6 +28,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { t } from "@/i18n";
+
 import { workspaceThemeGet } from "@/generated/daemon/sdk.gen";
 import { workspaceThemeGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -121,7 +123,7 @@ export function useWorkspaceTheme(
     if (event.originClientId && event.originClientId === getClientId()) {
       return;
     }
-    toast.info("Theme updated");
+    toast.info(t("useWorkspaceTheme.updated"));
   });
 
   useBusSubscription("sse.opened", ({ cause }) => {

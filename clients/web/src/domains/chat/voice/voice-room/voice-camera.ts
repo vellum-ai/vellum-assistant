@@ -1,6 +1,12 @@
 /**
- * The voice room's camera: a live viewfinder the user can leave open for the
- * whole call, and a shutter that turns the current frame into a `File`.
+ * The app's camera acquisition: a live viewfinder, and a shutter that turns the
+ * current frame into a `File`.
+ *
+ * Two surfaces run on it. The voice room leaves a viewfinder open for the whole
+ * call, and the composer's `deeplink.openCamera` capture
+ * (`chat-attachments/camera-capture-overlay.tsx`) raises one for a single
+ * photo, where the system camera is unreachable for a second reason: that
+ * request arrives from outside the web view and carries no DOM user activation.
  *
  * ## Why this is not the system camera UI
  *

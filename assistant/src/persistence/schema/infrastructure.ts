@@ -91,6 +91,23 @@ export const sharedAppLinks = sqliteTable("shared_app_links", {
   expiresAt: integer("expires_at"),
 });
 
+/**
+ * Which apps the user pinned to the sidebar. A pin is a preference about an
+ * app rather than part of one, so it lives here rather than in the app's own
+ * record: plugin apps are pinnable and their records belong to the plugin that
+ * ships them.
+ *
+ * `sortPosition` is a fractional index, matching `conversation_groups`, so a
+ * pin can be placed between two others without renumbering the rest.
+ */
+export const appPins = sqliteTable("app_pins", {
+  appId: text("app_id").primaryKey(),
+  sortPosition: real("sort_position").notNull(),
+  /** An id from the client's pinned-app colour registry; null = uncoloured. */
+  color: text("color"),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const publishedPages = sqliteTable("published_pages", {
   id: text("id").primaryKey(),
   deploymentId: text("deployment_id").notNull().unique(),

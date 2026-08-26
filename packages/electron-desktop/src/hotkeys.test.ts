@@ -72,6 +72,7 @@ describe("resolveHotkeyCatalog", () => {
       "newConversation",
       "currentConversation",
       "markCurrentUnread",
+      "togglePinConversation",
       "sidebarToggle",
       "popOut",
       "home",

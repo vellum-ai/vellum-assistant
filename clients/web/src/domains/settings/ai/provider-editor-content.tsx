@@ -37,6 +37,7 @@ import {
   providerAllowsCustomBaseUrl,
   providerConnectionDisplayName,
   validationErrorMessage,
+  warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
@@ -289,6 +290,7 @@ export function ProviderEditorContent({
         setError(t("providerEditorContent.emptyServerResponse"));
         return;
       }
+      warnOnFailedEndpointCheck(updated, t);
       onSave(updated);
     } catch {
       setError(t("providerEditorContent.failedSaveProvider"));

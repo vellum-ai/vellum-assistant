@@ -22,13 +22,16 @@ import {
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
 import {
+  CATALOG_PROVIDERS,
   entryPickerValue,
   expandEndpointEntries,
   parseEntryPickerValue,
   providersServedByConnections,
-  useSelectableCatalogProviders,
 } from "@/domains/settings/ai/provider-availability";
-import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import {
+  PickerMeta,
+  useProviderPickerAvailability,
+} from "@/domains/settings/ai/provider-picker-availability";
 import type {
   ConnectionModel,
   ConnectionProvider,
@@ -49,18 +52,6 @@ function connectionModelsToCatalog(
  * free-text entry. Namespaced so it can never collide with a real model id.
  */
 const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
-
-/**
- * Right-aligned muted annotation on a provider-picker row: the row answers
- * "whose infrastructure" at the moment of choice (Managed / Custom).
- */
-export function PickerMeta({ text }: { text: string }) {
-  return (
-    <span className="text-body-small-default text-[var(--content-tertiary)]">
-      {text}
-    </span>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -160,8 +151,7 @@ export function ProfileEditorProviderSection({
     onModelChange(value);
   }
 
-  const allProvidersForPicker = useSelectableCatalogProviders();
-  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const providerAvailability = useProviderPickerAvailability();
 
   // Providers backed by at least one connection — picking a provider with zero
   // connections binds a profile to a route the daemon can't dispatch through.
@@ -169,15 +159,12 @@ export function ProfileEditorProviderSection({
   // (see `providersServedByConnections`). The currently-bound `provider` is
   // always kept so editing a stale profile still renders a sensible trigger.
   const visibleProviders = useMemo(() => {
-    const served = providersServedByConnections(
-      connections ?? [],
-      activeAssistantIsSelfHosted,
-    );
+    const served = providersServedByConnections(connections ?? []);
     if (provider && !served.includes(provider)) {
       return [...served, provider];
     }
     return served;
-  }, [connections, provider, activeAssistantIsSelfHosted]);
+  }, [connections, provider]);
 
   // Pre-load fallback: when `connections` is `undefined` the parent hasn't
   // resolved its `listConnections` fetch yet. Fall back to the full catalog
@@ -185,7 +172,7 @@ export function ProfileEditorProviderSection({
   // `connections === []` is distinct: zero connections confirmed, so the
   // filter runs and yields empty — the empty-state hint fires.
   const providerOptionsSource =
-    connections === undefined ? allProvidersForPicker : visibleProviders;
+    connections === undefined ? CATALOG_PROVIDERS : visibleProviders;
 
   // A confirmed-empty connection list. Read-only profiles cannot act on it,
   // so they are not told to.
@@ -360,6 +347,7 @@ export function ProfileEditorProviderSection({
       value,
       label,
       suffix: meta ? <PickerMeta text={meta} /> : undefined,
+      ...providerAvailability(value),
     }));
     // A bound endpoint whose row was deleted still renders on the
     // trigger; the warning below explains the state.
@@ -394,6 +382,7 @@ export function ProfileEditorProviderSection({
     provider,
     providerConnection,
     defaultEntryMetaLabel,
+    providerAvailability,
     t,
   ]);
 

@@ -21,7 +21,6 @@ import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
 import { message } from "./commands/message";
-import { nginxIngress } from "./commands/nginx-ingress";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
@@ -38,6 +37,7 @@ import { tunnel } from "./commands/tunnel";
 import { unpair } from "./commands/unpair";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
+import { voice } from "./commands/voice";
 import { wake } from "./commands/wake";
 import { workflows } from "./commands/workflows";
 import { resolveAssistant, setActiveAssistant } from "./lib/assistant-config";
@@ -61,7 +61,6 @@ const commands = {
   logout,
   logs,
   message,
-  "nginx-ingress": nginxIngress,
   pair,
   ps,
   recover,
@@ -78,6 +77,7 @@ const commands = {
   unpair,
   upgrade,
   use,
+  voice,
   wake,
   whoami,
   workflows,
@@ -105,9 +105,6 @@ function printHelp(): void {
   console.log("  flags    Show and toggle feature flags");
   console.log("  gateway  Gateway management commands");
   console.log("  hatch    Create a new assistant instance");
-  console.log(
-    "  nginx-ingress  Manage the nginx edge that `vellum tunnel` fronts [beta]",
-  );
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");
   console.log("  logout   Log out of the Vellum platform");
@@ -136,6 +133,7 @@ function printHelp(): void {
   );
   console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
+  console.log("  voice    Type to an assistant and hear it answer out loud");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
   console.log("  workflows Inspect and control workflow runs");

@@ -7,6 +7,7 @@ import {
   formatNumber,
 } from "@/domains/chat/components/metric-card";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
+import { useTranslation } from "@/i18n";
 
 /** A labeled text block in the leaf detail — the prompt or the result. */
 function DetailSection({
@@ -55,8 +56,11 @@ function DetailSection({
  * empty until the leaf finishes, so a running leaf shows a "Running…" state.
  */
 export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
+  const { t } = useTranslation("chat");
   const resultEmptyText =
-    leaf.status === "running" ? "Running…" : "No result summary";
+    leaf.status === "running"
+      ? t("workflowLeafDetail.running")
+      : t("workflowLeafDetail.noResultSummary");
 
   return (
     <div>
@@ -70,7 +74,7 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
           }
           target={leaf.inputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
-          label="Input"
+          label={t("workflowLeafDetail.input")}
         />
         <AnimatedMetricCard
           icon={
@@ -81,16 +85,16 @@ export function WorkflowLeafDetail({ leaf }: { leaf: WorkflowLeaf }) {
           }
           target={leaf.outputTokens ?? 0}
           format={(n) => formatNumber(Math.round(n))}
-          label="Output"
+          label={t("workflowLeafDetail.output")}
         />
       </div>
       <DetailSection
-        title="Prompt"
+        title={t("workflowLeafDetail.prompt")}
         body={leaf.promptSummary}
-        emptyText="No prompt summary"
+        emptyText={t("workflowLeafDetail.noPromptSummary")}
       />
       <DetailSection
-        title="Result"
+        title={t("workflowLeafDetail.result")}
         body={leaf.resultSummary}
         emptyText={resultEmptyText}
       />

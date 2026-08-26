@@ -2189,7 +2189,7 @@ jobs:
     name: publish-npm-dev (meta)
     needs: [compute-version, publish-npm-dev, publish-web-dev]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -2210,15 +2210,10 @@ jobs:
             .dependencies["@vellumai/vellum-gateway"] = $v |
             .dependencies["@vellumai/web"] = $v
           ' package.json > tmp && mv tmp package.json
-      # npm only honors "overrides" in the root package.json, so they are
-      # ignored when end users run `npm install -g vellum`. Shipping an
-      # npm-shrinkwrap.json generated with the overrides applied makes npm
-      # follow the same resolution for installed copies of the package.
+      - name: Wait for dependencies to propagate
+        run: ./scripts/npm-wait-for-meta-deps.sh
       - name: Generate npm-shrinkwrap.json
-        working-directory: meta
-        run: |
-          npm install --package-lock-only
-          npm shrinkwrap
+        run: ./scripts/npm-generate-meta-shrinkwrap.sh
       - name: Publish
         working-directory: meta
         env:
@@ -2249,6 +2244,18 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/release-android.yaml
+    with:
+      environment: dev
+      version: ${{ needs.compute-version.outputs.version }}
+    secrets: inherit
+
+  release-windows:
+    needs: [compute-version, register-release, build-chrome-extension]
+    if: vars.WINDOWS_DEV_RELEASE_ENABLED == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/release-windows.yaml
     with:
       environment: dev
       version: ${{ needs.compute-version.outputs.version }}

@@ -217,8 +217,7 @@ function activeOrgSelection(perOrgPrefix: string): string | null {
 /**
  * Run all pending storage key migrations. Called from
  * `run-storage-migrations.ts` (side-effect import at the top of
- * `main.tsx`), after `migrateDeviceSettings()` — device keys must
- * already be in the `device:` namespace before we migrate user keys.
+ * `main.tsx`).
  *
  * Each migration is a one-time rename: read old → write new → remove old.
  * The order within each group doesn't matter since there are no
@@ -303,6 +302,11 @@ export function runStorageMigrations(): void {
   // local: → vellum:local:
   migrateKey("local:lockfile", "vellum:local:lockfile");
   migrateKey("local:selectedAssistantId", "vellum:local:selectedAssistantId");
+
+  // Flag key renames. A developer's local override is stored under the flag
+  // key, so renaming a key orphans the override and the flag silently falls
+  // back to its registry default.
+  migrateKey("vellum:ff:watch", "vellum:ff:teach");
 
   // -- Prefix renames (dynamic/per-entity keys) --------------------------
 

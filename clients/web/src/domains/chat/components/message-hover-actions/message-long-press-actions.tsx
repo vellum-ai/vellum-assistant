@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "@/i18n";
 
 import type { MessageHoverActionsProps } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
@@ -46,6 +47,7 @@ export function MessageLongPressActions({
   open,
   onOpenChange,
 }: MessageLongPressActionsProps) {
+  const { t } = useTranslation("chat");
   const canBookmark = useCanBookmark(message, conversationId);
 
   const content = useMemo(() => messagePlainText(message), [message]);
@@ -95,7 +97,7 @@ export function MessageLongPressActions({
   if (hasCopyableText) {
     items.push(
       showCopied ? (
-        <PanelItem key="copy" icon={Check} label="Copied" />
+        <PanelItem key="copy" icon={Check} label={t("messageLongPressActions.copied")} />
       ) : (
         buildItem({ key: "copy", icon: Copy, label: "Copy", run: handleCopy })
       ),
@@ -163,7 +165,7 @@ export function MessageLongPressActions({
     <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
       <BottomSheet.Content aria-describedby={undefined}>
         <BottomSheet.Header className="sr-only">
-          <BottomSheet.Title>Message actions</BottomSheet.Title>
+          <BottomSheet.Title>{t("messageLongPressActions.title")}</BottomSheet.Title>
         </BottomSheet.Header>
         <BottomSheet.Body className="pt-0">{items}</BottomSheet.Body>
       </BottomSheet.Content>
@@ -185,6 +187,7 @@ function BookmarkPanelItem({
   conversationId: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const isBookmarked = useIsBookmarked(messageId);
   const toggleBookmark = useBookmarkToggle();
   const handleToggle = useCallback(() => {
@@ -195,7 +198,7 @@ function BookmarkPanelItem({
   return (
     <PanelItem
       icon={Bookmark}
-      label={isBookmarked ? "Remove bookmark" : "Bookmark"}
+      label={isBookmarked ? t("messageLongPressActions.removeBookmark") : t("messageLongPressActions.bookmark")}
       onSelect={handleToggle}
     />
   );

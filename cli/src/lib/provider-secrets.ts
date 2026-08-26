@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-
 import { LLM_PROVIDER_ENV_VAR_NAMES } from "../shared/provider-env-vars.js";
 
 export type LlmProviderId = keyof typeof LLM_PROVIDER_ENV_VAR_NAMES;
@@ -356,24 +354,31 @@ export async function promptSecret(
   const input = streams.input ?? process.stdin;
   const output = streams.output ?? process.stdout;
 
-  const restoreEcho = disableTerminalEcho(input);
-  output.write(prompt);
+  if (!input.isTTY || typeof input.setRawMode !== "function") {
+    throw new Error("Hidden secret input requires an interactive terminal.");
+  }
+
+  const wasRaw = input.isRaw;
+  let rawModeEnabled = false;
+  try {
+    input.setRawMode(true);
+    rawModeEnabled = true;
+    output.write(prompt);
+  } catch (error) {
+    if (rawModeEnabled) {
+      input.setRawMode(wasRaw ?? false);
+    }
+    throw error;
+  }
 
   return new Promise((resolve, reject) => {
-    const wasRaw = input.isRaw;
-    if (input.isTTY) {
-      input.setRawMode(true);
-    }
     input.resume();
 
     let value = "";
 
     const cleanup = (): void => {
       input.removeListener("data", onData);
-      if (input.isTTY) {
-        input.setRawMode(wasRaw ?? false);
-      }
-      restoreEcho();
+      input.setRawMode(wasRaw ?? false);
       input.pause();
     };
 
@@ -416,39 +421,6 @@ export async function promptSecret(
 
     input.on("data", onData);
   });
-}
-
-function disableTerminalEcho(input: NodeJS.ReadStream): () => void {
-  if (input !== process.stdin || !input.isTTY || process.platform === "win32") {
-    return () => {};
-  }
-
-  const currentState = spawnSync("stty", ["-g"], {
-    encoding: "utf8",
-    stdio: ["inherit", "pipe", "ignore"],
-  });
-  const state = currentState.stdout.trim();
-  if (currentState.status !== 0 || state.length === 0) {
-    return () => {};
-  }
-
-  const disabled = spawnSync("stty", ["-echo"], {
-    stdio: ["inherit", "ignore", "ignore"],
-  });
-  if (disabled.status !== 0) {
-    return () => {};
-  }
-
-  let restored = false;
-  return () => {
-    if (restored) {
-      return;
-    }
-    restored = true;
-    spawnSync("stty", [state], {
-      stdio: ["inherit", "ignore", "ignore"],
-    });
-  };
 }
 
 export async function ensureProviderApiKey(

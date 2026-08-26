@@ -5,9 +5,10 @@
  * Capability surfaces are required: the preload implements every method, so
  * this interface type-checks completeness at the implementation site.
  * Compatibility discriminators can be optional when an absent field has a
- * defined fallback. The renderer's `declare global` also makes
- * version-skew-tolerant capabilities optional because older preloads may not
- * expose them.
+ * defined fallback, and a surface that only one desktop shell can back is
+ * optional with a doc comment naming the shell that lacks it. The renderer's
+ * `declare global` also makes version-skew-tolerant capabilities optional
+ * because older preloads may not expose them.
  *
  * This is the single canonical definition of the bridge shape. The
  * preload types its `contextBridge.exposeInMainWorld` value against this
@@ -20,6 +21,7 @@ import type {
   BundleScanData,
   CompanionCharacter,
   CompanionContext,
+  CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -28,6 +30,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -178,7 +181,7 @@ export interface VellumBridge {
        */
       transcribe?(
         audio: ArrayBuffer,
-      ): Promise<{ ok: boolean; reason?: string }>;
+      ): Promise<DictationTranscribeResult>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
@@ -386,8 +389,10 @@ export interface VellumBridge {
    * different halves: the window holding the session drives `start`/`update`/
    * `end` and listens for `onControl`; the companion surface's own route reads
    * the session off `companion.onState` and presses `control`.
+   *
+   * Absent on shells without a companion surface (the Windows shell).
    */
-  voiceActivity: {
+  voiceActivity?: {
     start(state: VoiceActivityStart): void;
     update(content: VoiceActivityContent): void;
     end(): void;
@@ -401,8 +406,10 @@ export interface VellumBridge {
    * and reports whether the pointer is over the pill so main can make the
    * window clickable without the transparent canvas swallowing clicks meant for
    * whatever is behind it.
+   *
+   * Absent on shells without a companion surface (the Windows shell).
    */
-  companion: {
+  companion?: {
     getState(): Promise<CompanionSurfaceState | null>;
     onState(callback: (state: CompanionSurfaceState) => void): () => void;
     setInteractive(interactive: boolean): void;
@@ -416,6 +423,25 @@ export interface VellumBridge {
      * the session itself, on `onState`.
      */
     startVoice(): void;
+    /**
+     * Turn the session that reads the screen on or off, which is what Watch
+     * does.
+     *
+     * One call for both edges, the way the `toggleWatch` command is: the
+     * surface draws a single control and the window holding the session is the
+     * only side that knows which edge a press is. What comes back is `watching`
+     * on `onState`.
+     */
+    toggleWatch(): void;
+    /**
+     * Answer the summary question a finished watch session leaves on the
+     * surface: open the report now, or not.
+     *
+     * See the `answerWatchRetro` command. Both answers travel, because the
+     * window that ran the retrospective is the one holding the question; what
+     * comes back either way is `watchRetro` going absent on `onState`.
+     */
+    answerWatchRetro(open: boolean): void;
     /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.
@@ -447,6 +473,32 @@ export interface VellumBridge {
      * it back down as part of `onState`.
      */
     setContext(context: CompanionContext): void;
+    /**
+     * Move the one-time introduction on, or end it early.
+     *
+     * `next` walks to the following beat and finishes past the last one;
+     * `dismiss` is the Skip affordance. Either way main is what records that it
+     * has been seen, so the run never comes back.
+     */
+    advanceIntro(action: CompanionIntroAction): void;
+    /**
+     * Open the surface's own menu, at the pointer.
+     *
+     * Built and popped in main, because a menu is a native window: the
+     * renderer knows a right-click happened and nothing else. The items are
+     * the ones the tray carries for the companion, so the two cannot come to
+     * describe the surface differently.
+     */
+    showContextMenu(): void;
+    /**
+     * Open a link from the card in the user's browser.
+     *
+     * The surface's window denies every navigation and every `window.open`, so
+     * an anchor cannot follow itself: the URL is handed to main, which is the
+     * side allowed to open anything. Main validates the scheme, since a URL
+     * arriving over IPC is untrusted whatever drew the anchor.
+     */
+    openLink(url: string): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;
@@ -458,3 +510,51 @@ export interface VellumBridge {
     onState(callback: (state: UpdateState) => void): () => void;
   };
 }
+
+/**
+ * Every top-level `VellumBridge` capability, for runtime parity checks. The
+ * `satisfies` below fails to compile when the interface gains a key this list
+ * lacks.
+ */
+export const VELLUM_BRIDGE_KEYS = [
+  "platform",
+  "hostOS",
+  "app",
+  "text",
+  "auth",
+  "hotkeys",
+  "launchAtLogin",
+  "featureFlags",
+  "diagnostics",
+  "helper",
+  "permissions",
+  "commands",
+  "status",
+  "identity",
+  "icon",
+  "dock",
+  "share",
+  "localMode",
+  "menu",
+  "mainWindow",
+  "power",
+  "deepLinks",
+  "fileOpen",
+  "paths",
+  "feedback",
+  "connectivity",
+  "notifications",
+  "bundleConfirm",
+  "quickInput",
+  "commandPalette",
+  "dictationOverlay",
+  "voiceActivity",
+  "companion",
+  "popout",
+  "update",
+] as const satisfies readonly (keyof VellumBridge)[];
+
+({}) satisfies Record<
+  Exclude<keyof VellumBridge, (typeof VELLUM_BRIDGE_KEYS)[number]>,
+  never
+>;

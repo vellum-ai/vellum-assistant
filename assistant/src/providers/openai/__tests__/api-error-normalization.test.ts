@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type OpenAI from "openai";
+import OpenAI from "openai";
 
 import type { NormalizedOpenAIAPIError } from "../api-error-normalization.js";
 import {
@@ -42,6 +42,22 @@ describe("normalizeOpenAIAPIError", () => {
     expect(formatNormalizedOpenAIAPIError("Together AI", 400, n)).toBe(
       "Together AI API error (400): Model 'MiniMax-M3' is not yet supported on Vellum.",
     );
+  });
+
+  test("stamps network_error for SDK connection failures", () => {
+    const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9"), {
+      code: "ECONNREFUSED",
+    });
+    const n = normalizeOpenAIAPIError(new OpenAI.APIConnectionError({ cause }));
+    expect(n.reason).toBe("network_error");
+  });
+
+  test("does not stamp network_error for user aborts", () => {
+    // APIUserAbortError covers caller cancellation and inner stream
+    // deadlines; classifying it as transient would make retry re-run
+    // 30-minute deadline failures.
+    const n = normalizeOpenAIAPIError(new OpenAI.APIUserAbortError());
+    expect(n.reason).not.toBe("network_error");
   });
 
   test("extracts OpenAI-shaped error metadata", () => {
@@ -369,6 +385,28 @@ describe("deriveReason", () => {
         400,
       ),
     ).toBe("vision_unsupported");
+  });
+
+  test("chat-template failure prose on a 400 → request_shape_unsupported", () => {
+    // Together's server-side renderer error for MiniMax M3, verbatim.
+    expect(
+      deriveReason(
+        n({
+          message:
+            "Failed to apply chat template: invalid operation: object is not callable (in chat:22)",
+        }),
+        400,
+      ),
+    ).toBe("request_shape_unsupported");
+  });
+
+  test("chat-template prose on a 5xx stays server-side, not request_shape_unsupported", () => {
+    expect(
+      deriveReason(
+        n({ message: "Failed to apply chat template: renderer crashed" }),
+        500,
+      ),
+    ).not.toBe("request_shape_unsupported");
   });
 
   test("402 → insufficient_credits", () => {

@@ -29,6 +29,8 @@ interface JsonCatalogEntry {
   secretKey?: string;
   fallbackOrder?: number;
   privacyPolicyUrl?: string;
+  supportsApiBase?: boolean;
+  defaultApiBase?: string;
 }
 
 interface JsonCatalog {
@@ -74,6 +76,12 @@ function entryToPlain(
   }
   if (entry.privacyPolicyUrl !== undefined) {
     out.privacyPolicyUrl = entry.privacyPolicyUrl;
+  }
+  if (entry.supportsApiBase !== undefined) {
+    out.supportsApiBase = entry.supportsApiBase;
+  }
+  if (entry.defaultApiBase !== undefined) {
+    out.defaultApiBase = entry.defaultApiBase;
   }
   return out;
 }

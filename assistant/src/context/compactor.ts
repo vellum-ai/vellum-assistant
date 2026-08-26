@@ -76,6 +76,40 @@ const COMPACTION_CALL_SITE: LLMCallSite = "mainAgent";
 const COMPACTION_LOG_CALL_SITE: LLMCallSite = "compactionAgent";
 
 /**
+ * What actually served a compaction call, for attribution on both the request
+ * log and the usage row. A wrapper may reroute the request away from the
+ * caller's resolution (`RetryProvider`'s fallback-profile escalation), in
+ * which case the response carries the provider and profile that answered.
+ *
+ * Single source of truth on purpose: the request log and the usage row must
+ * never disagree about which provider ran, and every result-construction site
+ * below spreads {@link servedAttribution} rather than re-deriving the pair.
+ */
+function servedProvider(
+  response: ProviderResponse,
+  provider: Provider,
+): string {
+  return response.actualProvider ?? provider.name;
+}
+
+function servedAttribution(
+  response: ProviderResponse,
+  provider: Provider,
+): Pick<
+  CompactionRunResult,
+  "summaryActualProvider" | "summaryActualInferenceProfile"
+> {
+  return {
+    summaryActualProvider: servedProvider(response, provider),
+    // Only present on a reroute. Absent leaves `summaryOverrideProfile` in
+    // charge, which is what the caller resolved and what actually ran.
+    ...(response.actualInferenceProfile !== undefined
+      ? { summaryActualInferenceProfile: response.actualInferenceProfile }
+      : {}),
+  };
+}
+
+/**
  * Best-effort: persist a successful compaction LLM call into
  * `llm_request_logs` with `call_site = "compactionAgent"`. The compactor
  * opts out of automatic usage tracking (`usageTracking: "manual"`), so
@@ -100,7 +134,7 @@ function recordCompactionRequestLog(
       JSON.stringify(response.rawRequest),
       JSON.stringify(response.rawResponse),
       undefined,
-      response.actualProvider ?? provider.name,
+      servedProvider(response, provider),
       COMPACTION_LOG_CALL_SITE,
     );
   } catch (err) {
@@ -321,6 +355,22 @@ export interface CompactionRunResult {
   summaryModel: string;
   summaryCallSite?: LLMCallSite;
   summaryOverrideProfile?: string | null;
+  /**
+   * Provider that actually served the summary call: the response's
+   * `actualProvider` when a wrapper rerouted the request, otherwise the
+   * configured provider's name. Set on every path that made a call, so the
+   * usage row's `provider` follows a fallback the way its `model` already
+   * does. Absent only where no call happened (see {@link emptyResult}), where
+   * the caller's own provider stands.
+   */
+  summaryActualProvider?: string;
+  /**
+   * Inference profile that actually governed the summary call, set only when
+   * a wrapper rerouted the request away from `summaryOverrideProfile`
+   * (`RetryProvider`'s fallback-profile escalation). Absent on the normal
+   * path, where `summaryOverrideProfile` is already correct.
+   */
+  summaryActualInferenceProfile?: string;
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
@@ -1052,6 +1102,18 @@ export function buildSummaryMemoryText(
 // Orchestrator
 // ---------------------------------------------------------------------------
 
+/**
+ * A result for every path that compacted nothing: the pre-call bail-outs
+ * (disabled, below threshold, no messages, bad boundary) and the two
+ * provider-error paths, which are spread over with `summaryFailed: true`.
+ *
+ * Deliberately carries no `summaryActualProvider` /
+ * `summaryActualInferenceProfile`: no call was served, so there is nothing to
+ * attribute to, and leaving them absent keeps the caller's own provider and
+ * profile in charge. Nothing is billed either way, since the zero token
+ * counts here make `recordUsage` return before it writes a row. The
+ * call-bearing paths below spread {@link servedAttribution} on top.
+ */
 function emptyResult(
   args: CompactionRunArgs,
   thresholdTokens: number,
@@ -1340,6 +1402,7 @@ export async function runAssistantDrivenCompaction(
       summaryInputTokens: response.usage.inputTokens,
       summaryOutputTokens: response.usage.outputTokens,
       summaryModel: response.model,
+      ...servedAttribution(response, args.provider),
       summaryCacheCreationInputTokens:
         response.usage.cacheCreationInputTokens ?? 0,
       summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
@@ -1378,6 +1441,7 @@ export async function runAssistantDrivenCompaction(
         summaryInputTokens: response.usage.inputTokens,
         summaryOutputTokens: response.usage.outputTokens,
         summaryModel: response.model,
+        ...servedAttribution(response, args.provider),
         summaryCacheCreationInputTokens:
           response.usage.cacheCreationInputTokens ?? 0,
         summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
@@ -1548,6 +1612,7 @@ export async function runAssistantDrivenCompaction(
       summaryInputTokens: response.usage.inputTokens,
       summaryOutputTokens: response.usage.outputTokens,
       summaryModel: response.model,
+      ...servedAttribution(response, args.provider),
       summaryCacheCreationInputTokens:
         response.usage.cacheCreationInputTokens ?? 0,
       summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
@@ -1623,6 +1688,7 @@ export async function runAssistantDrivenCompaction(
     summaryModel: response.model,
     summaryCallSite: COMPACTION_CALL_SITE,
     summaryOverrideProfile: args.overrideProfile ?? null,
+    ...servedAttribution(response, args.provider),
     summaryCacheCreationInputTokens:
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
@@ -1808,6 +1874,12 @@ export async function runEmergencyCompaction(
       summaryInputTokens: response.usage.inputTokens,
       summaryOutputTokens: response.usage.outputTokens,
       summaryModel: response.model,
+      // This path bills real tokens, so its provider must follow a reroute
+      // like every other call-bearing path. It is the one such path that sets
+      // no `summaryCallSite`/`summaryOverrideProfile`, which leaves its
+      // profile attribution null; that gap predates this change and is not
+      // widened by it.
+      ...servedAttribution(response, args.provider),
     };
   }
 
@@ -1855,6 +1927,7 @@ export async function runEmergencyCompaction(
     summaryModel: response.model,
     summaryCallSite: COMPACTION_CALL_SITE,
     summaryOverrideProfile: args.overrideProfile ?? null,
+    ...servedAttribution(response, args.provider),
     summaryCacheCreationInputTokens:
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,

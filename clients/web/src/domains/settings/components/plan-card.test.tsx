@@ -1,7 +1,8 @@
 /**
- * Tests for the PlanCard: verifies the plan name, renewal text, the header's
- * "View All Plans" button, and the side-by-side current / next plan tiles
- * render correctly, plus the header button's navigation wiring. The card shows
+ * Tests for the PlanCard: verifies the plan name, renewal text, the single
+ * header button (base-only "View All Plans" or paid-only "Manage
+ * Subscription"), and the side-by-side current / next plan tiles render
+ * correctly, plus the header button's navigation wiring. The card shows
  * no credit bundle label and no invoices button; invoices render in an inline
  * table on the billing page.
  *
@@ -415,12 +416,12 @@ const FREE_CHIPS = ["Small Machine", "4 GB Storage", "Pay as you go credits"];
 const MIGHTY_CHIPS = [
   "Small Machine",
   "10 GB Storage",
-  "$25 in credits included",
+  "Mighty Usage included",
 ];
 const SUPER_CHIPS = [
   "Medium Machine",
   "30 GB Storage",
-  "$45 in credits included",
+  "Super Usage included",
   "Assistant email and subdomain",
 ];
 
@@ -492,6 +493,20 @@ describe("PlanCard", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-plans-button");
     expect(html).toContain("View All Plans");
+  });
+
+  test("a base plan shows no Manage Subscription button", () => {
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    expect(html).not.toContain("plan-card-manage-subscription-button");
+    expect(html).not.toContain("Manage Subscription");
+  });
+
+  test("a paid Pro plan shows only the Manage Subscription button", () => {
+    const html = renderCard(proMightySubscription(), plansWithSuper());
+    expect(html).toContain("plan-card-manage-subscription-button");
+    expect(html).toContain("Manage Subscription");
+    expect(html).not.toContain("plan-card-plans-button");
+    expect(html).not.toContain("View All Plans");
   });
 
   test("does not render the invoices button (moved to inline table)", () => {
@@ -692,24 +707,6 @@ describe("PlanCard", () => {
 });
 
 describe("PlanCard action button", () => {
-  test("a Pro user's View All Plans click opens the plan-aware takeover", async () => {
-    const onManage = mock(() => {});
-    const { findByTestId } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      onManage,
-    );
-
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
-
-    // navigate() fires from the click handler; await it so the assertion never
-    // races the handler's commit in the CI runner.
-    await waitFor(() => {
-      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
-    });
-    expect(onManage).not.toHaveBeenCalled();
-  });
-
   test("a base user's View All Plans click opens the plans takeover", async () => {
     const onManage = mock(() => {});
     const { findByTestId } = renderCardInteractive(
@@ -728,10 +725,42 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("an empty catalog falls back to onManage (AdjustPlanModal)", async () => {
+  test("a Pro user's Manage Subscription click opens the plan-aware takeover", async () => {
     const onManage = mock(() => {});
     const { findByTestId } = renderCardInteractive(
       proMightySubscription(),
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("an empty catalog's Manage Subscription falls back to onManage", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      proMightySubscription(),
+      emptyCatalogPlans(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+  });
+
+  test("a base user's empty catalog falls back to onManage (AdjustPlanModal)", async () => {
+    const onManage = mock(() => {});
+    const { findByTestId } = renderCardInteractive(
+      baseSubscription(),
       emptyCatalogPlans(),
       onManage,
     );
@@ -746,7 +775,7 @@ describe("PlanCard action button", () => {
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a customized Pro sub's View All Plans opens the plans takeover", async () => {
+  test("a customized Pro sub's Manage Subscription opens the plans takeover", async () => {
     const onManage = mock(() => {});
     // A customized pin routes to the takeover alongside every other Pro sub; the
     // takeover's own CTAs handle the customized state's transitions.
@@ -763,7 +792,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -782,7 +811,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -790,7 +819,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("a from-scratch custom Pro sub's View All Plans opens the takeover", async () => {
+  test("a from-scratch custom Pro sub's Manage Subscription opens the takeover", async () => {
     const onManage = mock(() => {});
     // A Pro sub built from scratch — no stock lineage, pinned but customized —
     // routes to the takeover like every other Pro sub with a live catalog.
@@ -807,7 +836,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -815,7 +844,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("a cancelling custom Pro sub's View All Plans stays on the fallback", async () => {
+  test("a cancelling custom Pro sub's Manage Subscription stays on the fallback", async () => {
     const onManage = mock(() => {});
     // A customized/unpinned sub pending cancellation keeps the manage modal,
     // which surfaces the cancellation state and the "Keep your Plan" action; the
@@ -834,7 +863,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
 
     await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
@@ -854,7 +883,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
 
     await waitFor(() => {
       expect(navigateArgs).toEqual([[routes.plans, undefined]]);
@@ -862,7 +891,7 @@ describe("PlanCard action button", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  test("an unpaid custom Pro sub's View All Plans stays on the fallback", async () => {
+  test("an unpaid custom Pro sub's Manage Subscription stays on the fallback", async () => {
     const onManage = mock(() => {});
     // A custom sub in a non-entitlement status (e.g. unpaid) is switch-ineligible,
     // so it keeps the manage modal — the takeover would bounce every CTA back to
@@ -881,7 +910,7 @@ describe("PlanCard action button", () => {
       onManage,
     );
 
-    fireEvent.click(await findByTestId("plan-card-plans-button"));
+    fireEvent.click(await findByTestId("plan-card-manage-subscription-button"));
 
     await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
@@ -1167,13 +1196,13 @@ describe("PlanCard with obscure-credits on", () => {
 
     const current = within(currentTile(container));
     expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
-    expect(current.queryByText("$25 in credits included")).toBeNull();
+    expect(current.queryByText("Mighty Usage included")).toBeNull();
     // Machine and storage chips keep their own copy.
     expect(current.getByText("10 GB Storage")).toBeTruthy();
 
     const next = within(nextTile(container));
     expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
-    expect(next.queryByText("$45 in credits included")).toBeNull();
+    expect(next.queryByText("Super Usage included")).toBeNull();
   });
 
   test("both tiles wrap their short chips into a row, usage below", () => {
@@ -1239,7 +1268,7 @@ describe("PlanCard with obscure-credits on", () => {
     // A Custom sub still enumerates nothing and still quotes no price.
     const current = within(currentTile(container));
     expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
-    expect(current.queryByText("$25 in credits included")).toBeNull();
+    expect(current.queryByText("Mighty Usage included")).toBeNull();
     expect(current.queryByText("10 GB Storage")).toBeNull();
     expect(current.queryByTestId("plan-card-price")).toBeNull();
   });

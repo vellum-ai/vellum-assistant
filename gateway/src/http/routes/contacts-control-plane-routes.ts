@@ -1,3 +1,4 @@
+import { RiskThresholdSchema } from "@vellumai/gateway-client";
 import { z } from "zod";
 
 import type { GatewayRouteDefinition } from "./types.js";
@@ -67,6 +68,9 @@ const ContactPayloadSchema = z.object({
   updatedAt: z.number(),
   interactionCount: z.number(),
   lastInteraction: z.number().nullable(),
+  autoApproveThreshold: RiskThresholdSchema.nullable().describe(
+    "Per-contact auto-approve ceiling. Null means unset (inherit cascade).",
+  ),
   assistantMetadata: AssistantContactMetadataSchema.nullable(),
   channels: z.array(ContactChannelPayloadSchema),
 });
@@ -101,6 +105,11 @@ const UpsertContactRequestSchema = z.object({
     .min(1)
     .describe("Required on every upsert, including updates by id"),
   notes: z.string().nullable().optional(),
+  autoApproveThreshold: RiskThresholdSchema.nullable()
+    .optional()
+    .describe(
+      "Per-contact auto-approve ceiling. Omit to preserve; null clears.",
+    ),
   contactType: z.string().optional(),
   assistantMetadata: z
     .object({

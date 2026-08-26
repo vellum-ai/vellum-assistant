@@ -1,0 +1,67 @@
+{
+  "actions": {
+    "markAsRead": "Отметить как прочитанное",
+    "markAsUnread": "Отметить как непрочитанное",
+    "restore": "Восстановить",
+    "dismiss": "Скрыть",
+    "goToThread": "Перейти к ветке",
+    "goToConversation": "Перейти к диалогу",
+    "goToConvo": "К диалогу",
+    "viewSchedule": "Открыть расписание",
+    "viewSkill": "Открыть навык",
+    "markAllAsRead": "Отметить всё как прочитанное",
+    "clearAll": "Очистить всё"
+  },
+  "category": {
+    "all": "Все",
+    "security": "Безопасность",
+    "email": "Почта",
+    "scheduling": "Расписания",
+    "background": "Фон",
+    "system": "Система"
+  },
+  "homeRecapRow": { "actionsTitle": "Действия по обновлению" },
+  "homeTopHeader": { "title": "Активность" },
+  "homeFeedFilterBar": { "ariaLabel": "Фильтр уведомлений" },
+  "homeFeedList": {
+    "today": "Сегодня",
+    "yesterday": "Вчера",
+    "older": "Ранее",
+    "noMatches": "Нет элементов по выбранному фильтру.",
+    "emptyTitle": "Уведомлений пока нет",
+    "emptyBody": "Здесь появятся обновления и активность ассистента.",
+    "earlier": "Ранее ({count, number})",
+    "dismissed": "Скрытые ({count, number})"
+  },
+  "homePage": {
+    "loadFailed": "Не удалось загрузить ленту.",
+    "loadFailedDetail": "Не удалось загрузить ленту: {message}"
+  },
+  "homeDetailPanel": {
+    "back": "Назад",
+    "heading": "Подробности",
+    "close": "Закрыть",
+    "closeAriaLabel": "Закрыть панель подробностей",
+    "untitled": "Уведомление"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "Не хватает разрешений",
+    "status": {
+      "revoked": "Отозвано",
+      "expired": "Истекло",
+      "missingScopes": "Не хватает разрешений",
+      "missingToken": "Нет токена",
+      "pingFailed": "Ошибка проверки",
+      "unreachable": "Недоступно"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "Уведомления",
+    "ariaLabelUnread": "Уведомления (непрочитанные)",
+    "heading": "Уведомления",
+    "loadFailed": "Не удалось загрузить уведомления.",
+    "empty": "Уведомлений пока нет.",
+    "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
+  },
+  "notificationsBellDetail": { "back": "Назад к уведомлениям" }
+}

@@ -4,6 +4,11 @@ import {
   DEEPGRAM_MULTI_LANGUAGE_CODES,
   DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
 } from "../../../../providers/speech-to-text/deepgram.js";
+import {
+  isManagedSttProvider,
+  listProviderModelFamilies,
+} from "../../../../providers/speech-to-text/provider-catalog.js";
+import type { SttProviderId } from "../../../../stt/types.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -47,6 +52,7 @@ const VOICE_SETTINGS = {
   },
   stt_provider: { type: "string" },
   stt_language: { type: "string" },
+  stt_model: { type: "string" },
 } satisfies Record<string, VoiceSettingMeta>;
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
@@ -64,6 +70,7 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   fish_audio_reference_id: "Fish Audio voice",
   stt_provider: "Speech-to-text provider",
   stt_language: "Speech-to-text language",
+  stt_model: "Speech-to-text model family",
 };
 
 /**
@@ -293,6 +300,25 @@ function validateSetting(
       }
       return { ok: true, coerced: value.trim() };
     }
+    case "stt_model": {
+      const families = listProviderModelFamilies(
+        (activeSttProviderId ?? "") as SttProviderId,
+      );
+      if (families.length === 0) {
+        return {
+          ok: false,
+          error: `the active speech-to-text provider${activeSttProviderId ? ` (${activeSttProviderId})` : ""} offers a single model, so stt_model cannot be set`,
+        };
+      }
+      const normalized = typeof value === "string" ? value.trim() : "";
+      if (!families.includes(normalized as never)) {
+        return {
+          ok: false,
+          error: `stt_model must be one of: ${families.join(", ")}`,
+        };
+      }
+      return { ok: true, coerced: normalized };
+    }
     case "stt_language": {
       if (typeof value !== "string") {
         return {
@@ -410,7 +436,9 @@ export async function run(
   // same source the sparse-config write-seeding below reads): the extended
   // roster and "multi" are only valid where nova-3 runs.
   const activeSttProviderId =
-    setting === "stt_language" ? getConfig().services.stt.provider : undefined;
+    setting === "stt_language" || setting === "stt_model"
+      ? getConfig().services.stt.provider
+      : undefined;
 
   const validation = validateSetting(
     setting,
@@ -422,9 +450,14 @@ export async function run(
     return { content: `Error: ${validation.error}`, isError: true };
   }
 
+  // Managed speech has more than one STT id, so the gate reads the catalog
+  // rather than a literal: without this, setting a managed provider other
+  // than "vellum" on a disconnected assistant persists happily and then
+  // resolves no transcriber at all.
   const wantsManagedSpeech =
-    (setting === "stt_provider" || setting === "tts_provider") &&
-    validation.coerced === "vellum";
+    (setting === "stt_provider" &&
+      isManagedSttProvider(validation.coerced as SttProviderId)) ||
+    (setting === "tts_provider" && validation.coerced === "vellum");
   if (wantsManagedSpeech && !(await managedSpeechAvailable())) {
     return {
       content:
@@ -500,6 +533,24 @@ export async function run(
   if (setting === "stt_provider") {
     setNestedValue(raw, "services.stt.provider", validation.coerced);
     deleteLegacySpeechMode(raw, "stt");
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  if (setting === "stt_model") {
+    // Scoped to the provider that is active now, which validation already
+    // checked can serve the family. The provider is seeded for the same
+    // reason stt_language seeds it: a sparse block missing `provider` fails
+    // SttServiceSchema and trips the loader's salvage ladder.
+    const provider = getConfig().services.stt.provider;
+    if (!rawSttProviderPresent(raw)) {
+      setNestedValue(raw, "services.stt.provider", provider);
+    }
+    setNestedValue(
+      raw,
+      `services.stt.providers.${provider}.model`,
+      validation.coerced,
+    );
     saveRawConfig(raw);
     invalidateConfigCache();
   }

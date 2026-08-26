@@ -4,69 +4,26 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
-import { isActorTokenRevoked } from "../../auth/actor-token-revocation.js";
-import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
+import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { parseSub } from "../../auth/subject.js";
 import type { GatewayConfig } from "../../config.js";
-import { credentialKey } from "../../credential-key.js";
-import { readCredential } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
 import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
+import {
+  extractVelayAttestedContext,
+  isPlatformManaged,
+  requireBoundGuardian,
+  requireManagedGuardian,
+} from "./guardian-pin.js";
 
 const log = getLogger("live-voice-ws");
 
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
 
-// ---------------------------------------------------------------------------
-// Velay-attested managed auth headers
-// ---------------------------------------------------------------------------
-//
-// In managed/cloud deployments, velay validates the browser's live-voice
-// wsToken, strips any client-supplied copies of these headers, and injects the
-// authenticated caller context into the tunnel frame. The gateway only trusts
-// that context when the loopback WebSocket open also carries the process-local
-// bridge proof injected by this gateway's VelayWebSocketBridge; IS_PLATFORM
-// alone is not a per-request proof that the caller traversed velay.
-const VELAY_USER_ID_HEADER = "x-velay-user-id";
-const VELAY_ORG_ID_HEADER = "x-velay-org-id";
-const VELAY_ACTOR_HEADER = "x-velay-actor";
-
-/**
- * True when the gateway runs in managed/cloud mode (vembda + velay ingress).
- * Mirrors the `IS_PLATFORM` check used by the gateway's HTTP edge auth
- * (`src/http/middleware/auth.ts`) and feature-flag resolver.
- */
-function isPlatformManaged(): boolean {
-  const v = process.env.IS_PLATFORM?.trim().toLowerCase();
-  return v === "1" || v === "true";
-}
-
-/** Velay-attested managed caller context, extracted from injected headers. */
-type VelayAttestedContext = {
-  userId: string;
-  orgId: string;
-};
-
-/**
- * Extract a velay-attested managed caller context from the upgrade request.
- *
- * Returns null when the request does not carry a complete, well-formed velay
- * attestation (`X-Velay-User-Id` + `X-Velay-Org-Id` both present, with
- * `X-Velay-Actor: user`). Callers MUST only trust the result in managed mode.
- */
-function extractVelayAttestedContext(
-  req: Request,
-): VelayAttestedContext | null {
-  const userId = req.headers.get(VELAY_USER_ID_HEADER)?.trim();
-  const orgId = req.headers.get(VELAY_ORG_ID_HEADER)?.trim();
-  const actor = req.headers.get(VELAY_ACTOR_HEADER)?.trim().toLowerCase();
-
-  if (!userId || !orgId || actor !== "user") {
-    return null;
-  }
-  return { userId, orgId };
-}
+// The velay attestation helpers and both guardian checks live in
+// `guardian-pin.js`, shared with the watch stream so the two guardian-only
+// surfaces cannot drift into two ideas of who owns them.
 
 export type LiveVoiceSocketData = {
   wsType: "live-voice";
@@ -133,7 +90,10 @@ async function checkLiveVoiceAuth(
         // edge-auth middleware applies to guardian routes under the managed
         // bypass). Without it, any velay-authorized org user reaching this
         // assistant would be stamped guardian downstream.
-        const guardianError = await requireManagedGuardian(velayContext.userId);
+        const guardianError = await requireManagedGuardian(
+          velayContext.userId,
+          log,
+        );
         if (guardianError) return guardianError;
         log.info(
           { userId: velayContext.userId, orgId: velayContext.orgId },
@@ -166,8 +126,8 @@ async function checkLiveVoiceAuth(
     return new Response("Unauthorized", { status: 401 });
   }
 
-  if (isActorTokenRevoked(rawToken, result.claims)) {
-    log.warn("Live voice WS: rejected — actor token revoked");
+  if (!admitActorToken(rawToken, result.claims)) {
+    log.warn("Live voice WS: rejected, actor token revoked");
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -189,52 +149,11 @@ async function checkLiveVoiceAuth(
 
   // Live voice is a guardian-only surface: the room runs in the owner's own
   // client, and the daemon stamps each voice turn with the guardian's trust
-  // context on that basis — so pin the upgrade to the bound guardian, the same
+  // context on that basis, so pin the upgrade to the bound guardian, the same
   // check the guardian edge-auth middleware applies to guardian-only HTTP
   // routes. Any valid-but-non-guardian actor token is rejected here rather
-  // than reaching the daemon with an identity the voice path can't represent.
-  let guardian: { principalId: string } | null;
-  try {
-    guardian = await findVellumGuardian();
-  } catch (err) {
-    log.error({ err }, "Live voice WS: findVellumGuardian failed");
-    return new Response("Service Unavailable", { status: 503 });
-  }
-  if (!guardian || guardian.principalId !== parsed.actorPrincipalId) {
-    log.warn("Live voice WS: rejected — caller is not the bound guardian");
-    return new Response("Forbidden", { status: 403 });
-  }
-
-  return null;
-}
-
-/**
- * Managed-mode guardian check: cross-check a velay-attested caller's platform
- * user id against the stored `platform_user_id` credential — the same guard the
- * edge-auth middleware applies to guardian routes under the platform bypass.
- * Returns null when the caller is the guardian, else a 403/503 Response.
- */
-async function requireManagedGuardian(
-  velayUserId: string,
-): Promise<Response | null> {
-  let storedUserId: string | undefined;
-  try {
-    storedUserId = await readCredential(
-      credentialKey("vellum", "platform_user_id"),
-    );
-  } catch (err) {
-    log.error({ err }, "Live voice WS: platform_user_id lookup failed");
-    return new Response("Service Unavailable", { status: 503 });
-  }
-  if (!storedUserId) {
-    log.warn("Live voice WS: no platform_user_id stored on this assistant");
-    return new Response("Forbidden", { status: 403 });
-  }
-  if (storedUserId !== velayUserId) {
-    log.warn("Live voice WS: velay caller is not the bound guardian");
-    return new Response("Forbidden", { status: 403 });
-  }
-  return null;
+  // than reaching the daemon with an identity the voice path cannot represent.
+  return requireBoundGuardian(parsed.actorPrincipalId, log);
 }
 
 /**

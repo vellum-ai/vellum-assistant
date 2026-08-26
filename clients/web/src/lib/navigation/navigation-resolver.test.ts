@@ -33,6 +33,7 @@ const base: NavigationState = {
   // the hydration-gating cases override these explicitly.
   consentHydrated: true,
   assistantsHydrated: true,
+  alreadyOnboarded: false,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -212,6 +213,33 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    test("bounces an already-onboarded user off first-run privacy", () => {
+      expect(
+        guard(s({ alreadyOnboarded: true }), "/assistant/onboarding/privacy"),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+      expect(
+        guard(
+          s({ alreadyOnboarded: true, hasAssistants: false }),
+          "/assistant/onboarding/privacy?replay=1",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    test("resumes a paid hatch when bouncing an already-onboarded user off privacy", () => {
+      expect(
+        guard(
+          s({ alreadyOnboarded: true }),
+          `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+        ),
+      ).toEqual({ action: "redirect", to: HATCHING_FUNNEL_URL });
+    });
+
+    test("keeps research reachable on demand for an already-onboarded user", () => {
+      expect(
+        guard(s({ alreadyOnboarded: true }), "/assistant/onboarding/research"),
+      ).toEqual(ALLOW);
+    });
+
     test("allows authenticated user on review-terms route", () => {
       expect(guard(s({}), "/assistant/review-terms")).toEqual(ALLOW);
     });
@@ -254,9 +282,7 @@ describe("resolveNavigation", () => {
     });
 
     // The platform build hosts the hub chooser: the route admits a settled
-    // authenticated user in every mode. The assistant-switcher flag gate for
-    // platform-mode access lives in the screen, which can wait on flag
-    // hydration; the resolver has no hydration signal to gate on.
+    // authenticated user in every mode.
     test("allows a consented authenticated non-local user on select-assistant", () => {
       expect(guard(s({ isLocalClient: false }), CHOOSER)).toEqual(ALLOW);
     });
@@ -1430,6 +1456,19 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    test("allows an already-onboarded assistant even without local consent flags", () => {
+      expect(
+        intercept(
+          s({
+            alreadyOnboarded: true,
+            tosAccepted: false,
+            privacyConsent: false,
+          }),
+          "/assistant",
+        ),
+      ).toEqual(ALLOW);
+    });
+
     test("stale toggles do not change onboarding-intercept (hasCompletedOnboarding only)", () => {
       expect(
         intercept(
@@ -1772,6 +1811,77 @@ describe("resolveNavigation", () => {
       expect(postAuth("login", "")).toEqual({
         action: "redirect",
         to: "/assistant",
+      });
+    });
+
+    test("signup skips privacy when the assistant is already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "signup",
+          returnTo: "/assistant/home",
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: "/assistant/home" });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("signup with a checkout deep link skips privacy when already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "signup",
+          returnTo: "/assistant/checkout?package=super",
+          fallback: "/assistant",
+        }),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/checkout?package=super",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("login keeps a paid hatch returnTo when already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo: HATCHING_FUNNEL_URL,
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: HATCHING_FUNNEL_URL });
+    });
+
+    test("login skips a privacy or research returnTo when already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo: "/assistant/onboarding/privacy",
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo: "/assistant/onboarding/research?hosting=vellum-cloud",
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    test("signup still goes to privacy for a freshly hatched assistant", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: false, hasAssistants: true }), {
+          kind: "post-auth",
+          authIntent: "signup",
+          returnTo: "/assistant/home",
+          fallback: "/assistant",
+        }),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
       });
     });
 

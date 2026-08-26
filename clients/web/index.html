@@ -84,10 +84,228 @@
   <meta name="twitter:image" content="https://www.vellum.ai/og-cover-v2.jpg" />
   <meta name="twitter:image:alt" content="Vellum: Your Personal Intelligence" />
 
-  <script src="/theme-init.js"></script>
+  <!--
+    Shell init that has to run before the app bundle does. Two jobs, neither
+    of which can wait for React: stamping the stored theme so the splash's
+    very first paint is already the right one, and localizing the splash's
+    accessible label. Inline on purpose: an external script is a fetch that
+    can block the parser ahead of the splash, go stale in HTTP caches while
+    the HTML moves on, or both. The page sets no script-src and the desktop
+    shell's policy allows inline scripts, so this executes unconditionally.
+  -->
+  <script>
+    (function () {
+      try {
+        var theme =
+          window.localStorage.getItem("device:theme") ||
+          window.localStorage.getItem("vellum_theme") ||
+          "system";
+        var prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var shouldBeDark =
+          theme === "velvet" ||
+          theme === "dark" ||
+          (theme === "system" && prefersDark);
+        var root = document.documentElement;
+        root.setAttribute("data-theme", shouldBeDark ? "dark" : "light");
+        root.classList.toggle("dark", shouldBeDark);
+        root.classList.remove("velvet");
+      } catch {
+        // Theme startup is best-effort. React will apply the default later.
+      }
+    })();
+
+    // Boot splash label.
+    //
+    // `index.html` is one static file served to every locale, so the label in the
+    // markup is English. This replaces it for a locale that translates the same
+    // string, and leaves the English default in place for everything else.
+    //
+    // Locale resolution mirrors `resolveInitialLocale()` in `src/i18n/i18n.ts`:
+    // the stored `device:locale` preference when it names a shipped locale, then
+    // the host's preferred languages matched at the full tag and again at the
+    // primary subtag.
+    //
+    // `LABELS` carries the translation each catalog already uses for the app's own
+    // generic loading label (`rootHydrateFallback.loadingAria` in
+    // `src/i18n/locales/<locale>/common.json`). A shipped locale whose catalog
+    // omits that key renders the English fallback once the app is running, so
+    // omitting it here keeps the splash and the app saying the same thing.
+    // `src/shell-metadata.test.ts` fails if the two drift.
+    (function () {
+      var SUPPORTED_LOCALES = ["en", "es", "ru"];
+      var LABELS = { es: "Cargando" };
+
+      function resolveLocale() {
+        var stored = null;
+        try {
+          stored = window.localStorage.getItem("device:locale");
+        } catch {
+          // Storage access throws where it is disabled rather than returning null.
+          // Its own catch is what keeps that throw from reaching the outer one and
+          // skipping the host's languages, which `getLocalSetting` still negotiates
+          // over: without it a Spanish host keeps the English label while the app
+          // itself comes up in Spanish.
+        }
+        if (stored && SUPPORTED_LOCALES.indexOf(stored) !== -1) {
+          return stored;
+        }
+        var preferred = [];
+        var nav = window.navigator;
+        if (nav && nav.languages && nav.languages.length > 0) {
+          preferred = nav.languages;
+        } else if (nav && nav.language) {
+          preferred = [nav.language];
+        }
+        for (var i = 0; i < preferred.length; i++) {
+          var tag = String(preferred[i]).trim().toLowerCase();
+          if (tag === "") {
+            continue;
+          }
+          if (SUPPORTED_LOCALES.indexOf(tag) !== -1) {
+            return tag;
+          }
+          var base = tag.split("-")[0];
+          if (SUPPORTED_LOCALES.indexOf(base) !== -1) {
+            return base;
+          }
+        }
+        return "en";
+      }
+
+      try {
+        var locale = resolveLocale();
+        var label = LABELS[locale];
+        if (!label) {
+          return;
+        }
+
+        // A screen reader reads `aria-label` with the phonemes of the document's
+        // `lang`, so the two have to agree. `applyDocumentLocale()` sets this
+        // again from the locale i18next actually activated.
+        document.documentElement.lang = locale;
+
+        var apply = function () {
+          var splash = document.getElementById("boot-splash");
+          if (splash) {
+            splash.setAttribute("aria-label", label);
+          }
+          return !!splash;
+        };
+
+        // This runs in <head>, before the splash below is parsed, so the observer
+        // is the normal path: it applies the label the moment the parser inserts
+        // the node, in a microtask that still precedes first paint. The label has
+        // to land while the splash is still what the page shows, and
+        // DOMContentLoaded is too late for that: the module script at the end of
+        // the body defers it until the whole bundle graph has loaded, which is
+        // exactly the interval the splash covers.
+        if (!apply()) {
+          var observer = new MutationObserver(function () {
+            if (apply()) {
+              observer.disconnect();
+            }
+          });
+          observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+          });
+          // The splash is in the initial markup, so if the document finishes
+          // parsing without the observer having found it, it is not coming.
+          document.addEventListener("DOMContentLoaded", function () {
+            observer.disconnect();
+            apply();
+          });
+        }
+      } catch {
+        // Best-effort. A failure leaves the English label the markup ships with.
+      }
+    })();
+  </script>
+
+  <!--
+    Boot splash styles.
+
+    The app stylesheet is part of the module graph the splash exists to cover,
+    so nothing here can read a token: the colors are the resolved values of
+    `--surface-base` and `--content-tertiary` from
+    `packages/design-library/src/tokens.css`, light block and dark block.
+
+    Two dark selectors, because there are two ways to be dark before the app
+    runs. The inline shell script above stamps `data-theme="dark"` and maps
+    velvet onto it before this markup parses, which covers every launch that
+    has a stored theme or a working `matchMedia`. The media query covers the
+    case it cannot: a document
+    that reached paint before the attribute landed, or with the script blocked.
+    It is written against `:not([data-theme="light"])` so an explicit light
+    choice still wins on a dark OS.
+  -->
+  <style>
+    #boot-splash {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #F6F5F4;
+      color: #71808E;
+    }
+
+    #boot-splash svg {
+      animation: boot-splash-spin 1s linear infinite;
+    }
+
+    @keyframes boot-splash-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #boot-splash svg { animation: none; }
+    }
+
+    :root[data-theme="dark"] #boot-splash {
+      background: #17191C;
+      color: #8D99A5;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) #boot-splash {
+        background: #17191C;
+        color: #8D99A5;
+      }
+    }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
+  <!--
+    The splash lives inside #root on purpose: `createRoot(...).render()` clears
+    the container on mount, so React replacing it is the handoff. Mirrors
+    `RootHydrateFallback` (24px lucide Loader2 arc, content-tertiary) so the
+    spinner the WebView shows during the bundle download is the same one the
+    router shows once it is running.
+
+    `aria-label` is English because this file is served to every locale.
+    The inline shell script replaces it with the resolved locale's own
+    loading label where the catalogs have one.
+  -->
+  <div id="root">
+    <div id="boot-splash" role="status" aria-label="Loading">
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+      </svg>
+    </div>
+  </div>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

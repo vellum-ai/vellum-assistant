@@ -13,7 +13,7 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell } from "@/components/detail-shell";
-import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
+import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -29,6 +29,7 @@ import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/workflow-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button, Typography } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -51,6 +52,7 @@ export function WorkflowDetailPanel({
   onStop,
   onRequestJournal,
 }: WorkflowDetailPanelProps) {
+  const { t } = useTranslation("chat");
   const isRunning = isActiveStatus(entry.status);
   const reduce = useReducedMotion();
   const title = entry.label ?? entry.runId;
@@ -139,8 +141,8 @@ export function WorkflowDetailPanel({
               variant="outlined"
               iconOnly={<ChevronLeft />}
               onClick={handleBack}
-              aria-label="Back to subagents"
-              tooltip="Back"
+              aria-label={t("workflowDetailPanel.backToSubagentsAria")}
+              tooltip={t("workflowDetailPanel.back")}
               className="shrink-0"
             />
           )}
@@ -179,11 +181,11 @@ export function WorkflowDetailPanel({
         isRunning && onStop ? (
           <DetailPanelStopButton
             onStop={() => onStop(entry.runId)}
-            ariaLabel="Stop workflow"
+            ariaLabel={t("workflowDetailPanel.stopWorkflow")}
           />
         ) : undefined
       }
-      closeLabel="Close workflow detail"
+      closeLabel={t("workflowDetailPanel.closeDetail")}
       onClose={onClose}
     >
       {/* Body: swaps to a leaf's nested detail when one is open, keeping the
@@ -213,7 +215,7 @@ export function WorkflowDetailPanel({
                   }
                   target={entry.inputTokens}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Input"
+                  label={t("workflowDetailPanel.input")}
                 />
                 <AnimatedMetricCard
                   icon={
@@ -224,7 +226,7 @@ export function WorkflowDetailPanel({
                   }
                   target={entry.outputTokens}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Output"
+                  label={t("workflowDetailPanel.output")}
                 />
                 <AnimatedMetricCard
                   icon={
@@ -235,7 +237,7 @@ export function WorkflowDetailPanel({
                   }
                   target={agentCount}
                   format={(n) => formatNumber(Math.round(n))}
-                  label="Agents"
+                  label={t("workflowDetailPanel.agents")}
                 />
               </div>
 
@@ -246,14 +248,14 @@ export function WorkflowDetailPanel({
                   as="h3"
                   className="mb-4 text-[var(--content-emphasised)]"
                 >
-                  Subagents
+                  {t("workflowDetailPanel.subagents")}
                 </Typography>
                 {sortedLeaves.length === 0 ? (
                   <Typography
                     variant="body-small-default"
                     className="py-4 text-center text-[var(--content-tertiary)]"
                   >
-                    No subagents yet
+                    {t("workflowDetailPanel.noSubagentsYet")}
                   </Typography>
                 ) : (
                   <div className="flex flex-col gap-1">

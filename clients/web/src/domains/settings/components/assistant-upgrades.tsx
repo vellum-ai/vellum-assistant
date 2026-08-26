@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
+import { useDevModeVersionTap } from "@/domains/settings/components/dev-mode-version-unlock";
 import {
   assistantsRetrieveOptions,
   assistantsRetrieveQueryKey,
@@ -15,13 +16,13 @@ import type {
   ReleaseChannelEnum,
   ReleaseListItem,
 } from "@/generated/api/types.gen";
-import { useDevModeVersionTap } from "@/domains/settings/components/dev-mode-version-unlock";
 import { useLocalRuntimeUpgrade } from "@/hooks/use-local-runtime-upgrade";
+import { Trans, t, useTranslation } from "@/i18n";
 import {
+  LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
   getLatestRuntimeRelease,
   getVisibleReleaseChannel,
   isRuntimeUpgradeAvailable,
-  LOCAL_RUNTIME_RELEASES_FETCH_LIMIT,
 } from "@/lib/local-runtime-upgrade";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -38,10 +39,10 @@ function releaseLabel(
 ): string {
   const parts = [release.version];
   if (release.version === latestVersion) {
-    parts.push("(latest)");
+    parts.push(t("settings:assistantUpgrades.latestSuffix"));
   }
   if (currentVersion && release.version === currentVersion) {
-    parts.push("(current)");
+    parts.push(t("settings:assistantUpgrades.currentSuffix"));
   }
   return parts.join(" ");
 }
@@ -92,6 +93,7 @@ export function AssistantUpgrades({
   releaseChannel,
   onUpgradeComplete,
 }: AssistantUpgradesProps) {
+  const { t } = useTranslation("settings");
   const rollbackEnabled = useAssistantFeatureFlagStore.use.rollbackEnabled();
   const previewChannel = useClientFeatureFlagStore.use.previewChannel();
   const queryClient = useQueryClient();
@@ -115,16 +117,20 @@ export function AssistantUpgrades({
     ) {
       queueMicrotask(() => {
         const msg = isPollingRollback
-          ? `Successfully rolled back to version ${targetVersionRef.current}.`
-          : `Successfully updated to version ${targetVersionRef.current}.`;
+          ? t("assistantUpgrades.successRolledBack", {
+              version: targetVersionRef.current,
+            })
+          : t("assistantUpgrades.successUpdated", {
+              version: targetVersionRef.current,
+            });
         setSuccessMessage(msg);
         setIsPollingUpgrade(false);
         targetVersionRef.current = null;
         setSelectedVersion(null);
         toast.success(
           isPollingRollback
-            ? "Rollback complete. Your assistant is healthy."
-            : "Update complete. Your assistant is healthy.",
+            ? t("assistantUpgrades.toastRollbackComplete")
+            : t("assistantUpgrades.toastUpdateComplete"),
           { id: "runtime-upgrade-complete", tone: "strong" },
         );
         onUpgradeComplete?.();
@@ -231,7 +237,10 @@ export function AssistantUpgrades({
         });
         targetVersionRef.current = result.version ?? targetVersion ?? null;
         toast.success(
-          result.detail || `Rollback to ${targetVersion} initiated.`,
+          result.detail ||
+            t("assistantUpgrades.toastRollbackInitiated", {
+              version: targetVersion,
+            }),
         );
       } else {
         const result = await upgradeCreate.mutateAsync({
@@ -247,7 +256,9 @@ export function AssistantUpgrades({
         targetVersionRef.current = result.version ?? targetVersion ?? null;
         toast.success(
           result.detail ||
-            `Update to ${result.version ?? targetVersion ?? "latest"} initiated.`,
+            t("assistantUpgrades.toastUpdateInitiated", {
+              version: result.version ?? targetVersion ?? t("assistantUpgrades.latest"),
+            }),
         );
       }
       setIsPollingRollback(isRollback);
@@ -260,18 +271,27 @@ export function AssistantUpgrades({
     } catch {
       toast.error(
         isRollback
-          ? "Failed to trigger rollback. Please try again."
-          : "Failed to trigger update. Please try again.",
+          ? t("assistantUpgrades.toastRollbackFailed")
+          : t("assistantUpgrades.toastUpdateFailed"),
       );
     }
   };
+
+  const targetLabel =
+    isPreviewReleaseChannel
+      ? t("assistantUpgrades.previewRelease")
+      : !upgradeAvailable
+        ? t("assistantUpgrades.selected")
+        : isRollback
+          ? t("assistantUpgrades.rollbackTo")
+          : t("assistantUpgrades.updateTo");
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 md:grid md:grid-cols-[auto_minmax(0,1fr)] md:items-center md:gap-x-8 md:gap-y-4">
         <div className="flex flex-col gap-1 md:contents">
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
-            Current
+            {t("assistantUpgrades.current")}
           </span>
           <CurrentVersionValue
             version={currentVersion}
@@ -281,19 +301,13 @@ export function AssistantUpgrades({
 
         <div className="flex flex-col gap-1 md:contents">
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
-            {isPreviewReleaseChannel
-              ? "Preview release"
-              : !upgradeAvailable
-                ? "Selected"
-                : isRollback
-                  ? "Rollback to"
-                  : "Update to"}
+            {targetLabel}
           </span>
           <span className="block min-w-0">
             {releasesLoading ? (
               <span className="flex items-center gap-1 text-body-medium-lighter text-[var(--content-tertiary)]">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Loading...
+                {t("assistantUpgrades.loading")}
               </span>
             ) : releases && releases.length > 0 ? (
               rollbackEnabled ? (
@@ -330,7 +344,7 @@ export function AssistantUpgrades({
                 </span>
               )
             ) : (
-              "No releases available"
+              t("assistantUpgrades.noReleases")
             )}
           </span>
         </div>
@@ -360,23 +374,28 @@ export function AssistantUpgrades({
       >
         {isPollingUpgrade
           ? isPollingRollback
-            ? "Rolling back..."
-            : "Updating..."
+            ? t("assistantUpgrades.rollingBack")
+            : t("assistantUpgrades.updating")
           : isRollback
-            ? "Rollback"
+            ? t("assistantUpgrades.rollback")
             : isPreviewReleaseChannel
-              ? "Update preview"
-              : "Update"}
+              ? t("assistantUpgrades.updatePreview")
+              : t("assistantUpgrades.update")}
       </Button>
       {isPreviewReleaseChannel && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
-          Using Preview releases.{" "}
-          <a
-            href="#preview-release-channel"
-            className="text-[var(--primary-base)] underline-offset-2 hover:underline"
-          >
-            Switch back to Stable
-          </a>
+          <Trans
+            ns="settings"
+            i18nKey="assistantUpgrades.usingPreviewReleases"
+            components={{
+              stableLink: (
+                <a
+                  href="#preview-release-channel"
+                  className="text-[var(--primary-base)] underline-offset-2 hover:underline"
+                />
+              ),
+            }}
+          />
         </p>
       )}
       {!upgradeAvailable &&
@@ -384,7 +403,7 @@ export function AssistantUpgrades({
         effectiveSelectedVersion &&
         !releasesLoading && (
           <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
-            {successMessage ?? "You are already on this version."}
+            {successMessage ?? t("assistantUpgrades.alreadyOnVersion")}
           </p>
         )}
 
@@ -392,24 +411,32 @@ export function AssistantUpgrades({
         open={showConfirmation}
         title={
           isRollback
-            ? "Rollback assistant"
+            ? t("assistantUpgrades.confirmRollbackTitle")
             : isPreviewReleaseChannel
-              ? "Update preview release"
-              : "Update assistant"
+              ? t("assistantUpgrades.confirmPreviewTitle")
+              : t("assistantUpgrades.confirmUpdateTitle")
         }
         message={
           isRollback
-            ? `Rollback to version ${effectiveSelectedVersion ?? "unknown"}? The assistant will be briefly unavailable.`
+            ? t("assistantUpgrades.confirmRollbackMessage", {
+                version: effectiveSelectedVersion ?? t("assistantUpgrades.unknown"),
+              })
             : isPreviewReleaseChannel
-              ? `Update to preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
-              : `Update to version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
+              ? t("assistantUpgrades.confirmPreviewMessage", {
+                  version:
+                    effectiveSelectedVersion ?? t("assistantUpgrades.latest"),
+                })
+              : t("assistantUpgrades.confirmUpdateMessage", {
+                  version:
+                    effectiveSelectedVersion ?? t("assistantUpgrades.latest"),
+                })
         }
         confirmLabel={
           isRollback
-            ? "Rollback"
+            ? t("assistantUpgrades.rollback")
             : isPreviewReleaseChannel
-              ? "Update preview"
-              : "Update"
+              ? t("assistantUpgrades.updatePreview")
+              : t("assistantUpgrades.update")
         }
         onConfirm={handleUpgrade}
         onCancel={() => setShowConfirmation(false)}
@@ -429,6 +456,7 @@ export function LocalAssistantUpgrades({
   currentVersion,
   onUpgradeComplete,
 }: LocalAssistantUpgradesProps) {
+  const { t } = useTranslation("settings");
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { data: releases, isLoading: releasesLoading } = useQuery(
@@ -453,11 +481,11 @@ export function LocalAssistantUpgrades({
     try {
       const result = await upgradeCreate.upgrade();
       setSuccessMessage(
-        result.version
-          ? `Successfully updated to version ${result.version}.`
-          : `Successfully updated to version ${targetVersion ?? "latest"}.`,
+        t("assistantUpgrades.successUpdated", {
+          version: result.version ?? targetVersion ?? t("assistantUpgrades.latest"),
+        }),
       );
-      toast.success("Update complete. Your assistant is healthy.", {
+      toast.success(t("assistantUpgrades.toastUpdateComplete"), {
         id: "runtime-upgrade-complete",
         tone: "strong",
       });
@@ -466,7 +494,7 @@ export function LocalAssistantUpgrades({
       toast.error(
         err instanceof Error
           ? err.message
-          : "Failed to trigger update. Please try again.",
+          : t("assistantUpgrades.toastUpdateFailed"),
       );
     }
   };
@@ -476,7 +504,7 @@ export function LocalAssistantUpgrades({
       <div className="flex flex-col gap-4 md:grid md:grid-cols-[auto_minmax(0,1fr)] md:items-center md:gap-x-8 md:gap-y-4">
         <div className="flex flex-col gap-1 md:contents">
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
-            Current
+            {t("assistantUpgrades.current")}
           </span>
           <CurrentVersionValue
             version={currentVersion}
@@ -486,14 +514,14 @@ export function LocalAssistantUpgrades({
 
         <div className="flex flex-col gap-1 md:contents">
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
-            Update to
+            {t("assistantUpgrades.updateTo")}
           </span>
           <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
             {releasesLoading
-              ? "Loading..."
+              ? t("assistantUpgrades.loading")
               : targetVersion && latestRelease
                 ? releaseLabel(latestRelease, currentVersion, targetVersion)
-                : "No releases available"}
+                : t("assistantUpgrades.noReleases")}
           </span>
         </div>
       </div>
@@ -517,10 +545,10 @@ export function LocalAssistantUpgrades({
         }
       >
         {upgradeCreate.isPending
-          ? "Updating..."
+          ? t("assistantUpgrades.updating")
           : targetVersion
-            ? `Update to ${targetVersion}`
-            : "Update"}
+            ? t("assistantUpgrades.updateToVersion", { version: targetVersion })
+            : t("assistantUpgrades.update")}
       </Button>
 
       {successMessage && (
@@ -533,15 +561,17 @@ export function LocalAssistantUpgrades({
         targetVersion &&
         !releasesLoading && (
           <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
-            You are already on this version.
+            {t("assistantUpgrades.alreadyOnVersion")}
           </p>
         )}
 
       <ConfirmDialog
         open={showConfirmation}
-        title="Update assistant"
-        message={`Update to version ${targetVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`}
-        confirmLabel="Update"
+        title={t("assistantUpgrades.confirmUpdateTitle")}
+        message={t("assistantUpgrades.confirmUpdateMessage", {
+          version: targetVersion ?? t("assistantUpgrades.latest"),
+        })}
+        confirmLabel={t("assistantUpgrades.update")}
         onConfirm={handleUpgrade}
         onCancel={() => setShowConfirmation(false)}
       />

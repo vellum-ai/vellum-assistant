@@ -1,7 +1,7 @@
 import { expect, mock, test } from "bun:test";
 import type { IpcRenderer } from "electron";
 
-import { createBundleConfirmationBridge } from "./preload";
+import { createBundleConfirmBridge } from "./preload";
 
 test("creates the bundle confirmation IPC bridge", async () => {
   const invoke = mock(() => Promise.resolve(null));
@@ -12,7 +12,7 @@ test("creates the bundle confirmation IPC bridge", async () => {
     on: mock(() => undefined),
     off: mock(() => undefined),
   } as unknown as Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
-  const bridge = createBundleConfirmationBridge(ipc);
+  const bridge = createBundleConfirmBridge(ipc);
 
   await bridge.getData();
   bridge.respond(true);

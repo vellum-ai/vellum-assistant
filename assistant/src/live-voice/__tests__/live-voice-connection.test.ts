@@ -115,6 +115,31 @@ describe("createLiveVoiceConnection", () => {
     ]);
   });
 
+  test("drops a pending start when its transport closes mid-wait", async () => {
+    const { sessions } = installFakeManager((_session, ctx) =>
+      ctx.sessionId === "session-1"
+        ? { close: mock(() => new Promise<void>(() => {})) }
+        : {},
+    );
+    const first = createConnection();
+    const second = createConnection();
+
+    await first.connection.handleMessage(START_MESSAGE);
+    // The first transport goes away and its session begins a teardown that
+    // never finishes, so the next start has to wait for the slot.
+    first.connection.release();
+
+    const pending = second.connection.handleMessage(START_MESSAGE);
+    await Promise.resolve();
+    second.connection.release();
+    await pending;
+
+    // No session was built for the socket that is already gone.
+    expect(sessions).toHaveLength(1);
+    expect(second.connection.sessionId).toBeUndefined();
+    expect(second.frames).toEqual([]);
+  });
+
   test("assigns monotonically increasing sequence numbers", async () => {
     installFakeManager();
     const { connection, frames } = createConnection();
