@@ -161,6 +161,49 @@ describe("maybeDefaultSpeechToManaged", () => {
     expect(sttCatalogKeyForRole(stt, "telephony")).toBe("vellum");
   });
 
+  test("a language Flux has no model for keeps live voice on nova-3", async () => {
+    // Korean is outside Flux's ten-language roster, so the relay would reject
+    // the dial. Standing in with Flux hands the speaker a dead mic rather
+    // than a worse transcriber.
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: {
+          provider: "deepgram",
+          language: "ko",
+          providers: { deepgram: { model: "flux" } },
+        },
+        tts: { provider: "vellum" },
+      },
+    });
+
+    await maybeDefaultSpeechToManaged();
+
+    const stt = (readConfig().services as any).stt;
+    expect(stt.provider).toBe("vellum");
+    expect(stt.providers.vellum.model).toBe("nova-3");
+    expect(stt.roles).toBeUndefined();
+  });
+
+  test("a language Flux does serve still reaches the flux stand-in", async () => {
+    mockManagedSpeechAvailable = true;
+    writeConfig({
+      services: {
+        stt: {
+          provider: "deepgram",
+          language: "hi",
+          providers: { deepgram: { model: "flux" } },
+        },
+        tts: { provider: "vellum" },
+      },
+    });
+
+    await maybeDefaultSpeechToManaged();
+
+    const stt = (readConfig().services as any).stt;
+    expect(stt.roles.liveVoice).toEqual({ provider: "vellum", model: "flux" });
+  });
+
   test("a capability-preserving stand-in still writes the global provider", async () => {
     // Plain deepgram has no turn detection, so the stand-in is plain vellum,
     // which serves every role. That one belongs on the global, not a role.

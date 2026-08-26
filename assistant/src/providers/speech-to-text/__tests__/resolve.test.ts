@@ -1185,6 +1185,28 @@ describe("vellum-flux managed resolution", () => {
 
     await expect(resolveBatchTranscriber()).rejects.toThrow(SttError);
   });
+
+  test("refuses a language Flux has no model for, like BYOK Flux", async () => {
+    // The relay rejects the dial for a language outside Flux's roster, which
+    // reaches the caller as an unexplained param error. Refusing here names
+    // the reason where it can be read.
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum-flux", language: "ko" });
+
+    expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
+    expect(vellumFluxStreamCtorCalls).toHaveLength(0);
+  });
+
+  test("serves a language that is on the Flux roster", async () => {
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum-flux", language: "hi" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("vellum-flux");
+  });
 });
 
 describe("vellum managed resolution", () => {

@@ -703,6 +703,20 @@ async function createStreamingTranscriber(
       if (!(await vellumManagedSpeechAvailable())) {
         return null;
       }
+      // The relay maps the language onto a Flux model and refuses the dial
+      // when there is none, so a language outside Flux's roster fails as a
+      // relay param error the caller cannot explain. Refuse here instead, on
+      // the same rule the BYOK twin above applies, so the reason is named
+      // where it can be read.
+      const { fluxModelForLanguage: managedFluxModelForLanguage } =
+        await import("./deepgram-flux-frames.js");
+      if (managedFluxModelForLanguage(options.language) === null) {
+        log.warn(
+          { providerId, language: options.language },
+          "Managed Flux has no model for the configured language; refusing rather than transcribing it as another",
+        );
+        return null;
+      }
       const { resolveSpeechRelayConnection } =
         await import("./vellum-speech-relay-connection.js");
       const connection = await resolveSpeechRelayConnection();

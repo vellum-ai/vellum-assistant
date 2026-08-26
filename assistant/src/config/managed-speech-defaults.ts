@@ -18,6 +18,7 @@
 
 import { ttsSecretResolves } from "../calls/telephony-tts-capability.js";
 import { managedSpeechAvailable } from "../platform/managed-speech.js";
+import { fluxModelForLanguage } from "../providers/speech-to-text/deepgram-flux-frames.js";
 import {
   baseModelFamilyFor,
   getProviderEntry,
@@ -84,8 +85,18 @@ async function ttsByokCredentialsResolve(provider: string): Promise<boolean> {
  * changing how it takes turns, which reads as "Flux is no better" rather than
  * as a missing credential. Match the capability instead.
  */
-function managedStandInFor(configured: SttProviderId): SttProviderId {
-  return supportsProviderTurnDetection(configured) ? "vellum-flux" : "vellum";
+function managedStandInFor(
+  configured: SttProviderId,
+  language: string | undefined,
+): SttProviderId {
+  if (!supportsProviderTurnDetection(configured)) {
+    return "vellum";
+  }
+  // Flux has a model for ten languages. Outside them the relay rejects the
+  // dial outright, so standing in with it would hand the speaker a mic that
+  // does not work at all rather than one that detects turns less well. The
+  // language is the one the resolver will actually send.
+  return fluxModelForLanguage(language) === null ? "vellum" : "vellum-flux";
 }
 
 /** The speech providers a runtime path uses, after managed-speech defaulting. */
@@ -124,7 +135,7 @@ export async function resolveEffectiveSpeechProviders(
   const stt =
     !isManagedSttProvider(configuredStt) &&
     !(await sttByokCredentialResolves(configuredStt))
-      ? managedStandInFor(configuredStt)
+      ? managedStandInFor(configuredStt, services.stt.language)
       : configuredStt;
 
   const tts =
