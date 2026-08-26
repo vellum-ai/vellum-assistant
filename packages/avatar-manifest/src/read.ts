@@ -61,7 +61,7 @@ function readJsonFile(workspaceDir: string, filePath: string): unknown {
       return undefined;
     }
     const reopened = realpathSync(filePath);
-    if (!isWithin(realpathSync(workspaceDir), reopened)) {
+    if (!isWithin(realRoot, reopened)) {
       return undefined;
     }
     const reopenedStats = lstatSync(reopened);

@@ -59,8 +59,9 @@ function readAvatarImage(
 ): LockfileAssistantAvatarResult {
   let fd: number | undefined;
   try {
+    const realRoot = fs.realpathSync(workspaceDir);
     const realDir = fs.realpathSync(path.dirname(imagePath));
-    if (!isBeneath(fs.realpathSync(workspaceDir), realDir)) {
+    if (!isBeneath(realRoot, realDir)) {
       return { ok: false, error: "avatar image unreadable" };
     }
     const realPath = path.join(realDir, path.basename(imagePath));
@@ -85,7 +86,7 @@ function readAvatarImage(
     // (fresh realpath resolves outside) or is swapped back (the inside file
     // is a different inode than the opened fd). Node has no openat.
     const reopenedPath = fs.realpathSync(imagePath);
-    if (!isBeneath(fs.realpathSync(workspaceDir), reopenedPath)) {
+    if (!isBeneath(realRoot, reopenedPath)) {
       return { ok: false, error: "avatar image unreadable" };
     }
     const reopenedStats = fs.lstatSync(reopenedPath);

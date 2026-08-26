@@ -39,8 +39,11 @@ export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
   try {
     // Anchored on the real workspace root: a data/avatar symlink pointing at
     // another workspace resolves outside it and is rejected.
+    // The root is resolved once and reused after the open so a workspace
+    // pathname swapped for a symlink mid-read cannot re-anchor the check.
+    const realRoot = realpathSync(getWorkspaceDir());
     const realDir = realpathSync(dirname(rasterPath));
-    if (!isWithin(realpathSync(getWorkspaceDir()), realDir)) {
+    if (!isWithin(realRoot, realDir)) {
       return null;
     }
     const realPath = join(realDir, basename(rasterPath));
@@ -63,7 +66,7 @@ export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
     // (fresh realpath resolves outside) or is swapped back (the inside file
     // is a different inode than the opened fd). Node has no openat.
     const reopenedPath = realpathSync(rasterPath);
-    if (!isWithin(realpathSync(getWorkspaceDir()), reopenedPath)) {
+    if (!isWithin(realRoot, reopenedPath)) {
       return null;
     }
     const reopenedStats = lstatSync(reopenedPath);
