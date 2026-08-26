@@ -31220,6 +31220,10 @@ paths:
                           enum:
                             - manual
                             - auto
+                        modelFamilies:
+                          type: array
+                          items:
+                            type: string
                         credentialsGuide:
                           type: string
                       required:

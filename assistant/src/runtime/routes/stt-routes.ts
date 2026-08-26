@@ -13,7 +13,10 @@ import { extname, join } from "node:path";
 
 import { z } from "zod";
 
-import { listProviderEntries } from "../../providers/speech-to-text/provider-catalog.js";
+import {
+  listProviderEntries,
+  listProviderModelFamilies,
+} from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
 import type { SttRole } from "../../stt/roles.js";
@@ -269,6 +272,11 @@ function handleListProviders() {
   const providers = entries.map((e) => ({
     id: e.id,
     displayName: e.displayName,
+    // The families selectable through `services.stt.providers.<id>.model`.
+    // Variant rows are filtered out above because a provider picker must not
+    // offer them as providers, which leaves this the only way a client can
+    // learn a family exists at all.
+    modelFamilies: listProviderModelFamilies(e.id),
     subtitle: e.subtitle,
     setupMode: e.setupMode,
     setupHint: e.setupHint,
@@ -457,6 +465,8 @@ export const ROUTES: RouteDefinition[] = [
           conversationStreamingMode: z.string().optional(),
           // Optional on the wire so older generated clients keep validating.
           languageSelection: z.enum(["manual", "auto"]).optional(),
+          // Optional on the wire so older generated clients keep validating.
+          modelFamilies: z.array(z.string()).optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),
