@@ -11,8 +11,8 @@ import {
   bucketTurnAge,
   recordDiagnostic,
   resolvePlatformTag,
-  turnStartMsFromId,
 } from "@/lib/diagnostics";
+import { turnStartMsFromId } from "@/domains/chat/utils/send-message-utils";
 import { summarizeRuntimeMessages } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
@@ -277,10 +277,17 @@ export function useMessageReconciliation({
       snapshotConversationId: string,
       serverSeq: number | null,
       serverProcessing: boolean | undefined,
-      trigger: ReconcileTrigger,
-      authoritative = false,
-      issuedGeneration: number = getSeqGeneration(),
+      opts: {
+        trigger: ReconcileTrigger;
+        authoritative?: boolean;
+        issuedGeneration?: number;
+      },
     ): ReconcileActiveConversationResult => {
+      const {
+        trigger,
+        authoritative = false,
+        issuedGeneration = getSeqGeneration(),
+      } = opts;
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(
           serverMessages,
@@ -453,9 +460,7 @@ export function useMessageReconciliation({
           ctx.conversationId,
           serverSeq,
           serverProcessing,
-          trigger,
-          authoritative,
-          issuedGeneration,
+          { trigger, authoritative, issuedGeneration },
         );
       } catch (err) {
         // Re-throw so callers that await the result (e.g. the
@@ -544,10 +549,8 @@ export function useMessageReconciliation({
               ctx.conversationId,
               serverSeq,
               serverProcessing,
-              "poll",
               // Poll-loop reconciles are never authoritative.
-              false,
-              issuedGeneration,
+              { trigger: "poll", authoritative: false, issuedGeneration },
             );
 
             if (changed) {
