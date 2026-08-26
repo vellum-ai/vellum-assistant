@@ -102,6 +102,20 @@ Platform tokens (`platform-token`), device IDs (`device-id`), and guardian token
 
 Paired guardian credentials stay in the trusted host. The renderer sends paired traffic to `/assistant/__gateway-paired/<assistantId>/*` without a bearer. The Electron main process, CLI web host, or Vite development host resolves the paired entry, removes any renderer-provided `Authorization` header, reads or refreshes the guardian token, and injects it only on the remote gateway hop. Renderer-facing guardian-token endpoints reject paired assistant IDs. Packaged Electron gates the custom-protocol route through main-process `WebRequest` frame identity because Chromium omits Origin, Referer, and Fetch Metadata from the `GlobalRequest` delivered to custom protocol handlers.
 
+### Device pairing
+
+Connecting a second machine, a phone, or a tablet to a self-hosted assistant exposes exactly two artifacts. The QR code is a rendering of one of them, not a third. The user-facing walkthrough is [`docs/self-hosted-phone.md`](docs/self-hosted-phone.md).
+
+**The pairing link** is the forward direction. `vellum pair` and the desktop **Settings → General → Pair a device** card both mint a remote-web challenge on the assistant's own gateway over loopback and approve it on the spot, because running either one on the host machine _is_ the proof of local presence. `buildRemoteWebPairingUrl` composes the result as `<publicBaseUrl>/assistant/pair#device_code=<code>`, carrying the code in the fragment so it never reaches the wire. The QR code is that same link rendered as pixels: scanning it, opening it in a browser, and pasting it into `vellum connect import` are three renderings of one artifact.
+
+**The approval code** is the reverse direction, for a device that cannot reach the host UI. Handed a bare `https://host` address instead of a link, the importing device mints its own challenge, displays the short `ABCD-EFGH` user code, and polls. The host approves it with `vellum pair --web-approve <code>` or from the pending-requests list on the Pair a device card. `POST /v1/remote-web/pairing-verification` and the three `/v1/remote-web/pairing-requests` routes are loopback-gated, so approving means being on the host.
+
+Every surface reads pasted input through `parsePairingAddress` (`packages/service-contracts/src/remote-web-pairing.ts`), which accepts either form, collapses a pair-page URL to its base, and refuses loopback, private-network IP literals, plain http, and tunnel-vendor websites. Hosts POST to whatever address they are handed, so those refusals are the SSRF containment for the whole flow.
+
+The exchange runs in the trusted host, never the renderer. `pairingStart` / `pairingPoll` / `pairingCancel` (`packages/local-mode/src/pair.ts`) hold the device code, the client-generated device id, and the challenge TTL in an in-memory map keyed by an opaque handle, handing callers only `{ handle, userCode, expiresAt, intervalSeconds }`. That keeps the device code off the IPC boundary and lets the CLI, the Electron main process, and the Vite development host share one implementation.
+
+`POST /v1/remote-web/pairing-token` branches on `deviceId`. A browser omits it and receives its refresh token as an `HttpOnly` cookie scoped to the refresh path. A host that sends one receives a device-bound, per-device revocable credential whose `refreshToken` comes back in the response body with no `Set-Cookie`, which is what lets a lockfile writer persist it; the `platform` it declares (`cli`, `desktop`, `ios`, or `android`) is what the host's paired-devices list renders. This grants no new authority, since holding an approved device code already confers full pairing rights. A gateway predating the branch ignores the unknown field and returns no body refresh token, so the pairing registers access-only and warns that it will expire.
+
 ### Backwards compatibility
 
 Backwards compatibility lives entirely in the read path — no on-disk migration is performed.

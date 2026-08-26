@@ -3,8 +3,8 @@
 Reach a self-hosted Vellum assistant from your other devices — a phone, a
 tablet, another computer — with no dependency on hosted Vellum. Everything
 runs on your own machine; each device connects straight to it over an HTTPS
-address you control, and a QR code (or its printed URL) pairs a device in a
-single scan.
+address you control, and one pairing link connects a device in a single step:
+scan its QR code, open the link, or paste it into the CLI.
 
 Connect from any browser (on phones and tablets, add it to your home screen
 for a full-screen PWA) or from the native **Vellum iOS app** pointed at your
@@ -220,9 +220,11 @@ vellum pair --url https://your-machine.your-tailnet.ts.net
 The advertised URL must be public HTTPS — e.g.
 `https://<machine>.<tailnet>.ts.net` (Tailscale) or
 `https://<random>.trycloudflare.com` (a Cloudflare quick tunnel); the command
-refuses loopback and plain-HTTP addresses. It mints a pairing challenge and
-approves it locally (running it on the host is the proof of presence), then
-renders a QR code and the same URL as text in your terminal.
+refuses loopback, private-network, plain-HTTP, and tunnel-provider website
+addresses. It mints a pairing challenge and approves it locally (running it on
+the host is the proof of presence), then prints the pairing link and the same
+link rendered as a QR code. The QR and the printed link are one artifact in two
+renderings.
 
 On the device you're pairing:
 
@@ -230,9 +232,10 @@ On the device you're pairing:
    it's on any network (for a public tunnel).
 2. On a phone or tablet, open the **system camera** and point it at the QR
    code, then tap the notification to open the pairing page. On a device
-   without a camera (another computer), open the URL printed under the QR in
-   its browser instead, or run `vellum connect import "<that URL>"` there to
-   pair the CLI itself. The result is the same. On iOS and Android the page
+   without a camera (another computer), open the link printed under the QR in
+   its browser instead, or run `vellum connect import "<that link>"` there to
+   pair the CLI itself. `vellum pair` prints that exact command under the link.
+   The result is the same. On iOS and Android the page
    first offers
    **Open in the Vellum app** or **Continue in this browser**; tap
    **Open in the Vellum app** to finish pairing in the native app, or
@@ -244,13 +247,17 @@ On the device you're pairing:
 **Verify:** after scanning, the pairing page shows **Connected** — pairing is
 already approved, so there's nothing to confirm — and your assistant loads.
 
-The pairing session survives assistant restarts via a refresh cookie, so you
-stay signed in. Pairing codes are **single-use and expire after 10 minutes**;
-run `vellum pair` again to add another device or replace a lapsed code.
+The pairing renews itself, so you stay signed in across assistant restarts: a
+browser holds an HttpOnly refresh cookie, and a device that completes the
+exchange itself gets a refresh credential bound to that device. Pairing codes
+are **single-use and expire after 10 minutes**; run `vellum pair` again to add
+another device or replace a lapsed code. Each pairing is a device of its own on
+the host, listed by `vellum devices` and revocable there without disturbing the
+others.
 
 **Prefer a UI over the terminal?** The desktop app has the same flow as a
-card: **Settings → General → Pair a device**. Generate the QR there and scan
-it the same way.
+card: **Settings → General → Pair a device**. Generate the link there and scan
+its QR the same way.
 
 The card doesn't assume your tunnel is up; it checks. A status row reports
 whether the saved address is answering right now and serving _this_
@@ -269,6 +276,30 @@ reuse, the field leads instead and the card shows the same `vellum tunnel`
 instructions as [Step 3](#3-put-an-https-address-in-front). The field rejects
 lookalike tunnel-provider website URLs, and the card names the assistant it
 pairs.
+
+**No link handy?** Pairing runs the other way too, which helps when the device
+you are pairing is the one in front of you and the host is a machine you will
+get to in a moment. Give `vellum connect import` the assistant's plain address
+instead of a link:
+
+```bash
+vellum connect import https://your-machine.your-tailnet.ts.net
+```
+
+That device mints its own pairing code, prints it, and waits:
+
+```
+Approve this pairing on the assistant's machine:
+
+  Code: ABCD-EFGH
+  Run:  vellum pair --web-approve ABCD-EFGH
+```
+
+Run that command on the host and the import finishes on the next poll. The
+**Pair a device** card approves the same codes without the terminal: pending
+requests appear there with their code, so you can check it against what the
+waiting device shows and click **Approve**. Codes expire in 10 minutes like
+any other, and Ctrl-C on the waiting device cancels the attempt.
 
 ## 5. Using the Vellum iOS app
 

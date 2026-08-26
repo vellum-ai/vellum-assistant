@@ -9,6 +9,7 @@
  *        `gateway/src/remote-web/pairing-challenge-store.ts`)
  *   - `POST /v1/remote-web/pairing-verification`  approve by user code
  *       (`gateway/src/http/routes/remote-web-pairing-verification.ts`)
+ *       (loopback-only)
  *   - `POST /v1/remote-web/pairing-token`         poll + exchange device code
  *       (`gateway/src/http/routes/remote-web-pairing-token.ts`): a browser
  *        receives its refresh token as an `HttpOnly` cookie; a request that
@@ -21,7 +22,8 @@
  *       (loopback-only)
  *
  * These shapes mirror those handlers' request/response bodies exactly so the
- * gateway, the `vellum pair` CLI (`cli/src/commands/pair.ts`), and the web SPA
+ * gateway, the `vellum pair` CLI (`cli/src/commands/pair.ts`), the host-side
+ * pairing sessions (`packages/local-mode/src/pair.ts`), and the web SPA
  * (`clients/web/src/lib/auth/remote-gateway-session.ts`) share one definition
  * and cannot silently drift.
  *
