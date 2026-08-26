@@ -233,7 +233,7 @@ export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   watching: 195,
   // Two labelled controls, both drawn: this row is a question waiting on an
   // answer rather than a set of ways in, so its words are not the pointer's to
-  // reveal. Wider than the idle row it replaces for exactly that reason.
+  // reveal. That is what makes it wider than the idle row it stands in for.
   summary: 264,
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
@@ -1275,22 +1275,19 @@ function Avatar({
  * saying. It is also the one that comes and goes: it is behind a flag of its
  * own, so the row is Talk and Type alone for anyone who does not have it.
  *
- * **The words are drawn one at a time, under the pointer.** This is the row a
- * user meets by resting a hand near the mascot, which means it is drawn far
- * more often than it is acted on, and three verbs spelled out at once made it a
- * sentence being read at someone doing something else. Teach was the loudest of
- * the three by being the least wanted: the flagged, occasional way in, drawn at
- * the same weight as the two the row exists for.
+ * **The words are drawn one at a time, under the pointer** (`revealLabel`).
+ * This is the row a user meets by resting a hand near the mascot, so it is
+ * drawn far more often than it is acted on, and three verbs spelled out at once
+ * read as a sentence aimed at someone doing something else. Teach is the
+ * loudest of the three for being the least wanted: the flagged, occasional way
+ * in, at the same weight as the two the row exists for.
  *
- * So the row rests as icons and each control says its own name when the pointer
- * reaches it (`revealLabel`). The pill measures its contents, so it is a third
- * of its old width at rest and grows by one word at a time, which is also what
- * keeps the reveal legible: exactly one word is ever on the surface, and it is
- * the one the hand is on.
+ * Resting as icons keeps the pill to a third of the width its labels want, and
+ * revealing one at a time is what keeps the reveal legible: exactly one word is
+ * ever on the surface, and it is the one the hand is on.
  *
- * Nothing loses its name. `aria-label` was always the accessible name and is
- * untouched, so a reader gets what it always got; what changed is only when a
- * looking user is shown it.
+ * `aria-label` carries the name in every state, so a reader gets all three
+ * regardless of where the pointer is.
  */
 function IdleBody({
   spotlight,

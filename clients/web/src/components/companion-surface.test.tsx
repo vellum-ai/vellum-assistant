@@ -457,8 +457,8 @@ describe("the companion surface's anchor in the canvas", () => {
  * mouse-move rather than from `mouseenter`; CSS is the one hover mechanism that
  * is known to work there, since the held-down background on these same buttons
  * has always run on it. Nothing here renders Tailwind, so a case that fired a
- * synthetic hover and read the text back would pass against a stylesheet that
- * had been deleted. What is worth holding instead is the coupling: the word is
+ * synthetic hover and read the text back passes with the stylesheet missing
+ * entirely. What is worth holding instead is the coupling: the word is
  * marked hidden-until-hovered, the button is the `group` that variant resolves
  * against, and the two cases that pin it open still pin it open.
  */
