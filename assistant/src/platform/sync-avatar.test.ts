@@ -31,6 +31,7 @@ let mockClient: {
 } | null;
 let mockResvgAvailable = false;
 let mockRenderedPng = Buffer.from("small");
+let lastResvgSvg = "";
 let rasterCalls = 0;
 
 mock.module("./client.js", () => ({
@@ -56,6 +57,9 @@ mock.module("../avatar/resvg-lazy.js", () => ({
   isResvgAvailable: () => mockResvgAvailable,
   getResvg: () =>
     class {
+      constructor(svg: string) {
+        lastResvgSvg = svg;
+      }
       render() {
         return { asPng: () => mockRenderedPng };
       }
@@ -68,8 +72,18 @@ import {
   syncAvatarToPlatform,
 } from "./sync-avatar.js";
 
-/** Just over the 256 KB upload cap. */
-const OVERSIZED = Buffer.alloc(256 * 1024 + 1);
+/** Just over the 256 KB upload cap, with a PNG signature. */
+const OVERSIZED = withMagic([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const OVERSIZED_JPEG = withMagic([0xff, 0xd8, 0xff, 0xe0]);
+const OVERSIZED_WEBP = withMagic([
+  0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+]);
+
+function withMagic(magic: number[]): Buffer<ArrayBuffer> {
+  const buf = Buffer.alloc(256 * 1024 + 1);
+  Buffer.from(magic).copy(buf);
+  return buf;
+}
 
 const dir = mkdtempSync(join(tmpdir(), "sync-avatar-test-"));
 const workspaceDir = join(dir, "workspace");
@@ -276,6 +290,32 @@ describe("syncAvatarToPlatform", () => {
     expect(patches[0].body.avatar_base64).toBe(
       Buffer.from("tiny").toString("base64"),
     );
+  });
+
+  test("downscales an oversized JPEG through resvg", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("tiny");
+    mockRasterPath = writeRaster("big.png", OVERSIZED_JPEG);
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body.avatar_base64).toBe(
+      Buffer.from("tiny").toString("base64"),
+    );
+    expect(lastResvgSvg).toContain('href="data:image/jpeg;base64,');
+  });
+
+  test("skips an oversized WebP instead of uploading a blank render", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("tiny");
+    lastResvgSvg = "";
+    mockRasterPath = writeRaster("big.png", OVERSIZED_WEBP);
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(0);
+    expect(lastResvgSvg).toBe("");
   });
 
   test("skips when the downscaled raster still exceeds the cap", async () => {

@@ -30,6 +30,7 @@ import {
 } from "../avatar/avatar-manifest.js";
 import { ensureAvatarRasterPath } from "../avatar/ensure-raster.js";
 import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
+import { detectMediaType } from "../tools/shared/filesystem/image-read.js";
 import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
 import {
@@ -45,6 +46,12 @@ const log = getLogger("sync-avatar");
 const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
 const DOWNSCALE_PX = 128;
 const NONE_KEY = "none";
+/** Raster formats resvg decodes inside an `<image>`; anything else renders blank. */
+const RESVG_DECODABLE_TYPES: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+]);
 const SYNC_STATE_SUBPATH = ["platform-sync", "avatar.json"];
 export const AVATAR_SYNC_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -134,11 +141,19 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   };
 }
 
-function downscalePng(png: Buffer): Buffer | null {
+function downscaleRaster(bytes: Buffer): Buffer | null {
   if (!isResvgAvailable()) {
     return null;
   }
-  const href = `data:image/png;base64,${png.toString("base64")}`;
+  const mediaType = detectMediaType(bytes);
+  if (mediaType === null || !RESVG_DECODABLE_TYPES.has(mediaType)) {
+    log.warn(
+      { mediaType },
+      "Avatar raster format is not decodable by resvg; skipping downscale",
+    );
+    return null;
+  }
+  const href = `data:${mediaType};base64,${bytes.toString("base64")}`;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
     `width="${DOWNSCALE_PX}" height="${DOWNSCALE_PX}" viewBox="0 0 ${DOWNSCALE_PX} ${DOWNSCALE_PX}">` +
@@ -154,7 +169,7 @@ function downscalePng(png: Buffer): Buffer | null {
 function encodeForUpload(bytes: Buffer): string | undefined {
   let upload: Buffer | null = bytes;
   if (upload.length > MAX_AVATAR_UPLOAD_BYTES) {
-    upload = downscalePng(upload);
+    upload = downscaleRaster(upload);
   }
   if (!upload || upload.length > MAX_AVATAR_UPLOAD_BYTES) {
     return undefined;

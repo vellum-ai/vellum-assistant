@@ -34,6 +34,33 @@ describe("parseAvatarManifest", () => {
     });
   });
 
+  test("normalizes an unknown source to null", () => {
+    expect(
+      parseAvatarManifest({ kind: "image", image, source: "unknown" }),
+    ).toEqual({ kind: "image", traits: null, source: null, image });
+    expect(parseAvatarManifest({ kind: "none", source: 7 })).toEqual({
+      kind: "none",
+      traits: null,
+      source: null,
+      image: null,
+    });
+  });
+
+  test("drops payload irrelevant to the kind", () => {
+    expect(
+      parseAvatarManifest({ kind: "image", image, traits: { bodyShape: 1 } }),
+    ).toEqual({ kind: "image", traits: null, source: null, image });
+    expect(
+      parseAvatarManifest({ kind: "character", traits, image: "stale" }),
+    ).toEqual({ kind: "character", traits, source: null, image: null });
+    expect(parseAvatarManifest({ kind: "none", traits, image })).toEqual({
+      kind: "none",
+      traits: null,
+      source: null,
+      image: null,
+    });
+  });
+
   test.each([
     ["non-object", "nope"],
     ["missing kind", {}],

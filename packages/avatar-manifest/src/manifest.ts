@@ -26,6 +26,12 @@ const AVATAR_KINDS: ReadonlySet<string> = new Set<AvatarKind>([
   "none",
 ]);
 
+const AVATAR_SOURCES: ReadonlySet<string> = new Set<AvatarSource>([
+  "builder",
+  "upload",
+  "ai",
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
 }
@@ -57,7 +63,9 @@ function isValidAvatarImageMeta(value: unknown): value is AvatarImageMeta {
  * Validates a parsed `avatar.json`. Returns `null` for a non-object, an
  * invalid or missing `kind`, or a valid `kind` whose per-kind payload is
  * missing or malformed, so callers fall back to legacy derivation instead
- * of surfacing an avatar with null traits/image.
+ * of surfacing an avatar with null traits/image. An unknown `source` and any
+ * payload irrelevant to the kind normalize to `null` rather than passing
+ * through, so the result always satisfies the wire shape.
  */
 export function parseAvatarManifest(value: unknown): AvatarState | null {
   if (!isRecord(value)) {
@@ -67,18 +75,23 @@ export function parseAvatarManifest(value: unknown): AvatarState | null {
     return null;
   }
   const kind = value.kind as AvatarKind;
-  if (kind === "character" && !isValidCharacterTraits(value.traits)) {
-    return null;
+  const source =
+    typeof value.source === "string" && AVATAR_SOURCES.has(value.source)
+      ? (value.source as AvatarSource)
+      : null;
+  if (kind === "character") {
+    if (!isValidCharacterTraits(value.traits)) {
+      return null;
+    }
+    return { kind, traits: value.traits, source, image: null };
   }
-  if (kind === "image" && !isValidAvatarImageMeta(value.image)) {
-    return null;
+  if (kind === "image") {
+    if (!isValidAvatarImageMeta(value.image)) {
+      return null;
+    }
+    return { kind, traits: null, source, image: value.image };
   }
-  return {
-    kind,
-    traits: (value.traits as CharacterTraits | null) ?? null,
-    source: (value.source as AvatarSource | null) ?? null,
-    image: (value.image as AvatarImageMeta | null) ?? null,
-  };
+  return { kind, traits: null, source, image: null };
 }
 
 type LegacyAvatarDerivation =
