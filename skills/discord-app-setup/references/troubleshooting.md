@@ -37,7 +37,7 @@ The bot only acts on messages that mention it, so an admitted message always car
 
 ### The bot is online but never replies
 
-This is the expected state of a fresh setup, not a fault. The bot acts only when it is @mentioned in a channel on the allow-list, and that list starts empty.
+The bot acts only when it is @mentioned in a channel its role can see, so work through what "see" and "mention" each require:
 
 - Check the bot's role has **View Channel** on that channel in Discord's channel settings
 - Confirm the message @mentions the bot: it ignores unmentioned messages in a server

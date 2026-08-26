@@ -170,13 +170,17 @@ Discord connected.
 Connected: {bot_username} (application: {application_name})
 Intents: Guilds, Guild Messages, Direct Messages (no privileged intents)
 
-Ready. Mention the bot in any channel it can see and it will reply.
+Ready. Mention the bot in any channel it can see and it will reply
+(for senders its admission policy accepts; see below when verification
+was skipped).
 ```
 
 Then tell the user how it is scoped:
 
 > In a server the bot replies when it is **@mentioned in a channel it can see**. Which channels those are is Discord's own setting, not ours: a bot reads a channel only where its role has **View Channel**, exactly as it would for a person.
->
+
+If identity verification was skipped in Step 6, also say so plainly: the default Who-can-message policy admits trusted contacts, so until the user verifies (or the guardian widens the Discord policy in Channels), the bot will see mentions but decline to answer them. Do not present a skipped verification as a fully working setup.
+
 > To keep it out of a channel, deny **View Channel** to the bot's role there, or move the bot's role so it does not have access to a category. To let it in, grant the same permission. Discord's channel settings are the one place that lives, so there is nothing to configure on our side.
 >
 > DMs are separate: the bot can be messaged directly, because a DM is already addressed to it alone. Who it answers there is governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
