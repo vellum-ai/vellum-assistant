@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 /** Path segments of the avatar directory below the workspace directory. */
-export const AVATAR_DIR_SEGMENTS: readonly string[] = ["data", "avatar"];
+const AVATAR_DIR_SEGMENTS: readonly string[] = ["data", "avatar"];
 
 /** Avatar state manifest. */
 export const AVATAR_MANIFEST_FILENAME = "avatar.json";

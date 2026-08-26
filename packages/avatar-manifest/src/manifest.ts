@@ -35,9 +35,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /** Narrows an unknown value to valid CharacterTraits (presence check only). */
-export function isValidCharacterTraits(
-  value: unknown,
-): value is CharacterTraits {
+function isValidCharacterTraits(value: unknown): value is CharacterTraits {
   return (
     isRecord(value) &&
     isNonEmptyString(value.bodyShape) &&
@@ -47,9 +45,7 @@ export function isValidCharacterTraits(
 }
 
 /** Narrows an unknown value to valid AvatarImageMeta (presence check only). */
-export function isValidAvatarImageMeta(
-  value: unknown,
-): value is AvatarImageMeta {
+function isValidAvatarImageMeta(value: unknown): value is AvatarImageMeta {
   return (
     isRecord(value) &&
     isNonEmptyString(value.updatedAt) &&
@@ -85,7 +81,7 @@ export function parseAvatarManifest(value: unknown): AvatarState | null {
   };
 }
 
-export type LegacyAvatarDerivation =
+type LegacyAvatarDerivation =
   | { kind: "character"; traits: CharacterTraits }
   | { kind: "image" }
   | { kind: "none" };
@@ -106,7 +102,7 @@ export function deriveAvatarFromLegacyFiles(input: {
   return input.hasImage ? { kind: "image" } : { kind: "none" };
 }
 
-export type ResolvedAvatar =
+type ResolvedAvatar =
   | { kind: "character"; traits: CharacterTraits }
   | { kind: "image"; image: AvatarImageMeta | null }
   | { kind: "none" };

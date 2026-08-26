@@ -109,8 +109,8 @@ export type LocalRevokeDeviceResult =
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
- * covers every "nothing to show" case (no entry, no workspace, no avatar,
- * unreadable files); only malformed arguments produce `ok: false`.
+ * is a conclusive absence (no entry, no workspace, no avatar); malformed
+ * arguments and files the host cannot serve produce `ok: false`.
  */
 export type LocalAssistantAvatar =
   | {

@@ -9,34 +9,37 @@ import {
 import { resolveLockfileInstanceDir } from "./status";
 
 /**
- * A lockfile assistant's avatar as read off its workspace by a host. `null`
- * covers every "nothing to show" case (no entry, no workspace, no avatar,
- * unreadable or oversized files). Structurally identical to
+ * A lockfile assistant's avatar as read off its workspace by a host.
+ * `{ ok: true, avatar: null }` is a conclusive absence (no entry, no
+ * workspace, no avatar); a file the manifest points at but the host cannot
+ * serve (unreadable, oversized) is `ok: false` so callers keep their
+ * last-seen avatar. Structurally identical to
  * `LocalReadAssistantAvatarResult` in `@vellumai/ipc-contract`, which this
  * package cannot depend on; hosts return it straight over IPC/HTTP.
  */
-export type LockfileAssistantAvatar =
+type LockfileAssistantAvatar =
   | { kind: "character"; traits: CharacterTraits }
   | { kind: "image"; imageBase64: string };
 
-export type LockfileAssistantAvatarResult =
+type LockfileAssistantAvatarResult =
   | { ok: true; avatar: LockfileAssistantAvatar | null }
   | { ok: false; error: string };
 
-export const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const AVATAR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
-function readAvatarImage(imagePath: string): LockfileAssistantAvatar | null {
+function readAvatarImage(imagePath: string): LockfileAssistantAvatarResult {
   try {
     const stats = fs.statSync(imagePath);
-    if (!stats.isFile() || stats.size > AVATAR_IMAGE_MAX_BYTES) {
-      return null;
+    if (!stats.isFile()) {
+      return { ok: false, error: "avatar image unreadable" };
     }
-    return {
-      kind: "image",
-      imageBase64: fs.readFileSync(imagePath).toString("base64"),
-    };
+    if (stats.size > AVATAR_IMAGE_MAX_BYTES) {
+      return { ok: false, error: "avatar image too large" };
+    }
+    const imageBase64 = fs.readFileSync(imagePath).toString("base64");
+    return { ok: true, avatar: { kind: "image", imageBase64 } };
   } catch {
-    return null;
+    return { ok: false, error: "avatar image unreadable" };
   }
 }
 
@@ -66,7 +69,7 @@ export function readLockfileAssistantAvatar(
     case "character":
       return { ok: true, avatar: { kind: "character", traits: avatar.traits } };
     case "image":
-      return { ok: true, avatar: readAvatarImage(avatar.imagePath) };
+      return readAvatarImage(avatar.imagePath);
     case "none":
       return { ok: true, avatar: null };
   }

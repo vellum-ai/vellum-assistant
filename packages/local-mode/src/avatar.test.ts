@@ -3,12 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { AVATAR_IMAGE_MAX_BYTES, readLockfileAssistantAvatar } from "./avatar";
+import { readLockfileAssistantAvatar } from "./avatar";
 
 describe("readLockfileAssistantAvatar", () => {
   const traits = { bodyShape: "round", eyeStyle: "dot", color: "#abc" };
   const imageMeta = { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" };
   const png = Buffer.from("89504e470d0a1a0a", "hex");
+  const imageMaxBytes = 5 * 1024 * 1024;
   let tempDir: string;
   let lockfilePath: string;
   let instanceDir: string;
@@ -171,17 +172,14 @@ describe("readLockfileAssistantAvatar", () => {
     });
   });
 
-  test("oversized image yields null", () => {
+  test("oversized image is a failure, not a conclusive none", () => {
     writeAvatarFile(
       "avatar.json",
       JSON.stringify({ kind: "image", image: imageMeta }),
     );
-    writeAvatarFile(
-      "avatar-image.png",
-      Buffer.alloc(AVATAR_IMAGE_MAX_BYTES + 1),
-    );
+    writeAvatarFile("avatar-image.png", Buffer.alloc(imageMaxBytes + 1));
 
-    expect(read()).toEqual({ ok: true, avatar: null });
+    expect(read()).toEqual({ ok: false, error: "avatar image too large" });
   });
 
   test("image at exactly the cap is served", () => {
@@ -189,7 +187,7 @@ describe("readLockfileAssistantAvatar", () => {
       "avatar.json",
       JSON.stringify({ kind: "image", image: imageMeta }),
     );
-    const image = Buffer.alloc(AVATAR_IMAGE_MAX_BYTES);
+    const image = Buffer.alloc(imageMaxBytes);
     writeAvatarFile("avatar-image.png", image);
 
     expect(read()).toEqual({
@@ -198,14 +196,23 @@ describe("readLockfileAssistantAvatar", () => {
     });
   });
 
-  test("manifest image whose PNG is a directory yields null", () => {
+  test("manifest image whose PNG is a directory is a failure", () => {
     writeAvatarFile(
       "avatar.json",
       JSON.stringify({ kind: "image", image: imageMeta }),
     );
     fs.mkdirSync(path.join(avatarDir, "avatar-image.png"));
 
-    expect(read()).toEqual({ ok: true, avatar: null });
+    expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
+  });
+
+  test("manifest image whose PNG is missing is a failure", () => {
+    writeAvatarFile(
+      "avatar.json",
+      JSON.stringify({ kind: "image", image: imageMeta }),
+    );
+
+    expect(read()).toEqual({ ok: false, error: "avatar image unreadable" });
   });
 
   test("malformed manifest falls back to legacy inference", () => {
