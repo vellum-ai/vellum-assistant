@@ -13,13 +13,6 @@
  * `AssistantSideMenu`.
  */
 
-// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
-// hold on Linux CI runners too.
-Object.defineProperty(navigator, "platform", {
-  value: "MacIntel",
-  configurable: true,
-});
-
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -27,6 +20,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as reactRouter from "react-router";
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
 import {
   SIDEBAR_SECTION_MAX_HEIGHT,
   SIDEBAR_STACK_GAP,
@@ -135,16 +134,19 @@ mock.module(
    own QueryClient per render, so a test has nothing to seed. */
 let pinnedAppsFixture: AppSummary[] = [];
 
-mock.module("@/hooks/use-pinned-apps", (): Partial<typeof UsePinnedApps> => ({
-  usePinnedApps: () => ({
-    pinnedApps: pinnedAppsFixture,
-    pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
-    source: "daemon" as const,
-    togglePin: () => {},
-    unpin: () => {},
-    setColor: () => {},
+mock.module(
+  "@/hooks/use-pinned-apps",
+  (): Partial<typeof UsePinnedApps> => ({
+    usePinnedApps: () => ({
+      pinnedApps: pinnedAppsFixture,
+      pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
+      source: "daemon" as const,
+      togglePin: () => {},
+      unpin: () => {},
+      setColor: () => {},
+    }),
   }),
-}));
+);
 
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
@@ -981,9 +983,7 @@ describe("AssistantSideMenu · overlay section card geometry", () => {
   test("the overlay card and its header carry the 44px pill geometry", () => {
     const container = document.createElement("div");
     container.innerHTML = renderMenu({
-      conversations: [
-        makeConversation({ conversationId: "a", title: "Alpha" }),
-      ],
+      conversations: [makeConversation({ conversationId: "a", title: "Alpha" })],
       variant: "overlay",
     });
 

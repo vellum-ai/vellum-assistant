@@ -7,7 +7,6 @@ Object.defineProperty(navigator, "platform", {
   value: "MacIntel",
   configurable: true,
 });
-
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 const isMobileRef = { value: false };
