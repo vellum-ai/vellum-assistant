@@ -132,7 +132,8 @@ function psQuote(value: string): string {
 async function downloadBun(installDir: string): Promise<string> {
   const win = isWindows();
   const os = win ? "windows" : platform();
-  const cpu = arch() === "arm64" ? "aarch64" : arch();
+  // Bun ships no Windows ARM64 build; the x64 one runs under emulation.
+  const cpu = win ? "x64" : arch() === "arm64" ? "aarch64" : arch();
   const target = `${os}-${cpu}`;
   const url = `https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-${target}.zip`;
 
