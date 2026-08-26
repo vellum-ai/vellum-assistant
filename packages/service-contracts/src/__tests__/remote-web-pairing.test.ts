@@ -150,7 +150,6 @@ describe("resolvePublicBaseUrl private-address containment", () => {
   });
 
   test.each([
-    "https://0.0.0.0",
     "https://10.0.0.1",
     "https://169.254.169.254",
     "https://172.20.3.4",
@@ -163,6 +162,22 @@ describe("resolvePublicBaseUrl private-address containment", () => {
     expect(resolvePublicBaseUrl(raw)).toEqual({
       ok: false,
       reason: "private-address",
+    });
+  });
+
+  // A wildcard bind reaches a listener on the machine that dials it, so it
+  // gets the more specific loopback reason and the "points back at this
+  // machine" guidance that goes with it.
+  test.each([
+    ["https://0.0.0.0", "IPv4 wildcard"],
+    ["https://[::]", "IPv6 wildcard"],
+    ["https://[::ffff:0.0.0.0]", "IPv4-mapped wildcard"],
+    ["https://[::ffff:127.0.0.1]", "IPv4-mapped loopback"],
+  ])("reports %s (%s) as loopback", (raw) => {
+    expect(isLoopbackPublicUrl(raw)).toBe(true);
+    expect(resolvePublicBaseUrl(raw)).toEqual({
+      ok: false,
+      reason: "loopback",
     });
   });
 

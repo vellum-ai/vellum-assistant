@@ -314,24 +314,46 @@ export function tunnelProviderWebsiteName(url: string): string | null {
 }
 
 /**
- * A loopback URL: the whole reserved `localhost` namespace (RFC 6761, so
- * `foo.localhost` counts), `[::1]`, or `127.x.x.x`. A pairing link that encodes
- * a loopback address is unreachable from the scanning device, and a host that
- * POSTs to one is calling a service on its own machine.
+ * A URL that reaches a listener on the machine dialing it: the whole reserved
+ * `localhost` namespace (RFC 6761, so `foo.localhost` counts), `127.x.x.x`,
+ * `[::1]`, and the wildcard binds `0.0.0.0` / `[::]`, in their dotted, hex,
+ * and IPv4-mapped spellings. A pairing link that encodes one is unreachable
+ * from the scanning device, and a host that POSTs to one is calling a service
+ * on its own machine.
+ *
+ * This is the one loopback predicate the whole pairing path reads (the pasted
+ * address, and the gatewayUrl an import registers), so the same address class
+ * can never be refused by one entry point and accepted by another.
  */
 export function isLoopbackPublicUrl(url: string): boolean {
+  let hostname: string;
   try {
-    // WHATWG URL canonicalizes hostnames, so IPv6 loopback is always "[::1]".
-    const hostname = hostnameWithoutRootDot(new URL(url).hostname);
-    return (
-      hostname === "localhost" ||
-      hostname.endsWith(".localhost") ||
-      hostname === "[::1]" ||
-      /^127(?:\.\d{1,3}){3}$/.test(hostname)
-    );
+    // WHATWG URL canonicalizes hostnames: IPv6 loopback is always "[::1]", a
+    // bare "0" is "0.0.0.0", and encoded IPv4 literals become dotted quads.
+    hostname = hostnameWithoutRootDot(new URL(url).hostname);
   } catch {
     return false;
   }
+  // Strip URL brackets so IPv6 literals compare on the bare address.
+  const host = hostname.replace(/^\[|\]$/g, "");
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "::1" ||
+    host === "0:0:0:0:0:0:0:1" ||
+    /^127(?:\.\d{1,3}){3}$/.test(host) ||
+    // A wildcard host reaches a local listener when dialed, so it counts as
+    // local for the pairing and refresh-channel guards alike.
+    host === "0.0.0.0" ||
+    host === "0" ||
+    host === "::" ||
+    host === "0:0:0:0:0:0:0:0" ||
+    // IPv4-mapped loopback and wildcard, in dotted and hex encodings.
+    /^(?:0:0:0:0:0|:):ffff:127(?:\.\d{1,3}){3}$/.test(host) ||
+    /^(?:0:0:0:0:0|:):ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host) ||
+    /^(?:0:0:0:0:0|:):ffff:0\.0\.0\.0$/.test(host) ||
+    /^(?:0:0:0:0:0|:):ffff:0:0$/.test(host)
+  );
 }
 
 /** Canonical dotted-quad as its four octets, or null when it is not one. */

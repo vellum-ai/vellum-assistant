@@ -506,7 +506,8 @@ describe("connect import", () => {
     expect(out).toContain("USAGE:");
   });
 
-  test("two pairings against the same host do not collide", async () => {
+  test("re-pairing the same host with no --name updates one entry", async () => {
+    const outcomes: string[] = [];
     const ids: string[] = [];
     for (const token of ["tok1", "tok2"]) {
       process.argv = ["bun", "vellum", "connect", "import", PAIRING_LINK];
@@ -517,17 +518,19 @@ describe("connect import", () => {
       } finally {
         restore();
       }
-      const match = logs.join("\n").match(/paired assistant '([^']+)'/);
+      const match = logs.join("\n").match(/(\w+) paired assistant '([^']+)'/);
       expect(match).not.toBeNull();
-      ids.push(match![1]);
+      outcomes.push(match![1]);
+      ids.push(match![2]);
     }
 
-    // A fresh device id per pairing, so the local ids differ and neither
-    // contains a path separator.
-    expect(ids[0]).not.toBe(ids[1]);
+    // The default id keys on the assistant's address, which survives the fresh
+    // device id every attempt mints, so the second pairing replaces the first
+    // rather than stranding it in the lockfile.
+    expect(ids[0]).toBe(ids[1]);
     expect(ids[0]).not.toContain("/");
-    expect(loadGuardianToken(ids[0])?.accessToken).toBe("tok1");
-    expect(loadGuardianToken(ids[1])?.accessToken).toBe("tok2");
+    expect(outcomes).toEqual(["Imported", "Updated"]);
+    expect(loadGuardianToken(ids[0])?.accessToken).toBe("tok2");
   });
 
   test("re-importing under the same --name updates in place", async () => {
