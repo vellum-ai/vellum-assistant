@@ -25810,6 +25810,8 @@ paths:
                   maximum: 9007199254740991
                 data:
                   type: string
+                attachToConversationId:
+                  type: string
               required:
                 - recordingId
                 - operation

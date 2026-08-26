@@ -16,12 +16,20 @@ import {
   SCREEN_RECORDING_APPEND,
   SCREEN_RECORDING_BEGIN,
   SCREEN_RECORDING_FINISH,
+  SCREEN_RECORDING_READ,
+  SCREEN_RECORDING_RELEASE,
   SCREEN_RECORDING_RESOLVE_SOURCE,
 } from "@vellumai/ipc-contract";
 import type { IpcHandle } from "./ipc";
 
 const RecordingIdSchema = z.string().uuid();
 const RecordingChunkSchema = z.instanceof(Uint8Array);
+const RecordingReadSizeSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(4 * 1024 * 1024);
+const RecordingOffsetSchema = z.number().int().nonnegative();
 const RecordingSourceOptionsSchema = z.object({
   captureScope: z.enum(["display", "window"]).optional(),
   displayId: z.string().optional(),
@@ -35,6 +43,11 @@ interface RecordingFileSession {
   write: Promise<void>;
   owner: WebContents;
   onOwnerDestroyed: () => void;
+}
+
+interface CompletedRecording {
+  filePath: string;
+  owner: WebContents;
 }
 
 export interface InstallScreenRecordingOptions {
@@ -87,6 +100,7 @@ export const installScreenRecording = ({
   handle,
 }: InstallScreenRecordingOptions): void => {
   const sessions = new Map<string, RecordingFileSession>();
+  const completed = new Map<string, CompletedRecording>();
   const recordingsDir = resolveScreenRecordingDirectory(appDataDir);
 
   const releaseSession = (
@@ -118,6 +132,20 @@ export const installScreenRecording = ({
     }
     if (recording.owner !== owner) {
       throw new Error("Screen recording session belongs to another window");
+    }
+    return recording;
+  };
+
+  const getOwnedCompleted = (
+    recordingId: string,
+    owner: WebContents,
+  ): CompletedRecording => {
+    const recording = completed.get(recordingId);
+    if (!recording) {
+      throw new Error("Completed screen recording not found");
+    }
+    if (recording.owner !== owner) {
+      throw new Error("Screen recording belongs to another window");
     }
     return recording;
   };
@@ -192,7 +220,43 @@ export const installScreenRecording = ({
       releaseSession(recordingId, recording);
       await recording.write;
       await recording.file.close();
+      completed.set(recordingId, {
+        filePath: recording.filePath,
+        owner: event.sender,
+      });
       return { filePath: recording.filePath };
+    },
+  );
+
+  handle(
+    SCREEN_RECORDING_READ,
+    z.tuple([
+      RecordingIdSchema,
+      RecordingOffsetSchema,
+      RecordingReadSizeSchema,
+    ]),
+    async ([recordingId, offset, maxBytes], event) => {
+      const recording = getOwnedCompleted(recordingId, event.sender);
+      const file = await open(recording.filePath, "r");
+      try {
+        const buffer = new Uint8Array(maxBytes);
+        const { bytesRead } = await file.read(buffer, 0, maxBytes, offset);
+        return {
+          data: buffer.subarray(0, bytesRead),
+          eof: bytesRead < maxBytes,
+        };
+      } finally {
+        await file.close();
+      }
+    },
+  );
+
+  handle(
+    SCREEN_RECORDING_RELEASE,
+    z.tuple([RecordingIdSchema]),
+    ([recordingId], event) => {
+      getOwnedCompleted(recordingId, event.sender);
+      completed.delete(recordingId);
     },
   );
 
@@ -216,8 +280,11 @@ export const installScreenRecording = ({
       if (options.promptForSource) {
         return (await chooseCaptureSource(options.captureScope))?.id ?? null;
       }
+      const captureScope =
+        options.captureScope ??
+        (options.windowId !== undefined ? "window" : "display");
       const types: Array<"screen" | "window"> =
-        options.captureScope === "window" ? ["window"] : ["screen"];
+        captureScope === "window" ? ["window"] : ["screen"];
       const sources = await desktopCapturer.getSources({
         types,
         fetchWindowIcons: false,

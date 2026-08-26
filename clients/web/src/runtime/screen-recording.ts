@@ -37,6 +37,7 @@ interface ActiveRecording {
   stopping: boolean;
   released: boolean;
   ownershipLost: boolean;
+  restartRecovery: boolean;
   closeCapture: () => void;
   stopClaimMaintenance: () => void;
 }
@@ -63,10 +64,14 @@ const postRecordingRequest = async <T>(
   endpoint: "claim" | "transfer",
   body: Record<string, unknown>,
 ): Promise<T> => {
+  const desktopClientId = getDeviceId();
   const { data, response } = await client.post({
     url: `/v1/assistants/{assistant_id}/recordings/${endpoint}` as KnownDaemonUrl,
     path: { assistant_id: assistantId },
     body,
+    ...(desktopClientId
+      ? { headers: { "Vellum-Device-Id": desktopClientId } }
+      : {}),
   });
   if (!response?.ok) {
     throw new Error(`Screen recording request failed: ${response?.status}`);
@@ -99,12 +104,14 @@ export const transferRecording = async (
   operation: RecordingTransferOperation,
   chunk?: Uint8Array,
   sequence?: number,
+  attachToConversationId?: string,
 ): Promise<{ attachmentId?: string }> =>
   postRecordingRequest(assistantId, "transfer", {
     recordingId,
     operation,
     ...(chunk ? { data: encodeChunk(chunk) } : {}),
     ...(sequence !== undefined ? { sequence } : {}),
+    ...(attachToConversationId ? { attachToConversationId } : {}),
   });
 
 const maintainRecordingClaim = (
@@ -455,30 +462,6 @@ export class ScreenRecordingController {
       let localWrites = Promise.resolve();
       let transferWrites = Promise.resolve();
       let chunkSequence = 0;
-      recorder.ondataavailable = (dataEvent) => {
-        if (dataEvent.data.size === 0) {
-          return;
-        }
-        const bytes = dataEvent.data
-          .arrayBuffer()
-          .then((buffer) => new Uint8Array(buffer));
-        localWrites = localWrites.then(async () => {
-          await bridge.append(event.recordingId, await bytes);
-        });
-        if (requiresTransfer) {
-          const sequence = chunkSequence++;
-          transferWrites = transferWrites.then(async () => {
-            await this.transferWithRetry(
-              assistantId,
-              event.recordingId,
-              "append",
-              await bytes,
-              sequence,
-            );
-          });
-        }
-      };
-
       let resolveStopped!: () => void;
       let rejectStopped!: (error: unknown) => void;
       const stopped = new Promise<void>((resolve, reject) => {
@@ -495,9 +478,34 @@ export class ScreenRecordingController {
         stopping: false,
         released: false,
         ownershipLost: false,
+        restartRecovery: false,
         closeCapture: capture.close,
         stopClaimMaintenance,
       };
+      recorder.ondataavailable = (dataEvent) => {
+        if (dataEvent.data.size === 0) {
+          return;
+        }
+        const bytes = dataEvent.data
+          .arrayBuffer()
+          .then((buffer) => new Uint8Array(buffer));
+        localWrites = localWrites.then(async () => {
+          await bridge.append(event.recordingId, await bytes);
+        });
+        if (requiresTransfer && !active.restartRecovery) {
+          const sequence = chunkSequence++;
+          transferWrites = transferWrites.then(async () => {
+            await this.transferWithRetry(
+              assistantId,
+              event.recordingId,
+              "append",
+              await bytes,
+              sequence,
+            );
+          });
+        }
+      };
+
       recorder.onstop = () => {
         void (async () => {
           let localFinished = false;
@@ -511,14 +519,20 @@ export class ScreenRecordingController {
               resolveStopped();
               return;
             }
-            await transferWrites;
             let attachmentId: string | undefined;
             if (requiresTransfer) {
-              const uploaded = await this.transferWithRetry(
-                assistantId,
-                event.recordingId,
-                "finish",
-              );
+              let uploaded: { attachmentId?: string };
+              if (active.restartRecovery) {
+                await transferWrites.catch(() => undefined);
+                uploaded = await this.replayCompletedRecording(active, bridge);
+              } else {
+                await transferWrites;
+                uploaded = await this.transferWithRetry(
+                  assistantId,
+                  event.recordingId,
+                  "finish",
+                );
+              }
               if (!uploaded.attachmentId) {
                 throw new Error(
                   "Recording transfer did not return an attachment",
@@ -567,6 +581,9 @@ export class ScreenRecordingController {
               .catch(() => undefined);
             rejectStopped(error);
           } finally {
+            if (localFinished) {
+              await bridge.release(event.recordingId).catch(() => undefined);
+            }
             this.release(active);
           }
         })();
@@ -664,9 +681,10 @@ export class ScreenRecordingController {
   private async transferWithRetry(
     assistantId: string,
     recordingId: string,
-    operation: "append" | "finish",
+    operation: "begin" | "append" | "finish",
     chunk?: Uint8Array,
     sequence?: number,
+    attachToConversationId?: string,
   ): Promise<{ attachmentId?: string }> {
     const maxAttempts = 4;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -677,6 +695,7 @@ export class ScreenRecordingController {
           operation,
           chunk,
           sequence,
+          attachToConversationId,
         );
       } catch (error) {
         if (attempt === maxAttempts - 1) {
@@ -686,6 +705,49 @@ export class ScreenRecordingController {
       }
     }
     throw new Error("Recording transfer retry loop exhausted");
+  }
+
+  private async replayCompletedRecording(
+    active: ActiveRecording,
+    bridge: NonNullable<NonNullable<typeof window.vellum>["screenRecording"]>,
+  ): Promise<{ attachmentId?: string }> {
+    await this.transferWithRetry(
+      active.assistantId,
+      active.event.recordingId,
+      "begin",
+      undefined,
+      undefined,
+      active.event.attachToConversationId,
+    );
+    const maxBytes = 4 * 1024 * 1024;
+    let offset = 0;
+    let sequence = 0;
+    while (true) {
+      const { data, eof } = await bridge.read(
+        active.event.recordingId,
+        offset,
+        maxBytes,
+      );
+      if (data.byteLength > 0) {
+        await this.transferWithRetry(
+          active.assistantId,
+          active.event.recordingId,
+          "append",
+          data,
+          sequence,
+        );
+        offset += data.byteLength;
+        sequence += 1;
+      }
+      if (eof) {
+        break;
+      }
+    }
+    return this.transferWithRetry(
+      active.assistantId,
+      active.event.recordingId,
+      "finish",
+    );
   }
 
   private loseOwnership(recordingId: string): void {
@@ -709,6 +771,7 @@ export class ScreenRecordingController {
     if (!active || active.event.recordingId !== recordingId) {
       return;
     }
+    active.restartRecovery = true;
     active.stopClaimMaintenance();
   }
 

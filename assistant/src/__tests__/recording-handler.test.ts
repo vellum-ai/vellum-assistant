@@ -105,6 +105,54 @@ mock.module("../daemon/video-thumbnail.js", () => ({
   generateVideoThumbnailFromPath: async () => null,
 }));
 
+const mockTransferCalls: Array<{
+  operation: string;
+  recordingId: string;
+  ownerClientId: string;
+  sequence?: number;
+  data?: number[];
+}> = [];
+mock.module("../daemon/recording-transfer.js", () => ({
+  recordingTransferStore: {
+    begin: async (recordingId: string, ownerClientId: string) => {
+      mockTransferCalls.push({
+        operation: "begin",
+        recordingId,
+        ownerClientId,
+      });
+    },
+    append: async (
+      recordingId: string,
+      ownerClientId: string,
+      sequence: number,
+      data: Uint8Array,
+    ) => {
+      mockTransferCalls.push({
+        operation: "append",
+        recordingId,
+        ownerClientId,
+        sequence,
+        data: [...data],
+      });
+    },
+    finish: async (recordingId: string, ownerClientId: string) => {
+      mockTransferCalls.push({
+        operation: "finish",
+        recordingId,
+        ownerClientId,
+      });
+      return "att-recovered";
+    },
+    abort: async (recordingId: string, ownerClientId: string) => {
+      mockTransferCalls.push({
+        operation: "abort",
+        recordingId,
+        ownerClientId,
+      });
+    },
+  },
+}));
+
 // The allowed recordings directory used by the recording handler
 const ALLOWED_RECORDINGS_DIR = `${process.env.HOME}/Library/Application Support/vellum-assistant/recordings`;
 
@@ -191,6 +239,9 @@ function createSent(): Array<{ type: string; [k: string]: unknown }> {
 const statusRouteHandler = ROUTES.find(
   (route) => route.operationId === "recordings_status_post",
 )!.handler;
+const transferRouteHandler = ROUTES.find(
+  (route) => route.operationId === "recordings_transfer",
+)!.handler;
 
 function registerMockClient(
   clientId: string,
@@ -226,6 +277,7 @@ describe("handleRecordingStart", () => {
     mockFileSize = 1024;
     mockConversationExists = true;
     mockClients.clear();
+    mockTransferCalls.length = 0;
   });
 
   test("sends recording_start event and returns a UUID", () => {
@@ -357,6 +409,55 @@ describe("recording status restart fallback", () => {
     expect(mockAttachments).toHaveLength(1);
     expect(mockMessages.at(-1)?.content).toContain("Screen recording complete");
     expect(hasRecordingClaim(recordingId)).toBeFalse();
+  });
+
+  test("restarts a lost transfer under the authenticated desktop owner", async () => {
+    const recordingId = "00000000-0000-4000-8000-000000000096";
+    const headers = statusHeaders(
+      "renderer-transfer",
+      "actor-1",
+      "desktop-transfer",
+    );
+    registerMockClient("renderer-transfer", "actor-1", "web");
+    registerMockClient("desktop-transfer", "actor-1", "windows");
+
+    await expect(
+      transferRouteHandler({
+        body: {
+          recordingId,
+          operation: "begin",
+          attachToConversationId: "conv-recording-transfer-recovery",
+        },
+        headers,
+      } as never),
+    ).resolves.toEqual({ ok: true });
+    await transferRouteHandler({
+      body: {
+        recordingId,
+        operation: "append",
+        sequence: 0,
+        data: Buffer.from([1, 2, 3]).toString("base64"),
+      },
+      headers,
+    } as never);
+    await expect(
+      transferRouteHandler({
+        body: { recordingId, operation: "finish" },
+        headers,
+      } as never),
+    ).resolves.toEqual({ ok: true, attachmentId: "att-recovered" });
+
+    expect(mockTransferCalls).toEqual([
+      { operation: "begin", recordingId, ownerClientId: "desktop-transfer" },
+      {
+        operation: "append",
+        recordingId,
+        ownerClientId: "desktop-transfer",
+        sequence: 0,
+        data: [1, 2, 3],
+      },
+      { operation: "finish", recordingId, ownerClientId: "desktop-transfer" },
+    ]);
   });
 
   test("rejects restart fallback from the wrong actor", async () => {

@@ -210,6 +210,12 @@ declare global {
         append(recordingId: string, chunk: Uint8Array): Promise<void>;
         finish(recordingId: string): Promise<{ filePath: string }>;
         abort(recordingId: string): Promise<void>;
+        read(
+          recordingId: string,
+          offset: number,
+          maxBytes: number,
+        ): Promise<{ data: Uint8Array; eof: boolean }>;
+        release(recordingId: string): Promise<void>;
         resolveSource(
           options: ScreenRecordingSourceOptions,
         ): Promise<string | null>;

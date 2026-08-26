@@ -95,6 +95,8 @@ beforeEach(() => {
         append: mock(async () => undefined),
         finish: mock(async () => ({ filePath: "/recordings/capture.webm" })),
         abort: mock(async () => undefined),
+        read: mock(async () => ({ data: new Uint8Array(), eof: true })),
+        release: mock(async () => undefined),
         resolveSource: mock(async () => null),
       },
     },
@@ -920,6 +922,93 @@ test("keeps recording after a missing renewal and reports the completed file", a
   expect(statuses).toEqual(["started", "stopped"]);
   expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
   expect(track.stopped).toBeTrue();
+});
+
+test("replays the complete local recording after remote transfer state is lost", async () => {
+  const track = new FakeTrack();
+  const recorder = new FakeRecorder();
+  let serverStateMissing!: () => void;
+  const transfers: Array<{
+    operation: string;
+    chunk?: number[];
+    sequence?: number;
+    attachToConversationId?: string;
+  }> = [];
+  const stoppedAttachments: string[] = [];
+  const completedChunks = [
+    { data: new Uint8Array([4, 5, 1]), eof: false },
+    { data: new Uint8Array([2, 3]), eof: true },
+  ];
+  window.vellum!.screenRecording!.read = mock(
+    async () =>
+      completedChunks.shift() ?? { data: new Uint8Array(), eof: true },
+  );
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    maintainClaim: (_assistantId, _recordingId, _onLost, onMissing) => {
+      serverStateMissing = onMissing;
+      return () => undefined;
+    },
+    reportStatus: async (_assistantId, _event, status, details) => {
+      if (status === "stopped" && details?.attachmentId) {
+        stoppedAttachments.push(details.attachmentId);
+      }
+    },
+    requiresTransfer: () => true,
+    transferRecording: async (
+      _assistantId,
+      _recordingId,
+      operation,
+      chunk,
+      sequence,
+      attachToConversationId,
+    ) => {
+      transfers.push({
+        operation,
+        ...(chunk ? { chunk: [...chunk] } : {}),
+        ...(sequence !== undefined ? { sequence } : {}),
+        ...(attachToConversationId ? { attachToConversationId } : {}),
+      });
+      return operation === "finish"
+        ? { attachmentId: "attachment-recovered" }
+        : {};
+    },
+  });
+
+  await controller.handle(startEvent, "assistant-remote");
+  recorder.ondataavailable?.({
+    data: new Blob([new Uint8Array([4, 5])]),
+  } as BlobEvent);
+  await Promise.resolve();
+  serverStateMissing();
+  await controller.handle(
+    { type: "recording_stop", recordingId },
+    "assistant-remote",
+  );
+
+  expect(transfers).toEqual([
+    { operation: "begin" },
+    { operation: "append", chunk: [4, 5], sequence: 0 },
+    { operation: "begin", attachToConversationId: "conv-1" },
+    { operation: "append", chunk: [4, 5, 1], sequence: 0 },
+    { operation: "append", chunk: [2, 3], sequence: 1 },
+    { operation: "finish" },
+  ]);
+  expect(stoppedAttachments).toEqual(["attachment-recovered"]);
+  expect(window.vellum!.screenRecording!.release).toHaveBeenCalledWith(
+    recordingId,
+  );
 });
 
 test("a busy non-owner stays silent so an idle client can claim", async () => {

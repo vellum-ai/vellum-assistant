@@ -32,6 +32,8 @@ mock.module("@vellumai/ipc-contract", () => ({
   SCREEN_RECORDING_APPEND: "vellum:screenRecording:append",
   SCREEN_RECORDING_BEGIN: "vellum:screenRecording:begin",
   SCREEN_RECORDING_FINISH: "vellum:screenRecording:finish",
+  SCREEN_RECORDING_READ: "vellum:screenRecording:read",
+  SCREEN_RECORDING_RELEASE: "vellum:screenRecording:release",
   SCREEN_RECORDING_RESOLVE_SOURCE: "vellum:screenRecording:resolveSource",
 }));
 mock.module("electron", () => ({
@@ -179,6 +181,63 @@ test("resolves requested display and window sources", async () => {
       captureScope: "display",
     }),
   ).resolves.toBeNull();
+});
+
+test("infers window capture from windowId when captureScope is omitted", async () => {
+  const { invoke } = installHarness();
+
+  await expect(
+    invoke("vellum:screenRecording:resolveSource", { windowId: 42 }),
+  ).resolves.toBe("window:42:0");
+  expect(getSources).toHaveBeenLastCalledWith({
+    types: ["window"],
+    fetchWindowIcons: false,
+    thumbnailSize: { width: 0, height: 0 },
+  });
+});
+
+test("reads completed recordings in owner-bound chunks", async () => {
+  const { invoke, invokeAs } = installHarness();
+  const recordingId = "00000000-0000-4000-8000-000000000001";
+
+  await invoke("vellum:screenRecording:begin", recordingId);
+  await invoke(
+    "vellum:screenRecording:append",
+    recordingId,
+    new Uint8Array([1, 2, 3, 4, 5]),
+  );
+  await invoke("vellum:screenRecording:finish", recordingId);
+
+  await expect(
+    invoke<{ data: Uint8Array; eof: boolean }>(
+      "vellum:screenRecording:read",
+      recordingId,
+      0,
+      3,
+    ),
+  ).resolves.toEqual({ data: new Uint8Array([1, 2, 3]), eof: false });
+  await expect(
+    invoke<{ data: Uint8Array; eof: boolean }>(
+      "vellum:screenRecording:read",
+      recordingId,
+      3,
+      3,
+    ),
+  ).resolves.toEqual({ data: new Uint8Array([4, 5]), eof: true });
+  await expect(
+    invokeAs(
+      new EventEmitter(),
+      "vellum:screenRecording:read",
+      recordingId,
+      0,
+      3,
+    ),
+  ).rejects.toThrow("belongs to another window");
+
+  await invoke("vellum:screenRecording:release", recordingId);
+  await expect(
+    invoke("vellum:screenRecording:read", recordingId, 0, 3),
+  ).rejects.toThrow("not found");
 });
 
 test("uses the source selected in the fallback chooser", async () => {

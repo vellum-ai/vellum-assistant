@@ -123,6 +123,8 @@ export const SCREEN_RECORDING_BEGIN = "vellum:screenRecording:begin";
 export const SCREEN_RECORDING_APPEND = "vellum:screenRecording:append";
 export const SCREEN_RECORDING_FINISH = "vellum:screenRecording:finish";
 export const SCREEN_RECORDING_ABORT = "vellum:screenRecording:abort";
+export const SCREEN_RECORDING_READ = "vellum:screenRecording:read";
+export const SCREEN_RECORDING_RELEASE = "vellum:screenRecording:release";
 export const SCREEN_RECORDING_RESOLVE_SOURCE =
   "vellum:screenRecording:resolveSource";
 
