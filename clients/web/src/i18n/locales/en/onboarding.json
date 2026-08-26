@@ -87,7 +87,8 @@
   "addRemoteOriginDialog": {
     "title": "Add a Remote Assistant",
     "body": "Paste the https link your assistant’s pairing page gave you.",
-    "addressLabel": "Assistant address"
+    "addressLabel": "Assistant address",
+    "addFailed": "Failed to add the assistant. Please try again."
   },
   "connectAssistantDialog": {
     "title": "Connect a Remote Assistant",

@@ -9,6 +9,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { parseRemoteWebPairingParams } from "@vellumai/service-contracts/remote-web-pairing";
+
 import type { RememberedOrigin } from "@/stores/remembered-origins-store";
 
 let isNativeMobileValue = false;
@@ -53,6 +55,24 @@ const { isCurrentOrigin, switchToOrigin } =
 
 function origin(url: string): RememberedOrigin {
   return { url, addedAt: "2026-01-01T00:00:00.000Z" };
+}
+
+/**
+ * The route-path shape both Capacitor shells accept from `switchToPath`,
+ * transcribed from their guards: iOS
+ * `SelfHostedServersPlugin.switchToPath` rejects on
+ * `!path.isEmpty, !path.hasPrefix("/"), !path.contains("://"), !path.contains("#")`,
+ * and Android `SelfHostedServer.isRoutePathShape` applies the same four. A
+ * path failing this is rejected by every shipped shell, so the swap never
+ * happens and the caller falls out to a navigation off the app's own origin.
+ */
+function isShellRoutePath(path: string): boolean {
+  return (
+    path !== "" &&
+    !path.startsWith("/") &&
+    !path.includes("://") &&
+    !path.includes("#")
+  );
 }
 
 beforeEach(() => {
@@ -109,6 +129,9 @@ describe("switchToOrigin", () => {
     );
   });
 
+  // The shells reject a fragment outright, so a fragment here is not a
+  // cosmetic difference: it rejects, the swap never happens, and the app
+  // webview navigates off `capacitor://localhost` to a remote origin instead.
   test("a native shell swaps origin and route together for a device code", async () => {
     isNativeMobileValue = true;
 
@@ -116,10 +139,32 @@ describe("switchToOrigin", () => {
 
     expect(nativeSwitchToOriginPathMock).toHaveBeenCalledWith(
       "https://host.example",
-      "pair#device_code=CODE-1",
+      "pair?device_code=CODE-1",
     );
     expect(nativeSwitchToOriginMock).not.toHaveBeenCalled();
     expect(assignMock).not.toHaveBeenCalled();
+  });
+
+  test("the native route path is one the shells accept, code intact", async () => {
+    isNativeMobileValue = true;
+
+    await switchToOrigin(origin("https://host.example"), "CODE-1");
+
+    const path = nativeSwitchToOriginPathMock.mock.calls[0]?.[1] ?? "";
+    expect(isShellRoutePath(path)).toBe(true);
+    // The shells append the path to the assistant entry, keeping its query
+    // verbatim, and the pair page parses `pathname + search + hash`.
+    expect(parseRemoteWebPairingParams(path).deviceCode).toBe("CODE-1");
+  });
+
+  test("a device code needing escaping survives the native route path", async () => {
+    isNativeMobileValue = true;
+
+    await switchToOrigin(origin("https://host.example"), "CODE 1&2=3");
+
+    const path = nativeSwitchToOriginPathMock.mock.calls[0]?.[1] ?? "";
+    expect(isShellRoutePath(path)).toBe(true);
+    expect(parseRemoteWebPairingParams(path).deviceCode).toBe("CODE 1&2=3");
   });
 
   test("a shell without path support still reaches the pair page", async () => {
