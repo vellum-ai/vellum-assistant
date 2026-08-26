@@ -179,6 +179,12 @@ export const QuickActionsUnread: Story = {
  * The character in the middle carries a face raster alongside its accent,
  * which production payloads do. It keeps its accent and its eyes: presence of
  * a raster is not what makes a card a photo card.
+ *
+ * Quiet cards, because that is where the mark is drawn full size and where its
+ * placement shows: the eyes rest a nudge right of centre, leaning into the
+ * glance their pupils already have, while a photo sits on the line. A photo has
+ * no glance to lean into, and the same nudge only reads as a square hung
+ * crooked.
  */
 export const QuickActionsAvatars: Story = {
   name: "Quick Actions / avatar kinds",
@@ -188,14 +194,12 @@ export const QuickActionsAvatars: Story = {
         <div style={{ display: "flex", gap: 12 }}>
           <QuickActionsWidgetPreview
             appearance={appearance}
-            unreadCount={5}
             avatarKind="image"
             accentHex={null}
             avatarImageUrl={AVATAR_PHOTO}
           />
           <QuickActionsWidgetPreview
             appearance={appearance}
-            unreadCount={5}
             avatarKind="character"
             accentHex="#0E9B8B"
             avatarImageUrl={AVATAR_PHOTO}

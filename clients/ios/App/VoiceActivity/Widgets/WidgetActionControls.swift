@@ -40,6 +40,44 @@ enum WidgetFlattenedFill {
     static let chip = Color.white.opacity(0.12)
 }
 
+/// The app's own mark, at the size a control wears it: the icon's green square
+/// with the eyes on it.
+///
+/// Composed rather than shipped as a second copy of the icon's artwork. The
+/// icon is eyes on a green ground, and ``WidgetAvatarEyes`` already draws those
+/// eyes from shapes the extension carries anyway, so the mark is those two
+/// facts put together and stays sharp at every size.
+///
+/// The ground goes away once the system flattens the widget. A solid block
+/// survives flattening as a solid block, which would swallow the eyes on it,
+/// and the control underneath already supplies a ground of its own.
+struct VellumAppIconMark: View {
+    let size: CGFloat
+
+    /// The pair's height as a share of the square, picked so the eyes sit in
+    /// the icon's own proportion rather than filling their box.
+    private static let eyeHeightRatio: CGFloat = 0.335
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    private var isFlattened: Bool { renderingMode != .fullColor }
+
+    var body: some View {
+        eyes
+            .frame(width: size, height: size)
+            .background {
+                if !isFlattened {
+                    RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+                        .fill(WidgetTheme.appIconGround)
+                }
+            }
+    }
+
+    private var eyes: some View {
+        WidgetAvatarEyes(eyeHeight: size * Self.eyeHeightRatio)
+    }
+}
+
 /// One tile in an action column: a glyph over a word, filling a rounded
 /// square, wired to an App Intent.
 ///
@@ -57,7 +95,11 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     private static var labelSize: CGFloat { 8 }
 
     let intent: ActionIntent
-    let icon: Image
+
+    /// The symbol a tile standing for an action draws. Absent on the tile that
+    /// stands for the app itself, which draws ``VellumAppIconMark``.
+    var icon: Image? = nil
+
     let title: String
     let fill: Color
     let tint: Color
@@ -73,6 +115,12 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     /// the assistant keep their symbol, and because nothing has synced yet on a
     /// fresh install.
     var avatarImage: UIImage? = nil
+
+    /// Whether this tile stands for the app itself, so it falls back to the
+    /// app's mark rather than to ``icon``. What the widget gallery shows: a
+    /// card with nothing synced has no avatar to draw, and the tile that starts
+    /// a chat with the assistant should still look like the app.
+    var showsAppIcon: Bool = false
 
     /// The owning card's ratio to the size it was designed at, so the tile
     /// keeps its share of a card that renders larger or smaller than the
@@ -127,7 +175,9 @@ struct WidgetActionTile<ActionIntent: AppIntent>: View {
     private var glyph: some View {
         if let avatarImage {
             WidgetAvatarImageView(image: avatarImage, size: Self.iconSize * scale)
-        } else {
+        } else if showsAppIcon {
+            VellumAppIconMark(size: Self.iconSize * scale)
+        } else if let icon {
             icon
                 .font(.system(size: Self.iconSize * scale))
                 .foregroundStyle(tint)
@@ -148,12 +198,12 @@ extension WidgetActionTile where ActionIntent == OpenNewChatIntent {
     static func newChat(accent: WidgetSoftAccent, avatarImage: UIImage? = nil, scale: CGFloat = 1) -> Self {
         WidgetActionTile(
             intent: OpenNewChatIntent(),
-            icon: Image("VellumV"),
             title: "New Chat",
             fill: accent.fill,
             tint: accent.onFill,
             carriesAccent: true,
             avatarImage: avatarImage,
+            showsAppIcon: true,
             scale: scale
         )
     }
@@ -208,7 +258,10 @@ struct CircleActionButton<ActionIntent: AppIntent>: View {
 /// A full-width capsule running an App Intent, glyph beside a word.
 struct PillActionButton<ActionIntent: AppIntent>: View {
     let intent: ActionIntent
-    let icon: Image
+
+    /// See ``WidgetActionTile/icon``.
+    var icon: Image? = nil
+
     let title: String
     let fill: Color
     let tint: Color
@@ -222,6 +275,9 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
 
     /// See ``WidgetActionTile/avatarImage``.
     var avatarImage: UIImage? = nil
+
+    /// See ``WidgetActionTile/showsAppIcon``.
+    var showsAppIcon: Bool = false
 
     /// See ``WidgetActionTile/scale``. The glyph already follows the height;
     /// this scales the word beside it.
@@ -270,7 +326,9 @@ struct PillActionButton<ActionIntent: AppIntent>: View {
     private var glyph: some View {
         if let avatarImage {
             WidgetAvatarImageView(image: avatarImage, size: iconSize)
-        } else {
+        } else if showsAppIcon {
+            VellumAppIconMark(size: iconSize)
+        } else if let icon {
             icon
                 .font(.system(size: iconSize))
         }

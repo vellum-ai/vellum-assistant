@@ -50,6 +50,12 @@ export const widgetTheme = {
   brandCardSurface: { light: "#0E9B8B", dark: "#0B7A6E" },
   /** Fixed in both appearances: the card under it is deep green either way. */
   onBrand: { light: "#FFFFFF", dark: "#FFFFFF" },
+  /**
+   * The green the app icon is built on. The Swift declares it in P3
+   * (`fill.solid` in `App/AppIcon.icon/icon.json`); this is that color in the
+   * sRGB a browser draws, so it reads a shade flatter here than on the device.
+   */
+  appIconGround: { light: "#4E9857", dark: "#4E9857" },
   /** Fixed: a face does not change color with the Home Screen behind it. */
   avatarSclera: { light: "#F2F2F2", dark: "#F2F2F2" },
   avatarPupil: { light: "#1A1A1A", dark: "#1A1A1A" },

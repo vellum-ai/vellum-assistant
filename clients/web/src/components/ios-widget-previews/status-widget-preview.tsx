@@ -18,17 +18,13 @@
  * @see clients/ios/App/VoiceActivity/Widgets/StatusWidget.swift
  */
 
-import {
-  EllipsisGlyph,
-  CameraGlyph,
-  VellumVGlyph,
-  WaveformGlyph,
-} from "./widget-glyphs";
+import { EllipsisGlyph, CameraGlyph, WaveformGlyph } from "./widget-glyphs";
 import {
   WidgetActionTile,
   WidgetCircleAction,
   WIDGET_TILE_ICON_SIZE,
 } from "./widget-action-controls";
+import { VellumAppIconMark } from "./vellum-app-icon-mark";
 import { WidgetCard } from "./widget-card";
 import { WidgetUnreadMark } from "./widget-unread-mark";
 import {
@@ -207,13 +203,10 @@ export function StatusWidgetPreview({
                     }}
                   />
                 ) : (
-                  <VellumVGlyph
+                  <VellumAppIconMark
                     size={WIDGET_TILE_ICON_SIZE * scale}
-                    color={
-                      flattened
-                        ? "#FFFFFF"
-                        : resolveColor(accent.onFill, appearance)
-                    }
+                    appearance={appearance}
+                    flattened={flattened}
                   />
                 )
               }
@@ -247,6 +240,7 @@ export function StatusWidgetPreview({
             tint={
               flattened ? "#FFFFFF" : resolveColor(accent.onFill, appearance)
             }
+            appearance={appearance}
             avatarImageUrl={avatarImageUrl}
             flattened={flattened}
           />
@@ -304,6 +298,7 @@ function ChatPill({
   height,
   fill,
   tint,
+  appearance,
   avatarImageUrl,
   flattened,
 }: {
@@ -311,6 +306,7 @@ function ChatPill({
   height: number;
   fill: string;
   tint: string;
+  appearance: WidgetAppearance;
   avatarImageUrl: string | null;
   flattened: boolean;
 }) {
@@ -341,7 +337,11 @@ function ChatPill({
           }}
         />
       ) : (
-        <VellumVGlyph size={iconSize} color={tint} />
+        <VellumAppIconMark
+          size={iconSize}
+          appearance={appearance}
+          flattened={flattened}
+        />
       )}
       <span style={{ fontSize: 15 * scale, fontWeight: 600 }}>Chat</span>
     </div>
