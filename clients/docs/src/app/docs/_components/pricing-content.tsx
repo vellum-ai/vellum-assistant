@@ -17,7 +17,7 @@ const TOC_ITEMS = [
   { id: "custom-plan", label: "Custom", level: 3 },
   { id: "machine-sizes", label: "Machine sizes", level: 3 },
   { id: "storage", label: "Storage", level: 3 },
-  { id: "credit-bundles", label: "Credit bundles", level: 3 },
+  { id: "credit-bundles", label: "Usage bundles", level: 3 },
   { id: "changing-your-plan", label: "Changing your plan", level: 3 },
   { id: "how-pricing-works", label: "How pricing works", level: 2 },
   { id: "vellum-credits", label: "Vellum Credits", level: 2 },
@@ -126,7 +126,7 @@ export function PricingContent() {
               Vellum has two plans: <strong>Base</strong> (free) and{" "}
               <strong>Pro</strong> (paid). Pro comes in three preset packages
               (Mighty, Super, Ultra) that bundle machine size, storage, and
-              monthly credits, or you can build a <strong>Custom</strong>{" "}
+              monthly usage, or you can build a <strong>Custom</strong>{" "}
               configuration by selecting each component individually.
             </p>
 
@@ -158,7 +158,7 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               Three preset packages that bundle a machine size, storage tier,
-              and monthly credit allowance into a single monthly price. Each
+              and monthly usage allowance into a single monthly price. Each
               package is a starting point: you can adjust individual tiers
               afterward, which converts your plan to a Custom configuration.
             </p>
@@ -214,11 +214,11 @@ export function PricingContent() {
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
-                      Monthly credits
+                      Monthly usage
                     </td>
-                    <td className="px-6 py-3 text-zinc-600">$25</td>
-                    <td className="px-6 py-3 text-zinc-600">$45</td>
-                    <td className="px-6 py-3 text-zinc-600">$115</td>
+                    <td className="px-6 py-3 text-zinc-600">Mighty Usage</td>
+                    <td className="px-6 py-3 text-zinc-600">Super Usage</td>
+                    <td className="px-6 py-3 text-zinc-600">Ultra Usage</td>
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
@@ -243,19 +243,19 @@ export function PricingContent() {
             </div>
             <p className="mb-2 text-zinc-600">
               <strong>Mighty</strong> is the entry-level Pro package. You get
-              10 GiB of storage and $25 in monthly credits on the standard
+              10 GiB of storage and monthly Mighty Usage on the standard
               Small machine. The $10/mo platform fee is not included, so there
               is no custom subdomain, static IP, or priority support.
             </p>
             <p className="mb-2 text-zinc-600">
               <strong>Super</strong> steps up to a Medium machine with 30 GiB
-              of storage and $45 in monthly credits. The platform fee is
+              of storage and monthly Super Usage. The platform fee is
               included, so you get a custom subdomain, static IP, and priority
               support.
             </p>
             <p className="mb-6 text-zinc-600">
               <strong>Ultra</strong> is the most powerful package: a Large
-              machine, 60 GiB of storage, and $115 in monthly credits, with the
+              machine, 60 GiB of storage, and monthly Ultra Usage, with the
               platform fee included.
             </p>
 
@@ -269,7 +269,7 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               Prefer to pick your own components? The Custom plan lets you
-              select a machine size, storage tier, and optional credit bundle
+              select a machine size, storage tier, and optional usage bundle
               individually. Your monthly total is the sum of:
             </p>
             <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
@@ -285,13 +285,13 @@ export function PricingContent() {
                 <strong>Storage tier</strong>: $5 to $30/mo (10 to 120 GiB)
               </li>
               <li>
-                <strong>Credit bundle</strong> (optional): $25, $45, or
-                $115/mo
+                <strong>Usage bundle</strong> (optional): Mighty, Super, or
+                Ultra Usage at $25, $45, or $115/mo
               </li>
             </ul>
             <p className="mb-6 text-zinc-600">
               The minimum Custom configuration is $50/mo (Medium machine + 10
-              GiB storage, no credit bundle). Credits are still pay-as-you-go
+              GiB storage, no usage bundle). Credits are still pay-as-you-go
               on top of any bundle you choose. If you start on a package and
               later change any individual tier, your plan automatically becomes
               Custom.
@@ -421,26 +421,26 @@ export function PricingContent() {
               changes are limited to the tiers listed above.
             </p>
 
-            {/* Credit bundles */}
+            {/* Usage bundles */}
             <SectionHeading
               id="credit-bundles"
               level={3}
               className="scroll-mt-24"
             >
-              Credit bundles
+              Usage bundles
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
-              Pro packages include a monthly credit allowance (for example, $25
-              with Mighty, $45 with Super). On the Custom plan, you can add one
-              of the same usage bundles to your subscription as an optional
-              recurring line item:
+              Each Pro package includes a monthly usage allowance named for
+              the package (Mighty Usage, Super Usage, Ultra Usage). On the
+              Custom plan, you can add one of the same usage bundles to your
+              subscription as an optional recurring line item:
             </p>
             <div className="not-prose mb-6 overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200">
                     <th className="py-3 pr-6 text-left font-semibold text-zinc-900">
-                      Monthly credits
+                      Usage bundle
                     </th>
                     <th className="px-6 py-3 text-left font-semibold text-zinc-900">
                       Price
@@ -449,9 +449,9 @@ export function PricingContent() {
                 </thead>
                 <tbody>
                   {[
-                    { credits: "$25 (Mighty Usage)", price: "+$25/mo" },
-                    { credits: "$45 (Super Usage)", price: "+$45/mo" },
-                    { credits: "$115 (Ultra Usage)", price: "+$115/mo" },
+                    { credits: "Mighty Usage", price: "+$25/mo" },
+                    { credits: "Super Usage", price: "+$45/mo" },
+                    { credits: "Ultra Usage", price: "+$115/mo" },
                   ].map(({ credits, price }, i, arr) => (
                     <tr
                       key={credits}
@@ -469,21 +469,19 @@ export function PricingContent() {
               </table>
             </div>
             <p className="mb-3 text-zinc-600">
-              Credit bundles are charged as a recurring subscription line item,
-              and appear on your invoice under the bundle name (for example,
-              &ldquo;Mighty Usage&rdquo;). They are separate from
-              pay-as-you-go credit top-ups: bundles give you a set amount each
-              month, while pay-as-you-go credits let you add more anytime. One
-              Vellum Credit equals one US dollar. Bundles previously offered at
-              other amounts remain in place for subscribers who already have
-              them.
+              Usage bundles are charged as a recurring subscription line item
+              and appear on your invoice under the bundle name. They are
+              separate from pay-as-you-go credit top-ups: a bundle covers a
+              set amount of usage each month, while pay-as-you-go credits let
+              you add more anytime. Bundles previously offered at other
+              amounts remain in place for subscribers who already have them.
             </p>
             <p className="mb-10 text-zinc-600">
-              Bundle credits reset each billing cycle: whatever is left when
+              Included usage resets each billing cycle: whatever is left when
               the period ends expires and does not roll over. Purchased
               pay-as-you-go credits last much longer: they expire twelve
-              months after purchase. When your assistant spends credits, the
-              ones closest to expiring are used first.
+              months after purchase. Your assistant always draws down the
+              allowance closest to expiring first.
             </p>
 
             {/* Changing your plan */}
@@ -505,10 +503,10 @@ export function PricingContent() {
               </li>
               <li>
                 <strong>Upgrade a tier.</strong> Switch to a bigger machine,
-                storage, or credit tier anytime, or to a bigger package.
+                storage, or usage tier anytime, or to a bigger package.
                 Upgrades bill immediately: the price difference is charged
-                right away, and a bigger credit bundle grants the extra
-                credits as soon as that charge succeeds. New machine or
+                right away, and a bigger usage bundle unlocks its extra
+                monthly usage as soon as that charge succeeds. New machine or
                 storage capacity then finishes provisioning in the background
                 shortly after checkout. When the difference cannot be charged
                 right away (for example, on a discounted subscription), the
@@ -519,8 +517,8 @@ export function PricingContent() {
               <li>
                 <strong>Downgrade a tier.</strong> A smaller machine applies
                 immediately, and the price difference is credited toward your
-                next invoice. A smaller credit bundle starts at your next
-                renewal; credits already granted this cycle stay yours.
+                next invoice. A smaller usage bundle starts at your next
+                renewal; the usage included for this cycle stays yours.
                 There are no mid-cycle cash refunds.
               </li>
               <li>
