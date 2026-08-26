@@ -11,6 +11,7 @@ import {
   resolveAvatarFromState,
   useAssistantAvatar,
 } from "@/hooks/use-assistant-avatar";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import {
@@ -300,7 +301,8 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  * inside `useAssistantAvatar`); a conclusive none from any source evicts it.
  * Persisting live evidence also drops the row's `avatarUrl`, so 2 never
  * outranks a fresher local read. A synced URL that fails to load
- * (`onImageError`) is set aside so 3 to 5 take over for that row.
+ * (`onImageError`) is set aside so 3 to 5 take over for that row, until
+ * the next `app.resume` (network back, window foregrounded) retries it.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
  */
@@ -313,8 +315,10 @@ export function useChooserRowAvatar(
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
 
-  // Keyed by URL so a reload that carries a new thumbnail retries it.
+  // Keyed by URL so a reload that carries a new thumbnail retries it; a
+  // resume retries the same URL, since the failure may have been offline.
   const [failedSyncedUrl, setFailedSyncedUrl] = useState<string | null>(null);
+  useBusSubscription("app.resume", () => setFailedSyncedUrl(null));
   const syncedUrl =
     assistant.avatarUrl && assistant.avatarUrl !== failedSyncedUrl
       ? assistant.avatarUrl

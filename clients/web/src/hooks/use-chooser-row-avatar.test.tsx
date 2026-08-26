@@ -22,6 +22,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type * as AvatarApi from "@/assistant/avatar-api";
+import { publish } from "@/lib/event-bus";
 import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
 import type { LocalReadAssistantAvatarResult } from "@vellumai/ipc-contract";
 import type * as LocalModeHost from "@/runtime/local-mode-host";
@@ -451,6 +452,26 @@ describe("useChooserRowAvatar", () => {
 
       await waitFor(() => {
         expect(result.current.imageUrl).toBe(NEXT_URL);
+      });
+    });
+
+    test("a failed synced URL is tried again on app.resume", async () => {
+      localClient = true;
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(platformRow("other", { avatarUrl: SYNCED_URL })),
+        { wrapper: createWrapper() },
+      );
+      await settle();
+      act(() => result.current.onImageError());
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBeNull();
+      });
+
+      act(() => publish("app.resume", { signal: "online" }));
+
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(SYNCED_URL);
       });
     });
 
