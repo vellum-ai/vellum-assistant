@@ -5,10 +5,14 @@
  * record backend is injected, upserts and deletes also write-through to
  * CES so the CES catalog stays current.
  *
+ * Hydrate copies leftover workspace rows into CES. The workspace file
+ * stays in place.
+ *
  * Tests: `_setMetadataPath` keeps the file-backed store and skips CES
  * write-through.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -54,8 +58,7 @@ let _recordBackend: CredentialRecordBackend | undefined;
 
 function getStore(): StaticCredentialMetadataStore {
   if (!_store) {
-    const path =
-      _overridePath ?? join(getDataDir(), "credentials", "metadata.json");
+    const path = _overridePath ?? defaultMetadataPath();
     _store = new StaticCredentialMetadataStore(path);
   }
   return _store;
@@ -101,6 +104,56 @@ export function setCredentialRecordBackend(
   backend: CredentialRecordBackend | undefined,
 ): void {
   _recordBackend = backend;
+}
+
+function defaultMetadataPath(): string {
+  return join(getDataDir(), "credentials", "metadata.json");
+}
+
+/**
+ * Copy leftover workspace metadata.json rows into CES. The workspace
+ * file stays in place. Reads continue from the file.
+ */
+export async function hydrateCredentialRecordsFromCes(): Promise<void> {
+  if (!_recordBackend || _overridePath) {
+    return;
+  }
+  if (!_recordBackend.isAvailable()) {
+    log.warn("CES record backend unavailable; skipping metadata.json import");
+    return;
+  }
+
+  const filePath = defaultMetadataPath();
+  if (!existsSync(filePath)) {
+    return;
+  }
+
+  const fileStore = new StaticCredentialMetadataStore(filePath);
+  const localRecords = fileStore.list() as CredentialMetadata[];
+  if (localRecords.length === 0) {
+    return;
+  }
+
+  const results = await _recordBackend.bulkSet(
+    localRecords.map((record) => ({
+      account: credentialKey(record.service, record.field),
+      record: toRecord(record),
+    })),
+  );
+  const imported =
+    results.length === localRecords.length &&
+    results.every((entry) => entry.ok);
+  if (!imported) {
+    log.warn(
+      { expected: localRecords.length, results },
+      "CES import of metadata.json incomplete",
+    );
+    return;
+  }
+  log.info(
+    { count: localRecords.length },
+    "Imported workspace credential metadata.json into CES",
+  );
 }
 
 // ---------------------------------------------------------------------------

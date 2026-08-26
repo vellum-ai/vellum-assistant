@@ -33,6 +33,15 @@ export function getMetadataPath(cesDataRoot: string): string {
   return join(cesDataRoot, METADATA_FILENAME);
 }
 
+export function resolveWorkspaceMetadataPath(
+  workspaceDir: string | undefined,
+): string | undefined {
+  if (!workspaceDir || workspaceDir.trim() === "") {
+    return undefined;
+  }
+  return join(workspaceDir, "data", "credentials", "metadata.json");
+}
+
 export function parseCredentialAccount(
   account: string,
 ): { service: string; field: string } | undefined {

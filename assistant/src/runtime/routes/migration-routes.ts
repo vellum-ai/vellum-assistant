@@ -999,6 +999,19 @@ export async function handleMigrationImport(
       );
     }
 
+    try {
+      const { hydrateCredentialRecordsFromCes } = await import(
+        "../../tools/credentials/metadata-store.js"
+      );
+      await hydrateCredentialRecordsFromCes();
+    } catch (err) {
+      result.report.warnings.push(
+        `Failed to import credential records into CES: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     // Reconcile vellum:* metadata against CES so the gateway's
     // readServiceCredentials can still find platform identity values even
     // if Django's post-hatch provisioning raced with the import.

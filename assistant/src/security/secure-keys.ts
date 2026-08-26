@@ -393,6 +393,10 @@ export async function attemptCesReconnection(
       const newClient = await _cesReconnect!();
       if (newClient) {
         setCesClient(newClient);
+        const { hydrateCredentialRecordsFromCes } = await import(
+          "../tools/credentials/metadata-store.js"
+        );
+        await hydrateCredentialRecordsFromCes();
         log.info("CES reconnection successful — credential backend restored");
         return true;
       }
