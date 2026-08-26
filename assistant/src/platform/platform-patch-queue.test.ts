@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 let mockClient: {
   baseUrl: string;
@@ -11,7 +18,10 @@ mock.module("./client.js", () => ({
 }));
 
 import { getLogger } from "../util/logger.js";
-import { createPlatformPatchQueue } from "./platform-patch-queue.js";
+import {
+  createPlatformPatchQueue,
+  type SyncedKey,
+} from "./platform-patch-queue.js";
 
 interface Patch {
   path: string;
@@ -35,8 +45,9 @@ function makeClient(assistantId = "asst-1", baseUrl = "https://platform.a") {
 
 function makeQueue(
   opts: {
-    loadSyncedKey?: () => string | null;
-    saveSyncedKey?: (key: string) => void;
+    loadSyncedKey?: () => SyncedKey | null;
+    saveSyncedKey?: (synced: SyncedKey) => void;
+    maxAgeMs?: number;
   } = {},
 ) {
   return createPlatformPatchQueue<string | undefined>({
@@ -154,10 +165,13 @@ describe("createPlatformPatchQueue", () => {
   });
 
   test("seeds the dedup key from loadSyncedKey and saves each success", async () => {
-    const saved: string[] = [];
+    const saved: SyncedKey[] = [];
     const queue = makeQueue({
-      loadSyncedKey: () => "https://platform.a|asst-1|a",
-      saveSyncedKey: (key) => saved.push(key),
+      loadSyncedKey: () => ({
+        key: "https://platform.a|asst-1|a",
+        syncedAt: Date.now(),
+      }),
+      saveSyncedKey: (synced) => saved.push(synced),
     });
     queue.enqueue("a");
     await settle();
@@ -165,6 +179,62 @@ describe("createPlatformPatchQueue", () => {
     await settle();
 
     expect(patches.map((p) => p.body.value)).toEqual(["b"]);
-    expect(saved).toEqual(["https://platform.a|asst-1|b"]);
+    expect(saved).toEqual([
+      { key: "https://platform.a|asst-1|b", syncedAt: expect.any(Number) },
+    ]);
+  });
+
+  test("a matching key older than maxAgeMs re-sends in-process", async () => {
+    const saved: SyncedKey[] = [];
+    const queue = makeQueue({
+      maxAgeMs: 1000,
+      saveSyncedKey: (synced) => saved.push(synced),
+    });
+    const start = Date.now();
+    setSystemTime(new Date(start));
+    try {
+      queue.enqueue("a");
+      await settle();
+      setSystemTime(new Date(start + 999));
+      queue.enqueue("a");
+      await settle();
+      setSystemTime(new Date(start + 1000));
+      queue.enqueue("a");
+      await settle();
+      queue.enqueue("a");
+      await settle();
+    } finally {
+      setSystemTime();
+    }
+
+    expect(patches).toHaveLength(2);
+    expect(saved.map((s) => s.syncedAt)).toEqual([start, start + 1000]);
+  });
+
+  test("a seeded key older than maxAgeMs re-sends", async () => {
+    const queue = makeQueue({
+      maxAgeMs: 1000,
+      loadSyncedKey: () => ({
+        key: "https://platform.a|asst-1|a",
+        syncedAt: Date.now() - 1000,
+      }),
+    });
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches).toHaveLength(1);
+  });
+
+  test("without maxAgeMs a matching key never expires", async () => {
+    const queue = makeQueue({
+      loadSyncedKey: () => ({
+        key: "https://platform.a|asst-1|a",
+        syncedAt: 0,
+      }),
+    });
+    queue.enqueue("a");
+    await settle();
+
+    expect(patches).toHaveLength(0);
   });
 });

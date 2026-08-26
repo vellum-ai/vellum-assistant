@@ -5,9 +5,11 @@
  * so rapid changes collapse into one PATCH carrying the newest payload and a
  * stale in-flight response cannot overwrite a newer value. The dedup key is
  * scoped to the platform destination (base URL + assistant id), so
- * re-registering elsewhere re-sends an unchanged payload. Best-effort: failures
- * are logged, never thrown, and leave the dedup key untouched so the next
- * enqueue retries.
+ * re-registering elsewhere re-sends an unchanged payload. With `maxAgeMs`, a
+ * key only dedups while its last success is younger than that, checked on
+ * every run so a long-lived process re-sends too. Best-effort: failures are
+ * logged, never thrown, and leave the dedup key untouched so the next enqueue
+ * retries.
  */
 
 import type { getLogger } from "../util/logger.js";
@@ -24,6 +26,13 @@ export interface PatchPayload {
   body: PatchBody | (() => Promise<PatchBody | undefined>);
 }
 
+export interface SyncedKey {
+  /** Destination-scoped dedup key of the last successful PATCH. */
+  key: string;
+  /** Epoch ms of that PATCH. */
+  syncedAt: number;
+}
+
 export interface PlatformPatchQueueOptions<T> {
   log: Logger;
   /** Names the synced thing in log lines, e.g. "avatar". */
@@ -33,9 +42,11 @@ export interface PlatformPatchQueueOptions<T> {
     input: T,
   ) => Promise<PatchPayload | undefined> | PatchPayload | undefined;
   /** Seeds the dedup key on first use (e.g. from disk). */
-  loadSyncedKey?: () => string | null;
-  /** Called after each successful PATCH with the destination-scoped key. */
-  saveSyncedKey?: (key: string) => void;
+  loadSyncedKey?: () => SyncedKey | null;
+  /** Called after each successful PATCH. */
+  saveSyncedKey?: (synced: SyncedKey) => void;
+  /** A matching key older than this re-sends; omit to never expire. */
+  maxAgeMs?: number;
 }
 
 export interface PlatformPatchQueue<T> {
@@ -45,8 +56,9 @@ export interface PlatformPatchQueue<T> {
 export function createPlatformPatchQueue<T = void>(
   options: PlatformPatchQueueOptions<T>,
 ): PlatformPatchQueue<T> {
-  const { log, label, buildPayload, loadSyncedKey, saveSyncedKey } = options;
-  let lastSyncedKey: string | null | undefined;
+  const { log, label, buildPayload, loadSyncedKey, saveSyncedKey, maxAgeMs } =
+    options;
+  let lastSynced: SyncedKey | null | undefined;
   let seq = 0;
   let pending: Promise<void> = Promise.resolve();
 
@@ -66,8 +78,11 @@ export function createPlatformPatchQueue<T = void>(
         return;
       }
       const key = `${client.baseUrl}|${assistantId}|${payload.key}`;
-      lastSyncedKey ??= loadSyncedKey?.() ?? null;
-      if (key === lastSyncedKey) {
+      lastSynced ??= loadSyncedKey?.() ?? null;
+      if (
+        lastSynced?.key === key &&
+        (maxAgeMs === undefined || Date.now() - lastSynced.syncedAt < maxAgeMs)
+      ) {
         return;
       }
       const body =
@@ -89,8 +104,8 @@ export function createPlatformPatchQueue<T = void>(
       );
 
       if (resp.ok) {
-        lastSyncedKey = key;
-        saveSyncedKey?.(key);
+        lastSynced = { key, syncedAt: Date.now() };
+        saveSyncedKey?.(lastSynced);
         log.info(
           { key: payload.key, assistantId },
           `Synced ${label} to platform`,
