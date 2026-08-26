@@ -2,10 +2,11 @@
  * Tests for `useChooserRowAvatar`: the transport gate that decides whether a
  * per-row SDK fetch is addressable, connected-row delegation to
  * `useAssistantAvatar`, per-row manifest-vs-legacy path selection, the
- * host-bridge disk read for local rows, the last-seen cache as the final
- * fallback, and the failure-to-nulls contract. The resolved-assistants store
- * is real; the environment probes, the avatar API, the host bridge, and the
- * IndexedDB cache are mocked at the module boundary.
+ * host-bridge disk read for local rows, the platform id lookup for paired and
+ * local rows, the last-seen cache as the final fallback, and the
+ * failure-to-nulls contract. The resolved-assistants and auth stores are real;
+ * the environment probes, the avatar and assistants APIs, the host bridge, and
+ * the IndexedDB cache are mocked at the module boundary.
  */
 
 import type { ReactNode } from "react";
@@ -16,12 +17,15 @@ import {
   expect,
   mock,
   setSystemTime,
+  spyOn,
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type * as AssistantApi from "@/assistant/api";
 import type * as AvatarApi from "@/assistant/avatar-api";
+import type { Assistant } from "@/generated/api";
 import { publish } from "@/lib/event-bus";
 import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
 import type { LocalReadAssistantAvatarResult } from "@vellumai/ipc-contract";
@@ -118,6 +122,16 @@ const avatarApiMock: Partial<typeof AvatarApi> = {
 };
 mock.module("@/assistant/avatar-api", () => avatarApiMock);
 
+const listAssistants = mock(
+  async (): Promise<AssistantApi.ListAssistantsResult> => ({
+    ok: true,
+    status: 200,
+    data: [],
+  }),
+);
+const actualApi = await import("@/assistant/api");
+mock.module("@/assistant/api", () => ({ ...actualApi, listAssistants }));
+
 type LastSeenAvatar = AvatarLastSeenCache.LastSeenAvatar;
 const actualLastSeenCache = await import("@/lib/avatar-last-seen-cache");
 const readLastSeenAvatar = mock(async () => null as LastSeenAvatar | null);
@@ -134,6 +148,7 @@ mock.module(
   }),
 );
 
+const { useAuthStore } = await import("@/stores/auth-store");
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { useAssistantIdentityStore } =
@@ -147,6 +162,8 @@ const {
   useChooserRowAvatar,
 } = await import("@/hooks/use-chooser-row-avatar");
 const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
+
+const initialAuthState = useAuthStore.getState();
 const { chooserRowAvatarCacheQueryKey } =
   await import("@/lib/persist-last-seen-avatar");
 
@@ -199,6 +216,25 @@ function createWrapper(
   };
 }
 
+/** A signed-in platform account on this device, the state a `vellum login` leaves. */
+function signInToPlatform(): void {
+  useAuthStore.setState({
+    platformSession: "present",
+    user: {
+      kind: "platform",
+      id: "user-1",
+      username: null,
+      email: null,
+      isStaff: false,
+      firstName: "",
+      lastName: "",
+    },
+  });
+}
+
+const apiAssistant = (id: string, avatar_url: string | null): Assistant =>
+  ({ id, avatar_url }) as Assistant;
+
 function sdkCallCount(): number {
   return (
     fetchAvatarState.mock.calls.length +
@@ -239,6 +275,9 @@ afterEach(() => {
   writeLastSeenAvatar.mockReset();
   deleteLastSeenAvatar.mockReset();
   readAssistantAvatarHost.mockReset();
+  listAssistants.mockReset();
+  listAssistants.mockResolvedValue({ ok: true, status: 200, data: [] });
+  useAuthStore.setState(initialAuthState, true);
   readAssistantAvatarHost.mockResolvedValue({ ok: true, avatar: null });
   readLastSeenAvatar.mockResolvedValue(null);
   fetchAvatarState.mockResolvedValue(characterState);
@@ -484,6 +523,162 @@ describe("useChooserRowAvatar", () => {
         expect(result.current.traits).toEqual(traits);
       });
       expect(fetchAvatarState).toHaveBeenCalledWith("other");
+    });
+  });
+
+  describe("platform id lookup", () => {
+    const LOOKUP_URL = "https://cdn.example/avatars/other-synced.png";
+    const pairedRow = (
+      id: string,
+      overrides: Partial<ResolvedAssistant> = {},
+    ) =>
+      platformRow(id, {
+        isPaired: true,
+        isPlatformHosted: false,
+        ...overrides,
+      });
+
+    beforeEach(() => {
+      localClient = true;
+      signInToPlatform();
+      listAssistants.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: [apiAssistant("other", LOOKUP_URL), apiAssistant("plain", null)],
+      });
+    });
+
+    test.each([
+      ["paired", pairedRow],
+      ["local", localRow],
+    ])("a %s row resolves its thumbnail by id", async (_l, row) => {
+      const setState = spyOn(useResolvedAssistantsStore, "setState");
+      const { result } = renderHook(() => useChooserRowAvatar(row("other")), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+      expect(result.current.traits).toBeNull();
+      await settle();
+      expect(sdkCallCount()).toBe(0);
+      expect(setState).not.toHaveBeenCalled();
+      setState.mockRestore();
+    });
+
+    test("an id the platform does not list falls through to the cache", async () => {
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("unlisted")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+      expect(listAssistants).toHaveBeenCalledTimes(1);
+    });
+
+    test("a pure platform row never uses the lookup", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await settle();
+      expect(result.current).toMatchObject({ traits: null, imageUrl: null });
+    });
+
+    test("a signed-out device keeps the glyph", async () => {
+      useAuthStore.setState({ platformSession: "absent", user: null });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await settle();
+      expect(result.current).toMatchObject({ traits: null, imageUrl: null });
+      expect(listAssistants).not.toHaveBeenCalled();
+    });
+
+    test("the connected row prefers its live read over the lookup", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("active")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+    });
+
+    test("a host disk read outranks the lookup", async () => {
+      hostAvailable = true;
+      readAssistantAvatarHost.mockResolvedValue({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(localRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+    });
+
+    test("a lookup image that fails to load falls back to the cached avatar", async () => {
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+
+      act(() => result.current.onImageError());
+
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+    });
+
+    test("a failed lookup URL is tried again on app.resume", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+      act(() => result.current.onImageError());
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBeNull();
+      });
+
+      act(() => publish("app.resume", { signal: "online" }));
+
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+    });
+
+    test("one list call serves every row", async () => {
+      const wrapper = createWrapper();
+      const { result } = renderHook(
+        () => [
+          useChooserRowAvatar(pairedRow("other")),
+          useChooserRowAvatar(pairedRow("plain")),
+          useChooserRowAvatar(localRow("unlisted")),
+        ],
+        { wrapper },
+      );
+      await waitFor(() => {
+        expect(result.current[0]?.imageUrl).toBe(LOOKUP_URL);
+      });
+      await settle();
+      expect(listAssistants).toHaveBeenCalledTimes(1);
     });
   });
 
