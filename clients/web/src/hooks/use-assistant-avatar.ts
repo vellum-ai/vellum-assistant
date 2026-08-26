@@ -9,6 +9,7 @@ import {
 } from "@/assistant/avatar-api";
 import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
+import { persistLastSeenAvatar } from "@/lib/persist-last-seen-avatar";
 import type {
   AvatarState,
   CharacterComponents,
@@ -29,6 +30,11 @@ export interface AvatarData {
 }
 
 const activeBlobUrls = new Map<string, string>();
+
+/** Revoke the object URL this hook holds for a removed assistant. */
+export function releaseAssistantAvatarUrl(assistantId: string): void {
+  trackBlobUrl(activeBlobUrls, assistantId, null);
+}
 
 export interface AssistantAvatarOptions {
   /**
@@ -196,6 +202,9 @@ export function useAssistantAvatar(
       }
 
       trackBlobUrl(activeBlobUrls, id, imageUrl);
+      // A resolved read is conclusive (both paths throw otherwise), so it is
+      // what the chooser falls back to once this assistant is unreachable.
+      void persistLastSeenAvatar(id, { traits, imageUrl });
 
       return { components, traits, customImageUrl: imageUrl };
     },

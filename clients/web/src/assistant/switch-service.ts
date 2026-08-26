@@ -1,4 +1,5 @@
 import { setSelectedAssistant } from "@/assistant/selection";
+import { releaseRowAvatarUrls } from "@/hooks/use-chooser-row-avatar";
 import { deleteLastSeenAvatar } from "@/lib/avatar-last-seen-cache";
 import {
   getLockfileAssistant,
@@ -110,6 +111,7 @@ export async function removePairedAssistant(
     return { ok: false, error: result.error ?? "Failed to remove assistant." };
   }
   void deleteLastSeenAvatar(assistantId);
+  releaseRowAvatarUrls(assistantId);
   const resolvedStore = useResolvedAssistantsStore.getState();
   if (resolvedStore.activeAssistantId === assistantId) {
     resolvedStore.setActiveAssistantId(null);

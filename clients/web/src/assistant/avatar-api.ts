@@ -86,28 +86,41 @@ function parseCharacterTraits(content: string): CharacterTraits | null {
   }
 }
 
-export async function fetchCharacterTraitsResult(
-  assistantId: string,
-): Promise<AvatarFileResult<CharacterTraits>> {
+/** A sidecar the daemon serves but cannot be used (`parse` returns null) is as good as missing. */
+async function readAvatarFile<D, T>(
+  request: () => Promise<{ data?: D; error?: unknown; response?: Response }>,
+  failureMessage: string,
+  parse: (data: D) => T | null,
+): Promise<AvatarFileResult<T>> {
   try {
-    const { data, error, response } = await workspaceFileGet({
-      path: { assistant_id: assistantId },
-      query: { path: "data/avatar/character-traits.json" },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch character traits");
+    const { data, error, response } = await request();
+    assertHasResponse(response, error, failureMessage);
     if (response.status === 404) {
       return { status: "absent" };
     }
     if (!response.ok || !data) {
       return { status: "failed" };
     }
-    // A sidecar the daemon serves but cannot render is as good as missing.
-    const traits = parseCharacterTraits(data.content);
-    return traits ? { status: "found", value: traits } : { status: "absent" };
+    const value = parse(data);
+    return value ? { status: "found", value } : { status: "absent" };
   } catch {
     return { status: "failed" };
   }
+}
+
+export function fetchCharacterTraitsResult(
+  assistantId: string,
+): Promise<AvatarFileResult<CharacterTraits>> {
+  return readAvatarFile(
+    () =>
+      workspaceFileGet({
+        path: { assistant_id: assistantId },
+        query: { path: "data/avatar/character-traits.json" },
+        throwOnError: false,
+      }),
+    "Failed to fetch character traits",
+    (data) => parseCharacterTraits(data.content),
+  );
 }
 
 /** {@link fetchCharacterTraitsResult} collapsed to a value; null for absent or failed. */
@@ -199,25 +212,18 @@ async function uploadAvatarImageLegacy(
   return true;
 }
 
-export async function fetchAvatarImageUrlResult(
+export function fetchAvatarImageUrlResult(
   assistantId: string,
 ): Promise<AvatarFileResult<string>> {
-  try {
-    const { data, error, response } = await workspaceFileContentGet({
-      path: { assistant_id: assistantId },
-      query: { path: "data/avatar/avatar-image.png" },
-      parseAs: "blob",
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch avatar image");
-    if (response.status === 404) {
-      return { status: "absent" };
-    }
-    if (!response.ok || !data) {
-      return { status: "failed" };
-    }
-    return { status: "found", value: URL.createObjectURL(data) };
-  } catch {
-    return { status: "failed" };
-  }
+  return readAvatarFile(
+    () =>
+      workspaceFileContentGet({
+        path: { assistant_id: assistantId },
+        query: { path: "data/avatar/avatar-image.png" },
+        parseAs: "blob",
+        throwOnError: false,
+      }),
+    "Failed to fetch avatar image",
+    (data) => URL.createObjectURL(data),
+  );
 }

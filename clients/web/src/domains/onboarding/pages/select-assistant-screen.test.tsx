@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ReactNode } from "react";
 
 import type * as ChooserAvatarChipModule from "@/components/avatar/chooser-avatar-chip";
+import type { AvatarRead } from "@/hooks/use-assistant-avatar";
 import type * as UseChooserRowAvatarModule from "@/hooks/use-chooser-row-avatar";
 import type { RememberedOrigin } from "@/stores/remembered-origins-store";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
@@ -90,7 +91,7 @@ const installNativeRememberedOriginsMock = mock(() => {});
 /** What the native shell reports as its baked Vellum Cloud origin, if any. */
 let nativeCloudOriginValue: string | null = null;
 /** Avatar data per assistant id; rows absent here resolve to nulls (glyph). */
-let rowAvatars = new Map<string, UseChooserRowAvatarModule.ChooserRowAvatar>();
+let rowAvatars = new Map<string, AvatarRead>();
 
 // Stands in for the real error class (the screen's `instanceof` check runs
 // against this mocked module's export).
@@ -258,6 +259,7 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
 const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
   useChooserRowAvatar: (assistant) =>
     rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null },
+  releaseRowAvatarUrls: () => {},
 };
 mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
 

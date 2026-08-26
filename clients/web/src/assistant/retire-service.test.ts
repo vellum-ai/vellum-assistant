@@ -48,6 +48,10 @@ mock.module("@/lib/local-mode", () => ({
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
 }));
+const releaseRowAvatarUrlsMock = mock((_id: string) => {});
+mock.module("@/hooks/use-chooser-row-avatar", () => ({
+  releaseRowAvatarUrls: releaseRowAvatarUrlsMock,
+}));
 mock.module("@/stores/organization-store", () => ({
   useOrganizationStore: {
     getState: () => ({ currentOrganizationId: "org-test" }),
@@ -128,6 +132,7 @@ beforeEach(() => {
   retireAssistantByIdMock.mockClear();
   listAssistantsMock.mockClear();
   retireLocalAssistantMock.mockClear();
+  releaseRowAvatarUrlsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
   removeMock.mockClear();
   clearResearchSnapshotMock.mockClear();
@@ -149,6 +154,7 @@ describe("retireAssistant", () => {
     // THEN the platform delete ran with that id and the local path did not
     expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
+    expect(releaseRowAvatarUrlsMock).toHaveBeenCalledWith("p1");
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
       expect(outcome.nextRoute).toBe("/assistant/onboarding/privacy");

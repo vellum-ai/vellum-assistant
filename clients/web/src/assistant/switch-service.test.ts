@@ -49,6 +49,10 @@ const deleteLastSeenAvatarMock = mock(async (_id: string) => {});
 mock.module("@/lib/avatar-last-seen-cache", () => ({
   deleteLastSeenAvatar: deleteLastSeenAvatarMock,
 }));
+const releaseRowAvatarUrlsMock = mock((_id: string) => {});
+mock.module("@/hooks/use-chooser-row-avatar", () => ({
+  releaseRowAvatarUrls: releaseRowAvatarUrlsMock,
+}));
 
 const connectPairedAssistantMock = mock(async (_id: string) => {
   if (connectPairedShouldThrow) {
@@ -109,6 +113,7 @@ beforeEach(() => {
   setSelectedAssistantMock.mockClear();
   setActiveAssistantIdMock.mockClear();
   deleteLastSeenAvatarMock.mockClear();
+  releaseRowAvatarUrlsMock.mockClear();
 });
 
 describe("switchToAssistant", () => {
@@ -260,6 +265,7 @@ describe("removePairedAssistant", () => {
 
     expect(removePairedFromLockfileMock).toHaveBeenCalledWith("pr1");
     expect(deleteLastSeenAvatarMock).toHaveBeenCalledWith("pr1");
+    expect(releaseRowAvatarUrlsMock).toHaveBeenCalledWith("pr1");
     expect(setActiveAssistantIdMock).toHaveBeenCalledWith(null);
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
@@ -298,6 +304,7 @@ describe("removePairedAssistant", () => {
       expect(outcome.error).toBe("host says no");
     }
     expect(deleteLastSeenAvatarMock).not.toHaveBeenCalled();
+    expect(releaseRowAvatarUrlsMock).not.toHaveBeenCalled();
     expect(setActiveAssistantIdMock).not.toHaveBeenCalled();
   });
 

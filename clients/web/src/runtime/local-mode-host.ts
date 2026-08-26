@@ -172,6 +172,19 @@ export function isLocalModeHostAvailable(): boolean {
 }
 
 /**
+ * Whether this host serves `/assistant/__local/avatar/{id}`: the Electron main
+ * process and the Vite dev server do; the packaged `vellum client` web host
+ * deliberately does not (its `.vellum` boundary), and its SPA fallback would
+ * answer the request with HTML. `import.meta.env.DEV` is what separates the
+ * dev server from a served build.
+ */
+export function canReadAvatarFromLocalHost(): boolean {
+  return (
+    isLocalModeHostAvailable() && (isElectron() || Boolean(import.meta.env.DEV))
+  );
+}
+
+/**
  * POST a local-mode command and read back its `{ ok, ... }` result. Always
  * resolves, never throws: an unavailable host (no request sent) and a non-JSON
  * response both resolve to `{ ok: false }`.
@@ -604,7 +617,8 @@ export async function getLocalAssistantStatusHost(
  * process serves it behind `window.vellum.localMode.readAssistantAvatar`, the
  * Vite dev server behind `/assistant/__local/avatar/{id}`; both return the
  * ipc-contract shape. Never throws: an older Electron shell without the
- * channel and an unavailable dev host both resolve `{ ok: false }`.
+ * channel, a rejected bridge call, and a host that cannot serve the read
+ * ({@link canReadAvatarFromLocalHost}) all resolve `{ ok: false }`.
  */
 export async function readAssistantAvatarHost(
   assistantId: string,
@@ -617,9 +631,16 @@ export async function readAssistantAvatarHost(
         error: "Assistant avatars are not supported by this app version",
       };
     }
-    return readAssistantAvatar(assistantId);
+    try {
+      return await readAssistantAvatar(assistantId);
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
   }
 
+  if (!canReadAvatarFromLocalHost()) {
+    return { ok: false, error: LOCAL_HOST_UNAVAILABLE_ERROR };
+  }
   return requestLocalCommand<LocalReadAssistantAvatarResult>(
     `/assistant/__local/avatar/${encodeURIComponent(assistantId)}`,
     { method: "GET" },

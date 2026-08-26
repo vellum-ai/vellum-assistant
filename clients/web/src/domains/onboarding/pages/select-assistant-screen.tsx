@@ -1172,7 +1172,6 @@ function AssistantCard({
         <ChooserAvatarChip
           traits={traits}
           imageUrl={imageUrl}
-          size={48}
           fallback={glyph}
           decorative
         />
