@@ -913,19 +913,34 @@ describe("mix profiles", () => {
     // A pin whose provider dispatch cannot resolve (e.g. a force-deleted
     // connection) must not be claimed as a scope: selection falls through to
     // the active mix exactly as dispatch does, which then refuses to name a
-    // route.
+    // route. Without the predicate the stale pin still wins the chain, which
+    // is why scope callers must pass dispatch's predicate.
+    const staleLlm = LLMSchema.parse({
+      profiles: {
+        a: { provider: "anthropic", model: "model-a" },
+        b: { provider: "anthropic", model: "model-b" },
+        stale: { provider: "openai", model: "model-s" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 1 },
+            { profile: "b", weight: 1 },
+          ],
+        },
+      },
+      activeProfile: "ab",
+    });
+    const openaiForceDeleted = (provider: string) => provider !== "openai";
     expect(
-      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
-        overrideProfile: "a",
-        isResolvableProvider: () => false,
+      resolveSingleRouteProfileKey("mainAgent", staleLlm, {
+        overrideProfile: "stale",
+        isResolvableProvider: openaiForceDeleted,
       }),
     ).toBeUndefined();
     expect(
-      resolveSingleRouteProfileKey("mainAgent", mixLlm, {
-        overrideProfile: "a",
-        isResolvableProvider: () => true,
+      resolveSingleRouteProfileKey("mainAgent", staleLlm, {
+        overrideProfile: "stale",
       }),
-    ).toBe("a");
+    ).toBe("stale");
   });
 
   test("all dereference spots in a turn agree for the same seed", () => {
