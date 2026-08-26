@@ -355,6 +355,13 @@ interface PendingPairing {
   deviceId: string;
   expiresAtMs: number;
   intervalSeconds: number;
+  /**
+   * Aborted by {@link pairingCancel}: it stops the exchange in flight and
+   * marks the session as one the caller walked away from. {@link pairingPoll}
+   * reads this signal rather than the map so a cancel is distinguishable from
+   * an entry the expiry sweep happened to drop mid-request.
+   */
+  abort: AbortController;
 }
 
 const pendingPairings = new Map<string, PendingPairing>();
@@ -399,6 +406,22 @@ function invalidAddress(
     status: 400,
     error,
     rejection,
+  };
+}
+
+/**
+ * No live session behind a handle: never opened, already settled, or
+ * cancelled. A cancel that lands mid-exchange answers with this too, since
+ * from the caller's side the outcome is the same: the attempt is over and a
+ * retry needs a fresh code. Never retryable, so a caller cannot spin against
+ * a session it just killed.
+ */
+function unknownSession(): PairingFailure {
+  return {
+    ok: false,
+    reason: "unknown-session",
+    status: 404,
+    error: "That pairing attempt is no longer active. Start over.",
   };
 }
 
@@ -510,12 +533,18 @@ async function readPairingBody(response: Response): Promise<PairingBody> {
  * loopback or plaintext target could be reached through a validated public
  * URL. A pairing endpoint has no reason to redirect, and fetch rejects the
  * attempt as a transport failure.
+ *
+ * `cancelSignal` cuts a request short when its session is cancelled. An abort
+ * reads as a transport failure here, so the caller that owns the signal has to
+ * report the cancellation itself rather than passing this failure on.
  */
 async function postPairingRequest(
   publicBaseUrl: string,
   routePath: string,
   body: unknown,
+  cancelSignal?: AbortSignal,
 ): Promise<PairingPost> {
+  const timeout = AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${publicBaseUrl}${routePath}`, {
@@ -523,7 +552,7 @@ async function postPairingRequest(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       redirect: "error",
-      signal: AbortSignal.timeout(PAIRING_REQUEST_TIMEOUT_MS),
+      signal: cancelSignal ? AbortSignal.any([timeout, cancelSignal]) : timeout,
     });
   } catch {
     return { ok: false, failure: unreachableAssistant() };
@@ -640,11 +669,11 @@ function positiveSeconds(value: unknown, fallback: number): number {
 }
 
 function openPairingSession(
-  session: PendingPairing,
+  session: Omit<PendingPairing, "abort">,
   userCode: string | null,
 ): PairingStarted {
   const handle = nanoid();
-  pendingPairings.set(handle, session);
+  pendingPairings.set(handle, { ...session, abort: new AbortController() });
   return {
     ok: true,
     handle,
@@ -747,6 +776,10 @@ export interface PairingPollOptions {
  * One device-code exchange attempt for a live session. Still-pending
  * challenges resolve with the cadence to wait before trying again; an approved
  * one is registered through {@link pairAssistant} in the same call.
+ *
+ * A {@link pairingCancel} that lands while the exchange is in flight ends the
+ * attempt with nothing persisted, so a dismissed dialog or an interrupted CLI
+ * never leaves credentials for an assistant the user declined to pair.
  */
 export async function pairingPoll(
   lockfilePaths: string[],
@@ -756,12 +789,7 @@ export async function pairingPoll(
   const key = typeof handle === "string" ? handle : "";
   const session = pendingPairings.get(key);
   if (!session) {
-    return {
-      ok: false,
-      reason: "unknown-session",
-      status: 404,
-      error: "That pairing attempt is no longer active. Start over.",
-    };
+    return unknownSession();
   }
   if (Date.now() >= session.expiresAtMs) {
     pendingPairings.delete(key);
@@ -776,7 +804,23 @@ export async function pairingPoll(
       deviceId: session.deviceId,
       platform: resolveRemoteWebPairingPlatform(platform),
     } satisfies RemoteWebPairingTokenRequest,
+    session.abort.signal,
   );
+  // A cancel that lands while the gateway is answering: the caller closed the
+  // dialog or interrupted the CLI, so the attempt is over and NOTHING is
+  // persisted. This is the only guard the import needs, because no await sits
+  // between here and `pairAssistant` below. It also outranks the transport
+  // failure an aborted request produces, which would otherwise read as the
+  // retryable `unreachable`.
+  //
+  // Residual: a cancel landing after the gateway recorded the device leaves
+  // the code spent and a device credential registered gateway-side with
+  // nothing local behind it. That row is visible and revocable in the host's
+  // paired-devices list, which is where it belongs; keeping nothing locally is
+  // what the user asked for.
+  if (session.abort.signal.aborted) {
+    return unknownSession();
+  }
   // The session survives a transport failure so the caller can simply poll
   // again; the device code is untouched until the gateway answers.
   if (!posted.ok) {
@@ -848,10 +892,28 @@ export async function pairingPoll(
   };
 }
 
-/** Forget a pending pairing. True when a live session was dropped. */
+/**
+ * Forget a pending pairing. True when a live session was dropped.
+ *
+ * Aborting the session also cuts short an exchange already in flight, so a
+ * cancel that beats the gateway's reply can leave the device code unspent, and
+ * one that does not still stops {@link pairingPoll} short of persisting
+ * anything.
+ */
 export function pairingCancel(handle: unknown): boolean {
+  let dropped = false;
+  if (typeof handle === "string") {
+    const session = pendingPairings.get(handle);
+    if (session) {
+      pendingPairings.delete(handle);
+      session.abort.abort();
+      dropped = true;
+    }
+  }
+  // Swept after the named session goes, so a cancel still aborts an exchange
+  // whose session crossed its expiry while the gateway was answering.
   sweepExpiredPairings();
-  return typeof handle === "string" && pendingPairings.delete(handle);
+  return dropped;
 }
 
 // ── Legacy base64 bundle import ─────────────────────────────────────────────

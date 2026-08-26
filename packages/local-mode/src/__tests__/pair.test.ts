@@ -22,6 +22,7 @@ interface FetchCall {
   url: string;
   body: Record<string, unknown>;
   redirect: string | undefined;
+  signal: AbortSignal | undefined;
 }
 
 let fetchCalls: FetchCall[];
@@ -36,12 +37,13 @@ beforeEach(() => {
   respond = () => new Response(null, { status: 500 });
   globalThis.fetch = (async (
     input: unknown,
-    init?: { body?: unknown; redirect?: string },
+    init?: { body?: unknown; redirect?: string; signal?: AbortSignal },
   ): Promise<Response> => {
     const call: FetchCall = {
       url: String(input),
       body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
       redirect: init?.redirect,
+      signal: init?.signal,
     };
     fetchCalls.push(call);
     const response = await respond(call);
@@ -556,6 +558,7 @@ describe("pairingStart", () => {
         url: "https://gw.example.com/v1/remote-web/pairing-challenge",
         body: { publicBaseUrl: "https://gw.example.com" },
         redirect: "error",
+        signal: expect.any(AbortSignal) as unknown as AbortSignal,
       },
     ]);
     expect(started.userCode).toBe("ABCD-EFGH");
@@ -1095,6 +1098,110 @@ describe("pairingCancel", () => {
     }
     expect(result.reason).toBe("unknown-session");
     expect(fetchCalls).toHaveLength(0);
+  });
+
+  /**
+   * Hold the token exchange open until the returned release runs, so a cancel
+   * can land in the same window a dismissed dialog's cancel lands in.
+   */
+  const heldApproval = (): (() => void) => {
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    respond = async () => {
+      await held;
+      return json(200, approvedBody());
+    };
+    return () => release();
+  };
+
+  /** Resolve once the exchange request is actually in flight. */
+  const exchangeInFlight = async (): Promise<void> => {
+    while (fetchCalls.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
+
+  const startLinkSession = async (): Promise<string> => {
+    const started = await pairingStart(
+      "https://gw.example.com/assistant/pair#device_code=device-code-abc",
+    );
+    if (!started.ok) {
+      throw new Error(`unexpected start failure: ${started.error}`);
+    }
+    return started.handle;
+  };
+
+  test("a cancel while the exchange is in flight persists nothing", async () => {
+    const approve = heldApproval();
+    const handle = await startLinkSession();
+    const polled = pairingPoll([lockfilePath], configDir, { handle });
+    await exchangeInFlight();
+
+    expect(pairingCancel(handle)).toBe(true);
+    // The gateway approves anyway, after the caller walked away.
+    approve();
+    const result = await polled;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe("unknown-session");
+    expect(result.status).toBe(404);
+    // No lockfile entry and no guardian token for a pairing the user dropped.
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+    expect(fs.existsSync(path.join(configDir, "assistants"))).toBe(false);
+  });
+
+  test("an aborted exchange is a dead session, not a retryable transport failure", async () => {
+    respond = (call) =>
+      new Promise<Response>((_resolve, reject) => {
+        call.signal?.addEventListener("abort", () => {
+          reject(new Error("aborted"));
+        });
+      });
+    const handle = await startLinkSession();
+    const polled = pairingPoll([lockfilePath], configDir, { handle });
+    await exchangeInFlight();
+
+    expect(pairingCancel(handle)).toBe(true);
+    const result = await polled;
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    // `unreachable` is the retryable class, so a session the caller killed
+    // must never be reported as one.
+    expect(result.reason).toBe("unknown-session");
+    expect(fetchCalls[0]!.signal?.aborted).toBe(true);
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+    expect(fs.existsSync(path.join(configDir, "assistants"))).toBe(false);
+  });
+
+  test("an exchange nobody cancels still imports", async () => {
+    const approve = heldApproval();
+    const handle = await startLinkSession();
+    const polled = pairingPoll([lockfilePath], configDir, { handle });
+    await exchangeInFlight();
+
+    approve();
+    const result = await polled;
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.status).toBe("imported");
+    const entry = (
+      readLockfileFromDisk().assistants as Array<Record<string, unknown>>
+    )[0]!;
+    expect(entry).toMatchObject({ cloud: "paired", paired: true });
+    expect(readGuardianToken(entry.assistantId as string).accessToken).toBe(
+      "acc-tok",
+    );
   });
 
   test("a non-string handle is refused rather than throwing", () => {
