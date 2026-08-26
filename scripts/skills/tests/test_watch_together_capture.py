@@ -10,6 +10,11 @@ SPEC = importlib.util.spec_from_file_location("capture_live", SCRIPT_PATH)
 CAPTURE_LIVE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CAPTURE_LIVE)
 
+WATCH_FILE_PATH = REPO_ROOT / "skills" / "watch-together" / "scripts" / "watch-file.py"
+WATCH_SPEC = importlib.util.spec_from_file_location("watch_file", WATCH_FILE_PATH)
+WATCH_FILE = importlib.util.module_from_spec(WATCH_SPEC)
+WATCH_SPEC.loader.exec_module(WATCH_FILE)
+
 
 class CaptureCommandTests(unittest.TestCase):
     def setUp(self):
@@ -111,6 +116,40 @@ class CaptureStopTests(unittest.TestCase):
         self.assertTrue(capture.terminated)
         self.assertFalse(capture.killed)
         self.assertEqual(capture.wait_timeouts, [10, 5])
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, duration):
+        self.now += duration
+
+
+class PipeReadTests(unittest.TestCase):
+    def test_unresponsive_pipe_read_returns_at_deadline(self):
+        clock = FakeClock()
+        read_called = False
+
+        def read(_size):
+            nonlocal read_called
+            read_called = True
+            return b""
+
+        result = WATCH_FILE.read_when_available(
+            read,
+            lambda: 0,
+            0.05,
+            clock=clock.monotonic,
+            sleep=clock.sleep,
+        )
+
+        self.assertIsNone(result)
+        self.assertFalse(read_called)
+        self.assertEqual(clock.now, 0.05)
 
 
 if __name__ == "__main__":

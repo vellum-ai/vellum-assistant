@@ -51,6 +51,20 @@ SRT_TIME = re.compile(
 )
 
 
+def read_when_available(
+    read, available, timeout, clock=time.monotonic, sleep=time.sleep
+):
+    deadline = clock() + timeout
+    while True:
+        byte_count = available()
+        if byte_count > 0:
+            return read(min(byte_count, 65536))
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return None
+        sleep(min(0.02, remaining))
+
+
 def parse_srt(path):
     """Parse an .srt into [(start_seconds, text)], tags stripped."""
     entries = []
@@ -162,9 +176,34 @@ class MpvIpc:
         else:
             self.stream.sendall(data)
 
-    def receive(self):
+    def windows_pipe_available(self):
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        available = wintypes.DWORD()
+        peek_named_pipe = ctypes.windll.kernel32.PeekNamedPipe
+        peek_named_pipe.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        peek_named_pipe.restype = wintypes.BOOL
+        handle = msvcrt.get_osfhandle(self.stream.fileno())
+        if not peek_named_pipe(handle, None, 0, None, ctypes.byref(available), None):
+            raise ctypes.WinError()
+        return available.value
+
+    def receive(self, timeout):
         if os.name == "nt":
-            return self.stream.read(65536)
+            return read_when_available(
+                self.stream.read,
+                self.windows_pipe_available,
+                timeout,
+            )
         return self.stream.recv(65536)
 
     def get_property(self, name):
@@ -186,8 +225,10 @@ class MpvIpc:
                         return obj.get("data")
                     return None
             try:
-                data = self.receive()
+                data = self.receive(max(0, deadline - time.monotonic()))
             except socket.timeout:
+                return None
+            if data is None:
                 return None
             if not data:
                 raise ConnectionError("mpv socket closed")
