@@ -119,11 +119,12 @@ export interface GatewaySocketLike {
 export interface DiscordGatewayClientOptions {
   botToken: string;
   /**
-   * Live view of the admitted-channel allow-list, read per message so a
-   * config edit applies without restarting the client (a restart costs an
-   * IDENTIFY).
+   * A legacy install's persisted room restriction, read live per message so
+   * an operator's edit applies without a restart. Returns undefined once the
+   * config entry is cleared, which is the operator adopting the permission
+   * model; nothing writes the entry anymore.
    */
-  readAllowedChannelIds: () => ReadonlySet<string>;
+  readLegacyAllowedChannelIds?: () => ReadonlySet<string> | undefined;
   fetchFn?: typeof fetchImpl;
   createSocket?: (url: string) => GatewaySocketLike;
   schedule?: ScheduleFn;
@@ -133,7 +134,9 @@ export interface DiscordGatewayClientOptions {
 
 export class DiscordGatewayClient {
   private readonly botToken: string;
-  private readonly readAllowedChannelIds: () => ReadonlySet<string>;
+  private readonly readLegacyAllowedChannelIds?: () =>
+    | ReadonlySet<string>
+    | undefined;
   private readonly fetchFn: typeof fetchImpl;
   private readonly createSocket: (url: string) => GatewaySocketLike;
   private readonly schedule: ScheduleFn;
@@ -167,7 +170,7 @@ export class DiscordGatewayClient {
     private readonly onEvent: DiscordGatewayEventHandler,
   ) {
     this.botToken = options.botToken;
-    this.readAllowedChannelIds = options.readAllowedChannelIds;
+    this.readLegacyAllowedChannelIds = options.readLegacyAllowedChannelIds;
     this.fetchFn = options.fetchFn ?? fetchImpl;
     this.createSocket =
       options.createSocket ??
@@ -670,6 +673,8 @@ export class DiscordGatewayClient {
       return;
     }
     const message = parsed.data;
+    // Parent resolution serves the normalized event's conversation binding,
+    // and, under a legacy allow-list, the thread-inheritance rule.
     const parentChannelId = this.threadParents.parentOf(message.channel_id);
     const candidate = toAdmissionCandidate(message, parentChannelId);
     if (!candidate) {
@@ -677,9 +682,12 @@ export class DiscordGatewayClient {
       return;
     }
 
+    const legacyAllowedChannelIds = this.readLegacyAllowedChannelIds?.();
     const verdict = admitDiscordMessage(candidate, {
       botUserId: this.botUserId,
-      allowedChannelIds: this.readAllowedChannelIds(),
+      ...(legacyAllowedChannelIds !== undefined
+        ? { legacyAllowedChannelIds }
+        : {}),
     });
     if (!verdict.admitted) {
       const fields = {
@@ -688,20 +696,12 @@ export class DiscordGatewayClient {
         messageId: message.id,
       };
       // Severity splits by reason and volume is capped at the first drop per
-      // reason and channel. See `admission-log.ts` for why a single level
-      // cannot serve both a misconfigured allow-list and a busy guild.
+      // reason and channel; see `admission-log.ts`.
       const level = this.admissionDropLog.levelFor(
         verdict.reason,
         message.channel_id,
       );
-      if (level === "warn") {
-        log.warn(
-          fields,
-          "Discord message dropped: the channel is not on the allow-list. " +
-            "Check `discord.allowedChannelIds` in config.json. Further " +
-            "drops for this channel log at debug.",
-        );
-      } else if (level === "info") {
+      if (level === "info") {
         log.info(
           fields,
           "Discord message dropped by admission gate. Further drops for " +

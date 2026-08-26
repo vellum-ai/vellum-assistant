@@ -32,8 +32,9 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 // --- toast -------------------------------------------------------------------
 const toastSuccess = mock((_msg: string) => {});
+const toastWarning = mock((_msg: string) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: { success: toastSuccess, error: () => {} },
+  toast: { success: toastSuccess, warning: toastWarning, error: () => {} },
 }));
 
 // --- ProfileEditorModal stub -------------------------------------------------
@@ -100,9 +101,19 @@ const configGetMock = mock(
     },
   }),
 );
+// The post-save probe. Mocked so a successful save never falls through to the
+// real HTTP client (which would dial a live daemon and run a billable probe).
+// Defaults to a passing check; the failed-check warning path is exercised in
+// the settings save-hook tests that own `probeSavedProfile`.
+const validateProfileMock = mock(
+  async (_opts: unknown): Promise<{ data: unknown }> => ({
+    data: { check: { ok: true } },
+  }),
+);
 mock.module("@/generated/daemon/sdk.gen", () => ({
   configGet: configGetMock,
   configPatch: configPatchMock,
+  inferenceProfilesByNameValidatePost: validateProfileMock,
 }));
 
 import {
@@ -146,6 +157,8 @@ beforeEach(() => {
   configPatchMock.mockClear();
   configGetMock.mockClear();
   configGetSetQueryDataMock.mockClear();
+  validateProfileMock.mockClear();
+  toastWarning.mockClear();
 });
 
 afterEach(() => {
@@ -192,6 +205,14 @@ describe("ProfileQuickAddProvider", () => {
       );
     });
     expect(screen.queryByTestId("modal-save-btn")).toBeNull();
+
+    // Fires the advisory post-save probe against the new profile.
+    await waitFor(() => {
+      expect(validateProfileMock).toHaveBeenCalledWith({
+        path: { assistant_id: "assistant-1", name: NEW_PROFILE_NAME },
+      });
+    });
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 
   test("the save path reads the LATEST server config — appends to the server order, not the (stale/empty) opener input", async () => {
@@ -260,6 +281,8 @@ describe("ProfileQuickAddProvider", () => {
     expect(configPatchMock).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
+    // An aborted save must not probe a profile that was never written.
+    expect(validateProfileMock).not.toHaveBeenCalled();
     // The modal is still up, so the caller must not be told the flow is over.
     expect(onClosed).not.toHaveBeenCalled();
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();

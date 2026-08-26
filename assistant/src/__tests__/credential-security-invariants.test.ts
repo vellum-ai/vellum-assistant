@@ -179,6 +179,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/inference/credential-slot-repair.ts", // boot repair: copies the shared openai-compatible slot value into per-connection slots (get/set of provider API keys only; values never logged or returned)
       "runtime/routes/inference-provider-connection-routes.ts", // connection delete removes its dedicated per-connection key slot (deleteSecureKeyAsync only; no reads)
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
+      "daemon/handlers/config-discord-channel.ts", // Discord channel bot token management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
@@ -470,23 +471,23 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
   });
 
   // PR 18 — vault policy fields with strict defaults
-  test("credential without explicit policy gets strict defaults (deny all)", () => {
+  test("credential without explicit policy gets strict defaults (deny all)", async () => {
     // A credential stored without allowed_tools defaults to empty array,
     // which the broker's isToolAllowed check fails closed on.
     upsertCredentialMetadata("test-svc", "pass", {});
 
-    const result = broker.authorize({
+    const result = await broker.browserFill({
       service: "test-svc",
       field: "pass",
       toolName: "browser_fill_credential",
+      fill: async () => {},
     });
 
-    expect(result.authorized).toBe(false);
-    expect(!result.authorized && result.reason).toContain(
-      "No tools are currently allowed",
-    );
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain("No tools are currently allowed");
   });
 });
+
 
 // ---------------------------------------------------------------------------
 // Invariant 6 — oauth2ClientSecret never in plaintext metadata

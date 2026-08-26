@@ -33,6 +33,7 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
+  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -133,6 +134,10 @@ export interface LocalPairedDeviceRecord {
   issuedAt: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  /** Raw User-Agent observed when this device paired, or null. */
+  pairingUserAgent?: string | null;
+  /** Name the device reported for itself when pairing, or null. */
+  clientReportedName?: string | null;
   /** True when this row is the hosting machine's own guardian credential. */
   isCurrentHost?: boolean;
 }
@@ -255,6 +260,17 @@ export interface VellumBridge {
   };
   share: {
     shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+  };
+  downloads: {
+    /** Terminal reports for downloads this window initiated. */
+    onDone(callback: (event: DownloadDoneEvent) => void): () => void;
+    /**
+     * Reveal a completed download in the host's file manager (Finder,
+     * File Explorer). `id` comes from a `"completed"` `onDone` event; main
+     * resolves it to the saved path itself and ignores unknown ids, so the
+     * renderer can never point this at an arbitrary file.
+     */
+    reveal(id: string): Promise<void>;
   };
   localMode: {
     hatch(
@@ -577,6 +593,7 @@ export const VELLUM_BRIDGE_KEYS = [
   "icon",
   "dock",
   "share",
+  "downloads",
   "localMode",
   "menu",
   "mainWindow",

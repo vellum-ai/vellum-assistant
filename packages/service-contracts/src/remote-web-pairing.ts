@@ -177,6 +177,12 @@ export interface RemoteWebPairingTokenRequest {
   deviceId?: string;
   /** Platform to record for the device. Ignored without a `deviceId`. */
   platform?: RemoteWebPairingPlatform;
+  /**
+   * Optional self-reported device name, for example "Vellum iOS app". The gateway
+   * stores it verbatim (capped) and never trusts it for authorization. Absent from
+   * clients that predate this field.
+   */
+  clientReportedName?: string;
 }
 
 /**

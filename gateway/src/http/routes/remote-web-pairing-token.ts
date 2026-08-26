@@ -28,7 +28,7 @@ import {
   readJsonObjectBody,
 } from "../route-helpers.js";
 
-const MAX_TOKEN_BODY_BYTES = 512;
+const MAX_TOKEN_BODY_BYTES = 1024;
 const REMOTE_WEB_PLATFORM = "web";
 
 /** Token-exchange JSON responses, errors included, are never cacheable. */
@@ -66,6 +66,7 @@ export async function handleRemoteWebPairingToken(
   // device code is the credential either way; the id only selects per-device
   // revocability and body-delivered refresh.
   const deviceId = jsonStringField(body, "deviceId");
+  const clientReportedName = jsonStringField(body, "clientReportedName");
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
   if (challenge.status === "pending") {
@@ -87,6 +88,15 @@ export async function handleRemoteWebPairingToken(
     return invalidDeviceCodeResponse();
   }
 
+  // The exchange request's own User-Agent, not the challenge's stored
+  // requesterUserAgent: in the app-handoff flow the phone's browser mints
+  // the code but the app performs the exchange and holds the credential, so
+  // the exchange request is the one that observed the actual device.
+  const exchangeUserAgent = req.headers.get("user-agent");
+  const identity = {
+    pairingUserAgent: exchangeUserAgent,
+    clientReportedName,
+  };
   let guardianPrincipalId: string;
   let pair: RefreshableTokenPair;
   // Set on the browser path only: a device-bound pairing carries its refresh
@@ -99,6 +109,7 @@ export async function handleRemoteWebPairingToken(
         guardianPrincipalId,
         deviceId,
         platform: resolveRemoteWebPairingPlatform(body.platform),
+        identity,
       });
     } else {
       refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(
@@ -108,6 +119,7 @@ export async function handleRemoteWebPairingToken(
         guardianPrincipalId,
         platform: REMOTE_WEB_PLATFORM,
         browserRefreshCookiePath: refreshCookiePath,
+        identity,
       });
     }
   } catch (err) {

@@ -500,6 +500,34 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.openConversations for the widgets' unread hosts", async () => {
+    const lists: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubList = subscribe("deeplink.openConversations", (p) => {
+      lists.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant://conversations" });
+      // A path makes it a different link that merely shares the host.
+      urlOpenHandler!({ url: "vellum-assistant://conversations/abc-123" });
+
+      expect(lists).toEqual([{ provenance: null }]);
+      expect(unknowns).toEqual([
+        { url: "vellum-assistant://conversations/abc-123" },
+      ]);
+    } finally {
+      unsubList();
+      unsubUnknown();
+    }
+  });
+
   test("a look-alike scheme falls through to unknown rather than opening the camera", async () => {
     const cameras: unknown[] = [];
     const unknowns: unknown[] = [];

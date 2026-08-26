@@ -18,7 +18,8 @@ export function methodNotAllowed(allow: string): Response {
 /**
  * Read a JSON request body under a byte cap. Returns the decoded object, or
  * the error `Response` to send: 413 for an oversized body, 400 for an
- * unreadable body or one that isn't a JSON object.
+ * unreadable body, invalid JSON, or a non-object body (null, an array, or a
+ * bare primitive).
  */
 export async function readJsonObjectBody(
   req: Request,
@@ -60,7 +61,8 @@ export function jsonStringField(
  * Read a JSON request body under a byte cap and extract one required string
  * field. Returns the raw (untrimmed) field value, or the error `Response` to
  * send: 413 for an oversized body, 400 for an unreadable body, invalid JSON,
- * or a missing/blank field.
+ * a non-object body (null, an array, or a bare primitive), or a missing/blank
+ * field.
  */
 export async function readJsonStringField(
   req: Request,
@@ -75,4 +77,36 @@ export async function readJsonStringField(
     jsonStringField(body, field) ??
     errorResponse("BAD_REQUEST", `${field} is required`, 400)
   );
+}
+
+/**
+ * Read a JSON request body under a byte cap and extract one required plus
+ * several optional string fields in a single pass (the body stream can only
+ * be consumed once, so this can't just call {@link readJsonStringField}
+ * repeatedly). Same error shapes as {@link readJsonStringField}. A missing or
+ * non-string optional field resolves to `null`, never an error.
+ */
+export async function readJsonStringFields<K extends string>(
+  req: Request,
+  maxBytes: number,
+  required: K,
+  optional: readonly string[],
+): Promise<{ [key: string]: string | null } | Response> {
+  const body = await readJsonObjectBody(req, maxBytes);
+  if (body instanceof Response) {
+    return body;
+  }
+
+  const requiredValue = jsonStringField(body, required);
+  if (requiredValue === null) {
+    return errorResponse("BAD_REQUEST", `${required} is required`, 400);
+  }
+
+  const fields: { [key: string]: string | null } = {
+    [required]: requiredValue,
+  };
+  for (const field of optional) {
+    fields[field] = jsonStringField(body, field);
+  }
+  return fields;
 }

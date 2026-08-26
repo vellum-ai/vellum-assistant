@@ -1750,7 +1750,13 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The result carries how the run ended, so a caller that treats output as
+    // a finished answer can see that something else ended this one.
+    expect(result).toEqual({
+      invoked: true,
+      producedToolCalls: false,
+      exitReason: "error",
+    });
     // The checkpoint's flush pushed + persisted the partial tail.
     expect(conversation.pushedMessages.length).toBeGreaterThan(0);
     expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
@@ -1772,7 +1778,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: true,
+      producedToolCalls: false,
+      exitReason: "no_tool_calls",
+    });
   });
 
   test("reports no_output on a clean empty reply when the caller requires usable output", async () => {

@@ -78,6 +78,31 @@ describe("skills catalog loading", () => {
     expect(catalog.map((skill) => skill.id)).toEqual(["alpha", "zeta"]);
   });
 
+  test("parses supported host platforms from Vellum metadata", () => {
+    const skillDir = join(TEST_DIR, "skills", "platform-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---
+name: platform-skill
+description: Platform-specific skill
+metadata:
+  vellum:
+    platforms:
+      - macos
+      - linux
+---
+
+Skill body
+`,
+    );
+
+    const skill = loadUserSkillCatalog().find(
+      (entry) => entry.id === "platform-skill",
+    );
+    expect(skill?.platforms).toEqual(["macos", "linux"]);
+  });
+
   test("ignores stale SKILLS.md while discovering valid skill directories", () => {
     writeSkill("first", "First Skill", "First");
     writeSkill("second", "Second Skill", "Second");

@@ -126,6 +126,7 @@ export const oneTimeMigrations = sqliteTable("one_time_migrations", {
 //
 // Gateway-owned (this table + contact_channels): id, role, principalId,
 // displayName (cache only — NOT used for ACL, kept for log readability),
+// autoApproveThreshold (per-contact RiskThreshold override, null = inherit),
 // and every contact_channels column (type, address, status, policy,
 // verifiedAt, verifiedVia, inviteId, lastSeenAt, interactionCount,
 // lastInteraction, revokedReason, blockedReason).
@@ -139,6 +140,13 @@ export const contacts = sqliteTable("contacts", {
   displayName: text("display_name").notNull(),
   role: text("role").notNull().default("contact"),
   principalId: text("principal_id"),
+  /**
+   * Per-contact auto-approve ceiling (`none` | `low` | `medium` | `high`).
+   * Null means unset: later approval resolution inherits the existing
+   * room / trust-class cascade. Same vocabulary as `auto_approve_thresholds`
+   * and the channel-permission matrix (`RiskThreshold`).
+   */
+  autoApproveThreshold: text("auto_approve_threshold"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -270,6 +278,9 @@ export const actorTokenRecords = sqliteTable(
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
+    // Siblings of platform so rotation carries them forward. Raw, never parsed here.
+    pairingUserAgent: text("pairing_user_agent"),
+    clientReportedName: text("client_reported_name"),
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     expiresAt: integer("expires_at"),
@@ -305,6 +316,8 @@ export const actorRefreshTokenRecords = sqliteTable(
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
+    pairingUserAgent: text("pairing_user_agent"),
+    clientReportedName: text("client_reported_name"),
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     absoluteExpiresAt: integer("absolute_expires_at").notNull(),

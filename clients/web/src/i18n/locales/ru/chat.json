@@ -138,7 +138,9 @@
   },
   "chatComposer": {
     "addToChat": "Добавить в диалог",
-    "askAssistantPlaceholder": "Сообщение для {assistantName}"
+    "askAssistantPlaceholder": "Сообщение для {assistantName}",
+    "endOtherVoiceSession": "Завершить и начать здесь",
+    "goToVoiceSession": "Перейти к ней"
   },
   "compactionTab": {
     "compactedMessages": "сжато: {count}",
@@ -300,6 +302,14 @@
     "scopedToOneMessage": "Ограничено одним сообщением · ",
     "scopedToTurn": "Ограничено ходом {index} из {count} · ",
     "title": "Инспектор контекста LLM"
+  },
+  "liveVoiceBusy": {
+    "android": "Голосовой режим уже активен в приложении для Android.",
+    "ios": "Голосовой режим уже активен в приложении для iOS.",
+    "macos": "Голосовой режим уже активен в приложении для Mac.",
+    "unknown": "Голосовой режим уже активен в другом месте.",
+    "web": "Голосовой режим уже активен в другой вкладке браузера.",
+    "windows": "Голосовой режим уже активен в приложении для Windows."
   },
   "llmCallErrorCard": {
     "chipCode": "Код",

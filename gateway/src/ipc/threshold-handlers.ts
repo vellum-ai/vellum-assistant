@@ -8,9 +8,11 @@
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { parseContactAutoApproveThreshold } from "../db/contact-auto-approve-threshold.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   autoApproveThresholds,
+  contacts,
   conversationThresholdOverrides,
 } from "../db/schema.js";
 import type { IpcRoute } from "./server.js";
@@ -23,6 +25,10 @@ const GLOBAL_DEFAULTS = {
 
 const GetConversationThresholdSchema = z.object({
   conversationId: z.string().min(1),
+});
+
+const GetContactThresholdSchema = z.object({
+  contactId: z.string().min(1),
 });
 
 const SetConversationThresholdSchema = z.object({
@@ -66,6 +72,30 @@ export const thresholdRoutes: IpcRoute[] = [
 
       if (!row) return null;
       return { threshold: row.threshold };
+    },
+  },
+  {
+    method: "get_contact_threshold",
+    schema: GetContactThresholdSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const contactId = params?.contactId as string;
+      const db = getGatewayDb();
+      const row = db
+        .select({ autoApproveThreshold: contacts.autoApproveThreshold })
+        .from(contacts)
+        .where(eq(contacts.id, contactId))
+        .get();
+
+      if (!row) {
+        return null;
+      }
+      const threshold = parseContactAutoApproveThreshold(
+        row.autoApproveThreshold,
+      );
+      if (threshold == null) {
+        return null;
+      }
+      return { threshold };
     },
   },
   {

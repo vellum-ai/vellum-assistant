@@ -174,6 +174,18 @@ describe("resolveAuth defense-in-depth", () => {
     }
   });
 
+  test("preserves baseUrl for opencode provider", async () => {
+    const result = await resolveAuth(
+      { type: "api_key", credential: "cred-test" },
+      "opencode",
+      { baseUrl: "https://opencode.ai/zen/go/v1" },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok && result.resolved.kind === "header") {
+      expect(result.resolved.baseUrl).toBe("https://opencode.ai/zen/go/v1");
+    }
+  });
+
   test("preserves baseUrl for ollama none-auth", async () => {
     const result = await resolveAuth({ type: "none" }, "ollama", {
       baseUrl: "http://192.168.1.50:11434/v1",

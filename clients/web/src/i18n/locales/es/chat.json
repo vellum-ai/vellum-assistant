@@ -259,7 +259,8 @@
     "setupTitle": "Configuración de {channel}",
     "slackConnected": "Tu asistente ya puede recibir mensajes en Slack.",
     "telegramConnected": "Tu asistente ya puede recibir mensajes en Telegram.",
-    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks."
+    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks.",
+    "discordConnected": "Discord esta conectado. Anade el bot a un servidor y empezara a responder alli."
   },
   "chatAttachments": {
     "attachFileAria": "Adjuntar archivo",
@@ -273,6 +274,8 @@
     "addToChat": "Añadir al chat",
     "askAssistantPlaceholder": "Pregunta a {assistantName}",
     "configureVoice": "Configurar la voz",
+    "endOtherVoiceSession": "Finalizar y empezar aquí",
+    "goToVoiceSession": "Ir a la sesión",
     "recording": "Grabando",
     "sendMessage": "Enviar mensaje",
     "stopGenerating": "Detener la generación",
@@ -724,6 +727,14 @@
     "scopedToTurn": "Limitado al turno {index} de {count} · ",
     "title": "Inspector de contexto LLM"
   },
+  "liveVoiceBusy": {
+    "android": "La voz ya está activa en la aplicación de Android.",
+    "ios": "La voz ya está activa en la aplicación de iOS.",
+    "macos": "La voz ya está activa en la aplicación de Mac.",
+    "unknown": "La voz ya está activa en otro lugar.",
+    "web": "La voz ya está activa en otra pestaña del navegador.",
+    "windows": "La voz ya está activa en la aplicación de Windows."
+  },
   "liveVoiceButton": {
     "startVoiceMode": "Iniciar el modo de voz"
   },
@@ -1149,6 +1160,9 @@
   },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
+    "expandAria": "Reabrir pregunta",
+    "minimizeAria": "Minimizar pregunta",
+    "minimizedSummary": "{count, plural, one {# opción} other {# opciones}} · Toca para reabrir",
     "nextQuestionAria": "Pregunta siguiente",
     "optionAria": "Opción {number}: {label}",
     "position": "{current} de {total}",

@@ -4,6 +4,7 @@ import type { SetupChannelId } from "@/types/channel-types";
 export type ChannelCredentialForm =
   | "slack-wizard"
   | "telegram-token"
+  | "discord-token"
   | "twilio-credentials";
 
 /**
@@ -24,20 +25,21 @@ interface ChannelMeta {
   labelKey:
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
+    | "channelMeta.discord.label"
     | "channelMeta.phone.label";
   /**
    * Catalog key for the disconnect dialog's body.
    *
-   * Undefined when a channel cannot be disconnected from here: there is no
-   * route that clears Discord's credentials, so an offered button would open
-   * a dialog whose confirm does nothing. Read as a capability the way the
-   * transport reads an absent method, rather than naming the channel in the
-   * component. Required, not optional, so a new channel states the answer
-   * instead of inheriting one by omission.
+   * Undefined when a channel cannot be disconnected from here. The
+   * capability itself is the delete-route record (`DISCONNECT_ROUTES`); this
+   * key is its confirm dialog's copy, and a test holds the two equal so
+   * neither can drift. Required, not optional, so a new channel states the
+   * answer instead of inheriting one by omission.
    */
   disconnectMessageKey:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
+    | "channelMeta.discord.disconnectMessage"
     | "channelMeta.phone.disconnectMessage"
     | undefined;
   /**
@@ -68,6 +70,7 @@ interface ChannelMeta {
    */
   disconnectedPitchKey:
     | "channelMeta.telegram.disconnectedPitch"
+    | "channelMeta.discord.disconnectedPitch"
     | "channelMeta.phone.disconnectedPitch"
     | undefined;
 }
@@ -91,6 +94,13 @@ export const CHANNEL_META = {
     hasTrustFloorControl: true,
     credentialForm: "telegram-token",
     disconnectedPitchKey: "channelMeta.telegram.disconnectedPitch",
+  },
+  discord: {
+    labelKey: "channelMeta.discord.label",
+    disconnectMessageKey: "channelMeta.discord.disconnectMessage",
+    hasTrustFloorControl: true,
+    credentialForm: "discord-token",
+    disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
   },
   phone: {
     labelKey: "channelMeta.phone.label",

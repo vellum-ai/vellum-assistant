@@ -63,6 +63,12 @@
   "appViewerContainer": {
     "exitFullscreen": "Exit fullscreen"
   },
+  "assistantConnect": {
+    "failed": "Failed to connect to the assistant."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
+  },
   "avatarManagementModal": {
     "body": "Body",
     "color": "Color",
@@ -189,6 +195,13 @@
     "messageNamed": "\"{appName}\" uses backend services that won't work on a static Vercel page. {assistantName} can deploy it properly with serverless functions.",
     "title": "This app needs a full deploy"
   },
+  "deployStore": {
+    "appExported": "App exported",
+    "deployFailed": "Failed to deploy",
+    "deployedToVercel": "Deployed to Vercel",
+    "open": "Open",
+    "shareFailed": "Failed to share app"
+  },
   "detailPanelStopButton": {
     "tooltip": "Stop"
   },
@@ -207,6 +220,31 @@
     "subtitleShort": "Share feedback, request features, get answers faster",
     "title": "Join our community!"
   },
+  "discordSetupConnectStep": {
+    "instructions": "Paste the bot token you copied from the Bot page.",
+    "botTokenLabel": "Bot token",
+    "save": "Connect",
+    "saving": "Connecting...",
+    "saved": "Connected. Next, add the bot to a server.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Open the Discord developer portal and create a new application. On its <resetLine>Bot</resetLine> page, click Reset Token and copy the token straight away: Discord shows it once and there is no way to read it back.",
+    "intentsNote": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
+    "openPortal": "Open Discord portal",
+    "continue": "I have my token"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Your bot cannot see anything until it joins a server. This link uses the install settings on your application's Installation page.",
+    "openInvite": "Add to a server",
+    "noAppId": "Connect a bot token first, then come back to add it to a server."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Create app",
+    "stepConnect": "Connect",
+    "stepInvite": "Add to server"
+  },
   "diskPressureBanner": {
     "acknowledge": "Acknowledge",
     "acknowledging": "Acknowledging...",
@@ -222,6 +260,14 @@
     "warningBody": "Free up space to avoid interruptions.",
     "warningBodyWithUpgrade": "Free up space or add more storage to avoid interruptions.",
     "warningTitle": "Your storage is almost full"
+  },
+  "downloadFeedback": {
+    "failed": "Download failed",
+    "revealMac": "Show in Finder",
+    "revealWindows": "Show in File Explorer",
+    "saved": "Saved to Downloads",
+    "started": "Download started",
+    "startedDescription": "Look for {filename} in your browser's downloads."
   },
   "editFooter": {
     "discard": "Discard",
@@ -333,6 +379,9 @@
   },
   "rootHydrateFallback": {
     "loadingAria": "Loading"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "the assistant"
   },
   "routeErrorBoundary": {
     "chunkFailBody": "This section couldn't load. Likely a network blip or a stale version. Reload the page to try again.",
@@ -633,6 +682,18 @@
     "restartToInstall": "Restart to install",
     "versionFallback": "update"
   },
+  "useAppDelete": {
+    "deleteFailed": "Failed to delete app"
+  },
+  "useAppDeployment": {
+    "copyFailed": "Couldn't copy the link. Open it at {url}",
+    "linkCopied": "Link copied",
+    "open": "Open"
+  },
+  "useBookmarks": {
+    "addFailed": "Failed to bookmark message.",
+    "removeFailed": "Failed to remove bookmark."
+  },
   "useConnectClaude": {
     "exchangeFailed": "Check the pasted key and try again.",
     "failed": "Connecting Claude failed. Please try again.",
@@ -646,8 +707,24 @@
     "connectGuidance": "This link came from a pairing QR code. To connect this Mac, paste the pairing link from the assistant's machine here.",
     "legacyLinkGuidance": "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here."
   },
+  "useOauthConnect": {
+    "accountConnected": "{name} account connected.",
+    "authPopupClosed": "{name} connection failed: authorization popup closed.",
+    "authorizationError": "{name} error: {code}",
+    "authorizationFailed": "{name} authorization failed",
+    "popupBlocked": "Popup blocked. Please enable popups and try again.",
+    "popupClosed": "{name} connection failed: popup closed.",
+    "startFailed": "Failed to start {name} authorization."
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "Your browser blocked a page the assistant tried to open.",
+    "openPage": "Open page"
+  },
   "useVoiceSamplePreview": {
     "playFailed": "Could not play the voice sample."
+  },
+  "useWorkspaceTheme": {
+    "updated": "Theme updated"
   },
   "vercelTokenDialog": {
     "body": "Enter your Vercel API token to deploy apps as static pages.",

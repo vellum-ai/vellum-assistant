@@ -417,7 +417,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "ipc-unix-ndjson",
     auth: "none (local socket)",
     description:
-      "Assistant reads auto-approve threshold configuration from the gateway via IPC (get_global_thresholds, get_conversation_threshold methods).",
+      "Assistant reads auto-approve threshold configuration from the gateway via IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold methods).",
     callerGlobs: ["assistant/src/permissions/gateway-threshold-reader.ts"],
     calleeGlobs: [
       "gateway/src/ipc/threshold-handlers.ts",

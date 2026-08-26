@@ -52,6 +52,7 @@ describe("fetchCatalog normalization", () => {
           description: "Shop on Amazon",
           icon: "🛒",
           category: "commerce",
+          platforms: ["windows"],
           updated_at: "2026-04-19T19:26:17Z",
         },
       ],
@@ -67,6 +68,8 @@ describe("fetchCatalog normalization", () => {
     expect(skill.icon).toBe("🛒");
     expect(skill.metadata?.icon).toBe("🛒");
     expect(skill.updatedAt).toBe("2026-04-19T19:26:17Z");
+    expect(skill.platforms).toEqual(["windows"]);
+    expect(skill.metadata?.vellum?.platforms).toEqual(["windows"]);
   });
 
   test("leaves category undefined when the API omits it", async () => {
@@ -115,7 +118,11 @@ describe("readLocalCatalog normalization", () => {
               description: "Task management",
               metadata: {
                 icon: "✅",
-                vellum: { "display-name": "Tasks", category: "productivity" },
+                vellum: {
+                  "display-name": "Tasks",
+                  category: "productivity",
+                  platforms: ["macos", "linux"],
+                },
               },
             },
           ],
@@ -127,6 +134,7 @@ describe("readLocalCatalog normalization", () => {
       expect(catalog).toHaveLength(1);
       expect(catalog[0].metadata?.vellum?.category).toBe("productivity");
       expect(catalog[0].metadata?.vellum?.["display-name"]).toBe("Tasks");
+      expect(catalog[0].platforms).toEqual(["macos", "linux"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

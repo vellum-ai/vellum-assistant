@@ -12,7 +12,7 @@ describe("ThreadParentCache", () => {
 
   test("ignores regular channels whose parent_id is a category", () => {
     // A type-0 channel's parent_id points at its category. Recording it would
-    // make a message in the channel inherit the category's allow-list entry.
+    // misreport an ordinary channel message as belonging to a thread of its category.
     const cache = new ThreadParentCache();
     cache.note({ id: "channel-1", type: 0, parent_id: "category-1" });
     expect(cache.parentOf("channel-1")).toBeUndefined();

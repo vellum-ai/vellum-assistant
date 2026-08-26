@@ -1,10 +1,11 @@
 import { existsSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 
 import {
   ensureDataDir,
+  formatHomeRelativePath,
   getDataDir,
   getDbPath,
   getHistoryPath,
@@ -64,6 +65,23 @@ afterEach(() => {
 // Workspace helpers resolve under VELLUM_WORKSPACE_DIR when set,
 // otherwise under ~/.vellum/workspace.
 describe("path characterization", () => {
+  test("formats Windows workspace paths relative to the home directory", () => {
+    expect(
+      formatHomeRelativePath(
+        "C:\\Users\\Alice\\.vellum\\workspace",
+        "C:\\Users\\Alice",
+        win32,
+      ),
+    ).toBe("~\\.vellum\\workspace");
+    expect(
+      formatHomeRelativePath(
+        "D:\\Vellum\\workspace",
+        "C:\\Users\\Alice",
+        win32,
+      ),
+    ).toBe("D:\\Vellum\\workspace");
+  });
+
   test("all path helpers resolve to expected locations", () => {
     // Without VELLUM_WORKSPACE_DIR override, workspace is under ~/.vellum
     delete process.env.VELLUM_WORKSPACE_DIR;

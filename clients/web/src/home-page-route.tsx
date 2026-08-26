@@ -11,6 +11,7 @@ import {
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { Typography } from "@vellumai/design-library";
@@ -18,6 +19,7 @@ import { Typography } from "@vellumai/design-library";
 export function HomePageRoute() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation("home");
   const assistantId = useActiveAssistantId();
   // Set when a notification row in the bell popover routed here — the page
   // opens that item's detail drawer on arrival.
@@ -58,7 +60,7 @@ export function HomePageRoute() {
           variant="body-medium-default"
           className="text-[var(--content-secondary)]"
         >
-          Activity
+          {t("homeTopHeader.title")}
         </Typography>,
       );
     } else {
@@ -67,7 +69,7 @@ export function HomePageRoute() {
     return () => {
       setTopBarCenter(null);
     };
-  }, [isMobile, setTopBarCenter]);
+  }, [isMobile, setTopBarCenter, t]);
 
   return (
     <HomePage

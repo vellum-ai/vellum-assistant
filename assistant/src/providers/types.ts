@@ -348,6 +348,14 @@ export interface SendMessageConfig {
    */
   usageAttributionHeaders?: Record<string, string>;
   /**
+   * Per-request HTTP headers merged onto the transport. `RetryProvider`
+   * stamps these for providers that need support-lookup headers (OpenCode
+   * `x-opencode-session` / `x-opencode-request`). Provider clients pass
+   * them through SDK request options only and must never include this
+   * object in provider JSON request bodies.
+   */
+  requestHeaders?: Record<string, string>;
+  /**
    * Controls local usage-ledger writes for attributed provider calls.
    * Defaults to `auto`; conversation paths that aggregate usage separately
    * set `manual` to avoid double-counting.

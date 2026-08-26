@@ -1087,6 +1087,37 @@ describe("deeplink.newChat", () => {
   });
 });
 
+describe("deeplink.openConversations", () => {
+  test("parks the request and lands on the chat from a route that mounts no list", () => {
+    mockPathname = routes.settings.general;
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openConversations", { provenance: null });
+    });
+
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(routes.assistant);
+    expect(
+      usePendingDeepLinkStore.getState().pendingConversationListAt,
+    ).toEqual(expect.any(Number));
+  });
+
+  test("a settled conversation already mounts the list, so the tap only parks", () => {
+    mockPathname = routes.conversation("conv-1");
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openConversations", { provenance: "intent" });
+    });
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(
+      usePendingDeepLinkStore.getState().pendingConversationListAt,
+    ).toEqual(expect.any(Number));
+  });
+});
+
 describe("deeplink.openCamera", () => {
   test("parks the request and mints a draft to land on, never the bouncing /assistant index", () => {
     renderConsumer();

@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 
+import { publish } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
 import { shareFileViaMacSheet } from "@/runtime/native-share";
 
@@ -19,13 +20,14 @@ import { shareFileViaMacSheet } from "@/runtime/native-share";
  *
  * Per-host behavior:
  *
- * - **Electron (macOS):** `saveFile` uses the standard `<a download>` path
+ * - **Electron:** `saveFile` uses the standard `<a download>` path
  *   against a blob URL (see the note in `saveFile`); Chromium's download
- *   manager fires `will-download` in the main process, which files the download
- *   into `~/Downloads` (`clients/macos/src/main/downloads.ts`). `shareFile`
- *   presents the native Share Sheet over the `window.vellum.share` bridge,
- *   falling through to a download when the desktop bridge is unavailable
- *   (older preload).
+ *   manager fires `will-download` in the main process, which files the
+ *   download into the host's Downloads folder and pushes the outcome back
+ *   (`packages/electron-desktop/src/downloads.ts` → the `download.done` bus
+ *   event). `shareFile` presents the native Share Sheet over the
+ *   `window.vellum.share` bridge, falling through to a download when the
+ *   desktop bridge is unavailable (older preload).
  * - **Capacitor iOS/Android:** the one host where a *download* also goes
  *   through the share sheet. WKWebView does not support the `download`
  *   attribute on anchors with `blob:` URLs (WebKit bug 216918), so the blob is
@@ -71,13 +73,25 @@ export async function saveFile(
   if (isElectron() && typeof source === "string") {
     try {
       saveFileWeb(await toBlob(source), filename);
-      return;
     } catch {
-      // Unreachable for same-origin sources. Fall through to the plain anchor
-      // rather than dropping the download entirely.
+      // No anchor fallback exists here: a cross-origin anchor click is a
+      // top-level navigation the shell denies, so no download would ever
+      // start and the failure would be silent. Report the terminal outcome
+      // on the same channel main uses so the one feedback owner shows it.
+      publish("download.done", { filename, state: "interrupted" });
     }
+    return;
   }
   saveFileWeb(source, filename);
+  // Each host reports the download's outcome through the signal it actually
+  // has, and `use-download-feedback` owns what the user sees. A plain browser
+  // only has this handoff moment (the browser's download UI owns the rest);
+  // Electron skips it because its main process pushes the real outcome as
+  // `download.done`, and Capacitor returned above with the share sheet as its
+  // own feedback.
+  if (!isElectron()) {
+    publish("download.started", { filename });
+  }
 }
 
 /**

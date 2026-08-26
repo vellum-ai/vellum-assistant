@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import path from "node:path";
 
+import {
+  DOWNLOADS_DONE_EVENT,
+  DOWNLOADS_REVEAL,
+  type DownloadDoneEvent,
+} from "@vellumai/ipc-contract";
+
+import type { IpcHandle } from "./ipc";
+
 // `node:fs` is mocked so the save-path resolution is asserted structurally,
 // with no real disk access. `node:path` stays real (pure helper), so the
-// asserted paths match what production builds. Mirrors `share.test.ts`.
+// asserted paths match what production builds.
 const existsSyncMock = mock((_p: string) => false);
 const mkdirSyncMock = mock((_p: string, _opts: unknown) => undefined);
 mock.module("node:fs", () => ({
@@ -13,9 +21,14 @@ mock.module("node:fs", () => ({
 
 // Capture the `will-download` listener so tests can drive it directly without
 // a real Electron session.
-type DownloadListener = (event: unknown, item: FakeItem) => void;
+type DownloadListener = (
+  event: unknown,
+  item: FakeItem,
+  webContents: FakeWebContents,
+) => void;
 const willDownloadListeners: DownloadListener[] = [];
 const downloadFinishedMock = mock((_p: string) => undefined);
+const showItemInFolderMock = mock((_p: string) => undefined);
 const getPathMock = mock((_name: string) => "/Users/tester/Downloads");
 mock.module("electron", () => ({
   app: {
@@ -31,12 +44,15 @@ mock.module("electron", () => ({
       },
     },
   },
+  shell: { showItemInFolder: showItemInFolderMock },
 }));
 
 // Stand-in for Electron's `DownloadItem`: records the save path and replays
-// the `done` event on demand.
+// the `done` event on demand. `panelPath` simulates the destination the user
+// picks in Electron's default Save panel when `setSavePath` was never called.
 class FakeItem {
   savePaths: string[] = [];
+  panelPath = "";
   private doneHandlers: Array<(event: unknown, state: string) => void> = [];
   constructor(private filename: string) {}
   getFilename(): string {
@@ -44,6 +60,9 @@ class FakeItem {
   }
   setSavePath(p: string): void {
     this.savePaths.push(p);
+  }
+  getSavePath(): string {
+    return this.savePaths[0] ?? this.panelPath;
   }
   once(event: string, handler: (event: unknown, state: string) => void): void {
     if (event === "done") {
@@ -61,17 +80,45 @@ class FakeItem {
   }
 }
 
+// Stand-in for the originating window's WebContents: records pushed events.
+class FakeWebContents {
+  sent: Array<{ channel: string; event: DownloadDoneEvent }> = [];
+  destroyed = false;
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
+  send(channel: string, event: DownloadDoneEvent): void {
+    this.sent.push({ channel, event });
+  }
+  doneEvents(): DownloadDoneEvent[] {
+    return this.sent
+      .filter(({ channel }) => channel === DOWNLOADS_DONE_EVENT)
+      .map(({ event }) => event);
+  }
+}
+
+// Capture the shell registrar's channel registrations so tests can invoke the
+// reveal handler the way a validated IPC message would.
+type RegisteredHandler = (args: unknown[]) => unknown;
+const ipcHandlers = new Map<string, RegisteredHandler>();
+const handle: IpcHandle = (channel, _schema, fn) => {
+  ipcHandlers.set(channel, fn as RegisteredHandler);
+};
+
 const { installDownloads, uniqueDownloadPath, __resetForTesting } =
   await import("./downloads");
 
 // Idempotent: a second call must not double-register (module-level flag).
-installDownloads();
-installDownloads();
+installDownloads({ handle });
+installDownloads({ handle });
 
 const DOWNLOADS = "/Users/tester/Downloads";
 const inDownloads = (name: string): string => path.join(DOWNLOADS, name);
-const fire = (item: FakeItem): void => {
-  willDownloadListeners[0]!({}, item);
+const fire = (item: FakeItem, webContents = new FakeWebContents()): void => {
+  willDownloadListeners[0]!({}, item, webContents);
+};
+const reveal = (id: string): void => {
+  ipcHandlers.get(DOWNLOADS_REVEAL)!([id]);
 };
 const free = (): boolean => false;
 
@@ -82,6 +129,7 @@ beforeEach(() => {
   mkdirSyncMock.mockClear();
   mkdirSyncMock.mockImplementation(() => undefined);
   downloadFinishedMock.mockClear();
+  showItemInFolderMock.mockClear();
   getPathMock.mockClear();
   getPathMock.mockReturnValue(DOWNLOADS);
 });
@@ -166,16 +214,6 @@ describe("will-download handling", () => {
     );
   });
 
-  test("stays quiet for a cancelled or interrupted download", () => {
-    const item = new FakeItem("report.pdf");
-    fire(item);
-
-    item.finish("cancelled");
-    item.finish("interrupted");
-
-    expect(downloadFinishedMock).not.toHaveBeenCalled();
-  });
-
   test("defers to Electron's default save routine when the directory is unusable", () => {
     mkdirSyncMock.mockImplementationOnce(() => {
       throw new Error("EACCES");
@@ -184,6 +222,131 @@ describe("will-download handling", () => {
     const item = new FakeItem("report.pdf");
     expect(() => fire(item)).not.toThrow();
     expect(item.savePaths).toEqual([]);
+  });
+});
+
+describe("done reporting to the originating window", () => {
+  test("pushes a completed event carrying the on-disk (uniquified) name", () => {
+    existsSyncMock.mockImplementation(
+      (c: string) => c === inDownloads("report.pdf"),
+    );
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.finish("completed");
+
+    const events = webContents.doneEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.state).toBe("completed");
+    expect(events[0]!.filename).toBe("report (1).pdf");
+    expect(events[0]!.id).toBeTruthy();
+  });
+
+  test("pushes an interrupted event without a reveal id", () => {
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.finish("interrupted");
+
+    expect(webContents.doneEvents()).toEqual([
+      { filename: "report.pdf", state: "interrupted" },
+    ]);
+    expect(downloadFinishedMock).not.toHaveBeenCalled();
+  });
+
+  test("stays quiet for a cancelled download", () => {
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.finish("cancelled");
+
+    expect(webContents.doneEvents()).toEqual([]);
+    expect(downloadFinishedMock).not.toHaveBeenCalled();
+  });
+
+  test("reports a Save-panel fallback completion under the panel-chosen name", () => {
+    mkdirSyncMock.mockImplementationOnce(() => {
+      throw new Error("EACCES");
+    });
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+    expect(item.savePaths).toEqual([]);
+
+    item.panelPath = "/Users/tester/Desktop/renamed.pdf";
+    item.finish("completed");
+
+    const events = webContents.doneEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.state).toBe("completed");
+    expect(events[0]!.filename).toBe("renamed.pdf");
+    reveal(events[0]!.id!);
+    expect(showItemInFolderMock).toHaveBeenCalledWith(
+      "/Users/tester/Desktop/renamed.pdf",
+    );
+  });
+
+  test("reports a Save-panel fallback interruption as a failure", () => {
+    mkdirSyncMock.mockImplementationOnce(() => {
+      throw new Error("EACCES");
+    });
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.panelPath = "/Users/tester/Desktop/report.pdf";
+    item.finish("interrupted");
+
+    expect(webContents.doneEvents()).toEqual([
+      { filename: "report.pdf", state: "interrupted" },
+    ]);
+  });
+
+  test("stays quiet when the Save panel is dismissed before a destination exists", () => {
+    mkdirSyncMock.mockImplementationOnce(() => {
+      throw new Error("EACCES");
+    });
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    item.finish("cancelled");
+
+    expect(webContents.doneEvents()).toEqual([]);
+  });
+
+  test("drops the report when the originating window is gone", () => {
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+
+    webContents.destroyed = true;
+    expect(() => item.finish("completed")).not.toThrow();
+    expect(webContents.sent).toEqual([]);
+  });
+});
+
+describe("reveal", () => {
+  test("reveals a completed download by its id", () => {
+    const webContents = new FakeWebContents();
+    const item = new FakeItem("report.pdf");
+    fire(item, webContents);
+    item.finish("completed");
+
+    reveal(webContents.doneEvents()[0]!.id!);
+
+    expect(showItemInFolderMock).toHaveBeenCalledWith(
+      inDownloads("report.pdf"),
+    );
+  });
+
+  test("ignores an id it never issued", () => {
+    reveal("not-a-real-id");
+
+    expect(showItemInFolderMock).not.toHaveBeenCalled();
   });
 });
 
@@ -203,6 +366,19 @@ describe("concurrent downloads of the same filename", () => {
     expect(first.savePath()).toBe(inDownloads("report.pdf"));
     expect(second.savePath()).toBe(inDownloads("report (1).pdf"));
     expect(third.savePath()).toBe(inDownloads("report (2).pdf"));
+  });
+
+  test("treats names differing only by case as one destination", () => {
+    // Both shells default to case-insensitive filesystems, where these two
+    // would resolve to the same file.
+    const first = new FakeItem("Report.pdf");
+    const second = new FakeItem("report.pdf");
+
+    fire(first);
+    fire(second);
+
+    expect(first.savePath()).toBe(inDownloads("Report.pdf"));
+    expect(second.savePath()).toBe(inDownloads("report (1).pdf"));
   });
 
   test("frees the name once a download finishes", () => {

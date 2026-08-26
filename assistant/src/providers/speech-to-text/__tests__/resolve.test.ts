@@ -105,6 +105,22 @@ mock.module("../vellum-managed-realtime.js", () => ({
   },
 }));
 
+/** Constructor calls for the managed Flux transcriber (`vellum-flux`). */
+const vellumFluxStreamCtorCalls: Array<{
+  connection: unknown;
+  options: unknown;
+}> = [];
+
+mock.module("../vellum-managed-flux-realtime.js", () => ({
+  VellumManagedFluxRealtimeTranscriber: class {
+    readonly providerId = "vellum-flux";
+    readonly boundaryId = "daemon-streaming";
+    constructor(connection: unknown, options: unknown) {
+      vellumFluxStreamCtorCalls.push({ connection, options });
+    }
+  },
+}));
+
 // -- Streaming adapter mocks ----------------------------------------------
 
 /**
@@ -511,11 +527,14 @@ describe("telephony capability catalog alignment", () => {
   /**
    * Providers that deliberately sit out telephony (`telephonyMode: "none"`).
    * `deepgram-flux` is a streaming-only spike, and telephony is out of its
-   * scope. Nothing reroutes a call to another provider, so opting out here
-   * means a Flux-configured assistant does not transcribe calls.
+   * scope. `vellum-flux` sits out for a concrete reason: the relay maps
+   * `Finalize` onto Flux's `CloseStream`, and utterance-boundary finals are a
+   * nova-3 concept. Nothing reroutes a call to another provider, so opting
+   * out here means a Flux-configured assistant does not transcribe calls.
    */
   const TELEPHONY_OPT_OUT: ReadonlySet<SttProviderId> = new Set([
     "deepgram-flux",
+    "vellum-flux",
   ]);
 
   test("deepgram catalog entry has realtime-ws telephonyMode", () => {
@@ -1046,6 +1065,68 @@ describe("resolveStreamingTranscriber diarize preference", () => {
   });
 });
 
+describe("vellum-flux managed resolution", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockProviderKeys = {};
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    vellumFluxStreamCtorCalls.length = 0;
+  });
+
+  test("streaming resolver constructs the managed Flux adapter over the same relay connection", async () => {
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum-flux", language: "es" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      sampleRate: 16000,
+    });
+
+    expect(transcriber?.providerId).toBe("vellum-flux");
+    expect(vellumFluxStreamCtorCalls).toEqual([
+      {
+        connection: mockVelayConnection,
+        // The relay picks flux-general-en vs flux-general-multi from the
+        // language, so forwarding it is the only lever over the model.
+        options: { sampleRate: 16000, language: "es" },
+      },
+    ]);
+  });
+
+  test("an unset language reaches the relay as code-switching, not English", async () => {
+    // The relay resolves an absent language to flux-general-en, so unset
+    // would be a silent English pin on non-English speech.
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum-flux" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(
+      (vellumFluxStreamCtorCalls[0]?.options as { language?: string })
+        ?.language,
+    ).toBe("multi");
+  });
+
+  test("resolves null without a platform connection", async () => {
+    // The credential is the platform connection, not a stored API key.
+    mockVellumAvailable = false;
+    applyConfig({ provider: "vellum-flux" });
+
+    expect(await resolveStreamingTranscriber({ sampleRate: 16000 })).toBeNull();
+    expect(vellumFluxStreamCtorCalls).toHaveLength(0);
+  });
+
+  test("has no batch boundary, like BYOK Flux", async () => {
+    mockVellumAvailable = true;
+    applyConfig({ provider: "vellum-flux" });
+
+    await expect(resolveBatchTranscriber()).rejects.toThrow(SttError);
+  });
+});
+
 describe("vellum managed resolution", () => {
   beforeEach(() => {
     mockVellumAvailable = false;
@@ -1452,6 +1533,8 @@ describe("streaming capability matches the streaming factory", () => {
     xai: "xai",
     // vellum's credential is the platform connection, mocked below.
     vellum: "vellum",
+    // Managed Flux rides the same platform connection.
+    "vellum-flux": "vellum",
   };
 
   /** The exact list both user-facing error strings advertise. */
@@ -1464,16 +1547,18 @@ describe("streaming capability matches the streaming factory", () => {
   function seedCredentialsFor(id: SttProviderId): void {
     const credential = STREAMING_CREDENTIAL[id];
     expect(credential).toBeDefined();
-    mockVellumAvailable = id === "vellum";
-    mockVelayConnection =
-      id === "vellum"
-        ? {
-            wsBaseUrl: "ws://gateway.test",
-            httpBaseUrl: "http://gateway.test",
-            mintServiceToken: () => "vk-test",
-          }
-        : null;
-    mockProviderKeys = id === "vellum" ? {} : { [credential!]: `key-${id}` };
+    // Both managed entries authenticate with the platform connection rather
+    // than a stored API key, and both dial through the same relay.
+    const managed = id === "vellum" || id === "vellum-flux";
+    mockVellumAvailable = managed;
+    mockVelayConnection = managed
+      ? {
+          wsBaseUrl: "ws://gateway.test",
+          httpBaseUrl: "http://gateway.test",
+          mintServiceToken: () => "vk-test",
+        }
+      : null;
+    mockProviderKeys = managed ? {} : { [credential!]: `key-${id}` };
     applyConfig({ provider: id });
   }
 

@@ -63,6 +63,12 @@
   "appViewerContainer": {
     "exitFullscreen": "Salir de pantalla completa"
   },
+  "assistantConnect": {
+    "failed": "No se pudo conectar con el asistente."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "No se pudo actualizar \"{label}\". Se revirtió el cambio."
+  },
   "avatarManagementModal": {
     "body": "Cuerpo",
     "color": "Color",
@@ -189,6 +195,13 @@
     "messageNamed": "\"{appName}\" usa servicios de backend que no funcionarán en una página estática de Vercel. {assistantName} puede desplegarla correctamente con funciones serverless.",
     "title": "Esta app necesita un despliegue completo"
   },
+  "deployStore": {
+    "appExported": "Aplicación exportada",
+    "deployFailed": "No se pudo desplegar",
+    "deployedToVercel": "Desplegada en Vercel",
+    "open": "Abrir",
+    "shareFailed": "No se pudo compartir la aplicación"
+  },
   "detailPanelStopButton": {
     "tooltip": "Detener"
   },
@@ -207,6 +220,31 @@
     "subtitleShort": "Comparte comentarios, solicita funciones y obtén respuestas más rápido",
     "title": "¡Únete a nuestra comunidad!"
   },
+  "discordSetupConnectStep": {
+    "instructions": "Pega el token del bot que copiaste de la pagina Bot.",
+    "botTokenLabel": "Token del bot",
+    "save": "Conectar",
+    "saving": "Conectando...",
+    "saved": "Conectado. Ahora anade el bot a un servidor.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
+    "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "openPortal": "Abrir el portal de Discord",
+    "continue": "Ya tengo mi token"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
+    "openInvite": "Anadir a un servidor",
+    "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Crear app",
+    "stepConnect": "Conectar",
+    "stepInvite": "Anadir al servidor"
+  },
   "diskPressureBanner": {
     "acknowledge": "Reconocer",
     "acknowledging": "Reconociendo...",
@@ -222,6 +260,14 @@
     "warningBody": "Libera espacio para evitar interrupciones.",
     "warningBodyWithUpgrade": "Libera espacio o añade más almacenamiento para evitar interrupciones.",
     "warningTitle": "Tu almacenamiento está casi lleno"
+  },
+  "downloadFeedback": {
+    "failed": "No se pudo descargar el archivo",
+    "revealMac": "Mostrar en Finder",
+    "revealWindows": "Mostrar en el Explorador de archivos",
+    "saved": "Guardado en Descargas",
+    "started": "Descarga iniciada",
+    "startedDescription": "Busca {filename} en las descargas de tu navegador."
   },
   "editFooter": {
     "discard": "Descartar",
@@ -333,6 +379,9 @@
   },
   "rootHydrateFallback": {
     "loadingAria": "Cargando"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "el asistente"
   },
   "routeErrorBoundary": {
     "chunkFailBody": "Esta sección no se pudo cargar. Probablemente un fallo de red o una versión antigua. Recarga la página para intentarlo de nuevo.",
@@ -633,6 +682,18 @@
     "restartToInstall": "Reiniciar para instalar",
     "versionFallback": "actualización"
   },
+  "useAppDelete": {
+    "deleteFailed": "No se pudo eliminar la app"
+  },
+  "useAppDeployment": {
+    "copyFailed": "No se pudo copiar el enlace. Ábrelo en {url}",
+    "linkCopied": "Enlace copiado",
+    "open": "Abrir"
+  },
+  "useBookmarks": {
+    "addFailed": "No se pudo marcar el mensaje.",
+    "removeFailed": "No se pudo quitar el marcador."
+  },
   "useConnectClaude": {
     "exchangeFailed": "Comprueba la clave pegada e inténtalo de nuevo.",
     "failed": "No se pudo conectar Claude. Inténtalo de nuevo.",
@@ -646,8 +707,24 @@
     "connectGuidance": "Este enlace proviene de un código QR de emparejamiento. Para conectar este Mac, pega aquí el enlace de emparejamiento del equipo del asistente.",
     "legacyLinkGuidance": "Este enlace proviene de una versión anterior de la aplicación y ya no se puede usar. Genera un nuevo enlace de emparejamiento en el equipo del asistente y pégalo aquí."
   },
+  "useOauthConnect": {
+    "accountConnected": "Cuenta de {name} conectada.",
+    "authPopupClosed": "La conexión de {name} falló: se cerró la ventana de autorización.",
+    "authorizationError": "Error de {name}: {code}",
+    "authorizationFailed": "La autorización de {name} falló",
+    "popupBlocked": "Ventana emergente bloqueada. Permite las ventanas emergentes e inténtalo de nuevo.",
+    "popupClosed": "La conexión de {name} falló: se cerró la ventana emergente.",
+    "startFailed": "No se pudo iniciar la autorización de {name}."
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "Tu navegador bloqueó una página que el asistente intentó abrir.",
+    "openPage": "Abrir página"
+  },
   "useVoiceSamplePreview": {
     "playFailed": "No se pudo reproducir la muestra de voz."
+  },
+  "useWorkspaceTheme": {
+    "updated": "Tema actualizado"
   },
   "vercelTokenDialog": {
     "body": "Introduce tu token de API de Vercel para publicar apps como páginas estáticas.",

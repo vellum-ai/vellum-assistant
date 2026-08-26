@@ -36,6 +36,7 @@ import {
   parseCredentialRef,
   providerAllowsCustomBaseUrl,
   providerConnectionDisplayName,
+  providerPersistsConnectionModels,
   validationErrorMessage,
   warnOnFailedEndpointCheck,
 } from "@/domains/settings/ai/provider-editor-constants";
@@ -111,6 +112,7 @@ export function ProviderEditorContent({
 
   const isOpenAICompatible = provider === "openai-compatible";
   const allowsCustomBaseUrl = providerAllowsCustomBaseUrl(provider);
+  const persistsConnectionModels = providerPersistsConnectionModels(provider);
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -259,7 +261,7 @@ export function ProviderEditorContent({
         ...(allowsCustomBaseUrl && {
           base_url: baseUrl.trim() || null,
         }),
-        ...(isOpenAICompatible && {
+        ...(persistsConnectionModels && {
           models: connectionModels.trim()
             ? connectionModels
                 .split(",")
@@ -383,7 +385,9 @@ export function ProviderEditorContent({
               placeholder={
                 provider === "ollama"
                   ? t("providerEditorContent.baseUrlPlaceholderOllama")
-                  : t("providerEditorContent.baseUrlPlaceholder")
+                  : provider === "opencode"
+                    ? t("providerEditorContent.baseUrlPlaceholderOpencode")
+                    : t("providerEditorContent.baseUrlPlaceholder")
               }
               fullWidth
             />
@@ -396,9 +400,18 @@ export function ProviderEditorContent({
                 {t("providerEditorContent.baseUrlHintOllama")}
               </Typography>
             ) : null}
+            {provider === "opencode" ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-[var(--content-tertiary)]"
+              >
+                {t("providerEditorContent.baseUrlHintOpencode")}
+              </Typography>
+            ) : null}
           </div>
         )}
-        {isOpenAICompatible && (
+        {persistsConnectionModels && (
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               {t("providerEditorContent.modelsLabel")}

@@ -1,11 +1,12 @@
 /**
- * "Here are some free credits to get started" step content.
+ * "Here's some initial usage to get started" step content.
  *
  * SPIKE — research-onboarding flow.
  *
- * Foreground only (the toned backdrop sits behind). Offers 10 free credits. On
- * Claim the coin drops toward the eyes, the eyes bump it up Mario-style, and it
- * pops up and vanishes — then the flow advances. Skippable.
+ * Foreground only (the toned backdrop sits behind). Offers an initial usage
+ * grant (managed free credits under the hood). On Claim the coin drops toward
+ * the eyes, the eyes bump it up Mario-style, and it pops up and vanishes,
+ * then the flow advances. Skippable.
  */
 
 import { useState } from "react";

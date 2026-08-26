@@ -15,7 +15,9 @@ import {
   generateInviteToken,
   hashInviteCode,
   hashInviteToken,
+  isRiskThreshold,
   isValidE164,
+  type RiskThreshold,
 } from "@vellumai/gateway-client";
 import { eq } from "drizzle-orm";
 
@@ -591,6 +593,7 @@ function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
     updatedAt: c.updatedAt,
     interactionCount: c.interactionCount,
     lastInteraction: c.lastInteraction,
+    autoApproveThreshold: c.autoApproveThreshold,
     assistantMetadata: c.assistantMetadata,
     channels: c.channels.map((ch) => ({
       id: ch.id,
@@ -850,10 +853,11 @@ function channelKey(type: string, address: string): string {
 
 /**
  * Overlay authoritative gateway ACL onto a parsed daemon contact-list body
- * (in place). For each contact, replace contact-level `role` and per-channel
- * ACL fields from the gateway map. Channels match by `id` first, then by
- * `(type, address)`; an unmatched channel keeps the daemon's ACL. A contact
- * absent from the gateway map (dual-write gap) is left untouched + warned.
+ * (in place). For each contact, replace contact-level `role`,
+ * `autoApproveThreshold`, and per-channel ACL fields from the gateway map.
+ * Channels match by `id` first, then by `(type, address)`; an unmatched
+ * channel keeps the daemon's ACL. A contact absent from the gateway map
+ * (dual-write gap) is left untouched + warned.
  *
  * Pure aside from the warn log; mutates the passed contacts array's elements.
  */
@@ -876,6 +880,7 @@ function overlayAclOntoContacts(
     }
 
     contact.role = acl.role;
+    contact.autoApproveThreshold = acl.autoApproveThreshold;
 
     const channels = contact.channels;
     if (!Array.isArray(channels)) continue;
@@ -1196,6 +1201,29 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
       const displayName = (body.displayName as string).trim();
 
+      let autoApproveThreshold: RiskThreshold | null | undefined;
+      if (body.autoApproveThreshold !== undefined) {
+        if (
+          body.autoApproveThreshold !== null &&
+          !isRiskThreshold(body.autoApproveThreshold)
+        ) {
+          return Response.json(
+            {
+              error: {
+                code: "BAD_REQUEST",
+                message:
+                  "Invalid autoApproveThreshold. Must be one of: none, low, medium, high, or null.",
+              },
+            },
+            { status: 400 },
+          );
+        }
+        autoApproveThreshold =
+          body.autoApproveThreshold === null
+            ? null
+            : body.autoApproveThreshold;
+      }
+
       if (body.contactType !== undefined && !isContactType(body.contactType)) {
         return Response.json(
           {
@@ -1358,6 +1386,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         id: body.id as string | undefined,
         displayName,
         notes: body.notes as string | null | undefined,
+        autoApproveThreshold,
         contactType: body.contactType as string | undefined,
         assistantMetadata:
           body.contactType === "assistant" && assistantMeta

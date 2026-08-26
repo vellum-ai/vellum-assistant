@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -219,7 +220,13 @@ struct QuickActionsWidgetView: View {
         }
     }
 
-    /// How many conversations are waiting.
+    /// How many conversations are waiting, and the way to them.
+    ///
+    /// The chip is a tap target rather than decoration: it is the one thing on
+    /// the card that reports the inbox, so following it has to land on the
+    /// inbox. Without a button of its own the tap falls through to the widget's
+    /// default open, which parks the user wherever they left off and reads as
+    /// the count doing nothing.
     ///
     /// The number is `.privacySensitive()` while the glyph beside it is not, so
     /// a locked device still shows that something arrived without spelling out
@@ -227,18 +234,22 @@ struct QuickActionsWidgetView: View {
     /// past that the exact figure stops being information and the chip would
     /// grow into the mark across from it.
     private func unreadChip(count: Int, scale: CGFloat) -> some View {
-        HStack(spacing: 5 * scale) {
-            WidgetUnreadMark(isFilled: false, size: 16 * scale)
-            Text(count > 99 ? "99+" : "\(count)")
-                .font(.system(size: 16 * scale, weight: .medium))
-                .privacySensitive()
+        Button(intent: OpenConversationsIntent()) {
+            HStack(spacing: 5 * scale) {
+                WidgetUnreadMark(isFilled: false, size: 16 * scale)
+                Text(count > 99 ? "99+" : "\(count)")
+                    .font(.system(size: 16 * scale, weight: .medium))
+                    .privacySensitive()
+            }
+            .foregroundStyle(palette.onSurface)
+            .padding(.horizontal, 10 * scale)
+            .frame(height: Self.chipHeight * scale)
+            .background(isFlattened ? WidgetFlattenedFill.chip : Self.chipFill, in: Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(count) unread")
         }
-        .foregroundStyle(palette.onSurface)
-        .padding(.horizontal, 10 * scale)
-        .frame(height: Self.chipHeight * scale)
-        .background(isFlattened ? WidgetFlattenedFill.chip : Self.chipFill, in: Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(count) unread")
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens your conversations")
     }
 
     /// The pair the card is built around, sized to the margins so they land in
@@ -278,6 +289,11 @@ struct QuickActionsWidgetView: View {
     /// The number for the unread chip, or nil when there is no chip to draw:
     /// nothing unread, nothing synced, or a snapshot old enough that the count
     /// is a claim about an inbox from half an hour ago.
+    ///
+    /// It gates the chip and the row layout built around it, and nothing else.
+    /// The mark is drawn either way: the eyes are which assistant this account
+    /// has rather than a claim about right now, so a snapshot too old to count
+    /// with is still new enough to say whose face it is.
     ///
     /// It gates the chip and the row layout built around it, and nothing else.
     /// The mark is drawn either way: the eyes are which assistant this account

@@ -77,10 +77,10 @@ describe("DiscordMessageCreateSchema", () => {
   });
 
   test("a malformed guild id fails closed, not to absent", () => {
-    // Absence marks a DM, and a DM is admitted with no allow-list entry and
-    // no mention. Collapsing a parse failure to undefined would hand a guild
-    // message both exemptions, so it collapses to a truthy sentinel instead
-    // and stays on the guild path. Same reasoning as the bot indicators.
+    // Absence marks a DM, and a DM is admitted without a mention. Collapsing
+    // a parse failure to undefined would hand a guild message that exemption,
+    // so it collapses to a truthy sentinel instead and stays on the guild
+    // path. Same reasoning as the bot indicators.
     const message = parse(messagePayload({ guild_id: 42 }));
     expect(message.guild_id).toBeDefined();
     expect(message.guild_id).not.toBeUndefined();
@@ -121,15 +121,6 @@ describe("toAdmissionCandidate", () => {
     });
   });
 
-  test("threads carry their resolved parent", () => {
-    const candidate = toAdmissionCandidate(
-      parse(messagePayload({ channel_id: "thread-1" })),
-      "channel-1",
-    );
-    expect(candidate?.channelId).toBe("thread-1");
-    expect(candidate?.parentChannelId).toBe("channel-1");
-  });
-
   test("webhook messages read as bot-authored", () => {
     const candidate = toAdmissionCandidate(
       parse(messagePayload({ webhook_id: "wh-1" })),
@@ -152,7 +143,6 @@ describe("toAdmissionCandidate", () => {
       expect(candidate?.authorIsBot).toBe(true);
       const verdict = admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
-        allowedChannelIds: new Set(["channel-1"]),
       });
       expect(verdict).toEqual({ admitted: false, reason: "bot_authored" });
     }
@@ -350,16 +340,15 @@ describe("normalizeDiscordMessage", () => {
     expect(
       admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
-        allowedChannelIds: new Set(),
       }),
     ).toEqual({ admitted: true });
   });
 
   test("a malformed guild id stays a guild message, not a DM", () => {
-    // The DM lane reads an absent guild as private and skips both the
-    // allow-list and the mention check, so a parse failure must not land
-    // there. The schema collapses a bad `guild_id` to a sentinel rather than
-    // to undefined, which keeps it on the guild path.
+    // The DM lane reads an absent guild as private and skips the mention
+    // check, so a parse failure must not land there. The schema collapses a
+    // bad `guild_id` to a sentinel rather than to undefined, which keeps it
+    // on the guild path.
     const raw = messagePayload({ guild_id: 12345, mentions: [] });
     const parsed = parse(raw);
     expect(parsed.guild_id).toBeDefined();
@@ -372,7 +361,6 @@ describe("normalizeDiscordMessage", () => {
     expect(candidate).not.toBeNull();
     const verdict = admitDiscordMessage(candidate!, {
       botUserId: "bot-1",
-      allowedChannelIds: new Set(["channel-1"]),
     });
     expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });
   });
@@ -388,7 +376,6 @@ describe("normalizeDiscordMessage", () => {
     // guild rather than on the absence of a parent channel.
     const raw = messagePayload({ channel_id: "thread-1" });
     const event = normalizeDiscordMessage(parse(raw), {
-      parentChannelId: "channel-1",
       raw,
     });
     expect(event?.source.chatType).toBe("channel");

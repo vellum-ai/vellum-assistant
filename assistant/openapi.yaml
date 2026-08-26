@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.5
+  version: 0.11.6
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2766,8 +2766,8 @@ paths:
       operationId: backup_destinations_get
       summary: List configured offsite backup destinations
       description:
-        Returns the current offsite destinations array, materializing the iCloud Drive default when no explicit
-        array is configured.
+        Returns the current offsite destinations array. When no explicit array is configured, macOS materializes
+        its encrypted iCloud Drive default while Windows and Linux return no implicit destination.
       tags:
         - backups
       responses:
@@ -2799,8 +2799,8 @@ paths:
       operationId: backup_destinations_add_post
       summary: Add an offsite backup destination
       description:
-        Appends a new destination. Materializes the iCloud default first if destinations is currently null. Errors
-        if the path already exists.
+        Appends a new destination. Materializes the platform default first if destinations is currently null.
+        Errors if the path already exists.
       tags:
         - backups
       requestBody:
@@ -4342,6 +4342,15 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         interactionCount:
                           type: number
                         hasInterceptableVerificationSession:
@@ -5597,6 +5606,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5761,6 +5779,15 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        autoApproveThreshold:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5893,6 +5920,15 @@ paths:
                       interactionCount:
                         anyOf:
                           - type: number
+                          - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
                           - type: "null"
                       createdAt:
                         type: number
@@ -6298,6 +6334,15 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      autoApproveThreshold:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -6496,6 +6541,15 @@ paths:
                     interactionCount:
                       anyOf:
                         - type: number
+                        - type: "null"
+                    autoApproveThreshold:
+                      anyOf:
+                        - type: string
+                          enum:
+                            - none
+                            - low
+                            - medium
+                            - high
                         - type: "null"
                     createdAt:
                       type: number
@@ -14851,7 +14905,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside"
       responses:
         "200":
           description: Successful response
@@ -15123,7 +15177,8 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum, chatgpt"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, vellum,
+            chatgpt"
       responses:
         "200":
           description: Successful response
@@ -15593,6 +15648,129 @@ paths:
                 required:
                   - success
                 additionalProperties: false
+  /v1/integrations/discord/config:
+    delete:
+      operationId: integrations_discord_config_delete
+      summary: Clear Discord config
+      description:
+        Clear the stored Discord bot token, which disconnects the bot on the gateway's next watcher tick. Room
+        choices are left alone.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  applicationId:
+                    type: string
+                  inviteUrl:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                additionalProperties: false
+    get:
+      operationId: integrations_discord_config_get
+      summary: Get Discord config
+      description: Check whether a Discord bot token is configured.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  applicationId:
+                    type: string
+                  inviteUrl:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                additionalProperties: false
+    post:
+      operationId: integrations_discord_config_post
+      summary: Set Discord config
+      description:
+        "Validate a Discord bot token and store it. Storing it is what connects the bot: the gateway's Discord
+        client is credential-gated and starts on the watcher's next tick."
+      tags:
+        - integrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                botToken:
+                  type: string
+                  minLength: 1
+                  description: Discord bot token
+              required:
+                - botToken
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hasBotToken:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
+                  botUserId:
+                    type: string
+                  botUsername:
+                    type: string
+                  applicationId:
+                    type: string
+                  inviteUrl:
+                    type: string
+                required:
+                  - success
+                  - hasBotToken
+                  - connected
+                additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
@@ -15752,11 +15930,13 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   hasAppToken:
                     type: boolean
                   hasUserToken:
-                    type: boolean
-                  connected:
                     type: boolean
                   teamId:
                     type: string
@@ -15773,16 +15953,14 @@ paths:
                     enum:
                       - mention_only
                       - mention_then_thread
-                  error:
-                    type: string
                   warning:
                     type: string
                 required:
                   - success
                   - hasBotToken
+                  - connected
                   - hasAppToken
                   - hasUserToken
-                  - connected
                   - threadMode
                 additionalProperties: false
     get:
@@ -15803,11 +15981,13 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   hasAppToken:
                     type: boolean
                   hasUserToken:
-                    type: boolean
-                  connected:
                     type: boolean
                   teamId:
                     type: string
@@ -15824,16 +16004,14 @@ paths:
                     enum:
                       - mention_only
                       - mention_then_thread
-                  error:
-                    type: string
                   warning:
                     type: string
                 required:
                   - success
                   - hasBotToken
+                  - connected
                   - hasAppToken
                   - hasUserToken
-                  - connected
                   - threadMode
                 additionalProperties: false
     patch:
@@ -15867,11 +16045,13 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   hasAppToken:
                     type: boolean
                   hasUserToken:
-                    type: boolean
-                  connected:
                     type: boolean
                   teamId:
                     type: string
@@ -15888,16 +16068,14 @@ paths:
                     enum:
                       - mention_only
                       - mention_then_thread
-                  error:
-                    type: string
                   warning:
                     type: string
                 required:
                   - success
                   - hasBotToken
+                  - connected
                   - hasAppToken
                   - hasUserToken
-                  - connected
                   - threadMode
                 additionalProperties: false
     post:
@@ -15934,11 +16112,13 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   hasAppToken:
                     type: boolean
                   hasUserToken:
-                    type: boolean
-                  connected:
                     type: boolean
                   teamId:
                     type: string
@@ -15955,16 +16135,14 @@ paths:
                     enum:
                       - mention_only
                       - mention_then_thread
-                  error:
-                    type: string
                   warning:
                     type: string
                 required:
                   - success
                   - hasBotToken
+                  - connected
                   - hasAppToken
                   - hasUserToken
-                  - connected
                   - threadMode
                 additionalProperties: false
   /v1/integrations/telegram/commands:
@@ -15986,17 +16164,17 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   botId:
                     type: string
                   botUsername:
                     type: string
-                  connected:
-                    type: boolean
                   hasWebhookSecret:
                     type: boolean
                   lastError:
-                    type: string
-                  error:
                     type: string
                   commandsRegistered:
                     type: array
@@ -16029,17 +16207,17 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   botId:
                     type: string
                   botUsername:
                     type: string
-                  connected:
-                    type: boolean
                   hasWebhookSecret:
                     type: boolean
                   lastError:
-                    type: string
-                  error:
                     type: string
                   commandsRegistered:
                     type: array
@@ -16071,17 +16249,17 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   botId:
                     type: string
                   botUsername:
                     type: string
-                  connected:
-                    type: boolean
                   hasWebhookSecret:
                     type: boolean
                   lastError:
-                    type: string
-                  error:
                     type: string
                   commandsRegistered:
                     type: array
@@ -16125,17 +16303,17 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   botId:
                     type: string
                   botUsername:
                     type: string
-                  connected:
-                    type: boolean
                   hasWebhookSecret:
                     type: boolean
                   lastError:
-                    type: string
-                  error:
                     type: string
                   commandsRegistered:
                     type: array
@@ -16168,17 +16346,17 @@ paths:
                     type: boolean
                   hasBotToken:
                     type: boolean
+                  connected:
+                    type: boolean
+                  error:
+                    type: string
                   botId:
                     type: string
                   botUsername:
                     type: string
-                  connected:
-                    type: boolean
                   hasWebhookSecret:
                     type: boolean
                   lastError:
-                    type: string
-                  error:
                     type: string
                   commandsRegistered:
                     type: array
@@ -34952,6 +35130,7 @@ components:
         - openrouter
         - vercel-ai-gateway
         - litellm
+        - opencode
         - openai-compatible
         - minimax
         - atlascloud

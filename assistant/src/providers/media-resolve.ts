@@ -79,9 +79,8 @@ export function isUnsendableImageSource(source: MediaSource): boolean {
  * `image/heic` and `image/heif` directly
  * (https://ai.google.dev/gemini-api/docs/image-understanding), while
  * OpenAI-compatible and Anthropic endpoints answer HTTP 400 for the whole
- * request. HEIF bytes reach a provider whenever transcoding was unavailable
- * (`convertImageToJpeg` is backed by macOS `sips`), so a Linux-hosted assistant
- * on Gemini depends on them passing through.
+ * request. HEIF bytes reach a provider whenever transcoding cannot decode the
+ * input, so Gemini depends on them passing through.
  */
 export interface MediaResolveOptions {
   acceptsHeif?: boolean;

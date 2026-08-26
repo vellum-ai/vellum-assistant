@@ -226,7 +226,7 @@ const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
     },
   },
   "latency-optimized-backup": {
-    model: "gemini-3.6-flash",
+    model: "claude-haiku-4-5-20251001",
     provider: "vellum",
     source: "managed",
     label: "Speed Backup",

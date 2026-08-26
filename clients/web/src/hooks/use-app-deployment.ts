@@ -20,6 +20,7 @@ import {
   appsByIdPublishstatusGetOptions,
   appsByIdPublishstatusGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { t } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useDeployStore } from "@/stores/deploy-store";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -86,12 +87,12 @@ export function useAppDeployment(
  */
 export function copyDeployedAppLink(url: string): void {
   copyToClipboard(url, {
-    errorMessage: `Couldn't copy the link. Open it at ${url}`,
+    errorMessage: t("useAppDeployment.copyFailed", { url }),
     onCopied: () => {
-      toast.success("Link copied", {
+      toast.success(t("useAppDeployment.linkCopied"), {
         description: url,
         action: {
-          label: "Open",
+          label: t("useAppDeployment.open"),
           onClick: () => window.open(url, "_blank"),
         },
       });
