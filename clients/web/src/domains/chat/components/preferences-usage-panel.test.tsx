@@ -361,6 +361,21 @@ describe("PreferencesUsagePanel", () => {
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });
 
+  test("an unknown wallet withholds the extra-credits claim", async () => {
+    // The summary has not landed, so the wallet may hold nothing: the spent
+    // bundle keeps its red reading until there is credit to point at.
+    usageTotalUsd = "25";
+    effectiveBalance = null;
+    const { findByTestId, queryByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    await waitFor(() => {
+      expect(panel.textContent).toContain("100% used");
+    });
+    expect(queryByText("Now using extra usage credits")).toBeNull();
+    expect(queryByText("Add credits to continue.")).toBeNull();
+  });
+
   test("a reading below 100% stays neutral", async () => {
     const { findByTestId, getByText } = renderPanel();
 

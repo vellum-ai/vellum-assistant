@@ -92,16 +92,17 @@ export function usePreferencesUsage(
     return null;
   }
   const spent = usage.ratio >= 1;
-  // The same raw reading the plan card derives. `isExhausted` stays down on a
-  // provably-BYOK route, which is right for the credit wall but would let an
-  // empty wallet claim the next turn draws on extra credits.
-  const walletEmpty = balance != null && Number(balance) <= 0;
+  // The raw balance rather than `isExhausted`, which stays down on a
+  // provably-BYOK route: right for the credit wall, wrong for claiming the
+  // next turn spends extra credits. A null balance is unknown, not credit,
+  // so the claim also waits for a summary proving the wallet holds something.
+  const hasWalletCredit = balance != null && Number(balance) > 0;
   return {
     ratio: usage.ratio,
     resetsAt: usage.resetsAt,
     spent,
     // Spending the bundle only alarms once the wallet behind it is empty too.
     exhausted: spent && isExhausted,
-    usingExtraCredits: spent && !walletEmpty,
+    usingExtraCredits: spent && hasWalletCredit,
   };
 }
