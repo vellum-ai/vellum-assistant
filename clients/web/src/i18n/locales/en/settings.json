@@ -1296,7 +1296,6 @@
     "usageBalanceAddCredits": "Add",
     "usageBalanceExhausted": "Add credits to continue using your assistant",
     "usageBalancePctUsed": "{pct}% used",
-    "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly",
     "usageIncludedChip": "{label} included",

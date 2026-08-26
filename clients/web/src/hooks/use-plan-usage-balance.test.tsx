@@ -74,7 +74,7 @@ afterEach(() => {
 });
 
 describe("usePlanUsageBalance on a Pro sub", () => {
-  test("reads the used share of the grants, resetting on the cycle end", () => {
+  test("reads the used share of the grants", () => {
     // $10 of the $25 the cycle granted is gone.
     const { result } = renderBalance({
       subscription: proSubscription(),
@@ -83,7 +83,6 @@ describe("usePlanUsageBalance on a Pro sub", () => {
     });
 
     expect(result.current?.ratio).toBeCloseTo(0.4, 6);
-    expect(result.current?.resetsAt).toBe("2026-08-10T00:00:00Z");
   });
 
   test("grants used to nothing read as a full bar", () => {
@@ -94,7 +93,6 @@ describe("usePlanUsageBalance on a Pro sub", () => {
     });
 
     expect(result.current?.ratio).toBe(1);
-    expect(result.current?.resetsAt).toBe("2026-08-10T00:00:00Z");
   });
 
   test("more unused than granted clamps rather than going negative", () => {
@@ -107,19 +105,7 @@ describe("usePlanUsageBalance on a Pro sub", () => {
     expect(result.current?.ratio).toBe(0);
   });
 
-  test("still reads when the platform omits the period end", () => {
-    // Nothing to quote as a reset date, but the reading itself stands.
-    const { result } = renderBalance({
-      subscription: proSubscription({ current_period_end: null }),
-      totalUsageBalance: "25.00",
-      availableUsageBalance: "15.00",
-    });
-
-    expect(result.current?.ratio).toBeCloseTo(0.4, 6);
-    expect(result.current?.resetsAt).toBeNull();
-  });
-
-  test("a zero grant total is a fully spent bar with nothing to reset", () => {
+  test("a zero grant total is a fully spent bar", () => {
     // Every grant expired or used up: the plan has nothing left to give, so
     // the bar reads full rather than disappearing.
     const { result } = renderBalance({
@@ -129,7 +115,6 @@ describe("usePlanUsageBalance on a Pro sub", () => {
     });
 
     expect(result.current?.ratio).toBe(1);
-    expect(result.current?.resetsAt).toBeNull();
   });
 
   test("a zero total needs no available figure to read as spent", () => {
@@ -194,8 +179,6 @@ describe("usePlanUsageBalance on a free plan", () => {
     });
 
     expect(result.current?.ratio).toBeCloseTo(0.68, 6);
-    // Nothing resets on a free plan, so the panel has no date to quote.
-    expect(result.current?.resetsAt).toBeNull();
   });
 
   test("a further grant lowers the reading", () => {

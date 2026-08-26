@@ -524,7 +524,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const usagePanel = usage ? (
     <UsageBalancePanel
       ratio={usage.ratio}
-      resetsAt={usage.resetsAt}
       exhausted={creditsExhausted}
       onAddCredits={() => setAddCreditsOpen(true)}
     />

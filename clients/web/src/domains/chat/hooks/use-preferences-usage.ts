@@ -19,12 +19,6 @@ import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 export interface PreferencesUsage {
   /** Used share of the granted usage credit, clamped to 0..1. */
   ratio: number;
-  /**
-   * The cycle end the reading resets on, as the subscription reports it, or
-   * null when nothing resets: a free plan's grants, or a Pro sub with no live
-   * grants left at all.
-   */
-  resetsAt: string | null;
   /** The whole granted credit is used, which is the negative reading. */
   spent: boolean;
   /** The grants are used up and the wallet behind them is empty too. */
@@ -71,7 +65,6 @@ export function usePreferencesUsage(
   const spent = usage.ratio >= 1;
   return {
     ratio: usage.ratio,
-    resetsAt: usage.resetsAt,
     spent,
     // Using up the grants only alarms once the wallet behind them is empty
     // too.

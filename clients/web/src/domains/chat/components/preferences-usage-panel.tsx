@@ -6,7 +6,6 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useTranslation } from "@/i18n";
-import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
 
 export interface PreferencesUsagePanelProps {
   /** Opens the Billing tab of the usage settings page. */
@@ -30,7 +29,7 @@ export function PreferencesUsagePanel({
   onAddCredits,
   conversationId,
 }: PreferencesUsagePanelProps) {
-  const { t, i18n } = useTranslation("chat");
+  const { t } = useTranslation("chat");
   const usage = usePreferencesUsage({ conversationId });
 
   if (!usage) {
@@ -39,9 +38,6 @@ export function PreferencesUsagePanel({
 
   const title = t("preferencesUsagePanel.title");
   const pct = Math.round(usage.ratio * 100);
-  const resetDate = usage.resetsAt
-    ? formatUsageResetDate(usage.resetsAt, i18n.language)
-    : null;
   // Spending the whole bundle is the negative reading in its own right; the
   // strip below it waits until the wallet behind the bundle is empty too.
   const { spent, exhausted } = usage;
@@ -87,15 +83,6 @@ export function PreferencesUsagePanel({
           fillColor={spent ? "var(--system-negative-strong)" : undefined}
           className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
         />
-        {resetDate ? (
-          <Typography
-            as="span"
-            variant="label-small-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {t("preferencesUsagePanel.resets", { date: resetDate })}
-          </Typography>
-        ) : null}
       </div>
       {exhausted ? (
         <div className="flex min-h-8 items-center justify-between gap-2 rounded-lg bg-[var(--system-negative-weak)] px-2 py-1">

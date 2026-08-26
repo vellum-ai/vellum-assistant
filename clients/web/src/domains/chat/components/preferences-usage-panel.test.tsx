@@ -108,14 +108,6 @@ async function settle(): Promise<void> {
   });
 }
 
-/** The panel's reset date, formatted the way the panel formats it. */
-function resetLabel(iso: string): string {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-  }).format(new Date(iso));
-}
-
 beforeEach(() => {
   subscription = proSubscription();
   billingEnabled = true;
@@ -141,9 +133,6 @@ describe("PreferencesUsagePanel", () => {
     const panel = await findByTestId("preferences-usage");
     expect(panel.textContent).toContain("Usage");
     expect(panel.textContent).toContain("40% used");
-    expect(panel.textContent).toContain(
-      `Resets ${resetLabel("2026-08-10T00:00:00Z")}`,
-    );
   });
 
   test("a Pro sub with no live grants reads as fully spent", async () => {
@@ -155,7 +144,6 @@ describe("PreferencesUsagePanel", () => {
 
     const panel = await findByTestId("preferences-usage");
     expect(panel.textContent).toContain("100% used");
-    expect(panel.textContent).not.toContain("Resets");
   });
 
   test("renders nothing without grant figures on the summary", async () => {
@@ -206,7 +194,7 @@ describe("PreferencesUsagePanel", () => {
     expect(queryByTestId("preferences-usage")).toBeNull();
   });
 
-  test("a free plan reads its usage grant with nothing to reset", async () => {
+  test("a free plan reads its usage grant", async () => {
     // $3.40 of the $5.00 this account was granted.
     subscription = { ...proSubscription(), plan_id: "base", package: null };
     totalUsageBalance = "5.00";
@@ -215,7 +203,6 @@ describe("PreferencesUsagePanel", () => {
 
     const panel = await findByTestId("preferences-usage");
     expect(panel.textContent).toContain("68% used");
-    expect(panel.textContent).not.toContain("Resets");
   });
 
   test("a free plan with an empty wallet raises the strip", async () => {
@@ -227,7 +214,6 @@ describe("PreferencesUsagePanel", () => {
 
     const panel = await findByTestId("preferences-usage");
     expect(panel.textContent).toContain("100% used");
-    expect(panel.textContent).not.toContain("Resets");
     expect(getByText("Add credits to continue.")).toBeTruthy();
   });
 

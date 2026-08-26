@@ -57,7 +57,7 @@ const SUBSCRIPTION: SubscriptionResponse = {
   entitlements: { managed_email: false, phone_number: false },
 };
 
-/** A free (base) sub: no package, no cycle, and nothing that resets. */
+/** A free (base) sub: no package and no billing cycle. */
 const FREE_SUBSCRIPTION: SubscriptionResponse = {
   plan_id: "base",
   status: "active",
@@ -71,10 +71,7 @@ const FREE_SUBSCRIPTION: SubscriptionResponse = {
 };
 
 interface UsagePanelStoryArgs {
-  /**
-   * Which plan the seeded sub is on: `pro` quotes the cycle end its grants
-   * renew on, `free` never resets. Both read the same usage-grant figures.
-   */
+  /** Which plan the seeded sub is on. Both read the same usage-grant figures. */
   plan: "pro" | "free";
   /** Effective credit balance. At or below zero reads as an empty wallet. */
   balanceUsd: string;
@@ -261,7 +258,7 @@ export const Exhausted: Story = {
 
 /**
  * A Pro sub whose grants have all expired or been used to nothing, so the
- * summary reports a zero total. The bar reads fully spent with no reset date:
+ * summary reports a zero total. The bar reads fully spent:
  * the plan has nothing left to give, and whatever the org still holds lives
  * in the wallet.
  */
@@ -292,9 +289,8 @@ export const FullWithCredits: Story = {
 
 /**
  * A free plan, which has no cycle its grants renew on: $3.40 of the $5.00
- * grant used, read straight off the billing summary. Nothing resets, so the
- * line under the bar is gone. A further grant would grow the denominator and
- * drop the bar back.
+ * grant used, read straight off the billing summary. A further grant would
+ * grow the denominator and drop the bar back.
  */
 export const FreePlan: Story = {
   name: "Free plan, usage grant",

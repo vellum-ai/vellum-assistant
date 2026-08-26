@@ -232,7 +232,6 @@ function usage(ratio: number, walletEmpty = false): PreferencesUsage {
   const spent = ratio >= 1;
   return {
     ratio,
-    resetsAt: "2026-09-01T00:00:00Z",
     spent,
     exhausted: spent && walletEmpty,
   };
@@ -536,11 +535,10 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
   test("a free plan's used-up grant with credits left surfaces the row", async () => {
     obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "12.00" };
-    // A wallet reading never resets. The whole usage grant is gone, so the
-    // bar is red, while purchased credits still cover the next turn.
+    // The whole usage grant is gone, so the bar is red, while purchased
+    // credits still cover the next turn.
     usageRef.value = {
       ratio: 1,
-      resetsAt: null,
       spent: true,
       exhausted: false,
     };

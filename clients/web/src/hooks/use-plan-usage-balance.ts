@@ -5,8 +5,9 @@
  * how much of the credit the org was granted (initial credit and Pro bundle
  * grants, net of refunds) is already used. Both callers already hold that
  * summary through `useBillingBalanceStatus()`, so the reading costs no usage
- * read at all. A Pro sub's grants renew with its billing cycle, so its bar
- * quotes the cycle end; a free plan's grants never reset.
+ * read at all. The aggregate mixes grants with different lifetimes (only the
+ * bundle turns over with the billing cycle), so no single date honestly says
+ * when the bar resets, and the reading quotes none.
  *
  * The two figures count only unexpired grants. A Pro sub whose grants total
  * nothing (every grant expired, or a plan that never carried one) has spent
@@ -27,13 +28,6 @@ import { parseUsd } from "@/lib/billing/parse-usd";
 export interface PlanUsageBalance {
   /** Used share of the granted usage credit, clamped to 0..1. */
   ratio: number;
-  /**
-   * The cycle end a Pro sub's grants renew on, as the subscription reports
-   * it, or null when nothing is scheduled to refill the bar: a free plan's
-   * grants, a platform that omits the period end, or a Pro sub with no live
-   * grants left at all.
-   */
-  resetsAt: string | null;
 }
 
 interface PlanUsageBalanceArgs {
@@ -93,20 +87,20 @@ export function usePlanUsageBalance(
 
   if (subscription?.plan_id === "base") {
     // Nothing granted is not a reading; the tile keeps its price row.
-    return ratio == null ? null : { ratio, resetsAt: null };
+    return ratio == null ? null : { ratio };
   }
   if (subscription?.plan_id !== "pro") {
     return null;
   }
   if (ratio != null) {
-    return { ratio, resetsAt: subscription.current_period_end ?? null };
+    return { ratio };
   }
   // A Pro sub always held a grant at some point (the initial credit, or the
   // bundle a paid cycle issued), so a zero total means everything it was
   // granted is used or expired: a fully spent bar, with nothing scheduled to
   // refill it.
   if (total != null && total <= 0) {
-    return { ratio: 1, resetsAt: null };
+    return { ratio: 1 };
   }
   // The platform reports no usable grant figures, so no honest reading exists.
   return null;

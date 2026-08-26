@@ -186,14 +186,6 @@ function setObscureCredits(value: boolean): void {
   });
 }
 
-/** The panel's reset date, formatted the way the panel formats it. */
-function resetLabel(iso: string): string {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-  }).format(new Date(iso));
-}
-
 function basePlansResponse(): PlanListResponse {
   return {
     plans: [
@@ -1163,9 +1155,6 @@ describe("PlanCard with obscure-credits on", () => {
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("Usage Balance");
     expect(panel.textContent).toContain("40% used");
-    expect(panel.textContent).toContain(
-      `Resets ${resetLabel("2026-08-10T00:00:00Z")}`,
-    );
     // The bar is the replacement, so the monthly price must not stand beside
     // it on the current tile.
     expect(queryByTestId("plan-card-price")).toBeNull();
@@ -1269,7 +1258,6 @@ describe("PlanCard with obscure-credits on", () => {
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("100% used");
-    expect(panel.textContent).not.toContain("Resets");
     expect(
       panel
         .querySelector('[data-slot="progress-bar-fill"]')
@@ -1436,8 +1424,6 @@ describe("PlanCard with obscure-credits on", () => {
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("Usage Balance");
     expect(panel.textContent).toContain("68% used");
-    // A grant is not a cycle, so nothing resets.
-    expect(panel.textContent).not.toContain("Resets");
     const current = within(currentTile(container));
     expect(current.queryByTestId("plan-card-price")).toBeNull();
     expect(current.queryByText("Free Forever")).toBeNull();
