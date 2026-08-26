@@ -764,9 +764,10 @@ export async function handleChannelInbound({
   // re-verification challenge — §8.2). The gateway kill switch already
   // dropped `no_one` upstream, but the stage handles it defensively.
   //
-  // Internal channels (`vellum`, `platform`, `a2a`) short-circuit admit
-  // inside `enforceAdmissionPolicy` — defense in depth alongside the
-  // gateway's exempt-channel skip and the PUT-handler's 403.
+  // Exempt channels (`platform`, `a2a`) short-circuit admit inside
+  // `enforceAdmissionPolicy`: defense in depth alongside the gateway's
+  // exempt-channel skip and the PUT-handler's 403. `vellum` is hidden, not
+  // exempt: its floor is evaluated like any enforced channel's.
   //
   // Bootstrap deep-link: when ACL resolved a validated pending_bootstrap
   // session, skip the floor entirely. The bootstrap intercept stage below
@@ -1091,10 +1092,11 @@ export async function handleChannelInbound({
     !result.duplicate &&
     !guardianReplyResult.skipApprovalInterception
   ) {
-    // Extract the original approval message timestamp for Slack button
-    // cleanup. When a Slack block_actions payload is forwarded, the gateway
-    // sets sourceMetadata.messageId to the ts of the message containing
-    // the button. This lets us edit the message after resolution.
+    // The id of the message holding the approval buttons, for editing the
+    // card after resolution. The gateway sets sourceMetadata.messageId on
+    // every button-press forward: Slack's block_actions carry the ts of the
+    // message containing the button, Telegram's callback_query the id of the
+    // message the keyboard is attached to.
     const approvalMessageId =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId

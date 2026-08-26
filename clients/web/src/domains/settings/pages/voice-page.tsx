@@ -18,6 +18,7 @@ import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys"
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
+import { TurnDetectionRow } from "@/domains/settings/pages/turn-detection-row";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -841,6 +842,10 @@ function ConversationTuningCard() {
       subtitle={t("voicePage.turnTakingSubtitle")}
     >
       <div className="flex flex-col gap-5">
+        {/* First because it decides who ends the turn at all; the rows below
+            tune the local detector it can take over from. */}
+        <TurnDetectionRow />
+
         <TuningRow
           label={t("voicePage.pauseBeforeReplyLabel")}
           description={t("voicePage.pauseBeforeReplyDescription")}

@@ -121,11 +121,22 @@ Examples:
             "How long to wait for the user to submit (ms). Defaults to match the server-side prompt timeout.",
           defaultValue: String(310_000),
         },
+        {
+          flags: "--verify",
+          description:
+            "Mark the submitted channel verified (same attest as Contacts Verify me)",
+        },
       ],
       helpText: `
 Opens a contact address prompt in the user's app. The user enters a channel
 address (phone number, email, Telegram ID, etc.). The address is saved with
-status "unverified". Verification is a separate step.
+status "unverified" unless --verify is set, which attests the channel the
+same way Contacts Verify me does.
+
+Examples:
+  $ assistant contacts prompt --channel phone --role guardian
+  $ assistant contacts prompt --channel imessage --role guardian --verify \\
+      --label "Your iMessage number" --placeholder "+15551234567"
 
 Run \`assistant contacts prompt --help\` for full option details.`,
     },

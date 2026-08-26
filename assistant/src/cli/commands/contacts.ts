@@ -264,6 +264,7 @@ export function registerContactsCommand(program: Command): void {
             label?: string;
             description?: string;
             timeout?: string;
+            verify?: boolean;
           },
           cmd: Command,
         ) => {
@@ -278,6 +279,7 @@ export function registerContactsCommand(program: Command): void {
                 role: opts.role ?? "unknown",
                 label: opts.label,
                 description: opts.description,
+                verify: opts.verify === true,
               },
             },
             { timeoutMs },
@@ -304,7 +306,7 @@ export function registerContactsCommand(program: Command): void {
               `Registered ${result.channelType} channel: ${result.address}\n` +
                 `  Channel ID: ${result.channelId}\n` +
                 `  Contact ID: ${result.contactId}\n` +
-                `  Status:     unverified\n`,
+                `  Status:     ${opts.verify ? "verified" : "unverified"}\n`,
             );
           }
         },

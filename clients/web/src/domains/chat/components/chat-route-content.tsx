@@ -52,6 +52,11 @@ import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
 import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
+import {
+  useChannelSidecar,
+  useChannelSidecarFlag,
+} from "@/domains/chat/channel-sidecar/use-channel-sidecar";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeholder";
 import { isPopoutWindow } from "@/runtime/popout-window";
@@ -363,7 +368,20 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
   // -------------------------------------------------------------------------
-  const messages = useTranscriptMessages();
+  const transcriptMessages = useTranscriptMessages();
+
+  // Channel sidecar: while the flag is on and this conversation is bound to an
+  // external channel, rows the client can attribute to that channel are drawn
+  // in the read-only drawer instead of here, so the Vellum lane shows each row
+  // exactly once. Everything downstream in this panel (transcript projection,
+  // scroll, empty state, counts) reads the lane, because the lane IS the chat
+  // in that arrangement. `vellumMessages` is the same array by reference
+  // whenever nothing moved, so ordinary conversations see no change at all.
+  const { vellumMessages: messages } = useChannelSidecar({
+    conversationId: activeConversationId,
+    conversation: activeConversation,
+    messages: transcriptMessages,
+  });
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
   // A client-minted draft has no server row, so there is no history to wait
@@ -588,6 +606,21 @@ export function ChatMainPanel({
       store.closeReplyBubble();
     }
   }, [activeConversationId]);
+
+  // Same containment for a staged channel reference. It carries the
+  // conversation it was taken from, so the clear is conditional: a reference
+  // survives the drawer being closed and reopened within its own conversation,
+  // and is dropped the moment the user is somewhere else or the sidecar flag
+  // turns off. The flag-off clear is what keeps flag-off behavior identical
+  // to a build without the feature: no chip, and nothing riding the next
+  // send. Re-enabling starts from an empty slot.
+  const channelSidecarEnabled = useChannelSidecarFlag();
+  useEffect(() => {
+    useChannelReferenceStore.getState().reconcileReference({
+      conversationId: activeConversationId,
+      sidecarEnabled: channelSidecarEnabled,
+    });
+  }, [activeConversationId, channelSidecarEnabled]);
 
   const handleClearContext = useCallback(
     () => void sendMessage("/clean"),

@@ -449,7 +449,7 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
       shouldSubmitOnEnter(ENTER, false, {
         input: "",
         canSendAttachments: true,
-        hasStagedQuotes: false,
+        hasStagedContext: false,
         sendDisabled: false,
         attachmentsUploadingCount: 0,
         cmdEnterMode: false,
@@ -457,12 +457,12 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
     ).toBe("submit");
   });
 
-  test("input is empty but staged quote context is ready", () => {
+  test("input is empty but staged context (quote or channel reference) is ready", () => {
     expect(
       shouldSubmitOnEnter(ENTER, false, {
         input: "",
         canSendAttachments: false,
-        hasStagedQuotes: true,
+        hasStagedContext: true,
         sendDisabled: false,
         attachmentsUploadingCount: 0,
         cmdEnterMode: false,

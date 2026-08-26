@@ -19,6 +19,9 @@ mock.module("@/lib/sentry/consent-gate", () => ({
 mock.module("@/runtime/diagnostics", () => ({
   syncDiagnosticsToMain: () => {},
 }));
+mock.module("@/lib/sentry/user-sync", () => ({
+  installSentryUserSync: () => () => {},
+}));
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: () => false,
   watchDeviceSetting: () => () => {},

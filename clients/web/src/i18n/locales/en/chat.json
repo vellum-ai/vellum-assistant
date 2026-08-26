@@ -242,6 +242,11 @@
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
+  "channelReferenceChip": {
+    "heading": "Referencing a {channel} message",
+    "headingWithSender": "Referencing {sender} on {channel}",
+    "removeAria": "Remove the referenced message"
+  },
   "channelSetupPanel": {
     "accountSid": "Account SID",
     "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -261,6 +266,31 @@
     "telegramConnected": "Your assistant is ready to receive messages on Telegram.",
     "twilioIntro": "Enter your Twilio credentials from the <consoleLink>Twilio Console</consoleLink>. After saving, return to the chat. Your assistant will finish configuring your phone number and webhooks.",
     "discordConnected": "Discord is connected. Add the bot to a server and it will start answering there."
+  },
+  "channelThreadControl": {
+    "closeAria": "Close the {channel} thread",
+    "label": "{channel} thread",
+    "openAria": "Open the {channel} thread"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "Assistant",
+    "closeAria": "Close the channel thread",
+    "closeTooltip": "Close",
+    "emptyNoMessageDetail": "{channel} does not send Vellum the per-message details this view needs, so there is nothing to list here. Open the conversation in {channel} to read it in full.",
+    "emptyThread": "No {channel} messages in this conversation yet.",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "No text content",
+    "openInChannel": "Open in {channel}",
+    "reactionAdded": "Reacted with {emoji}",
+    "reactionRemoved": "Removed the {emoji} reaction",
+    "readOnly": "Read only",
+    "readOnlyNote": "This is the conversation as it stands in {channel}. Vellum's composer is the only place you can write.",
+    "reference": "Reference in Vellum",
+    "referenceAria": "Reference this {channel} message in Vellum",
+    "referenced": "Referenced",
+    "removeReferenceAria": "Remove this reference from the Vellum composer",
+    "title": "{channel} thread",
+    "unknownSender": "Unknown sender"
   },
   "chatAttachments": {
     "attachFileAria": "Attach file",

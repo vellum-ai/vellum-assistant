@@ -10,8 +10,7 @@
 import { ApprovalUIMetadataSchema } from "@vellumai/gateway-client";
 import { z } from "zod";
 
-import type { ChannelPolicies } from "../channels/config.js";
-import type { ChannelId } from "../channels/types.js";
+import type { DeliverableChannelId } from "../channels/config.js";
 import { AccessRequestPayloadSchema } from "./access-request-copy.js";
 import { ToolApprovalSourceViewSchema } from "./guardian-question-mode.js";
 import { UrgencySchema } from "./urgency.js";
@@ -20,12 +19,7 @@ import { UrgencySchema } from "./urgency.js";
  * Derived from the channel policy registry: only channels whose
  * deliveryEnabled flag is true are valid notification channels.
  */
-export type NotificationChannel = {
-  [K in keyof ChannelPolicies]: ChannelPolicies[K]["notification"]["deliveryEnabled"] extends true
-    ? K
-    : never;
-}[keyof ChannelPolicies] &
-  ChannelId;
+export type NotificationChannel = DeliverableChannelId;
 
 export const NotificationDeliveryStatusSchema = z.enum([
   "pending",

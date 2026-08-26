@@ -1,7 +1,7 @@
 /**
  * Shared types for the per-channel admission policy. Mirrors
- * `gateway/src/db/admission-policy-store.ts` and the Swift
- * `ChannelAdmissionPolicy` types so cross-surface names stay in lockstep.
+ * `gateway/src/db/admission-policy-store.ts` so cross-surface names stay
+ * in lockstep.
  */
 
 export const ADMISSION_POLICY_VALUES = [

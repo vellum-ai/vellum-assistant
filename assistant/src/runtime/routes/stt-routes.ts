@@ -13,7 +13,12 @@ import { extname, join } from "node:path";
 
 import { z } from "zod";
 
-import { listProviderEntries } from "../../providers/speech-to-text/provider-catalog.js";
+import {
+  baseModelFamilyFor,
+  listProviderEntries,
+  listProviderModelFamilies,
+  turnDetectionLanguagesFor,
+} from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
 import type { SttRole } from "../../stt/roles.js";
@@ -269,6 +274,21 @@ function handleListProviders() {
   const providers = entries.map((e) => ({
     id: e.id,
     displayName: e.displayName,
+    // The families selectable through `services.stt.providers.<id>.model`.
+    // Variant rows are filtered out above because a provider picker must not
+    // offer them as providers, which leaves this the only way a client can
+    // learn a family exists at all.
+    modelFamilies: listProviderModelFamilies(e.id),
+    // Which of those families the provider runs when none is named. Sent
+    // explicitly rather than left as "the first entry", so a client that
+    // needs to write the non-variant family is not depending on array order
+    // across the wire.
+    baseModelFamily: baseModelFamilyFor(e.id),
+    // The spoken languages this provider's turn-detecting family serves, when
+    // it has one. Reported rather than left for a client to know, so the
+    // roster lives in one place instead of being copied into every surface
+    // that has to decide whether to offer turn detection.
+    turnDetectionLanguages: turnDetectionLanguagesFor(e.id),
     subtitle: e.subtitle,
     setupMode: e.setupMode,
     setupHint: e.setupHint,
@@ -457,6 +477,10 @@ export const ROUTES: RouteDefinition[] = [
           conversationStreamingMode: z.string().optional(),
           // Optional on the wire so older generated clients keep validating.
           languageSelection: z.enum(["manual", "auto"]).optional(),
+          // Optional on the wire so older generated clients keep validating.
+          modelFamilies: z.array(z.string()).optional(),
+          baseModelFamily: z.string().optional(),
+          turnDetectionLanguages: z.array(z.string()).optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),

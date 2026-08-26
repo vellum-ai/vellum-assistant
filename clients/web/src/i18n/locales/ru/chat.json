@@ -136,6 +136,36 @@
     "syntheticYield": "Пауза · сжатие не уместило следующий шаг",
     "unrecognizedCall": "Неизвестный вызов"
   },
+  "channelReferenceChip": {
+    "heading": "Ссылка на сообщение из {channel}",
+    "headingWithSender": "Ссылка на сообщение {sender} в {channel}",
+    "removeAria": "Убрать выбранное сообщение"
+  },
+  "channelThreadControl": {
+    "closeAria": "Закрыть тред в {channel}",
+    "label": "Тред в {channel}",
+    "openAria": "Открыть тред в {channel}"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "Ассистент",
+    "closeAria": "Закрыть тред канала",
+    "closeTooltip": "Закрыть",
+    "emptyNoMessageDetail": "{channel} не передаёт Vellum данные по отдельным сообщениям, которые нужны этому виду, поэтому показывать здесь нечего. Откройте разговор в {channel}, чтобы прочитать его целиком.",
+    "emptyThread": "В этом разговоре пока нет сообщений из {channel}.",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "Без текста",
+    "openInChannel": "Открыть в {channel}",
+    "reactionAdded": "Реакция {emoji}",
+    "reactionRemoved": "Реакция {emoji} убрана",
+    "readOnly": "Только чтение",
+    "readOnlyNote": "Это разговор в том виде, в каком он есть в {channel}. Писать можно только в поле ввода Vellum.",
+    "reference": "Сослаться в Vellum",
+    "referenceAria": "Сослаться на это сообщение из {channel} в Vellum",
+    "referenced": "Выбрано",
+    "removeReferenceAria": "Убрать эту ссылку из поля ввода Vellum",
+    "title": "Тред в {channel}",
+    "unknownSender": "Неизвестный отправитель"
+  },
   "chatComposer": {
     "addToChat": "Добавить в диалог",
     "askAssistantPlaceholder": "Сообщение для {assistantName}",

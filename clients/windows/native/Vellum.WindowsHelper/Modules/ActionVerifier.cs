@@ -10,6 +10,7 @@ public sealed record CuAction(
     string Type,
     double? X = null, double? Y = null,
     long? ElementId = null,
+    double? ToX = null, double? ToY = null, long? ToElementId = null,
     string? Text = null, string? Key = null,
     string? ScrollDirection = null, int? ScrollAmount = null,
     int? WaitDurationMs = null, string? AppName = null, string? Script = null);
@@ -141,7 +142,7 @@ public sealed class ActionVerifier(int maxSteps = 50)
                 _ => false,
             };
         }
-        return a.X == b.X && a.Y == b.Y;
+        return a.X == b.X && a.Y == b.Y && a.ToX == b.ToX && a.ToY == b.ToY;
     }
 }
 

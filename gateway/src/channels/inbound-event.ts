@@ -72,6 +72,16 @@ interface InboundEventBase<C extends InboundChannelId> {
      */
     conversationType?: ChannelConversationType;
     /**
+     * Whether this conversation has exactly one human reader: the readership
+     * fact, distinct from `conversationType`'s visibility axis. Discord can
+     * prove a guild message is not a DM while proving nothing about the
+     * room's visibility, which is why this is its own field: security gates
+     * that care who could have read a message (verification codes) key on
+     * this, never on visibility. Set only where the channel proves it;
+     * absent means "not established".
+     */
+    isDirectMessage?: boolean;
+    /**
      * Thread/conversation-group identifier, when the source channel carries one
      * (e.g. Slack `thread_ts`). Channel-agnostic name so other channels (email
      * `In-Reply-To`, etc.) can reuse the field later.

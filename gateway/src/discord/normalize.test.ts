@@ -300,6 +300,7 @@ describe("normalizeDiscordMessage", () => {
     });
     const event = normalizeDiscordMessage(parse(raw), { raw });
     expect(event?.source.chatType).toBe("dm");
+    expect(event?.source.isDirectMessage).toBe(true);
     expect(event?.message.conversationExternalId).toBe("dm-channel-1");
     expect(event?.source.threadId).toBeUndefined();
     expect(event?.actor.actorExternalId).toBe("user-1");
@@ -355,6 +356,7 @@ describe("normalizeDiscordMessage", () => {
 
     const event = normalizeDiscordMessage(parsed, { raw });
     expect(event?.source.chatType).toBe("channel");
+    expect(event?.source.isDirectMessage).toBe(false);
 
     // And the gate keeps applying the guild controls to it.
     const candidate = toAdmissionCandidate(parsed, undefined);

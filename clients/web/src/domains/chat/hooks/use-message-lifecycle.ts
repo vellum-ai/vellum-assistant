@@ -21,7 +21,10 @@ import { getClientId } from "@/lib/telemetry/client-identity";
 import { parseConversationSyncTag } from "@/lib/sync/types";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
-import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import type {
+  ReconcileActiveConversationResult,
+  ReconcileTrigger,
+} from "@/domains/chat/hooks/use-message-reconciliation";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -44,7 +47,10 @@ export interface UseMessageLifecycleParams {
 export interface UseMessageLifecycleReturn {
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
-  reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
+  reconcileActiveConversation: (
+    trigger: ReconcileTrigger,
+    authoritative?: boolean,
+  ) => Promise<ReconcileActiveConversationResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +141,7 @@ export function useMessageLifecycle({
         parsed.resource === "messages" &&
         parsed.conversationId === currentActiveId
       ) {
-        void reconcileActiveConversation();
+        void reconcileActiveConversation("sync_tag");
         return;
       }
     }

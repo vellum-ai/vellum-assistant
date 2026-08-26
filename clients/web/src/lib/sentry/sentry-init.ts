@@ -7,6 +7,7 @@ import {
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control";
+import { installSentryUserSync } from "@/lib/sentry/user-sync";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 import { isElectron } from "@/runtime/is-electron";
@@ -213,5 +214,6 @@ export function initSentry(): void {
   };
   syncSentryClient(resolved);
   installSentryControlListeners(resolved);
+  installSentryUserSync();
   syncDiagnosticsToMain(diagnosticsConsentGranted());
 }

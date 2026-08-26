@@ -99,15 +99,20 @@ export interface AclEnforcementParams {
   replyCallbackUrl: string | undefined;
   assistantId: string;
   /**
-   * Effective admission policy for this request (gateway floor resolved with
-   * any per-conversation override). When set, ACL skips its hard-deny paths
-   * when the policy is permissive enough:
+   * Effective admission policy for this request (the gateway's per-channel
+   * floor). When set, ACL skips its hard-deny paths when the policy makes
+   * the floor stage the right place to answer:
    * - `strangers`: non-members and inactive (non-blocked) members are passed
    *   through so the admission floor can emit the final verdict.
-   * - `any_contact`: inactive `pending` members are passed through.
+   * - `guardian_only`: non-members and inactive `pending`/`unverified`
+   *   members are passed through; the floor denies everyone below guardian.
+   * - `any_contact`: inactive `pending`/`unverified` members are passed
+   *   through.
    *
-   * Passing this in avoids having ACL fire guardian notifications and canned
-   * replies for senders who will be admitted by the floor stage anyway.
+   * Passing this in keeps ACL from firing guardian notifications and canned
+   * replies for senders whose final answer belongs to the floor stage:
+   * admission under the permissive floors, or a `guardian_only` denial
+   * delivered without a misleading verification challenge.
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
   /**

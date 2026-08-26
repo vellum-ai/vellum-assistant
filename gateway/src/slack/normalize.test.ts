@@ -787,6 +787,7 @@ describe("Slack text rendering in normalized message content", () => {
     );
 
     expect(result).not.toBeNull();
+    expect(result!.event.source.isDirectMessage).toBe(false);
     expect(result!.event.message.content).toBe(
       "@assistant please continue in #user-feedback",
     );
