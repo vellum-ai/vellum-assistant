@@ -14,6 +14,7 @@ WATCH_FILE_PATH = REPO_ROOT / "skills" / "watch-together" / "scripts" / "watch-f
 WATCH_SPEC = importlib.util.spec_from_file_location("watch_file", WATCH_FILE_PATH)
 WATCH_FILE = importlib.util.module_from_spec(WATCH_SPEC)
 WATCH_SPEC.loader.exec_module(WATCH_FILE)
+EDITOR = WATCH_FILE.editor
 
 
 class CaptureCommandTests(unittest.TestCase):
@@ -150,6 +151,15 @@ class PipeReadTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertFalse(read_called)
         self.assertEqual(clock.now, 0.05)
+
+
+class WakeInstructionTests(unittest.TestCase):
+    def test_rewind_instruction_uses_portable_python_script(self):
+        note = EDITOR.rewind_command_note('"example.mp4"')
+
+        self.assertIn("scripts/rewind.py", note)
+        self.assertIn("host's Python 3 launcher", note)
+        self.assertNotIn("rewind.sh", note)
 
 
 if __name__ == "__main__":
