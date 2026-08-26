@@ -4,6 +4,7 @@ import {
 } from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
 
+import { ACP_AUTH_ERROR_CODE_RIDER } from "../../acp/acp-auth-anchor-marker.js";
 import { AnsweredQuestionSchema } from "../../api/events/question-answered.js";
 import type {
   ConversationContentBlock,
@@ -584,6 +585,14 @@ export function renderHistoryContent(
       }
       if (typeof block._completedAt === "number") {
         entry.completedAt = block._completedAt;
+      }
+      // A mid-run auth rejection kills a run whose spawn call already
+      // completed clean, so the classification cannot ride the tool result the
+      // way a pre-spawn rejection's does. It is stamped on the tool_use block
+      // instead and surfaces here as the same `errorCode`, so a client
+      // re-derives the Connect card from history through one path.
+      if (typeof block[ACP_AUTH_ERROR_CODE_RIDER] === "string") {
+        entry.errorCode = block[ACP_AUTH_ERROR_CODE_RIDER];
       }
       const confirmationDecision = ConfirmationDecisionSchema.safeParse(
         block._confirmationDecision,
