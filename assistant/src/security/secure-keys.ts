@@ -60,6 +60,7 @@ export type {
   CredentialListResult,
   DeleteResult,
 } from "./credential-backend.js";
+import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp/acp-credentials.js";
 
 /**
  * Re-export shared-package secure-key abstractions so downstream consumers
@@ -679,6 +680,18 @@ export async function setSecureKeyAsync(
       log.info({ account, backend: backend.name }, "Credential stored");
     }
     updateCesHttpReachability(backend, !ok);
+    // Every writer of the Claude OAuth token converges here: the Connect flow,
+    // the generic credential writer, the headless secure prompt, the
+    // `secrets_add` route, and any future one. A new token retires the ACP auth
+    // markers that asked for it, so hanging that off this seam is what keeps
+    // the behaviour from depending on a list of callers that drifts. Loaded on
+    // demand and only on a match, so the persistence graph behind it stays out
+    // of this module's load path.
+    if (ok && account === credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)) {
+      const { retireAcpAuthRecovery } =
+        await import("../acp/acp-auth-marker-store.js");
+      retireAcpAuthRecovery();
+    }
     return ok;
   }, false);
 }

@@ -282,6 +282,7 @@ export async function prepareAgentEnv(
   // limitations on the optional `AcpAgentConfig.env` field.
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
   const adapterCommand = basename(agentConfig.command);
+  let credentialGeneration: number | undefined;
 
   if (adapterCommand === "claude-agent-acp") {
     // A config `env` override or a legacy vault entry can hold an Anthropic API
@@ -305,12 +306,22 @@ export async function prepareAgentEnv(
     dropApiKeyOauthToken();
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // Read the generation on both sides of the vault read and keep it only
+      // when it did not move. A replacement landing inside that await leaves
+      // no way to tell which token came back, and labelling the old one with
+      // the new generation would let a rejection of it pass for current.
+      // Unversioned is the safe answer: the failure path treats an absent
+      // generation as "not proven superseded" and still raises recovery.
+      const before = currentClaudeCredentialGeneration();
       missReason = await injectCredential(
         env,
         ACP_OAUTH_TOKEN_FIELD,
         "CLAUDE_CODE_OAUTH_TOKEN",
         ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
       );
+      if (before === currentClaudeCredentialGeneration()) {
+        credentialGeneration = before;
+      }
     }
     // Any api-key-shaped value still standing here came from the vault read:
     // the config override was already dropped above, and the read only runs
@@ -389,13 +400,9 @@ export async function prepareAgentEnv(
     ]);
   }
 
-  // Sampled here, with the credential read, rather than later at session
-  // registration: a replacement landing in between would leave the session
-  // recording a generation newer than the token it actually holds, and a
-  // rejection of that older token would then pass for current.
-  return {
-    ...agentConfig,
-    env,
-    credentialGeneration: currentClaudeCredentialGeneration(),
-  };
+  // Only set when the token came from the vault read above and no replacement
+  // raced it. A configured `CLAUDE_CODE_OAUTH_TOKEN` skips that read entirely,
+  // and versioning an unrelated config override would let an unrelated token
+  // write suppress this run's recovery.
+  return { ...agentConfig, env, credentialGeneration };
 }

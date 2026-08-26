@@ -17,7 +17,6 @@ import {
   AcpCredentialFormatError,
   assertAcpCredentialFormat,
 } from "../acp/acp-credentials.js";
-import { isAcpClaudeOauthField } from "../acp/acp-credentials.js";
 import { getConfig } from "../config/loader.js";
 import {
   isNonSecretPlatformField,
@@ -203,16 +202,6 @@ export async function persistPromptedCredential(args: {
     if (!ok) {
       return { outcome: "error", message: "failed to store credential" };
     }
-  }
-
-  // A Claude OAuth token written through any path repairs the ACP runs that
-  // failed on the old one, so the markers and the prompt-dedup registry are
-  // retired here too, not only in the Connect flow. Imported on demand to keep
-  // the persistence graph behind it out of this module's load path.
-  if (isAcpClaudeOauthField(service, field)) {
-    const { retireAcpAuthRecovery } =
-      await import("../acp/acp-auth-marker-store.js");
-    retireAcpAuthRecovery();
   }
 
   // The prompt UI never puts the value in the transcript, but the flow is

@@ -18,7 +18,6 @@ import {
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { retireAcpAuthRecovery } from "./acp-auth-marker-store.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
@@ -134,13 +133,6 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
     ACP_OAUTH_TOKEN_FIELD,
     ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
   );
-  // A new token retires the failures that asked for it. The history markers
-  // are what a client re-raises the Connect card from, and the registry is
-  // what redirects the secure-prompt fallback at that card; both outlive the
-  // rejection they describe unless cleared here. The marker clear sweeps every
-  // row rather than the registry's conversations, so a daemon that restarted
-  // between the rejection and this write still retires them.
-  retireAcpAuthRecovery();
 }
 
 /**

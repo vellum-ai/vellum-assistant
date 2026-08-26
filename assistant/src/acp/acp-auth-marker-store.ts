@@ -62,12 +62,11 @@ export function currentClaudeCredentialGeneration(): number {
  * Retire everything a past Claude auth failure left behind, because a new
  * token has just been written.
  *
- * Three writers reach the `acp/claude_oauth_token` field: the Connect flow
- * (`storeAcpClaudeToken`), the generic credential writer (`assistant
- * credentials set`), and the headless secure prompt. A token repaired through
- * any of them repairs the ACP runs equally, so all three call this rather than
- * the Connect flow owning the behaviour and the other two silently leaving
- * markers behind.
+ * Called from `setSecureKeyAsync`, the seam every writer of that vault field
+ * converges on, rather than from the writers themselves. A token repaired
+ * through any of them repairs the ACP runs equally, and hanging this off the
+ * seam is what keeps the behaviour from depending on a list of callers that
+ * drifts as new write paths appear.
  *
  * The generation bump comes first, so a rejection racing this write sees the
  * newer generation and declines to re-mark rather than landing after the
