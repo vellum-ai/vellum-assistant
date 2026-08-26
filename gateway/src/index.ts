@@ -190,7 +190,6 @@ import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
 import { createDiscordInboundEventHandler } from "./discord/forward.js";
-import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -228,10 +227,7 @@ import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
-import {
-  admissionPolicyRoutes,
-  createDiscordAdmissionRoutes,
-} from "./ipc/admission-policy-handlers.js";
+import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
@@ -2659,13 +2655,27 @@ async function main() {
       return;
     }
 
+    // Room admission defers to Discord's own channel permissions. A
+    // non-empty legacy allow-list is persisted operator intent, so it keeps
+    // gating rooms until the operator clears it; the log names the way out.
+    const readLegacyAllowedChannelIds = (): ReadonlySet<string> | undefined => {
+      const ids =
+        configFileCache.getStringArray("discord", "allowedChannelIds") ?? [];
+      return ids.length > 0 ? new Set(ids) : undefined;
+    };
+    if (readLegacyAllowedChannelIds() !== undefined) {
+      log.warn(
+        "discord.allowedChannelIds is a legacy setting and is still " +
+          "enforced: the bot answers mentions only in listed channels. To " +
+          "adopt Discord's own permission model, scope the bot with View " +
+          "Channel permissions in Discord and remove the config entry.",
+      );
+    }
+
     discordGatewayClient = new DiscordGatewayClient(
       {
         botToken,
-        // Read live (the config cache is TTL'd) so an allow-list edit applies
-        // without a client restart, which would spend an IDENTIFY.
-        readAllowedChannelIds: () =>
-          readDiscordAllowedChannelIds(configFileCache),
+        readLegacyAllowedChannelIds,
       },
       createDiscordInboundEventHandler({
         config,
@@ -2933,7 +2943,6 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
-    ...createDiscordAdmissionRoutes(configFileCache),
     ...channelPermissionRoutes,
     ...trustVerdictRoutes,
     ...guardianDeliveryRoutes,

@@ -44,9 +44,15 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   integrationsSlackChannelConfigPatchMutation: () => ({
     mutationFn: async () => ({}),
   }),
+  integrationsDiscordConfigGetOptions: () => ({
+    queryKey: ["discord-config"],
+    queryFn: async () => ({}),
+  }),
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  integrationsDiscordConfigDelete: async () => ({}),
+  integrationsDiscordConfigPost: async () => ({ data: {} }),
   integrationsSlackChannelConfigDelete: async () => ({}),
   integrationsTelegramConfigDelete: async () => ({}),
   integrationsTwilioCredentialsDelete: async () => ({}),

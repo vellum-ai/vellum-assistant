@@ -285,7 +285,16 @@ public class MainActivity extends BridgeActivity {
         String raw = intent.getDataString();
         intent.setData(null);
         setIntent(withoutData(intent));
-        return ConnectDeepLink.parse(raw, getString(R.string.vellum_auth_scheme));
+        ConnectDeepLink connect = ConnectDeepLink.parse(raw, getString(R.string.vellum_auth_scheme));
+        if (connect != null) {
+            // Remember the origin the moment the link arrives, as iOS does: a
+            // tunnel already down never reaches onPageFinished, so one recorded
+            // only on success is one the chooser can never offer back. What
+            // pairing still has to earn stays deferred, so an unreachable server
+            // neither displaces the active one nor relabels a card it already has.
+            SelfHostedServer.appendIfAbsent(this, connect.server(), connect.name());
+        }
+        return connect;
     }
 
     private boolean isConnectIntent(Intent intent) {
@@ -340,6 +349,11 @@ public class MainActivity extends BridgeActivity {
         bridge.getWebView().loadUrl(appLink.toASCIIString());
     }
 
+    /**
+     * Promote the pending server once its pair page loads: the active slot, plus
+     * the label that {@link #consumeConnectIntent} withheld from an origin the
+     * list already knew.
+     */
     private void finishPendingConnect(String loadedUrl) {
         if (
             pendingConnect == null ||

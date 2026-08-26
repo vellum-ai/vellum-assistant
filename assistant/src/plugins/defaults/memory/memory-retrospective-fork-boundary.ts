@@ -76,21 +76,27 @@ function isRetrospectiveInstructionRow(metadata: string | null): boolean {
  * Load the messages a retrospective run produced itself, given the
  * retrospective conversation's `source` kind:
  *
- *   - **Fork-kind** rows carry the copied source prefix (the source's visible
- *     tail), so only the post-fork tail (messages strictly after the fork
- *     boundary) counts — scanning the whole row would attribute the source
- *     conversation's own turns to the retrospective. When no row carries a
- *     `forkSourceMessageId` stamp, the fork is run-authored end-to-end only
- *     if its first row is the run's own instruction message (the empty-prefix
- *     tail-only fork); a stampless fork WITHOUT a leading instruction row is
- *     indeterminate — attributing it would mine copied source tool calls as
- *     run output — and degrades to "produced none".
+ *   - **Fork-kind, referential**: the fork copies no prefix. Inherited
+ *     history is read through lineage and keeps the source `conversationId`.
+ *     When no copied-row stamp is present, a mixed-ownership list is that
+ *     shape: rows owned by this conversation are the run, including when
+ *     that set is empty. No separate conversation-row lookup is required.
+ *   - **Fork-kind, cloning**: rows carry the copied source prefix (the
+ *     source's visible tail), so only the post-fork tail (messages strictly
+ *     after the fork boundary) counts. Scanning the whole list would
+ *     attribute the source conversation's own turns to the retrospective.
+ *     When no row carries a `forkSourceMessageId` stamp, the fork is
+ *     run-authored end-to-end only if its first row is the run's own
+ *     instruction message (the empty-prefix tail-only fork). A stampless
+ *     list where every row is owned by this conversation is the
+ *     indeterminate cloning shape: attributing it would mine copied source
+ *     tool calls as run output, so the helper degrades to "produced none".
  *   - **Legacy-kind** rows start empty, so every message is the run's own.
  *
  * Returns `null` when the run's output cannot be determined (message load
- * failure, or the indeterminate stampless shape above) — callers degrade
- * (empty dedup baseline / "no output"). Best-effort: failures are logged,
- * never thrown.
+ * failure, or the indeterminate stampless cloning shape above). Callers
+ * degrade (empty dedup baseline / "no output"). Best-effort: failures are
+ * logged, never thrown.
  */
 export async function loadRetrospectiveRunMessages(
   conversationId: string,
@@ -114,9 +120,17 @@ export async function loadRetrospectiveRunMessages(
         return messages;
       }
       if (isRetrospectiveInstructionRow(messages[0]?.metadata ?? null)) {
-        // Empty copied prefix — the run's instruction opens the conversation,
+        // Empty copied prefix. The run's instruction opens the conversation,
         // so every message is the run's own output.
         return messages;
+      }
+      // Referential forks copy nothing. Lineage rows keep the source
+      // conversationId, so a mixed-ownership list is a reference fork and
+      // the owned rows are the run. A stampless list where every row is
+      // owned by this conversation is the indeterminate cloning shape.
+      const owned = messages.filter((m) => m.conversationId === conversationId);
+      if (owned.length < messages.length) {
+        return owned;
       }
       log.warn(
         { retrospectiveConversationId: conversationId },

@@ -220,6 +220,31 @@
     "subtitleShort": "Comparte comentarios, solicita funciones y obtén respuestas más rápido",
     "title": "¡Únete a nuestra comunidad!"
   },
+  "discordSetupConnectStep": {
+    "instructions": "Pega el token del bot que copiaste de la pagina Bot.",
+    "botTokenLabel": "Token del bot",
+    "save": "Conectar",
+    "saving": "Conectando...",
+    "saved": "Conectado. Ahora anade el bot a un servidor.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
+    "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "openPortal": "Abrir el portal de Discord",
+    "continue": "Ya tengo mi token"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
+    "openInvite": "Anadir a un servidor",
+    "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Crear app",
+    "stepConnect": "Conectar",
+    "stepInvite": "Anadir al servidor"
+  },
   "diskPressureBanner": {
     "acknowledge": "Reconocer",
     "acknowledging": "Reconociendo...",

@@ -220,6 +220,31 @@
     "subtitleShort": "Share feedback, request features, get answers faster",
     "title": "Join our community!"
   },
+  "discordSetupConnectStep": {
+    "instructions": "Paste the bot token you copied from the Bot page.",
+    "botTokenLabel": "Bot token",
+    "save": "Connect",
+    "saving": "Connecting...",
+    "saved": "Connected. Next, add the bot to a server.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Open the Discord developer portal and create a new application. On its <resetLine>Bot</resetLine> page, click Reset Token and copy the token straight away: Discord shows it once and there is no way to read it back.",
+    "intentsNote": "Leave all three Privileged Gateway Intents off. Your assistant only reads direct messages and messages that mention it, which Discord exempts from the Message Content intent.",
+    "openPortal": "Open Discord portal",
+    "continue": "I have my token"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Your bot cannot see anything until it joins a server. This link uses the install settings on your application's Installation page.",
+    "openInvite": "Add to a server",
+    "noAppId": "Connect a bot token first, then come back to add it to a server."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Create app",
+    "stepConnect": "Connect",
+    "stepInvite": "Add to server"
+  },
   "diskPressureBanner": {
     "acknowledge": "Acknowledge",
     "acknowledging": "Acknowledging...",

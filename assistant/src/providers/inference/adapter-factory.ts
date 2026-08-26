@@ -40,6 +40,7 @@ import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
+import { OpenCodeProvider } from "../opencode/client.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
 import { PoolsideProvider } from "../poolside/client.js";
 import { dispatchProviderResolvable } from "../provider-resolvability.js";
@@ -162,6 +163,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       // Replay thinking as `reasoning_content` so DeepSeek-compatible
       // thinking-mode upstreams accept follow-up requests that include tools.
       assistantReasoningField: "reasoning_content",
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  opencode: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenCodeProvider(apiKey, model, {
+      streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
   // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the

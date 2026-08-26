@@ -3,10 +3,9 @@
  *
  * Discord delivers thread messages as ordinary MESSAGE_CREATE events whose
  * `channel_id` is the *thread's* snowflake, and the bot is auto-subscribed to
- * every visible active thread without joining. The admission gate's allow-list
- * names parent channels, so it needs parentage resolved before the check —
- * without it, every thread message silently fails `channel_not_allowed`
- * (see `admit.ts`).
+ * every visible active thread without joining. The normalized inbound event
+ * carries the parent so downstream conversation binding can treat a thread as
+ * part of the channel it branched from rather than as an unrelated room.
  *
  * Parentage arrives on channel objects: GUILD_CREATE carries the guild's
  * active threads, THREAD_CREATE / THREAD_UPDATE carry the thread itself, and
@@ -18,8 +17,8 @@
 /**
  * Discord channel types that are threads. Only these enter the cache: a
  * regular channel also carries a `parent_id`, but it points at its *category*,
- * and recording it would make a message in the channel "inherit" the
- * category's allow-list entry.
+ * and recording it would misreport an ordinary channel message as belonging
+ * to a thread of its category.
  *
  * https://docs.discord.com/developers/resources/channel#channel-object-channel-types
  */

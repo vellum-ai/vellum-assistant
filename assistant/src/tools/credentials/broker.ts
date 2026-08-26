@@ -1,23 +1,14 @@
-import { v4 as uuid } from "uuid";
-
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
-  AuthorizeRequest,
-  AuthorizeResult,
   BrowserFillRequest,
   BrowserFillResult,
-  ConsumeResult,
-  ServerUseByIdRequest,
-  ServerUseByIdResult,
   ServerUseRequest,
   ServerUseResult,
-  UsageToken,
 } from "./broker-types.js";
 import { isDomainAllowed } from "./domain-policy.js";
 import { getCredentialMetadata } from "./metadata-store.js";
-import { resolveById } from "./resolve.js";
 import {
   isToolAllowed,
   serverUseDenialReason,
@@ -26,21 +17,17 @@ import {
 
 const log = getLogger("credential-broker");
 
-/** Tokens expire after 5 minutes to limit the window for using stale/revoked credentials. */
-const TOKEN_TTL_MS = 5 * 60 * 1000;
-
 /**
- * Credential broker that issues single-use tokens for policy-checked credential access.
+ * Credential broker that mediates policy-checked credential access.
  *
- * The broker never exposes plaintext secret values. Instead, it:
+ * The broker never exposes plaintext secret values to callers. It:
  * 1. Checks that a credential exists and has metadata
- * 2. Issues a single-use token for the authorized usage
- * 3. On consumption, returns the storage key so the caller can read the secret internally
+ * 2. Enforces tool and domain policy
+ * 3. Reads the secret internally and passes it to an opaque callback
  *
- * Tool policy is enforced at authorize/fill time; domain policy is enforced at fill time.
+ * Tool policy is enforced at fill/use time; domain policy is enforced at fill time.
  */
 export class CredentialBroker {
-  private tokens = new Map<string, UsageToken>();
   /** Transient values for one-time send: consumed on first read, never persisted.
    *  Values are wrapped in objects so post-await guards use reference identity
    *  (not string value equality) to detect concurrent replacements. */
@@ -48,7 +35,7 @@ export class CredentialBroker {
 
   /**
    * Inject a value for one-time use. The value is consumed on the next
-   * browserFill or consume call for this service/field pair, then discarded.
+   * browserFill or serverUse call for this service/field pair, then discarded.
    */
   injectTransient(service: string, field: string, value: string): void {
     const key = credentialKey(service, field);
@@ -57,113 +44,6 @@ export class CredentialBroker {
       { service, field },
       "Transient credential injected for one-time use",
     );
-  }
-
-  /**
-   * Authorize the use of a credential for a specific tool and optional domain.
-   * Returns a single-use token on success, or a denial reason on failure.
-   */
-  authorize(request: AuthorizeRequest): AuthorizeResult {
-    const metadata = getCredentialMetadata(request.service, request.field);
-    if (!metadata) {
-      return {
-        authorized: false,
-        reason: `No credential found for ${request.service}/${request.field}`,
-      };
-    }
-
-    // Tool policy enforcement - deny if tool is not in the credential's allowed list
-    if (!isToolAllowed(request.toolName, metadata.allowedTools)) {
-      return {
-        authorized: false,
-        reason: toolNotAllowedReason(
-          request.toolName,
-          request.service,
-          request.field,
-          metadata.allowedTools,
-        ),
-      };
-    }
-
-    const token: UsageToken = {
-      tokenId: uuid(),
-      credentialId: metadata.credentialId,
-      service: request.service,
-      field: request.field,
-      toolName: request.toolName,
-      createdAt: Date.now(),
-      consumed: false,
-    };
-
-    this.tokens.set(token.tokenId, token);
-    log.info(
-      {
-        tokenId: token.tokenId,
-        service: request.service,
-        field: request.field,
-        tool: request.toolName,
-      },
-      "Usage token issued",
-    );
-
-    return { authorized: true, token: { ...token } };
-  }
-
-  /**
-   * Consume a previously issued token. Returns the storage key on success.
-   * Each token can only be consumed once.
-   */
-  consume(tokenId: string): ConsumeResult {
-    const token = this.tokens.get(tokenId);
-    if (!token) {
-      return { success: false, reason: "Token not found or already revoked" };
-    }
-    if (token.consumed) {
-      return { success: false, reason: "Token already consumed" };
-    }
-    if (Date.now() - token.createdAt > TOKEN_TTL_MS) {
-      this.tokens.delete(tokenId);
-      log.info({ tokenId }, "Token expired (TTL exceeded)");
-      return { success: false, reason: "Token expired" };
-    }
-
-    token.consumed = true;
-    const storageKey = credentialKey(token.service, token.field);
-    // Check for transient value first (one-time send) - consume and return the value
-    // directly since transient values are never persisted to secure storage.
-    const transient = this.transientValues.get(storageKey);
-    if (transient !== undefined) {
-      this.transientValues.delete(storageKey);
-      log.info(
-        { tokenId, storageKey, transient: true },
-        "Usage token consumed (transient)",
-      );
-      return { success: true, storageKey, value: transient.value };
-    }
-
-    log.info({ tokenId, storageKey }, "Usage token consumed");
-    return { success: true, storageKey };
-  }
-
-  /**
-   * Revoke a token, removing it from the active set.
-   * Returns true if the token existed and was revoked.
-   */
-  revoke(tokenId: string): boolean {
-    const existed = this.tokens.delete(tokenId);
-    if (existed) {
-      log.info({ tokenId }, "Usage token revoked");
-    }
-    return existed;
-  }
-
-  /** Revoke all tokens (e.g. on conversation teardown). */
-  revokeAll(): void {
-    const count = this.tokens.size;
-    this.tokens.clear();
-    if (count > 0) {
-      log.info({ count }, "All usage tokens revoked");
-    }
   }
 
   /**
@@ -316,81 +196,6 @@ export class CredentialBroker {
       );
       return { success: false, reason: "Credential use failed" };
     }
-  }
-
-  /**
-   * Look up a credential by its opaque ID for proxy injection.
-   *
-   * Returns metadata and injection templates so the proxy knows how to
-   * inject the credential into outbound requests. The secret value is
-   * never included in the result - the proxy reads it separately via
-   * the secure key backend at injection time.
-   */
-  async serverUseById(
-    request: ServerUseByIdRequest,
-  ): Promise<ServerUseByIdResult> {
-    const resolved = resolveById(request.credentialId);
-    if (!resolved) {
-      return {
-        success: false,
-        reason: `No credential found for id "${request.credentialId}"`,
-      };
-    }
-
-    const { metadata } = resolved;
-
-    // Shared server-use policy: the ID lookup above is the only by-ID-specific
-    // gate, so tool and domain enforcement come from the same helper serverUse
-    // uses.
-    const denialReason = serverUseDenialReason(
-      metadata,
-      request.requestingTool,
-      metadata.service,
-      metadata.field,
-    );
-    if (denialReason) {
-      return { success: false, reason: denialReason };
-    }
-
-    // Fail-closed: verify the secret value actually exists in secure storage.
-    // Without this, downstream proxy code would attempt unauthenticated requests.
-    const value = await getSecureKeyAsync(resolved.storageKey);
-    if (!value) {
-      return {
-        success: false,
-        reason: `Credential metadata exists but no stored value for ${metadata.service}/${metadata.field}`,
-      };
-    }
-
-    log.info(
-      {
-        credentialId: request.credentialId,
-        service: metadata.service,
-        field: metadata.field,
-        tool: request.requestingTool,
-      },
-      "Server-side credential lookup by ID completed",
-    );
-
-    return {
-      success: true,
-      credentialId: resolved.credentialId,
-      service: resolved.service,
-      field: resolved.field,
-      injectionTemplates: resolved.injectionTemplates,
-    };
-  }
-
-  /** Return the number of active (non-consumed, non-revoked, non-expired) tokens. */
-  get activeTokenCount(): number {
-    const now = Date.now();
-    let count = 0;
-    for (const token of this.tokens.values()) {
-      if (!token.consumed && now - token.createdAt <= TOKEN_TTL_MS) {
-        count++;
-      }
-    }
-    return count;
   }
 }
 

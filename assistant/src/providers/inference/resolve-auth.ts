@@ -43,7 +43,7 @@ export async function resolveAuth(
   if (safeBaseUrl && !PROVIDERS_ALLOWING_CUSTOM_BASE_URL.has(provider)) {
     log.warn(
       { provider, baseUrl: safeBaseUrl },
-      `Stripping baseUrl for provider "${provider}": base_url is only valid for openai-compatible and ollama providers.`,
+      `Stripping baseUrl for provider "${provider}": base_url is only valid for openai-compatible, ollama, and opencode providers.`,
     );
     safeBaseUrl = null;
   }

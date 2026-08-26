@@ -4,6 +4,7 @@ import type { SetupChannelId } from "@/types/channel-types";
 export type ChannelCredentialForm =
   | "slack-wizard"
   | "telegram-token"
+  | "discord-token"
   | "twilio-credentials";
 
 /**
@@ -38,6 +39,7 @@ interface ChannelMeta {
   disconnectMessageKey:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
+    | "channelMeta.discord.disconnectMessage"
     | "channelMeta.phone.disconnectMessage"
     | undefined;
   /**
@@ -95,12 +97,9 @@ export const CHANNEL_META = {
   },
   discord: {
     labelKey: "channelMeta.discord.label",
-    // No route clears Discord's credentials yet, so no disconnect copy: the
-    // absence is what keeps the button unoffered. The in-product credential
-    // form arrives with the config API; until then setup is the guided flow.
-    disconnectMessageKey: undefined,
+    disconnectMessageKey: "channelMeta.discord.disconnectMessage",
     hasTrustFloorControl: true,
-    credentialForm: undefined,
+    credentialForm: "discord-token",
     disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
   },
   phone: {

@@ -37,6 +37,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "minimax",
   "atlascloud",
   "litellm",
+  "opencode",
   "baseten",
   "poolside",
   "openai-compatible",
@@ -60,12 +61,27 @@ export function connectionAuthTypeForProvider(
 
 /**
  * Providers that persist a client-supplied Base URL. openai-compatible
- * requires one; ollama treats it as an optional override of the local default.
+ * requires one; ollama and opencode treat it as an optional override of
+ * their well-known defaults.
  */
 export function providerAllowsCustomBaseUrl(
   provider: ConnectionProvider,
 ): boolean {
-  return provider === "openai-compatible" || provider === "ollama";
+  return (
+    provider === "openai-compatible" ||
+    provider === "ollama" ||
+    provider === "opencode"
+  );
+}
+
+/**
+ * Providers that persist a per-connection model list used by the profile
+ * picker when the static catalog is empty.
+ */
+export function providerPersistsConnectionModels(
+  provider: ConnectionProvider,
+): boolean {
+  return provider === "openai-compatible" || provider === "opencode";
 }
 
 export function parseCredentialRef(

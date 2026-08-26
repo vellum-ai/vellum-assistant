@@ -37,12 +37,13 @@ The bot only acts on messages that mention it, so an admitted message always car
 
 ### The bot is online but never replies
 
-This is the expected state of a fresh setup, not a fault. The bot acts only when it is @mentioned in a channel on the allow-list, and that list starts empty.
+The bot acts only when it is @mentioned in a channel its role can see, so work through what "see" and "mention" each require:
 
-- Check the list: `assistant config get discord.allowedChannelIds`
-- Populate it: `assistant config set discord.allowedChannelIds '["<channel id>"]'`
+- Check the bot's role has **View Channel** on that channel in Discord's channel settings
+- Confirm the message @mentions the bot: it ignores unmentioned messages in a server
 - Confirm you are mentioning the bot directly, not just posting in the channel.
 - If it still stays silent, the channel's admission policy may be excluding the sender: by default Discord admits trusted contacts rather than anyone in the server.
+- If the assistant's config still carries `discord.allowedChannelIds` from an earlier setup, that legacy list is still enforced and the bot only answers in listed channels. Remove the config entry to adopt the permission model above.
 
 ## OAuth Invite Errors
 

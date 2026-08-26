@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { IngressInboundSchema } from "./ingress-inbound.js";
-import { readPluginInbound } from "./plugin-inbound.js";
+import { readPluginInbound, unscopedPluginId } from "./plugin-inbound.js";
 
 const RECEIVED_AT = "2026-02-01T00:00:00.000Z";
 
@@ -68,6 +68,16 @@ describe("readPluginInbound", () => {
     expect(result.event.message.conversationExternalId).toBe("imessage:chat-1");
     expect(result.event.actor.actorExternalId).toBe("imessage:+12025550142");
     expect(result.event.message.externalMessageId).toBe("imessage:msg-1");
+  });
+
+  it("returns the vendor id from a scoped plugin id", () => {
+    // The plugin send API addresses chats the way the vendor does. A notice
+    // that kept the prefix would aim at a chat that does not exist.
+    expect(unscopedPluginId("imessage", "imessage:chat-1")).toBe("chat-1");
+    expect(unscopedPluginId("imessage", "imessage:+12025550142")).toBe(
+      "+12025550142",
+    );
+    expect(unscopedPluginId("imessage", "chat-1")).toBe("chat-1");
   });
 
   it("takes the plugin name from the caller, not the reply", () => {

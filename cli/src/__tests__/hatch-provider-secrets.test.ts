@@ -287,8 +287,9 @@ describe("hatch provider secrets", () => {
     expect(output).not.toContain("test-anthropic-key");
   });
 
-  test("formats the LiteLLM label", () => {
+  test("formats the LiteLLM and OpenCode labels", () => {
     expect(formatProviderName("litellm")).toBe("LiteLLM");
+    expect(formatProviderName("opencode")).toBe("OpenCode");
   });
 
   test("HATCH_PROVIDER_CHOICES only lists supported providers with a label", () => {
@@ -298,8 +299,9 @@ describe("hatch provider secrets", () => {
     }
   });
 
-  test("HATCH_PROVIDER_CHOICES excludes litellm, which cannot back llm.defaultProvider", () => {
+  test("HATCH_PROVIDER_CHOICES excludes endpoint-supplied providers that cannot back llm.defaultProvider", () => {
     expect(HATCH_PROVIDER_CHOICES).not.toContain("litellm");
+    expect(HATCH_PROVIDER_CHOICES).not.toContain("opencode");
   });
 
   describe("hasExplicitHatchProvider", () => {
