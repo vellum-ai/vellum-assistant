@@ -105,5 +105,6 @@ describe("ReferralContent", () => {
     expect(document.getElementById(hintId as string)?.textContent).toContain(
       "Subscribe or purchase credits to start earning!",
     );
+    expect((button.parentElement as HTMLElement).tabIndex).toBe(0);
   });
 });

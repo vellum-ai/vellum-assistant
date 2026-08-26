@@ -137,7 +137,15 @@ export function ReferralContent() {
             />
             {creditsGated ? (
               <Tooltip content={t("referralContent.gatedTooltip")}>
-                <span className="inline-flex shrink-0">{shareButton}</span>
+                {/* The disabled button cannot take focus, so where the
+                    tooltip mounts the span is the tab stop that opens it
+                    for sighted keyboard users. */}
+                <span
+                  tabIndex={hoverCapable ? 0 : undefined}
+                  className="inline-flex shrink-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                >
+                  {shareButton}
+                </span>
               </Tooltip>
             ) : (
               shareButton
