@@ -14,8 +14,8 @@
 import type { StreamingTranscriber } from "../stt/types.js";
 
 /**
- * Open a streaming transcription session against the configured STT provider
- * (`services.stt.provider`).
+ * Open a streaming transcription session against the provider serving
+ * dictation (`services.stt.roles.dictation`, else `services.stt.provider`).
  *
  * Returns a live {@link StreamingTranscriber} the caller drives with
  * `start` / `sendAudio` / `stop`, or `null` when no streaming session can be

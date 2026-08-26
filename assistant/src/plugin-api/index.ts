@@ -375,8 +375,9 @@ export { persistSystemCard } from "./system-card.js";
 export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
 export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
-// Streaming speech-to-text — open a live transcription session against the
-// assistant's globally configured STT provider stack. The plugin feeds audio
+// Streaming speech-to-text: open a live transcription session against the
+// provider serving dictation (`services.stt.roles.dictation`, else the global
+// `services.stt.provider`). The plugin feeds audio
 // chunks via `sendAudio` and receives transcript and turn-boundary events
 // through the `start(onEvent)` callback, closing with `stop`.
 // `SttStreamServerEvent` types the events handed to `onEvent`; every member of

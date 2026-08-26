@@ -27,11 +27,12 @@ export type SttStreamSocketData = RuntimeAudioStreamState & {
   wsType: "stt-stream";
   /**
    * Optional provider identifier for the STT streaming session (e.g.
-   * "deepgram", "google-gemini"). The runtime is config-authoritative —
-   * it always resolves the streaming transcriber from `services.stt.provider`
-   * regardless of this value. When supplied, it is forwarded as compatibility
-   * metadata and the runtime logs a mismatch warning if it disagrees with
-   * the configured provider.
+   * "deepgram", "google-gemini"). The runtime is config-authoritative: it
+   * always resolves the streaming transcriber from the dictation role
+   * (`services.stt.roles.dictation`, else `services.stt.provider`) regardless
+   * of this value. When supplied, it is forwarded as compatibility metadata
+   * and the runtime logs a mismatch warning if it disagrees with the provider
+   * that role resolves to.
    */
   provider?: string;
   /** MIME type of the audio being streamed (e.g. "audio/webm;codecs=opus"). */

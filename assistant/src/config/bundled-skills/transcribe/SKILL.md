@@ -22,7 +22,7 @@ Transcribe audio and video files using the configured speech-to-text provider. S
 - For video files, audio is automatically extracted via ffmpeg before transcription.
 - Large files are automatically split into chunks for processing.
 - If no STT provider credentials are configured, the tool will return an error with setup instructions.
-- The STT provider (`services.stt`) is shared between transcription and telephony call paths.
+- Transcription and telephony each pick their own STT provider: `services.stt.roles.batch` and `services.stt.roles.telephony`, each falling back to `services.stt.provider` when unset. A key stored for one does not serve the other when they differ.
 
 ## Maintenance
 

@@ -301,9 +301,14 @@ export type ConversationStreamingSttCapability =
     };
 
 /**
- * Validate whether the configured `services.stt` provider supports
- * conversation streaming for chat message capture (chat composer and
- * iOS input bar).
+ * Validate whether the provider serving dictation supports conversation
+ * streaming for chat message capture (chat composer and iOS input bar).
+ *
+ * The provider is the `dictation` role's, which is the one `/v1/stt/stream`
+ * dials. Reading the global instead would answer about a provider that
+ * boundary does not use: a credentialed role selection would be reported
+ * unsupported for the global's missing key, and the inverse would report
+ * support for a session that then fails.
  *
  * This resolver does **not** create a live streaming session — it only
  * validates that the configuration, catalog entry, and credentials are
@@ -319,7 +324,7 @@ export type ConversationStreamingSttCapability =
  */
 export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
   const config = getConfig();
-  const provider = resolveSttCatalogKey(config.services.stt);
+  const provider = sttCatalogKeyForRole(config.services.stt, "dictation");
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
