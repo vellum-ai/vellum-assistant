@@ -2,6 +2,7 @@ import { useMemo } from "react";
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import { useConversationStore } from "@/stores/conversation-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
@@ -29,26 +30,40 @@ export type AcpConnectPlacement = "inline" | "docked" | null;
  * anchor's turn is still the last thing in the thread and the card sits in
  * view, in the context that explains it.
  *
- * An anchor that is not in the transcript at all yields no placement. The
- * prompt deliberately outlives a conversation switch (`resetAll` carries it
- * over), so "no anchor here" is usually a different conversation rather than a
- * paged-out row, and docking on it would show the card, and its Connect
- * button, against whatever assistant the user navigated to. The two are not
- * distinguishable from the transcript alone, so the ambiguous case declines to
- * render rather than guess.
+ * The prompt deliberately outlives a conversation switch (`resetAll` carries
+ * it over), so a transcript that does not hold the anchor is ambiguous on its
+ * own. `promptConversationId` settles it: a different conversation renders
+ * nothing, since docking there would offer Connect against the assistant the
+ * user navigated to. The same conversation with the anchor out of the loaded
+ * window docks, because history opens at the latest 50 messages and a long
+ * background run's spawn call is often above that, and a user at the composer
+ * has no other way to reach the flow while the daemon still redirects the
+ * fallback at this card.
+ *
+ * A prompt with no recorded owner is treated as this conversation's: prompts
+ * raised before that field existed still have a live failure behind them.
  */
 export function decideAcpConnectPlacement(
   messages: readonly DisplayMessage[],
   toolUseId: string | null,
+  promptConversationId?: string | null,
+  activeConversationId?: string | null,
 ): AcpConnectPlacement {
   if (!toolUseId) {
+    return null;
+  }
+  if (
+    promptConversationId != null &&
+    activeConversationId != null &&
+    promptConversationId !== activeConversationId
+  ) {
     return null;
   }
   const anchorIndex = messages.findLastIndex((message) =>
     message.toolCalls?.some((toolCall) => toolCall.id === toolUseId),
   );
   if (anchorIndex === -1) {
-    return null;
+    return "docked";
   }
   const supersededByNewTurn = messages
     .slice(anchorIndex + 1)
@@ -58,13 +73,21 @@ export function decideAcpConnectPlacement(
 
 /** {@link decideAcpConnectPlacement} over the live prompt and transcript. */
 export function useAcpConnectPlacement(): AcpConnectPlacement {
-  const toolUseId =
-    useInteractionStore.use.pendingAcpConnect()?.toolUseId ?? null;
+  const prompt = useInteractionStore.use.pendingAcpConnect();
+  const toolUseId = prompt?.toolUseId ?? null;
+  const promptConversationId = prompt?.conversationId ?? null;
+  const activeConversationId = useConversationStore.use.activeConversationId();
   const messages = useTranscriptMessages();
 
   return useMemo(
-    () => decideAcpConnectPlacement(messages, toolUseId),
-    [messages, toolUseId],
+    () =>
+      decideAcpConnectPlacement(
+        messages,
+        toolUseId,
+        promptConversationId,
+        activeConversationId,
+      ),
+    [messages, toolUseId, promptConversationId, activeConversationId],
   );
 }
 

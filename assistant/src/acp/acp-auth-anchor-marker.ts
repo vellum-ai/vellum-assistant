@@ -50,6 +50,24 @@ export function applyAcpAuthRider(
 }
 
 /**
+ * Strip the rider from every block that carries it, reporting whether anything
+ * changed. The counterpart to {@link applyAcpAuthRider}: a conversation can
+ * hold markers from several failed runs, so this clears all of them rather
+ * than stopping at the first.
+ */
+export function clearAcpAuthRiders(blocks: readonly unknown[]): boolean {
+  let changed = false;
+  for (const block of blocks) {
+    const rec = block as Record<string, unknown>;
+    if (rec?.type === "tool_use" && rec[ACP_AUTH_ERROR_CODE_RIDER] != null) {
+      delete rec[ACP_AUTH_ERROR_CODE_RIDER];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
  * Record on persisted history that this run's Claude credential was rejected,
  * so a client that reloads can re-raise the inline Connect card.
  *
@@ -116,6 +134,43 @@ export async function stampAcpAuthRequiredOnAnchor(
     log.error(
       { err, conversationId, toolUseId },
       "stamping the ACP auth anchor failed; the card still raises live",
+    );
+  }
+}
+
+/**
+ * Retire every auth marker in a conversation, so history stops describing a
+ * rejection the user has since repaired.
+ *
+ * Called when a new Claude token lands. The marker is what a reloaded client
+ * re-derives the Connect card from, and it has no expiry of its own: the
+ * client cannot tell a repaired rejection from a live one, because the
+ * connected check only asks whether a token is stored, not whether Claude
+ * accepts it. Clearing at the write is the one moment that answer is known.
+ *
+ * Best-effort, like the stamp it undoes: a failure here leaves a card that
+ * offers to connect something already connected, which the user can dismiss.
+ */
+export async function clearAcpAuthRidersForConversation(
+  conversationId: string,
+): Promise<void> {
+  try {
+    const [{ updateMessageContent }, { resolveMessageContentBlocks }, reads] =
+      await Promise.all([
+        import("../persistence/conversation-crud.js"),
+        import("../persistence/message-content-file.js"),
+        import("../persistence/message-reads.js"),
+      ]);
+    for (const row of reads.recentAssistantMessageContents(conversationId)) {
+      const blocks = resolveMessageContentBlocks(row.content);
+      if (clearAcpAuthRiders(blocks)) {
+        updateMessageContent(row.id, JSON.stringify(blocks));
+      }
+    }
+  } catch (err) {
+    log.error(
+      { err, conversationId },
+      "clearing ACP auth anchors failed; a stale Connect card may reappear",
     );
   }
 }

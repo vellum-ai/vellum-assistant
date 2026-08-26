@@ -18,6 +18,8 @@ import {
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { clearAcpAuthRidersForConversation } from "./acp-auth-anchor-marker.js";
+import { takeConversationsWithAcpConnectCard } from "./acp-connect-card-state.js";
 import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
@@ -132,6 +134,17 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
   repairAcpSpawnPolicy(
     ACP_OAUTH_TOKEN_FIELD,
     ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
+  );
+  // A new token retires the failures that asked for it. The persisted markers
+  // are what a reloaded client re-raises the Connect card from, and the
+  // registry is what redirects the secure-prompt fallback at that card; both
+  // outlive the rejection they describe unless cleared here. Awaited so a
+  // caller that reports success has already retired them, and never fatal: the
+  // token is stored either way, and each clear logs its own failure.
+  await Promise.all(
+    takeConversationsWithAcpConnectCard().map((conversationId) =>
+      clearAcpAuthRidersForConversation(conversationId),
+    ),
   );
 }
 

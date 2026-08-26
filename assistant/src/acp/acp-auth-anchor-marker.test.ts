@@ -16,6 +16,7 @@ import {
   ACP_AUTH_ERROR_CODE_RIDER,
   applyAcpAuthRider,
   blocksCarryToolUse,
+  clearAcpAuthRiders,
 } from "./acp-auth-anchor-marker.js";
 
 function toolUse(id: string, extra: Record<string, unknown> = {}) {
@@ -88,5 +89,47 @@ describe("applyAcpAuthRider", () => {
       ACP_CLAUDE_AUTH_REQUIRED_CODE,
       undefined,
     ]);
+  });
+});
+
+describe("clearAcpAuthRiders", () => {
+  test("strips the rider so history stops describing a repaired rejection", () => {
+    const blocks = [toolUse("tool-a")];
+    applyAcpAuthRider(blocks, "tool-a");
+
+    expect(clearAcpAuthRiders(blocks)).toBe(true);
+    expect(
+      (blocks[0] as Record<string, unknown>)[ACP_AUTH_ERROR_CODE_RIDER],
+    ).toBeUndefined();
+  });
+
+  test("clears every marked run, not just the first", () => {
+    // One conversation can hold markers from several failed runs, and a new
+    // token retires all of them at once.
+    const blocks = [toolUse("tool-a"), toolUse("tool-b"), toolUse("tool-c")];
+    applyAcpAuthRider(blocks, "tool-a");
+    applyAcpAuthRider(blocks, "tool-c");
+
+    expect(clearAcpAuthRiders(blocks)).toBe(true);
+    expect(
+      blocks.map(
+        (b) => (b as Record<string, unknown>)[ACP_AUTH_ERROR_CODE_RIDER],
+      ),
+    ).toEqual([undefined, undefined, undefined]);
+  });
+
+  test("reports no change when nothing is marked, so the row is not rewritten", () => {
+    expect(clearAcpAuthRiders([toolUse("tool-a")])).toBe(false);
+  });
+
+  test("leaves the spawn's other riders alone", () => {
+    const blocks = [toolUse("tool-a", { _startedAt: 42 })];
+    applyAcpAuthRider(blocks, "tool-a");
+    clearAcpAuthRiders(blocks);
+    expect((blocks[0] as Record<string, unknown>)._startedAt).toBe(42);
+  });
+
+  test("tolerates malformed blocks", () => {
+    expect(clearAcpAuthRiders([null, 7, "x", {}])).toBe(false);
   });
 });

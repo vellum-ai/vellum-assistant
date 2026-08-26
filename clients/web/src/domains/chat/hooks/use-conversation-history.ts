@@ -366,7 +366,7 @@ export function useConversationHistory({
     ) {
       useInteractionStore.getState().showAcpConnect({
         ...wirePendingAcpConnect,
-        restoredFromHistory: true,
+        conversationId: activeConversationId,
       });
     }
 

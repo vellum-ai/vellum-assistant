@@ -82,17 +82,17 @@ export interface PendingAcpConnectState {
    */
   reason?: "missing" | "auth_required";
   /**
-   * Whether this prompt was re-derived from persisted history rather than
-   * raised by a live failure in this session.
+   * Conversation the failure happened in.
    *
-   * The `auth_required` marker stays in history permanently, so a restored one
-   * describes a rejection from some earlier session, which the user may
-   * already have repaired. A live one describes a rejection that just
-   * happened. Only the restored kind lets the already-connected self-heal
-   * retire the card, which is what keeps a stale marker from re-raising it on
-   * every cold start after a successful reconnect.
+   * The prompt deliberately outlives a conversation switch (`resetAll` carries
+   * it over), so without this a transcript that does not hold the anchor is
+   * ambiguous: it could be a different conversation, or the right one with the
+   * anchor paged out of the loaded window. History opens at the latest 50
+   * messages, so a long background run's spawn call is genuinely often outside
+   * it. Naming the owner separates the two, which is what lets the paged-out
+   * case dock without the card leaking into an unrelated chat.
    */
-  restoredFromHistory?: boolean;
+  conversationId?: string | null;
 }
 
 // ---------------------------------------------------------------------------

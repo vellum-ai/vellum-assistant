@@ -60,16 +60,35 @@ describe("decideAcpConnectPlacement", () => {
     expect(decideAcpConnectPlacement(messages, ANCHOR)).toBe("docked");
   });
 
-  test("renders nowhere when the anchor is absent from this transcript", () => {
-    // The prompt outlives a conversation switch, so an anchor that is not here
-    // is most likely another conversation's. Docking it would show the card,
-    // and its Connect button, against the assistant the user navigated to.
+  test("docks when the anchor is paged out of this conversation's window", () => {
+    // History opens at the latest 50 messages, so a long background run's
+    // spawn call is often above the loaded window. The owner says it is this
+    // conversation, so the card still has to be reachable.
     const messages = [user("u9"), assistantWithTools("a9", ["unrelated"])];
-    expect(decideAcpConnectPlacement(messages, ANCHOR)).toBeNull();
+    expect(
+      decideAcpConnectPlacement(messages, ANCHOR, "conv-1", "conv-1"),
+    ).toBe("docked");
   });
 
-  test("renders nowhere on an empty transcript", () => {
-    expect(decideAcpConnectPlacement([], ANCHOR)).toBeNull();
+  test("renders nowhere in a conversation the prompt does not belong to", () => {
+    // The prompt outlives a conversation switch, and docking it here would
+    // offer Connect against the assistant the user navigated to.
+    const messages = [user("u9"), assistantWithTools("a9", ["unrelated"])];
+    expect(
+      decideAcpConnectPlacement(messages, ANCHOR, "conv-1", "conv-2"),
+    ).toBeNull();
+  });
+
+  test("treats an unowned prompt as this conversation's", () => {
+    // Raised before the field existed; there is still a live failure behind it.
+    const messages = [user("u9"), assistantWithTools("a9", ["unrelated"])];
+    expect(
+      decideAcpConnectPlacement(messages, ANCHOR, null, "conv-1"),
+    ).toBe("docked");
+  });
+
+  test("docks on an empty transcript", () => {
+    expect(decideAcpConnectPlacement([], ANCHOR)).toBe("docked");
   });
 
   test("matches the newest anchor when a run is respawned under one id", () => {

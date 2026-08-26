@@ -219,37 +219,25 @@ describe("AcpConnectAffordance", () => {
     expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
-  test("retires a history-restored auth_required prompt once Claude is connected", async () => {
-    // The marker lives in history permanently, so a restored prompt describes
-    // an earlier session's rejection the user may already have repaired.
-    // Without the self-heal it re-raises on every cold start against auth that
-    // now works.
+  test("keeps a restored auth_required prompt up even when connected reports true", async () => {
+    // `hasAcpClaudeToken` answers on presence, shape and broker readability
+    // without putting the token to Claude, so a rejected token still reports
+    // connected. Retiring on that would dismiss the card over the failure it
+    // exists to repair, and the dismissal set would keep it from coming back
+    // for the rest of the session. Stale markers are retired at the daemon,
+    // when a new token is actually written.
     alreadyConnected = true;
     useInteractionStore.getState().showAcpConnect({
       toolUseId: "toolu-acp-1",
       reason: "auth_required",
-      restoredFromHistory: true,
-    });
-
-    render(<AcpConnectAffordance assistantId="assistant-123" />);
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
-    });
-  });
-
-  test("keeps a history-restored prompt up while Claude is still unconnected", async () => {
-    alreadyConnected = false;
-    useInteractionStore.getState().showAcpConnect({
-      toolUseId: "toolu-acp-1",
-      reason: "auth_required",
-      restoredFromHistory: true,
+      conversationId: "conv-1",
     });
 
     render(<AcpConnectAffordance assistantId="assistant-123" />);
     await flushConnectedCheck();
 
     expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
   test("records nothing when the connected check answers false", async () => {
