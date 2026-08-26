@@ -433,14 +433,31 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   setAcpConnectFlowActive: (active) => set({ acpConnectFlowActive: active }),
 
   showAcpConnect: (payload) =>
-    set((state) =>
-      state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)
-        ? state
-        : {
-            pendingAcpConnect: payload,
-            acpConnectRevision: state.acpConnectRevision + 1,
-          },
-    ),
+    set((state) => {
+      if (state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)) {
+        return state;
+      }
+      // The revision means "the prompt changed", and readers compare against
+      // it to tell whether a response they issued still speaks for what is on
+      // screen. Two fetches can capture the same revision, and an older marked
+      // response re-raising the prompt already displayed would advance it and
+      // make the later authoritative one look stale, leaving a repaired card
+      // standing until the next navigation. Re-raising the same prompt is not
+      // a change.
+      const current = state.pendingAcpConnect;
+      if (
+        current &&
+        current.toolUseId === payload.toolUseId &&
+        current.reason === payload.reason &&
+        current.conversationId === payload.conversationId
+      ) {
+        return state;
+      }
+      return {
+        pendingAcpConnect: payload,
+        acpConnectRevision: state.acpConnectRevision + 1,
+      };
+    }),
 
   adoptAcpConnectConversation: (conversationId) =>
     set((state) =>

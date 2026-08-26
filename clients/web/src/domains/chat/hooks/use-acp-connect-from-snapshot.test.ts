@@ -143,17 +143,17 @@ describe("raiseAcpConnectFromSnapshot: retiring a prompt the daemon dropped", ()
 
     raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-1");
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-missing");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-missing",
+    );
   });
 
   test("leaves a prompt owned by another conversation alone", () => {
     raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-2");
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-1");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-1",
+    );
   });
 
   test("leaves the prompt alone while this tab owns a live Connect flow", () => {
@@ -164,17 +164,17 @@ describe("raiseAcpConnectFromSnapshot: retiring a prompt the daemon dropped", ()
 
     raiseAcpConnectFromSnapshot([run({ authErrorCode: undefined })], "conv-1");
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-1");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-1",
+    );
   });
 
   test("a still-marked run keeps the prompt rather than clearing it", () => {
     raiseAcpConnectFromSnapshot([run()]);
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-1");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-1",
+    );
   });
 });
 
@@ -188,8 +188,7 @@ describe("raiseAcpConnectFromSnapshot: snapshots older than the prompt", () => {
       dismissedAcpConnectToolUseIds: new Set<string>(),
       acpConnectFlowActive: false,
     });
-    const revisionAtFetch =
-      useInteractionStore.getState().acpConnectRevision;
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
 
     // The live event lands while the fetch is in flight.
     useInteractionStore.getState().showAcpConnect({
@@ -204,9 +203,9 @@ describe("raiseAcpConnectFromSnapshot: snapshots older than the prompt", () => {
       revisionAtFetch,
     );
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-live");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-live",
+    );
     expect(
       useInteractionStore.getState().dismissedAcpConnectToolUseIds.size,
     ).toBe(0);
@@ -223,8 +222,7 @@ describe("raiseAcpConnectFromSnapshot: snapshots older than the prompt", () => {
       reason: "auth_required",
       conversationId: "conv-1",
     });
-    const revisionAtFetch =
-      useInteractionStore.getState().acpConnectRevision;
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
 
     raiseAcpConnectFromSnapshot(
       [run({ authErrorCode: undefined })],
@@ -246,8 +244,7 @@ describe("raiseAcpConnectFromSnapshot: stale marked snapshots", () => {
       dismissedAcpConnectToolUseIds: new Set<string>(),
       acpConnectFlowActive: false,
     });
-    const revisionAtFetch =
-      useInteractionStore.getState().acpConnectRevision;
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
 
     useInteractionStore.getState().showAcpConnect({
       toolUseId: "tool-newest",
@@ -261,9 +258,9 @@ describe("raiseAcpConnectFromSnapshot: stale marked snapshots", () => {
       revisionAtFetch,
     );
 
-    expect(
-      useInteractionStore.getState().pendingAcpConnect?.toolUseId,
-    ).toBe("tool-newest");
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-newest",
+    );
   });
 });
 
@@ -395,5 +392,86 @@ describe("raiseAcpConnectFromSnapshot: adopting an owner for an unowned prompt",
     expect(
       useInteractionStore.getState().pendingAcpConnect?.conversationId,
     ).toBeNull();
+  });
+});
+
+describe("showAcpConnect: re-raising the same prompt is not a change", () => {
+  test("an identical raise leaves the revision alone", () => {
+    // Two fetches can capture the same revision. An older marked response
+    // re-raising the prompt already displayed would advance it and make the
+    // later authoritative one look stale, leaving a repaired card standing.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    const payload = {
+      toolUseId: "tool-1",
+      reason: "auth_required" as const,
+      conversationId: "conv-1",
+    };
+    useInteractionStore.getState().showAcpConnect(payload);
+    const afterFirst = useInteractionStore.getState().acpConnectRevision;
+
+    useInteractionStore.getState().showAcpConnect({ ...payload });
+
+    expect(useInteractionStore.getState().acpConnectRevision).toBe(afterFirst);
+  });
+
+  test("a later unmarked snapshot can still retire after a duplicate raise", () => {
+    // The consequence the revision guard protects: the authoritative response
+    // captured the same revision and must still be allowed to retire.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+
+    // An older marked response re-raises what is already shown.
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+    // The authoritative unmarked snapshot lands next.
+    raiseAcpConnectFromSnapshot([], "conv-1", revisionAtFetch);
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("a different anchor still counts as a change", () => {
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-1",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+    const afterFirst = useInteractionStore.getState().acpConnectRevision;
+
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-2",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    expect(useInteractionStore.getState().acpConnectRevision).toBe(
+      afterFirst + 1,
+    );
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-2",
+    );
   });
 });

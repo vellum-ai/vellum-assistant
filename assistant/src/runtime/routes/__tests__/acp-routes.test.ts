@@ -1231,3 +1231,90 @@ describe("GET /v1/acp/sessions: current markers are bounded too", () => {
     ).toBe(true);
   });
 });
+
+describe("GET /v1/acp/sessions: the marker past the page is looked up, not filtered", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const CURRENT = realMarkerStore.claudeTokenDigest("sk-ant-oat-current");
+
+  test("reaches the newest current marker past a run of stale ones", async () => {
+    // Newest-first, the markers go: stale, stale, current. Taking the newest
+    // marked row and judging it afterwards would return nothing; the lookup
+    // has to ask for the newest row whose credential still matches.
+    const rows: Array<[string, number, string]> = [
+      ["hist-current", 3000, CURRENT],
+      ["hist-stale-a", 4000, REFUSED],
+      ["hist-stale-b", 5000, REFUSED],
+    ];
+    for (const [id, startedAt, credential] of rows) {
+      insertHistoryRow({
+        id,
+        agentId: "claude",
+        acpSessionId: `proto-${id}`,
+        parentConversationId: "conv-mixed",
+        startedAt,
+        completedAt: startedAt + 1,
+        status: "failed",
+        eventLogJson: "[]",
+        parentToolUseId: `tool-${id}`,
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: credential,
+      });
+    }
+    insertHistoryRow({
+      id: "hist-recent",
+      agentId: "claude",
+      acpSessionId: "proto-recent",
+      parentConversationId: "conv-mixed",
+      startedAt: 9000,
+      completedAt: 9001,
+      status: "completed",
+      eventLogJson: "[]",
+    });
+    fakeStoredCredential = CURRENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-mixed", limit: "1" },
+    })) as ResponseShape;
+
+    expect(body.sessions.map((s) => s.id)).toEqual([
+      "hist-recent",
+      "hist-current",
+    ]);
+    expect(body.sessions[1].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("reaches nothing when every marker is stale", async () => {
+    insertHistoryRow({
+      id: "hist-only-stale",
+      agentId: "claude",
+      acpSessionId: "proto-only-stale",
+      parentConversationId: "conv-all-stale",
+      startedAt: 1000,
+      completedAt: 1001,
+      status: "failed",
+      eventLogJson: "[]",
+      parentToolUseId: "tool-stale",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    insertHistoryRow({
+      id: "hist-newer",
+      agentId: "claude",
+      acpSessionId: "proto-newer",
+      parentConversationId: "conv-all-stale",
+      startedAt: 9000,
+      completedAt: 9001,
+      status: "completed",
+      eventLogJson: "[]",
+    });
+    fakeStoredCredential = CURRENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-all-stale", limit: "1" },
+    })) as ResponseShape;
+
+    expect(body.sessions.map((s) => s.id)).toEqual(["hist-newer"]);
+  });
+});
