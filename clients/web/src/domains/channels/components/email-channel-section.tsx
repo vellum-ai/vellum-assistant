@@ -26,7 +26,7 @@ import {
 } from "@/utils/local-settings-keys";
 import type { EmailByoProvider } from "@/lib/provider-catalogs";
 import { EMAIL_BYO_PROVIDERS } from "@/lib/provider-catalogs";
-import { parseServiceMode } from "@/utils/service-mode";
+import { parseServiceMode } from "@/domains/channels/service-mode";
 import type { ServiceMode } from "@/generated/daemon/types.gen";
 import { EmailManagedContent } from "@/domains/channels/components/email-managed-content";
 

@@ -682,6 +682,22 @@
     "linkCopied": "Enlace copiado",
     "open": "Abrir"
   },
+  "useAssistantChannels": {
+    "setupPrompt": {
+      "slack": "Quiero comunicarme contigo por Slack. Vamos a configurarlo.",
+      "telegram": "Quiero comunicarme contigo por Telegram. Vamos a configurarlo.",
+      "discord": "Quiero comunicarme contigo por Discord. Vamos a configurarlo.",
+      "email": "Quiero enviarte correos. Vamos a configurar tu dirección de correo.",
+      "phone": "Quiero poder llamarte. Vamos a conseguirte un número de teléfono."
+    },
+    "finishPrompt": {
+      "slack": "Slack está configurado pero no funciona. ¿Puedes terminarlo?",
+      "telegram": "Telegram está configurado pero no funciona. ¿Puedes terminarlo?",
+      "discord": "Discord está configurado pero no funciona. ¿Puedes terminarlo?",
+      "email": "Mi dirección de correo está configurada pero no funciona. ¿Puedes terminarla?",
+      "phone": "Mi número de teléfono está configurado pero no funciona. ¿Puedes terminarlo?"
+    }
+  },
   "useBookmarks": {
     "addFailed": "No se pudo marcar el mensaje.",
     "removeFailed": "No se pudo quitar el marcador."

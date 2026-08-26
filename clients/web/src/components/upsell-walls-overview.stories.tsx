@@ -380,6 +380,7 @@ export const ResourceAndEntitlementWalls: Story = {
             </div>
           </WallCase>
         </Group>
+
       </div>
     </QueryClientProvider>
   ),

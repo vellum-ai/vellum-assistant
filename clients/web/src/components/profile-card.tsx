@@ -186,9 +186,7 @@ function HandleEditor<T>({
       const code = availability.code as HandleErrorCode | null;
       return (
         availability.message ??
-        (code
-          ? HANDLE_ERROR_COPY[code]
-          : t("profileCard.chooseDifferentHandle"))
+        (code ? HANDLE_ERROR_COPY[code] : t("profileCard.chooseDifferentHandle"))
       );
     }
     return null;
