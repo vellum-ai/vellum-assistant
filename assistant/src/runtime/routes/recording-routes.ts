@@ -419,8 +419,9 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
     type: "recording_status",
   };
 
+  let result;
   try {
-    await handleRecordingStatusCore(msg);
+    result = await handleRecordingStatusCore(msg);
   } catch (err) {
     if (restoredOwnerId) {
       releaseRecordingClaim(body.conversationId, restoredOwnerId);
@@ -437,7 +438,7 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
     "Recording status processed via HTTP",
   );
 
-  return { ok: true };
+  return { ok: result.success };
 }
 
 // ---------------------------------------------------------------------------

@@ -182,7 +182,7 @@ export const postStatus = async (
   details: RecordingStatusDetails = {},
 ): Promise<void> => {
   const desktopClientId = getDeviceId();
-  const { response } = await client.post({
+  const { data, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/recordings/status" as KnownDaemonUrl,
     path: { assistant_id: assistantId },
     body: {
@@ -196,7 +196,7 @@ export const postStatus = async (
       ? { headers: { "Vellum-Device-Id": desktopClientId } }
       : {}),
   });
-  if (!response?.ok) {
+  if (!response?.ok || !(data as { ok?: boolean } | undefined)?.ok) {
     throw new Error(
       `Failed to report screen recording status: ${response?.status}`,
     );

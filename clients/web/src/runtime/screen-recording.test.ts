@@ -8,7 +8,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const clientPost = mock(async () => ({
-  data: {} as unknown,
+  data: { ok: true } as unknown,
   response: { ok: true, status: 200 },
 }));
 mock.module("@/generated/daemon/client.gen", () => ({
@@ -1712,6 +1712,48 @@ test("preserves the complete local file when remote retries are exhausted", asyn
   expect(errors).toEqual([
     "Remote recording transfer failed. The complete recording remains saved on this computer.",
   ]);
+});
+
+test("preserves the complete local file when finalization is not confirmed", async () => {
+  const recorder = new FakeRecorder();
+  const track = new FakeTrack();
+  clientPost.mockResolvedValueOnce({
+    data: { ok: true },
+    response: { ok: true, status: 200 },
+  });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    clientPost.mockResolvedValueOnce({
+      data: { ok: false },
+      response: { ok: true, status: 200 },
+    });
+  }
+  const controller = new ScreenRecordingController({
+    ...localTransferDependencies,
+    capture: async () => ({
+      stream: {
+        getTracks: () => [track],
+        getVideoTracks: () => [track],
+      } as unknown as MediaStream,
+      close: () => track.stop(),
+    }),
+    chooseMimeType: () => "video/webm",
+    createRecorder: () => recorder as unknown as MediaRecorder,
+    ownsLifecycle: () => true,
+    now: () => 0,
+    reportStatus: postStatus,
+  });
+
+  await controller.handle(startEvent, "assistant-1");
+  await expect(
+    controller.handle(
+      { type: "recording_stop", recordingId },
+      "assistant-1",
+    ),
+  ).rejects.toThrow("Failed to report screen recording status: 200");
+
+  expect(window.vellum!.screenRecording!.finish).toHaveBeenCalledTimes(1);
+  expect(window.vellum!.screenRecording!.release).not.toHaveBeenCalled();
+  expect(clientPost).toHaveBeenCalledTimes(6);
 });
 
 test("retries remote finish after a lost response", async () => {

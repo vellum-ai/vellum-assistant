@@ -63,10 +63,16 @@ const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
  *  cycle with a mismatched token are rejected. */
 let activeRestartToken: string | null = null;
 
-/** Idempotency guard: tracks recording IDs that have already been finalized
- *  to prevent double-finalization (e.g. during restart races). Entries are
- *  auto-cleaned after 60 seconds to avoid unbounded growth. */
-const finalizedRecordingIds = new Set<string>();
+interface RecordingFinalizationResult {
+  success: boolean;
+  messageId?: string;
+}
+
+/** Caches terminal finalization results for idempotent status retries. */
+const finalizedRecordingResults = new Map<
+  string,
+  Promise<RecordingFinalizationResult>
+>();
 
 /** Tracks which conversationId has a pending restart so "no active recording"
  *  is only returned when the state is truly idle (not mid-restart). */
@@ -428,30 +434,38 @@ function cleanupMaps(
  * This is the shared finalization flow used by the normal stop path and
  * by the restart path to save the previous recording before starting a new one.
  *
- * Includes an idempotency guard so the same recording cannot be finalized
- * twice (prevents double-finalization during restart races).
+ * Caches the terminal result so retries observe the same finalization outcome.
  */
-async function finalizeAndPublishRecording(params: {
+function finalizeAndPublishRecording(params: {
   recordingId: string;
   conversationId: string;
   filePath?: string;
   attachmentId?: string;
   durationMs?: number;
-}): Promise<{ success: boolean; messageId?: string }> {
-  const { recordingId, conversationId, filePath, attachmentId } = params;
-
-  // Idempotency guard: prevent double-finalization.
-  // Mark as finalized eagerly (before any async work) so concurrent calls
-  // for the same recordingId are rejected immediately.
-  if (finalizedRecordingIds.has(recordingId)) {
-    log.warn(
-      { recordingId, conversationId },
-      "Recording already finalized — skipping duplicate finalization",
-    );
-    return { success: false };
+}): Promise<RecordingFinalizationResult> {
+  const existing = finalizedRecordingResults.get(params.recordingId);
+  if (existing) {
+    return existing;
   }
-  finalizedRecordingIds.add(recordingId);
-  setTimeout(() => finalizedRecordingIds.delete(recordingId), 60_000);
+
+  const finalization = finalizeAndPublishRecordingOnce(params);
+  finalizedRecordingResults.set(params.recordingId, finalization);
+  setTimeout(() => {
+    if (finalizedRecordingResults.get(params.recordingId) === finalization) {
+      finalizedRecordingResults.delete(params.recordingId);
+    }
+  }, 60_000);
+  return finalization;
+}
+
+async function finalizeAndPublishRecordingOnce(params: {
+  recordingId: string;
+  conversationId: string;
+  filePath?: string;
+  attachmentId?: string;
+  durationMs?: number;
+}): Promise<RecordingFinalizationResult> {
+  const { recordingId, conversationId, filePath, attachmentId } = params;
 
   if (!filePath && !attachmentId) {
     // No file path — recording stopped without producing a file
@@ -737,7 +751,7 @@ async function finalizeAndPublishRecording(params: {
  */
 export async function handleRecordingStatusCore(
   msg: RecordingStatus,
-): Promise<void> {
+): Promise<RecordingFinalizationResult> {
   const recordingId = msg.conversationId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
 
@@ -758,7 +772,7 @@ export async function handleRecordingStatusCore(
       { recordingId },
       "Ignoring recording_status for unknown recording ID with no attachToConversationId",
     );
-    return;
+    return { success: true };
   }
 
   // ── Operation token validation for restart race hardening ──
@@ -782,7 +796,7 @@ export async function handleRecordingStatusCore(
       },
       "Rejecting stale recording_status — operation token mismatch (previous restart cycle)",
     );
-    return;
+    return { success: true };
   }
 
   // Cancel the stop timeout for most statuses, but NOT for a 'started' that
@@ -979,19 +993,17 @@ export async function handleRecordingStatusCore(
 
         // Prevent fall-through to the normal finalization path below since
         // we already called finalizeAndPublishRecording explicitly above.
-        break;
+        return finResult;
       }
 
       // Finalize: attach the recording file to the conversation
-      await finalizeAndPublishRecording({
+      return finalizeAndPublishRecording({
         recordingId,
         conversationId,
         filePath: msg.filePath,
         attachmentId: msg.attachmentId,
         durationMs: msg.durationMs,
       });
-
-      break;
     }
 
     case "failed": {
@@ -1025,6 +1037,8 @@ export async function handleRecordingStatusCore(
       break;
     }
   }
+
+  return { success: true };
 }
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
@@ -1040,6 +1054,6 @@ export function __resetRecordingState(): void {
   recordingClientClaims.clear();
   pendingRestartByConversation.clear();
   deferredRestartByConversation.clear();
-  finalizedRecordingIds.clear();
+  finalizedRecordingResults.clear();
   activeRestartToken = null;
 }

@@ -422,6 +422,41 @@ describe("recording status restart fallback", () => {
     expect(hasRecordingClaim(recordingId)).toBeFalse();
   });
 
+  test("returns the same failed finalization result on retry", async () => {
+    const conversationId = "conv-recording-finalization-failure";
+    const recordingId = handleRecordingStart(conversationId, undefined)!;
+    const uploadedAttachment = {
+      id: "attachment-finalization-failure",
+      originalFilename: "screen-recording.webm",
+      mimeType: "video/webm",
+      sizeBytes: 2048,
+    };
+    mockAttachments.push(uploadedAttachment);
+    mockLinkAttachmentToMessage.mockImplementationOnce(() => {
+      throw new Error("attachment link failed");
+    });
+    registerMockClient("renderer-finalize", "actor-1", "web");
+    registerMockClient("desktop-finalize", "actor-1", "windows");
+    const request = {
+      body: {
+        conversationId: recordingId,
+        attachToConversationId: conversationId,
+        status: "stopped",
+        attachmentId: uploadedAttachment.id,
+      },
+      headers: statusHeaders(
+        "renderer-finalize",
+        "actor-1",
+        "desktop-finalize",
+      ),
+    } as never;
+
+    await expect(statusRouteHandler(request)).resolves.toEqual({ ok: false });
+    await expect(statusRouteHandler(request)).resolves.toEqual({ ok: false });
+
+    expect(mockLinkAttachmentToMessage).toHaveBeenCalledTimes(1);
+  });
+
   test("clears a stopped picker without publishing a no-file message", async () => {
     const sent = createSent();
     const recordingId = handleRecordingStart(
