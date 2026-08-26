@@ -1170,7 +1170,9 @@
     "benefitPush": "Push-уведомления",
     "download": "Скачать",
     "subtitle": "Приложение Vellum для {appName} даёт нативный опыт.",
-    "title": "Скачать приложение {appName}"
+    "subtitleGeneric": "Мобильное приложение Vellum даёт нативный опыт.",
+    "title": "Скачать приложение {appName}",
+    "titleGeneric": "Скачать мобильное приложение Vellum"
   },
   "notificationsPage": {
     "description": "Настройка уведомлений Vellum на этом устройстве Android.",

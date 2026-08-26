@@ -48,7 +48,7 @@ export function useChatBannerSlots({
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
     showBanner,
-    nativeAppPlatform,
+    mobilePromotion,
     nudge,
     showGitHubBanner,
     githubNudge,
@@ -60,9 +60,9 @@ export function useChatBannerSlots({
     if (showBanner) {
       return (
         <div className="w-full px-3 pb-2 sm:px-6">
-          {nativeAppPlatform ? (
+          {mobilePromotion ? (
             <NativeAppBanner
-              platform={nativeAppPlatform}
+              promotion={mobilePromotion}
               onDownload={nudge.handleDownload}
               onDismiss={nudge.handleBannerDismiss}
             />
@@ -98,7 +98,7 @@ export function useChatBannerSlots({
     return null;
   }, [
     showBanner,
-    nativeAppPlatform,
+    mobilePromotion,
     nudge,
     showGitHubBanner,
     githubNudge,

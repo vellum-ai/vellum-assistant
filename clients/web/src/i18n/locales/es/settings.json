@@ -1170,7 +1170,9 @@
     "benefitPush": "Notificaciones push",
     "download": "Descargar",
     "subtitle": "La app de Vellum para {appName} te ofrece una experiencia nativa.",
-    "title": "Obtén la app de {appName}"
+    "subtitleGeneric": "La app móvil de Vellum te ofrece una experiencia nativa.",
+    "title": "Obtén la app de {appName}",
+    "titleGeneric": "Obtén la app móvil de Vellum"
   },
   "notificationsPage": {
     "description": "Administra cómo Vellum te notifica en este dispositivo Android.",

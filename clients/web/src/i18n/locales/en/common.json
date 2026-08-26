@@ -302,10 +302,13 @@
   },
   "nativeAppBanner": {
     "bannerAria": "Download the {appName} app",
+    "bannerAriaGeneric": "Download the Vellum mobile app",
     "download": "Download",
     "downloadAppAria": "Download {appName} app",
+    "downloadAppAriaGeneric": "Download Vellum mobile app",
     "subtitle": "Push notifications · biometric login · haptics",
-    "title": "Get the {appName} app"
+    "title": "Get the {appName} app",
+    "titleGeneric": "Get the Vellum app"
   },
   "nativeSplash": {
     "logoAlt": "Vellum"
