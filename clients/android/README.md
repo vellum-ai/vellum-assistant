@@ -130,13 +130,13 @@ A server the list does not already hold joins it, with its label, as soon as
 the link is scanned, matching iOS, so the chooser can still offer it when the
 pairing page never loads. What a scan alone cannot claim is deferred until that
 page loads: the active slot, so an unreachable server never displaces the one
-already working, and the label on a server already remembered, so an unpaired
-link cannot rename a card that an earlier pairing named. The one-time device
-code is kept out of app preferences and the generated Capacitor configuration.
-HTTPS is required except for `localhost`,
-`127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
-when a physical development device needs to reach a service through
-`localhost`.
+already working, and any label a server is already remembered under, so an
+unpaired link can fill in a missing name but cannot rewrite one an earlier
+pairing established. The one-time device code is kept out of app preferences
+and the generated Capacitor configuration. HTTPS is required except for
+`localhost`, `127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use
+`adb reverse` when a physical development device needs to reach a service
+through `localhost`.
 
 Paired servers accumulate in a remembered list, stored as JSON `{name?, url}`
 entries in the same `self_hosted_server` SharedPreferences file as the active

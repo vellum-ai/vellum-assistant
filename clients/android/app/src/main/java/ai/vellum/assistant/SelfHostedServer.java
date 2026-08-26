@@ -177,15 +177,15 @@ final class SelfHostedServer {
     }
 
     /**
-     * Remember an origin only when the list does not already hold it, leaving a
-     * known origin's label alone. A label carried by a link that has not paired
-     * yet is unverified, so it must not overwrite one a pairing earned.
+     * Remember an origin, filling in a label it does not have yet but never
+     * replacing one. A label carried by a link that has not paired is
+     * unverified, so it must not overwrite one a pairing earned.
      */
     static void appendIfAbsent(Store store, URI url, String name) {
         remember(store, url, name, false);
     }
 
-    private static void remember(Store store, URI url, String name, boolean relabel) {
+    private static void remember(Store store, URI url, String name, boolean replaceLabel) {
         synchronized (listLock) {
             List<Entry> entries = servers(store);
             String canonical = canonicalString(url);
@@ -193,11 +193,12 @@ final class SelfHostedServer {
             int index = indexOfUrl(entries, canonical);
             if (index < 0) {
                 entries.add(new Entry(label, canonical));
-            } else if (relabel && label != null) {
+            } else if (label != null && (replaceLabel || entries.get(index).name == null)) {
                 entries.set(index, new Entry(label, canonical));
-            } else {
-                return;
             }
+            // Persist even when the list is unchanged: servers() folds a legacy
+            // active URL in as a synthetic entry, and until that is written down
+            // the active slot is its only copy, so clearing the slot drops it.
             persist(store, entries);
         }
     }
