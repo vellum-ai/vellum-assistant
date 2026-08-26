@@ -68,14 +68,16 @@ afterEach(cleanup);
 describe("canEditContactPermissions", () => {
   test("allows regular human contacts", () => {
     expect(canEditContactPermissions(contact())).toBe(true);
-    expect(canEditContactPermissions(contact({ contactType: null }))).toBe(
-      true,
-    );
+    expect(
+      canEditContactPermissions(contact({ contactType: undefined })),
+    ).toBe(true);
   });
 
   test("hides the guardian and assistant contacts", () => {
     expect(
-      canEditContactPermissions(contact({ role: "guardian", contactType: null })),
+      canEditContactPermissions(
+        contact({ role: "guardian", contactType: "human" }),
+      ),
     ).toBe(false);
     expect(
       canEditContactPermissions(contact({ contactType: "assistant" })),
