@@ -350,6 +350,43 @@ Proxy.
 
 ---
 
+## Install referrer (`InstallReferrer`)
+
+A user who taps a campaign link, lands in Play, and installs arrives with no
+URL params, so the Play install referrer is the only attribution that install
+carries. The Android shell exposes it as the `InstallReferrer` plugin
+([`InstallReferrerPlugin.java`](../../../clients/android/app/src/main/java/ai/vellum/assistant/InstallReferrerPlugin.java));
+the web side is
+[`src/runtime/install-referrer.ts`](../src/runtime/install-referrer.ts). There
+is no iOS counterpart.
+
+- **`read()` never rejects.** It resolves
+  `{ referrer, referrerClickTimestampSeconds, installBeginTimestampSeconds }`
+  when Play answers with a referrer, and `{}` for every other outcome: no Play
+  Store on the device, a Play Store that declines the bind, or a Play install
+  with no campaign. A rejection here would surface as an error on the auth
+  path, which is where the value is spent.
+- **The empty result is the answer.** There is no availability probe, for the
+  same reason the voice bridge has none (§ "The skew rule"): a probe can itself
+  be absent on an older shell, and `{}` is the only answer a caller could act
+  on anyway. The `dev` and `staging` flavors carry an `applicationIdSuffix` and
+  are never Play-installed, so `{}` is the normal result in development.
+- **The shell caches the resolution, not its consumption.** A successful read
+  and a status meaning this device's Play Store will never answer both land in
+  the `install_referrer_state` preferences, so later launches skip the service
+  bind. A transient failure is left uncached, so a later launch retries.
+- **Consumption state belongs to the web layer.** The shell keeps answering
+  `read()` with the same value forever; the web layer captures it into device
+  storage once and drops it when a signup has spent it. Do not add a
+  "mark consumed" method to the bridge.
+- **No manifest permission.** The Play Install Referrer Library declares its
+  own service binding, so `AndroidManifest.xml` needs no entry for this.
+
+References:
+- Google Play: [Play Install Referrer Library](https://developer.android.com/google/play/installreferrer/library).
+
+---
+
 ## No JS height sync for auto-growing textareas
 
 Do not use JavaScript (`scrollHeight`, `offsetHeight`, `el.style.height = …`) to auto-resize `<textarea>` elements. iOS `WKWebView` re-dispatches native `input` events when it detects DOM geometry changes during input processing. In a controlled React component, JS height sync triggers `setState` → re-render → DOM mutation → re-fire, cascading until React hits its 50-update depth limit and throws `Maximum update depth exceeded`. Desktop browsers tolerate this pattern; iOS does not.
