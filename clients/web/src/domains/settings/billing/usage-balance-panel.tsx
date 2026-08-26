@@ -8,11 +8,11 @@ import { useTranslation } from "@/i18n";
 import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
 
 export interface UsageBalancePanelProps {
-  /** Spend against the included bundle, already clamped to 0..1. */
+  /** Used share of the granted usage credit, already clamped to 0..1. */
   ratio: number;
   /**
-   * ISO timestamp the current billing cycle ends on, or null when the reading
-   * measures granted usage credit rather than a cycle and so never resets.
+   * ISO timestamp the current billing cycle ends on, or null when nothing is
+   * scheduled to refill the bar.
    */
   resetsAt: string | null;
   /**
@@ -27,8 +27,8 @@ export interface UsageBalancePanelProps {
 
 /**
  * The current-plan tile's footer while `obscure-credits` is on, in place of the
- * price row: how much of a Pro package's included usage this cycle has spent,
- * or how much of a free plan's granted usage credit it has used.
+ * price row: how much of the usage credit the account was granted it has
+ * already used.
  */
 export function UsageBalancePanel({
   ratio,

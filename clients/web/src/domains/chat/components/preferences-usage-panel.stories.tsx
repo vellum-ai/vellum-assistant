@@ -2,17 +2,17 @@
  * The preferences menu's usage reading while `obscure-credits` is on.
  *
  * Unlike the billing tile's `UsageBalancePanel`, this one composes itself: the
- * subscription, the plan catalog, and the cycle's usage totals arrive through
- * TanStack Query, the wallet status arrives through `useBillingBalanceStatus`,
- * and the flag arrives through the client feature-flag store. Every one of
- * those is seeded here through its real read seam, so what renders is the
- * production path rather than a lookalike.
+ * subscription arrives through TanStack Query, the wallet status and the
+ * usage-grant figures arrive through `useBillingBalanceStatus`, and the flag
+ * arrives through the client feature-flag store. Every one of those is seeded
+ * here through its real read seam, so what renders is the production path
+ * rather than a lookalike.
  *
  * Two things make the seeding work. TanStack Query serves cached data even
- * while a query's `enabled` is false, so priming the cache is enough for all
- * four billing reads. And `useBillingBalanceStatus` refuses to look at the
- * summary until the platform gate, the assistant lifecycle, and the org store
- * all say the org has managed billing, so those three stores are seeded too.
+ * while a query's `enabled` is false, so priming the cache is enough for both
+ * billing reads. And `useBillingBalanceStatus` refuses to look at the summary
+ * until the platform gate, the assistant lifecycle, and the org store all say
+ * the org has managed billing, so those three stores are seeded too.
  */
 import type { ReactNode } from "react";
 import { useLayoutEffect, useState } from "react";
@@ -26,16 +26,10 @@ import { showsMenuCredits } from "@/domains/chat/components/preferences-menu";
 import { PreferencesUsagePanel } from "@/domains/chat/components/preferences-usage-panel";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import {
-  organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
-  organizationsBillingUsageTotalsRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type {
-  PlanListResponse,
-  ProPackage,
-  SubscriptionResponse,
-} from "@/generated/api/types.gen";
+import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
@@ -50,28 +44,7 @@ const OBSCURE_CREDITS = flagKeyToStoreKey("obscure-credits");
 const CYCLE_START = "2026-08-01T00:00:00Z";
 const CYCLE_END = "2026-09-01T00:00:00Z";
 
-/** The catalog's Mighty package, whose $25 bundle is the bar's denominator. */
-const MIGHTY: ProPackage = {
-  key: "mighty",
-  name: "Mighty",
-  description: "10 GB of storage and monthly Mighty Usage.",
-  version: 1,
-  machine_tier: null,
-  storage_tier: "xs",
-  credit_tier: "credits_25",
-  machine_size: null,
-  storage_gib: 10,
-  credits_usd: 25,
-  usage_label: "Mighty Usage",
-  include_platform_fee: false,
-  base_price_cents: 0,
-  machine_price_cents: 0,
-  storage_price_cents: 500,
-  credit_price_cents: 2500,
-  total_price_cents: 3000,
-};
-
-/** A Pro sub cleanly pinned to Mighty, which is what names the bundle. */
+/** A Pro sub cleanly pinned to Mighty, whose grants renew on the cycle end. */
 const SUBSCRIPTION: SubscriptionResponse = {
   plan_id: "pro",
   status: "active",
@@ -97,42 +70,12 @@ const FREE_SUBSCRIPTION: SubscriptionResponse = {
   entitlements: { managed_email: false, phone_number: false },
 };
 
-const PLANS: PlanListResponse = {
-  plans: [
-    {
-      id: "pro",
-      name: "Pro",
-      base_price_cents: 1000,
-      base_lookup_key: "pro_base",
-      billing_interval: "month",
-      machine_tiers: [],
-      storage_tiers: [],
-      included_features: [],
-      packages: [MIGHTY],
-    },
-  ],
-};
-
-/**
- * The window the usage read asks for: the cycle start through today. Derived
- * exactly as `usePlanUsageBalance` derives it, so the seeded entry lands on
- * the key the panel subscribes to.
- */
-function usageWindow(): { from: string; to: string } {
-  return {
-    from: new Date(CYCLE_START).toISOString().slice(0, 10),
-    to: new Date().toISOString().slice(0, 10),
-  };
-}
-
 interface UsagePanelStoryArgs {
   /**
-   * Which plan the seeded sub is on: `pro` measures the cycle against Mighty's
-   * $25 bundle, `free` measures the usage grants off the billing summary.
+   * Which plan the seeded sub is on: `pro` quotes the cycle end its grants
+   * renew on, `free` never resets. Both read the same usage-grant figures.
    */
   plan: "pro" | "free";
-  /** Managed usage spent this cycle, in USD. Ignored on a free plan. */
-  spentUsd: string;
   /** Effective credit balance. At or below zero reads as an empty wallet. */
   balanceUsd: string;
   /** What the account's usage grants were worth, in USD. */
@@ -185,7 +128,7 @@ function PanelWithCredits() {
 }
 
 /**
- * Seeds the flag, the three gate stores, and the four billing reads, then
+ * Seeds the flag, the three gate stores, and the two billing reads, then
  * hands every one of them back on unmount so a story cannot leak its billing
  * state into the next one. Written in an effect rather than during render
  * because the stores are subscribed by the tree being rendered.
@@ -197,7 +140,7 @@ function SeededPanel({
   args: UsagePanelStoryArgs;
   children: ReactNode;
 }) {
-  const { plan, spentUsd, balanceUsd, totalUsageUsd, availableUsageUsd } = args;
+  const { plan, balanceUsd, totalUsageUsd, availableUsageUsd } = args;
   const free = plan === "free";
   const [client] = useState(
     () =>
@@ -226,15 +169,6 @@ function SeededPanel({
       organizationsBillingSubscriptionRetrieveOptions().queryKey,
       free ? FREE_SUBSCRIPTION : SUBSCRIPTION,
     );
-    client.setQueryData(
-      organizationsBillingPlansRetrieveOptions().queryKey,
-      PLANS,
-    );
-    client.setQueryData(
-      organizationsBillingUsageTotalsRetrieveOptions({ query: usageWindow() })
-        .queryKey,
-      { total_usd: spentUsd, event_count: 12 },
-    );
     // Only the fields `useBillingBalanceStatus` reads; the untyped key lets
     // the fixture stay the size of what the hook actually consults.
     client.setQueryData(organizationsBillingSummaryRetrieveQueryKey(), {
@@ -256,7 +190,7 @@ function SeededPanel({
       useOrganizationStore.setState({ persistedOrganizationId: previousOrgId });
       useClientFeatureFlagStore.getState().clearOverride(OBSCURE_CREDITS);
     };
-  }, [availableUsageUsd, balanceUsd, client, free, spentUsd, totalUsageUsd]);
+  }, [availableUsageUsd, balanceUsd, client, free, totalUsageUsd]);
 
   return (
     <QueryClientProvider client={client}>
@@ -280,17 +214,15 @@ const meta: Meta<UsagePanelStoryArgs> = {
   parameters: { layout: "centered" },
   argTypes: {
     plan: { control: "inline-radio", options: ["pro", "free"] },
-    spentUsd: { control: "text" },
     balanceUsd: { control: "text" },
     totalUsageUsd: { control: "text" },
     availableUsageUsd: { control: "text" },
   },
   args: {
     plan: "pro",
-    spentUsd: "17",
     balanceUsd: "18.00",
-    totalUsageUsd: "5.00",
-    availableUsageUsd: "1.60",
+    totalUsageUsd: "25.00",
+    availableUsageUsd: "8.00",
   },
   render: (args) => (
     <SeededPanel args={args}>
@@ -302,40 +234,55 @@ const meta: Meta<UsagePanelStoryArgs> = {
 export default meta;
 type Story = StoryObj<UsagePanelStoryArgs>;
 
-/** $17 of Mighty's $25 bundle, with credits still in the wallet behind it. */
+/** $17 of the $25 granted this cycle, with credits still in the wallet. */
 export const MidCycle: Story = {
   name: "Mid cycle, 68% used",
 };
 
 /**
- * The bundle spent with credits still in the wallet behind it. The bar and the
- * percentage read negative the moment the allowance runs out, and no strip
+ * The grants used up with credits still in the wallet behind them. The bar and
+ * the percentage read negative the moment the allowance runs out, and no strip
  * appears: the next turn still has something to draw on.
  */
 export const FullBar: Story = {
   name: "Full bar, credits remaining",
-  args: { spentUsd: "25", balanceUsd: "18.00" },
+  args: { availableUsageUsd: "0.00", balanceUsd: "18.00" },
 };
 
 /**
- * The bundle spent and the wallet empty. The same negative reading, now with
+ * The grants used up and the wallet empty. The same negative reading, now with
  * the add-credits strip dropped in below the bar, which is the only state that
  * grows the menu.
  */
 export const Exhausted: Story = {
   name: "Exhausted, 100% used",
-  args: { spentUsd: "25", balanceUsd: "0.00" },
+  args: { availableUsageUsd: "0.00", balanceUsd: "0.00" },
 };
 
 /**
- * The same spent bundle as `FullBar`, now with the menu around it: the wallet
+ * A Pro sub whose grants have all expired or been used to nothing, so the
+ * summary reports a zero total. The bar reads fully spent with no reset date:
+ * the plan has nothing left to give, and whatever the org still holds lives
+ * in the wallet.
+ */
+export const NoLiveGrants: Story = {
+  name: "No live grants, fully spent",
+  args: {
+    totalUsageUsd: "0.00",
+    availableUsageUsd: "0.00",
+    balanceUsd: "18.00",
+  },
+};
+
+/**
+ * The same spent grants as `FullBar`, now with the menu around it: the wallet
  * still holds credits, so `showsMenuCredits` brings the compact credits row
  * back below the bar. The red bar and "100% used" say the included allowance
  * is gone, and the row says what the next turn draws on instead.
  */
 export const FullWithCredits: Story = {
   name: "Full bar with the credits row",
-  args: { spentUsd: "25", balanceUsd: "18.00" },
+  args: { availableUsageUsd: "0.00", balanceUsd: "18.00" },
   render: (args) => (
     <SeededPanel args={args}>
       <PanelWithCredits />
@@ -344,7 +291,7 @@ export const FullWithCredits: Story = {
 };
 
 /**
- * A free plan, which has no cycle and no included bundle: $3.40 of the $5.00
+ * A free plan, which has no cycle its grants renew on: $3.40 of the $5.00
  * grant used, read straight off the billing summary. Nothing resets, so the
  * line under the bar is gone. A further grant would grow the denominator and
  * drop the bar back.

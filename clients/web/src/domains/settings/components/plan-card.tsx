@@ -44,10 +44,7 @@ import { useTranslation } from "@/i18n";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
-import {
-  includedMonthlyCreditsUsd,
-  usePlanUsageBalance,
-} from "@/hooks/use-plan-usage-balance";
+import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
 import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
@@ -387,11 +384,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   );
   const usage = usePlanUsageBalance({
     subscription: subscriptionQuery.data,
-    includedCreditsUsd: includedMonthlyCreditsUsd(
-      subscriptionQuery.data,
-      currentPackage,
-      findProPlan(plansQuery.data?.plans),
-    ),
     availableUsageBalance,
     totalUsageBalance,
   });
