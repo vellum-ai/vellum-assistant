@@ -45,11 +45,14 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
   const [pending, setPending] = useState(false);
 
   /**
-   * Hand off to AuthKit, holding the screen's controls until the flow lands. A
-   * native start resolves the flow's marketing attribution before the browser
+   * Hand off to AuthKit, holding the screen's controls until the flow settles.
+   * A native start resolves the flow's marketing attribution before the browser
    * auth surface opens, and a second start inside that gap replaces the first,
-   * which the plugin rejects as a failure the user never caused. A rejection
-   * hands the screen back.
+   * which the plugin rejects as a failure the user never caused.
+   *
+   * The controls come back however it settles. A flow that reached an account
+   * is already navigating away, and a dismissed auth sheet resolves with the
+   * screen still up, where these are the only controls on it.
    */
   const startFlow = (intent: "signup" | undefined, logLabel: string) => {
     setError(null);
@@ -58,11 +61,14 @@ export function SignupScreen({ returnTo }: SignupScreenProps) {
       PROVIDER_ID,
       buildProviderCallbackUrl(returnTo, { authIntent: intent }),
       { returnTo, intent },
-    ).catch((err) => {
-      console.error(logLabel, err);
-      setError(t("authErrors.genericFailure"));
-      setPending(false);
-    });
+    )
+      .catch((err) => {
+        console.error(logLabel, err);
+        setError(t("authErrors.genericFailure"));
+      })
+      .finally(() => {
+        setPending(false);
+      });
   };
 
   const start = () => {

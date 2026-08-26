@@ -8,6 +8,7 @@ mock.module("@capacitor/core", () => ({
   registerPlugin: () => ({ read }),
 }));
 
+const { clearUserScopedStorage } = await import("@/lib/auth/session-cleanup");
 const { captureInstallReferrer, markInstallReferrerSpent } =
   await import("./install-referrer");
 
@@ -116,6 +117,21 @@ test("a spend does not re-arm the bridge", async () => {
   markInstallReferrerSpent();
   expect(localStorage.getItem(STORAGE_KEY)).toBe("");
 
+  read.mockResolvedValue({ referrer: "utm_source=newsletter" });
+  expect(await captureInstallReferrer()).toEqual({});
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+test("a logout leaves the spend record standing", async () => {
+  // The record is the emptied key itself, so a logout that swept device-scoped
+  // storage by value would re-arm the bridge for whoever signs in next.
+  read.mockResolvedValueOnce({ referrer: "utm_source=newsletter" });
+  await captureInstallReferrer();
+  markInstallReferrerSpent();
+
+  clearUserScopedStorage();
+
+  expect(localStorage.getItem(STORAGE_KEY)).toBe("");
   read.mockResolvedValue({ referrer: "utm_source=newsletter" });
   expect(await captureInstallReferrer()).toEqual({});
   expect(read).toHaveBeenCalledTimes(1);
