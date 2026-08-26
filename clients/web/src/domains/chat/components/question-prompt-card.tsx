@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type TouchEvent as ReactTouchEvent,
   useCallback,
   useEffect,
   useId,
@@ -133,24 +134,46 @@ export function QuestionPromptBody({
   // chevron while expanded, the summary while minimized.
   const summaryRef = useRef<HTMLDivElement>(null);
   const chevronRef = useRef<HTMLButtonElement>(null);
-  // Whether the state last changed by activating one of those two, as opposed
-  // to a swipe or the first render. Only then does focus have somewhere it has
-  // to follow: crossing the state unmounts the chevron and strips the summary
-  // of its role and tab stop, so a keyboard user is left on the document body
-  // and the next Tab restarts from the top of the page. A swipe is a thumb
-  // that was never holding focus to begin with, and moving it there would take
-  // focus away from wherever the user actually left it.
-  const moveFocusRef = useRef(false);
+  // Whether the control that is about to be retired is the one holding focus.
+  // Crossing the state unmounts the chevron and strips the summary of its role
+  // and tab stop, so a keyboard user would be left on the document body with
+  // the next Tab restarting from the top of the page.
+  //
+  // Sampled up front rather than read in the effect below, which runs after the
+  // commit that already removed the chevron and sent focus to the body. And a
+  // sample rather than a flag saying "a control was activated", because the
+  // swipe crosses the same state without going through either control: a thumb
+  // that was not holding focus must not drag it out of wherever the user left
+  // it, and one that was must not lose it.
+  const controlHadFocusRef = useRef(false);
+
+  const sampleControlFocus = useCallback(() => {
+    const control = isMinimized ? summaryRef.current : chevronRef.current;
+    controlHadFocusRef.current =
+      control !== null && document.activeElement === control;
+  }, [isMinimized]);
 
   const handleMinimize = useCallback(() => {
-    moveFocusRef.current = true;
+    sampleControlFocus();
     toggle();
-  }, [toggle]);
+  }, [sampleControlFocus, toggle]);
 
   const handleReopen = useCallback(() => {
-    moveFocusRef.current = true;
+    sampleControlFocus();
     expand();
-  }, [expand]);
+  }, [sampleControlFocus, expand]);
+
+  // The third way across, and the only one that does not run through a control.
+  // Sampling on touch-start is early enough for any of them: the engine cannot
+  // commit before the finger has moved.
+  const { onTouchStart } = minimize.dragHandlers;
+  const handleCardTouchStart = useCallback(
+    (event: ReactTouchEvent) => {
+      sampleControlFocus();
+      onTouchStart(event);
+    },
+    [sampleControlFocus, onTouchStart],
+  );
 
   // `role="button"` buys the summary the click, not the keystrokes a real
   // button would have handled for free.
@@ -165,10 +188,10 @@ export function QuestionPromptBody({
   );
 
   useEffect(() => {
-    if (!moveFocusRef.current) {
+    if (!controlHadFocusRef.current) {
       return;
     }
-    moveFocusRef.current = false;
+    controlHadFocusRef.current = false;
     // The counterpart, which this same commit has just put on screen.
     const replacement = isMinimized ? summaryRef.current : chevronRef.current;
     replacement?.focus();
@@ -390,8 +413,9 @@ export function QuestionPromptBody({
       // `touchend`: the card would follow the finger and then snap back with
       // nothing committed. Zoom and horizontal panning are left alone, since
       // neither is a gesture the card wants.
+      data-slot="question-card-surface"
       className="relative flex flex-col p-4 [touch-action:pan-x_pinch-zoom]"
-      onTouchStart={minimize.dragHandlers.onTouchStart}
+      onTouchStart={handleCardTouchStart}
       onTouchMove={minimize.dragHandlers.onTouchMove}
       onTouchEnd={minimize.dragHandlers.onTouchEnd}
       onTouchCancel={minimize.dragHandlers.onTouchCancel}

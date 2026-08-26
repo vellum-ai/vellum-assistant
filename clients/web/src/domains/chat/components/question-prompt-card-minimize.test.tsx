@@ -144,6 +144,29 @@ function accessibleText(root: Element): string {
   return out.join(" | ");
 }
 
+/** The card's drag surface, which owns the touch handlers. */
+function dragSurface(): HTMLElement {
+  const el = document.querySelector<HTMLElement>(
+    '[data-slot="question-card-surface"]',
+  );
+  if (!el) {
+    throw new Error("the card rendered no drag surface");
+  }
+  return el;
+}
+
+/**
+ * A downward drag past the commit threshold, released. `MINIMIZE_COMMIT_PX` is
+ * 64, so 100px is comfortably a commit rather than a spring-back.
+ */
+function swipeDown(): void {
+  const surface = dragSurface();
+  const at = (clientY: number) => [{ identifier: 1, clientX: 0, clientY }];
+  fireEvent.touchStart(surface, { touches: at(200) });
+  fireEvent.touchMove(surface, { touches: at(300) });
+  fireEvent.touchEnd(surface, { changedTouches: at(300) });
+}
+
 function collapsibleRegion(): HTMLElement {
   const id = toggleButton().getAttribute("aria-controls");
   expect(id).toBeTruthy();
@@ -343,13 +366,39 @@ describe("QuestionPromptCard minimize", () => {
     expect(toggleButton().tagName).toBe("BUTTON");
   });
 
-  test("a card that opens minimized on its own does not pull focus", () => {
-    // The same guard the swipe relies on: focus moves only when the user
-    // activated one of the two controls, never when the state changed under a
-    // thumb that was not holding focus in the first place.
+  test("mounting does not pull focus into the card", () => {
     renderCard();
 
     expect(document.activeElement).toBe(document.body);
+  });
+
+  test("a swipe leaves focus where the user put it", () => {
+    // A thumb collapses the card while the free-text row holds focus. The
+    // gesture crosses the same state the chevron does, but focus is not its to
+    // move: it belongs to wherever the user left it.
+    setPointer(true);
+    renderCard();
+    screen.getByLabelText("Type a different answer").focus();
+
+    swipeDown();
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).not.toBe(toggleButton());
+  });
+
+  test("a swipe carries focus when it is the focused control being retired", () => {
+    // The hybrid keyboard-and-touch case: focus has been tabbed onto the
+    // chevron, and a thumb then swipes the card shut underneath it. The
+    // chevron unmounts, so focus has to land on what replaced it.
+    setPointer(true);
+    renderCard();
+    toggleButton().focus();
+    expect(document.activeElement).toBe(toggleButton());
+
+    swipeDown();
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggleButton());
   });
 
   test("the swipe grabber renders only where a swipe can happen", () => {
