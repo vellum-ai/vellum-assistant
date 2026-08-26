@@ -51,8 +51,9 @@ ARGUMENTS:
 
 OPTIONS:
     --name <name>   Local name to register the assistant under, slugified for
-                    the id (default: paired-<deviceId>). An existing local
-                    assistant of that name is never overwritten.
+                    the id (default: paired-<assistant host>). An existing
+                    local assistant of that name is never overwritten;
+                    re-importing the same host updates its entry.
 
 EXAMPLES:
     vellum connect import "https://your-assistant.ts.net/assistant/pair#device_code=abc123"
