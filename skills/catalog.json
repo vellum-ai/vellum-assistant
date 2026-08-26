@@ -764,7 +764,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-25T23:32:13.000Z"
+      "updatedAt": "2026-08-26T01:55:05.000Z"
     },
     {
       "id": "public-ingress",
@@ -1410,7 +1410,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants on Windows",
-      "updatedAt": "2026-08-26T00:18:18.000Z"
+      "updatedAt": "2026-08-26T01:55:05.000Z"
     }
   ]
 }
