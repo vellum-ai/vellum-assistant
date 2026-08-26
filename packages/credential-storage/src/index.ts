@@ -174,6 +174,29 @@ export function credentialKey(service: string, field: string): string {
   return `credential/${service}/${field}`;
 }
 
+/**
+ * Parse a `credential/{service}/{field}` account name back into parts.
+ * Uses the last slash so a service name may contain slashes.
+ * Returns undefined when the account is not a credential account key.
+ */
+export function parseCredentialAccount(
+  account: string
+): { service: string; field: string } | undefined {
+  const prefix = "credential/";
+  if (!account.startsWith(prefix)) {
+    return undefined;
+  }
+  const rest = account.slice(prefix.length);
+  const slashIdx = rest.lastIndexOf("/");
+  if (slashIdx < 1 || slashIdx === rest.length - 1) {
+    return undefined;
+  }
+  return {
+    service: rest.slice(0, slashIdx),
+    field: rest.slice(slashIdx + 1),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Static credential metadata store
 // ---------------------------------------------------------------------------

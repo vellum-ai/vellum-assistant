@@ -51,8 +51,14 @@ import {
   type CredentialRouteDeps,
 } from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
+import { handleCredentialRecordRoute } from "./http/credential-record-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
 import { runCesMigrations } from "./migrations/runner.js";
+import { buildRecordHandlers } from "./records/handlers.js";
+import {
+  CesCredentialRecordStore,
+  getCredentialRecordsPath,
+} from "./records/credential-record-store.js";
 
 // ---------------------------------------------------------------------------
 // Logging (module-level for early bootstrap + structured logging post-init)
@@ -242,6 +248,7 @@ function startHealthServer(
   port: number,
   signal: AbortSignal,
   credentialDeps: CredentialRouteDeps | null,
+  recordStore: CesCredentialRecordStore | null,
 ): ReturnType<typeof Bun.serve> {
   const server = Bun.serve({
     port,
@@ -274,11 +281,22 @@ function startHealthServer(
 
       // Credential CRUD routes (only if service token is configured)
       if (credentialDeps) {
+        if (recordStore) {
+          const recordResponse = await handleCredentialRecordRoute(req, {
+            recordStore,
+            serviceToken: credentialDeps.serviceToken,
+          });
+          if (recordResponse) {
+            return recordResponse;
+          }
+        }
         const credentialResponse = await handleCredentialRoute(
           req,
           credentialDeps,
         );
-        if (credentialResponse) return credentialResponse;
+        if (credentialResponse) {
+          return credentialResponse;
+        }
       }
 
       // Log export route
@@ -349,11 +367,18 @@ async function main(): Promise<void> {
   );
   log.info(`CES ${mode} startup: migrations complete`);
 
+  const recordStore = new CesCredentialRecordStore(
+    getCredentialRecordsPath(getCesDataRoot(mode)),
+  );
+
   // -- Build handlers --------------------------------------------------------
   // The per-connection session ID lives in each CesRpcServer's SessionContext;
   // handlers read it at call time. The registry is shared across connections
   // and identical in both modes.
-  const handlers = buildCrudHandlers(secureKeyBackend);
+  const handlers = {
+    ...buildCrudHandlers(secureKeyBackend),
+    ...buildRecordHandlers(recordStore),
+  };
 
   // -- Health server (managed only) -----------------------------------------
   if (mode === "managed") {
@@ -371,7 +396,12 @@ async function main(): Promise<void> {
     }
 
     const healthPort = getHealthPort();
-    startHealthServer(healthPort, controller.signal, credentialDeps);
+    startHealthServer(
+      healthPort,
+      controller.signal,
+      credentialDeps,
+      recordStore,
+    );
     log.info(`Health server listening on port ${healthPort}`);
   }
 
