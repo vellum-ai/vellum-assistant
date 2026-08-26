@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { pairingSessionSurvives } from "@vellumai/service-contracts/remote-web-pairing";
+
 import { guardianTokenPath } from "../config";
 import {
   checkPairedAssistantName,
@@ -478,6 +480,106 @@ describe("pairAssistant", () => {
     expect(token.deviceId).toBe("dev-two");
   });
 
+  test("two path-prefixed deployments on one host get distinct ids", () => {
+    // `normalizePairingBaseUrl` keeps a deployment path prefix, so these are
+    // two different assistants reached through one host. An id keyed on the
+    // host alone would read the second nameless import as a re-pair of the
+    // first: it would take over the entry, overwrite the guardian token, and
+    // leave the user unable to reach the first assistant at all.
+    const first = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({
+        gatewayUrl: "https://gw.example.com/assistant-1",
+        deviceId: "dev-one",
+        token: "t1",
+      }),
+    });
+    const second = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({
+        gatewayUrl: "https://gw.example.com/assistant-2",
+        deviceId: "dev-two",
+        token: "t2",
+      }),
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      return;
+    }
+    expect(first.assistantId).toBe("paired-gw-example-com-assistant-1");
+    expect(second.assistantId).toBe("paired-gw-example-com-assistant-2");
+    // Neither import read as a re-pair of the other.
+    expect(first.updated).toBe(false);
+    expect(second.updated).toBe(false);
+
+    // Both pairings survive: two entries, two guardian tokens, each still
+    // holding its own credential and address.
+    const assistants = readLockfileFromDisk().assistants as Array<
+      Record<string, unknown>
+    >;
+    expect(assistants).toHaveLength(2);
+    expect(assistants.map((a) => a.runtimeUrl)).toEqual([
+      "https://gw.example.com/assistant-1",
+      "https://gw.example.com/assistant-2",
+    ]);
+    expect(readGuardianToken(first.assistantId).accessToken).toBe("t1");
+    expect(readGuardianToken(second.assistantId).accessToken).toBe("t2");
+    expect(readGuardianToken(first.assistantId).deviceId).toBe("dev-one");
+    // The display names distinguish them too, or the chooser would show one
+    // entry twice under the same label.
+    expect(assistants.map((a) => a.name)).toEqual([
+      "paired (gw.example.com/assistant-1)",
+      "paired (gw.example.com/assistant-2)",
+    ]);
+  });
+
+  test("re-pairing a path-prefixed deployment still updates in place", () => {
+    // The prefix is part of the identity, not a nonce: the same address twice
+    // is the same assistant, so the second import updates rather than adds.
+    const first = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({
+        gatewayUrl: "https://gw.example.com/assistant-1",
+        deviceId: "dev-one",
+        token: "t1",
+      }),
+    });
+    const second = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({
+        gatewayUrl: "https://gw.example.com/assistant-1",
+        deviceId: "dev-two",
+        token: "t2",
+      }),
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      return;
+    }
+    expect(second.assistantId).toBe(first.assistantId);
+    expect(second.updated).toBe(true);
+    expect(readLockfileFromDisk().assistants).toHaveLength(1);
+    expect(readGuardianToken(first.assistantId).accessToken).toBe("t2");
+  });
+
+  test("a trailing slash names the same deployment as no path at all", () => {
+    const bare = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ gatewayUrl: "https://gw.example.com" }),
+    });
+    const slashed = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ gatewayUrl: "https://gw.example.com/" }),
+    });
+
+    expect(bare.ok).toBe(true);
+    expect(slashed.ok).toBe(true);
+    if (!bare.ok || !slashed.ok) {
+      return;
+    }
+    expect(bare.assistantId).toBe("paired-gw-example-com");
+    expect(slashed.assistantId).toBe(bare.assistantId);
+    expect(slashed.updated).toBe(true);
+  });
+
   test("a --name still wins over the gateway-derived default", () => {
     const result = pairAssistant([lockfilePath], configDir, {
       credentials: credentials(),
@@ -718,8 +820,11 @@ describe("pairingStart", () => {
       ["null", 5],
       ["0", 5],
       ["86400", 60],
-      // A sub-second cadence the gateway is free to name is honored.
-      ["0.01", 0.01],
+      // A sub-second cadence is floored: a caller turns this straight into a
+      // wait, and an assistant naming one would have it poll as fast as the
+      // round trip allows for the code's whole TTL.
+      ["0.01", 1],
+      ["1e-9", 1],
       ["3", 3],
     ];
     for (const [literal, expected] of cadences) {
@@ -1085,7 +1190,8 @@ describe("pairingPoll", () => {
     for (const [literal, expected] of [
       ["1e400", 5],
       ["86400", 60],
-      ["0.01", 0.01],
+      // Floored, for the same reason a challenge's cadence is.
+      ["0.01", 1],
       ["7", 7],
     ] as Array<[string, number]>) {
       respond = () =>
@@ -1130,7 +1236,10 @@ describe("pairingPoll", () => {
     if (refused.ok) {
       return;
     }
-    expect(refused.reason).toBe("import");
+    // The pre-check reason, not the post-exchange one: it is what tells a
+    // caller holding the handle that the session is still worth keeping.
+    expect(refused.reason).toBe("import-precheck");
+    expect(pairingSessionSurvives(refused.reason)).toBe(true);
     expect(refused.status).toBe(409);
     // The exchange never went out, so the code is still exchangeable and the
     // user does not need a fresh pairing link.
@@ -1395,32 +1504,36 @@ describe("pairingPoll", () => {
     );
   });
 
-  test("a local write refusal surfaces as an import failure", async () => {
-    writeLockfile({
-      assistants: [
-        {
-          assistantId: "desk",
-          cloud: "local",
-          runtimeUrl: "http://127.0.0.1:7830",
-        },
-      ],
-      activeAssistant: "desk",
-    });
+  test("a local write that fails after the exchange surfaces as an import failure", async () => {
+    // A lockfile path whose parent is a regular file makes the write fail
+    // after the code has already been spent. That is the `import` reason: the
+    // session is gone and a retry needs a fresh code, which is exactly what
+    // the pre-check reason does NOT mean.
+    const notADir = path.join(tmpDir, "not-a-dir");
+    fs.writeFileSync(notADir, "");
     respond = () => json(200, approvedBody());
     const handle = await startFromLink();
 
-    const result = await pairingPoll([lockfilePath], configDir, {
-      handle,
-      name: "desk",
-    });
+    const result = await pairingPoll(
+      [path.join(notADir, "lockfile.json")],
+      configDir,
+      { handle },
+    );
 
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;
     }
     expect(result.reason).toBe("import");
-    expect(result.status).toBe(409);
-    expect(result.error).toContain("already exists");
+    expect(pairingSessionSurvives(result.reason)).toBe(false);
+    // The exchange did go out, so the code is spent and the session is gone.
+    expect(fetchCalls).toHaveLength(1);
+    const again = await pairingPoll([lockfilePath], configDir, { handle });
+    expect(again.ok).toBe(false);
+    if (again.ok) {
+      return;
+    }
+    expect(again.reason).toBe("unknown-session");
   });
 
   test("a redirected token exchange is refused and stays pollable", async () => {

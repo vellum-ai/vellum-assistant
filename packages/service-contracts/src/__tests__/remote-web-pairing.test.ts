@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildRemoteWebPairingUrl,
+  isDnsIndependentLoopbackUrl,
   isLoopbackPublicUrl,
   isPrivateNetworkPublicUrl,
   isRetryablePairingReason,
+  pairingSessionSurvives,
   parsePairingAddress,
   parseRemoteWebPairingParams,
   resolvePublicBaseUrl,
@@ -253,6 +255,57 @@ describe("resolvePublicBaseUrl localhost normalization", () => {
   });
 });
 
+describe("isDnsIndependentLoopbackUrl", () => {
+  test.each([
+    ["http://localhost:7830", "the exact name"],
+    ["http://LOCALHOST.:7830", "the absolute, uppercase name"],
+    ["http://127.0.0.1:7830", "an IPv4 loopback literal"],
+    ["http://127.9.9.9", "the rest of 127/8"],
+    ["http://[::1]:7830", "the IPv6 loopback literal"],
+    ["http://[::ffff:127.0.0.1]", "an IPv4-mapped loopback literal"],
+    ["http://0.0.0.0:7830", "the IPv4 wildcard bind"],
+    ["http://[::]:7830", "the IPv6 wildcard bind"],
+  ])("%s reaches this machine (%s)", (raw) => {
+    expect(isDnsIndependentLoopbackUrl(raw)).toBe(true);
+    expect(isLoopbackPublicUrl(raw)).toBe(true);
+  });
+
+  // RFC 6761 reserves the namespace and says resolvers should map it to
+  // loopback, but glibc does not by default, so the name is ordinary DNS and
+  // can answer with any address. The wide predicate still refuses it as
+  // loopback; the narrow one refuses to hand it a loopback privilege.
+  test.each([
+    ["https://foo.localhost", "reserved .localhost namespace"],
+    ["https://foo.localhost.", "absolute .localhost namespace"],
+    ["https://a.b.localhost", "nested .localhost namespace"],
+  ])("%s is loopback but not DNS-independent (%s)", (raw) => {
+    expect(isLoopbackPublicUrl(raw)).toBe(true);
+    expect(isDnsIndependentLoopbackUrl(raw)).toBe(false);
+  });
+
+  test.each([
+    "https://assistant.example.com",
+    "https://localhostage.example.com",
+    "https://10.0.0.5",
+    "not a url",
+  ])("%s is not loopback at all", (raw) => {
+    expect(isDnsIndependentLoopbackUrl(raw)).toBe(false);
+    expect(isLoopbackPublicUrl(raw)).toBe(false);
+  });
+});
+
+/** Every reason, so a classification table cannot silently miss one. */
+const EVERY_PAIRING_REASON: PairingFailureReason[] = [
+  "invalid-address",
+  "unknown-session",
+  "expired",
+  "unreachable",
+  "gateway-retryable",
+  "gateway",
+  "import",
+  "import-precheck",
+];
+
 describe("isRetryablePairingReason", () => {
   test.each([
     // Nothing reached the assistant, so the session and code are untouched.
@@ -271,6 +324,9 @@ describe("isRetryablePairingReason", () => {
     // spent rather than released.
     "gateway",
     "import",
+    // Nothing was spent, but an identical attempt is refused identically:
+    // only a caller that changes the name it asked for gets past this.
+    "import-precheck",
   ] as const)("%s settles the attempt", (reason) => {
     expect(isRetryablePairingReason(reason)).toBe(false);
   });
@@ -281,22 +337,53 @@ describe("isRetryablePairingReason", () => {
   });
 
   test("the exported set is exactly the reasons worth another attempt", () => {
-    const everyReason: PairingFailureReason[] = [
-      "invalid-address",
-      "unknown-session",
-      "expired",
-      "unreachable",
-      "gateway-retryable",
-      "gateway",
-      "import",
-    ];
-    expect(everyReason.filter(isRetryablePairingReason).sort()).toEqual([
-      "gateway-retryable",
-      "unreachable",
-    ]);
+    expect(
+      EVERY_PAIRING_REASON.filter(isRetryablePairingReason).sort(),
+    ).toEqual(["gateway-retryable", "unreachable"]);
     expect([...RETRYABLE_PAIRING_REASONS].sort()).toEqual([
       "gateway-retryable",
       "unreachable",
     ]);
+  });
+});
+
+describe("pairingSessionSurvives", () => {
+  test.each([
+    // Nothing reached the assistant, so the session and code are untouched.
+    "unreachable",
+    // The assistant released the code before answering.
+    "gateway-retryable",
+    // The refusal happened before the exchange, so the code is unspent.
+    "import-precheck",
+  ] as const)("%s leaves the session pollable", (reason) => {
+    expect(pairingSessionSurvives(reason)).toBe(true);
+  });
+
+  test.each([
+    "invalid-address",
+    "unknown-session",
+    "expired",
+    "gateway",
+    // The exchange spent the code; only the local write failed.
+    "import",
+  ] as const)("%s leaves nothing to poll", (reason) => {
+    expect(pairingSessionSurvives(reason)).toBe(false);
+  });
+
+  test("an absent reason leaves nothing to poll", () => {
+    expect(pairingSessionSurvives(undefined)).toBe(false);
+    expect(pairingSessionSurvives(null)).toBe(false);
+  });
+
+  test("a pre-check refusal is the one reason the two axes disagree on", () => {
+    // A caller that reads retryability as "keep the session" throws away a
+    // device code that is still good, which is what this reason exists to
+    // prevent: nothing was spent, so the same handle completes the pairing
+    // once the caller supplies a name that is free.
+    const disagreeing = EVERY_PAIRING_REASON.filter(
+      (reason) =>
+        pairingSessionSurvives(reason) !== isRetryablePairingReason(reason),
+    );
+    expect(disagreeing).toEqual(["import-precheck"]);
   });
 });

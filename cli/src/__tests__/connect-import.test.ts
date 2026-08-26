@@ -9,6 +9,7 @@ import {
   beforeEach,
   describe,
   expect,
+  setSystemTime,
   spyOn,
   test,
 } from "bun:test";
@@ -33,9 +34,10 @@ const PAIRING_LINK = `${HOST}/assistant/pair#device_code=dev-code`;
 const CHALLENGE_URL = `${HOST}/v1/remote-web/pairing-challenge`;
 const TOKEN_URL = `${HOST}/v1/remote-web/pairing-token`;
 
-// Sub-second poll cadence: the CLI waits `intervalSeconds` between polls, and
-// the gateway's own value is what it waits.
-const FAST_INTERVAL = 0.01;
+// The gateway's own poll cadence, which is what the CLI waits between polls.
+// The waits run on a virtual clock (see the `Bun.sleep` stub below), so a
+// realistic cadence costs the suite nothing.
+const POLL_INTERVAL_SECONDS = 5;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -51,7 +53,7 @@ function challengeBody(overrides: Record<string, unknown> = {}) {
     verificationUri: `${HOST}/assistant/pair`,
     expiresAt: new Date(Date.now() + 600_000).toISOString(),
     expiresInSeconds: 600,
-    intervalSeconds: FAST_INTERVAL,
+    intervalSeconds: POLL_INTERVAL_SECONDS,
     ...overrides,
   };
 }
@@ -128,13 +130,29 @@ async function runExpectingExit(): Promise<{ exited: boolean; out: string }> {
 
 describe("connect import", () => {
   const originalFetch = globalThis.fetch;
+  /** Every wait the command asked for, in milliseconds, in order. */
+  let waits: number[];
+  let sleepSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     process.env.VELLUM_LOCKFILE_DIR = testDir;
     process.env.XDG_CONFIG_HOME = testDir;
+    waits = [];
+    // The command turns the poll cadence straight into a `Bun.sleep`. Freeze
+    // the clock and have each wait advance it by exactly what was asked for:
+    // the deadlines the retry loop reads then move in step with the waits, so
+    // a multi-second cadence is exercised in full without being spent, and
+    // both the cadence and the backoff are assertable rather than implicit.
+    setSystemTime(new Date());
+    sleepSpy = spyOn(Bun, "sleep").mockImplementation((async (ms: number) => {
+      waits.push(ms);
+      setSystemTime(new Date(Date.now() + ms));
+    }) as never);
   });
 
   afterEach(() => {
+    sleepSpy.mockRestore();
+    setSystemTime();
     process.argv = [...ORIGINAL_ARGV];
     globalThis.fetch = originalFetch;
     if (ORIGINAL_LOCKFILE_DIR === undefined) {
@@ -213,7 +231,7 @@ describe("connect import", () => {
       // First exchange is still pending; the second one is approved.
       return index === 1
         ? jsonResponse(
-            { status: "pending", intervalSeconds: FAST_INTERVAL },
+            { status: "pending", intervalSeconds: POLL_INTERVAL_SECONDS },
             202,
           )
         : jsonResponse(
@@ -238,6 +256,9 @@ describe("connect import", () => {
     expect(calls[0].body).toEqual({ publicBaseUrl: HOST });
     expect(calls[1].body.platform).toBe("cli");
 
+    // One pending poll, waited out at exactly the cadence the gateway named.
+    expect(waits).toEqual([POLL_INTERVAL_SECONDS * 1000]);
+
     const output = logs.join("\n");
     expect(output).toContain("Code: ABCD-EFGH");
     expect(output).toContain("vellum pair --web-approve ABCD-EFGH");
@@ -258,7 +279,7 @@ describe("connect import", () => {
               // The gateway moves the deadline into the past: the attempt is
               // over, and the next poll must report it rather than retry.
               expiresAt: new Date(Date.now() - 1000).toISOString(),
-              intervalSeconds: FAST_INTERVAL,
+              intervalSeconds: POLL_INTERVAL_SECONDS,
             },
             202,
           ),
@@ -461,7 +482,7 @@ describe("connect import", () => {
         return jsonResponse(
           challengeBody({
             // A deadline the retry loop reaches within a few backoffs.
-            expiresAt: new Date(Date.now() + 60).toISOString(),
+            expiresAt: new Date(Date.now() + 12_000).toISOString(),
           }),
         );
       }
@@ -473,9 +494,11 @@ describe("connect import", () => {
 
     expect(exited).toBe(true);
     expect(out).toContain("expired");
-    // Bounded: it retried, then stopped instead of looping forever.
-    expect(exchanges).toBeGreaterThan(1);
-    expect(exchanges).toBeLessThan(20);
+    // Bounded: it backed off linearly (5s, then 10s), and the poll after that
+    // landed past the deadline, so it stopped instead of looping forever. The
+    // expired poll never hits the wire.
+    expect(waits).toEqual([5_000, 10_000]);
+    expect(exchanges).toBe(2);
   });
 
   test("a pairing link does not wait out an unreachable host", async () => {
