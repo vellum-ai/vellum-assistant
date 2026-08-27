@@ -133,6 +133,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { orchestrateOAuthConnect } from "../oauth/connect-orchestrator.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { setConfig } from "./helpers/set-config.js";
 
 /** Seed `ingress.publicBaseUrl` in the real workspace config. */
@@ -219,6 +220,7 @@ beforeEach(() => {
   setPublicBaseUrl("");
   mockIdentityResult = "user@example.com";
   mockProviderStore = {};
+  setOverridesForTesting({});
 
   mockPrepareResult = {
     authorizeUrl: "https://provider.example.com/authorize?prepared",
@@ -803,5 +805,98 @@ describe("orchestrateOAuthConnect — transport selection", () => {
       };
       expect(capturedConfig.scopeSeparator).toBe(" ");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature-flag gating
+// ---------------------------------------------------------------------------
+
+/**
+ * A provider whose seed entry declares a `featureFlag` is only connectable
+ * while that flag is enabled. The orchestrator is the shared choke point for
+ * every connect path (runtime routes, gateway, CLI, credential vault tool),
+ * so the gate lives here rather than in each entry point.
+ */
+describe("orchestrateOAuthConnect — feature-flag gating", () => {
+  const GATED_PROVIDER = makeProviderRow({
+    provider: "gated",
+    displayLabel: "Gated",
+    loopbackPort: 17399,
+    featureFlag: "gated-provider-flag",
+  });
+
+  test("refuses to connect a gated provider when its flag is disabled", async () => {
+    mockProviderStore["gated"] = GATED_PROVIDER;
+    setOverridesForTesting({ "gated-provider-flag": false });
+
+    const result = await orchestrateOAuthConnect({
+      service: "gated",
+      clientId: "client-id",
+      isInteractive: false,
+      callbackTransport: "loopback",
+    });
+
+    expect(result.success).toBe(false);
+    // No authorization flow may be started for a gated provider.
+    expect(lastPrepareArgs).toBeNull();
+    expect(lastStartArgs).toBeNull();
+  });
+
+  test("gated provider is indistinguishable from an unregistered one", async () => {
+    mockProviderStore["gated"] = GATED_PROVIDER;
+    setOverridesForTesting({ "gated-provider-flag": false });
+
+    const gated = await orchestrateOAuthConnect({
+      service: "gated",
+      clientId: "client-id",
+      isInteractive: false,
+      callbackTransport: "loopback",
+    });
+    const absent = await orchestrateOAuthConnect({
+      service: "not-a-provider",
+      clientId: "client-id",
+      isInteractive: false,
+      callbackTransport: "loopback",
+    });
+
+    expect(gated.success).toBe(false);
+    expect(absent.success).toBe(false);
+    if (gated.success || absent.success) {
+      return;
+    }
+    // Identical wording so the gate does not leak that the provider exists.
+    expect(gated.error).toBe(absent.error.replace("not-a-provider", "gated"));
+  });
+
+  test("connects a gated provider once its flag is enabled", async () => {
+    mockProviderStore["gated"] = GATED_PROVIDER;
+    setOverridesForTesting({ "gated-provider-flag": true });
+
+    const result = await orchestrateOAuthConnect({
+      service: "gated",
+      clientId: "client-id",
+      isInteractive: false,
+      callbackTransport: "loopback",
+    });
+
+    expect(result.success).toBe(true);
+    expect(lastPrepareArgs).not.toBeNull();
+  });
+
+  test("leaves ungated providers connectable", async () => {
+    mockProviderStore["google"] = GOOGLE_PROVIDER;
+    setOverridesForTesting({});
+
+    const result = await orchestrateOAuthConnect({
+      service: "google",
+      clientId: "client-id",
+      isInteractive: false,
+      callbackTransport: "loopback",
+    });
+
+    expect(GOOGLE_PROVIDER.featureFlag).toBeNull();
+    expect(result.success).toBe(true);
+    expect(lastPrepareArgs).not.toBeNull();
   });
 });
