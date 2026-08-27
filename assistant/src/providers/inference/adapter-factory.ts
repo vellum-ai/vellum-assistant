@@ -48,13 +48,13 @@ import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider, SendMessageOptions } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { VellumProvider } from "../vellum/client.js";
 import {
   getManagedUpstream,
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
-import { VellumProvider } from "../vellum/client.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
