@@ -25,6 +25,10 @@ import {
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import {
+  COMPANION_BASE_AVATAR_BOX,
+  companionScaleFor,
+} from "@vellumai/ipc-contract";
 import type {
   CompanionCardGrowth,
   CompanionCharacter,
@@ -44,15 +48,6 @@ import type {
  * turn "take me back to Vellum" into a one-pixel nudge that does nothing.
  */
 const DRAG_SLOP = 3;
-
-/**
- * The avatar's box the surface's layout is authored at.
- *
- * Matches `BASE_AVATAR_BOX` in `companion-window.ts`. Main publishes the box it
- * actually sized the window for, and the ratio between the two is the scale:
- * one number, and the surface below is the same layout multiplied.
- */
-const BASE_AVATAR_BOX = 44;
 
 /** As much of a rect as hit-testing a point against it needs. */
 type SurfaceRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
@@ -120,10 +115,11 @@ export function CompanionSurfacePage() {
   // to. Main's call: it owns the window position and is the only side that
   // knows how much room the display has above the surface.
   const [cardGrowth, setCardGrowth] = useState<CompanionCardGrowth>("up");
-  // The avatar's box in points, which is the surface's whole scale. Main sizes
-  // the window from it, so it arrives with the state rather than being a
-  // setting this window reads for itself.
-  const [avatarBox, setAvatarBox] = useState(BASE_AVATAR_BOX);
+  // The creature's box in points and the pill's, which are the surface's whole
+  // scale between them. Main sizes the window from both, so they arrive with
+  // the state rather than being settings this window reads for itself.
+  const [avatarBox, setAvatarBox] = useState(COMPANION_BASE_AVATAR_BOX);
+  const [optionsBox, setOptionsBox] = useState(COMPANION_BASE_AVATAR_BOX);
   const [avatarSrc, setAvatarSrc] = useState<string | undefined>();
   const [character, setCharacter] = useState<CompanionCharacter | undefined>();
   const [call, setCall] = useState<VoiceActivityState | null>(null);
@@ -197,6 +193,7 @@ export function CompanionSurfacePage() {
       setGrowth(state.growth);
       setCardGrowth(state.cardGrowth);
       setAvatarBox(state.avatarBox);
+      setOptionsBox(state.optionsBox);
       setAvatarSrc(
         state.avatarBase64 === undefined
           ? undefined
@@ -466,6 +463,10 @@ export function CompanionSurfacePage() {
     resolveAvatarAccentHex(null, character ?? null) ??
     undefined;
 
+  // The scale the whole canvas is drawn at, which is the options size over the
+  // size the layout is authored at.
+  const optionsScale = companionScaleFor(optionsBox);
+
   return (
     <div
       className="relative h-screen w-screen bg-transparent"
@@ -492,20 +493,30 @@ export function CompanionSurfacePage() {
           them in step with main's arithmetic, which is the drift this avoids
           rather than manages.
 
+          **The options size drives it, not the avatar's.** Almost every length
+          in the layout belongs to the pill, the card or the introduction, so
+          the wrapper is where the options scale is spent; the creature is one
+          element and carries the difference between the two boxes itself.
+
           Nothing else has to know. Hit-testing reads `getBoundingClientRect`,
           which is post-transform, and the drag is in screen deltas. */}
       <div
         className="absolute top-0 left-0 origin-top-left"
         style={{
-          width: `${(100 * BASE_AVATAR_BOX) / avatarBox}%`,
-          height: `${(100 * BASE_AVATAR_BOX) / avatarBox}%`,
-          transform: `scale(${avatarBox / BASE_AVATAR_BOX})`,
+          width: `${100 / optionsScale}%`,
+          height: `${100 / optionsScale}%`,
+          transform: `scale(${optionsScale})`,
         }}
       >
         <CompanionSurface
           phase={phase}
           growth={growth}
           cardGrowth={cardGrowth}
+          // The two boxes main sized the window for. The wrapper above has
+          // spent the options one already; the surface uses both to place the
+          // pill against a creature that may be a different size from it.
+          avatarBox={avatarBox}
+          optionsBox={optionsBox}
           avatarSrc={avatarSrc}
           character={character}
           // The creature notices the hand, in every state including mid-call.
@@ -574,6 +585,10 @@ export function CompanionSurfacePage() {
                 beat={intro}
                 growth={growth}
                 cardGrowth={cardGrowth}
+                // The card steps off the creature by the same gap the pill
+                // does, so it is given the same two boxes.
+                avatarBox={avatarBox}
+                optionsBox={optionsBox}
                 accentHex={accentHex}
                 // Same undefined-not-empty rule as the composer's placeholder
                 // above: the first beat introduces the creature by name, and

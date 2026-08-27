@@ -6,6 +6,7 @@ import {
   DEFAULT_COMPANION_SIZE,
   titleBarOverlayThemeSchema,
   type CompanionSize,
+  type CompanionSizeAxis,
   type TitleBarOverlayTheme,
 } from "@vellumai/ipc-contract";
 
@@ -41,10 +42,17 @@ interface StoreSchema {
   // before any renderer loads. Optional: absent means shown, so the flag
   // records only the opt-out (see `readCompanionHidden`).
   companionHidden?: boolean;
-  // Which named size the companion surface is drawn at. A main-process concern
-  // for the same reason the opt-out is: the window is built at a size derived
-  // from this before any renderer loads. Optional: absent means the default
-  // (see `readCompanionSize`).
+  // Which named size the companion's avatar is drawn at, and which its options
+  // pill is. A main-process concern for the same reason the opt-out is: the
+  // window is built at a canvas derived from both before any renderer loads.
+  // Optional: absent means whatever `readCompanionSize` falls back to.
+  companionAvatarSize?: CompanionSize;
+  companionOptionsSize?: CompanionSize;
+  // The single size a build with one size axis records for the whole surface.
+  // Read only: `readCompanionSize` falls back to it for an axis with nothing of
+  // its own, so an install carrying only this comes up at the size it chose on
+  // both axes. Nothing writes it, and it stays in the schema so a build that
+  // reads it still finds what it left.
   companionSize?: CompanionSize;
   // Whether the companion's one-time introduction has run. Held here rather
   // than in the surface's renderer because that renderer reloads, and a run
@@ -117,20 +125,39 @@ export const writeCompanionHidden = (hidden: boolean): void => {
   store().set("companionHidden", hidden);
 };
 
-/**
- * Which named size the companion surface is drawn at.
- *
- * Validated on the way out rather than trusted. This file is a JSON store a
- * user can edit and an older build can have written, and the value indexes a
- * table of geometry, and an unknown one would size the window from `undefined`
- * put a canvas of `NaN` on screen.
- */
-export const readCompanionSize = (): CompanionSize => {
-  const stored = store().get("companionSize");
-  return stored !== undefined && COMPANION_SIZES.includes(stored)
-    ? stored
-    : DEFAULT_COMPANION_SIZE;
+/** Where each axis keeps its own chosen size. */
+const COMPANION_SIZE_KEYS: Record<
+  CompanionSizeAxis,
+  "companionAvatarSize" | "companionOptionsSize"
+> = {
+  avatar: "companionAvatarSize",
+  options: "companionOptionsSize",
 };
+
+/**
+ * A stored value if it is a size this build knows, and `null` otherwise.
+ *
+ * Validated rather than trusted. This file is a JSON store a user can edit and
+ * another build can have written, and the value indexes a table of geometry: an
+ * unknown one would size the window from `undefined` and put a canvas of `NaN`
+ * on screen.
+ */
+const knownSize = (stored: CompanionSize | undefined): CompanionSize | null =>
+  stored !== undefined && COMPANION_SIZES.includes(stored) ? stored : null;
+
+/**
+ * Which named size one axis of the companion surface is drawn at.
+ *
+ * The axis's own key first, then the single size a build with one size axis
+ * writes, then the default. That middle step is what keeps an install from
+ * being resized under its user: someone who picked `huge` from a menu offering
+ * one size meant the thing they were looking at, so they get `huge` on both
+ * axes rather than the default on either.
+ */
+export const readCompanionSize = (axis: CompanionSizeAxis): CompanionSize =>
+  knownSize(store().get(COMPANION_SIZE_KEYS[axis])) ??
+  knownSize(store().get("companionSize")) ??
+  DEFAULT_COMPANION_SIZE;
 
 /**
  * Whether the companion's one-time introduction has already run.
@@ -156,12 +183,22 @@ export const writeCompanionIntroSeen = (): void => {
   store().set("companionIntroSeen", true);
 };
 
-/** Persist the companion's size. No-op when unchanged, as the opt-out is. */
-export const writeCompanionSize = (size: CompanionSize): void => {
-  if (readCompanionSize() === size) {
+/**
+ * Persist one axis's size. No-op when the effective value is unchanged, as the
+ * opt-out is.
+ *
+ * Only ever the axis's own key. Writing the shared one as well would hand a
+ * build that reads only that key one axis's answer for both, and turn a user
+ * sizing the pill alone into one whose avatar changed too.
+ */
+export const writeCompanionSize = (
+  axis: CompanionSizeAxis,
+  size: CompanionSize,
+): void => {
+  if (readCompanionSize(axis) === size) {
     return;
   }
-  store().set("companionSize", size);
+  store().set(COMPANION_SIZE_KEYS[axis], size);
 };
 
 /**

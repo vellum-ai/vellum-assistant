@@ -21,6 +21,7 @@ const STATE: CompanionSurfaceState = {
   growth: "right",
   cardGrowth: "up",
   avatarBox: 44,
+  optionsBox: 44,
   call: null,
   assistantName: "Ziggy",
   turns: [],
@@ -34,6 +35,8 @@ const STATE: CompanionSurfaceState = {
 
 /** Reset between cases, since `STATE` is what the mocked bridge hands back. */
 const resetState = () => {
+  STATE.avatarBox = 44;
+  STATE.optionsBox = 44;
   STATE.working = false;
   STATE.call = null;
   delete STATE.watching;
@@ -301,6 +304,96 @@ describe("bridgeRect", () => {
     const overlapping = { left: 120, right: 320, top: 100, bottom: 144 };
     const bridge = bridgeRect(AVATAR, overlapping);
     expect(bridge.left).toBeGreaterThan(bridge.right);
+  });
+});
+
+/**
+ * The two sizes, which are one choice each.
+ *
+ * The wrapper is scaled by the options size and the creature carries the
+ * difference between the two itself, which is what lets the pill's every length
+ * stay stated once. The hit-test needs nothing new for it, since it reads rects
+ * off the DOM after the transforms, and the case that proves it is the dead
+ * corner beside a creature far taller than the pill beside it.
+ */
+describe("the companion surface at two sizes", () => {
+  /** The wrapper the whole layout is drawn inside, scaled to the window. */
+  const wrapperOf = (container: HTMLElement): HTMLElement => {
+    const found = container.querySelector<HTMLElement>(".origin-top-left");
+    if (!found) {
+      throw new Error("Expected the scaled wrapper to render");
+    }
+    return found;
+  };
+
+  const avatarOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>(".size-11");
+
+  test("scales the canvas by the options size rather than the creature's", async () => {
+    STATE.avatarBox = 44;
+    STATE.optionsBox = 110;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(wrapperOf(container).style.transform).toBe("scale(2.5)");
+    });
+    expect(wrapperOf(container).style.width).toBe("40%");
+  });
+
+  test("leaves that canvas alone when only the creature grows", async () => {
+    STATE.avatarBox = 220;
+    STATE.optionsBox = 44;
+    const { container } = render(<CompanionSurfacePage />);
+
+    // The creature's own node is where the change lands, so waiting on it is
+    // waiting for the state to have arrived at all.
+    await waitFor(() => {
+      expect(avatarOf(container)?.style.transform).toBe(
+        "translate(-50%, -50%) scale(5)",
+      );
+    });
+    expect(wrapperOf(container).style.transform).toBe("scale(1)");
+  });
+
+  /**
+   * The dead corner: outside the creature's own box, above everything the pill
+   * occupies, and well inside the box drawn around the pair. A window that
+   * claimed it would swallow the presses meant for whatever the user actually
+   * has behind the surface, which is the failure every note in this file is
+   * about.
+   */
+  test("gives the desktop back beside a creature taller than the pill", async () => {
+    STATE.avatarBox = 110;
+    STATE.optionsBox = 44;
+    const { container } = render(<CompanionSurfacePage />);
+    const found = await waitFor(() => {
+      const avatar = container.querySelector<HTMLElement>(".size-11");
+      const pill = container.querySelector<HTMLElement>(
+        ".transition-\\[width\\]",
+      );
+      if (!avatar || !pill) {
+        throw new Error("Expected the surface to render");
+      }
+      return { avatar, pill };
+    });
+    // As the surface draws them at this pair: a 110pt creature, and the pill
+    // bottom-flush across the gap, 44pt tall in the creature's lower portion.
+    pin(found.avatar, { left: 100, right: 210, top: 100, bottom: 210 });
+    pin(found.pill, { left: 222, right: 422, top: 166, bottom: 210 });
+    const canvas = canvasOf(container);
+
+    // Open it from the creature, which is the only part drawn at rest.
+    fireEvent.mouseMove(canvas, { clientX: 150, clientY: 150 });
+    await waitFor(() => {
+      if (container.querySelector("[inert]") !== null) {
+        throw new Error("Expected the pill to open");
+      }
+    });
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseMove(canvas, { clientX: 216, clientY: 120 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
   });
 });
 

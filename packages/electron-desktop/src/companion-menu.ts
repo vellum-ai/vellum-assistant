@@ -1,4 +1,4 @@
-import type { CompanionSize } from "@vellumai/ipc-contract";
+import type { CompanionSize, CompanionSizeAxis } from "@vellumai/ipc-contract";
 
 /**
  * Menu wording for each companion size.
@@ -19,4 +19,21 @@ export const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
   large: "Large",
   huge: "Huge",
   ridiculous: "Ridiculous",
+};
+
+/**
+ * Menu wording for each of the two things a user sizes.
+ *
+ * Sentence case, and the noun first: the submenus sit among items that say what
+ * they act on ("Show Companion", "Hide Companion"), and a user scanning for the
+ * creature reads "Avatar" before they read "size".
+ *
+ * Here beside the steps themselves, and for the same reason: both menus that
+ * offer the sizes offer them under these two headings, and a user who met
+ * "Avatar size" in one place and "Creature size" in the other would reasonably
+ * wonder whether they were setting the same thing.
+ */
+export const COMPANION_SIZE_AXIS_LABELS: Record<CompanionSizeAxis, string> = {
+  avatar: "Avatar size",
+  options: "Options size",
 };

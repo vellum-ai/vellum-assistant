@@ -14,6 +14,8 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import {
   COMPANION_INTRO_BEATS,
+  COMPANION_SIZE_BOXES,
+  COMPANION_SIZES,
   type CompanionIntroBeat,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
@@ -73,6 +75,18 @@ const BACKDROPS = {
 
 type Backdrop = keyof typeof BACKDROPS;
 
+/**
+ * The five named steps, as the boxes the surface actually takes.
+ *
+ * The controls offer the names and hand over the numbers, because the names are
+ * what a user picks from a menu and the boxes are what the surface is drawn in.
+ * Both axes read from the same set: one vocabulary, two answers.
+ */
+const SIZE_OPTIONS = COMPANION_SIZES.map((size) => COMPANION_SIZE_BOXES[size]);
+const SIZE_LABELS: Record<number, string> = Object.fromEntries(
+  COMPANION_SIZES.map((size) => [COMPANION_SIZE_BOXES[size], size]),
+);
+
 type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
   backdrop: Backdrop;
   /**
@@ -108,6 +122,16 @@ const meta: Meta<StoryArgs> = {
     cardGrowth: {
       control: "inline-radio",
       options: ["up", "down"],
+    },
+    avatarBox: {
+      name: "avatarSize",
+      control: { type: "select", labels: SIZE_LABELS },
+      options: SIZE_OPTIONS,
+    },
+    optionsBox: {
+      name: "optionsSize",
+      control: { type: "select", labels: SIZE_LABELS },
+      options: SIZE_OPTIONS,
     },
     accentHex: { control: "color" },
     glow: { control: "boolean" },
@@ -212,6 +236,42 @@ export const TypingWhileWorking: Story = {
     working: true,
     assistantName: "Ziggy",
     turns: [{ role: "user", text: "what is on my calendar tomorrow?" }],
+  },
+};
+
+/**
+ * A creature far larger than the controls beside it, which is the pair the two
+ * size axes exist for.
+ *
+ * The pill keeps its authored size and the creature is scaled up around it, and
+ * the two still share a bottom line and a gap: the pill's avatar-facing edge is
+ * the creature's own visual edge plus that gap, which is the distance the host
+ * sizes the window by. There is no page wrapper here, so what these stories
+ * show is the *ratio* between the two rather than the points either would be
+ * drawn at on a desktop.
+ */
+export const BigAvatarSmallOptions: Story = {
+  args: {
+    phase: "hover",
+    hovered: true,
+    avatarBox: COMPANION_SIZE_BOXES.huge,
+    optionsBox: COMPANION_SIZE_BOXES.small,
+  },
+};
+
+/**
+ * The reverse: a modest creature beside controls sized well past it.
+ *
+ * The gap is the smaller of the two objects' clearance rather than the larger
+ * one's, so a small creature beside an enormous pill is not separated from it
+ * by a chasm.
+ */
+export const SmallAvatarBigOptions: Story = {
+  args: {
+    phase: "hover",
+    hovered: true,
+    avatarBox: COMPANION_SIZE_BOXES.small,
+    optionsBox: COMPANION_SIZE_BOXES.huge,
   },
 };
 
