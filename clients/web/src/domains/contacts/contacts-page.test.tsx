@@ -38,7 +38,20 @@ const GUARDIAN = {
   contactType: null,
 } as unknown as ContactPayload;
 
+const REGULAR = {
+  id: "c-alice",
+  role: "contact",
+  displayName: "Alice",
+  notes: "",
+  channels: [],
+  interactionCount: 0,
+  contactType: null,
+  autoApproveThreshold: null,
+} as unknown as ContactPayload;
+
 const CONTACTS_KEY = ["contactsGet", "test"] as const;
+
+let lastUpsertBody: Record<string, unknown> | null = null;
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -55,10 +68,57 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   ToastContent: () => null,
 }));
 
+mock.module("@vellumai/design-library/components/select", () => ({
+  Select: ({
+    value,
+    onChange,
+    onSelectNone,
+    options,
+    disabled,
+    "aria-label": ariaLabel,
+    "data-testid": testId,
+  }: {
+    value: string | null;
+    onChange: (next: string) => void;
+    onSelectNone?: () => void;
+    options: Array<{ value: string | null; label: string }>;
+    disabled?: boolean;
+    "aria-label"?: string;
+    "data-testid"?: string;
+  }) => (
+    <select
+      aria-label={ariaLabel}
+      data-testid={testId}
+      disabled={disabled}
+      value={value ?? ""}
+      onChange={(event) => {
+        if (event.target.value === "") {
+          onSelectNone?.();
+          return;
+        }
+        onChange(event.target.value);
+      }}
+    >
+      {options.map((option) => (
+        <option key={option.value ?? "inherit"} value={option.value ?? ""}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  ),
+}));
+
 mock.module("@/domains/contacts/contacts-gateway", () => ({
-  upsertContact: async () => {
+  upsertContact: async (
+    _assistantId: string,
+    body: Record<string, unknown>,
+  ) => {
+    lastUpsertBody = body;
     if (upsertShouldReject) {
       throw new ApiError(404, "Not found");
+    }
+    if (body.id === REGULAR.id) {
+      return { ...REGULAR, ...body };
     }
     return GUARDIAN;
   },
@@ -75,7 +135,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
     queryKey: CONTACTS_KEY,
-    queryFn: async () => ({ contacts: [GUARDIAN] }),
+    queryFn: async () => ({ contacts: [GUARDIAN, REGULAR] }),
   }),
   contactsGetQueryKey: () => CONTACTS_KEY,
   contactsGetSetQueryData: () => {},
@@ -143,6 +203,16 @@ function getButton(label: string): HTMLButtonElement {
   return match;
 }
 
+function getButtonContaining(label: string): HTMLButtonElement {
+  const match = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((b) => b.textContent?.includes(label));
+  if (!match) {
+    throw new Error(`expected a button containing "${label}"`);
+  }
+  return match;
+}
+
 function onUnhandled(reason: unknown) {
   unhandledRejections.push(reason);
 }
@@ -150,6 +220,7 @@ function onUnhandled(reason: unknown) {
 beforeEach(() => {
   toastErrorCalls = [];
   upsertShouldReject = false;
+  lastUpsertBody = null;
   unhandledRejections.length = 0;
   process.on("unhandledRejection", onUnhandled);
 });
@@ -237,6 +308,65 @@ describe("ContactsPage mutation error handling", () => {
 
     // ...and the rejection never escaped to window.onunhandledrejection.
     // `.mutate()` keeps it internal to React Query.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unhandledRejections).toEqual([]);
+  });
+
+  test("the assistant-access picker is only on a regular contact", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(
+      document.querySelector('[data-testid="contact-auto-approve-threshold"]'),
+    ).toBeNull();
+
+    fireEvent.click(getButtonContaining("Alice"));
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-testid="contact-auto-approve-threshold"]'),
+      ).not.toBeNull();
+    });
+    expect(document.body.textContent).toContain("Assistant access");
+  });
+
+  test("a failed assistant-access save surfaces a toast and does not reject", async () => {
+    upsertShouldReject = true;
+
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonContaining("Alice"));
+
+    const picker = await waitFor(() => {
+      const el = document.querySelector<HTMLSelectElement>(
+        '[data-testid="contact-auto-approve-threshold"]',
+      );
+      if (!el) {
+        throw new Error("expected the assistant-access picker");
+      }
+      return el;
+    });
+
+    fireEvent.change(picker, { target: { value: "high" } });
+
+    await waitFor(() => {
+      expect(lastUpsertBody).toEqual({
+        id: "c-alice",
+        displayName: "Alice",
+        autoApproveThreshold: "high",
+      });
+      expect(toastErrorCalls).toEqual(["Not found"]);
+    });
+
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unhandledRejections).toEqual([]);
   });
