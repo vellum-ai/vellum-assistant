@@ -68,6 +68,14 @@ describe("classifyAttachment", () => {
     expect(classifyAttachment("application/pdf", "report.pdf")).toBe("pdf");
   });
 
+  test("reads the PDF types publishers use in place of application/pdf", () => {
+    expect(classifyAttachment("application/x-pdf", "report.pdf")).toBe("pdf");
+    expect(classifyAttachment("application/acrobat", "report.pdf")).toBe("pdf");
+    expect(classifyAttachment("application/vnd.pdf", "report.pdf")).toBe("pdf");
+    expect(classifyAttachment("text/x-pdf", "scan.PDF")).toBe("pdf");
+    expect(classifyAttachment("text/pdf", "scan.pdf")).toBe("pdf");
+  });
+
   test("falls back to the filename under a type that names nothing", () => {
     expect(classifyAttachment("application/octet-stream", "photo.jpg")).toBe(
       "image",

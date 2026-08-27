@@ -85,6 +85,16 @@ export type AttachmentIconKind =
   | "text"
   | "file";
 
+/** The canonical PDF type plus the aliases publishers use in the wild. */
+const PDF_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/acrobat",
+  "application/vnd.pdf",
+  "text/pdf",
+  "text/x-pdf",
+]);
+
 /**
  * Classify an attachment by its MIME type / filename extension so every surface
  * that renders it agrees on what it is.
@@ -115,7 +125,7 @@ export function classifyAttachment(
   if (mime.startsWith("audio/")) {
     return "audio";
   }
-  if (mime === "application/pdf" || (isGenericMime && ext === "pdf")) {
+  if (PDF_MIME_TYPES.has(mime) || (isGenericMime && ext === "pdf")) {
     return "pdf";
   }
   if (
