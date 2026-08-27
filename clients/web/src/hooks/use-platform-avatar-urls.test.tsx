@@ -58,6 +58,7 @@ const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const {
   platformAvatarUrlsQueryKey,
+  resetPlatformAvatarUrlSuppressionsForTests,
   suppressPlatformAvatarUrl,
   usePlatformAvatarUrls,
 } = await import("@/hooks/use-platform-avatar-urls");
@@ -105,6 +106,7 @@ beforeEach(() => {
   remoteGatewayMode = false;
   gatewayAuthEnabled = false;
   orgReady = true;
+  resetPlatformAvatarUrlSuppressionsForTests();
   signIn();
   listAssistants.mockResolvedValue({
     ok: true,
@@ -257,6 +259,16 @@ describe("usePlatformAvatarUrls", () => {
 });
 
 describe("suppressPlatformAvatarUrl", () => {
+  function deferredList() {
+    let resolveList!: (value: AssistantApi.ListAssistantsResult) => void;
+    listAssistants.mockReturnValueOnce(
+      new Promise<AssistantApi.ListAssistantsResult>((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    return (data: Assistant[]) => resolveList({ ok: true, status: 200, data });
+  }
+
   test("drops the id from a cached map", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -268,7 +280,7 @@ describe("suppressPlatformAvatarUrl", () => {
       expect(result.current.get("a")).toBe(WITH_AVATAR);
     });
 
-    await act(() => suppressPlatformAvatarUrl(queryClient, "a"));
+    act(() => suppressPlatformAvatarUrl(queryClient, "a"));
 
     await waitFor(() => {
       expect(result.current.has("a")).toBe(false);
@@ -276,13 +288,8 @@ describe("suppressPlatformAvatarUrl", () => {
     expect(listAssistants).toHaveBeenCalledTimes(1);
   });
 
-  test("a list in flight during suppression cannot land the stale url", async () => {
-    let resolveList!: (value: AssistantApi.ListAssistantsResult) => void;
-    listAssistants.mockReturnValueOnce(
-      new Promise<AssistantApi.ListAssistantsResult>((resolve) => {
-        resolveList = resolve;
-      }),
-    );
+  test("a list in flight during suppression lands its siblings without the stale url", async () => {
+    const resolveList = deferredList();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -293,19 +300,40 @@ describe("suppressPlatformAvatarUrl", () => {
       expect(listAssistants).toHaveBeenCalledTimes(1);
     });
 
-    await act(() => suppressPlatformAvatarUrl(queryClient, "a"));
-    resolveList({
-      ok: true,
-      status: 200,
-      data: [apiAssistant("a", WITH_AVATAR)],
-    });
-    await settle();
+    act(() => suppressPlatformAvatarUrl(queryClient, "a"));
+    resolveList([
+      apiAssistant("a", WITH_AVATAR),
+      apiAssistant("sibling", "https://cdn.example/avatars/sibling.png"),
+    ]);
 
+    await waitFor(() => {
+      expect(result.current.get("sibling")).toBe(
+        "https://cdn.example/avatars/sibling.png",
+      );
+    });
     expect(result.current.has("a")).toBe(false);
+    expect(listAssistants).toHaveBeenCalledTimes(1);
     expect(
       queryClient.getQueryState(platformAvatarUrlsQueryKey("user-1", null))
-        ?.fetchStatus,
-    ).toBe("idle");
+        ?.status,
+    ).toBe("success");
+  });
+
+  test("a list started after suppression carries the id again", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => usePlatformAvatarUrls(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => {
+      expect(result.current.get("a")).toBe(WITH_AVATAR);
+    });
+
+    act(() => suppressPlatformAvatarUrl(queryClient, "a"));
+    await waitFor(() => {
+      expect(result.current.has("a")).toBe(false);
+    });
 
     await act(() =>
       queryClient.refetchQueries({ queryKey: ["platformAvatarUrls"] }),

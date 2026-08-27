@@ -28,37 +28,40 @@ export function platformAvatarUrlsQueryKey(
 const PLATFORM_AVATAR_URLS_KEY_PREFIX = ["platformAvatarUrls"] as const;
 
 /**
- * Drops one id from every cached map without refetching. Mirrors the store's
- * `clearAvatarUrl`: live evidence outranks a URL observed earlier, and the
- * platform copy lags the daemon's async sync, so an immediate refetch would
- * only re-serve the stale URL. The next stale-window refetch restores it.
- * Also cancels an in-flight list so a response started before the change
- * cannot land the stale URL afterwards; the scrub runs again once the cancel
- * settles for a response that raced in first.
+ * Per-id tombstones stamped with the fetch generation current at suppression.
+ * A list fetch that started at or before the stamp omits the id when it
+ * lands; one that started after it is fresher than the suppression and
+ * carries the id again, clearing the tombstone.
  */
-export async function suppressPlatformAvatarUrl(
-  queryClient: QueryClient,
-  assistantId: string,
-): Promise<void> {
-  dropPlatformAvatarUrl(queryClient, assistantId);
-  await queryClient.cancelQueries({
-    queryKey: PLATFORM_AVATAR_URLS_KEY_PREFIX,
-  });
-  dropPlatformAvatarUrl(queryClient, assistantId);
+const suppressedPlatformIds = new Map<string, number>();
+let fetchGeneration = 0;
+
+export function resetPlatformAvatarUrlSuppressionsForTests(): void {
+  suppressedPlatformIds.clear();
+  fetchGeneration = 0;
 }
 
-function dropPlatformAvatarUrl(
+/**
+ * Drops one platform id from every cached map without refetching. Mirrors
+ * the store's `clearAvatarUrl`: live evidence outranks a URL observed
+ * earlier, and the platform copy lags the daemon's async sync, so an
+ * immediate refetch would only re-serve the stale URL. The next stale-window
+ * refetch restores it. A list in flight keeps its siblings and lands without
+ * this id (see the tombstones above); nothing is cancelled.
+ */
+export function suppressPlatformAvatarUrl(
   queryClient: QueryClient,
-  assistantId: string,
+  platformAssistantId: string,
 ): void {
+  suppressedPlatformIds.set(platformAssistantId, fetchGeneration);
   queryClient.setQueriesData<PlatformAvatarUrls>(
     { queryKey: PLATFORM_AVATAR_URLS_KEY_PREFIX },
     (urls) => {
-      if (!urls?.has(assistantId)) {
+      if (!urls?.has(platformAssistantId)) {
         return urls;
       }
       const next = new Map(urls);
-      next.delete(assistantId);
+      next.delete(platformAssistantId);
       return next;
     },
   );
@@ -75,6 +78,7 @@ function isLockfileDrivenStore(): boolean {
 
 /** Never throws: a chooser row falls back to its other sources, not an error. */
 async function fetchPlatformAvatarUrls(): Promise<PlatformAvatarUrls> {
+  const startGeneration = ++fetchGeneration;
   try {
     const result = await listAssistants();
     if (!result.ok) {
@@ -82,7 +86,10 @@ async function fetchPlatformAvatarUrls(): Promise<PlatformAvatarUrls> {
     }
     const urls = new Map<string, string>();
     for (const assistant of result.data) {
-      if (assistant.avatar_url) {
+      if (
+        assistant.avatar_url &&
+        !isSuppressed(assistant.id, startGeneration)
+      ) {
         urls.set(assistant.id, assistant.avatar_url);
       }
     }
@@ -90,6 +97,19 @@ async function fetchPlatformAvatarUrls(): Promise<PlatformAvatarUrls> {
   } catch {
     return EMPTY_AVATAR_URLS;
   }
+}
+
+/** Suppressed during or after this fetch; an older tombstone is stale and dropped. */
+function isSuppressed(platformAssistantId: string, startGeneration: number) {
+  const suppressedAt = suppressedPlatformIds.get(platformAssistantId);
+  if (suppressedAt === undefined) {
+    return false;
+  }
+  if (suppressedAt >= startGeneration) {
+    return true;
+  }
+  suppressedPlatformIds.delete(platformAssistantId);
+  return false;
 }
 
 /**

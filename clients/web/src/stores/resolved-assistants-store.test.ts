@@ -136,6 +136,20 @@ describe("setFromLockfile", () => {
     expect(entry.isActiveLockfileAssistant).toBe(true);
   });
 
+  it("copies platformAssistantId for local entries", () => {
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [
+        { ...localAssistant, platformAssistantId: "uuid-local" },
+        platformAssistant,
+      ],
+      activeAssistant: "asst-local",
+    });
+
+    const [local, platform] = useResolvedAssistantsStore.getState().assistants;
+    expect(local.platformAssistantId).toBe("uuid-local");
+    expect(platform.platformAssistantId).toBeUndefined();
+  });
+
   it("marks local entries inactive when the lockfile active pointer differs", () => {
     const lockfile: Lockfile = {
       assistants: [localAssistant, otherLocalAssistant],

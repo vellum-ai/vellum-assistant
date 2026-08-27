@@ -568,6 +568,59 @@ describe("useChooserRowAvatar", () => {
       setState.mockRestore();
     });
 
+    test("a local row keyed by instance name resolves through its platform id", async () => {
+      listAssistants.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: [apiAssistant("uuid-other", LOOKUP_URL)],
+      });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            localRow("other", { platformAssistantId: "uuid-other" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+    });
+
+    test("persisting live evidence by row id drops the platform id entry", async () => {
+      listAssistants.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: [apiAssistant("uuid-other", LOOKUP_URL)],
+      });
+      const row = localRow("other", { platformAssistantId: "uuid-other" });
+      useResolvedAssistantsStore.setState({ assistants: [row] });
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const { result } = renderHook(() => useChooserRowAvatar(row), {
+        wrapper: createWrapper(queryClient),
+      });
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+
+      await persistLastSeenAvatar(queryClient, "other", {
+        traits,
+        imageUrl: null,
+      });
+
+      expect(
+        queryClient
+          .getQueryData<Map<string, string>>(
+            platformAvatarUrlsQueryKey("user-1", null),
+          )
+          ?.has("uuid-other"),
+      ).toBe(false);
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBeNull();
+      });
+    });
+
     test("an id the platform does not list falls through to the cache", async () => {
       readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
       const { result } = renderHook(

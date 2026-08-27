@@ -6,7 +6,10 @@ import {
   lastSeenAvatarGenerations,
   writeLastSeenAvatar,
 } from "@/lib/avatar-last-seen-cache";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  resolvePlatformAssistantId,
+  useResolvedAssistantsStore,
+} from "@/stores/resolved-assistants-store";
 import type { AvatarRead } from "@/types/avatar";
 
 /** The chooser's query over the last-seen cache; invalidated after every persist. */
@@ -57,7 +60,10 @@ export async function persistLastSeenAvatar(
     return;
   }
   useResolvedAssistantsStore.getState().clearAvatarUrl(assistantId);
-  void suppressPlatformAvatarUrl(queryClient, assistantId);
+  suppressPlatformAvatarUrl(
+    queryClient,
+    resolvePlatformAssistantId(assistantId),
+  );
   void queryClient.invalidateQueries({
     queryKey: chooserRowAvatarCacheQueryKey(assistantId),
   });

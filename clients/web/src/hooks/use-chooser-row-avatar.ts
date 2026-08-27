@@ -35,6 +35,7 @@ import {
 } from "@/runtime/local-mode-host";
 import {
   type ResolvedAssistant,
+  platformIdFor,
   useResolvedAssistantsStore,
 } from "@/stores/resolved-assistants-store";
 import type { AvatarRead } from "@/types/avatar";
@@ -183,8 +184,8 @@ function canReadRowAvatarViaHost(row: ResolvedAssistant): boolean {
 /**
  * Whether `row` comes from the lockfile, where `avatarUrl` is never set and
  * the platform's thumbnail is only reachable by id through
- * {@link usePlatformAvatarUrls}. Registered assistants share one id on both
- * sides, so the lookup keys straight off `row.id`.
+ * {@link usePlatformAvatarUrls}. Paired rows share one id on both sides; a
+ * local row's platform UUID is `platformAssistantId` (see {@link platformIdFor}).
  */
 function canLookUpRowAvatarByPlatformId(row: ResolvedAssistant): boolean {
   return row.isPaired || row.cloud === "local";
@@ -405,7 +406,7 @@ export function useChooserRowAvatar(
 
   const platformAvatarUrls = usePlatformAvatarUrls();
   const lookupCandidate = canLookUpRowAvatarByPlatformId(assistant)
-    ? (platformAvatarUrls.get(assistant.id) ?? null)
+    ? (platformAvatarUrls.get(platformIdFor(assistant)) ?? null)
     : null;
   const lookupUrl =
     lookupCandidate !== failedPlatformUrl ? lookupCandidate : null;

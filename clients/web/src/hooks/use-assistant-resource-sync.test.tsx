@@ -916,6 +916,38 @@ describe("useAssistantResourceSync", () => {
     expect(queryClient.getQueryState(key)?.fetchStatus).toBe("idle");
   });
 
+  test("avatar_updated drops the lookup entry under the row's platform id", async () => {
+    const queryClient = freshQueryClient();
+    queryClient.invalidateQueries = mock(() => Promise.resolve()) as never;
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          isLocal: true,
+          isPlatformHosted: false,
+          isPaired: false,
+          cloud: "local",
+          platformAssistantId: "uuid-1",
+        },
+      ],
+    });
+    const key = platformAvatarUrlsQueryKey("user-1", null);
+    queryClient.setQueryData(
+      key,
+      new Map([["uuid-1", "https://cdn.example/a.png"]]),
+    );
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<Map<string, string>>(key)?.has("uuid-1"),
+      ).toBe(false);
+    });
+  });
+
   test("invalidates avatar query on avatar_updated event", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
