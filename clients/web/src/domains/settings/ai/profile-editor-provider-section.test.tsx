@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
@@ -15,6 +15,13 @@ mock.module("@/hooks/use-platform-gate", () => ({
 
 const { ProfileEditorProviderSection } =
   await import("@/domains/settings/ai/profile-editor-provider-section");
+
+const originalFetch = globalThis.fetch;
+
+function mockOpenRouterResponse(status: number, body: unknown): void {
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+}
 
 const SUBSCRIPTION_CONNECTION = {
   name: "chatgpt-subscription",
@@ -49,6 +56,7 @@ function optionLabels(): string[] {
 
 afterEach(() => {
   cleanup();
+  globalThis.fetch = originalFetch;
 });
 
 describe("ProfileEditorProviderSection with a ChatGPT subscription", () => {
@@ -135,5 +143,63 @@ describe("ProfileEditorProviderSection with an openai-compatible connection", ()
 
     fireEvent.click(screen.getByLabelText("Model"));
     expect(optionLabels()).toContain("gateway-alias");
+  });
+});
+
+describe("ProfileEditorProviderSection OpenRouter custom models", () => {
+  const openrouterConnection = {
+    name: "openrouter",
+    provider: "openrouter",
+    auth: { type: "api_key", credential: "credential/openrouter/api_key" },
+  };
+
+  test("validates a typed OpenRouter id before selecting it", async () => {
+    mockOpenRouterResponse(200, {
+      data: { id: "openrouter/fusion", name: "Vendor: Fusion" },
+    });
+    const onModelChange = mock(() => {});
+    renderSection({
+      provider: "openrouter",
+      connections: [openrouterConnection],
+      availableConnectionsForProvider: [openrouterConnection],
+      onModelChange,
+    });
+
+    fireEvent.click(screen.getByLabelText("Model"));
+    fireEvent.click(screen.getByRole("option", { name: /Enter a custom model ID/ }));
+
+    expect(onModelChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Custom model ID"), {
+      target: { value: "openrouter/fusion" },
+    });
+    expect(onModelChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() =>
+      expect(onModelChange).toHaveBeenCalledWith("openrouter/fusion"),
+    );
+  });
+
+  test("shows a not-found error and does not select the id", async () => {
+    mockOpenRouterResponse(404, { error: { message: "Not Found" } });
+    const onModelChange = mock(() => {});
+    renderSection({
+      provider: "openrouter",
+      connections: [openrouterConnection],
+      availableConnectionsForProvider: [openrouterConnection],
+      onModelChange,
+    });
+
+    fireEvent.click(screen.getByLabelText("Model"));
+    fireEvent.click(screen.getByRole("option", { name: /Enter a custom model ID/ }));
+    fireEvent.change(screen.getByLabelText("Custom model ID"), {
+      target: { value: "missing/model" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("OpenRouter does not list this model ID.")).toBeTruthy(),
+    );
+    expect(onModelChange).not.toHaveBeenCalled();
   });
 });

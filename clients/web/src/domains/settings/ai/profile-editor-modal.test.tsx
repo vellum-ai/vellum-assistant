@@ -23,7 +23,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -85,6 +85,19 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
     isLoading: false,
   }),
 }));
+
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const url = String(input);
+  if (url.includes("openrouter.ai/api/v1/model/")) {
+    const id = url.split("/model/")[1] ?? "tencent/hy3";
+    return new Response(
+      JSON.stringify({ data: { id, name: id } }),
+      { status: 200 },
+    );
+  }
+  return originalFetch(input);
+}) as unknown as typeof fetch;
 
 const { ProfileEditorModal } =
   await import("@/domains/settings/ai/profile-editor-modal");
@@ -1579,36 +1592,29 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       </Wrapper>,
     );
 
-    // WHEN the user picks the free-text option (the Model dropdown is the only
-    // one offering it) and types an id absent from the catalog, then saves
-    let pickedCustom = false;
-    for (const trigger of selectTriggers()) {
-      fireEvent.click(trigger);
-      const customOption = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).find((o) => o.textContent?.trim() === "Enter a custom model ID…");
-      if (customOption) {
-        fireEvent.click(customOption);
-        pickedCustom = true;
-        break;
-      }
-      fireEvent.click(trigger);
-    }
-    expect(pickedCustom).toBe(true);
+    // WHEN the user picks the free-text option on the Model field, types an
+    // id absent from the catalog, then validates it before saving
+    fireEvent.click(screen.getByLabelText("Model"));
+    fireEvent.click(
+      screen.getByRole("option", { name: /Enter a custom model ID/ }),
+    );
 
-    const modelInput = getInputByPlaceholder("provider/model-id");
-    fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
-
-    await waitFor(() => {
-      expect(getSaveBtn().disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("Custom model ID"), {
+      target: { value: "tencent/hy3" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    const modelTrigger = await screen.findByLabelText("Model");
+    expect(modelTrigger.textContent).toContain("tencent/hy3");
+    expect(getSaveBtn().disabled).toBe(false);
     fireEvent.click(getSaveBtn());
 
-    // THEN the typed id is persisted exactly as entered
+    // THEN the validated id is persisted, marked as an unlisted catalog id
     await waitFor(() => {
       expect(saveCalls.length).toBe(1);
     });
     expect(saveCalls[0].entry.model).toBe("tencent/hy3");
+    expect(saveCalls[0].entry.allowUnlisted).toBe(true);
   });
 
   test("withholds the custom-model option from a subscription-restricted connection", () => {

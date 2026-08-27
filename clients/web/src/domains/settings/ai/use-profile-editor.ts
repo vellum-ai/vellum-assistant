@@ -840,6 +840,14 @@ export function useProfileEditor({
       } else if (status !== "active") {
         entry.status = status;
       }
+      const catalogModels = provider ? getModelsForProvider(provider) : [];
+      if (
+        catalogModels.length > 0 &&
+        wireModel &&
+        !catalogModels.some((catalogModel) => catalogModel.id === wireModel)
+      ) {
+        entry.allowUnlisted = true;
+      }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
     } catch (error) {
