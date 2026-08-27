@@ -18,9 +18,13 @@
  * while it is audibly talking: it says everything "Speaking…" would, plus
  * whose voice it is.
  *
- * Photo is the only mode this ships (Live lands with the vision-mode
- * workstream), and the pill is not interactive yet, so it is a status region
- * rather than a button.
+ * Photo is the only mode it renders, and it answers no press, so it is a status
+ * region rather than a button.
+ *
+ * A configured assistant name is arbitrarily long, so the name is the one part
+ * that gives way: it truncates to an ellipsis inside whatever width the room
+ * allows the pill, leaving the dot and the mode word whole. The announcement
+ * keeps the name in full, since a screen reader has no width to run out of.
  *
  * Presentational: the room derives the voice state, resolves the label, and
  * owns the assistant identity, so nothing here reaches for a store and the
@@ -39,12 +43,13 @@ export interface CameraStatusPillProps {
   /** Whose voice is active. See `use-camera-voice-state.ts`. */
   voiceState: CameraVoiceState;
   /**
-   * What the session is doing, from `liveVoiceSurfaceLabel` in
-   * `live-voice-store.ts` (which is where mute already becomes "Muted" and a
-   * silent mid-turn `speaking` already becomes "Thinking…"). Handed down
-   * rather than derived here so this pill, the room's caption, and the iOS
-   * Live Activity cannot drift apart. Empty for the phases that carry no
-   * label, which drops the word rather than inventing one.
+   * What the session is doing: the catalog copy for
+   * `liveVoiceSurfaceLabelKey` in `live-voice-store.ts` (which is where mute
+   * already becomes "Muted" and a silent mid-turn `speaking` already becomes
+   * "Thinking…"). Handed down translated rather than derived here so this
+   * pill, the room's caption, and the iOS Live Activity cannot drift apart.
+   * Empty for the phases that carry no label, which drops the word rather than
+   * inventing one.
    */
   statusLabel: string;
   /** The session assistant's name, spoken when it is the one talking. */
@@ -72,8 +77,10 @@ export function CameraStatusPill({
       className={cn(
         // A floor width, so the word swapping between the session's phases and
         // the assistant's name does not shuffle a centred pill sideways on
-        // every turn of the conversation.
-        "inline-flex min-w-[9rem] items-center justify-center rounded-full",
+        // every turn of the conversation. The ceiling is the room's, since only
+        // it knows what corner chrome the pill has to keep clear of.
+        "inline-flex min-w-[9rem] max-w-full items-center justify-center",
+        "rounded-full",
         "border-[0.5px] border-[rgba(255,255,255,0.18)] bg-[rgba(0,0,0,0.34)]",
         // Blur rather than a heavier fill: the frame behind can be any
         // brightness, and an opaque chip over a viewfinder reads as a hole.
@@ -97,7 +104,7 @@ export function CameraStatusPill({
 
       <span
         aria-hidden
-        className="inline-flex items-center gap-[7px] whitespace-nowrap"
+        className="inline-flex min-w-0 items-center gap-[7px] whitespace-nowrap"
       >
         <span
           data-testid="camera-status-dot"
@@ -112,11 +119,18 @@ export function CameraStatusPill({
             voiceState !== "idle" && !reduce && "camera-status-blink",
           )}
         />
-        <span>{t("cameraStatusPill.photo")}</span>
+        <span className="flex-none">{t("cameraStatusPill.photo")}</span>
         {voiceWord ? (
           <>
-            <span className="opacity-45">·</span>
-            <span className="opacity-80">{voiceWord}</span>
+            <span className="flex-none opacity-45">·</span>
+            {/* The only part that gives way: `truncate` clips a long assistant
+                name to an ellipsis, and the mode word beside it stays whole. */}
+            <span
+              data-testid="camera-status-word"
+              className="truncate opacity-80"
+            >
+              {voiceWord}
+            </span>
           </>
         ) : null}
       </span>

@@ -1731,6 +1731,11 @@ describe("VoiceRoom: camera", () => {
     expect(screen.getByTestId("camera-status-pill").textContent).toContain(
       "Photo",
     );
+    // Centred on the minimize control's own line, so the room hands it a
+    // ceiling that keeps a long assistant name clear of that corner.
+    expect(
+      screen.getByTestId("camera-status-pill-slot").getAttribute("style"),
+    ).toContain("max-width");
     // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
     // bottom scrim lies over the shutter and the whole control row.
     const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");

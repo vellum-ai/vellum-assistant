@@ -774,6 +774,15 @@
   "liveVoiceButton": {
     "startVoiceMode": "Iniciar el modo de voz"
   },
+  "liveVoiceStatus": {
+    "connecting": "Conectando…",
+    "ending": "Finalizando…",
+    "listening": "Escuchando…",
+    "muted": "Silenciado",
+    "reconnecting": "Reconectando…",
+    "speaking": "Hablando…",
+    "thinking": "Pensando…"
+  },
   "llmCallErrorCard": {
     "chipCode": "Código",
     "chipProvider": "Proveedor",

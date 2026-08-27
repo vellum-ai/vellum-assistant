@@ -220,4 +220,31 @@ describe("CameraStatusPill", () => {
       "whitespace-nowrap",
     );
   });
+
+  test("a long name gives way rather than running past the pill", () => {
+    const long =
+      "Marguerite Vandersteen of the Northern Reaches, Third of Her Name";
+    render(
+      <CameraStatusPill
+        voiceState="assistant"
+        statusLabel="Speaking…"
+        assistantName={long}
+      />,
+    );
+
+    // The room caps the pill; the pill takes that ceiling rather than the width
+    // its one nowrap line would want.
+    expect(pill().className).toContain("max-w-full");
+    // The name is the only part that clips. The dot and "Photo" hold their size,
+    // so the pill never reads as a bare ellipsis.
+    const word = screen.getByTestId("camera-status-word");
+    expect(word.className).toContain("truncate");
+    expect(dot().className).toContain("flex-none");
+    // A flex child only shrinks below its content when the row allows it.
+    expect(pill().querySelector("[aria-hidden]")?.className).toContain(
+      "min-w-0",
+    );
+    // Clipping is CSS, so the name stays whole in the announcement.
+    expect(announcement()).toBe(`Photo. ${long} speaking`);
+  });
 });

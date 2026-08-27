@@ -353,6 +353,15 @@
     "web": "Голосовой режим уже активен в другой вкладке браузера.",
     "windows": "Голосовой режим уже активен в приложении для Windows."
   },
+  "liveVoiceStatus": {
+    "connecting": "Подключение…",
+    "ending": "Завершение…",
+    "listening": "Слушаю…",
+    "muted": "Без звука",
+    "reconnecting": "Переподключение…",
+    "speaking": "Говорит…",
+    "thinking": "Думает…"
+  },
   "llmCallErrorCard": {
     "chipCode": "Код",
     "chipProvider": "Провайдер",

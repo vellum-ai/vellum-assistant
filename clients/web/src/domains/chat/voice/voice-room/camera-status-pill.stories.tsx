@@ -4,12 +4,12 @@
  * Storybook has no `getUserMedia`, and the pill deliberately takes no stream:
  * it assumes media behind it rather than being handed one, so a gradient is a
  * complete substitute for the feed here (which is exactly how the design
- * reference fakes it). Swapping in a real viewfinder later costs nothing.
+ * reference fakes it).
  *
  * The design draws two words in the second slot, "Listening" or the assistant's
  * name. The stories below carry more than that on purpose: the pill is the only
  * session readout on screen while the viewfinder is up, so it renders the
- * session's whole surface label (`liveVoiceSurfaceLabel`), and Connecting,
+ * session's whole surface label (`liveVoiceSurfaceLabelKey`), and Connecting,
  * Reconnecting, Thinking and Ending are states a user can sit in while a fixed
  * "Listening" would be telling them the mic is open.
  */
@@ -73,7 +73,7 @@ const meta: Meta<typeof CameraStatusPill> = {
       ],
       control: { type: "select" },
       description:
-        "What the session is doing, from `liveVoiceSurfaceLabel`. Empty for the phases that carry no label.",
+        "What the session is doing, the catalog copy for `liveVoiceSurfaceLabelKey`. Empty for the phases that carry no label.",
     },
   },
 };
@@ -99,8 +99,8 @@ export const AssistantSpeaking: Story = {
 export const Muted: Story = { args: { statusLabel: "Muted" } };
 
 /**
- * Opening the socket. The mic is not live yet, so the word must not claim it
- * is: this is the case a fixed "Listening" gets wrong.
+ * Opening the socket. The mic is not live during a connect, so the word must
+ * not claim it is: this is the case a fixed "Listening" gets wrong.
  */
 export const Connecting: Story = { args: { statusLabel: "Connecting…" } };
 
@@ -123,22 +123,21 @@ export const Ending: Story = { args: { statusLabel: "Ending…" } };
 export const NoLabel: Story = { args: { statusLabel: "" } };
 
 /**
- * A name long enough to test the claim that the pill never wraps: the floor
- * width stops the short words from shuffling it, and `nowrap` stops the long
- * ones from folding it into two lines.
+ * A configured name past any width the room can give it, at phone width, which
+ * is where it has the least. The pill holds one line and stops at the width it
+ * is allowed: the dot and "Photo" stay whole, and the name takes the ellipsis.
  */
 export const LongAssistantName: Story = {
+  globals: { viewport: { value: "sbMobile" } },
   args: {
     voiceState: "assistant",
     statusLabel: "Speaking…",
-    assistantName: "Marguerite Vandersteen",
+    assistantName:
+      "Marguerite Vandersteen of the Northern Reaches, Third of Her Name",
   },
 };
 
-/**
- * Every combination the pill can be in, stacked. Photo is the only mode that
- * ships here; Live lands with the vision-mode workstream.
- */
+/** Every combination the pill can be in, stacked. */
 export const StateMatrix: Story = {
   argTypes: {
     voiceState: { table: { disable: true } },

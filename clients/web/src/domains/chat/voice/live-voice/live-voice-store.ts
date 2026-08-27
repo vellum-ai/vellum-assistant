@@ -60,61 +60,107 @@ export type LiveVoiceSessionState =
   | "failed";
 
 /**
- * User-facing activity label per session state, shared by every surface that
- * shows session activity (the composer's voice bar and the title-bar session
- * pill), so the two always agree.
+ * Catalog key for a session's status word, in the `chat` namespace.
+ */
+export type LiveVoiceStatusKey =
+  | "liveVoiceStatus.connecting"
+  | "liveVoiceStatus.reconnecting"
+  | "liveVoiceStatus.listening"
+  | "liveVoiceStatus.thinking"
+  | "liveVoiceStatus.speaking"
+  | "liveVoiceStatus.ending"
+  | "liveVoiceStatus.muted";
+
+/**
+ * The status key each session state carries, before the surface remaps in
+ * {@link liveVoiceSurfaceLabelKey}. `null` is a phase with no word at all:
+ * hosts unmount their voice UI in `idle` and `failed`.
  *
  * Deliberately minimal treatment (decided 2026-07-06): assistant output
  * streams into the thread transcript like text chat, so surfaces only carry a
- * small label. `idle`/`failed` map to an empty label — hosts unmount their
- * voice UI in those states.
+ * small label.
  *
- * `transcribing` and `thinking` share one label (JARVIS-1559).
+ * `transcribing` and `thinking` share one key (JARVIS-1559).
  * `toVoiceAvatarVisual` collapses both phases to a single visual, so wording
  * unique to `transcribing` puts two words for one phase on screen at once,
  * across a window that is usually under a second and that offers the user
- * nothing to act on. The pairing belongs in this table rather than in
- * {@link liveVoiceSurfaceLabel}: the session pill and the composer's voice bar
- * read the table directly, so it is the only layer every surface shares.
+ * nothing to act on.
  */
-export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
-  idle: "",
-  connecting: "Connecting…",
-  listening: "Listening…",
-  transcribing: "Thinking…",
-  thinking: "Thinking…",
-  speaking: "Speaking…",
-  ending: "Ending…",
-  failed: "",
+const LIVE_VOICE_STATE_KEYS: Record<
+  LiveVoiceSessionState,
+  LiveVoiceStatusKey | null
+> = {
+  idle: null,
+  connecting: "liveVoiceStatus.connecting",
+  listening: "liveVoiceStatus.listening",
+  transcribing: "liveVoiceStatus.thinking",
+  thinking: "liveVoiceStatus.thinking",
+  speaking: "liveVoiceStatus.speaking",
+  ending: "liveVoiceStatus.ending",
+  failed: null,
 };
+
+/**
+ * English copy per key, mirroring `liveVoiceStatus` in the `chat` catalog. What
+ * the surfaces reading a label rather than a key resolve to, the iOS Live
+ * Activity registration among them: it hands its wording to native code, which
+ * has no translator in reach.
+ */
+const LIVE_VOICE_STATUS_ENGLISH: Record<LiveVoiceStatusKey, string> = {
+  "liveVoiceStatus.connecting": "Connecting…",
+  "liveVoiceStatus.reconnecting": "Reconnecting…",
+  "liveVoiceStatus.listening": "Listening…",
+  "liveVoiceStatus.thinking": "Thinking…",
+  "liveVoiceStatus.speaking": "Speaking…",
+  "liveVoiceStatus.ending": "Ending…",
+  "liveVoiceStatus.muted": "Muted",
+};
+
+/**
+ * English activity label per session state, shared by every surface that shows
+ * session activity (the composer's voice bar and the title-bar session pill),
+ * so the two always agree. Derived from {@link LIVE_VOICE_STATE_KEYS}, which is
+ * the only place a phase and its wording are paired.
+ *
+ * The assertion restates the shape `Object.entries` widens to `string`.
+ */
+export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> =
+  Object.fromEntries(
+    Object.entries(LIVE_VOICE_STATE_KEYS).map(([state, key]) => [
+      state,
+      key ? LIVE_VOICE_STATUS_ENGLISH[key] : "",
+    ]),
+  ) as Record<LiveVoiceSessionState, string>;
 
 /**
  * User-facing activity label for a session, factoring in the orthogonal
  * `reconnecting` signal. Drives the room's aria-live label. During a retry of a
  * dropped connection the base `connecting` phase relabels to "Reconnecting…" so
  * surfaces distinguish it from the initial connect (the JARVIS-1255 gap);
- * `reconnecting` is ignored for every other phase. {@link LIVE_VOICE_STATE_LABELS}
- * stays the single source of base labels.
+ * `reconnecting` is ignored for every other phase.
+ *
+ * The lower layer for callers with no audio or mute signal to consult: an
+ * audible assistant and an open mic leave the other two remaps in
+ * {@link liveVoiceSurfaceLabelKey} unfired, so what comes back is the phase's
+ * own word.
  */
 export function liveVoiceStateLabel(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
 ): string {
-  if (reconnecting && state === "connecting") {
-    return "Reconnecting…";
-  }
-  return LIVE_VOICE_STATE_LABELS[state];
+  return liveVoiceSurfaceLabel(state, reconnecting, true, false);
 }
 
 /**
- * The label a *surface* shows for a session: {@link liveVoiceStateLabel} plus
- * the two remaps that keep the words true of what is actually happening.
+ * The catalog key a *surface* shows for a session: the phase's own key plus the
+ * remaps that keep the word true of what is actually happening. Keys exist so
+ * surfaces can localize without forking the decision table.
  *
  * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
  * audible is wrong for the room's caption, wrong for its screen-reader
  * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
- * that renders session activity calls this, the voice room and the iOS Live
+ * that renders session activity resolves this, the voice room and the iOS Live
  * Activity mirror, so the island always reads exactly what the room reads.
  *
  * `listening` is the same problem through the microphone: the session holds
@@ -122,12 +168,32 @@ export function liveVoiceStateLabel(
  * beside a mute button that says it is not. Muted is a state rather than an
  * activity, so it takes no ellipsis where the phases do.
  *
- * Only `listening` is remapped. Muting the microphone does not make the
- * assistant stop thinking or speaking, and relabelling those would trade one
- * false statement for another.
- *
- * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
- * audio signal to consult.
+ * Only `listening` is remapped for mute. Muting the microphone does not make
+ * the assistant stop thinking or speaking, and relabelling those would trade
+ * one false statement for another.
+ */
+export function liveVoiceSurfaceLabelKey(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+  muted: boolean,
+): LiveVoiceStatusKey | null {
+  if (state === "listening" && muted) {
+    return "liveVoiceStatus.muted";
+  }
+  if (state === "connecting" && reconnecting) {
+    return "liveVoiceStatus.reconnecting";
+  }
+  if (state === "speaking" && !assistantAudioActive) {
+    return "liveVoiceStatus.thinking";
+  }
+  return LIVE_VOICE_STATE_KEYS[state];
+}
+
+/**
+ * English copy for {@link liveVoiceSurfaceLabelKey}, for the surfaces that read
+ * the label itself: the room's caption and the iOS Live Activity mirror. Empty
+ * for the phases that carry no word.
  */
 export function liveVoiceSurfaceLabel(
   state: LiveVoiceSessionState,
@@ -135,13 +201,13 @@ export function liveVoiceSurfaceLabel(
   assistantAudioActive: boolean,
   muted: boolean,
 ): string {
-  if (state === "listening" && muted) {
-    return "Muted";
-  }
-  return liveVoiceStateLabel(
-    state === "speaking" && !assistantAudioActive ? "thinking" : state,
+  const key = liveVoiceSurfaceLabelKey(
+    state,
     reconnecting,
+    assistantAudioActive,
+    muted,
   );
+  return key ? LIVE_VOICE_STATUS_ENGLISH[key] : "";
 }
 
 /**

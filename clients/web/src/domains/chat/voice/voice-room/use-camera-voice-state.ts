@@ -5,7 +5,7 @@
  * actually flowing, the same pairing `toVoiceAvatarVisual` uses so the dot and
  * the room's other cast never disagree about whether a turn is audible.
  *
- * The user half has no honest signal yet. The session's own VAD boundaries
+ * The user half has no exact signal to read. The session's own VAD boundaries
  * (`speech_started` / `utterance_end`) stay inside `use-live-voice.ts` as a
  * ref, so nothing is published for a surface to read, and thresholding the
  * amplitude is the closest stand-in. It is polled on a coarse interval rather

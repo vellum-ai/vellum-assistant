@@ -136,6 +136,7 @@ import {
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   liveVoiceSurfaceLabel,
+  liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
@@ -200,6 +201,17 @@ const AVATAR_SIZE = 220;
  * top-right exit and the bottom control row sit on the same rhythm.
  */
 const CORNER_GAP = "1.25rem";
+
+/**
+ * Ceiling on the camera status pill, which is centred on the same line as the
+ * top-right minimize control and grows in both directions from there. A
+ * configured assistant name is arbitrarily long, so without this the pill runs
+ * under that control and off a phone-width room. Each side gives up the corner
+ * chrome's own offset, the control's 3rem box, and a gap so the two never
+ * touch; a percentage resolves against the room, which is what the pill has to
+ * fit inside.
+ */
+const CAMERA_PILL_MAX_WIDTH = `calc(100% - 2 * (max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.5rem))`;
 
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
@@ -514,6 +526,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     state,
     assistantAudioActive,
     cameraOpen,
+  );
+  // The same decision as `stateLabel`, taken as a catalog key so the pill's
+  // word reaches a Spanish or Russian reader in their own language.
+  const cameraStatusKey = liveVoiceSurfaceLabelKey(
+    state,
+    reconnecting,
+    assistantAudioActive,
+    muted,
   );
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
@@ -832,16 +852,18 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           nobody asked. */}
       {cameraOpen ? (
         <div
+          data-testid="camera-status-pill-slot"
           className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
           style={{
             top: fullscreen
               ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
               : CORNER_GAP,
+            maxWidth: CAMERA_PILL_MAX_WIDTH,
           }}
         >
           <CameraStatusPill
             voiceState={cameraVoiceState}
-            statusLabel={stateLabel}
+            statusLabel={cameraStatusKey ? t(cameraStatusKey) : ""}
             assistantName={assistantName}
           />
         </div>
