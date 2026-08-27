@@ -1,19 +1,26 @@
 /**
- * The stand-in for the camera feed that every camera story is read against.
+ * The scenery every camera story is read against: the stand-in for the feed,
+ * the captioned cell, and the control row the shutter and flash both sit in.
  *
  * Storybook has no `getUserMedia`, and none of the camera components takes a
  * stream: each assumes media behind it rather than being handed one, which is
  * what makes a gradient a complete substitute, and is how the design reference
  * fakes it too. One module rather than a copy per story file, so a frame that
- * stops being the honest test case stops being it everywhere at once.
+ * stops being the honest test case stops being it everywhere at once, and so
+ * the row's offsets are stated once outside the app.
  *
  * Story-local sample content standing in for camera video. Nothing here is app
  * styling, and nothing outside a `.stories.tsx` file imports it.
  */
 
 import type { Decorator } from "@storybook/react-vite";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
+import { CameraShutter, type CameraShutterProps } from "./camera-shutter";
+import {
+  CameraFlashControl,
+  type CameraFlashControlProps,
+} from "./voice-room/camera-flash-control";
 import { CAMERA_WARM } from "./voice-room/camera-mode-paint";
 
 /**
@@ -64,18 +71,84 @@ export function overFakeFeed({
   );
 }
 
+/** One control with the word for what it is, so a set can be read side by side. */
+export function ToneCell({
+  caption,
+  children,
+}: {
+  caption: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3">
+      {children}
+      <span className="font-mono text-[11px] text-white/70">{caption}</span>
+    </div>
+  );
+}
+
 /**
  * Flip, at its place in the shutter row, drawn rather than rendered: the
- * stories that show the row are about the control in the middle of it, and a
- * live control off to the side would be a second thing to press. The fill comes
- * off the same constant the real one reads, so the stand-in cannot drift.
+ * stories that show the row are about the two controls that change how the
+ * next photo comes out, and a live control off to the side would be a third
+ * thing to press. The fill comes off the same constant the real one reads, so
+ * the stand-in cannot drift.
  */
-export function CameraRowFlipStandIn() {
+function CameraRowFlipStandIn() {
   return (
     <span
       aria-hidden
       className="absolute right-[30px] size-13 rounded-full"
       style={{ background: CAMERA_WARM }}
     />
+  );
+}
+
+const ROW_SHUTTER: CameraShutterProps = {
+  ariaLabel: "Take photo",
+  onClick: () => {},
+};
+
+const ROW_FLASH: Pick<
+  CameraFlashControlProps,
+  "mode" | "ariaLabel" | "autoBadge"
+> = {
+  mode: "auto",
+  ariaLabel: "Flash auto",
+  autoBadge: "A",
+};
+
+export interface CameraRowSceneProps {
+  /** The shutter in the middle. Defaults to a photo shutter at rest. */
+  shutter?: CameraShutterProps;
+  /** The flash control to its left. Defaults to auto, the state with the badge. */
+  flash?: Pick<CameraFlashControlProps, "mode" | "ariaLabel">;
+}
+
+/**
+ * The row as it ships, at a phone's width: flash on the left, flip on the
+ * right, shutter between them, neither flank reachable by a thumb aimed at the
+ * middle.
+ *
+ * The shutter and the flash are the real components, since both are
+ * presentational and read nothing from a store, so a story about either one in
+ * place is a story about the pair. The offsets are the design's, stated here
+ * rather than in each story file.
+ */
+export function CameraRowScene({
+  shutter = ROW_SHUTTER,
+  flash,
+}: CameraRowSceneProps) {
+  return (
+    <div className="relative flex w-[390px] items-center justify-center">
+      <CameraFlashControl
+        {...ROW_FLASH}
+        {...flash}
+        onClick={() => {}}
+        className="absolute left-[33px]"
+      />
+      <CameraShutter {...shutter} />
+      <CameraRowFlipStandIn />
+    </div>
   );
 }

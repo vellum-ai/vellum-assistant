@@ -14,7 +14,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CameraOff, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
-import { overFakeFeed } from "@/domains/chat/voice/camera-story-feed";
+import { overFakeFeed, ToneCell } from "@/domains/chat/voice/camera-story-feed";
 
 import { VoiceRoomControl } from "./voice-room-control";
 
@@ -28,22 +28,6 @@ const meta: Meta<typeof VoiceRoomControl> = {
 
 export default meta;
 type Story = StoryObj<typeof VoiceRoomControl>;
-
-/** One control with the word for what it is, so the five can be compared. */
-function ToneCell({
-  caption,
-  children,
-}: {
-  caption: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3">
-      {children}
-      <span className="font-mono text-[11px] text-white/70">{caption}</span>
-    </div>
-  );
-}
 
 /**
  * The five states the row can be in, captioned.

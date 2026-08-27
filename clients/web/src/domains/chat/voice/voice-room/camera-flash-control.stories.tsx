@@ -16,8 +16,9 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
 import {
-  CameraRowFlipStandIn,
+  CameraRowScene,
   overFakeFeed,
+  ToneCell,
 } from "@/domains/chat/voice/camera-story-feed";
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
@@ -31,21 +32,6 @@ const LABELS: Record<FlashMode, string> = {
 };
 
 const ORDER: FlashMode[] = ["off", "auto", "on"];
-
-/** One state, captioned, so the three can be compared side by side. */
-function StateCell({ mode }: { mode: FlashMode }) {
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <CameraFlashControl
-        mode={mode}
-        ariaLabel={LABELS[mode]}
-        autoBadge="A"
-        onClick={() => {}}
-      />
-      <span className="font-mono text-[11px] text-white/70">{mode}</span>
-    </div>
-  );
-}
 
 const meta: Meta<typeof CameraFlashControl> = {
   title: "Chat/Voice/Camera Flash Control",
@@ -67,7 +53,14 @@ export const States: Story = {
   render: () => (
     <>
       {ORDER.map((mode) => (
-        <StateCell key={mode} mode={mode} />
+        <ToneCell key={mode} caption={mode}>
+          <CameraFlashControl
+            mode={mode}
+            ariaLabel={LABELS[mode]}
+            autoBadge="A"
+            onClick={() => {}}
+          />
+        </ToneCell>
       ))}
     </>
   ),
@@ -85,15 +78,14 @@ export const Cycle: Story = {
 function CycleScene() {
   const [mode, setMode] = useState<FlashMode>("off");
   return (
-    <div className="flex flex-col items-center gap-3">
+    <ToneCell caption={mode}>
       <CameraFlashControl
         mode={mode}
         ariaLabel={LABELS[mode]}
         autoBadge="A"
         onClick={() => setMode(nextFlashMode(mode))}
       />
-      <span className="font-mono text-[11px] text-white/70">{mode}</span>
-    </div>
+    </ToneCell>
   );
 }
 
@@ -106,21 +98,6 @@ function CycleScene() {
  */
 export const InTheShutterRow: Story = {
   render: () => (
-    <div className="relative flex w-[390px] items-center justify-center">
-      <CameraFlashControl
-        mode="auto"
-        ariaLabel={LABELS.auto}
-        autoBadge="A"
-        onClick={() => {}}
-        className="absolute left-11"
-      />
-      <span
-        aria-hidden
-        className="flex size-[84px] items-center justify-center rounded-full border-[2.5px] border-white"
-      >
-        <span className="size-16 rounded-full bg-white" />
-      </span>
-      <CameraRowFlipStandIn />
-    </div>
+    <CameraRowScene flash={{ mode: "auto", ariaLabel: LABELS.auto }} />
   ),
 };
