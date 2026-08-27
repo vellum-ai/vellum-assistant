@@ -1626,9 +1626,8 @@ describe("VoiceRoom: camera", () => {
       deviceId: "camera-device-id",
       groupId: "camera-group-id",
     }));
-    const getUserMedia = mock(
-      async (_constraints?: MediaStreamConstraints) =>
-        fakeStream(getSettings),
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) =>
+      fakeStream(getSettings),
     );
     const consoleDebug = spyOn(console, "debug").mockImplementation(() => {});
     stubMediaDevices(getUserMedia);
@@ -1868,6 +1867,23 @@ describe("VoiceRoom: camera", () => {
     const shutter = screen.getByTestId("voice-room-shutter");
     expect(shutter.className).toContain("bg-black/30");
     expect(shutter.className).toContain("shadow-");
+  });
+
+  test("offers no flash control on the browser fallback path", async () => {
+    // A `getUserMedia` stream has no flash to fire, so the room shows nothing
+    // rather than a control that would do nothing. See `voice-camera.ts` for
+    // the native side, where the camera itself decides.
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("voice-room-shutter")).not.toBeNull();
+    expect(screen.queryByTestId("voice-room-flash")).toBeNull();
   });
 
   test("a failed flip falls back to the camera the user already had", async () => {
