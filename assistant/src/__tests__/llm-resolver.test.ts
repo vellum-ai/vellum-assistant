@@ -408,7 +408,6 @@ describe("resolveCallSiteConfig", () => {
       },
       profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
-      customModels: { openrouter: [] },
     };
     const { fallbacks, opts } = collect();
     const resolved = resolveCallSiteConfig("mainAgent", llm, opts);
@@ -585,7 +584,6 @@ describe("resolveCallSiteConfig", () => {
       activeProfile: "nonexistent",
       profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
       pricingOverrides: [],
-      customModels: { openrouter: [] },
     };
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved.model).toBe(

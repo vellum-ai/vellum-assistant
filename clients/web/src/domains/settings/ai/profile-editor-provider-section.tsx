@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
-
 import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -34,14 +32,6 @@ import {
   PickerMeta,
   useProviderPickerAvailability,
 } from "@/domains/settings/ai/provider-picker-availability";
-import {
-  appendOpenRouterCustomModel,
-  collectOpenRouterPickerModels,
-  harvestOpenRouterProfileModels,
-} from "@/domains/settings/ai/openrouter-custom-models";
-import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
-import { configGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { inferenceModelsOpenrouterLookupGet } from "@/generated/daemon/sdk.gen";
 import type {
   ConnectionModel,
   ConnectionProvider,
@@ -68,7 +58,6 @@ const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
 // ---------------------------------------------------------------------------
 
 interface ProfileEditorProviderSectionProps {
-  assistantId: string;
   provider: ConnectionProvider | "";
   model: string;
   providerConnection: string;
@@ -109,7 +98,6 @@ interface ProfileEditorProviderSectionProps {
  * provider changes cascade into advanced-param resets that the parent owns.
  */
 export function ProfileEditorProviderSection({
-  assistantId,
   provider,
   model,
   providerConnection,
@@ -126,22 +114,13 @@ export function ProfileEditorProviderSection({
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
   // Free-text model entry. Catalog and connection lists can't cover every id a
-  // pass-through provider accepts, so the Model field offers an explicit
-  // escape hatch. OpenRouter ids are checked against OpenRouter before they
-  // join the list. Other providers send the typed id as-is. The hatch is
+  // pass-through provider (e.g. OpenRouter) accepts, so the Model field offers
+  // an explicit escape hatch: picking the sentinel option swaps the dropdown
+  // for a text input whose value is sent to the connection verbatim. It's
   // withheld from subscription-restricted connections, which only accept a
   // fixed model set.
   const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
-  const [customModelDraft, setCustomModelDraft] = useState("");
-  const [customModelError, setCustomModelError] = useState<string | null>(null);
-  const [isValidatingCustomModel, setIsValidatingCustomModel] = useState(false);
-  const isOpenRouter = provider === "openrouter";
-  const configMutation = useLlmConfigPatch();
-  const { data: config } = useQuery({
-    ...configGetOptions({ path: { assistant_id: assistantId } }),
-    staleTime: 30_000,
-  });
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
     provider,
@@ -166,68 +145,10 @@ export function ProfileEditorProviderSection({
   function handleModelSelection(value: string) {
     if (value === CUSTOM_MODEL_OPTION_VALUE) {
       setIsEnteringCustomModel(true);
-      setCustomModelDraft("");
-      setCustomModelError(null);
-      if (!isOpenRouter) {
-        onModelChange("");
-      }
+      onModelChange("");
       return;
     }
     onModelChange(value);
-  }
-
-  function handleCancelCustomModel() {
-    setIsEnteringCustomModel(false);
-    setCustomModelDraft("");
-    setCustomModelError(null);
-  }
-
-  async function handleAddOpenRouterCustomModel() {
-    const draft = customModelDraft.trim();
-    if (draft.length === 0 || isValidatingCustomModel || isReadOnly) {
-      return;
-    }
-    setIsValidatingCustomModel(true);
-    setCustomModelError(null);
-    try {
-      const { data, error, response } = await inferenceModelsOpenrouterLookupGet({
-        path: { assistant_id: assistantId },
-        query: { id: draft },
-      });
-      if (!data || error || !response?.ok) {
-        const status = response?.status;
-        setCustomModelError(
-          status === 400
-            ? t("profileEditorProviderSection.customModelInvalid")
-            : status === 404
-              ? t("profileEditorProviderSection.customModelNotFound")
-              : t("profileEditorProviderSection.customModelLookupFailed"),
-        );
-        return;
-      }
-      const stored = appendOpenRouterCustomModel(
-        config?.llm?.customModels?.openrouter ?? [],
-        { id: data.id, displayName: data.displayName },
-      );
-      try {
-        await configMutation.mutateAsync({
-          path: { assistant_id: assistantId },
-          body: { llm: { customModels: { openrouter: stored } } },
-        });
-      } catch {
-        // The id is still selectable for this profile save even if the
-        // extras list did not persist.
-      }
-      onModelChange(data.id);
-      setIsEnteringCustomModel(false);
-      setCustomModelDraft("");
-    } catch {
-      setCustomModelError(
-        t("profileEditorProviderSection.customModelLookupFailed"),
-      );
-    } finally {
-      setIsValidatingCustomModel(false);
-    }
   }
 
   const providerAvailability = useProviderPickerAvailability();
@@ -294,13 +215,6 @@ export function ProfileEditorProviderSection({
         ) {
           return codexServableModels(provider);
         }
-        if (provider === "openrouter") {
-          return collectOpenRouterPickerModels(
-            catalogModels,
-            config?.llm?.customModels?.openrouter ?? [],
-            harvestOpenRouterProfileModels(config?.llm?.profiles),
-          );
-        }
         return catalogModels;
       }
       // Static catalog is empty (openai-compatible) — derive from connections.
@@ -323,13 +237,7 @@ export function ProfileEditorProviderSection({
         }
       }
       return merged;
-    }, [
-      provider,
-      providerConnection,
-      availableConnectionsForProvider,
-      config?.llm?.customModels?.openrouter,
-      config?.llm?.profiles,
-    ]);
+    }, [provider, providerConnection, availableConnectionsForProvider]);
 
   // The Model dropdown always offers the profile's currently-bound model, even
   // when it's absent from the static catalog — a profile can be bound (via Chat)
@@ -580,65 +488,22 @@ export function ProfileEditorProviderSection({
         {isEnteringCustomModel ? (
           <>
             <Input
-              value={isOpenRouter ? customModelDraft : model}
-              onChange={(e) => {
-                if (isOpenRouter) {
-                  setCustomModelDraft(e.target.value);
-                  setCustomModelError(null);
-                  return;
-                }
-                onModelChange(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (isOpenRouter && e.key === "Enter") {
-                  e.preventDefault();
-                  void handleAddOpenRouterCustomModel();
-                }
-              }}
-              disabled={isReadOnly || isValidatingCustomModel}
+              value={model}
+              onChange={(e) => onModelChange(e.target.value)}
+              disabled={isReadOnly}
               placeholder={t("profileEditorProviderSection.customModelPlaceholder")}
               aria-label={t("profileEditorProviderSection.customModelAriaLabel")}
-              errorText={customModelError ?? undefined}
               fullWidth
               autoFocus
             />
-            {isOpenRouter ? (
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="outlined"
-                  size="compact"
-                  disabled={
-                    isReadOnly ||
-                    isValidatingCustomModel ||
-                    customModelDraft.trim().length === 0
-                  }
-                  onClick={() => {
-                    void handleAddOpenRouterCustomModel();
-                  }}
-                >
-                  {isValidatingCustomModel
-                    ? t("profileEditorProviderSection.addingCustomModel")
-                    : t("profileEditorProviderSection.addCustomModel")}
-                </Button>
-                <Button
-                  variant="link"
-                  size="compact"
-                  disabled={isReadOnly || isValidatingCustomModel}
-                  onClick={handleCancelCustomModel}
-                >
-                  {t("profileEditorProviderSection.chooseFromList")}
-                </Button>
-              </div>
-            ) : (
-              <Button
-                variant="link"
-                size="compact"
-                disabled={isReadOnly}
-                onClick={handleCancelCustomModel}
-              >
-                {t("profileEditorProviderSection.chooseFromList")}
-              </Button>
-            )}
+            <Button
+              variant="link"
+              size="compact"
+              disabled={isReadOnly}
+              onClick={() => setIsEnteringCustomModel(false)}
+            >
+              {t("profileEditorProviderSection.chooseFromList")}
+            </Button>
           </>
         ) : (
           <Select
@@ -675,9 +540,7 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-[var(--content-tertiary)]"
           >
-            {isOpenRouter
-              ? t("profileEditorProviderSection.enterCustomOpenRouterHint")
-              : t("profileEditorProviderSection.enterCustomModelIdHint")}
+            {t("profileEditorProviderSection.enterCustomModelIdHint")}
           </Typography>
         ) : providerWithoutModel && !isReadOnly ? (
           <Typography
