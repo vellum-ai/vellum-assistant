@@ -104,14 +104,17 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           void doc.destroy();
           return;
         }
+        // Hand the proxy to state before reading a page: from here the
+        // cleanup effect owns destroying it, so a page read that throws
+        // releases the worker instead of stranding it.
+        setPdf(doc);
+
         const firstPage = await doc.getPage(1);
         if (cancelled) {
-          void doc.destroy();
           return;
         }
         const { width, height } = firstPage.getViewport({ scale: 1 });
         placeholderAspectRatio.current = height > 0 ? width / height : null;
-        setPdf(doc);
         setNumPages(Math.min(doc.numPages, MAX_PAGES));
       } catch {
         if (!cancelled) {
@@ -219,7 +222,15 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
     (pageNum: number) => (el: HTMLCanvasElement | null) => {
       if (el) {
         canvasRefs.current.set(pageNum, el);
-        if (placeholderAspectRatio.current !== null) {
+        // Only ever a stand-in for an empty box. This callback's identity
+        // changes every render, so React detaches and reattaches the ref on
+        // a canvas that has already been drawn into, and re-stamping the
+        // placeholder there would stretch it back to page 1's shape with no
+        // second `renderPage` coming to clear it.
+        if (
+          placeholderAspectRatio.current !== null &&
+          !renderedPages.current.has(pageNum)
+        ) {
           el.style.aspectRatio = String(placeholderAspectRatio.current);
         }
       } else {
