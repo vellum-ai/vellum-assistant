@@ -72,10 +72,12 @@ export function NotificationsBellEmptyState({
           <EmptyStateRecipeGrid>
             {/*
              * The dismiss sits beside the card rather than inside it: the
-             * recipe is itself a button, and a button cannot nest one. Pinned
-             * to the corner, clear of the card's trailing arrow, and always
-             * present rather than revealed on hover, so a keyboard or touch
-             * user can reach it too.
+             * recipe is itself a button, and a button cannot nest one. It
+             * straddles the top-right corner, which keeps it clear of the
+             * card's trailing arrow, and carries the card's own border and
+             * surface so it reads as fixed to that corner rather than
+             * floating loose on the panel. Always present rather than
+             * revealed on hover, so keyboard and touch reach it too.
              */}
             <div className="relative">
               <EmptyStateRecipeCard
@@ -91,8 +93,8 @@ export function NotificationsBellEmptyState({
                 <Button
                   variant="ghost"
                   size="compact"
-                  className="absolute -right-2 -top-2 z-10"
-                  iconOnly={<X />}
+                  className="absolute -right-1.5 -top-1.5 z-10 h-5 w-5 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]"
+                  iconOnly={<X size={12} />}
                   aria-label={t(
                     "notificationsBellEmptyState.dismissBriefingRecipe",
                   )}

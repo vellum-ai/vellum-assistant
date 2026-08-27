@@ -111,7 +111,11 @@ export function useBriefingRecipeCard(
     schedules !== undefined &&
     !schedules.some(isLiveUserSchedule);
 
-  const isDismissed = dismissedAt !== 0 || !isDismissalReadable();
+  // Ordered so the two cheap reads settle it first. The bell re-renders with
+  // every layout update, and `isDismissalReadable` touches storage, so it runs
+  // only in the state where its answer can still change the outcome.
+  const isVisible =
+    hasSettledEmptyList && dismissedAt === 0 && isDismissalReadable();
 
-  return { isVisible: !isDismissed && hasSettledEmptyList, dismiss };
+  return { isVisible, dismiss };
 }
