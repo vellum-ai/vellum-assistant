@@ -612,3 +612,63 @@ describe("showAcpConnect: a flow in progress holds its own anchor", () => {
     ).toBe("conv-1");
   });
 });
+
+describe("showAcpConnect: the flow guard runs before every replacement path", () => {
+  test("a live event superseding a dismissal cannot move the card mid-connect", () => {
+    // The supersede branch returns early, so a guard placed after it is one
+    // the live path walks around. A resumed run reusing a dismissed anchor is
+    // exactly that path.
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-connecting",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      dismissedAcpConnectToolUseIds: new Set<string>(["tool-resumed"]),
+      acpConnectFlowActive: true,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect(
+      {
+        toolUseId: "tool-resumed",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      { supersedesDismissal: true },
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-connecting",
+    );
+    // The dismissal is untouched too, so the deferred failure can still raise
+    // its card once the flow settles.
+    expect(
+      useInteractionStore
+        .getState()
+        .dismissedAcpConnectToolUseIds.has("tool-resumed"),
+    ).toBe(true);
+  });
+
+  test("with no flow running the supersede still works", () => {
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(["tool-resumed"]),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect(
+      {
+        toolUseId: "tool-resumed",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      { supersedesDismissal: true },
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-resumed",
+    );
+  });
+});

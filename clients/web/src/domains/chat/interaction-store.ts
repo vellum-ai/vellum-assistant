@@ -475,6 +475,23 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
 
   showAcpConnect: (payload, opts) =>
     set((state) => {
+      // Not while the user is part-way through connecting from another card.
+      // Replacing the prompt moves the affordance to a different anchor row,
+      // which unmounts the one that owns the OAuth flow: the loopback poll is
+      // invalidated and the manual paste state goes with it, so a sign-in in
+      // progress cannot finish. The newer failure has a marker of its own, so
+      // a snapshot surfaces it once this flow settles and the card clears.
+      //
+      // First, ahead of every path that can replace the prompt. A live event
+      // superseding a dismissal is one of them, so a guard placed after that
+      // branch is a guard the live path walks around.
+      if (
+        state.acpConnectFlowActive &&
+        state.pendingAcpConnect &&
+        state.pendingAcpConnect.toolUseId !== payload.toolUseId
+      ) {
+        return state;
+      }
       if (state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)) {
         if (!opts?.supersedesDismissal) {
           return state;
@@ -489,19 +506,6 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
           pendingAcpConnect: payload,
           acpConnectRevision: state.acpConnectRevision + 1,
         };
-      }
-      // Not while the user is part-way through connecting from another card.
-      // Replacing the prompt moves the affordance to a different anchor row,
-      // which unmounts the one that owns the OAuth flow: the loopback poll is
-      // invalidated and the manual paste state goes with it, so a sign-in in
-      // progress cannot finish. The newer failure has a marker of its own, so
-      // a snapshot surfaces it once this flow settles and the card clears.
-      if (
-        state.acpConnectFlowActive &&
-        state.pendingAcpConnect &&
-        state.pendingAcpConnect.toolUseId !== payload.toolUseId
-      ) {
-        return state;
       }
       // The revision means "the prompt changed", and readers compare against
       // it to tell whether a response they issued still speaks for what is on
