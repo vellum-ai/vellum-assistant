@@ -49,9 +49,17 @@ describe("html flavor", () => {
     );
   });
 
+  test("keeps the content of a button that is not a copy control", () => {
+    const { html, text } = payloadFor(
+      '<p>Open <button type="button" class="chip"><code>src/app.ts</code></button> now.</p>',
+    );
+    expect(html).toBe("<p>Open <code>src/app.ts</code> now.</p>");
+    expect(text).toBe("Open `src/app.ts` now.");
+  });
+
   test("strips the code block header row and its grey wrapper", () => {
     const { html } = payloadFor(
-      '<div class="bg-stone-100"><div data-code-block-header=""><span>sql</span><button>Copy</button></div><pre class="p-3" style="max-height: 400px"><code class="language-sql">SELECT 1</code></pre></div>',
+      '<div class="bg-stone-100"><div data-code-block-header=""><span>sql</span><button data-copy-control="">Copy</button></div><pre class="p-3" style="max-height: 400px"><code class="language-sql">SELECT 1</code></pre></div>',
     );
     expect(html).not.toContain("<button");
     expect(html).not.toContain("class=");
@@ -153,6 +161,13 @@ describe("markdown flavor", () => {
     expect(text).toBe("4. four\n5. five\n9. nine");
   });
 
+  test("continues numbering from a pinned ordinal, not from the list start", () => {
+    const { text } = payloadFor(
+      '<ol><li>one</li><li>two</li><li value="4">four</li><li>five</li></ol>',
+    );
+    expect(text).toBe("1. one\n2. two\n4. four\n5. five");
+  });
+
   test("indents a nested list under its parent item", () => {
     const { text } = payloadFor(
       "<ul><li>one<ul><li>nested</li><li>also nested</li></ul></li><li>two</li></ul>",
@@ -176,7 +191,7 @@ describe("markdown flavor", () => {
 
   test("renders a code block as a fence with its language and indentation", () => {
     const { text } = payloadFor(
-      '<p>Run:</p><div data-code-block-header=""><span>ts</span><button>Copy</button></div><pre><code class="block font-mono language-ts">function f() {\n  return 1;\n}\n</code></pre>',
+      '<p>Run:</p><div data-code-block-header=""><span>ts</span><button data-copy-control="">Copy</button></div><pre><code class="block font-mono language-ts">function f() {\n  return 1;\n}\n</code></pre>',
     );
     expect(text).toBe("Run:\n\n```ts\nfunction f() {\n  return 1;\n}\n```");
   });
@@ -219,7 +234,7 @@ describe("markdown flavor", () => {
 
   test("skips the copy button and aria-hidden KaTeX duplicates", () => {
     const { text } = payloadFor(
-      '<p><span class="katex"><span class="katex-mathml">x</span><span class="katex-html" aria-hidden="true">x</span></span><button>Copy</button></p>',
+      '<p><span class="katex"><span class="katex-mathml">x</span><span class="katex-html" aria-hidden="true">x</span></span><button data-copy-control="">Copy</button></p>',
     );
     expect(text).toBe("x");
   });

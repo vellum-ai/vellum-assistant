@@ -31,15 +31,19 @@ const KEPT_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
- * Elements that never carry copyable content: interactive chrome (the code
- * block copy button and the header row it sits in, whose language label the
+ * Elements that never carry copyable content: marked chrome (the code block
+ * copy control and the header row it sits in, whose language label the
  * markdown fence already states) and presentational duplicates (KaTeX renders
  * both a visual `aria-hidden` layer and an accessible MathML layer for one
  * formula; copying both would repeat the formula).
+ *
+ * Matching is by marker, not by tag: a consumer can render real content inside
+ * a `<button>` (a workspace path that opens a file, a previewable image), and
+ * dropping every button would silently omit it from the copy.
  */
 function isChrome(element: Element): boolean {
   return (
-    element.tagName === "BUTTON" ||
+    element.hasAttribute("data-copy-control") ||
     element.hasAttribute("data-code-block-header") ||
     element.getAttribute("aria-hidden") === "true"
   );
@@ -51,6 +55,23 @@ function pruneChrome(root: ParentNode): void {
     if (isChrome(element)) {
       element.remove();
     }
+  }
+}
+
+/**
+ * Replace the buttons that survived pruning with their own children. Their
+ * content is real, but `<button>` means nothing in a pasted document.
+ */
+function unwrapButtons(root: ParentNode): void {
+  for (const button of Array.from(root.querySelectorAll("button"))) {
+    const parent = button.parentNode;
+    if (!parent) {
+      continue;
+    }
+    while (button.firstChild) {
+      parent.insertBefore(button.firstChild, button);
+    }
+    parent.removeChild(button);
   }
 }
 
@@ -221,23 +242,28 @@ function renderList(list: Element): string {
   const items = Array.from(list.children).filter(
     (child) => child.tagName === "LI",
   );
+  let next = Number.isNaN(start) ? 1 : start;
   return items
-    .map((item, index) => {
-      const marker = ordered
-        ? `${itemNumber(item, Number.isNaN(start) ? 1 : start, index)}. `
-        : "- ";
-      return renderListItem(item, marker);
+    .map((item) => {
+      if (!ordered) {
+        return renderListItem(item, "- ");
+      }
+      const number = itemNumber(item, next);
+      next = number + 1;
+      return renderListItem(item, `${number}. `);
     })
     .join("\n");
 }
 
 /**
  * A list item's own ordinal when the renderer pinned one via `value`,
- * otherwise its position counted from the list's `start`.
+ * otherwise the count carried from the item above it. Counting from the
+ * running position rather than the list's `start` keeps the items after a
+ * pinned jump in sequence with the jump.
  */
-function itemNumber(item: Element, start: number, index: number): number {
+function itemNumber(item: Element, next: number): number {
   const pinned = Number.parseInt(item.getAttribute("value") ?? "", 10);
-  return Number.isNaN(pinned) ? start + index : pinned;
+  return Number.isNaN(pinned) ? next : pinned;
 }
 
 /**
@@ -492,6 +518,7 @@ function cloneSelection(
     container.appendChild(selection.getRangeAt(i).cloneContents());
   }
   pruneChrome(container);
+  unwrapButtons(container);
   return container;
 }
 

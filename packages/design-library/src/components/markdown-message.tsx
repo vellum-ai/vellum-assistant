@@ -65,6 +65,7 @@ function CopyButton({
       onClick={onClick}
       title={copied ? "Copied!" : "Copy"}
       data-reveal=""
+      data-copy-control=""
       className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-stone-200/80 text-[var(--content-tertiary)] hover:bg-stone-300 hover:text-[var(--content-secondary)] dark:bg-moss-600/80 dark:hover:bg-moss-500 dark:hover:text-stone-200"
     >
       <div className="relative h-3.5 w-3.5">
