@@ -58,7 +58,7 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.message.reaction?.emoji).toBe("+1");
-    // Transition dual-write for skew-window daemons; see the normalizer.
+    // The sentinel form stays required for mixed-version readers.
     expect(result!.event.message.callbackData).toBe("reaction:+1");
     expect(result!.event.message.reaction?.op).toBe("added");
     expect(result!.event.actor.actorExternalId).toBe("U001");

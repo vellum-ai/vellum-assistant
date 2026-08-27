@@ -62,10 +62,10 @@ function normalizeSlackReaction(
           emoji: event.reaction,
           targetMessageId: event.item.ts,
         },
-        // Transition dual-write: a daemon that predates the structured
-        // payload dispatches reactions on the kind and then reads this
-        // string, so a structured-only event would crash it during an
-        // upgrade-skew window. Remove once a release ships both sides.
+        // A daemon that does not yet understand the structured payload
+        // dispatches reactions on the kind and reads this string
+        // unconditionally, so the sentinel form stays required beside the
+        // payload for mixed-version readers.
         callbackData: `${op === "added" ? "reaction" : "reaction_removed"}:${event.reaction}`,
       },
       actor: {
