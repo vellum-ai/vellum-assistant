@@ -59,8 +59,9 @@ import { createStorageAccessor } from "@/utils/typed-storage";
  *
  * The non-reactive `t`, because this is plain module code on the registration
  * path rather than a render. The map is a snapshot of the language the
- * registration was made in, and the caller re-registers whenever the content
- * the platform composes from moves.
+ * registration was made in, and the caller re-registers whenever anything the
+ * platform composes from moves, the active locale included: a language switch
+ * moves nothing in the session, so the caller keys on it directly.
  *
  * `muted` is baked into the table rather than left at its steady state. The
  * platform composes pushes by looking a phase up in this map, so a table built
