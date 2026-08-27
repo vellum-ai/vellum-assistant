@@ -90,14 +90,16 @@ describe("TimezonePicker", () => {
     fireEvent.focusIn(field);
 
     // DST-free zones so the expected offsets hold year-round: Phoenix pins
-    // GMT-7 and Kolkata pins GMT+5:30.
+    // GMT-7 and Colombo pins GMT+5:30. (Asia/Colombo rather than
+    // Asia/Kolkata: some ICU builds canonicalize the latter to the legacy
+    // Asia/Calcutta id, which renders a different city name.)
     for (const spelling of ["UTC-7", "gmt-7", "-07:00"]) {
       fireEvent.change(field, { target: { value: spelling } });
       expect(screen.getByText("Phoenix")).toBeTruthy();
     }
     for (const spelling of ["UTC+5:30", "+5:30", "utc+0530"]) {
       fireEvent.change(field, { target: { value: spelling } });
-      expect(screen.getByText("Kolkata")).toBeTruthy();
+      expect(screen.getByText("Colombo")).toBeTruthy();
     }
   });
 
