@@ -28,7 +28,13 @@ const setSecureKeyAsync = mock(
 );
 const getSecureKeyAsync = mock(async (_account: string) => getReturn);
 
+// Spread the real module rather than listing two exports. These cases reach
+// the marker tables, which pulls persistence into the graph, and anything in
+// there that imports another secure-keys export would fail to resolve against
+// a partial factory.
+const realSecureKeys = await import("../../security/secure-keys.js");
 mock.module("../../security/secure-keys.js", () => ({
+  ...realSecureKeys,
   setSecureKeyAsync,
   getSecureKeyAsync,
 }));
@@ -41,6 +47,16 @@ const { acpSpawnCredentialDenialReason } =
 
 const { hasAcpConnectCardRaised, markAcpConnectCardRaised } =
   await import("../acp-connect-card-state.js");
+
+// The registry is retired per conversation by asking whether that conversation
+// still has a marker worth showing, so these cases need a real (empty)
+// database rather than an error path standing in for one.
+const { initializeDb } = await import("../../persistence/db-init.js");
+await initializeDb();
+
+const { claudeTokenDigest } = await import("../acp-auth-marker-store.js");
+const { clearHistory, insertHistoryRow } =
+  await import("./helpers/acp-history-db.js");
 
 const {
   CLAUDE_OAUTH_CONFIG,
@@ -313,6 +329,47 @@ describe("storeAcpClaudeToken: retiring the card registry", () => {
 
     return storeAcpClaudeToken("sk-ant-api-key-shaped").then(() => {
       expect(hasAcpConnectCardRaised("conv-keeps-card")).toBe(true);
+    });
+  });
+});
+
+describe("storeAcpClaudeToken: a re-written rejected token retires nothing", () => {
+  test("keeps the registry entry while the marker still stands", () => {
+    // A bulk restore can store the very token Claude rejected. It passes the
+    // shape and policy checks, so usability says yes, but nothing about the
+    // failure changed: the snapshot goes on serving that marker and the card
+    // stays up. Forgetting the entry would open a second prompt beside it.
+    clearHistory();
+    const token = "sk-ant-oat-still-rejected";
+    getReturn = token;
+    insertHistoryRow({
+      id: "run-still-rejected",
+      parentConversationId: "conv-still-broken",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest(token),
+    });
+    markAcpConnectCardRaised("conv-still-broken");
+
+    return storeAcpClaudeToken(token).then(() => {
+      expect(hasAcpConnectCardRaised("conv-still-broken")).toBe(true);
+    });
+  });
+
+  test("drops it once a different token makes the marker stale", () => {
+    clearHistory();
+    getReturn = "sk-ant-oat-replacement";
+    insertHistoryRow({
+      id: "run-repaired",
+      parentConversationId: "conv-repaired",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest("sk-ant-oat-old-rejected"),
+    });
+    markAcpConnectCardRaised("conv-repaired");
+
+    return storeAcpClaudeToken("sk-ant-oat-replacement").then(() => {
+      expect(hasAcpConnectCardRaised("conv-repaired")).toBe(false);
     });
   });
 });

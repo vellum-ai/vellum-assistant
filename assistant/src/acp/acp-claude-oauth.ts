@@ -203,9 +203,22 @@ export async function notifyAcpConnectRetired(): Promise<void> {
   if (!(await hasAcpClaudeToken())) {
     return;
   }
-  const { takeConversationsWithAcpConnectCard } =
+  // Dropped per conversation, and only where the failure it stands for has
+  // actually stopped being shown. A writer can store the very token Claude
+  // rejected, which passes the usability check above and changes nothing about
+  // the failure: the snapshot goes on serving that marker, so forgetting the
+  // entry would leave the credential prompt opening a second prompt beside a
+  // card that is still there. Asking the markers is the same question the
+  // snapshot answers, rather than a proxy for it.
+  const { conversationsWithRaisedAcpConnectCard, dropAcpConnectCardRaised } =
     await import("./acp-connect-card-state.js");
-  takeConversationsWithAcpConnectCard();
+  const { conversationHasCurrentAcpMarker } =
+    await import("./acp-auth-marker-store.js");
+  for (const conversationId of conversationsWithRaisedAcpConnectCard()) {
+    if (!(await conversationHasCurrentAcpMarker(conversationId))) {
+      dropAcpConnectCardRaised(conversationId);
+    }
+  }
   const { publishSyncInvalidation } =
     await import("../runtime/sync/sync-publisher.js");
   const { SYNC_TAGS } = await import("../daemon/message-types/sync.js");

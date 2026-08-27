@@ -1,12 +1,26 @@
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { acpRefusedCredentials } from "../persistence/schema/index.js";
+import {
+  acpRefusedCredentials,
+  acpSessionHistory,
+} from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp-auth-marker-store");
+
+/**
+ * How many of a conversation's newest markers are examined before giving up on
+ * finding a current one.
+ *
+ * A conversation keeps every marker it has ever had, so this bounds the read
+ * to a fixed cost. Beyond the newest few the answer is nearly always the same,
+ * and erring toward "no current marker" only forgets bookkeeping that the next
+ * failure recreates.
+ */
+const MARKER_SCAN_LIMIT = 20;
 
 /** Digest a Claude token for identity comparison. Never stores the token. */
 export function claudeTokenDigest(token: string): string {
@@ -97,6 +111,74 @@ export function claudeTokenRefusedByClaude(token: string): boolean {
     log.error(
       { err },
       "reading refused Claude credentials failed; treating the token as untried",
+    );
+    return false;
+  }
+}
+
+/**
+ * Whether this conversation still has a credential failure worth showing a
+ * card for.
+ *
+ * The same question the session list answers per row, asked for one
+ * conversation. Callers that hold their own idea of which conversations have a
+ * card up use this to decide whether that idea is still true, rather than
+ * guessing from whether a token was written: a writer can store the very token
+ * Claude rejected, which changes nothing about the failure and must not be
+ * mistaken for repairing it.
+ *
+ * Never throws, and answers `false` when it cannot tell. The caller uses this
+ * to decide whether to forget that a conversation has a card up, and the two
+ * mistakes are not equal: forgetting wrongly costs a redundant secure prompt
+ * beside a card, while remembering wrongly suppresses that prompt and points
+ * the user at a card that may no longer be there.
+ */
+export async function conversationHasCurrentAcpMarker(
+  conversationId: string,
+): Promise<boolean> {
+  try {
+    const rows = getDb()
+      .select({
+        agentId: acpSessionHistory.agentId,
+        credential: acpSessionHistory.authErrorCredential,
+      })
+      .from(acpSessionHistory)
+      .where(
+        and(
+          eq(acpSessionHistory.parentConversationId, conversationId),
+          isNotNull(acpSessionHistory.authErrorCode),
+        ),
+      )
+      .orderBy(desc(acpSessionHistory.startedAt))
+      .limit(MARKER_SCAN_LIMIT)
+      .all();
+    if (rows.length === 0) {
+      return false;
+    }
+    // Imported at call time: `prepare-agent-env` owns the precedence a spawn
+    // applies, and reaching it from here at load would put the whole spawn
+    // graph behind this module.
+    const { resolvedClaudeCredentialDigest } =
+      await import("./prepare-agent-env.js");
+    const resolved = new Map<string, string | undefined>();
+    for (const row of rows) {
+      if (!resolved.has(row.agentId)) {
+        resolved.set(
+          row.agentId,
+          await resolvedClaudeCredentialDigest(row.agentId),
+        );
+      }
+      if (
+        acpAuthMarkerStillCurrent(row.credential, resolved.get(row.agentId))
+      ) {
+        return true;
+      }
+    }
+    return false;
+  } catch (err) {
+    log.error(
+      { err },
+      "reading ACP auth markers failed; treating the card as no longer raised",
     );
     return false;
   }

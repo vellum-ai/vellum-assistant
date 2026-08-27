@@ -17,6 +17,7 @@ import {
   acpAuthMarkerStillCurrent,
   claudeTokenDigest,
   claudeTokenRefusedByClaude,
+  conversationHasCurrentAcpMarker,
   noteClaudeTokenRefused,
 } from "../acp-auth-marker-store.js";
 import { clearHistory, insertHistoryRow } from "./helpers/acp-history-db.js";
@@ -136,5 +137,55 @@ describe("claudeTokenRefusedByClaude", () => {
     noteClaudeTokenRefused(undefined, 1000);
 
     expect(claudeTokenRefusedByClaude(CONFIG_TOKEN)).toBe(false);
+  });
+});
+
+describe("conversationHasCurrentAcpMarker", () => {
+  const REFUSED = claudeTokenDigest("sk-ant-oat-refused");
+
+  beforeEach(() => {
+    clearHistory();
+  });
+
+  test("false for a conversation that has never failed", async () => {
+    expect(await conversationHasCurrentAcpMarker("conv-clean")).toBe(false);
+  });
+
+  test("true while a marker names the credential a spawn would resolve", async () => {
+    // No vault token in this suite, so the resolver reports none and the
+    // comparison treats an unknown as no evidence of repair.
+    insertHistoryRow({
+      id: "run-marked",
+      parentConversationId: "conv-marked",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+
+    expect(await conversationHasCurrentAcpMarker("conv-marked")).toBe(true);
+  });
+
+  test("false for a conversation whose rows carry no marker", async () => {
+    insertHistoryRow({
+      id: "run-plain",
+      parentConversationId: "conv-plain",
+      status: "completed",
+    });
+
+    expect(await conversationHasCurrentAcpMarker("conv-plain")).toBe(false);
+  });
+
+  test("scoped to its own conversation", async () => {
+    insertHistoryRow({
+      id: "run-elsewhere",
+      parentConversationId: "conv-other",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+
+    expect(await conversationHasCurrentAcpMarker("conv-asked-about")).toBe(
+      false,
+    );
   });
 });

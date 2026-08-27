@@ -53,3 +53,13 @@ export function takeConversationsWithAcpConnectCard(): string[] {
   conversationsWithAcpConnectCard.clear();
   return conversationIds;
 }
+
+/** Forget one conversation's raised card. */
+export function dropAcpConnectCardRaised(conversationId: string): void {
+  conversationsWithAcpConnectCard.delete(conversationId);
+}
+
+/** Every conversation currently believed to have a card up. */
+export function conversationsWithRaisedAcpConnectCard(): string[] {
+  return [...conversationsWithAcpConnectCard];
+}

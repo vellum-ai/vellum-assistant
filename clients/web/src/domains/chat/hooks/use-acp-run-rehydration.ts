@@ -309,8 +309,7 @@ function retireStaleAcpConnectPrompt(
   // conversation, which this snapshot did not cover.
   if (
     prompt.reason !== "auth_required" ||
-    (prompt.conversationId != null &&
-      prompt.conversationId !== conversationId)
+    (prompt.conversationId != null && prompt.conversationId !== conversationId)
   ) {
     return;
   }
@@ -425,9 +424,18 @@ export function useAcpRunRehydration(
   // prompt when it comes back unmarked, which is the authoritative answer.
   useBusSubscription("sse.event", (envelope) => {
     const message = envelope.message;
+    // The config tag too: a marker is judged against the credential a spawn
+    // would resolve, and for a configured
+    // `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` that is settled by config
+    // rather than by a token write. Editing it repairs auth without any
+    // credential write happening, so without this the card stands until
+    // navigation even though the next spawn will succeed.
     if (
       message.type !== "sync_changed" ||
-      !message.tags?.includes(SYNC_TAGS.acpAuthRecovery)
+      !(
+        message.tags?.includes(SYNC_TAGS.acpAuthRecovery) ||
+        message.tags?.includes(SYNC_TAGS.assistantConfig)
+      )
     ) {
       return;
     }
@@ -460,8 +468,7 @@ export function useAcpRunRehydration(
         return;
       }
       const priorActiveIds = activeRunIdsFor(conversationId);
-      const revisionAtFetch =
-        useInteractionStore.getState().acpConnectRevision;
+      const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
         applyAcpSnapshot(
           entries,

@@ -35,9 +35,8 @@ mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 const { useAcpRunRehydration } =
   await import("@/domains/chat/hooks/use-acp-run-rehydration");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
-const { useInteractionStore } = await import(
-  "@/domains/chat/interaction-store"
-);
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
 const { SYNC_TAGS } = await import("@/lib/sync/types");
 
 function mount(
@@ -253,5 +252,42 @@ describe("useAcpRunRehydration: the auth-recovery tag is a refetch trigger", () 
     await flush();
 
     expect(getCalls).toBeGreaterThan(0);
+  });
+});
+
+describe("useAcpRunRehydration: a config change is also a reason to re-read", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  test("refetches on the assistant-config tag", async () => {
+    // A configured `CLAUDE_CODE_OAUTH_TOKEN` wins over the vault, so editing
+    // it repairs auth with no credential write anywhere. Only the config tag
+    // is published, and without listening for it the card stands until
+    // navigation even though the next spawn will succeed.
+    mockSessions = [];
+    mount("asst-1", "conv-A");
+
+    publish("sse.event", {
+      assistantId: "asst-1",
+      message: {
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantConfig],
+      },
+    } as never);
+    await flush();
+
+    expect(getCalls).toBeGreaterThan(0);
+  });
+
+  test("ignores tags it has no stake in", async () => {
+    mockSessions = [];
+    mount("asst-1", "conv-A");
+
+    publish("sse.event", {
+      assistantId: "asst-1",
+      message: { type: "sync_changed", tags: ["something:else"] },
+    } as never);
+    await flush();
+
+    expect(getCalls).toBe(0);
   });
 });
