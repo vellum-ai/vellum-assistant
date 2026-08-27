@@ -121,6 +121,23 @@ describe("ChatAttachmentsStrip tiles", () => {
     expect(screen.queryByText("shot.png")).toBeNull();
   });
 
+  test("shows an image whose type is a generic blob as a tile", () => {
+    renderStrip(
+      [
+        uploading({
+          filename: "photo.jpg",
+          mimeType: "application/octet-stream",
+        }),
+      ],
+      { tileImages: true },
+    );
+
+    expect(tiles()).toHaveLength(1);
+    expect(
+      screen.getByRole("img", { name: "Uploading photo.jpg" }),
+    ).toBeTruthy();
+  });
+
   test("keeps the chip for a non-image attachment", () => {
     renderStrip(
       [
@@ -139,6 +156,18 @@ describe("ChatAttachmentsStrip tiles", () => {
 
   test("keeps the chip for an image with no decodable preview", () => {
     renderStrip([uploaded({ previewUrl: null })], { tileImages: true });
+
+    expect(tiles()).toHaveLength(0);
+    expect(screen.getByText("photo.jpg")).toBeTruthy();
+  });
+
+  test("falls back to the chip when the tile preview cannot decode", () => {
+    renderStrip([uploaded()], { tileImages: true });
+
+    const image = document.querySelector('[data-slot="attachment-tile"] img');
+    expect(image).toBeTruthy();
+
+    fireEvent.error(image as HTMLImageElement);
 
     expect(tiles()).toHaveLength(0);
     expect(screen.getByText("photo.jpg")).toBeTruthy();

@@ -21,6 +21,9 @@ interface AttachmentTileProps {
   onRemove: (id: string) => void;
   /** Opens the full-screen preview. Only honoured once `previewUrl` is set. */
   onPreview?: () => void;
+  /** Called when the browser cannot decode the preview. Lets the owner drop
+   *  the tile for a chip, which still names the file. */
+  onPreviewError?: () => void;
   /** The composer's press guard for the remove control. */
   onRemoveMouseDown?: MouseEventHandler<HTMLElement>;
 }
@@ -37,6 +40,7 @@ export function AttachmentTile({
   uploading = false,
   onRemove,
   onPreview,
+  onPreviewError,
   onRemoveMouseDown,
 }: AttachmentTileProps) {
   const { t } = useTranslation("chat");
@@ -59,6 +63,7 @@ export function AttachmentTile({
             src={previewUrl}
             alt=""
             draggable={false}
+            onError={onPreviewError}
             className="size-full object-cover"
           />
         </button>

@@ -16,7 +16,7 @@ import type {
   UploadedAttachment,
 } from "@/domains/chat/composer-store";
 import {
-  classifyAttachment,
+  isImageAttachment,
   middleTruncate,
 } from "@/domains/chat/components/chat-attachments/utils";
 
@@ -47,7 +47,7 @@ function isTiledImage(
   if (att.kind === "uploaded" && att.previewUrl === null) {
     return false;
   }
-  return classifyAttachment(att.mimeType, att.filename) === "image";
+  return isImageAttachment({ name: att.filename, type: att.mimeType });
 }
 
 /**
@@ -64,6 +64,17 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   const [previewAttachment, setPreviewAttachment] =
     useState<UploadedAttachment | null>(null);
   const handleClosePreview = useCallback(() => setPreviewAttachment(null), []);
+  // Local ids whose preview the browser could not decode (a TIFF, or a HEIF
+  // whose conversion fell back). Their tile would be a blank square with no
+  // filename, so they drop back to the chip.
+  const [failedPreviewIds, setFailedPreviewIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const markPreviewFailed = useCallback((localId: string) => {
+    setFailedPreviewIds((prev) =>
+      prev.has(localId) ? prev : new Set(prev).add(localId),
+    );
+  }, []);
 
   if (attachments.length === 0) {
     return null;
@@ -80,7 +91,8 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
         )}
       >
         {attachments.map((att) => {
-          if (tileImages && isTiledImage(att)) {
+          const previewFailed = failedPreviewIds.has(att.localId);
+          if (tileImages && !previewFailed && isTiledImage(att)) {
             const uploaded = att.kind === "uploaded" ? att : null;
             return (
               <AttachmentTile
@@ -92,6 +104,9 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 onRemove={onRemove}
                 onPreview={
                   uploaded ? () => setPreviewAttachment(uploaded) : undefined
+                }
+                onPreviewError={
+                  uploaded ? () => markPreviewFailed(att.localId) : undefined
                 }
                 onRemoveMouseDown={pressGuard}
               />
@@ -164,7 +179,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
               id={att.localId}
               filename={att.filename}
               mimeType={att.mimeType}
-              previewUrl={att.previewUrl}
+              previewUrl={previewFailed ? null : att.previewUrl}
               onRemove={onRemove}
               onPreview={() => setPreviewAttachment(att)}
             />

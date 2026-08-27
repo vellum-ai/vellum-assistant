@@ -70,6 +70,19 @@ describe("AttachmentTile", () => {
     expect(onRemove).toHaveBeenCalledWith("att-1");
   });
 
+  test("reports a preview the browser cannot decode", () => {
+    const onPreviewError = mock(() => {});
+    renderTile({ onPreviewError });
+
+    const image = screen
+      .getByRole("button", { name: "Preview photo.jpg" })
+      .querySelector("img");
+    expect(image).toBeTruthy();
+
+    fireEvent.error(image as HTMLImageElement);
+    expect(onPreviewError).toHaveBeenCalledTimes(1);
+  });
+
   test("disables the image when there is nothing to open", () => {
     renderTile({ onPreview: undefined });
 
