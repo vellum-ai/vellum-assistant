@@ -219,10 +219,13 @@ export function QuestionPromptBody({
     (entry: QuestionEntry, response: QuestionResponseEntry) => {
       const next = { ...draftResponses, [entry.id]: response };
       setDraftResponses(next);
-      // Advance to the next unresolved entry (forward only, no wrap). When
-      // every entry has a draft, auto-POST the batched submission — no
-      // explicit Done button.
-      for (let i = currentIndex + 1; i < entries.length; i++) {
+      // Land on an entry that still needs an answer, looking forward first
+      // and then wrapping: the chevrons let someone page past a question, so
+      // the entry still owed an answer can sit behind the current position
+      // as easily as ahead of it. When every entry holds a draft, auto-POST
+      // the batch, so there is no explicit Done button.
+      for (let step = 1; step < entries.length; step++) {
+        const i = (currentIndex + step) % entries.length;
         const e = entries[i];
         if (e && !next[e.id]) {
           setCurrentIndex(i);
