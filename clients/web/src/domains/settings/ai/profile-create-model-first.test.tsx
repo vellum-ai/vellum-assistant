@@ -26,6 +26,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -96,6 +97,8 @@ const { ProfileEditorModal } = await import(
 // ---------------------------------------------------------------------------
 
 const ASSISTANT_ID = "asst-1";
+
+const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 function makeConnection(
   name: string,
@@ -262,6 +265,49 @@ function getInputByPlaceholder(placeholder: string): HTMLInputElement {
   return input;
 }
 
+function hasInputWithPlaceholder(placeholder: string): boolean {
+  return Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
+    (el) => el.placeholder === placeholder,
+  );
+}
+
+/** The inline connect form's own Cancel, not the modal footer's. */
+function inlineCancelButton(): HTMLButtonElement {
+  const match = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find(
+    (b) =>
+      b.textContent?.trim() === "Cancel" &&
+      b.dataset.testid !== "modal-cancel-btn",
+  );
+  if (!match) {
+    throw new Error("expected the connect form's Cancel button");
+  }
+  return match;
+}
+
+/**
+ * Expand the connect form's own Advanced disclosure. Idempotent, so a form
+ * that survived a route change (the bug this guards) is not toggled shut and
+ * the assertion lands on its stale seed rather than on a missing field.
+ */
+function openCreateFormAdvanced(): void {
+  const toggle = getButton("Advanced");
+  if (toggle.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(toggle);
+  }
+}
+
+function setupActionButton(): HTMLButtonElement {
+  const match = document.querySelector<HTMLButtonElement>(
+    '[data-testid="candidate-setup-btn"]',
+  );
+  if (!match) {
+    throw new Error("expected a setup action on the provider card");
+  }
+  return match;
+}
+
 function setModelFirstFlag(value: boolean): void {
   useClientFeatureFlagStore.setState({ modelFirstProfileCreate: value });
 }
@@ -281,6 +327,7 @@ afterEach(() => {
   cleanup();
   setModelFirstFlag(false);
   useAssistantIdentityStore.getState().clearIdentity();
+  useAssistantLifecycleStore.setState(initialLifecycleState);
 });
 
 // ---------------------------------------------------------------------------
@@ -465,6 +512,49 @@ describe("a route with no connection yet", () => {
     expect(saveCalls[0].entry.provider_connection).toBe("openrouter-key");
     // The Name still comes from the model's display name, not its raw id.
     expect(saveCalls[0].name).toBe("claude-opus-4-8");
+  });
+
+  test("re-keys the connect form when the lone route changes", () => {
+    // Ollama is a local runtime, so only a self-hosted assistant offers it.
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    selectModel("Gemini 3.6 Flash");
+    expect(candidateValues()).toEqual(["gemini"]);
+    openCreateFormAdvanced();
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
+      "Google Gemini",
+    );
+
+    // The step stays in its lone-route branch, so the form is only remounted
+    // by its key. Without one it would still be creating a Gemini connection
+    // while the card names Ollama, since it seeds itself from props at mount.
+    selectModel("Llama 3.2");
+    expect(candidateValues()).toEqual(["ollama"]);
+    openCreateFormAdvanced();
+    expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe("Ollama");
+    // Ollama authenticates with nothing, so no key is asked for either.
+    expect(hasInputWithPlaceholder("Enter your API key")).toBe(false);
+  });
+
+  test("keeps a lone route reachable after its setup is cancelled", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    selectModel("Gemini 3.6 Flash");
+    expect(hasInputWithPlaceholder("Enter your API key")).toBe(true);
+
+    fireEvent.click(inlineCancelButton());
+
+    // The route stays selected and only its form collapses; the card's own
+    // action is what reopens it, since a lone route has no radio to re-click.
+    expect(candidateValues()).toEqual(["gemini"]);
+    expect(hasInputWithPlaceholder("Enter your API key")).toBe(false);
+    expect(setupActionButton().textContent?.trim()).toBe("Add API key");
+
+    fireEvent.click(setupActionButton());
+    expect(hasInputWithPlaceholder("Enter your API key")).toBe(true);
   });
 });
 

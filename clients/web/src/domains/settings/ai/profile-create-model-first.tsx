@@ -22,7 +22,7 @@ import { PickerMeta } from "@/domains/settings/ai/provider-picker-availability";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import type { ProfileEditor } from "@/domains/settings/ai/use-profile-editor";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
-import { useTranslation } from "@/i18n";
+import { useTranslation, type TFunction } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 /**
@@ -119,6 +119,11 @@ export function ProfileCreateModelFirst({
       : entryPickerValue(editor.provider, editor.providerConnection);
   });
 
+  // The candidate whose connect form is expanded. Separate from the selection
+  // so cancelling the form collapses it without deselecting the route, which
+  // would leave a lone unconnected candidate with nothing left to click.
+  const [setupOpenFor, setSetupOpenFor] = useState<string | null>(null);
+
   const candidates = useMemo<readonly ProviderCandidate[]>(() => {
     if (draft.kind === "catalog") {
       return (
@@ -171,7 +176,10 @@ export function ProfileCreateModelFirst({
       // Nothing can dispatch this route yet. The model stays unset so Save
       // is blocked until the connect form below produces a connection.
       editor.setModel("");
+      setSetupOpenFor(candidate.value);
+      return;
     }
+    setSetupOpenFor(null);
   }
 
   function selectByValue(value: string): void {
@@ -217,7 +225,20 @@ export function ProfileCreateModelFirst({
       selectCandidate(fallback);
       return;
     }
-    setSelectedValue("");
+    // Nothing else can serve this model, so the route stays selected and only
+    // its form collapses. The card's own setup action reopens it.
+    setSetupOpenFor(null);
+  }
+
+  function openSetupFor(value: string): void {
+    const candidate = candidates.find((entry) => entry.value === value);
+    if (!candidate) {
+      return;
+    }
+    if (selectedValue !== candidate.value) {
+      selectCandidate(candidate);
+    }
+    setSetupOpenFor(candidate.value);
   }
 
   const modelOptions = useMemo(
@@ -309,8 +330,14 @@ export function ProfileCreateModelFirst({
           candidates={candidates}
           editor={editor}
           onCancelConnect={handleConnectFormCancel}
+          onOpenSetup={openSetupFor}
           onSelect={selectByValue}
           selectedCandidate={selectedCandidate}
+          setupExpanded={
+            selectedCandidate !== null &&
+            !selectedCandidate.connected &&
+            setupOpenFor === selectedCandidate.value
+          }
         />
       ) : null}
     </div>
@@ -322,8 +349,11 @@ interface ProviderStepProps {
   candidates: readonly ProviderCandidate[];
   editor: ProfileEditor;
   onCancelConnect: () => void;
+  onOpenSetup: (value: string) => void;
   onSelect: (value: string) => void;
   selectedCandidate: ProviderCandidate | null;
+  /** Whether the selected route's connect form is open. */
+  setupExpanded: boolean;
 }
 
 /**
@@ -337,21 +367,43 @@ function ProviderStep({
   candidates,
   editor,
   onCancelConnect,
+  onOpenSetup,
   onSelect,
   selectedCandidate,
+  setupExpanded,
 }: ProviderStepProps) {
   const { t } = useTranslation("settings");
   const soleCandidate = candidates.length === 1 ? candidates[0] : null;
 
+  // Keyed by the route it connects: the create form reads its provider,
+  // label, name, and credential from props once, at mount, so a section
+  // reused across two routes would write the previous one's connection.
   const connectSection =
-    selectedCandidate && !selectedCandidate.connected ? (
+    selectedCandidate && setupExpanded ? (
       <ConnectSection
+        key={selectedCandidate.value}
         assistantId={assistantId}
         candidate={selectedCandidate}
         editor={editor}
         onCancel={onCancelConnect}
       />
     ) : null;
+
+  function setupAction(candidate: ProviderCandidate) {
+    if (candidate.connected || setupExpanded) {
+      return null;
+    }
+    return (
+      <Button
+        variant="link"
+        size="compact"
+        data-testid="candidate-setup-btn"
+        onClick={() => onOpenSetup(candidate.value)}
+      >
+        {candidateSetupLabel(candidate, t)}
+      </Button>
+    );
+  }
 
   return (
     <div className="space-y-1">
@@ -385,6 +437,7 @@ function ProviderStep({
               })}
             </Typography>
           ) : null}
+          {setupAction(soleCandidate)}
           {connectSection}
         </div>
       ) : (
@@ -420,6 +473,7 @@ function ProviderStep({
                   />
                   <CandidateTag candidate={candidate} />
                 </div>
+                {selected ? setupAction(candidate) : null}
                 {selected ? connectSection : null}
               </div>
             );
@@ -440,6 +494,20 @@ function ProviderStep({
   );
 }
 
+/** What an unconnected route still needs, as the tag and the action say it. */
+function candidateSetupLabel(
+  candidate: ProviderCandidate,
+  t: TFunction<"settings">,
+): string {
+  if (candidate.setup === "sign-in") {
+    return t("profileCreateModelFirst.signInTag");
+  }
+  if (candidate.setup === "set-up") {
+    return t("profileCreateModelFirst.setUpTag");
+  }
+  return t("profileCreateModelFirst.addApiKeyTag");
+}
+
 function CandidateTag({ candidate }: { candidate: ProviderCandidate }) {
   const { t } = useTranslation("settings");
   if (candidate.connected) {
@@ -447,13 +515,7 @@ function CandidateTag({ candidate }: { candidate: ProviderCandidate }) {
       <Tag tone="positive">{t("profileCreateModelFirst.connectedTag")}</Tag>
     );
   }
-  const label =
-    candidate.setup === "sign-in"
-      ? t("profileCreateModelFirst.signInTag")
-      : candidate.setup === "set-up"
-        ? t("profileCreateModelFirst.setUpTag")
-        : t("profileCreateModelFirst.addApiKeyTag");
-  return <Tag tone="neutral">{label}</Tag>;
+  return <Tag tone="neutral">{candidateSetupLabel(candidate, t)}</Tag>;
 }
 
 interface ConnectSectionProps {
