@@ -97,8 +97,29 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * its first step calls for. The instruction that nothing follows the report is
  * as load-bearing as the ordering: one trailing line of sign-off is another
  * text block after it, and the report is intermediate again.
+ *
+ * **The report does not depend on the load succeeding.** `skill-management` is
+ * a selector, not a fixed definition: `loadSkillCatalog` lets a managed or
+ * workspace skill of the same id replace the bundled one, and
+ * `resolveSkillSelector` hands back whichever entry won. So the load can come
+ * back as someone else's skill, or as a refusal, and putting it ahead of the
+ * report is what makes either one land before the user has been told anything.
+ * A refusal is the likelier of the two here: this wake is `clientless`, and an
+ * inline-command load with no human present is denied outright
+ * (`permissions/checker.ts`, `isDynamicSkillLoadInvocation`). The bundled skill
+ * carries no such expansions, so the ordinary path is unaffected, but a shadow
+ * that carries them is denied on arrival.
+ *
+ * Neither outcome is allowed to become the retro. The session was recorded, the
+ * timeline is already in this prompt, and the account of it is the one thing the
+ * user is owed for having pressed stop; a permission error where that account
+ * should be is the same empty thread the `surfaceConversation` guard exists to
+ * prevent, just with prose in it. So the instructions write the report either
+ * way and say the handoff did not happen, rather than reporting on the load.
  */
 const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you write anything, and follow it. Do not author or scaffold a skill until the four points that step names are settled: the report below is the alignment its first step calls for.
+
+Write the report below whether or not that load succeeds. If it fails, is refused, or comes back as something other than the skill-management flow, do not report on the load and do not retry it: write the report, and end it with one line saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
 
 Then write back to the user in two sections, in this order, both as level-2 headings. That report is the last thing you do this turn, and nothing follows it: no sign-off, no note about what you loaded, no further tool call. Their answers come back as an ordinary reply and the flow picks up from there.
 

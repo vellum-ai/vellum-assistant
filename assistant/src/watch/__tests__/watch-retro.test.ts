@@ -270,6 +270,28 @@ describe("watch retrospective", () => {
     expect(prompt).toContain("no further tool call");
   });
 
+  test("writes the report even when the skill it hands off to will not load", async () => {
+    const summary = recordSession(["filing the receipt"]);
+    const { calls, dispatch } = recordingDispatch();
+
+    await runWatchRetro(summary, { dispatch });
+
+    const { prompt } = calls[0]!;
+    // `skill-management` is a selector, and a managed or workspace skill of the
+    // same id replaces the bundled one in the catalog. Putting the load ahead
+    // of the report is what lets a shadow, or the refusal a clientless wake
+    // gives an inline-command load, land before the user has been told
+    // anything. Neither may become the retro: the session is recorded and the
+    // account of it is what the user is owed.
+    expect(prompt).toContain(
+      "Write the report below whether or not that load succeeds",
+    );
+    expect(prompt).toContain("do not report on the load and do not retry it");
+    // The failure is still named, so a missing handoff does not read as a
+    // report that simply chose not to ask about authoring.
+    expect(prompt).toContain("could not open the skill-authoring flow");
+  });
+
   test("authors nothing until the user has confirmed", async () => {
     const summary = recordSession(["exporting the sheet"]);
     const { calls, dispatch } = recordingDispatch();
