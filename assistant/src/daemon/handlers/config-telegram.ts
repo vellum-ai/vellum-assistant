@@ -28,6 +28,7 @@ import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
+import { ChannelConfigResultBaseSchema } from "./channel-config-result.js";
 import { log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
@@ -61,15 +62,11 @@ function summarizeTelegramError(err: unknown): string {
 
 // -- Transport-agnostic result type (omits the `type` discriminant) --
 
-export const TelegramConfigResultSchema = z.object({
-  success: z.boolean(),
-  hasBotToken: z.boolean(),
+export const TelegramConfigResultSchema = ChannelConfigResultBaseSchema.extend({
   botId: z.string().optional(),
   botUsername: z.string().optional(),
-  connected: z.boolean(),
   hasWebhookSecret: z.boolean(),
   lastError: z.string().optional(),
-  error: z.string().optional(),
   commandsRegistered: z.array(z.string()).optional(),
   warning: z.string().optional(),
 });

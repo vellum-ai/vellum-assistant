@@ -49,7 +49,6 @@ import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   pinnedListeningLanguage,
-  resolveSttCatalogKey,
   supportsBoundary,
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
@@ -60,6 +59,7 @@ import {
   dominantLanguageTag,
   voteDominantLanguage,
 } from "../stt/language-metadata.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import {
   DEFAULT_SPEECH_ENERGY_THRESHOLD,
   pcm16MaxNormalizedCorrelation,
@@ -362,7 +362,8 @@ export interface LiveVoiceSessionOptions {
   /**
    * Deepgram Flux turn-detection tuning. The production factory seeds this
    * from `liveVoice.flux` config when unset; absent fields fall back to the
-   * schema defaults, which leave `turnEnd.enabled` false.
+   * schema defaults, which leave `turnEnd.enabled` on. A test that needs the
+   * local silence boundary has to say so.
    */
   fluxConfig?: Partial<LiveVoiceFluxConfig>;
   /**
@@ -707,6 +708,10 @@ interface ActiveAssistantTurn {
   // no user utterance behind it — `content` is CONTINUATION_DELIVERY_CONTENT and
   // the answer rides the control prompt (buildLiveDeliveryNote).
   continuationDelivery: ContinuationDelivery | null;
+  // The turn's content is an internal instruction rather than user speech (the
+  // greeting that opens a session, say). The row still persists and the model
+  // still sees it; `hiddenSyntheticPrompt` keeps it out of the transcript.
+  hiddenPrompt: boolean;
   // Set when a barge-in handed the interrupted work to a background subagent:
   // that request's transcript, so the model can tell the user the work is
   // still running instead of appearing to have dropped it.
@@ -1576,7 +1581,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Before the launch, so the anchor is the moment the text arrived rather
     // than whatever the dispatch costs.
     this.markTypedTurnSubmitted(utterance);
-    await this.launchAssistantTurn(utterance, frame.text);
+    await this.launchAssistantTurn(utterance, frame.text, {
+      ...(frame.hidden === true ? { hiddenPrompt: true } : {}),
+    });
   }
 
   /**
@@ -1742,9 +1749,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // outside: the session looks like a turn-detecting session while its
       // opening turn is not one. The resolved provider reconciles this guess
       // below.
+      //
+      // The guess reads the live-voice role, which is what the dial below
+      // resolves. Reading the global provider instead makes the guess wrong
+      // in exactly the configuration roles exist for (live voice on flux,
+      // global on base deepgram), which reinstates the race this seed
+      // prevents.
       this.setProviderTurnEndActive(
         this.fluxConfig.turnEnd.enabled &&
-          supportsProviderTurnDetection(resolveSttCatalogKey(stt)) &&
+          supportsProviderTurnDetection(
+            sttCatalogKeyForRole(stt, "liveVoice"),
+          ) &&
           this.turnDetector !== null,
       );
       const transcriber = await this.resolveTranscriber({
@@ -4703,6 +4718,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // leading verdict commits the turn (see commitSpeculativeTurn); a hold
       // verdict rolls everything back instead.
       speculative?: boolean;
+      // Marks `content` as an internal instruction rather than user speech, so
+      // the row persists and drives the turn but never renders: no echo, and
+      // `/messages` filters it after a reload.
+      hiddenPrompt?: boolean;
     },
   ): Promise<boolean> {
     utterance.assistantTurnStarted = true;
@@ -4763,6 +4782,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       consumedAnnouncement: pending?.announcement ?? null,
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
+      hiddenPrompt: opts?.hiddenPrompt === true,
       deltaEpoch: 0,
       escalationHandedOff: false,
       ttsBuffer: "",
@@ -4933,10 +4953,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // silent" onto a session that has turns, a contradictory row. Setting it
       // before can at worst leave a silent session unexplained, which is a gap
       // rather than a false statement.
-      this.dispatchedTurn = true;
+      //
+      // A synthetic prompt does not count. The silence classification answers
+      // "did anything come from the person?", and the session opening by
+      // greeting them is the session talking to itself. Counting it would
+      // retire the whole taxonomy for every greeted session: `no_speech`,
+      // `text_only` and `no_turn` become unreachable, and `no_audio` survives
+      // only where capture failed early enough to withhold the greeting. That
+      // is the one rate the funnel has for "voice didn't work for me".
+      if (!activeTurn.hiddenPrompt) {
+        this.dispatchedTurn = true;
+      }
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,
+        ...(activeTurn.hiddenPrompt ? { hiddenSyntheticPrompt: true } : {}),
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
         // Fixed, and NOT the originating client: this pair resolves the turn's
@@ -6791,7 +6822,9 @@ async function defaultResolveStreamingTranscriber(
     await import("../config/managed-speech-defaults.js");
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
-  const { stt } = await resolveEffectiveSpeechProviders();
+  const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+    role: "liveVoice",
+  });
   return resolveStreamingTranscriber({ ...options, providerId: stt });
 }
 

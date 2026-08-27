@@ -6,17 +6,13 @@ import { detectElectronHostOS } from "@/runtime/platform-detection";
 /**
  * Where the platform should send the browser when Stripe Checkout finishes.
  *
- * The macOS Electron shell opens Checkout in the *system browser* (see
+ * Both Electron shells open Checkout in the *system browser* (see
  * `runtime/browser.ts`), so a web return URL strands the user in that browser
  * and the app never learns checkout completed. `"native"` makes the platform
- * bounce the browser to `<scheme>://billing/checkout-complete`, which the macOS
- * shell routes back into the app (`clients/macos/src/main/deep-links.ts`).
- *
- * The Windows Electron shell stays on the web return: its preload stubs
- * `deepLinks` (no `vellum://` protocol registration or second-instance argv
- * parsing yet, see `clients/windows/src/preload/index.ts`), so a native bounce
- * would land on a custom-scheme URL nothing consumes. Flip Windows to
- * `"native"` once the deep-link bridge is ported.
+ * bounce the browser to `<scheme>://billing/checkout-complete`, which the
+ * shared deep-link handler routes back into the app
+ * (`packages/electron-desktop/src/deep-links.ts`: `open-url` on macOS,
+ * second-instance argv on Windows).
  *
  * Capacitor iOS takes the native return. Checkout opens in an in-app
  * `SFSafariViewController`, so a web return URL would load *inside* that sheet
@@ -29,7 +25,7 @@ import { detectElectronHostOS } from "@/runtime/platform-detection";
  * Plain web takes the web return; a browser cannot open a custom-scheme URL.
  */
 export function checkoutReturnTarget(): ReturnTargetEnum {
-  return detectElectronHostOS() === "macos" || Capacitor.isNativePlatform()
+  return detectElectronHostOS() !== null || Capacitor.isNativePlatform()
     ? "native"
     : "web";
 }

@@ -36,9 +36,9 @@ export const MANAGED_ROUTABLE_PROVIDERS: ReadonlySet<string> = new Set(
  * Sentinel provider id for the single, provider-agnostic Vellum-managed
  * connection. Unlike the per-provider `*-managed` connections, this one does
  * not name an upstream provider on its DB row — the upstream is determined
- * per-request from the resolving profile. This id is never a real catalog
- * entry, so routing code must substitute the effective provider before any
- * catalog/adapter lookup.
+ * per-request from the resolving profile. The same id is the catalog owner
+ * of Vellum-hosted GPU models. Dispatch still substitutes a concrete
+ * upstream (including `vellum` for those GPU models) before adapter lookup.
  */
 export const VELLUM_MANAGED_PROVIDER = "vellum";
 

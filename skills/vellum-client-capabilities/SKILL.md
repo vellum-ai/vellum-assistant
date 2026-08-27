@@ -32,11 +32,11 @@ Do not stall the task waiting for a permission grant that cannot arrive, and do 
 
 ### The one coarse signal that exists
 
-Settings has a "Closest city" field used for timezone. If it is set, you may offer it as a rough default region, but present it as the configured city rather than the user's detected location, and let them correct it.
+Settings has a "Timezone" field, set by searching for a city or UTC offset. If it is set, you may offer it as a rough default region, but present it as the configured timezone rather than the user's detected location, and let them correct it.
 
 ### If the user asks for real location support
 
-It does not exist today in any client. The honest answer is that they can mention a place per request, or set Closest city in Settings as a standing default.
+It does not exist today in any client. The honest answer is that they can mention a place per request, or set the Timezone field in Settings as a standing default.
 
 ## Other Device Capabilities
 

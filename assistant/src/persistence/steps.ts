@@ -477,6 +477,10 @@ import { migrateChatgptSubscriptionRowIdentity } from "./migrations/366-chatgpt-
 import { migrateCreateWatchTimelineEntries } from "./migrations/367-create-watch-timeline-entries.js";
 import { migrateWatchTimelineScreenshotBlob } from "./migrations/368-watch-timeline-screenshot-blob.js";
 import { migrateCreateAppPins } from "./migrations/369-create-app-pins.js";
+import { migrateAcpSessionHistoryAuthErrorCode } from "./migrations/370-acp-session-history-auth-error-code.js";
+import { migrateAcpSessionHistoryAuthErrorCredential } from "./migrations/371-acp-session-history-auth-error-credential.js";
+import { migrateCreateAcpRefusedCredentials } from "./migrations/372-create-acp-refused-credentials.js";
+import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-index.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1588,4 +1592,8 @@ export const migrationSteps: MigrationStep[] = [
   migrateCreateWatchTimelineEntries,
   migrateWatchTimelineScreenshotBlob,
   migrateCreateAppPins,
+  migrateAcpSessionHistoryAuthErrorCode,
+  migrateAcpSessionHistoryAuthErrorCredential,
+  migrateCreateAcpRefusedCredentials,
+  migrateAcpAuthMarkerIndex,
 ];

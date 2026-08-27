@@ -1,11 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, screen, userEvent, waitFor } from "storybook/test";
 
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 
+function connection(provider: string): ProviderConnection {
+  return {
+    name: provider,
+    label: null,
+    provider,
+    // The auth shape is load-bearing: the Model field reads it to decide
+    // whether the connection restricts the model set, so a fixture without
+    // it takes the picker down as soon as a provider is chosen.
+    auth: { type: "api_key", credential: `credential/${provider}/api_key` },
+    models: null,
+  } as unknown as ProviderConnection;
+}
+
 const CONNECTIONS: ProviderConnection[] = [
-  { name: "anthropic", provider: "anthropic" } as ProviderConnection,
-  { name: "openai", provider: "openai" } as ProviderConnection,
+  connection("anthropic"),
+  connection("openai"),
 ];
 
 const meta: Meta<typeof ProfileEditorModal> = {
@@ -78,7 +92,62 @@ export const MissingModel: Story = {
   },
 };
 
-/** Create starts blank, so it must not flag empty fields before any input. */
+/**
+ * Create starts blank, so it must not flag empty fields before any input.
+ * The body asks two questions: which provider, and which model.
+ */
 export const Create: Story = {
   args: { mode: "create" },
+};
+
+/**
+ * With a model chosen, Advanced appears. Opening it shows what the model has
+ * already answered for the user: the Name, filled in from the model, above
+ * the parameters that model supports.
+ */
+export const CreateAdvanced: Story = {
+  args: { mode: "create" },
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Provider" }),
+    );
+    await userEvent.click(await screen.findByRole("option", { name: /Anthropic/ }));
+
+    const modelField = await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(modelField);
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Claude Opus 4.8" }),
+    );
+
+    const advanced = await screen.findByRole("button", { name: "Advanced" });
+    await userEvent.click(advanced);
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Claude Opus 4.8")).toBeTruthy(),
+    );
+  },
+};
+
+/**
+ * A second profile on the same model. The Name it is given steps around the
+ * one already taken rather than colliding with it.
+ */
+export const CreateDuplicateName: Story = {
+  args: { mode: "create", existingNames: ["claude-opus-4-8"] },
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Provider" }),
+    );
+    await userEvent.click(await screen.findByRole("option", { name: /Anthropic/ }));
+
+    const modelField = await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(modelField);
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Claude Opus 4.8" }),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Advanced" }));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Claude Opus 4.8 (2)")).toBeTruthy(),
+    );
+  },
 };

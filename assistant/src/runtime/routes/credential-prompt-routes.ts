@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 
+import { acpConnectCardStillWarranted } from "../../acp/acp-claude-oauth.js";
 import { hasAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
 import { isAcpClaudeOauthField } from "../../acp/acp-credentials.js";
 import {
@@ -112,10 +113,18 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
   // fallback, so `claude setup-token` remains usable where no card can appear.
   if (isAcpClaudeOauthField(validated.service, validated.field)) {
     const conversation = findConversation(validated.conversationId);
+    // The registry says a card was raised; this asks whether it is still one
+    // the user can act on. Auth can be repaired without any credential write
+    // (a `config.json` edit to the agent's `CLAUDE_CODE_OAUTH_TOKEN` does it),
+    // and nothing runs on that path to forget the entry, so an entry alone
+    // would keep suppressing the fallback against a card that stopped
+    // rendering.
     if (
       conversation &&
       conversationSupportsDynamicUi(conversation) &&
-      hasAcpConnectCardRaised(validated.conversationId)
+      validated.conversationId !== undefined &&
+      hasAcpConnectCardRaised(validated.conversationId) &&
+      (await acpConnectCardStillWarranted(validated.conversationId))
     ) {
       return {
         ok: false,

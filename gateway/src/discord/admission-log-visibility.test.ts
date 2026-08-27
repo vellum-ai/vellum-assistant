@@ -25,7 +25,7 @@ import "../__tests__/test-preload.js";
  */
 
 const CHANNEL = "1532468750740357331";
-const UNLISTED_CHANNEL = "800000000000000002";
+const OTHER_CHANNEL = "800000000000000002";
 
 let logDir: string;
 
@@ -79,13 +79,12 @@ class FakeSocket implements GatewaySocketLike {
 const schedule: (fn: () => void, delayMs: number) => CancelTimer =
   () => () => {};
 
-/** A started client whose session is established, with the given allow-list. */
-async function connectedClient(allowed: string[]): Promise<FakeSocket> {
+/** A started client whose session is established. */
+async function connectedClient(): Promise<FakeSocket> {
   let socket: FakeSocket | undefined;
   const client = new DiscordGatewayClient(
     {
       botToken: "token-abc",
-      readAllowedChannelIds: () => new Set(allowed),
       fetchFn: (async () =>
         new Response(JSON.stringify({ url: "wss://gateway.test" }), {
           status: 200,
@@ -139,30 +138,28 @@ function mentionIn(
 }
 
 describe("admission drop visibility", () => {
-  test("a channel_not_allowed drop is written at a level the streams keep", async () => {
-    // The bot is mentioned and the allow-list is empty. A drop that reached no
-    // sink would make this log identical to one where no event ever arrived,
-    // which is the case an operator cannot diagnose.
-    const ws = await connectedClient([]);
-    ws.message(mentionIn(UNLISTED_CHANNEL, "msg-visible-1"));
+  test("a person's un-addressed message is written at a level the streams keep", async () => {
+    // A drop that reached no sink would make this log identical to one where
+    // no event ever arrived, which is the case an operator cannot diagnose.
+    const ws = await connectedClient();
+    ws.message(mentionIn(OTHER_CHANNEL, "msg-visible-1", { mentions: [] }));
 
     const dropped = readLogRecords().filter(
       (record) => record["messageId"] === "msg-visible-1",
     );
 
     expect(dropped).toHaveLength(1);
-    expect(dropped[0]?.["reason"]).toBe("channel_not_allowed");
-    expect(dropped[0]?.["channelId"]).toBe(UNLISTED_CHANNEL);
-    // pino: warn is 40, info is 30, debug is 20. The file streams start at
-    // info, so a debug record would be absent above rather than present here.
-    // This reason warns because it is the operator-actionable one.
-    expect(dropped[0]?.["level"]).toBe(40);
+    expect(dropped[0]?.["reason"]).toBe("bot_not_mentioned");
+    expect(dropped[0]?.["channelId"]).toBe(OTHER_CHANNEL);
+    // pino: info is 30, debug is 20. The file streams start at info, so a
+    // debug record would be absent above rather than present here.
+    expect(dropped[0]?.["level"]).toBe(30);
   });
 
   test("the bot's own echo stays quiet", async () => {
     // Never promoted at any volume: it scales with how much the bot says, and
     // no misconfiguration can cause it.
-    const ws = await connectedClient([CHANNEL]);
+    const ws = await connectedClient();
     ws.message(mentionIn(CHANNEL, "msg-self-1", { author: { id: "bot-1" } }));
 
     expect(
@@ -174,10 +171,16 @@ describe("admission drop visibility", () => {
     // The counterweight. A busy community channel produces one drop per
     // message, so promoting all of them would flood the stream the gate exists
     // to keep quiet.
-    const ws = await connectedClient([]);
-    ws.message(mentionIn("800000000000000777", "msg-repeat-1"));
-    ws.message(mentionIn("800000000000000777", "msg-repeat-2"));
-    ws.message(mentionIn("800000000000000777", "msg-repeat-3"));
+    const ws = await connectedClient();
+    ws.message(
+      mentionIn("800000000000000777", "msg-repeat-1", { mentions: [] }),
+    );
+    ws.message(
+      mentionIn("800000000000000777", "msg-repeat-2", { mentions: [] }),
+    );
+    ws.message(
+      mentionIn("800000000000000777", "msg-repeat-3", { mentions: [] }),
+    );
 
     const records = readLogRecords();
     expect(
@@ -194,7 +197,7 @@ describe("admission drop visibility", () => {
   test("an admitted message still logs its admission", async () => {
     // Guards the other direction: the drop path going quiet must not be
     // achieved by making the whole gate quiet.
-    const ws = await connectedClient([CHANNEL]);
+    const ws = await connectedClient();
     ws.message(mentionIn(CHANNEL, "msg-admitted-1"));
 
     const admitted = readLogRecords().filter(

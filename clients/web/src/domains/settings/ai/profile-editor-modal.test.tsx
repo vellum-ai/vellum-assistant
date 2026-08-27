@@ -145,13 +145,6 @@ function getSaveBtn(): HTMLButtonElement {
   return btn;
 }
 
-/** All Select triggers (custom comboboxes) in document order. */
-function selectTriggers(): HTMLButtonElement[] {
-  return Array.from(
-    document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),
-  );
-}
-
 /** An option row's label, excluding any right-aligned suffix meta. */
 function optionLabel(option: Element): string {
   return (
@@ -233,6 +226,7 @@ const UNCONNECTED_PROVIDER_LABELS = [
   "MiniMax",
   "Atlas Cloud",
   "LiteLLM",
+  "OpenCode",
   "Baseten",
   "Poolside",
 ];
@@ -258,46 +252,63 @@ function createFormProviderTrigger(): HTMLButtonElement | null {
   );
 }
 
-/** Selects a provider in the create-mode Provider dropdown, then a model in
- *  the Model dropdown (the only other combobox once a provider is set). */
+/** Selects a provider in the create-mode Provider dropdown. */
 function selectProvider(label: string): void {
   pickOption(providerTrigger(), label);
 }
 
-function selectModel(label: string): void {
-  // The Model dropdown is the combobox (other than Provider) whose open
-  // listbox contains the target model label. Probing each candidate keeps the
-  // helper robust to the optional Connection dropdown appearing alongside it.
-  const provTrigger = providerTrigger();
-  for (const trigger of selectTriggers()) {
-    if (trigger === provTrigger) {
-      continue;
-    }
-    fireEvent.click(trigger);
-    const option = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((o) => optionLabel(o) === label);
-    if (option) {
-      fireEvent.click(option);
-      return;
-    }
-    // Close this listbox before probing the next trigger.
-    fireEvent.click(trigger);
+/**
+ * The Model field. It is a filter input rather than a button trigger, which
+ * is also what tells it apart from the Provider and Connection dropdowns.
+ */
+function modelField(): HTMLInputElement {
+  const field = document.querySelector<HTMLInputElement>(
+    'input[role="combobox"][aria-label="Model"]',
+  );
+  if (!field) {
+    throw new Error("expected the Model field");
   }
-  throw new Error(`expected a Model dropdown offering "${label}"`);
+  return field;
+}
+
+/** Focus opens the model list, the same way a pointer press on it does. */
+function openModelList(): void {
+  fireEvent.focus(modelField());
+}
+
+/** Labels of the open model list, in order. */
+function modelOptionLabels(): string[] {
+  openModelList();
+  return optionLabels();
+}
+
+function selectModel(label: string): void {
+  openModelList();
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => optionLabel(o) === label);
+  if (!option) {
+    throw new Error(
+      `expected a Model list offering "${label}" - saw: ${optionLabels()
+        .map((l) => `"${l}"`)
+        .join(", ")}`,
+    );
+  }
+  fireEvent.click(option);
 }
 
 function renderCreate(
   connections: ProviderConnection[],
   onSave: (name: string, entry: unknown) => Promise<void> = () =>
     Promise.resolve(),
+  existingNames: string[] = [],
 ) {
   return render(
     <Wrapper>
       <ProfileEditorModal
         isOpen
         mode="create"
-        existingNames={[]}
+        existingNames={existingNames}
         connections={connections}
         assistantId={ASSISTANT_ID}
         onSave={onSave}
@@ -400,14 +411,14 @@ function topPSlider(): HTMLElement {
   return slider;
 }
 
-/** Drive a provider-first create up to a Save-enabled state. */
+/**
+ * Drive a provider-first create up to a Save-enabled state. Picking the model
+ * fills the Name in, and the key follows the Name, so the two picks are the
+ * whole form.
+ */
 function fillCreateForm(): void {
   selectProvider("Anthropic");
   selectModel("Claude Opus 4.8");
-  fireEvent.click(getButton("Advanced"));
-  fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
-    target: { value: "my-profile" },
-  });
 }
 
 beforeEach(async () => {
@@ -434,24 +445,30 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal create mode — provider-first", () => {
-  test("Name is top-level in create mode; Key stays inside Advanced (LUM-2881)", () => {
+  test("the create body asks only for Provider and Model; Name waits under Advanced", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    // The Name field renders before any provider/model is picked - it is
-    // top-level, never inside the Advanced disclosure.
-    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
+    const nameField = () =>
+      document.querySelector('input[placeholder="e.g. Claude Opus 4.8"]');
+
+    // Nothing but the two questions the form is for.
+    expect(nameField()).toBeNull();
+    expect(document.body.textContent).not.toContain("Key");
+    expect(findSwitchByLabel("Active")).toBeNull();
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
-    expect(
-      document.querySelector('input[placeholder="e.g. fast-cheap"]'),
-    ).toBeNull();
+    // Advanced arrives collapsed, so the Name is still not in the body.
+    expect(nameField()).toBeNull();
 
     fireEvent.click(getButton("Advanced"));
 
-    expect(getInputByPlaceholder("e.g. fast-cheap")).toBeDefined();
+    expect(nameField()).not.toBeNull();
+    // The Key is not a field any more, at any level of the form.
+    expect(
+      document.querySelector('input[placeholder="e.g. fast-cheap"]'),
+    ).toBeNull();
   });
 
   test("Advanced is hidden until a model is chosen, then collapsed by default", () => {
@@ -474,18 +491,73 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
   });
 
-  test("selecting a model pre-fills Name and Key", () => {
-    renderCreate([makeConnection("anthropic-personal")]);
+  test("selecting a model fills the Name in, and the key it derives", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("anthropic-personal")], onSave);
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
     fireEvent.click(getButton("Advanced"));
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe(
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
       "Claude Opus 4.8",
     );
-    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe(
+
+    // The key is never shown, so it is asserted where it surfaces: the name
+    // the profile is saved under.
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].name).toBe("claude-opus-4-8");
+    expect(saveCalls[0].entry.label).toBe("Claude Opus 4.8");
+  });
+
+  test("a model whose name is taken gains a numeric suffix", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("anthropic-personal")], onSave, [
       "claude-opus-4-8",
+    ]);
+
+    selectProvider("Anthropic");
+    selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
+
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
+      "Claude Opus 4.8 (2)",
+    );
+
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].name).toBe("claude-opus-4-8-2");
+  });
+
+  test("a hand-typed duplicate Name gains the suffix on blur", () => {
+    renderCreate([makeConnection("anthropic-personal")], undefined, [
+      "claude-opus-4-8",
+    ]);
+
+    selectProvider("Anthropic");
+    selectModel("Claude Opus 4.7");
+    fireEvent.click(getButton("Advanced"));
+
+    const name = getInputByPlaceholder("e.g. Claude Opus 4.8");
+    fireEvent.change(name, { target: { value: "Claude Opus 4.8" } });
+    expect(name.value).toBe("Claude Opus 4.8");
+
+    fireEvent.blur(name);
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
+      "Claude Opus 4.8 (2)",
     );
   });
 
@@ -497,18 +569,15 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(getButton("Advanced"));
 
     // User overrides the Name.
-    fireEvent.change(getInputByPlaceholder("e.g. Fast & Cheap"), {
+    fireEvent.change(getInputByPlaceholder("e.g. Claude Opus 4.8"), {
       target: { value: "My Custom Profile" },
     });
 
-    // Selecting a different model must NOT clobber the manual Name/Key.
+    // Selecting a different model must NOT clobber the manual Name.
     selectModel("Claude Opus 4.7");
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe(
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
       "My Custom Profile",
-    );
-    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe(
-      "my-custom-profile",
     );
   });
 
@@ -1006,11 +1075,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("acme-llm");
 
-    // The Model dropdown trigger explains the empty list instead of showing
-    // a bare "Select a model" placeholder over zero options...
-    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
-    expect(triggerLabels).toContain("No models available");
-    expect(triggerLabels).not.toContain("Select a model");
+    // The Model field explains the empty list instead of showing a bare
+    // "Select a model" placeholder over zero options...
+    expect(modelField().placeholder).toBe("No models available");
 
     // ...and the hint below spells out why and what to do about it.
     expect(document.body.textContent).toContain(
@@ -1027,18 +1094,15 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Ollama");
 
-    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
-    expect(triggerLabels).toContain("Select a model");
-    expect(triggerLabels).not.toContain("No models available");
+    expect(modelField().placeholder).toBe("Select a model");
 
     selectModel("Llama 3.2");
     fireEvent.click(getButton("Advanced"));
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Llama 3.2");
-    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("llama-3-2");
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe("Llama 3.2");
 
+    // A Name the editor filled in itself follows the next model pick.
     selectModel("Mistral");
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Mistral");
-    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("mistral");
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe("Mistral");
   });
 
   test("platform-hosted assistants offer Ollama disabled with the reason", () => {
@@ -1238,12 +1302,8 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       );
     });
 
-    // Pick a model + key, then save immediately (no connections refetch).
+    // Pick a model, then save immediately (no connections refetch).
     selectModel("Claude Opus 4.8");
-    fireEvent.click(getButton("Advanced"));
-    fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
-      target: { value: "my-profile" },
-    });
 
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
@@ -1399,12 +1459,10 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       makeConnection("openrouter", "openrouter"),
     );
 
-    // The Model trigger surfaces the bound id (no catalog/connection name
+    // The Model field surfaces the bound id (no catalog/connection name
     // available, so it falls back to the raw id) rather than the empty
     // placeholder...
-    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
-    expect(triggerLabels).toContain("openrouter/fusion");
-    expect(triggerLabels).not.toContain("Select a model");
+    expect(modelField().value).toBe("openrouter/fusion");
 
     // ...the bound model isn't auto-cleared, so the validation hint stays away
     // and Save remains enabled (the binding would persist intact).
@@ -1447,17 +1505,9 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       makeConnection("openrouter", "openrouter"),
     );
 
-    // Open each combobox; the Model dropdown must list the bound id so it can
-    // be re-selected manually (the second reported surface of JARVIS-1180).
-    const optionLabels = selectTriggers().flatMap((trigger) => {
-      fireEvent.click(trigger);
-      const labels = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => optionLabel(o));
-      fireEvent.click(trigger);
-      return labels;
-    });
-    expect(optionLabels).toContain("openrouter/fusion");
+    // The Model list must offer the bound id so it can be re-selected
+    // manually (the second reported surface of JARVIS-1180).
+    expect(modelOptionLabels()).toContain("openrouter/fusion");
   });
 
   test("renders a bound openai-compatible model the connection list omits, and keeps Save enabled", () => {
@@ -1482,9 +1532,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       lmStudio,
     );
 
-    const triggerLabels = selectTriggers().map((t) => t.textContent?.trim());
-    expect(triggerLabels).toContain("gateway-alias");
-    expect(triggerLabels).not.toContain("Select a model");
+    expect(modelField().value).toBe("gateway-alias");
     expect(document.body.textContent).not.toContain("Select a model.");
     expect(getSaveBtn().disabled).toBe(false);
   });
@@ -1517,25 +1565,15 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       subscriptionConnection,
     );
 
-    // The incompatible model is auto-cleared: the Model trigger falls back to the
-    // placeholder and never surfaces "GPT-5.5 Pro".
+    // The incompatible model is auto-cleared: the Model field falls back to
+    // its placeholder and never surfaces "GPT-5.5 Pro".
     await waitFor(() => {
-      const labels = selectTriggers().map((t) => t.textContent?.trim());
-      expect(labels).toContain("Select a model");
+      expect(modelField().value).toBe("");
     });
-    expect(selectTriggers().map((t) => t.textContent?.trim())).not.toContain(
-      "GPT-5.5 Pro",
-    );
+    expect(modelField().placeholder).toBe("Select a model");
 
-    // The dropdown offers the Codex-compatible models but not the filtered one.
-    const optionLabels = selectTriggers().flatMap((trigger) => {
-      fireEvent.click(trigger);
-      const labels = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => optionLabel(o));
-      fireEvent.click(trigger);
-      return labels;
-    });
+    // The list offers the Codex-compatible models but not the filtered one.
+    const optionLabels = modelOptionLabels();
     expect(optionLabels).toContain("GPT-5.6 Sol");
     expect(optionLabels).toContain("GPT-5.6 Terra");
     expect(optionLabels).toContain("GPT-5.6 Luna");
@@ -1578,22 +1616,9 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       </Wrapper>,
     );
 
-    // WHEN the user picks the free-text option (the Model dropdown is the only
-    // one offering it) and types an id absent from the catalog, then saves
-    let pickedCustom = false;
-    for (const trigger of selectTriggers()) {
-      fireEvent.click(trigger);
-      const customOption = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).find((o) => o.textContent?.trim() === "Enter a custom model ID…");
-      if (customOption) {
-        fireEvent.click(customOption);
-        pickedCustom = true;
-        break;
-      }
-      fireEvent.click(trigger);
-    }
-    expect(pickedCustom).toBe(true);
+    // WHEN the user picks the free-text option and types an id absent from
+    // the catalog, then saves
+    selectModel("Enter a custom model ID…");
 
     const modelInput = getInputByPlaceholder("provider/model-id");
     fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
@@ -1637,14 +1662,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       subscriptionConnection,
     );
 
-    const optionLabels = selectTriggers().flatMap((trigger) => {
-      fireEvent.click(trigger);
-      const labels = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => optionLabel(o));
-      fireEvent.click(trigger);
-      return labels;
-    });
+    const optionLabels = modelOptionLabels();
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("Enter a custom model ID…");
   });
@@ -1736,7 +1754,7 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     expect(findSwitchByLabel("Active")).toBeNull();
 
     // Label and Top P are locked.
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").disabled).toBe(true);
     expect(topPSwitch().disabled).toBe(true);
 
     // Save opens disabled and clicking the locked Top P toggle can't arm it.
@@ -1793,7 +1811,7 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     // locked label and Top P, no delete/recreate save path.
     renderEdit(invariantProfile);
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").disabled).toBe(true);
     expect(topPSwitch().disabled).toBe(true);
 
     // The footer is the safe read-only footer: Save As New is offered and
@@ -1883,17 +1901,48 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
 
     fireEvent.click(getButton("Save As New"));
 
-    // Clearing the generated key does not surface a validation error before
-    // the user interacts with the collapsed identity fields.
+    // The duplicate opens on a Name and key it can be saved under, so nothing
+    // is wrong yet and the collapsed identity fields stay collapsed.
     expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
-    expect(document.body.textContent).not.toContain("Key is required");
+    expect(document.body.textContent).not.toContain("Name is required");
     fireEvent.click(getButton("Advanced"));
 
-    // The duplicate drops the invariant lock: name and key are editable and
-    // the Active toggle is back.
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
-    expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
-    expect(findSwitchByLabel("Active")).not.toBeNull();
+    // The duplicate drops the invariant lock: the Name is editable again.
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").disabled).toBe(false);
+  });
+
+  test("Save As New arms Save on a deduped name and the key it slugifies to", async () => {
+    // The Key field is gone and the retained Name emits neither change nor
+    // blur, so a duplicate that opened with an empty key would sit behind a
+    // disabled Save with nothing on screen saying why. The source profile's
+    // own key is taken, so the copy gains "(2)".
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderView(invariantProfile, onSave);
+
+    fireEvent.click(getButton("Save As New"));
+
+    // Armed with no further input, and no blocking error to hide.
+    expect(getSaveBtn().disabled).toBe(false);
+    expect(document.querySelectorAll('[role="alert"]').length).toBe(0);
+
+    fireEvent.click(getButton("Advanced"));
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
+      "Default A (2)",
+    );
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // Saved under the slug of the deduped Name, not the source profile's key.
+    expect(saveCalls[0].name).toBe("default-a-2");
+    expect(saveCalls[0].entry.label).toBe("Default A (2)");
   });
 });
 

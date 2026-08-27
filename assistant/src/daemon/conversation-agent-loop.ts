@@ -733,8 +733,33 @@ export async function runAgentLoopImpl(
   // the `finally` (before processing clears, so the reporter's settled-turn
   // barrier guarantees the stamp ships with the turn event). Unset = the turn
   // replied normally and carries no stamp.
+  const failedOutcomeFromClassification = (classified: {
+    code: string;
+    userMessage: string;
+    errorCategory: string;
+    connectionName?: string;
+    profileName?: string;
+  }): NonNullable<typeof abnormalOutcome> => ({
+    outcome: "failed",
+    failureCode: classified.code,
+    failureMessage: classified.userMessage,
+    failureCategory: classified.errorCategory,
+    ...(classified.connectionName
+      ? { failureConnection: classified.connectionName }
+      : {}),
+    ...(classified.profileName
+      ? { failureProfile: classified.profileName }
+      : {}),
+  });
   let abnormalOutcome:
-    | { outcome: "failed" | "cancelled"; failureCode?: string }
+    | {
+        outcome: "failed" | "cancelled";
+        failureCode?: string;
+        failureMessage?: string;
+        failureCategory?: string;
+        failureConnection?: string;
+        failureProfile?: string;
+      }
     | undefined;
   // True once a replied terminal SSE (message_complete / generation_handoff)
   // has been emitted. Guards the catch block: an error thrown by the
@@ -777,6 +802,10 @@ export async function runAgentLoopImpl(
       try {
         stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
           failureCode: abnormalOutcome.failureCode,
+          failureMessage: abnormalOutcome.failureMessage,
+          failureCategory: abnormalOutcome.failureCategory,
+          failureConnection: abnormalOutcome.failureConnection,
+          failureProfile: abnormalOutcome.failureProfile,
         });
       } catch (err) {
         rlog.warn(
@@ -858,6 +887,7 @@ export async function runAgentLoopImpl(
       abnormalOutcome = {
         outcome: "failed",
         failureCode: DISK_PRESSURE_ERROR_CODE,
+        failureMessage: message,
       };
       rlog.warn(
         { reason: diskPressureDecision.reason },
@@ -1382,17 +1412,16 @@ export async function runAgentLoopImpl(
       );
       // Exhausted-overflow exit: the reduction ladder is spent and the turn
       // ends without a real reply, so label it failed for telemetry.
-      abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+      abnormalOutcome = failedOutcomeFromClassification(classified);
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     } else if (
       overflowTerminalReason === "budget_yield_unrecovered" &&
       !abortController.signal.aborted
     ) {
       budgetYieldClassification = budgetYieldUnrecoveredClassification();
-      abnormalOutcome = {
-        outcome: "failed",
-        failureCode: budgetYieldClassification.code,
-      };
+      abnormalOutcome = failedOutcomeFromClassification(
+        budgetYieldClassification,
+      );
       onEvent(
         buildConversationErrorMessage(
           ctx.conversationId,
@@ -1547,6 +1576,16 @@ export async function runAgentLoopImpl(
         outcome: "failed",
         ...(state.providerErrorCode
           ? { failureCode: state.providerErrorCode }
+          : {}),
+        failureMessage: state.providerErrorUserMessage,
+        ...(state.providerErrorCategory
+          ? { failureCategory: state.providerErrorCategory }
+          : {}),
+        ...(state.providerErrorConnection
+          ? { failureConnection: state.providerErrorConnection }
+          : {}),
+        ...(state.providerErrorProfile
+          ? { failureProfile: state.providerErrorProfile }
           : {}),
       };
       // Drop any reservation stranded by the failed LLM call. The B3
@@ -1874,7 +1913,7 @@ export async function runAgentLoopImpl(
         ...turnErrorAttribution(),
       });
       if (!turnReplied) {
-        abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+        abnormalOutcome = failedOutcomeFromClassification(classified);
       }
       onEvent({
         type: "error",

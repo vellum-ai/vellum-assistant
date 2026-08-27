@@ -94,4 +94,5 @@ Load `twilio-setup` and follow its Channel Trust Floors section. Change **Who ca
 ## Call answers with a spoken "setup required" message and hangs up
 
 - The credential preflight found a missing STT or TTS provider credential — the spoken message names what is missing
-- Store the required API key for the configured `services.stt.provider` / `services.tts.provider` and retry
+- Store the required API key for the provider telephony actually resolves to (`services.stt.roles.telephony` when set, otherwise `services.stt.provider`) and for `services.tts.provider`, then retry
+- A key stored for the global provider does not satisfy a `services.stt.roles.telephony` override: the preflight judges the provider the call will dial

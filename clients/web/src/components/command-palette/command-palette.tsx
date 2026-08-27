@@ -1,4 +1,8 @@
-import { Button, Typography } from "@vellumai/design-library";
+import {
+  Button,
+  Typography,
+  formatAcceleratorHint,
+} from "@vellumai/design-library";
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
 import {
@@ -311,7 +315,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
               : "shrink-0 rounded-md border border-[var(--border-base)] bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default text-[var(--content-tertiary)]"
           }
         >
-          {t("commandPalette.shortcutHint")}
+          {formatAcceleratorHint("CmdOrCtrl+K")}
         </kbd>
       ) : null}
       {useMobileLayout ? (

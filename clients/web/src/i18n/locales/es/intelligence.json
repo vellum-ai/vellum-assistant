@@ -279,6 +279,7 @@
     "workspace": "Espacio de trabajo"
   },
   "skillDetail": {
+    "backToConversationAriaLabel": "Volver a la conversación",
     "backToSkillsAriaLabel": "Volver a las habilidades",
     "filesTab": "Archivos",
     "fileViewModeAriaLabel": "Modo de vista de archivo",
@@ -295,6 +296,7 @@
     "source": "Código"
   },
   "skillDetailPage": {
+    "backToConversation": "Volver a la conversación",
     "backToSuperpowers": "Volver a Mis superpoderes",
     "notFoundSubtitle": "Es posible que esta habilidad se haya eliminado, o que el enlace esté obsoleto.",
     "notFoundTitle": "Habilidad no encontrada"

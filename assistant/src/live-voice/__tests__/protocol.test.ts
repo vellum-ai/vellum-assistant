@@ -494,6 +494,61 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("carries the hidden marker on a text turn that sets it", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "this message is sent automatically",
+      hidden: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toEqual({
+      type: "text",
+      text: "this message is sent automatically",
+      hidden: true,
+    });
+  });
+
+  test.each([[false], [undefined]])(
+    "omits the hidden marker when it is %s",
+    (hidden) => {
+      // Absent rather than `hidden: false`, so a turn the user typed is
+      // byte-identical to one sent by a client that predates the field.
+      const result = validateLiveVoiceClientFrame({
+        type: "text",
+        text: "typed by hand",
+        ...(hidden === undefined ? {} : { hidden }),
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.frame).toEqual({ type: "text", text: "typed by hand" });
+    },
+  );
+
+  test("rejects a non-boolean hidden marker", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "text",
+      text: "hello",
+      hidden: "yes",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "hidden",
+      frameType: "text",
+    });
+  });
+
   test.each([
     ["empty", ""],
     ["whitespace only", "   \n\t "],

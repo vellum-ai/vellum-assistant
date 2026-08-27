@@ -12,14 +12,7 @@
  * only what is worth naming separately.
  */
 
-/** A decimal-string amount as a number, or null when there is none to read. */
-function parseUsd(value: string | null | undefined): number | null {
-  if (value == null) {
-    return null;
-  }
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
+import { parseUsd } from "@/lib/billing/parse-usd";
 
 /**
  * The balance to display: the effective balance less whatever is still unused

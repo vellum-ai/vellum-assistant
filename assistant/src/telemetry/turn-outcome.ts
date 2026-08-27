@@ -31,6 +31,26 @@ export interface TurnOutcomeExtras {
   batchedInto?: string;
   /** For `"failed"`: stable classified error code (never free-form text). */
   failureCode?: string;
+  /**
+   * For `"failed"`: the classification's authored user-facing message
+   * (`classifyConversationError(...).userMessage`), so downstream failure
+   * reporting (background-job alerts) can render the actionable prose the
+   * chat banner shows instead of reconstructing degraded text from the code.
+   */
+  failureMessage?: string;
+  /** For `"failed"`: the classification's machine-readable category. */
+  failureCategory?: string;
+  /**
+   * For `"failed"`: name of the `provider_connections` row in play when the
+   * failure occurred, when the classifier had it in scope.
+   */
+  failureConnection?: string;
+  /**
+   * For `"failed"`: the resolved profile key the failing call ran under,
+   * when the classifier had it in scope. This is dispatch's own attribution,
+   * so consumers scope failure identity by it instead of re-resolving.
+   */
+  failureProfile?: string;
 }
 
 /**
@@ -49,10 +69,25 @@ export function stampTurnOutcome(
   extras: TurnOutcomeExtras = {},
 ): void {
   try {
+    // The failure* keys are read back by `readTurnFailure` only; the turn
+    // telemetry projection (`queryUnreportedTurnEvents`) extracts none of
+    // them, so nothing here changes the platform wire contract.
     updateMessageMetadata(userMessageId, {
       turnOutcome: outcome,
       ...(extras.batchedInto ? { turnBatchedInto: extras.batchedInto } : {}),
       ...(extras.failureCode ? { turnFailureCode: extras.failureCode } : {}),
+      ...(extras.failureMessage
+        ? { turnFailureMessage: extras.failureMessage }
+        : {}),
+      ...(extras.failureCategory
+        ? { turnFailureCategory: extras.failureCategory }
+        : {}),
+      ...(extras.failureConnection
+        ? { turnFailureConnection: extras.failureConnection }
+        : {}),
+      ...(extras.failureProfile
+        ? { turnFailureProfile: extras.failureProfile }
+        : {}),
     });
   } catch (err) {
     log.warn(
@@ -75,6 +110,14 @@ export function stampTurnOutcome(
 export interface TurnFailure {
   /** Stable classified error code (never free-form text). */
   failureCode?: string;
+  /** The classification's authored user-facing message, when stamped. */
+  userMessage?: string;
+  /** The classification's machine-readable category, when stamped. */
+  errorCategory?: string;
+  /** Connection row in play when the failure occurred, when stamped. */
+  connectionName?: string;
+  /** Resolved profile key the failing call ran under, when stamped. */
+  profileName?: string;
 }
 
 /**
@@ -106,11 +149,39 @@ export function readTurnFailure(userMessageId: string): TurnFailure | null {
   if (typeof parsed !== "object" || parsed === null) {
     return null;
   }
-  const meta = parsed as { turnOutcome?: unknown; turnFailureCode?: unknown };
+  const meta = parsed as {
+    turnOutcome?: unknown;
+    turnFailureCode?: unknown;
+    turnFailureMessage?: unknown;
+    turnFailureCategory?: unknown;
+    turnFailureConnection?: unknown;
+    turnFailureProfile?: unknown;
+  };
   if (meta.turnOutcome !== "failed") {
     return null;
   }
-  return typeof meta.turnFailureCode === "string"
-    ? { failureCode: meta.turnFailureCode }
-    : {};
+  const str = (value: unknown): string | undefined =>
+    typeof value === "string" ? value : undefined;
+  const failure: TurnFailure = {};
+  const failureCode = str(meta.turnFailureCode);
+  if (failureCode !== undefined) {
+    failure.failureCode = failureCode;
+  }
+  const userMessage = str(meta.turnFailureMessage);
+  if (userMessage !== undefined) {
+    failure.userMessage = userMessage;
+  }
+  const errorCategory = str(meta.turnFailureCategory);
+  if (errorCategory !== undefined) {
+    failure.errorCategory = errorCategory;
+  }
+  const connectionName = str(meta.turnFailureConnection);
+  if (connectionName !== undefined) {
+    failure.connectionName = connectionName;
+  }
+  const profileName = str(meta.turnFailureProfile);
+  if (profileName !== undefined) {
+    failure.profileName = profileName;
+  }
+  return failure;
 }

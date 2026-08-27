@@ -14,6 +14,8 @@ import {
   SquarePen,
 } from "lucide-react";
 
+import { formatAcceleratorHint } from "@vellumai/design-library";
+
 import type { CommandPaletteSection } from "@/components/command-palette/command-palette";
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 import { newChatShortcutHint } from "@/domains/chat/new-chat-shortcut";
@@ -36,13 +38,13 @@ export function buildActionsSection(
         id: "action-current-conversation",
         icon: Monitor,
         title: "Current Conversation",
-        shortcutHint: "⌘⇧N",
+        shortcutHint: formatAcceleratorHint("CmdOrCtrl+Shift+N"),
       },
       {
         id: "action-settings",
         icon: Settings,
         title: "Settings",
-        shortcutHint: "⌘,",
+        shortcutHint: formatAcceleratorHint("CmdOrCtrl+,"),
       },
       { id: "action-library", icon: LayoutGrid, title: "Library" },
       { id: "action-intelligence", icon: Globe, title: assistantName },

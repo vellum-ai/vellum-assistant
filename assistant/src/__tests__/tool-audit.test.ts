@@ -8,10 +8,18 @@ mock.module("../platform/consent-cache.js", () => ({
   getRawShareAnalytics: () => shareAnalytics,
 }));
 
-// Capture the audit rows the terminals would insert, and the lifecycle-event
-// telemetry strings they would record, without touching the database.
+// Capture the audit rows the terminals would insert, and the lifecycle events
+// they would record, without touching the database.
 const records: Array<Record<string, unknown>> = [];
-const lifecycleEvents: string[] = [];
+const lifecycleEvents: Array<{
+  eventName: string;
+  attributes: Record<string, unknown>;
+}> = [];
+const lifecycleEventNames = (): string[] =>
+  lifecycleEvents.map((event) => event.eventName);
+// Simulates the telemetry store failing (degraded DB) for the one test that
+// asserts the terminals swallow it.
+let lifecycleRecorderThrows = false;
 
 mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: (record: Record<string, unknown>) =>
@@ -19,13 +27,22 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
 }));
 
 mock.module("../persistence/lifecycle-events-store.js", () => ({
-  recordLifecycleEvent: (eventName: string) => lifecycleEvents.push(eventName),
+  recordLifecycleEvent: (
+    eventName: string,
+    attributes: Record<string, unknown> = {},
+  ) => {
+    if (lifecycleRecorderThrows) {
+      throw new Error("telemetry db down");
+    }
+    lifecycleEvents.push({ eventName, attributes });
+  },
 }));
 
 import {
   recordToolDenied,
   recordToolError,
   recordToolExecuted,
+  recordToolPermissionDecided,
   recordToolPermissionPrompted,
 } from "../telemetry/tool-audit.js";
 import {
@@ -48,6 +65,7 @@ const ATTRIBUTION = {
 describe("tool audit terminals", () => {
   beforeEach(() => {
     shareAnalytics = true;
+    lifecycleRecorderThrows = false;
     records.length = 0;
     lifecycleEvents.length = 0;
   });
@@ -63,7 +81,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 12,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -84,7 +101,6 @@ describe("tool audit terminals", () => {
       reason: "Blocked by deny rule: rm *",
       riskLevel: "high",
       durationMs: 20,
-      wasPrompted: false,
     });
     recordToolDenied({
       conversationId: "conv-2",
@@ -93,7 +109,6 @@ describe("tool audit terminals", () => {
       reason: "Permission denied by user",
       riskLevel: "high",
       durationMs: 22,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(2);
@@ -118,7 +133,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 5,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -141,7 +155,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 5,
       attribution: null,
-      wasPrompted: false,
     });
     recordToolError({
       conversationId: "conv-input-redact",
@@ -160,7 +173,6 @@ describe("tool audit terminals", () => {
       reason: "Permission denied by user",
       riskLevel: "high",
       durationMs: 5,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(3);
@@ -192,7 +204,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 2,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -215,7 +226,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 2,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -246,7 +256,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 3,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -289,7 +298,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 12,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -316,7 +324,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 4,
       attribution: null,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -339,7 +346,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 12,
       attribution: ATTRIBUTION,
-      wasPrompted: false,
     });
     recordToolError({
       conversationId: "conv-opt-out",
@@ -395,7 +401,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 12,
       attribution: ATTRIBUTION,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(1);
@@ -420,7 +425,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 12,
       attribution: ATTRIBUTION,
-      wasPrompted: false,
     });
     recordToolExecuted({
       conversationId: "conv-attr",
@@ -432,7 +436,6 @@ describe("tool audit terminals", () => {
       riskLevel: "low",
       durationMs: 3,
       attribution: null,
-      wasPrompted: false,
     });
     recordToolDenied({
       conversationId: "conv-attr",
@@ -441,7 +444,6 @@ describe("tool audit terminals", () => {
       reason: "Permission denied by user",
       riskLevel: "high",
       durationMs: 1,
-      wasPrompted: false,
     });
 
     expect(records).toHaveLength(3);
@@ -462,9 +464,7 @@ describe("tool audit terminals", () => {
     expect(records[2].resultBytes).toBeUndefined();
   });
 
-  test("prompted decisions record permission lifecycle telemetry; unprompted do not", () => {
-    recordToolPermissionPrompted("bash");
-    // Prompted allow → executed records a decided event.
+  test("audit terminals record no permission lifecycle telemetry", () => {
     recordToolExecuted({
       conversationId: "conv-prompt",
       toolName: "bash",
@@ -475,9 +475,7 @@ describe("tool audit terminals", () => {
       riskLevel: "high",
       durationMs: 3,
       attribution: null,
-      wasPrompted: true,
     });
-    // Prompted denial → denied records a decided event.
     recordToolDenied({
       conversationId: "conv-prompt",
       toolName: "bash",
@@ -485,26 +483,99 @@ describe("tool audit terminals", () => {
       reason: "Permission denied by user",
       riskLevel: "high",
       durationMs: 1,
-      wasPrompted: true,
-    });
-    // Unprompted (auto-approved) execution records nothing.
-    recordToolExecuted({
-      conversationId: "conv-prompt",
-      toolName: "file_read",
-      input: { path: "/tmp/a" },
-      resultContent: "ok",
-      resultBytes: 2,
-      decision: "allow",
-      riskLevel: "low",
-      durationMs: 1,
-      attribution: null,
-      wasPrompted: false,
     });
 
-    expect(lifecycleEvents).toEqual([
+    expect(lifecycleEvents).toEqual([]);
+  });
+
+  test("prompt and decision carry the same grouping dimensions", () => {
+    const prompt = {
+      toolName: "bash",
+      riskLevel: "high",
+      riskThreshold: "low",
+      surface: "slack",
+      conversationId: "conv-prompt",
+    };
+
+    recordToolPermissionPrompted(prompt);
+    recordToolPermissionDecided(prompt, "deny");
+
+    expect(lifecycleEventNames()).toEqual([
       "permission_prompt:bash",
-      "permission_decided:bash:allow",
       "permission_decided:bash:deny",
     ]);
+    for (const event of lifecycleEvents) {
+      expect(event.attributes).toEqual({
+        toolName: "bash",
+        riskLevel: "high",
+        riskThreshold: "low",
+        surface: "slack",
+        conversationId: "conv-prompt",
+      });
+    }
+  });
+
+  test("optional grouping dimensions are left unset when unknown", () => {
+    recordToolPermissionPrompted({ toolName: "file_read", riskLevel: "low" });
+
+    const attributes = lifecycleEvents[0]!.attributes;
+    expect(attributes.toolName).toBe("file_read");
+    expect(attributes.riskLevel).toBe("low");
+    expect(attributes.riskThreshold).toBeUndefined();
+    expect(attributes.surface).toBeUndefined();
+    expect(attributes.conversationId).toBeUndefined();
+  });
+
+  test("records an abandoned decision distinctly from a user denial", () => {
+    const prompt = { toolName: "bash", riskLevel: "medium" };
+
+    recordToolPermissionPrompted(prompt);
+    recordToolPermissionDecided(prompt, "abandoned");
+
+    expect(lifecycleEventNames()).toEqual([
+      "permission_prompt:bash",
+      "permission_decided:bash:abandoned",
+    ]);
+  });
+
+  test("truncates a long tool name to the wire event-name bound", () => {
+    const toolName = `mcp__${"a".repeat(80)}__run`;
+    const prompt = { toolName, riskLevel: "high" };
+
+    recordToolPermissionPrompted(prompt);
+    recordToolPermissionDecided(prompt, "abandoned");
+
+    for (const event of lifecycleEvents) {
+      expect(event.eventName.length).toBeLessThanOrEqual(64);
+      // The full name still joins the pair.
+      expect(event.attributes.toolName).toBe(toolName);
+    }
+    expect(lifecycleEvents[1]!.eventName.endsWith(":abandoned")).toBe(true);
+  });
+
+  test("clamps a tool name past the wire tool_name bound", () => {
+    // A field over its bound fails validation, and a failed event is acked and
+    // discarded rather than retried.
+    const toolName = `mcp__${"a".repeat(300)}__run`;
+
+    recordToolPermissionPrompted({ toolName, riskLevel: "high" });
+
+    expect(lifecycleEvents[0]!.attributes.toolName).toBe(
+      toolName.slice(0, 255),
+    );
+  });
+
+  test("a failing lifecycle recorder never propagates out of the terminals", () => {
+    lifecycleRecorderThrows = true;
+
+    expect(() =>
+      recordToolPermissionPrompted({ toolName: "bash", riskLevel: "high" }),
+    ).not.toThrow();
+    expect(() =>
+      recordToolPermissionDecided(
+        { toolName: "bash", riskLevel: "high" },
+        "abandoned",
+      ),
+    ).not.toThrow();
   });
 });

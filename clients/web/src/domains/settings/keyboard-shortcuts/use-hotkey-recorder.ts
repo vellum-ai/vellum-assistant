@@ -6,6 +6,7 @@ import {
   setHotkey,
   type ResolvedHotkey,
 } from "@/runtime/hotkeys";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 
 import {
   eventToAccelerator,
@@ -87,12 +88,13 @@ export function useHotkeyRecorder(options?: {
         return;
       }
 
-      const accelerator = eventToAccelerator(event);
+      const hostOS = detectElectronHostOS() ?? "macos";
+      const accelerator = eventToAccelerator(event, hostOS);
       if (accelerator === null) {
         return;
       }
 
-      const clash = findConflict(catalog, recordingKey, accelerator);
+      const clash = findConflict(catalog, recordingKey, accelerator, hostOS);
       if (clash !== null) {
         setConflict({ key: recordingKey, label: clash.label });
         return;
@@ -132,7 +134,12 @@ export function useHotkeyRecorder(options?: {
       // blindly would resurrect that accelerator and shadow the other binding.
       const fallback =
         catalog.find((entry) => entry.key === key)?.defaultAccelerator ?? "";
-      const clash = findConflict(catalog, key, fallback);
+      const clash = findConflict(
+        catalog,
+        key,
+        fallback,
+        detectElectronHostOS() ?? "macos",
+      );
       if (clash !== null) {
         setRecordingKey(null);
         setConflict({ key, label: clash.label });

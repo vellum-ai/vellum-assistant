@@ -69,6 +69,35 @@ public static class InputControllerTests
         Check(InputController.MapAction("computer_use_screenshot", null).Type == "observe", "screenshot observes");
         Check(InputController.MapAction("computer_use_press_key", null).Type == "key", "press_key");
 
+        // Drag carries a destination by coordinates or element id.
+        using var dragInput = JsonDocument.Parse("{\"element_id\":1,\"to_x\":50,\"to_y\":60}");
+        var drag = InputController.MapAction("computer_use_drag", dragInput.RootElement);
+        Check(drag.Type == "drag" && drag.ElementId == 1 && drag.ToX == 50 && drag.ToY == 60, "drag mapping");
+
+        // App names resolve through aliases and Start Menu shortcut stems.
+        Check(AppLauncher.Resolve("vscode") == "Visual Studio Code", "app alias");
+        var apps = new[]
+        {
+            new AppLauncher.AppEntry("Google Chrome", "chrome.lnk"),
+            new AppLauncher.AppEntry("Slack Beta", "slack-beta.lnk"),
+            new AppLauncher.AppEntry("Slack", "slack.lnk"),
+            new AppLauncher.AppEntry("Visual Studio Code", "code.lnk"),
+            new AppLauncher.AppEntry("Visual Studio Installer", "vsi.lnk"),
+        };
+        Check(AppLauncher.FindMatch(apps, "chrome", "Google Chrome") == "chrome.lnk", "app alias match");
+        Check(AppLauncher.FindMatch(apps, "slack", "slack") == "slack.lnk", "app exact beats prefix");
+        Check(AppLauncher.FindMatch(apps, "goog", "goog") == "chrome.lnk", "app unique prefix");
+        Check(AppLauncher.FindMatch(apps, "zoom", "zoom") is null, "app missing");
+        try
+        {
+            AppLauncher.FindMatch(apps, "Visual Studio", "Visual Studio");
+            throw new Exception("Ambiguous prefix was accepted");
+        }
+        catch (InvalidOperationException err)
+        {
+            Check(err.Message.Contains("Visual Studio Installer", StringComparison.Ordinal), "app ambiguous prefix");
+        }
+
         var module = new InputController();
 
         // An unrecognized tool reports an unsupported action instead of ending
@@ -87,6 +116,16 @@ public static class InputControllerTests
         CheckContains(
             await InvokeAsync(module, "conv-element", "computer_use_click", "{\"element_id\":3}"),
             "was not found", "unknown element");
+
+        // Drag resolves both endpoints; a missing destination fails before input.
+        var dragResolved = await InputController.ResolveElementCoordinatesAsync(
+            new CuAction("drag", X: 1, Y: 2, ToElementId: 7),
+            new FakeObservationSource(new CuPoint(40, 60)),
+            CancellationToken.None);
+        Check(dragResolved.ToX == 40 && dragResolved.ToY == 60, "drag destination resolves");
+        CheckContains(
+            await InvokeAsync(module, "conv-drag", "computer_use_drag", "{\"x\":1,\"y\":2}"),
+            "Destination coordinates", "drag needs destination");
 
         var resolved = await InputController.ResolveElementCoordinatesAsync(
             new CuAction("click", ElementId: 7),

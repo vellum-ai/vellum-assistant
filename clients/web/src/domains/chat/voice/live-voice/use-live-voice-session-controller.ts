@@ -191,7 +191,7 @@ export function useLiveVoiceSessionController(
     useLiveVoiceStore.getState().setStarter({
       prewarm: prewarmPlayback,
       cancelPrewarm: cancelPrewarmedPlayback,
-      start: (assistantId, conversationId) =>
+      start: (assistantId, conversationId, options) =>
         // Hands-free (server-side turn detection) is the only mode the voice
         // button starts — it keeps one socket open across turns so the
         // assistant's TTS drains instead of the session tearing down each
@@ -199,6 +199,7 @@ export function useLiveVoiceSessionController(
         // when the daemon's `ready` doesn't echo `server_vad`.
         void start(assistantId, conversationId ?? undefined, {
           handsFree: true,
+          ...(options?.seedText ? { seedText: options.seedText } : {}),
         }),
     });
     // A start-voice deep link that arrived before this mount (cold launch from

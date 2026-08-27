@@ -19,6 +19,7 @@ const meta: Meta<typeof AssistantChannelsDetail> = {
         status: "ready",
         configured: true,
         canDisconnect: true,
+        canManualEntry: true,
         address: "@example-assistant",
       },
       {
@@ -26,12 +27,14 @@ const meta: Meta<typeof AssistantChannelsDetail> = {
         status: "not_configured",
         configured: false,
         canDisconnect: true,
+        canManualEntry: true,
       },
       {
         key: "phone",
         status: "not_configured",
         configured: false,
         canDisconnect: true,
+        canManualEntry: true,
       },
     ],
     onConnect: () => {},
@@ -61,6 +64,7 @@ export const AllConnected: Story = {
         status: "ready",
         configured: true,
         canDisconnect: true,
+        canManualEntry: true,
         address: "@example-assistant",
       },
       {
@@ -68,6 +72,7 @@ export const AllConnected: Story = {
         status: "ready",
         configured: true,
         canDisconnect: true,
+        canManualEntry: true,
         address: "@example_assistant_bot",
       },
       {
@@ -75,6 +80,7 @@ export const AllConnected: Story = {
         status: "ready",
         configured: true,
         canDisconnect: true,
+        canManualEntry: true,
         address: "+1 (555) 555-0142",
       },
     ],

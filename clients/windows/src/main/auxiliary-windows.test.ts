@@ -80,7 +80,8 @@ const logWarn = mock(() => undefined);
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
-    on: (event: string, listener: Listener) => appListeners.set(event, listener),
+    on: (event: string, listener: Listener) =>
+      appListeners.set(event, listener),
     off: (event: string) => appListeners.delete(event),
   },
   BrowserWindow: class {
@@ -110,6 +111,14 @@ mock.module("electron", () => ({
     },
   },
 }));
+const restoreBounds = mock(
+  (_key: string, defaults: { width: number; height: number }) => defaults,
+);
+const trackWindowState = mock((_key: string, _win: unknown) => undefined);
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  restoreBounds,
+  track: trackWindowState,
+}));
 mock.module("./windows.client", () => ({ createWindow }));
 mock.module("./ipc.client", () => ({
   handle: (channel: string, _schema: unknown, listener: Listener) => {
@@ -130,6 +139,8 @@ mock.module("./logger", () => ({
 
 const { default: auxiliaryWindowsModule } =
   await import("./features/auxiliary-windows");
+const { toggleQuickInput } =
+  await import("@vellumai/electron-desktop/quick-input-window");
 beforeAll(() => {
   auxiliaryWindowsModule.install({} as never);
 });
@@ -164,7 +175,7 @@ describe("Windows auxiliary windows", () => {
 
   test("opens Quick Input from the Windows shortcut and closes on blur", () => {
     workArea = { x: 1600, y: 40, width: 1200, height: 800 };
-    shortcutListeners.get("Control+Shift+/")?.();
+    toggleQuickInput();
     const { options, window } = created[0]!;
     window.emit("ready-to-show");
     expect(options.browserWindow).toMatchObject({
@@ -264,7 +275,7 @@ describe("Windows auxiliary windows", () => {
 
   test("repositions transient windows after a display change", () => {
     handleListeners.get("vellum:commandPalette:open")?.([]);
-    shortcutListeners.get("Control+Shift+/")?.();
+    toggleQuickInput();
     onListeners.get("vellum:dictationOverlay:setState")?.([
       { kind: "recording", transcription: "" },
     ]);
@@ -282,6 +293,11 @@ describe("Windows auxiliary windows", () => {
     popout.emit("ready-to-show");
     handleListeners.get("vellum:popout:open")?.(["conv-123"]);
     expect(popout.isDestroyed()).toBe(false);
+    expect(restoreBounds).toHaveBeenCalledWith("thread.conv-123", {
+      width: 720,
+      height: 800,
+    });
+    expect(trackWindowState).toHaveBeenCalledWith("thread.conv-123", popout);
     expect(options.browserWindow).not.toHaveProperty("parent");
     expect(options.backgroundThrottling).toBe(false);
     expect(popout.loadURL).toHaveBeenCalledWith(

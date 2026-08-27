@@ -2,13 +2,12 @@ import { useEffect, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
-import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import {
   LanguageModelCard,
   type LanguageModelPanelState,
 } from "@/domains/settings/ai/language-model-card";
-import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
+import { ManagedServicesBanner } from "@/components/managed-services-banner";
 import { ProfileDetailPanel } from "@/domains/settings/ai/profile-detail-panel";
 import { OverridesDetailPanel } from "@/domains/settings/ai/overrides-detail-panel";
 import { ProviderDetailPanel } from "@/domains/settings/ai/provider-detail-panel";
@@ -30,7 +29,7 @@ export function AiPage() {
   // the drawer can dock beside the whole card stack, schedules-page style.
   const [lmPanel, setLmPanel] = useState<LanguageModelPanelState | null>(null);
 
-  // Scroll to hash target on mount (e.g. deep links to #email).
+  // Scroll to hash target on mount (e.g. deep links to #text-to-speech).
   useEffect(() => {
     const hash = window.location.hash.slice(1);
     if (!hash) {
@@ -52,7 +51,6 @@ export function AiPage() {
       />
       <WebSearchCard />
       <WebFetchCard />
-      <EmailServiceCard />
       <ImageGenerationCard />
       {/* Speech providers are BYO provider config like every other card here.
           They used to sit behind a "Services" tab on the Voice page, where the

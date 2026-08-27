@@ -26,7 +26,7 @@ When speaking on behalf of your user during calls, refer to yourself as an "assi
 
 # Overview
 
-The calling system connects both **outbound** and **inbound** voice calls over Twilio Media Streams: the assistant transcribes and synthesizes call audio itself using the configured STT provider (`services.stt.provider`) and TTS provider (`services.tts.provider`, default: ElevenLabs), so working API keys for both are required before calls can connect. After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
+The calling system connects both **outbound** and **inbound** voice calls over Twilio Media Streams: the assistant transcribes and synthesizes call audio itself using the STT provider telephony selects (`services.stt.roles.telephony` when set, otherwise `services.stt.provider`) and the TTS provider (`services.tts.provider`, default: ElevenLabs), so working API keys for both are required before calls can connect. After Twilio setup, the assistant prompts the user to choose a voice from a curated list of supported options.
 
 # Initial Setup
 

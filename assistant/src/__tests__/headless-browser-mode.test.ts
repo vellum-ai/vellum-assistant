@@ -148,6 +148,7 @@ import {
   formatModeSelectionFailure,
   parseBrowserMode,
 } from "../tools/browser/browser-execution.js";
+import { CHROME_WEB_STORE_INSTALL_URL } from "../tools/browser/browser-status-constants.js";
 import type { ToolContext } from "../tools/types.js";
 
 // Restore all module mocks after this file completes so they don't
@@ -305,6 +306,7 @@ describe("formatModeSelectionFailure", () => {
     );
     expect(formatted).toContain("Remediation:");
     expect(formatted).toContain("extension is installed and enabled");
+    expect(formatted).toContain(CHROME_WEB_STORE_INSTALL_URL);
   });
 
   test("renders cdp-inspect transport_error with remediation", () => {
@@ -330,6 +332,29 @@ describe("formatModeSelectionFailure", () => {
     expect(formatted).toContain("Discovery code: unreachable");
     expect(formatted).toContain("Remediation:");
     expect(formatted).toContain("--remote-debugging-port");
+  });
+
+  test("includes the Chrome Web Store install URL for host-bridge failures", () => {
+    const diagnostics: AttemptDiagnostic[] = [
+      {
+        candidateKind: "host-bridge",
+        inclusionReason: "auto candidate",
+        stage: "send",
+        errorCode: "transport_error",
+        errorMessage: "desktop client could not reach Chrome",
+      },
+    ];
+
+    const error = new CdpError(
+      "transport_error",
+      "Host bridge unreachable",
+      { attemptDiagnostics: diagnostics },
+    );
+
+    const formatted = formatModeSelectionFailure("auto", error);
+
+    expect(formatted).toContain("Remediation:");
+    expect(formatted).toContain(CHROME_WEB_STORE_INSTALL_URL);
   });
 });
 
@@ -398,6 +423,7 @@ describe("browser_mode wiring through tool execution", () => {
     );
     expect(result.content).toContain("Remediation:");
     expect(result.content).toContain("extension is installed and enabled");
+    expect(result.content).toContain(CHROME_WEB_STORE_INSTALL_URL);
     // Factory should not have been called for CDP
     expect(cdpSendCalls).toEqual([]);
   });
@@ -585,6 +611,7 @@ describe("browser_mode wiring through tool execution", () => {
     expect(result.content).toContain("Reason: Host browser not reachable");
     expect(result.content).toContain("Remediation:");
     expect(result.content).toContain("extension is installed and enabled");
+    expect(result.content).toContain(CHROME_WEB_STORE_INSTALL_URL);
   });
 
   test("pinned extension with timeout transport error surfaces failover diagnostics in snapshot", async () => {

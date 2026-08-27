@@ -67,6 +67,7 @@ interface ClientCatalogModel {
       cacheWritePer1mTokens?: number;
     }>;
   };
+  featureFlag?: string;
 }
 
 interface ClientCatalogEntry {
@@ -79,6 +80,7 @@ interface ClientCatalogEntry {
   apiKeyPlaceholder?: string;
   credentialsGuide?: ClientCatalogCredentialsGuide;
   supportsPlatformAuth?: boolean;
+  featureFlag?: string;
   defaultModel: string;
   models: ClientCatalogModel[];
 }
@@ -133,6 +135,7 @@ describe("LLM catalog parity: daemon vs client", () => {
       expect(clientEntry.supportsPlatformAuth).toBe(
         daemonEntry.supportsPlatformAuth,
       );
+      expect(clientEntry.featureFlag).toBe(daemonEntry.featureFlag);
       expect(clientEntry.credentialsGuide).toEqual(
         daemonEntry.credentialsGuide,
       );
@@ -199,6 +202,7 @@ describe("LLM catalog parity: daemon vs client", () => {
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);
         expect(clientModel.supportsToolUse).toBe(daemonModel.supportsToolUse);
         expect(clientModel.pricing).toEqual(daemonModel.pricing);
+        expect(clientModel.featureFlag).toBe(daemonModel.featureFlag);
       }
     }
   });

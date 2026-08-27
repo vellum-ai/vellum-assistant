@@ -1,3 +1,4 @@
+import { formatAcceleratorHint } from "@vellumai/design-library";
 import { Search, X } from "lucide-react";
 import {
   useCallback,
@@ -148,12 +149,15 @@ function SearchButton() {
   const handleClick = useCallback(() => {
     toggle();
   }, [toggle]);
+  const label = t("assistantSideMenu.searchShortcut", {
+    shortcut: formatAcceleratorHint("CmdOrCtrl+K"),
+  });
   return (
     <Button
       variant="ghost"
       iconOnly={<Search />}
-      aria-label={t("assistantSideMenu.searchShortcut")}
-      title={t("assistantSideMenu.searchShortcut")}
+      aria-label={label}
+      title={label}
       className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
       onClick={handleClick}
     />

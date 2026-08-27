@@ -24,9 +24,7 @@ const schemes =
     ? ["vellum", "vellum-assistant"]
     : [`vellum-assistant-${env}`];
 
-const iconEnvironment = ["local", "dev", "staging", "production"].includes(
-  env,
-)
+const iconEnvironment = ["local", "dev", "staging", "production"].includes(env)
   ? env
   : "production";
 const appIcon = `build-resources/icons/${iconEnvironment}/icon.ico`;
@@ -141,6 +139,7 @@ module.exports = {
       to: `native-helper/${targetArch}`,
     },
     { from: "resources/tray.ico", to: "tray.ico" },
+    { from: appIcon, to: "icon.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
     {
       from: `native/Vellum.PreviewHandler/build/${msbuildPlatform}/Release`,

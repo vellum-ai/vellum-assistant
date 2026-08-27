@@ -10,7 +10,7 @@
  */
 
 import { useCallback } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 export interface ChannelRouteSelection {
   /** The channel named in the URL, or undefined at `/assistant/channels`. */
@@ -21,14 +21,22 @@ export interface ChannelRouteSelection {
 export function useChannelRouteSelection(): ChannelRouteSelection {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
+  const { search } = useLocation();
 
   const select = useCallback(
     (next: string) => {
-      navigate(`/assistant/channels/${encodeURIComponent(next)}`, {
-        replace: true,
-      });
+      // Selection owns only the path. The query string rides along untouched:
+      // deep-link params like `release=1` arrive together with `setup=<id>`,
+      // and the arrival effects (select here, param cleanup in
+      // `useSetupChannelParam`) run in child-then-parent order, so a select
+      // that rebuilt the URL from the path alone would drop the other
+      // params' intent whenever it navigated last.
+      navigate(
+        { pathname: `/assistant/channels/${encodeURIComponent(next)}`, search },
+        { replace: true },
+      );
     },
-    [navigate],
+    [navigate, search],
   );
 
   return { selected: channelId, select };

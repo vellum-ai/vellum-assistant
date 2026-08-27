@@ -481,6 +481,33 @@ export function findMessageBySourceId(
 }
 
 /**
+ * Whether any inbound-event row exists for this source message, linked or
+ * not. Discriminates "never ingested" from "ingested, link still landing":
+ * only the second justifies waiting out the link race, so a delete or edit
+ * for a message the daemon never saw can return immediately instead of
+ * holding its conversation's serialized lane through the retry window.
+ */
+export function hasInboundEventForSource(
+  sourceChannel: string,
+  externalChatId: string,
+  sourceMessageId: string,
+): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: channelInboundEvents.id })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.sourceMessageId, sourceMessageId),
+      ),
+    )
+    .get();
+  return row !== undefined;
+}
+
+/**
  * Reference to the most recent inbound channel event for a conversation:
  * the external chat plus the channel-native message identifiers needed to
  * point back at the triggering message (for Slack, `sourceMessageId` is the

@@ -195,7 +195,7 @@ export function registerMcpCommand(program: Command): void {
               url?: string;
               command?: string;
               args?: string[];
-              risk: string;
+              risk?: string;
               header: string[];
               disabled?: boolean;
             },

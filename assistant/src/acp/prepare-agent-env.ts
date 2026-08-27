@@ -32,10 +32,15 @@ import {
 import { serverUseDenialReason } from "../tools/credentials/tool-policy.js";
 import { getLogger } from "../util/logger.js";
 import {
+  claudeTokenDigest,
+  claudeTokenRefusedByClaude,
+} from "./acp-auth-marker-store.js";
+import {
   ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   classifyAnthropicToken,
 } from "./acp-credentials.js";
+import { lookupAcpAgentConfig } from "./resolve-agent.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp:prepare-agent-env");
@@ -241,6 +246,61 @@ async function injectOptionalCredential(
 }
 
 /**
+ * Whether a configured `CLAUDE_CODE_OAUTH_TOKEN` should stand down.
+ *
+ * True once Claude has refused that exact value and the vault offers a
+ * different one. Only then: with nothing to fall back to, dropping it would
+ * trade a token that fails for no token at all, and the missing-token branch
+ * would report the wrong reason.
+ *
+ * `acp-claude-oauth` is imported at call time because it reaches back into
+ * this module for the spawn policy helpers, and it is the module authorised to
+ * read this vault field, so the dependency runs one way at load and the other
+ * here.
+ */
+async function configuredClaudeTokenStandsDown(
+  configured: string | undefined,
+): Promise<boolean> {
+  if (!configured || !claudeTokenRefusedByClaude(configured)) {
+    return false;
+  }
+  const { storedClaudeTokenDigest } = await import("./acp-claude-oauth.js");
+  const stored = await storedClaudeTokenDigest();
+  return stored !== undefined && stored !== claudeTokenDigest(configured);
+}
+
+/**
+ * Digest of the Claude token a spawn of `agentId` would resolve now, or
+ * `undefined` when it would find none.
+ *
+ * The credential a marker is judged against, and the same precedence
+ * `prepareAgentEnv` applies rather than a second derivation of it. A
+ * vault-only answer is wrong in both directions: a user who repairs auth by
+ * setting `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` would keep seeing a
+ * card for a failure the next spawn will not repeat, and one whose configured
+ * token is the broken one would see none.
+ *
+ * Deliberately does not check that the agent's binary exists. A marker
+ * outlives the run that wrote it, and an uninstalled adapter says nothing
+ * about whether its credential was replaced.
+ */
+export async function resolvedClaudeCredentialDigest(
+  agentId: string,
+): Promise<string | undefined> {
+  const configured =
+    lookupAcpAgentConfig(agentId)?.env?.CLAUDE_CODE_OAUTH_TOKEN;
+  const usable =
+    configured && classifyAnthropicToken(configured) !== "api_key"
+      ? configured
+      : undefined;
+  if (usable && !(await configuredClaudeTokenStandsDown(usable))) {
+    return claudeTokenDigest(usable);
+  }
+  const { storedClaudeTokenDigest } = await import("./acp-claude-oauth.js");
+  return storedClaudeTokenDigest();
+}
+
+/**
  * Returns a NEW config with any required credentials merged into `env`.
  * Does NOT mutate the input. Throws `FailedDependencyError` if a required
  * credential is missing from both the user-supplied env override and the
@@ -281,6 +341,7 @@ export async function prepareAgentEnv(
   // limitations on the optional `AcpAgentConfig.env` field.
   const env: Record<string, string> = { ...(agentConfig.env ?? {}) };
   const adapterCommand = basename(agentConfig.command);
+  let credentialDigest: string | undefined;
 
   if (adapterCommand === "claude-agent-acp") {
     // A config `env` override or a legacy vault entry can hold an Anthropic API
@@ -302,6 +363,12 @@ export async function prepareAgentEnv(
     };
 
     dropApiKeyOauthToken();
+    // A configured token Claude has already refused stands down in favour of
+    // the vault. Config otherwise wins, so honouring it here would resolve the
+    // same revoked value and raise the card again on every retry.
+    if (await configuredClaudeTokenStandsDown(env.CLAUDE_CODE_OAUTH_TOKEN)) {
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       missReason = await injectCredential(
@@ -318,6 +385,13 @@ export async function prepareAgentEnv(
       env.CLAUDE_CODE_OAUTH_TOKEN !== undefined &&
       classifyAnthropicToken(env.CLAUDE_CODE_OAUTH_TOKEN) === "api_key";
     dropApiKeyOauthToken();
+    // Identity of the token this spawn will actually run with, whichever
+    // source survived the resolution above. Recorded on the history row if
+    // Claude refuses it, which is what lets the marker be compared against the
+    // credential a later spawn would resolve instead of relying on a sweep.
+    credentialDigest = env.CLAUDE_CODE_OAUTH_TOKEN
+      ? claudeTokenDigest(env.CLAUDE_CODE_OAUTH_TOKEN)
+      : undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       // The operator's record of WHY the spawn has no token. `missReason` is
       // the broker's own reason string and the rest are policy verdicts, so no
@@ -388,5 +462,9 @@ export async function prepareAgentEnv(
     ]);
   }
 
-  return { ...agentConfig, env };
+  return {
+    ...agentConfig,
+    env,
+    credentialDigest,
+  };
 }

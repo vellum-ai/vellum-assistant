@@ -178,6 +178,20 @@ export interface LiveVoiceStartOptions {
    * socket. Defaults to the legacy per-turn push-to-talk flow.
    */
   handsFree?: boolean;
+  /**
+   * A first turn to take on the session's behalf, sent once the microphone is
+   * live, so the assistant speaks without waiting for the user.
+   *
+   * Sent as a hidden turn: the row persists and the model sees it, but it does
+   * not render in the transcript. An assistant too old to understand that
+   * persists it visibly, so callers still gate it on an empty conversation and
+   * still pick copy a person could plausibly have sent.
+   *
+   * Spent at most once per `start()`, and only by a session whose microphone
+   * came up. A reconnect never re-sends it, so a socket blip cannot make the
+   * assistant greet twice.
+   */
+  seedText?: string;
 }
 
 /** Injectable factories so tests can supply mock primitives. */
@@ -397,6 +411,15 @@ export function useLiveVoice(
   // on a fresh `start()`, on `ready`, and on teardown/stop.
   const hasReadyRef = useRef(false);
   const initialConnectAttemptRef = useRef(0);
+  // The seed turn a caller asked for (see `LiveVoiceStartOptions.seedText`),
+  // held from `start()` until a session with a live microphone spends it.
+  //
+  // Hook-scoped rather than session-scoped, because every connect attempt
+  // builds a *fresh* `SessionContext`: a flag living there resets on the
+  // reconnect path and greets a second time on a socket blip. The ref outlives
+  // every attempt, so a connect that fails before `ready` still owes the
+  // greeting to whichever attempt finally lands.
+  const pendingSeedTextRef = useRef<string | null>(null);
   const connectSessionRef = useRef<
     | ((
         assistantId: string,
@@ -812,7 +835,40 @@ export function useLiveVoice(
           // start-time value — session ownership for a draft-started session
           // hinges on it (see `isLiveVoiceSessionOwnedBy`).
           useLiveVoiceStore.getState().setConversationId(frame.conversationId);
-          void finishCaptureStartup(session, teardown);
+          // The seed turn waits for the microphone, and is spent only by a
+          // session that got one.
+          //
+          // A `ready` says nothing about capture: permission can be denied,
+          // the device can be absent, the graph can fail to build, and the
+          // server still readies. `finishCaptureStartup` fails the session on
+          // any of those, so a seed dispatched ahead of it persists a user
+          // message into a conversation the user can neither hear nor talk to.
+          // `captureRunning` is that success signal.
+          //
+          // Consuming (rather than flagging) is what keeps a reconnect from
+          // greeting twice while still owing the greeting to a connect attempt
+          // that failed before `ready`.
+          //
+          // `sendText` gates on the `ready.textInput` echo: an assistant
+          // without typed turns answers `unknown_type`, byte-identical to the
+          // `update_config` rejection and impossible to tell apart, so an
+          // unsupported seed is dropped and the room opens silent. Nothing
+          // here sets `thinking`; the daemon's own `thinking` frame does.
+          void finishCaptureStartup(session, teardown).then(() => {
+            if (!live() || !session.captureRunning) {
+              return;
+            }
+            const seedText = pendingSeedTextRef.current;
+            pendingSeedTextRef.current = null;
+            if (seedText !== null) {
+              // `hidden`: the seed is an instruction, not something the user
+              // typed, so it drives the turn and stays in the model's context
+              // while never rendering in the transcript. An assistant too old
+              // to know the field persists it visibly instead, which is why
+              // the copy still reads as a sentence a person could have sent.
+              sendTextTurn(session, seedText, { hidden: true });
+            }
+          });
         }),
         client.on("speechStarted", () => {
           if (!live() || !session.handsFree) {
@@ -1314,6 +1370,10 @@ export function useLiveVoice(
       reconnectAttemptRef.current = 0;
       initialConnectAttemptRef.current = 0;
       hasReadyRef.current = false;
+      // Armed here rather than inside `connectSession`, which the reconnect
+      // path also enters carrying the same `startOptions`: a session that
+      // already greeted must not greet again when its socket comes back.
+      pendingSeedTextRef.current = startOptions?.seedText?.trim() || null;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],
@@ -1574,8 +1634,12 @@ function releasePushToTalk(session: SessionContext): void {
  * a refused turn does not leave an anchor for the next reply's audio to pair
  * against.
  */
-function sendTextTurn(session: SessionContext, text: string): boolean {
-  const sent = session.client.sendText(text);
+function sendTextTurn(
+  session: SessionContext,
+  text: string,
+  options?: { hidden?: boolean },
+): boolean {
+  const sent = session.client.sendText(text, options);
   if (sent) {
     session.speechEndedAtMs = performance.now();
   }

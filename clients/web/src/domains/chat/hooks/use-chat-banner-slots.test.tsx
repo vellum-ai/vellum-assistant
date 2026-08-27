@@ -1,13 +1,14 @@
 /**
  * Tests that `useChatBannerSlots` builds the main banner slot from the nudge
- * state: any active nudge flag yields a slot node, none yields null.
+ * state: any active nudge flag yields a slot node, none yields null, and the
+ * resolved mobile promotion is what picks the native banner over the macOS one.
  *
  * The banner components and queued drawer are stubbed via `mock.module` so
  * the test stays focused on the slot construction logic.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { cleanup, render, renderHook, screen } from "@testing-library/react";
 
 // --- Mocks ----------------------------------------------------------------
 
@@ -18,10 +19,10 @@ mock.module("@/components/nudges/github-nudge-banner", () => ({
   GitHubNudgeBanner: () => null,
 }));
 mock.module("@/components/nudges/native-app-banner", () => ({
-  NativeAppBanner: () => null,
+  NativeAppBanner: () => <div data-testid="native-app-banner" />,
 }));
 mock.module("@/components/nudges/macos-app-banner", () => ({
-  MacOSAppBanner: () => null,
+  MacOSAppBanner: () => <div data-testid="macos-app-banner" />,
 }));
 mock.module("@/domains/chat/components/queued-messages-drawer", () => ({
   QueuedMessagesDrawer: () => null,
@@ -29,6 +30,7 @@ mock.module("@/domains/chat/components/queued-messages-drawer", () => ({
 
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import type { UseChatBannerSlotsParams } from "@/domains/chat/hooks/use-chat-banner-slots";
+import { resolveMobilePromotion } from "@/hooks/use-native-app-nudge";
 
 // --- Fixtures ---------------------------------------------------------------
 
@@ -42,7 +44,7 @@ function makeNudges(overrides: Partial<Nudges> = {}): Nudges {
     isOnAndroid: false,
     isOnMacOS: true,
     isOnNudgePlatform: true,
-    nativeAppPlatform: null,
+    mobilePromotion: null,
     nudge: {
       bannerShouldShow: false,
       handleDownload: noop,
@@ -103,6 +105,31 @@ describe("useChatBannerSlots — banner slot construction", () => {
       expect(result.current.mainBannerSlot).not.toBeNull();
     });
   }
+
+  test("a resolved mobile promotion picks the native app banner", () => {
+    const { result } = renderHook(useChatBannerSlots, {
+      initialProps: makeParams(
+        makeNudges({
+          showBanner: true,
+          mobilePromotion: resolveMobilePromotion("ios"),
+        }),
+      ),
+    });
+
+    render(result.current.mainBannerSlot);
+    expect(screen.getByTestId("native-app-banner")).toBeDefined();
+    expect(screen.queryByTestId("macos-app-banner")).toBeNull();
+  });
+
+  test("no mobile promotion falls through to the macOS banner", () => {
+    const { result } = renderHook(useChatBannerSlots, {
+      initialProps: makeParams(makeNudges({ showBanner: true })),
+    });
+
+    render(result.current.mainBannerSlot);
+    expect(screen.getByTestId("macos-app-banner")).toBeDefined();
+    expect(screen.queryByTestId("native-app-banner")).toBeNull();
+  });
 
   test("clearing the flag drops the slot back to null", () => {
     const { result, rerender } = renderHook(useChatBannerSlots, {

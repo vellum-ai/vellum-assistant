@@ -8,6 +8,10 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
+// The implementation `@/lib/auth/remote-gateway-session` re-exports, imported
+// from its owner so the mock below hands the page the production parser.
+import { parseRemoteWebPairingParams } from "@vellumai/service-contracts/remote-web-pairing";
+
 import type { RemoteWebPairingTokenResult } from "@/lib/auth/remote-gateway-session";
 
 let remoteGatewayMode = false;
@@ -111,13 +115,9 @@ mock.module("@/lib/auth/remote-gateway-session", () => ({
   activateRemoteGatewaySession: activateRemoteGatewaySessionMock,
   createRemoteWebPairingChallenge: createRemoteWebPairingChallengeMock,
   exchangeRemoteWebPairingToken: exchangeRemoteWebPairingTokenMock,
-  parseRemoteWebPairingParams: (value: string) => {
-    const url = new URL(value, "http://localhost:3000");
-    return {
-      deviceCode: url.searchParams.get("deviceCode"),
-      userCode: url.searchParams.get("userCode"),
-    };
-  },
+  // The real parser, not a stand-in: production links carry the device code
+  // in the FRAGMENT and in snake_case, which a query-only mock reads as null.
+  parseRemoteWebPairingParams,
   remoteGatewayPublicBaseUrl: () => {
     const { origin, pathname } = window.location;
     const match = /\/assistant(?:\/|$)/.exec(pathname);

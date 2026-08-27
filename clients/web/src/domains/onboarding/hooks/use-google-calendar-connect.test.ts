@@ -48,7 +48,12 @@ mock.module("@/runtime/browser", () => ({
   openUrl: async () => {},
   openUrlFinishedListener: () => () => {},
 }));
+// Spread the real module so shared utilities that import other exports
+// (e.g. `isCancelledError` via `captureError`) keep resolving; only the
+// hook's query-client read is overridden.
+const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
+  ...actualReactQuery,
   useQueryClient: () => ({ fetchQuery: async () => [] }),
 }));
 

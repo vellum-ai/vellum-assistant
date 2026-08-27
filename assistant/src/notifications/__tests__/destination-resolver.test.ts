@@ -79,6 +79,44 @@ describe("resolveDestinations — gateway guardian list", () => {
     expect(result.has("telegram")).toBe(false);
   });
 
+  test("discord addresses the guardian's user snowflake, never a room id", () => {
+    const list = [
+      guardian({
+        channelType: "discord",
+        address: "111222333444555666",
+        externalChatId: "999888777666555444",
+      }),
+    ];
+    const result = resolveDestinations(["discord"], list);
+    expect(result.get("discord")).toEqual({
+      channel: "discord",
+      endpoint: "111222333444555666",
+      metadata: { externalUserId: "111222333444555666" },
+      bindingContext: {
+        sourceChannel: "discord",
+        externalChatId: "999888777666555444",
+        externalUserId: "111222333444555666",
+      },
+    });
+  });
+
+  test("discord without a binding conversation still resolves the person", () => {
+    const list = [
+      guardian({ channelType: "discord", address: "111222333444555666" }),
+    ];
+    const result = resolveDestinations(["discord"], list);
+    expect(result.get("discord")).toEqual({
+      channel: "discord",
+      endpoint: "111222333444555666",
+      metadata: { externalUserId: "111222333444555666" },
+    });
+  });
+
+  test("discord with no guardian binding is omitted", () => {
+    const result = resolveDestinations(["discord"], []);
+    expect(result.has("discord")).toBe(false);
+  });
+
   test("slack resolves DM endpoint and binding context", () => {
     const list = [
       guardian({

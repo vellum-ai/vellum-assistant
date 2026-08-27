@@ -296,6 +296,7 @@ export function normalizeEmailWebhook(
     sourceChannel: "email",
     receivedAt: new Date().toISOString(),
     message: {
+      eventKind: "message",
       content,
       conversationExternalId: conversationId,
       externalMessageId: messageId,

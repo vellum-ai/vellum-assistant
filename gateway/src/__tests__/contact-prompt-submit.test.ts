@@ -122,6 +122,14 @@ afterAll(() => {
 
 beforeEach(() => {
   ipcMock.mockClear();
+  ipcMock.mockImplementation(async (method: string) => {
+    const err = ipcThrowOn.get(method);
+    if (err) {
+      ipcThrowOn.delete(method);
+      throw err;
+    }
+    return { resolved: true };
+  });
   ipcThrowOn.clear();
 
   const gwDb = getGatewayDb();
@@ -192,6 +200,47 @@ describe("handleContactPromptSubmit", () => {
 
     // A successful guardian bind invalidates the daemon guardian-id cache.
     expectEmittedContactsChanged(ipcMock);
+  });
+
+  test("guardian prompt — --verify attests the submitted channel", async () => {
+    seedGuardian();
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_flags") {
+        return { resolved: true, verify: true };
+      }
+      return { resolved: true };
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-verify",
+        address: "+12025550142",
+        channelType: "imessage",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const discovered = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.type, "imessage"))
+      .get();
+    expect(discovered).toBeDefined();
+    expect(discovered!.status).toBe("active");
+    expect(discovered!.verifiedVia).toBe("manual");
+    expect(discovered!.address).toBe("+12025550142");
+
+    const pluginRows = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.type, "plugin"))
+      .all();
+    expect(pluginRows).toHaveLength(0);
+
+    const flags = callsFor(ipcMock, "contact_prompt_flags");
+    expect(flags).toHaveLength(1);
+    expect(flags[0].body.requestId).toBe("req-verify");
   });
 
   test("guardian prompt — reuses channel already bound to guardian", async () => {

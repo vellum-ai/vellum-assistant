@@ -1192,8 +1192,10 @@ describe("vellum wake — tunnel edge restore", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("brew install nginx"),
     );
+    // No tunnel is recorded here, so no provider can be named and the advice
+    // points at the help that lists them.
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Run `vellum tunnel` to rebuild the edge."),
+      expect.stringContaining("Run `vellum tunnel --help` to rebuild the edge."),
     );
     expect(maybeStartNgrokTunnelMock).toHaveBeenCalledWith(
       7830,
@@ -1201,6 +1203,54 @@ describe("vellum wake — tunnel edge restore", () => {
       "local-assistant",
     );
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+  });
+
+  test("a failed rebuild names the provider that last tunneled here", async () => {
+    loadRawConfigMock.mockReturnValue({
+      ...webhookConfig,
+      ingress: {
+        lastTunnel: {
+          provider: "cloudflare",
+          publicBaseUrl: "https://assistant.example.com",
+        },
+      },
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(new Error("edge rebuild failed"));
+
+    await wake();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Run `vellum tunnel local-assistant --provider cloudflare` to rebuild the edge.",
+      ),
+    );
+  });
+
+  test("a failed rebuild prefers the pairing tunnel over the public one beside it", async () => {
+    // A tailnet pairing tunnel leaves the older public record in place, so the
+    // advice has to name the tunnel actually in front of this assistant.
+    loadRawConfigMock.mockReturnValue({
+      ...webhookConfig,
+      ingress: {
+        lastTunnel: {
+          provider: "cloudflare",
+          publicBaseUrl: "https://assistant.example.com",
+        },
+        pairingTunnel: {
+          provider: "tailscale",
+          publicBaseUrl: "https://assistant.example.ts.net",
+        },
+      },
+    });
+    ensureTunnelEdgeMock.mockRejectedValue(new Error("edge rebuild failed"));
+
+    await wake();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Run `vellum tunnel local-assistant --provider tailscale` to rebuild the edge.",
+      ),
+    );
   });
 
   test("a reused edge still points the tunnel at its listen port", async () => {

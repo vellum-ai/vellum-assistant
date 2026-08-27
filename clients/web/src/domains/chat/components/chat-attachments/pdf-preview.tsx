@@ -1,8 +1,24 @@
-import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+// `?url` emits the package's prebuilt worker as a hashed asset and yields its
+// URL, so the worker is served from our own origin and its version is the
+// `pdfjs-dist` this bundle imports. Not `?worker&url`: the file is already a
+// built worker bundle and needs emitting as-is, not recompiling as a worker
+// entry. A bare `new URL(..., import.meta.url)` does not work here either,
+// since Vite resolves that form for relative paths, not package specifiers.
+// https://vite.dev/guide/assets#explicit-url-imports
+import PDF_WORKER_URL from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
+import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
+import { PreviewTruncationNotice } from "@/domains/chat/components/local-file/preview/preview-truncation-notice";
+import { useTranslation } from "@/i18n";
 
 /**
  * Inline PDF preview rendered via pdfjs-dist canvas. Bypasses Safari/WebKit
@@ -38,7 +54,7 @@ let pdfJsConfigured = false;
 async function loadPdfJs() {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   if (!pdfJsConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
+    pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
     pdfJsConfigured = true;
   }
   return pdfjs;
@@ -47,16 +63,32 @@ async function loadPdfJs() {
 interface PdfPreviewProps {
   url: string;
   className?: string;
+  /**
+   * Shown when the document cannot be read. The surfaces this renders on
+   * present failure differently (a card over the modal's dark backdrop, a
+   * compact row in the drawer) and each already owns a component that does
+   * it, so the choice, and the wording, belong to the caller.
+   */
+  errorFallback: ReactNode;
 }
 
-export function PdfPreview({ url, className }: PdfPreviewProps) {
+export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
+  const { t } = useTranslation("chat");
   // Spans with block/flex classes rather than divs: the preview also renders
   // inline in chat markdown, where a div inside <p> is invalid HTML.
   const containerRef = useRef<HTMLSpanElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
+  // Width/height of page 1, stamped onto each canvas as it mounts so the box
+  // holds a page's shape before anything is drawn into it: a canvas has no
+  // intrinsic size until `renderPage` runs, so the row would otherwise
+  // collapse to the 2:1 default and reflow again as each page arrives. Held
+  // in a ref, not state, because only the imperative mount/render pair reads
+  // it: React never owns `aspectRatio`, so it cannot re-apply the placeholder
+  // over the real dimensions `renderPage` sets.
+  const placeholderAspectRatio = useRef<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const renderedPages = useRef<Set<number>>(new Set());
 
@@ -66,9 +98,10 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
     async function load() {
       setIsLoading(true);
-      setError(null);
+      setFailed(false);
       setPdf(null);
       setNumPages(0);
+      placeholderAspectRatio.current = null;
       renderedPages.current.clear();
 
       try {
@@ -87,11 +120,29 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           void doc.destroy();
           return;
         }
+        // The proxy stays this function's to release until it is handed to
+        // state: the cleanup effect only destroys what it sees replaced or
+        // unmounted, so a document abandoned here would hold its worker for
+        // as long as the error state is on screen.
+        let firstPage;
+        try {
+          firstPage = await doc.getPage(1);
+        } catch (pageError) {
+          void doc.destroy();
+          throw pageError;
+        }
+        if (cancelled) {
+          void doc.destroy();
+          return;
+        }
+
+        const { width, height } = firstPage.getViewport({ scale: 1 });
+        placeholderAspectRatio.current = height > 0 ? width / height : null;
         setPdf(doc);
         setNumPages(Math.min(doc.numPages, MAX_PAGES));
       } catch {
         if (!cancelled) {
-          setError("Failed to load PDF.");
+          setFailed(true);
         }
       } finally {
         if (!cancelled) {
@@ -149,6 +200,12 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
         canvas.width = viewport.width;
         canvas.height = viewport.height;
+        // The placeholder ratio is page 1's, a stand-in for a box with
+        // nothing in it yet. This page now carries its own dimensions, so
+        // drop the override and let them drive the height: a document mixing
+        // portrait and landscape pages would otherwise stretch every page
+        // after the first into page 1's shape.
+        canvas.style.aspectRatio = "";
 
         await page.render({ canvas, viewport }).promise;
       } catch {
@@ -189,6 +246,17 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
     (pageNum: number) => (el: HTMLCanvasElement | null) => {
       if (el) {
         canvasRefs.current.set(pageNum, el);
+        // Only ever a stand-in for an empty box. This callback's identity
+        // changes every render, so React detaches and reattaches the ref on
+        // a canvas that has already been drawn into, and re-stamping the
+        // placeholder there would stretch it back to page 1's shape with no
+        // second `renderPage` coming to clear it.
+        if (
+          placeholderAspectRatio.current !== null &&
+          !renderedPages.current.has(pageNum)
+        ) {
+          el.style.aspectRatio = String(placeholderAspectRatio.current);
+        }
       } else {
         canvasRefs.current.delete(pageNum);
       }
@@ -198,20 +266,17 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
   if (isLoading) {
     return (
-      <span className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-white/70" />
+      <span className="flex justify-center">
+        {/* Matches the canvases' own width cap, so the placeholder occupies
+            the box the pages will. Callers that size pages differently (the
+            drawer) override it the same way they override the canvases. */}
+        <PdfPageSkeleton className="w-[90vw] max-w-[800px]" />
       </span>
     );
   }
 
-  if (error) {
-    return (
-      <span className="block w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-        <span className="text-body-medium-lighter block text-white/80">
-          {error}
-        </span>
-      </span>
-    );
+  if (failed) {
+    return errorFallback;
   }
 
   return (
@@ -228,6 +293,13 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           style={{ height: "auto" }}
         />
       ))}
+      {/* `numPages` is what MAX_PAGES allows; the proxy knows what the
+          document actually holds, and the gap is what is not being shown. */}
+      {pdf !== null && pdf.numPages > numPages && (
+        <PreviewTruncationNotice as="span">
+          {t("pdfPreview.pageCapNotice", { count: numPages })}
+        </PreviewTruncationNotice>
+      )}
     </span>
   );
 }

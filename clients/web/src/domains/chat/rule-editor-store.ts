@@ -19,7 +19,6 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type {
@@ -39,7 +38,6 @@ export interface RuleEditorContext {
   riskLevel: TrustRuleRisk;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
   commandText: string;
   commandDescription: string;
   existingRule?: TrustRuleItem;

@@ -11,6 +11,10 @@ export const SYNC_TAGS = {
   conversationsList: "conversations:list",
   featureFlagsClient: "feature-flags:client",
   featureFlagsAssistant: "feature-flags:assistant",
+  /** ACP credential-failure markers, which drive the inline Connect card.
+   *  Invalidated when a token write retires them, so a client holding a
+   *  restored prompt for the replaced token stops offering it. */
+  acpAuthRecovery: "acp:auth-recovery",
 } as const;
 
 export type KnownSyncInvalidationTag =

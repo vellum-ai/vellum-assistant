@@ -40,7 +40,10 @@ import {
   usesAppProtocolRenderer,
 } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin.client";
-import { provisionCliForCurrentUser } from "./cli-path-flow";
+import {
+  provisionCliForCurrentUser,
+  resolveCliPathFlowOptions,
+} from "./cli-path-flow";
 import { installMainFeatures } from "./features";
 import { handleSync } from "./ipc.client";
 import log from "./logger";
@@ -65,6 +68,10 @@ import { installWebContentsSecurity } from "./windows.client";
 if (!app.isPackaged) {
   app.setName("Vellum Electron Windows");
 }
+
+// Toasts and taskbar grouping key off the AppUserModelID. Packaged builds
+// get it from the installer shortcut; dev would otherwise show "electron.app".
+app.setAppUserModelId(WINDOWS_RELEASE_INFO.appUserModelId);
 
 // Packaged builds all share the same package.json `name`, so Electron
 // resolves `app.getPath("userData")` to the same directory for every
@@ -264,15 +271,7 @@ app
     installCsp();
     if (app.isPackaged && process.platform === "win32") {
       try {
-        const result = provisionCliForCurrentUser({
-          userDataDir: app.getPath("userData"),
-          resourcesDir: process.resourcesPath,
-          localAppData:
-            process.env.LOCALAPPDATA ??
-            path.join(app.getPath("home"), "AppData", "Local"),
-          releaseChannel,
-          version: app.getVersion(),
-        });
+        const result = provisionCliForCurrentUser(resolveCliPathFlowOptions());
         if (["foreign", "shadowed"].includes(result.launcherState)) {
           log.warn(`[cli] Windows launcher is ${result.launcherState}`);
         }
@@ -295,6 +294,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
+  // Feature modules each attach cleanup listeners; lift the default cap of
+  // 10 so they don't trip MaxListenersExceededWarning.
+  contents.setMaxListeners(20);
   installWebContentsSecurity(contents, {
     cookies: () => session.defaultSession.cookies,
     logger: log,

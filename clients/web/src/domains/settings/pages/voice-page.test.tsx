@@ -21,6 +21,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
 // The voice-picker card reads the active assistant id (throws outside the
@@ -63,10 +64,17 @@ import {
 } from "@/stores/voice-prefs-store";
 
 function renderPage() {
+  // The page reads daemon config now (the turn-taking row), so it needs a
+  // client. `retry: false` keeps a miss from re-fetching through the test.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter>
-      <VoiceSections />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <VoiceSections />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

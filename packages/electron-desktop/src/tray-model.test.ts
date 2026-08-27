@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { CompanionSize } from "@vellumai/ipc-contract";
+import type { CompanionSize, CompanionSizeAxis } from "@vellumai/ipc-contract";
 import type { Lockfile } from "@vellumai/local-mode/contract";
 
 // Tray stub: records constructions, event listeners, and image swaps.
@@ -99,8 +99,13 @@ let featureFlags: Record<string, boolean> | null = null;
 let companionSupported = true;
 let companionHidden = false;
 const setCompanionSurfaceVisibleMock = mock((_visible: boolean) => undefined);
-let companionSize: CompanionSize = "large";
-const setCompanionSizeMock = mock((_size: CompanionSize) => undefined);
+let companionSizes: Record<CompanionSizeAxis, CompanionSize> = {
+  avatar: "large",
+  options: "large",
+};
+const setCompanionSizeMock = mock(
+  (_axis: CompanionSizeAxis, _size: CompanionSize) => undefined,
+);
 
 const dispatchToMainMock = mock((_command: unknown) => undefined);
 
@@ -187,7 +192,7 @@ beforeEach(() => {
     onboardingActive: () => false,
     openComponentGallery: () => undefined,
     removePairedLabel: "Remove from this Mac\u2026",
-    companionSize: () => companionSize,
+    companionSize: (axis) => companionSizes[axis],
     setCompanionSize: setCompanionSizeMock,
     setCompanionVisible: setCompanionSurfaceVisibleMock,
   });
@@ -199,7 +204,7 @@ beforeEach(() => {
   featureFlags = null;
   companionSupported = true;
   companionHidden = false;
-  companionSize = "large";
+  companionSizes = { avatar: "large", options: "large" };
   setCompanionSurfaceVisibleMock.mockClear();
   setCompanionSizeMock.mockClear();
   dispatchToMainMock.mockClear();
@@ -565,15 +570,16 @@ describe("companion toggle", () => {
   };
 
   /**
-   * The size picker, which lives beside the toggle and is gated with it: with
-   * no surface there is nothing to size.
+   * The size pickers, which live beside the toggle and are gated with it: with
+   * no surface there is nothing to size. One per axis, since the creature and
+   * the controls beside it are sized separately.
    */
-  const popSizeItem = (): MenuItem | undefined => {
+  const popSizeItem = (label: string): MenuItem | undefined => {
     installTray(handlers);
     handlerFor(trays[0], "right-click")?.();
     const calls = buildFromTemplateMock.mock.calls;
     const template = calls[calls.length - 1]?.[0] as MenuItem[];
-    return template.find((i) => i.label === "Companion Size");
+    return template.find((i) => i.label === label);
   };
 
   test("renders as a checked checkbox while the surface is shown", () => {
@@ -598,47 +604,42 @@ describe("companion toggle", () => {
   });
 
   /**
-   * Named steps rather than a slider (JARVIS-1549). The avatar's box is the
-   * geometry both processes derive from, so the sizes are a fixed set of
-   * layouts and the menu is where one is chosen.
+   * What the tray adds to the pickers, which have their own suite in
+   * `companion-menu.test.ts`: the sizes it shows are the ones it was configured
+   * to read, and a pick lands on the setter it was configured with, under the
+   * axis it was made on.
    */
-  test("offers a size for each named step", () => {
-    expect(popSizeItem()?.submenu?.map((i) => i.label)).toEqual([
-      "Small",
-      "Medium",
-      "Large",
-      "Huge",
-      "Ridiculous",
-    ]);
-  });
+  test("wires both headings to the tray's own size runtime", () => {
+    companionSizes = { avatar: "medium", options: "ridiculous" };
+    expect(
+      popSizeItem("Avatar size")
+        ?.submenu?.filter((i) => i.checked)
+        .map((i) => i.label),
+    ).toEqual(["Medium"]);
+    expect(
+      popSizeItem("Options size")
+        ?.submenu?.filter((i) => i.checked)
+        .map((i) => i.label),
+    ).toEqual(["Ridiculous"]);
 
-  test("marks the size in effect, since radio items have to show one", () => {
-    companionSize = "medium";
-    const checked = popSizeItem()
-      ?.submenu?.filter((i) => i.checked)
-      .map((i) => i.label);
-    expect(checked).toEqual(["Medium"]);
-  });
-
-  test("renders the sizes as one radio group", () => {
-    expect(popSizeItem()?.submenu?.every((i) => i.type === "radio")).toBe(true);
-  });
-
-  test("applies the size that was picked", () => {
-    popSizeItem()?.submenu?.[3]?.click?.({ checked: true });
-    expect(setCompanionSizeMock).toHaveBeenLastCalledWith("huge");
+    popSizeItem("Avatar size")?.submenu?.[3]?.click?.({ checked: true });
+    expect(setCompanionSizeMock).toHaveBeenLastCalledWith("avatar", "huge");
+    popSizeItem("Options size")?.submenu?.[0]?.click?.({ checked: true });
+    expect(setCompanionSizeMock).toHaveBeenLastCalledWith("options", "small");
   });
 
   /**
-   * Disabled rather than dropped while the surface is hidden. The size is still
-   * something the companion has, and an item that comes and goes with the
-   * checkbox above it reads as a bug rather than as a state.
+   * Disabled rather than dropped while the surface is hidden. The sizes are
+   * still something the companion has, and items that came and went with the
+   * checkbox above them would read as a bug rather than as a state.
    */
   test("stands down while the surface is hidden, without disappearing", () => {
     companionHidden = true;
-    const item = popSizeItem();
-    expect(item).toBeDefined();
-    expect(item?.enabled).toBe(false);
+    for (const label of ["Avatar size", "Options size"]) {
+      const item = popSizeItem(label);
+      expect(item).toBeDefined();
+      expect(item?.enabled).toBe(false);
+    }
   });
 
   test("is absent entirely on a platform with no companion surface", () => {
@@ -647,7 +648,8 @@ describe("companion toggle", () => {
     handlerFor(trays[0], "right-click")?.();
     const calls = buildFromTemplateMock.mock.calls;
     const template = calls[calls.length - 1]?.[0] as MenuItem[];
-    expect(template.find((i) => i.label === "Companion Size")).toBeUndefined();
+    expect(template.find((i) => i.label === "Avatar size")).toBeUndefined();
+    expect(template.find((i) => i.label === "Options size")).toBeUndefined();
   });
 });
 

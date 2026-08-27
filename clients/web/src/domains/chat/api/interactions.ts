@@ -179,12 +179,11 @@ export async function submitConfirmation(
   assistantId: string,
   requestId: string,
   decision: ConfirmationDecision,
-  trustRule?: { selectedPattern: string; selectedScope: string },
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await confirmPost({
       path: { assistant_id: assistantId },
-      body: { requestId, decision, ...trustRule },
+      body: { requestId, decision },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to submit confirmation");

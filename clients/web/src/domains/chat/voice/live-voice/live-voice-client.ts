@@ -433,8 +433,14 @@ export class LiveVoiceChannelClient {
    * A turn the daemon refuses because it is mid-reply comes back as a
    * `recoverable` error frame carrying `frameType: "text"`, not as a false
    * here: the frame went out, and the answer arrived later.
+   *
+   * `hidden` marks the turn as an internal instruction rather than something
+   * the user typed: it still drives the turn and the model still sees it, but
+   * it never renders in the transcript. An assistant too old to know the field
+   * ignores it and persists the turn visibly, which no answer here reports, so
+   * text sent this way must still read acceptably to a human.
    */
-  sendText(text: string): boolean {
+  sendText(text: string, options?: { hidden?: boolean }): boolean {
     if (this.state !== "active" || !this.textInputSupported) {
       return false;
     }
@@ -442,7 +448,13 @@ export class LiveVoiceChannelClient {
     if (trimmed.length === 0) {
       return false;
     }
-    return this.trySend(JSON.stringify({ type: "text", text: trimmed }));
+    return this.trySend(
+      JSON.stringify({
+        type: "text",
+        text: trimmed,
+        ...(options?.hidden === true ? { hidden: true } : {}),
+      }),
+    );
   }
 
   /** Whether this session's assistant accepts typed turns. */

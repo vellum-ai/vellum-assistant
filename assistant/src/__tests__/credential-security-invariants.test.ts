@@ -179,6 +179,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/inference/credential-slot-repair.ts", // boot repair: copies the shared openai-compatible slot value into per-connection slots (get/set of provider API keys only; values never logged or returned)
       "runtime/routes/inference-provider-connection-routes.ts", // connection delete removes its dedicated per-connection key slot (deleteSecureKeyAsync only; no reads)
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
+      "daemon/handlers/config-discord-channel.ts", // Discord channel bot token management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
@@ -203,8 +204,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/registry.ts", // provider registry API key lookup for initialization
       "providers/inference/resolve-auth.ts", // provider_connection auth resolver (api_key path reads vault, mirrors registry.ts)
       "providers/inference/codex-token-refresh.ts", // Codex OAuth token refresh (reads/writes access_token, refresh_token, expires_at)
-      "cli/commands/inference-providers.ts", // ChatGPT subscription OAuth token storage
-      "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription daemon OAuth flow (stores tokens in CES)
+      "providers/inference/chatgpt-subscription-credentials.ts", // ChatGPT subscription sign-in token storage, shared by the daemon routes and the CLI (setSecureKeyAsync only; no reads)
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "persistence/embeddings/embedding-backend.ts", // embedding backend API key lookup
@@ -231,7 +231,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
-      "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
@@ -470,23 +469,23 @@ describe("Invariant 4: credentials only used for allowed purpose", () => {
   });
 
   // PR 18 — vault policy fields with strict defaults
-  test("credential without explicit policy gets strict defaults (deny all)", () => {
+  test("credential without explicit policy gets strict defaults (deny all)", async () => {
     // A credential stored without allowed_tools defaults to empty array,
     // which the broker's isToolAllowed check fails closed on.
     upsertCredentialMetadata("test-svc", "pass", {});
 
-    const result = broker.authorize({
+    const result = await broker.browserFill({
       service: "test-svc",
       field: "pass",
       toolName: "browser_fill_credential",
+      fill: async () => {},
     });
 
-    expect(result.authorized).toBe(false);
-    expect(!result.authorized && result.reason).toContain(
-      "No tools are currently allowed",
-    );
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain("No tools are currently allowed");
   });
 });
+
 
 // ---------------------------------------------------------------------------
 // Invariant 6 — oauth2ClientSecret never in plaintext metadata

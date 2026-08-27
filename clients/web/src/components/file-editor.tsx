@@ -17,6 +17,7 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { saveFile } from "@/runtime/native-file";
 
 export const MONO_FONT =
   "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
@@ -59,13 +60,7 @@ export function ContentActionBar({
 
   const rawContent = downloadContent ?? content;
   const handleDownload = useCallback(() => {
-    const blob = new Blob([rawContent], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
+    void saveFile(new Blob([rawContent], { type: mimeType }), fileName);
   }, [rawContent, fileName, mimeType]);
 
   useEffect(() => {

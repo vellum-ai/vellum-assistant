@@ -3,10 +3,12 @@ import type { IpcRenderer, IpcRendererEvent } from "electron";
 import type {
   BundleScanData,
   DeepLink,
+  DownloadDoneEvent,
   ResolvedHotkey,
   UpdateState,
   VellumBridge,
 } from "@vellumai/ipc-contract";
+import { DOWNLOADS_DONE_EVENT, DOWNLOADS_REVEAL } from "@vellumai/ipc-contract";
 
 type RendererIpc = Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
 
@@ -68,6 +70,14 @@ export const createBundleConfirmBridge = (
   respond: (accepted) => {
     ipc.send("vellum:bundleConfirm:respond", accepted);
   },
+});
+
+/** Renderer side of `installDownloads`. */
+export const createDownloadsBridge = (
+  ipc: RendererIpc,
+): VellumBridge["downloads"] => ({
+  onDone: subscribe<DownloadDoneEvent>(ipc, DOWNLOADS_DONE_EVENT),
+  reveal: (id) => ipc.invoke(DOWNLOADS_REVEAL, id),
 });
 
 /** Renderer side of `installAutoUpdate`. */

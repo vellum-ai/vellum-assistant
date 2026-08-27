@@ -12,7 +12,7 @@ import type { FC, KeyboardEvent, MouseEvent, ReactNode } from "react";
 
 import { ActionMenu, Button, toast } from "@vellumai/design-library";
 
-import { documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
+import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
 import { t } from "@/i18n";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
 import type { AppSummary } from "@/types/app-types";
@@ -143,22 +143,11 @@ export const DocumentAssetActions: FC<DocumentAssetActionsProps> = ({
   onOpen,
 }) => {
   const handleDownloadPdf = useCallback(async () => {
-    const { data: blob, response } = await documentsByIdPdfGet({
-      path: { assistant_id: assistantId, id: doc.surfaceId },
-      throwOnError: false,
-      parseAs: "blob",
-    });
-    if (!response?.ok || !blob) {
+    try {
+      await downloadDocumentPdf(assistantId, doc.surfaceId, doc.title);
+    } catch {
       toast.error(t("chat:documentAssetActions.pdfDownloadFailed"));
-      return;
     }
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), {
-      href: url,
-      download: `${doc.title || "document"}.pdf`,
-    });
-    a.click();
-    URL.revokeObjectURL(url);
   }, [assistantId, doc.surfaceId, doc.title]);
 
   return (

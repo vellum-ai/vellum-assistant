@@ -23,6 +23,8 @@ import type {
   APIThreadChannel,
   GatewayHelloData,
   GatewayMessageCreateDispatchData,
+  GatewayMessageDeleteDispatchData,
+  GatewayMessageUpdateDispatchData,
   GatewayReadyDispatchData,
   GatewayReceivePayload,
 } from "discord-api-types/v10";
@@ -97,8 +99,8 @@ export const DiscordMessageCreateSchema = z.object({
    * the tolerant fields around them.
    *
    * Absence is load-bearing here: it is the only thing that marks a message as
-   * a DM, and a DM is admitted without an allow-list entry and without a
-   * mention. Collapsing a malformed value to `undefined` would therefore turn
+   * a DM, and a DM is admitted without a mention. Collapsing a malformed
+   * value to `undefined` would therefore turn
    * a parse failure into a guild message admitted as private, skipping both
    * controls that stand between a public server and the assistant. The
    * sentinel keeps it on the guild path, where it must still clear them.
@@ -106,6 +108,13 @@ export const DiscordMessageCreateSchema = z.object({
   guild_id: z.string().optional().catch("malformed-guild-id"),
   /** Empty (not absent) on non-exempt messages without MESSAGE_CONTENT. */
   content: z.string().catch(""),
+  /**
+   * Set on MESSAGE_UPDATE dispatches; null on a MESSAGE_CREATE and on
+   * update dispatches that carry no user revision (embed resolution). Each
+   * revision's timestamp makes the edit's dedup id unique per revision, so
+   * successive edits of one message are never swallowed as duplicates.
+   */
+  edited_timestamp: z.string().nullable().optional().catch(undefined),
   author: z
     .object({
       id: idString(),
@@ -151,6 +160,18 @@ export const DiscordMessageCreateSchema = z.object({
     .catch(undefined),
 });
 export type DiscordMessageCreate = z.infer<typeof DiscordMessageCreateSchema>;
+
+/**
+ * MESSAGE_DELETE carries three fields and nothing else: no author, no
+ * content, no mentions. The guild sentinel matches the create schema's
+ * reasoning: absence means DM, so a malformed value must not read as one.
+ */
+export const DiscordMessageDeleteSchema = z.object({
+  id: idString(),
+  channel_id: idString(),
+  guild_id: z.string().optional().catch("malformed-guild-id"),
+});
+export type DiscordMessageDelete = z.infer<typeof DiscordMessageDeleteSchema>;
 
 // ---------------------------------------------------------------------------
 // Compile-time cross-check against the official Discord API types.
@@ -205,6 +226,18 @@ type _DiscordApiCrossChecks = [
     ModeledKeysAreOfficial<
       z.infer<typeof DiscordMessageCreateSchema>,
       GatewayMessageCreateDispatchData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof DiscordMessageCreateSchema>,
+      GatewayMessageUpdateDispatchData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      z.infer<typeof DiscordMessageDeleteSchema>,
+      GatewayMessageDeleteDispatchData
     >
   >,
   Expect<

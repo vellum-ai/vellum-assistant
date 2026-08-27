@@ -45,6 +45,8 @@
 	     NOT CFBundleURLTypes: an appex must not register a URL type (it can
 	     never be the target of one) — this only lets the extension *build* a
 	     link. Read via BundleURLScheme. -->
+	<key>VellumAppIconGround</key>
+	<string>$(APP_ICON_GROUND)</string>
 	<key>VellumURLScheme</key>
 	<string>$(BUNDLE_URL_SCHEME)</string>
 </dict>

@@ -7,8 +7,16 @@
  * chevron, the swipe and the tap all land on the same transition, so it wants
  * to be played with rather than screenshotted. Open a story, use the chevron
  * in the header, and on a touch target drag the card down or flick it back up.
+ *
+ * The `Minimized*` stories start there instead, since that state is where the
+ * card is measured against the mock. They are set to the phone viewport, which
+ * is where the card is at its most cramped and where the collapse earns its
+ * keep. Note that a desktop browser reports a fine pointer at any width, so the
+ * numeric hotkey badges stay on; open the story in a device-emulated frame, or
+ * on a real phone, to see the card without them.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
 import type { QuestionEntry } from "@/types/interaction-ui-types";
@@ -33,6 +41,23 @@ const CADENCE: QuestionEntry = {
     { id: "daily", label: "Every morning" },
     { id: "weekly", label: "Once a week" },
     { id: "never", label: "Only when something changes" },
+  ],
+};
+
+/**
+ * A question long enough to run past the one line the minimized header keeps,
+ * which is the shape the collapse actually ships in: the card docks above the
+ * composer with the question truncated to whatever the row has left.
+ */
+const LONG: QuestionEntry = {
+  id: "q3",
+  question:
+    "What's your preferred way to start the engagement, given how much of the positioning work is still open?",
+  description: "There is no wrong answer here.",
+  options: [
+    { id: "discovery", label: "A discovery call first" },
+    { id: "audit", label: "An audit of what exists" },
+    { id: "pilot", label: "A small paid pilot" },
   ],
 };
 
@@ -66,8 +91,10 @@ export const Expanded: Story = {
 };
 
 /**
- * A batch. The pager appears beside the counter, and both leave when the card
- * minimizes, since paging is an expanded-card action.
+ * A batch. The pager shares the trailing cluster with the minimize chevron, and
+ * both leave when the card minimizes, since each of them acts on rows that are
+ * on screen. Which question you are on is announced to a screen reader and not
+ * drawn: a sighted reader has the options changing under them to say it.
  */
 export const Batched: Story = {
   args: { entries: [MARKONE, CADENCE] },
@@ -86,4 +113,45 @@ export const Submitting: Story = {
 /** No `onClose`, so the card renders without its X and Escape does nothing. */
 export const NotDismissible: Story = {
   args: { entries: [MARKONE], onClose: undefined },
+};
+
+/** Lands the story in the minimized state, which is otherwise a click away. */
+const minimizeCard: Story["play"] = async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  await userEvent.click(
+    await canvas.findByRole("button", { name: "Minimize question" }),
+  );
+};
+
+/**
+ * The minimized card, at the width it docks above the composer on a phone. The
+ * question truncates to one line, the option count and the way back stand in
+ * for the body, and the only control left is the X: the chevron leaves with the
+ * rows it collapsed, and the summary itself is what reopens the card. Click it,
+ * or tab to it and press Enter.
+ */
+export const Minimized: Story = {
+  args: { entries: [LONG] },
+  globals: { viewport: { value: "sbMobile" } },
+  play: minimizeCard,
+};
+
+/**
+ * A minimized batch, which is a plain one-line row: no pager, since there are
+ * no options on screen to page between, and no position to report.
+ */
+export const MinimizedBatched: Story = {
+  args: { entries: [MARKONE, CADENCE] },
+  globals: { viewport: { value: "sbMobile" } },
+  play: minimizeCard,
+};
+
+/**
+ * The expanded card at phone width, to compare the two against each other: the
+ * pager and the one chevron sit in the trailing cluster, and both go away
+ * together on the way down.
+ */
+export const BatchedOnAPhone: Story = {
+  args: { entries: [MARKONE, CADENCE] },
+  globals: { viewport: { value: "sbMobile" } },
 };

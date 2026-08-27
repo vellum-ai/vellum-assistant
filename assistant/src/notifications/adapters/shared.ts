@@ -33,3 +33,19 @@ export function resolveMessageText(payload: ChannelDeliveryPayload): string {
 
   return payload.sourceEventName.replace(/[._]/g, " ");
 }
+
+/**
+ * Append an approval's typed-command instructions to the message text, when
+ * the copy does not already carry them. Used by adapters delivering an
+ * approval without live buttons (Discord always; Telegram when its rich
+ * delivery fails), so the guardian still knows how to decide.
+ */
+export function appendPlainTextFallback(
+  text: string,
+  approval: ChannelDeliveryPayload["approvalContext"],
+): string {
+  return approval?.plainTextFallback &&
+    !text.includes(approval.plainTextFallback)
+    ? `${text}\n\n${approval.plainTextFallback}`
+    : text;
+}

@@ -4,13 +4,16 @@ import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
+import { SearchableSelect } from "@vellumai/design-library/components/searchable-select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
   getModelsForProvider,
+  getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import {
   codexServableModels,
@@ -121,6 +124,8 @@ export function ProfileEditorProviderSection({
   // fixed model set.
   const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
+  const developerMode =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
     provider,
@@ -204,7 +209,10 @@ export function ProfileEditorProviderSection({
       if (!provider) {
         return [];
       }
-      const catalogModels = getModelsForProvider(provider);
+      const catalogModels = getVisibleModelsForProvider(
+        provider,
+        developerMode,
+      );
       if (catalogModels.length > 0) {
         if (
           restrictsToSubscriptionModels(
@@ -237,7 +245,12 @@ export function ProfileEditorProviderSection({
         }
       }
       return merged;
-    }, [provider, providerConnection, availableConnectionsForProvider]);
+    }, [
+      provider,
+      providerConnection,
+      availableConnectionsForProvider,
+      developerMode,
+    ]);
 
   // The Model dropdown always offers the profile's currently-bound model, even
   // when it's absent from the static catalog — a profile can be bound (via Chat)
@@ -312,7 +325,7 @@ export function ProfileEditorProviderSection({
     if (isEnteringCustomModel) {
       return;
     }
-    const catalogModels = getModelsForProvider(provider);
+    const catalogModels = getVisibleModelsForProvider(provider, developerMode);
     // Connection-derived providers (openai-compatible) have an empty catalog.
     // An id the connection does not list is still a valid bound model.
     if (catalogModels.length === 0) {
@@ -328,7 +341,14 @@ export function ProfileEditorProviderSection({
     ) {
       onModelChange("");
     }
-  }, [model, availableModels, onModelChange, provider, isEnteringCustomModel]);
+  }, [
+    model,
+    availableModels,
+    onModelChange,
+    provider,
+    isEnteringCustomModel,
+    developerMode,
+  ]);
 
   const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
 
@@ -506,17 +526,24 @@ export function ProfileEditorProviderSection({
             </Button>
           </>
         ) : (
-          <Select
+          // A catalog provider lists dozens of models, so the field filters as
+          // you type. The free-text escape hatch is `sticky`, which holds it
+          // on screen however far the list is scrolled and keeps it offered
+          // when the query matches no catalog model at all.
+          <SearchableSelect
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
             aria-label={t("profileEditorProviderSection.modelAriaLabel")}
-            // Radix reserves the empty string, and the leading row this used
-            // to fake is what `placeholder` is for: an unset field, not a
-            // choosable option.
             placeholder={
               modelEmptyStateCopy?.placeholder ??
               t("profileEditorProviderSection.selectModelPlaceholder")
+            }
+            emptyText={t("profileEditorProviderSection.modelNoMatches")}
+            announceResults={(count) =>
+              t("profileEditorProviderSection.modelResultsAnnouncement", {
+                count,
+              })
             }
             options={[
               ...modelOptions.map((m) => ({
@@ -527,7 +554,10 @@ export function ProfileEditorProviderSection({
                 ? [
                     {
                       value: CUSTOM_MODEL_OPTION_VALUE,
-                      label: t("profileEditorProviderSection.enterCustomModelIdOption"),
+                      label: t(
+                        "profileEditorProviderSection.enterCustomModelIdOption",
+                      ),
+                      sticky: true,
                     },
                   ]
                 : []),

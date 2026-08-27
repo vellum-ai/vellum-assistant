@@ -45,8 +45,11 @@ import {
 import {
   configureHatchProviderApiKey,
   formatProviderName,
+  promptProviderChoice,
   resolveHatchProvider,
+  shouldPromptForHatchProvider,
 } from "./provider-secrets.js";
+import { checkProviderApiKey } from "./api-key-check.js";
 import { findOpenPort } from "./port-allocator.js";
 import { exec, execOutput, execWithStdin } from "./step-runner";
 import {
@@ -1144,10 +1147,24 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       : "stable");
 
   resetLogFile("hatch.log");
-  const provider =
-    params.setupProviderCredentials === false
-      ? undefined
-      : resolveHatchProvider(configValues);
+  const setupProviderCredentials = params.setupProviderCredentials !== false;
+  let provider = setupProviderCredentials
+    ? resolveHatchProvider(configValues)
+    : undefined;
+
+  if (
+    shouldPromptForHatchProvider({
+      configValues,
+      setupProviderCredentials,
+      hasProviderApiKey: checkProviderApiKey().hasKey,
+      stdinIsTTY: process.stdin.isTTY,
+    })
+  ) {
+    const picked = await promptProviderChoice();
+    if (picked) {
+      provider = picked;
+    }
+  }
 
   let logFd = openLogFile("hatch.log");
   const log = (msg: string): void => {

@@ -203,6 +203,31 @@ internal static partial class NativeInput
         }
     }
 
+    // Press, interpolate the path with the button held, then release. The
+    // release is guaranteed so a failed move never leaves the button down.
+    public static async Task DragAsync(
+        double fromX, double fromY, double toX, double toY, CancellationToken cancellationToken)
+    {
+        const int steps = 10;
+        MoveTo(fromX, fromY);
+        await Task.Delay(30, cancellationToken);
+        Button("left", down: true);
+        try
+        {
+            await Task.Delay(50, cancellationToken);
+            for (var i = 1; i <= steps; i++)
+            {
+                var t = (double)i / steps;
+                MoveTo(fromX + (toX - fromX) * t, fromY + (toY - fromY) * t);
+                await Task.Delay(10, cancellationToken);
+            }
+        }
+        finally
+        {
+            Button("left", down: false);
+        }
+    }
+
     public static void TypeText(string text)
     {
         foreach (var (unit, isReturn) in KeyPlanner.PlanText(text))
@@ -279,10 +304,14 @@ public sealed class InputController : IRpcModule, IInputController
             return await Finish(null, error.Message);
         }
 
-        if (action.Type is "click" or "double_click" or "right_click" &&
+        if (action.Type is "click" or "double_click" or "right_click" or "drag" &&
             (action.X is null || action.Y is null))
         {
             return await Finish(null, "Coordinates or a valid element_id are required");
+        }
+        if (action.Type is "drag" && (action.ToX is null || action.ToY is null))
+        {
+            return await Finish(null, "Destination coordinates or a valid to_element_id are required");
         }
 
         var verdict = verifier.Verify(action);
@@ -312,36 +341,51 @@ public sealed class InputController : IRpcModule, IInputController
         CuAction action, ICuObservationSource? source, CancellationToken cancellationToken,
         string conversationId = "")
     {
-        if (action.Type is not ("click" or "double_click" or "right_click" or "scroll"))
+        if (action.Type is not ("click" or "double_click" or "right_click" or "scroll" or "drag"))
         {
             return action;
         }
-        if (action is { X: double x, Y: double y })
+        var from = await ResolvePointAsync(
+            action.X, action.Y, action.ElementId, source, cancellationToken, conversationId);
+        if (from is { } start)
         {
-            if (source is null)
+            action = action with { X = start.X, Y = start.Y };
+        }
+        if (action.Type is "drag")
+        {
+            var to = await ResolvePointAsync(
+                action.ToX, action.ToY, action.ToElementId, source, cancellationToken, conversationId);
+            if (to is { } end)
             {
-                return action;
+                action = action with { ToX = end.X, ToY = end.Y };
             }
-            var screenPoint = await source.TranslateScreenPointAsync(
-                conversationId, new CuPoint(x, y), cancellationToken);
-            return action with { X = screenPoint.X, Y = screenPoint.Y };
         }
-        if (action.ElementId is null)
+        return action;
+    }
+
+    // Explicit coordinates are translated into screen space; otherwise the
+    // element center is looked up. Null when neither is available.
+    private static async Task<CuPoint?> ResolvePointAsync(
+        double? x, double? y, long? elementId, ICuObservationSource? source,
+        CancellationToken cancellationToken, string conversationId)
+    {
+        if (x is double px && y is double py)
         {
-            return action;
+            return source is null
+                ? new CuPoint(px, py)
+                : await source.TranslateScreenPointAsync(conversationId, new CuPoint(px, py), cancellationToken);
+        }
+        if (elementId is null)
+        {
+            return null;
         }
         if (source is null)
         {
             throw new InvalidOperationException(
-                $"Element {action.ElementId} cannot be resolved because screen observation is unavailable");
+                $"Element {elementId} cannot be resolved because screen observation is unavailable");
         }
-        var elementPoint = await source.ResolveElementCenterAsync(action.ElementId.Value, cancellationToken);
-        if (elementPoint is null)
-        {
-            throw new InvalidOperationException(
-                $"Element {action.ElementId} was not found in the current window");
-        }
-        return action with { X = elementPoint.X, Y = elementPoint.Y };
+        return await source.ResolveElementCenterAsync(elementId.Value, cancellationToken)
+            ?? throw new InvalidOperationException($"Element {elementId} was not found in the current window");
     }
 
     private static async Task<string> ExecuteAsync(CuAction action, CancellationToken cancellationToken)
@@ -399,9 +443,14 @@ public sealed class InputController : IRpcModule, IInputController
                 // Structured unsupported result keeps the wire meaning intact.
                 throw new NotSupportedException(
                     "run_applescript is not supported on Windows; use click, type, and key actions instead");
-            case "drag" or "open_app":
-                // Drag pointer paths and app launching are not implemented.
-                throw new NotSupportedException($"{action.Type} is not yet available on Windows");
+            case "drag":
+            {
+                var (x, y, toX, toY) = (action.X!.Value, action.Y!.Value, action.ToX!.Value, action.ToY!.Value);
+                await NativeInput.DragAsync(x, y, toX, toY, cancellationToken);
+                return $"dragged from ({x}, {y}) to ({toX}, {toY})";
+            }
+            case "open_app":
+                return await AppLauncher.OpenAsync(action.AppName ?? "", cancellationToken);
             default:
                 throw new InvalidOperationException($"Unsupported action: {action.Type}");
         }
@@ -468,6 +517,9 @@ public sealed class InputController : IRpcModule, IInputController
             X: JsonInput.GetDouble(input, "x"),
             Y: JsonInput.GetDouble(input, "y"),
             ElementId: JsonInput.GetLong(input, "element_id"),
+            ToX: JsonInput.GetDouble(input, "to_x") ?? JsonInput.GetDouble(input, "toX"),
+            ToY: JsonInput.GetDouble(input, "to_y") ?? JsonInput.GetDouble(input, "toY"),
+            ToElementId: JsonInput.GetLong(input, "to_element_id") ?? JsonInput.GetLong(input, "toElementId"),
             Text: JsonInput.GetString(input, "text"),
             Key: JsonInput.GetString(input, "key"),
             ScrollDirection: JsonInput.GetString(input, "direction") ?? JsonInput.GetString(input, "scroll_direction"),

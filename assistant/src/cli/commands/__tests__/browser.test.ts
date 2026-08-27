@@ -67,7 +67,9 @@ mock.module("../../../util/logger.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { registerBrowserCommand } = await import("../browser.js");
+const { formatBrowserStatusLines, registerBrowserCommand } = await import(
+  "../browser.js"
+);
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -530,6 +532,66 @@ describe("--json output", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toBe("Error: Element not found");
+  });
+});
+
+describe("formatBrowserStatusLines", () => {
+  test("prints userActions including the Chrome Web Store install URL", () => {
+    const installUrl =
+      "https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne";
+    const lines = formatBrowserStatusLines(
+      JSON.stringify({
+        requestedMode: "auto",
+        recommendedMode: "cdp-inspect",
+        stickyConversationMode: null,
+        modes: [
+          {
+            mode: "extension",
+            available: false,
+            autoCandidate: true,
+            summary:
+              "Extension mode is unavailable: no Chrome Extension is connected.",
+            userActions: [
+              `Install the Vellum Assistant Chrome extension from the Chrome Web Store: ${installUrl}`,
+              "Open the extension and pair with your assistant.",
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(lines).not.toBeNull();
+    const rendered = lines!.join("\n");
+    expect(rendered).toContain("Requested mode: auto");
+    expect(rendered).toContain("✗ extension (auto-candidate)");
+    expect(rendered).toContain(installUrl);
+    expect(rendered).toContain("Open the extension and pair with your assistant.");
+  });
+
+  test("omits userActions when the mode is ready", () => {
+    const lines = formatBrowserStatusLines(
+      JSON.stringify({
+        requestedMode: "extension",
+        recommendedMode: "extension",
+        stickyConversationMode: null,
+        modes: [
+          {
+            mode: "extension",
+            available: true,
+            autoCandidate: true,
+            summary: "Extension mode is ready.",
+            userActions: [],
+          },
+        ],
+      }),
+    );
+
+    expect(lines).not.toBeNull();
+    expect(lines!.some((line) => line.trim().startsWith("- "))).toBe(false);
+  });
+
+  test("returns null for non-JSON status content", () => {
+    expect(formatBrowserStatusLines("not json")).toBeNull();
   });
 });
 

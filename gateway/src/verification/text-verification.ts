@@ -64,6 +64,8 @@ export interface TextVerificationInterceptParams {
   messageContent: string;
   actorExternalUserId: string;
   actorChatId: string;
+  /** The wire-proven readership fact, when the channel states one. */
+  isDirectMessage?: boolean;
   actorDisplayName?: string;
   actorUsername?: string;
   replyCallbackUrl?: string;
@@ -74,7 +76,7 @@ export type TextVerificationResult =
   | { intercepted: false }
   | {
       intercepted: true;
-      outcome: "verified" | "failed";
+      outcome: "verified" | "failed" | "wrong_conversation";
       trustClass: "guardian" | "trusted_contact";
       /** Reply text when replyCallbackUrl was unavailable (e.g. email channel). */
       pendingReplyText?: string;
@@ -92,6 +94,7 @@ export async function tryTextVerificationIntercept(
     messageContent,
     actorExternalUserId,
     actorChatId,
+    isDirectMessage,
     actorDisplayName,
     actorUsername,
     replyCallbackUrl,
@@ -113,6 +116,35 @@ export async function tryTextVerificationIntercept(
   // 2. Fast guard — is there any pending session for this channel?
   if (!hasInterceptableSession(sourceChannel)) {
     return { intercepted: false };
+  }
+
+  // 2b. Lane guard. A verification code completes only where one reader
+  // exists: the copy that carried it said "reply here" in a direct message,
+  // and a code posted into a room was already shown to everyone in it. The
+  // message is still intercepted, so the code never reaches the assistant
+  // or the transcript, but it is never redeemed, and the reply says where
+  // to send it without saying whether it was valid. Keyed on the wire's
+  // readership fact rather than its visibility axis, because Discord can
+  // prove a guild message is not a DM while proving nothing about the
+  // room's visibility; a channel that states nothing (or a true DM) is
+  // unaffected.
+  if (isDirectMessage === false) {
+    log.info(
+      { sourceChannel },
+      "Verification code arrived outside a direct message; not redeemed",
+    );
+    const pendingReplyText = await replyWithFailure(
+      replyCallbackUrl,
+      actorChatId,
+      assistantId,
+      "For security, verification codes only work in a direct message. Send it to me there.",
+    );
+    return {
+      intercepted: true,
+      outcome: "wrong_conversation",
+      trustClass: "guardian",
+      pendingReplyText,
+    };
   }
 
   const canonicalUserId =

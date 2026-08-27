@@ -207,6 +207,7 @@ function seedContact(id: string, role: "guardian" | "contact" = "guardian") {
 function seedChannel(opts: {
   id: string;
   contactId: string;
+  type?: string;
   status?: string;
   verifiedAt?: number | null;
   verifiedVia?: string | null;
@@ -218,7 +219,7 @@ function seedChannel(opts: {
     .values({
       id: opts.id,
       contactId: opts.contactId,
-      type: "vellum",
+      type: opts.type ?? "vellum",
       address: opts.address ?? `addr-${opts.id}`,
       isPrimary: false,
       status: opts.status ?? "unverified",
@@ -565,6 +566,28 @@ describe("ContactStore.markChannelVerified", () => {
     expect(result!.channel.status).toBe("active");
     expect(result!.channel.verifiedVia).toBe("challenge");
   });
+
+  test("verifying a plugin-discovered channel attests only that row", async () => {
+    seedContact("c1");
+    seedChannel({
+      id: "ch-imessage",
+      contactId: "c1",
+      type: "imessage",
+      status: "unverified",
+      address: "+12025550142",
+    });
+
+    const result = await new ContactStore().markChannelVerified("ch-imessage");
+    expect(result).not.toBeNull();
+    expect(result!.didWrite).toBe(true);
+    expect(result!.channel.status).toBe("active");
+    expect(result!.channel.type).toBe("imessage");
+    expect(result!.channel.verifiedVia).toBe("manual");
+
+    const rows = getGatewayDb().select().from(contactChannels).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("imessage");
+  });
 });
 
 describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
@@ -633,6 +656,21 @@ describe("ContactStore.upsertContact binding-strength guard (LUM-2505)", () => {
       .get();
     expect(row!.verifiedVia).toBe("challenge");
     expect(row!.verifiedAt).toBe(999);
+  });
+
+  test("upserting a plugin-discovered channel writes only that channel", async () => {
+    seedContact("c1", "contact");
+
+    await new ContactStore().upsertContact({
+      id: "c1",
+      channels: [{ type: "imessage", address: "+12025550142" }],
+    });
+
+    const rows = getGatewayDb().select().from(contactChannels).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("imessage");
+    expect(rows[0]!.address).toBe("+12025550142");
+    expect(rows[0]!.status).toBe("unverified");
   });
 });
 

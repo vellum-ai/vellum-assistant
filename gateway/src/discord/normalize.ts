@@ -2,7 +2,7 @@
  * MESSAGE_CREATE → the canonical `GatewayInboundEvent`.
  *
  * The normalizer runs after the admission gate (`admit.ts`), so every message
- * here is either a mention of the bot in an allow-listed channel or a DM to
+ * here is either a mention of the bot in a channel it can see, or a DM to
  * the bot. Attachment-only DMs can have empty content. It maps identity
  * fields onto the channel-identity vocabulary:
  * `conversationExternalId` is the delivery address (the parent channel for
@@ -16,12 +16,15 @@
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import type { AdmissionCandidate } from "./admit.js";
 import { extractDiscordAttachments } from "./attachments.js";
-import type { DiscordMessageCreate } from "./message-schemas.js";
+import type {
+  DiscordMessageCreate,
+  DiscordMessageDelete,
+} from "./message-schemas.js";
 
 /**
  * Build the admission gate's input from a parsed message. `parentChannelId`
- * comes from the client's thread-parent cache — resolution is the caller's
- * job because the cache lives there (see `AdmissionCandidate.parentChannelId`).
+ * comes from the caller's thread-parent cache; the gate reads it only under
+ * a legacy allow-list, where a thread inherits its parent's listing.
  */
 export function toAdmissionCandidate(
   message: DiscordMessageCreate,
@@ -56,6 +59,12 @@ export function normalizeDiscordMessage(
     parentChannelId?: string;
     /** The original dispatch `d` payload, preserved verbatim. */
     raw: Record<string, unknown>;
+    /**
+     * Set for a MESSAGE_UPDATE. The revision id joins the event's dedup id
+     * so successive edits of one message never swallow each other, while
+     * `source.messageId` keeps naming the message the edit rewrites.
+     */
+    edit?: { revision: string };
   },
 ): DiscordInboundEvent | null {
   const authorId = message.author?.id;
@@ -74,10 +83,13 @@ export function normalizeDiscordMessage(
     sourceChannel: "discord",
     receivedAt: new Date().toISOString(),
     message: {
+      eventKind: options.edit ? "edit" : "message",
       content: message.content,
       conversationExternalId: options.parentChannelId ?? message.channel_id,
-      externalMessageId: message.id,
-      ...(attachments.length > 0 ? { attachments } : {}),
+      externalMessageId: options.edit
+        ? `${message.id}:edit:${options.edit.revision}`
+        : message.id,
+      ...(attachments.length > 0 && !options.edit ? { attachments } : {}),
     },
     actor: {
       actorExternalId: authorId,
@@ -98,9 +110,57 @@ export function normalizeDiscordMessage(
       // Discord proves a DM by the absence of a guild, and proves nothing about
       // a guild channel's visibility without fetching the channel and reading
       // its permission overwrites. Left unset rather than guessed, so a rule
-      // written for public rooms cannot reach a private one.
+      // written for public rooms cannot reach a private one. Readership is
+      // proven in both directions, so `isDirectMessage` is always stated.
+      isDirectMessage,
       ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
       ...(inThread ? { threadId: message.channel_id } : {}),
+    },
+    raw: options.raw,
+  };
+}
+
+/**
+ * Normalize a MESSAGE_DELETE. The wire names no actor: the dispatch carries
+ * only the message, channel and optional guild ids, so the actor is the
+ * synthetic `discord-system` and `actorUnattributed` states the fact. The
+ * daemon applies an unattributed delete only to a row it ingested, whose
+ * author cleared the ACL when the message arrived; nothing here asserts who
+ * deleted it.
+ */
+export function normalizeDiscordMessageDelete(
+  del: DiscordMessageDelete,
+  options: {
+    parentChannelId?: string;
+    raw: Record<string, unknown>;
+  },
+): DiscordInboundEvent | null {
+  if (!del.id || !del.channel_id) {
+    return null;
+  }
+  const inThread = options.parentChannelId !== undefined;
+  const isDirectMessage = del.guild_id === undefined;
+  return {
+    version: "v1",
+    sourceChannel: "discord",
+    receivedAt: new Date().toISOString(),
+    message: {
+      eventKind: "delete",
+      content: "",
+      conversationExternalId: options.parentChannelId ?? del.channel_id,
+      externalMessageId: `${del.id}:delete`,
+    },
+    actor: {
+      actorExternalId: "discord-system",
+    },
+    source: {
+      updateId: del.id,
+      messageId: del.id,
+      chatType: isDirectMessage ? "dm" : "channel",
+      isDirectMessage,
+      actorUnattributed: true,
+      ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
+      ...(inThread ? { threadId: del.channel_id } : {}),
     },
     raw: options.raw,
   };

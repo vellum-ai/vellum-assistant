@@ -36,10 +36,6 @@ export const THRESHOLD_ORDINAL: Record<string, number> = {
 
 export type UserDecision = "allow" | "deny";
 
-export function isAllowDecision(decision: UserDecision): boolean {
-  return decision === "allow";
-}
-
 export interface PermissionCheckResult {
   decision: "allow" | "deny" | "prompt";
   reason: string;
@@ -90,4 +86,9 @@ export interface PolicyContext {
    * grant then never fires.
    */
   procToSkillsActive?: boolean;
+  /**
+   * Contact ID of the requester's member record. The threshold reader looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
+   */
+  requesterContactId?: string;
 }

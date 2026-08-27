@@ -243,8 +243,20 @@ export interface LiveVoiceSessionStarter {
   prewarm(): void;
   /** Release playback reserved by a preflight that will not start a session. */
   cancelPrewarm(): void;
-  /** Start a session, consuming the prewarmed player when one exists. */
-  start(assistantId: string, conversationId: string | null): void;
+  /**
+   * Start a session, consuming the prewarmed player when one exists.
+   *
+   * `seedText` takes a first turn on the session's behalf once the microphone
+   * is live, so the assistant speaks without waiting for the user. It becomes
+   * a real user message in the conversation, so a caller passes one only where
+   * that reads honestly. See `voice-entry-greeting.ts` for the rule and the
+   * copy.
+   */
+  start(
+    assistantId: string,
+    conversationId: string | null,
+    options?: { seedText?: string },
+  ): void;
 }
 
 export interface LiveVoiceState {

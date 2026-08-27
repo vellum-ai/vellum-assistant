@@ -2,12 +2,22 @@ import { beforeEach, expect, mock, test } from "bun:test";
 
 const appListeners = new Map<string, () => void>();
 const createFromBitmap = mock((bitmap: Buffer) => ({ bitmap }));
+const bundleIcon = { isEmpty: () => false };
 mock.module("electron", () => ({
   app: {
     on: (event: string, listener: () => void) =>
       appListeners.set(event, listener),
   },
-  nativeImage: { createFromBitmap },
+  nativeImage: { createFromBitmap, createFromPath: () => bundleIcon },
+}));
+
+let avatarListener: (() => void) | null = null;
+mock.module("@vellumai/electron-desktop/avatar", () => ({
+  getAvatarPng: () => null,
+  onAvatarChange: (listener: () => void) => {
+    avatarListener = listener;
+    return () => undefined;
+  },
 }));
 
 let badgeHandler: ((args: [number]) => void) | null = null;
@@ -34,9 +44,13 @@ mock.module("@vellumai/electron-desktop/status", () => ({
 
 const setOverlayIcon = mock(() => undefined);
 const setProgressBar = mock(() => undefined);
+const setIcon = mock(() => undefined);
 const createOverlayIcon = mock((count: number) => ({ count }) as never);
+let avatarIcon: { avatar: true } | null = null;
+const createAvatarIcon = () => avatarIcon as never;
 const win = {
   isDestroyed: () => false,
+  setIcon,
   setOverlayIcon,
   setProgressBar,
 };
@@ -53,6 +67,24 @@ beforeEach(() => {
   unsubscribe.mockClear();
   createOverlayIcon.mockClear();
   createFromBitmap.mockClear();
+  setIcon.mockClear();
+  avatarIcon = null;
+  avatarListener = null;
+});
+
+test("shows the avatar as the window icon and restores the bundled icon", () => {
+  installTaskbar({ getWindow: () => win as never, createAvatarIcon });
+
+  avatarListener?.();
+  expect(setIcon).not.toHaveBeenCalled();
+
+  avatarIcon = { avatar: true };
+  avatarListener?.();
+  expect(setIcon).toHaveBeenLastCalledWith(avatarIcon);
+
+  avatarIcon = null;
+  avatarListener?.();
+  expect(setIcon).toHaveBeenLastCalledWith(bundleIcon);
 });
 
 test("renders the unread count into the overlay bitmap", () => {

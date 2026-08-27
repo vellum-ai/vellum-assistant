@@ -87,6 +87,7 @@ import cmd_fmt from "./commands/fmt.js";
 import cmd_fold from "./commands/fold.js";
 import cmd_free from "./commands/free.js";
 import cmd_ftp from "./commands/ftp.js";
+import cmd_gateway from "./commands/gateway.js";
 import cmd_gcloud from "./commands/gcloud.js";
 import cmd_gem from "./commands/gem.js";
 import cmd_gh from "./commands/gh.js";
@@ -392,6 +393,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   fold: cmd_fold,
   free: cmd_free,
   ftp: cmd_ftp,
+  gateway: cmd_gateway,
   gcloud: cmd_gcloud,
   gem: cmd_gem,
   gh: cmd_gh,

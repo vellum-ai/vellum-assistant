@@ -12,7 +12,7 @@ Commands here operate on or across **assistant instances** — creating, startin
 
 For commands scoped to a **single running assistant's** local state (config, memory, contacts), see `assistant/src/cli/AGENTS.md`.
 
-Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `contacts`, `memory` belong in `assistant/src/cli/`.
+Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `memory` belong in `assistant/src/cli/`. Contact ACL writes belong on `gateway contacts` (via `vellum exec --service gateway`), not on `assistant contacts` or `vellum gateway`.
 
 ## Assistant targeting convention
 
@@ -56,6 +56,8 @@ Every command must have high-quality `--help` output. Follow the same standards 
 The CLI is a generic lifecycle manager. It must **never** contain references to specific skills, integrations, or features (e.g. "Meet", "Slack", "Telegram"). Environment variables, volume mounts, and device passthroughs defined here must use generic names (e.g. `VELLUM_AVATAR_DEVICE`, not `VELLUM_MEET_AVATAR_DEVICE`). The skill that uses a resource decides how to interpret it — the CLI just passes it through.
 
 Cross-package imports into `skills/` are forbidden. The CLI is distributed as an npm package; anything outside `cli/` is not included in the tarball and will fail to resolve at runtime.
+
+Workspace packages that `cli/src` never imports may still be listed in `package.json` `dependencies` and `bundledDependencies` when a bundled dependency depends on them (for example `@vellumai/avatar-manifest`, pulled in by `@vellumai/local-mode`); `bundledDependencies` only nests a `file:` dep when it is a direct dependency of the CLI.
 
 ## Boundary: No `.vellum/` directory access
 

@@ -116,7 +116,7 @@ export function ProfileDetailPanel({
   const isManaged = mode === "view";
   const title =
     editor.effectiveMode === "create"
-      ? t("profileDetailPanel.newProfileTitle")
+      ? t("profileDetailPanel.createTitle")
       : (initialValues?.label ??
         profileName ??
         t("profileDetailPanel.defaultTitle"));
@@ -192,7 +192,7 @@ export function ProfileDetailPanel({
                 {editor.saving
                   ? t("profileDetailPanel.saving")
                   : editor.effectiveMode === "create"
-                    ? t("profileDetailPanel.createProfile")
+                    ? t("profileDetailPanel.create")
                     : t("profileDetailPanel.saveChanges")}
               </Button>
             </div>

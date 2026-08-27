@@ -7,7 +7,7 @@ function printUsage(): void {
   console.log("");
   console.log("Subcommands:");
   console.log(
-    "  import    Import a pairing bundle from `vellum pair` and register it",
+    "  import    Pair with an assistant at a link or https address and register it",
   );
 }
 

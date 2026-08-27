@@ -1,23 +1,28 @@
 /**
  * Credential metadata store.
  *
- * Thin wrapper around the portable StaticCredentialMetadataStore from
- * @vellumai/credential-storage. Wires in the platform-specific data
- * directory and preserves the existing module-level API so that call
- * sites throughout the assistant daemon do not need to change.
+ * Reads stay on the workspace `metadata.json` file (sync). When a CES
+ * record backend is injected, upserts and deletes also write-through to
+ * CES so the CES catalog stays current.
  *
- * OAuth-specific fields (expiresAt, grantedScopes, oauth2TokenUrl,
- * oauth2ClientId, oauth2TokenEndpointAuthMethod, hasRefreshToken) are now
- * exclusively managed by the SQLite oauth-store and have been removed
- * from this interface as of v5.
+ * Tests: `_setMetadataPath` keeps the file-backed store and skips CES
+ * write-through.
  */
 
 import { join } from "node:path";
 
-import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
+import {
+  credentialKey,
+  StaticCredentialMetadataStore,
+} from "@vellumai/credential-storage";
+import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
 
+import type { CredentialRecordBackend } from "../../security/ces-rpc-record-backend.js";
+import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
+
+const log = getLogger("credential-metadata-store");
 
 /**
  * CredentialMetadata extends the shared StaticCredentialRecord with
@@ -43,12 +48,9 @@ export interface CredentialMetadata {
 // Singleton store instance
 // ---------------------------------------------------------------------------
 
-/**
- * Lazily initialised store instance. The path is determined on first access
- * (or overridden via `_setMetadataPath` for tests).
- */
 let _store: StaticCredentialMetadataStore | undefined;
 let _overridePath: string | null = null;
+let _recordBackend: CredentialRecordBackend | undefined;
 
 function getStore(): StaticCredentialMetadataStore {
   if (!_store) {
@@ -57,6 +59,48 @@ function getStore(): StaticCredentialMetadataStore {
     _store = new StaticCredentialMetadataStore(path);
   }
   return _store;
+}
+
+function toRecord(metadata: CredentialMetadata): CredentialRecord {
+  return {
+    credentialId: metadata.credentialId,
+    service: metadata.service,
+    field: metadata.field,
+    allowedTools: metadata.allowedTools,
+    allowedDomains: metadata.allowedDomains,
+    usageDescription: metadata.usageDescription,
+    alias: metadata.alias,
+    injectionTemplates: metadata.injectionTemplates,
+    createdAt: metadata.createdAt,
+    updatedAt: metadata.updatedAt,
+  };
+}
+
+async function persistRecord(metadata: CredentialMetadata): Promise<void> {
+  if (!_recordBackend || _overridePath) {
+    return;
+  }
+  const account = credentialKey(metadata.service, metadata.field);
+  const ok = await _recordBackend.set(account, toRecord(metadata));
+  if (!ok) {
+    log.warn(
+      { service: metadata.service, field: metadata.field },
+      "Failed to persist credential record to CES",
+    );
+  }
+}
+
+/** Await CES write-through for a record already in the local file store. */
+export async function persistCredentialMetadata(
+  metadata: CredentialMetadata,
+): Promise<void> {
+  await persistRecord(metadata);
+}
+
+export function setCredentialRecordBackend(
+  backend: CredentialRecordBackend | undefined,
+): void {
+  _recordBackend = backend;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +133,9 @@ export function upsertCredentialMetadata(
     injectionTemplates?: CredentialInjectionTemplate[] | null;
   },
 ): CredentialMetadata {
-  return getStore().upsert(service, field, policy) as CredentialMetadata;
+  const record = getStore().upsert(service, field, policy) as CredentialMetadata;
+  void persistRecord(record);
+  return record;
 }
 
 /**
@@ -127,13 +173,16 @@ export function deleteCredentialMetadata(
   service: string,
   field: string,
 ): boolean {
-  return getStore().delete(service, field);
+  const deleted = getStore().delete(service, field);
+  if (deleted && _recordBackend && !_overridePath) {
+    void _recordBackend.delete(credentialKey(service, field));
+  }
+  return deleted;
 }
 
 /** @internal Test-only: override the metadata file path. */
 export function _setMetadataPath(path: string | null): void {
   _overridePath = path;
-  // Reset the store so it picks up the new path
   if (_store) {
     if (path) {
       _store.setPath(path);

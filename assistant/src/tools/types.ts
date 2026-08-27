@@ -372,6 +372,12 @@ export interface ToolContext {
    */
   requesterIdentifier?: string;
   /**
+   * Contact ID of the requester's member record. Approval resolution looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
+   * @legacy
+   */
+  requesterContactId?: string;
+  /**
    * Preferred display name for the requester.
    * @legacy
    */

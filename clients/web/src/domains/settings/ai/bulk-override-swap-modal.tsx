@@ -76,7 +76,7 @@ export function BulkOverrideSwapModal({
   onApplied,
 }: BulkOverrideSwapModalProps) {
   const { t } = useTranslation("settings");
-  const configMutation = useLlmConfigPatch(assistantId);
+  const configMutation = useLlmConfigPatch();
   // Older assistants live-inherit blank profile fields, so a sparse profile
   // dispatches there and must not be filtered out of the target list.
   const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();

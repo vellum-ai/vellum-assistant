@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseReactionCallbackData } from "../runtime/routes/channel-route-shared.js";
+import { reactionDecisionForEmoji } from "../runtime/routes/channel-route-shared.js";
 
 // =============================================================================
-// parseReactionCallbackData
+// reactionDecisionForEmoji
 // =============================================================================
 
-describe("parseReactionCallbackData", () => {
+describe("reactionDecisionForEmoji", () => {
   test("maps +1 emoji to approve_once", () => {
-    const result = parseReactionCallbackData("reaction:+1");
+    const result = reactionDecisionForEmoji("+1");
     expect(result).toEqual({
       action: "approve_once",
       source: "slack_reaction",
@@ -16,7 +16,7 @@ describe("parseReactionCallbackData", () => {
   });
 
   test("maps thumbsup emoji to approve_once", () => {
-    const result = parseReactionCallbackData("reaction:thumbsup");
+    const result = reactionDecisionForEmoji("thumbsup");
     expect(result).toEqual({
       action: "approve_once",
       source: "slack_reaction",
@@ -24,7 +24,7 @@ describe("parseReactionCallbackData", () => {
   });
 
   test("maps -1 emoji to reject", () => {
-    const result = parseReactionCallbackData("reaction:-1");
+    const result = reactionDecisionForEmoji("-1");
     expect(result).toEqual({
       action: "reject",
       source: "slack_reaction",
@@ -32,7 +32,7 @@ describe("parseReactionCallbackData", () => {
   });
 
   test("maps thumbsdown emoji to reject", () => {
-    const result = parseReactionCallbackData("reaction:thumbsdown");
+    const result = reactionDecisionForEmoji("thumbsdown");
     expect(result).toEqual({
       action: "reject",
       source: "slack_reaction",
@@ -40,7 +40,7 @@ describe("parseReactionCallbackData", () => {
   });
 
   test("alarm_clock emoji maps to approve_once (legacy compat)", () => {
-    const result = parseReactionCallbackData("reaction:alarm_clock");
+    const result = reactionDecisionForEmoji("alarm_clock");
     expect(result).toEqual({
       action: "approve_once",
       source: "slack_reaction",
@@ -48,7 +48,7 @@ describe("parseReactionCallbackData", () => {
   });
 
   test("white_check_mark emoji maps to approve_once (legacy compat)", () => {
-    const result = parseReactionCallbackData("reaction:white_check_mark");
+    const result = reactionDecisionForEmoji("white_check_mark");
     expect(result).toEqual({
       action: "approve_once",
       source: "slack_reaction",
@@ -56,22 +56,17 @@ describe("parseReactionCallbackData", () => {
   });
 
   test("returns null for unknown emoji", () => {
-    const result = parseReactionCallbackData("reaction:tada");
+    const result = reactionDecisionForEmoji("tada");
     expect(result).toBeNull();
   });
 
-  test("returns null for empty emoji name", () => {
-    const result = parseReactionCallbackData("reaction:");
+  test("returns null for an unmapped emoji", () => {
+    const result = reactionDecisionForEmoji("eyes");
     expect(result).toBeNull();
   });
 
-  test("returns null for non-reaction callback data", () => {
-    const result = parseReactionCallbackData("apr:req-1:approve_once");
-    expect(result).toBeNull();
-  });
-
-  test("returns null for plain text", () => {
-    const result = parseReactionCallbackData("yes");
+  test("returns null for an empty emoji name", () => {
+    const result = reactionDecisionForEmoji("");
     expect(result).toBeNull();
   });
 });

@@ -7,7 +7,7 @@
  * floor (`sourceMetadata.admissionPolicy`); this stage compares the floor
  * to the resolved trust class's rank and either admits or denies.
  *
- * Deny semantics — see `wave-b-plan.md` §8.2:
+ * Deny semantics (the locked §8.2 decisions):
  *
  * - `shouldChallenge: true` when the policy is one that re-verification
  *   could lift past (`any_contact`, `strangers`). The caller fires the
@@ -66,7 +66,7 @@ export type AdmissionPolicyResult =
        * resolved trust class could clear the floor after verification.
        */
       shouldChallenge: boolean;
-      /** Effective policy that produced the deny (after override resolution). */
+      /** Policy that produced the deny. */
       effectivePolicy: AdmissionPolicy;
     };
 

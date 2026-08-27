@@ -155,25 +155,22 @@ function pickOption(trigger: HTMLButtonElement, optionLabel: string): void {
   fireEvent.click(option);
 }
 
+/** The Model field is a filter input; focusing it opens the list. */
 function selectModel(label: string): void {
-  const provTrigger = providerTrigger();
-  for (const trigger of Array.from(
-    document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),
-  )) {
-    if (trigger === provTrigger) {
-      continue;
-    }
-    fireEvent.click(trigger);
-    const option = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((o) => o.textContent?.trim() === label);
-    if (option) {
-      fireEvent.click(option);
-      return;
-    }
-    fireEvent.click(trigger);
+  const field = document.querySelector<HTMLInputElement>(
+    'input[role="combobox"][aria-label="Model"]',
+  );
+  if (!field) {
+    throw new Error("expected the Model field");
   }
-  throw new Error(`expected a Model dropdown offering "${label}"`);
+  fireEvent.focus(field);
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => o.textContent?.trim() === label);
+  if (!option) {
+    throw new Error(`expected a Model list offering "${label}"`);
+  }
+  fireEvent.click(option);
 }
 
 beforeEach(async () => {
@@ -209,18 +206,21 @@ describe("ProfileDetailPanel - create flow", () => {
     pickOption(providerTrigger(), "Anthropic");
     selectModel("Claude Opus 4.8");
 
-    // Name leads the panel form; Key is flat in the panel layout (LUM-2881).
-    fireEvent.change(getInputByPlaceholder("e.g. Fast & Cheap"), {
-      target: { value: "My Profile" },
+    // Picking the model fills the Name in; the key follows it, so nothing
+    // else has to be typed for the form to be complete.
+    await waitFor(() => {
+      expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
+        "Claude Opus 4.8",
+      );
     });
-    fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
-      target: { value: "my-profile" },
+    fireEvent.change(getInputByPlaceholder("e.g. Claude Opus 4.8"), {
+      target: { value: "My Profile" },
     });
 
     await waitFor(() => {
-      expect(getButton("Create Profile").disabled).toBe(false);
+      expect(getButton("Create Model").disabled).toBe(false);
     });
-    fireEvent.click(getButton("Create Profile"));
+    fireEvent.click(getButton("Create Model"));
 
     await waitFor(() => {
       expect(configPatchBodies.length).toBeGreaterThan(0);
@@ -246,7 +246,7 @@ describe("ProfileDetailPanel - managed profiles", () => {
     renderPanel("balanced");
 
     await waitFor(() => {
-      expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+      expect(getInputByPlaceholder("e.g. Claude Opus 4.8").disabled).toBe(true);
     });
     expect(document.body.textContent).toContain("Managed by Vellum");
     expect(
@@ -285,7 +285,7 @@ describe("ProfileDetailPanel - edit flow", () => {
     expect(maxTokensInput).toBeDefined();
 
     // Editable, with the panel footer's Save Changes and a header Delete.
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").disabled).toBe(false);
     expect(getButton("Save Changes")).toBeDefined();
     expect(
       document.querySelector('button[aria-label="Delete"]'),

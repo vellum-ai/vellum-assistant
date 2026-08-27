@@ -521,7 +521,7 @@ function AssistantHandleSection({
             components={{
               releaseLink: (
                 <Link
-                  to={`${routes.settings.ai}?release=1#email`}
+                  to={`${routes.channels}?setup=email&release=1`}
                   className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
                 />
               ),

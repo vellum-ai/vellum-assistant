@@ -107,10 +107,16 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
 
 const billingRef = {
   data: undefined as
-    { effective_balance: string; available_usage_balance?: string } | undefined,
+    | { effective_balance: string; available_usage_balance?: string }
+    | undefined,
 };
 
+// Spread the real module so shared utilities that import other exports
+// (e.g. `isCancelledError` via `captureError`) keep resolving; only the
+// hook under test's read is overridden.
+const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
+  ...actualReactQuery,
   useQuery: () => ({ data: billingRef.data, isLoading: false, isError: false }),
 }));
 
@@ -168,7 +174,11 @@ mock.module("@/domains/chat/components/preferences-usage-panel", () => ({
       // The real panel drops the strip's button with the handler, so the stub
       // has to as well.
       onAddCredits
-        ? createElement("button", { onClick: onAddCredits }, "Add usage credits")
+        ? createElement(
+            "button",
+            { onClick: onAddCredits },
+            "Add usage credits",
+          )
         : null,
     );
   },
@@ -232,9 +242,9 @@ function usage(ratio: number, walletEmpty = false): PreferencesUsage {
   const spent = ratio >= 1;
   return {
     ratio,
-    resetsAt: "2026-09-01T00:00:00Z",
     spent,
     exhausted: spent && walletEmpty,
+    usingExtraCredits: spent && !walletEmpty,
   };
 }
 
@@ -473,9 +483,7 @@ describe("PreferencesMenu", () => {
     });
 
     expect(screen.getByTestId("credits-card")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Add credits" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add credits" })).toBeTruthy();
   });
 });
 
@@ -497,16 +505,16 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     expect(screen.queryByTestId("credits-card")).toBeNull();
   });
 
-  test("a spent bundle with credits left surfaces the row", async () => {
+  test("a spent bundle with credits left keeps the row hidden", async () => {
     obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "60.4" };
     usageRef.value = usage(1);
     await openMenu();
 
-    // The usage panel is red at this point; the wallet is what the next turn
-    // spends, so the row that names it belongs on screen.
+    // The panel already names the wallet takeover in the bar's place, so a
+    // dollar row beneath it would only restate the number the flag hides.
     expect(screen.getByTestId("preferences-usage")).toBeTruthy();
-    expect(screen.getByTestId("credits-card")).toBeTruthy();
+    expect(screen.queryByTestId("credits-card")).toBeNull();
   });
 
   test("the row names only the credit held on top of the usage grants", async () => {
@@ -515,11 +523,11 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
       effective_balance: "34.65",
       available_usage_balance: "9.10",
     };
-    usageRef.value = usage(1);
     await openMenu();
 
-    // The grants are what the bar above measures, so the row states the
-    // bought-and-earned credit alone.
+    // With no reading the row is the only balance on screen, and it states
+    // the bought-and-earned credit alone: the grants are what the panel's
+    // bar would have measured.
     expect(screen.getByTestId("credits-card").textContent).toContain("25.55");
   });
 
@@ -533,21 +541,21 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     expect(screen.getByTestId("credits-card").textContent).toContain("34.65");
   });
 
-  test("a free plan's used-up grant with credits left surfaces the row", async () => {
+  test("a free plan's used-up grant keeps the row hidden too", async () => {
     obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "12.00" };
-    // A wallet reading never resets. The whole usage grant is gone, so the
-    // bar is red, while purchased credits still cover the next turn.
+    // The whole usage grant is gone and the panel names the extra credits
+    // covering the next turn, so the row has nothing left to add.
     usageRef.value = {
       ratio: 1,
-      resetsAt: null,
       spent: true,
       exhausted: false,
+      usingExtraCredits: true,
     };
     await openMenu();
 
     expect(screen.getByTestId("preferences-usage")).toBeTruthy();
-    expect(screen.getByTestId("credits-card")).toBeTruthy();
+    expect(screen.queryByTestId("credits-card")).toBeNull();
   });
 
   test("a spent bundle with an empty wallet leaves the strip to say it", async () => {
@@ -577,9 +585,9 @@ describe("showsMenuCredits", () => {
     expect(showsMenuCredits(false, usage(1, true))).toBe(true);
   });
 
-  test("the flag on shows it only for a spent bundle with credits left", () => {
+  test("the flag on hides the row whenever there is a reading", () => {
     expect(showsMenuCredits(true, usage(0.99))).toBe(false);
-    expect(showsMenuCredits(true, usage(1))).toBe(true);
+    expect(showsMenuCredits(true, usage(1))).toBe(false);
     expect(showsMenuCredits(true, usage(1, true))).toBe(false);
   });
 
