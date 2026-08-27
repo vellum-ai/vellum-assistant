@@ -1885,12 +1885,12 @@
     "storageTooltip": "Persistent disk space for your assistant's files and data"
   },
   "timezonePicker": {
-    "citiesAriaLabel": "Cities",
-    "closestCity": "Closest city",
-    "noMatchingCities": "No matching cities",
+    "noMatches": "No matches",
     "notSet": "Not set",
-    "searchPlaceholder": "Search city or country...",
-    "timeZone": "Time zone"
+    "searchPlaceholder": "Search city, country, UTC offset, or zone name...",
+    "timezone": "Timezone",
+    "timezonesAriaLabel": "Timezones",
+    "zoneName": "Zone name"
   },
   "timezoneSection": {
     "description": "Used when displaying times and scheduling reminders.",

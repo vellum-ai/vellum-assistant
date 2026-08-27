@@ -1,5 +1,5 @@
 /**
- * Tests for `TimezonePicker`, the "Closest city" combobox in Settings.
+ * Tests for `TimezonePicker`, the "Timezone" combobox in Settings.
  *
  * The load-bearing property is freshness: the options the keyboard walks and
  * commits are the ones the typed text produced. An earlier version filtered
@@ -28,7 +28,7 @@ function renderPicker(): { picked: string[]; field: HTMLElement } {
   );
   return {
     picked,
-    field: screen.getByRole("combobox", { name: "Closest city" }),
+    field: screen.getByRole("combobox", { name: "Timezone" }),
   };
 }
 
@@ -77,7 +77,7 @@ describe("TimezonePicker", () => {
 
     fireEvent.focusIn(field);
 
-    const listbox = screen.getByRole("listbox", { name: "Cities" });
+    const listbox = screen.getByRole("listbox", { name: "Timezones" });
     expect(field.getAttribute("aria-expanded")).toBe("true");
     // The relationship has to resolve: an idref to nothing is worse than none.
     expect(field.getAttribute("aria-controls")).toBe(listbox.id);
@@ -90,8 +90,8 @@ describe("TimezonePicker", () => {
     fireEvent.focusIn(field);
     fireEvent.change(field, { target: { value: "zzzz" } });
 
-    expect(screen.getByRole("listbox", { name: "Cities" }).textContent).toBe(
-      "No matching cities",
+    expect(screen.getByRole("listbox", { name: "Timezones" }).textContent).toBe(
+      "No matches",
     );
 
     fireEvent.keyDown(field, { key: "Escape" });

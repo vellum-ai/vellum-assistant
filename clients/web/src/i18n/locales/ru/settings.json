@@ -1872,12 +1872,12 @@
     "storageTooltip": "Постоянное дисковое пространство для файлов и данных ассистента"
   },
   "timezonePicker": {
-    "citiesAriaLabel": "Города",
-    "closestCity": "Ближайший город",
-    "noMatchingCities": "Нет подходящих городов",
+    "noMatches": "Нет совпадений",
     "notSet": "Не задано",
-    "searchPlaceholder": "Поиск города или страны...",
-    "timeZone": "Часовой пояс"
+    "searchPlaceholder": "Поиск по городу, стране, смещению UTC или названию пояса...",
+    "timezone": "Часовой пояс",
+    "timezonesAriaLabel": "Часовые пояса",
+    "zoneName": "Название часового пояса"
   },
   "timezoneSection": {
     "description": "Используется при показе времени и назначении напоминаний.",

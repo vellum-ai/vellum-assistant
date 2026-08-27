@@ -210,7 +210,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
     <div className="space-y-3">
       <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between md:gap-4">
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("timezonePicker.closestCity")}
+          {t("timezonePicker.timezone")}
         </span>
         <Combobox.Root
           className="w-full md:max-w-[280px]"
@@ -228,20 +228,18 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
         >
           <Combobox.Input
             type="text"
-            aria-label={t("timezonePicker.closestCity")}
+            aria-label={t("timezonePicker.timezone")}
             value={searchText}
-            placeholder={
-              selectedCity || t("timezonePicker.searchPlaceholder")
-            }
+            placeholder={selectedCity || t("timezonePicker.searchPlaceholder")}
             onChange={(event) => setSearchText(event.target.value)}
             fullWidth
           />
           <Combobox.List
-            aria-label={t("timezonePicker.citiesAriaLabel")}
+            aria-label={t("timezonePicker.timezonesAriaLabel")}
             className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-lg"
             emptyState={
               <p className="px-3 py-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-                {t("timezonePicker.noMatchingCities")}
+                {t("timezonePicker.noMatches")}
               </p>
             }
           >
@@ -280,7 +278,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
 
       <div className="flex items-center justify-between gap-4">
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("timezonePicker.timeZone")}
+          {t("timezonePicker.zoneName")}
         </span>
         <span className="text-body-medium-lighter text-[var(--content-default)]">
           {getDisplayName(value, t("timezonePicker.notSet"))}
