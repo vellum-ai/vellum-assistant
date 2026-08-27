@@ -17,8 +17,8 @@
  * - An upstream outage (5xx, 429, transport failure, a broken managed
  *   credential) indicts the whole provider, so it is remembered under the
  *   upstream name and every model on it skips the primary.
- * - A retired or renamed model (404, `model_not_found`, the managed proxy's
- *   preflight 400) indicts one model. Remembering it provider-wide would
+ * - A retired or renamed model (404, 410, `model_not_found`, the managed
+ *   proxy's preflight 400) indicts one model. Remembering it provider-wide would
  *   divert healthy profiles on the same upstream to their backups for the
  *   whole cooldown, and would let a probe of some other healthy model close a
  *   breaker the retired model still deserves. It is remembered under the
@@ -320,7 +320,7 @@ export type ProbeOutcome =
  *
  * A probe that reached a verdict closes every entry it was testing. It is the
  * freshest evidence about those entries and it supersedes whatever opened
- * them: an upstream that answers a probe with a retired-model 404 is an
+ * them: an upstream that answers a probe with a retired-model 404/410 is an
  * upstream that answers, so continuing to divert its healthy models would be
  * acting on stale evidence. What a failing probe does establish is then
  * recorded anew under `failedRoute`, carrying the escalated cooldown forward,
