@@ -183,26 +183,57 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
+    // Mirrors `oauth_config.scopes.bot` in
+    // `skills/slack-app-setup/scripts/build-manifest.ts` (and its copy in
+    // `clients/web/src/utils/slack-manifest.ts`): the OAuth flow and the
+    // manifest install target the same Slack app, so a scope one path grants
+    // and the other omits shows up as a `missing_scopes` credential-health
+    // fault on a connection that is actually fine.
+    //
+    // `search:read` is deliberately absent. Slack calls it a legacy scope and
+    // points new apps at the granular Real-time Search trio below, which is
+    // what the bot token carries. The legacy scope stays on the user side,
+    // where `search.messages` still requires it.
     defaultScopes: [
+      "app_mentions:read",
+      "assistant:write",
+      "bookmarks:read",
+      "channels:history",
       "channels:join",
       "channels:read",
-      "channels:history",
-      "groups:read",
-      "groups:history",
-      "im:read",
-      "im:history",
-      "im:write",
-      "mpim:read",
-      "mpim:history",
-      "users:read",
       "chat:write",
-      "search:read",
+      "emoji:read",
+      "files:read",
+      "files:write",
+      "groups:history",
+      "groups:read",
+      "im:history",
+      "im:read",
+      "im:write",
+      "mpim:history",
+      "mpim:read",
+      "mpim:write",
+      "pins:read",
+      "reactions:read",
       "reactions:write",
+      "search:read.files",
+      "search:read.public",
+      "search:read.users",
+      "team:read",
+      "usergroups:read",
+      "users:read",
+      "users:read.email",
     ],
     availableScopes: "https://api.slack.com/scopes",
+    // The user token is read-only by construction: `resolveSlackAuth("user")`
+    // is reached only from the messaging adapter's read path, where it buys
+    // wider channel visibility and `search.messages` (the one call a bot token
+    // cannot make). Every write resolves the bot identity instead, so a write
+    // scope here would be requested from the installer and never used.
+    // Mirrors `oauth_config.scopes.user` in the manifest.
     authorizeParams: {
       user_scope:
-        "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
+        "channels:history,channels:read,groups:history,groups:read,im:history,im:read,mpim:history,mpim:read,reactions:read,search:read,users:read",
     },
     loopbackPort: 17322,
     injectionTemplates: [

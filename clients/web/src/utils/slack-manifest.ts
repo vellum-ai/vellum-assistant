@@ -7,10 +7,12 @@
 export const SLACK_MANIFEST_BOT_SCOPES = [
   "app_mentions:read",
   "assistant:write",
+  "bookmarks:read",
   "channels:history",
   "channels:join",
   "channels:read",
   "chat:write",
+  "emoji:read",
   "files:read",
   "files:write",
   "groups:history",
@@ -20,9 +22,17 @@ export const SLACK_MANIFEST_BOT_SCOPES = [
   "im:write",
   "mpim:history",
   "mpim:read",
+  "mpim:write",
+  "pins:read",
   "reactions:read",
   "reactions:write",
+  "search:read.files",
+  "search:read.public",
+  "search:read.users",
+  "team:read",
+  "usergroups:read",
   "users:read",
+  "users:read.email",
 ] as const;
 
 /**
@@ -35,11 +45,21 @@ export const SLACK_MANIFEST_BOT_SCOPES = [
  * a scope listed only here is never requested at all.
  */
 const SLACK_MANIFEST_BOT_SCOPES_OPTIONAL = [
+  "bookmarks:read",
   "channels:join",
+  "emoji:read",
   "files:read",
   "files:write",
+  "mpim:write",
+  "pins:read",
   "reactions:read",
   "reactions:write",
+  "search:read.files",
+  "search:read.public",
+  "search:read.users",
+  "team:read",
+  "usergroups:read",
+  "users:read.email",
 ] as const;
 
 const SLACK_MANIFEST_USER_SCOPES = [
