@@ -74,6 +74,9 @@ function installPluginApiMock(overrides: Record<string, unknown> = {}): void {
     getModelProfiles: () => mockProfiles,
     resolveMediaSourceData: mockResolveMediaSourceData,
     getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
+    getAttachmentFilePath: (attachmentId: string) =>
+      mockAttachmentPaths.get(attachmentId) ?? null,
+    getWorkspaceDir: () => "/workspace",
     lastToolResultUserMessageIndex,
     isVisionNotSupportedError,
     persistSystemCard: async (opts: {
@@ -92,6 +95,9 @@ function installPluginApiMock(overrides: Record<string, unknown> = {}): void {
 }
 
 installPluginApiMock();
+
+// Canonical on-disk paths for `workspace_ref` sources, keyed by attachment id.
+const mockAttachmentPaths = new Map<string, string>();
 
 // Mock the image-persist module to avoid filesystem side effects in tests.
 let mockPersistPath: string | null =
@@ -288,7 +294,7 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
     expect(
       (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("[Image auto-described");
+    ).toContain('[Image "mock-hash.png" auto-described');
   });
 
   test("replaces image blocks with captions when active model is text-only", async () => {
@@ -297,7 +303,7 @@ describe("image-fallback user-prompt-submit hook", () => {
     await userPromptSubmit(ctx);
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
     expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
-      "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+      '[Image "mock-hash.png" auto-described for text-only model: A red chart showing Q3 revenue.]',
     );
   });
 
@@ -346,7 +352,7 @@ describe("image-fallback user-prompt-submit hook", () => {
     // serialize as a plain string
     expect(ctx.latestMessages[0].content).toHaveLength(1);
     expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
-      "Look at this:\n\n[Image auto-described for text-only model: A red chart showing Q3 revenue.]\n\nWhat do you see?",
+      'Look at this:\n\n[Image "mock-hash.png" auto-described for text-only model: A red chart showing Q3 revenue.]\n\nWhat do you see?',
     );
   });
 
@@ -411,7 +417,7 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(result.type).toBe("tool_result");
     expect(result.contentBlocks![0].type).toBe("text");
     expect((result.contentBlocks![0] as { text: string }).text).toContain(
-      "[Image auto-described",
+      '[Image "mock-hash.png" auto-described',
     );
   });
 
@@ -429,11 +435,11 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(ctx.latestMessages[0].content[0].type).toBe("text");
     expect(
       (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("[Image auto-described");
+    ).toContain('[Image "mock-hash.png" auto-described');
     expect(ctx.latestMessages[2].content).toHaveLength(1);
     expect(
       (ctx.latestMessages[2].content[0] as { text: string }).text,
-    ).toContain("[Image auto-described");
+    ).toContain('[Image "mock-hash.png" auto-described');
     expect(
       (ctx.latestMessages[2].content[0] as { text: string }).text,
     ).toEndWith("\n\nboth?");
@@ -464,7 +470,7 @@ describe("image-fallback dropped-image notice", () => {
     // single text block providers serialize as a plain string
     expect(ctx.latestMessages[0].content).toHaveLength(1);
     expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
-      "look at this\n\n[Image: no vision-capable model configured to describe it]",
+      'look at this\n\n[Image "mock-hash.png": no vision-capable model configured to describe it]',
     );
 
     // AND the transcript carries one card telling the user the image was not sent
@@ -557,7 +563,7 @@ describe("image-fallback dropped-image notice", () => {
     // THEN the image is captioned and nothing is reported to the user
     expect(
       (ctx.latestMessages[0].content[0] as { text: string }).text,
-    ).toContain("[Image auto-described");
+    ).toContain('[Image "mock-hash.png" auto-described');
     expect(persistedCards).toHaveLength(0);
   });
 
@@ -742,7 +748,7 @@ describe("image-fallback post-tool-use hook", () => {
     const block = ctx.toolResponse.contentBlocks![0];
     expect(block.type).toBe("text");
     expect((block as { text: string }).text).toBe(
-      "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+      '[Image "mock-hash.png" auto-described for text-only model: A red chart showing Q3 revenue.]',
     );
   });
 
@@ -774,7 +780,7 @@ describe("image-fallback post-tool-use hook", () => {
     expect((blocks[0] as { text: string }).text).toBe("page title");
     expect(blocks[1].type).toBe("text");
     expect((blocks[1] as { text: string }).text).toContain(
-      "[Image auto-described",
+      '[Image "mock-hash.png" auto-described',
     );
   });
 
@@ -852,7 +858,7 @@ describe("image-fallback post-compact hook", () => {
     await postCompact(ctx);
     expect(ctx.history[0].content).toHaveLength(1);
     expect((ctx.history[0].content[0] as { text: string }).text).toBe(
-      "Images retained from the compacted portion of the conversation:\n\n[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+      'Images retained from the compacted portion of the conversation:\n\n[Image "mock-hash.png" auto-described for text-only model: A red chart showing Q3 revenue.]',
     );
   });
 
@@ -869,7 +875,7 @@ describe("image-fallback post-compact hook", () => {
     const result = ctx.history[1].content[0] as ToolResultContent;
     expect(result.contentBlocks![0].type).toBe("text");
     expect((result.contentBlocks![0] as { text: string }).text).toContain(
-      "[Image auto-described",
+      '[Image "mock-hash.png" auto-described',
     );
   });
 

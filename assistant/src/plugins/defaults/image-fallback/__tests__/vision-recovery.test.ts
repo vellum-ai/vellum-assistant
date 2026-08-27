@@ -51,6 +51,10 @@ mock.module("@vellumai/plugin-api", () => ({
   getModelProfiles: () => mockProfiles,
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => fakeProvider,
+  // Media in these tests is inline base64, so the sweep falls through to the
+  // persisted copy rather than an attachment row.
+  getAttachmentFilePath: () => null,
+  getWorkspaceDir: () => "/workspace",
   isVisionNotSupportedError,
   lastToolResultUserMessageIndex,
   // The module registry is process-wide, so this surface covers every
@@ -161,7 +165,9 @@ describe("image-fallback post-model-call vision recovery", () => {
     const blocks = ctx.messages[0].content;
     expect(blocks.some((b) => b.type === "image")).toBe(false);
     const captioned = blocks.find(
-      (b) => b.type === "text" && b.text.includes("[Image auto-described"),
+      (b) =>
+        b.type === "text" &&
+        b.text.includes('[Image "mock-hash.png" auto-described'),
     );
     expect(captioned).toBeDefined();
     expect(isVisionRecoveryAttempted("conv-vision")).toBe(true);
