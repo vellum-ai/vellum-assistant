@@ -61,6 +61,14 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
+// A paired daemon registered under the row's own id, until a test says otherwise.
+const resolvePairedAssistantPlatformId = mock(
+  async (id: string): Promise<string | null> => id,
+);
+mock.module("@/lib/paired-platform-identity", () => ({
+  resolvePairedAssistantPlatformId,
+}));
+
 type HostAvatarResult = LocalReadAssistantAvatarResult;
 let hostAvailable = false;
 const readAssistantAvatarHost = mock(
@@ -279,6 +287,8 @@ afterEach(() => {
   readAssistantAvatarHost.mockReset();
   listAssistants.mockReset();
   listAssistants.mockResolvedValue({ ok: true, status: 200, data: [] });
+  resolvePairedAssistantPlatformId.mockReset();
+  resolvePairedAssistantPlatformId.mockImplementation(async (id) => id);
   useAuthStore.setState(initialAuthState, true);
   readAssistantAvatarHost.mockResolvedValue({ ok: true, avatar: null });
   readLastSeenAvatar.mockResolvedValue(null);
@@ -666,14 +676,100 @@ describe("useChooserRowAvatar", () => {
       expect(listAssistants).toHaveBeenCalledTimes(1);
     });
 
-    test("a pure platform row never uses the lookup", async () => {
-      const { result } = renderHook(
-        () => useChooserRowAvatar(platformRow("other")),
+    test("a paired row resolves its platform id from the paired daemon first", async () => {
+      resolvePairedAssistantPlatformId.mockResolvedValue("uuid-other");
+      listAssistants.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: [apiAssistant("uuid-other", LOOKUP_URL)],
+      });
+      const { result, rerender } = renderHook(
+        () => useChooserRowAvatar(pairedRow("other")),
         { wrapper: createWrapper() },
       );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+      rerender();
       await settle();
-      expect(result.current).toMatchObject({ traits: null, imageUrl: null });
+      expect(resolvePairedAssistantPlatformId).toHaveBeenCalledTimes(1);
+      expect(resolvePairedAssistantPlatformId).toHaveBeenCalledWith("other");
     });
+
+    test("a paired row that already carries its platform id skips the daemon", async () => {
+      listAssistants.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: [apiAssistant("uuid-other", LOOKUP_URL)],
+      });
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            pairedRow("other", { platformAssistantId: "uuid-other" }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+      expect(resolvePairedAssistantPlatformId).not.toHaveBeenCalled();
+    });
+
+    test("a paired row with no resolvable platform id falls through to the cache", async () => {
+      resolvePairedAssistantPlatformId.mockResolvedValue(null);
+      readLastSeenAvatar.mockResolvedValue({ kind: "character", traits });
+      const { result } = renderHook(
+        () => useChooserRowAvatar(pairedRow("other")),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      expect(result.current.imageUrl).toBeNull();
+    });
+
+    test("a lockfile-managed platform row resolves through the lookup", async () => {
+      const { result } = renderHook(
+        () => useChooserRowAvatar(platformRow("other", { cloud: "vellum" })),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(LOOKUP_URL);
+      });
+      expect(resolvePairedAssistantPlatformId).not.toHaveBeenCalled();
+    });
+
+    test("a platform row that carries avatarUrl renders it, not the lookup", async () => {
+      const SYNCED = "https://cdn.example/avatars/other-api.png";
+      const { result } = renderHook(
+        () =>
+          useChooserRowAvatar(
+            platformRow("other", { cloud: "vellum", avatarUrl: SYNCED }),
+          ),
+        { wrapper: createWrapper() },
+      );
+      await waitFor(() => {
+        expect(result.current.imageUrl).toBe(SYNCED);
+      });
+    });
+
+    test.each([
+      ["pure cloud", () => (localClient = false)],
+      ["gateway auth", () => (gatewayAuthEnabled = true)],
+    ])(
+      "a platform row under %s never consults the map",
+      async (_l, arrange) => {
+        arrange();
+        const { result } = renderHook(
+          () => useChooserRowAvatar(platformRow("other", { cloud: "vellum" })),
+          { wrapper: createWrapper() },
+        );
+        await settle();
+        expect(result.current.imageUrl).not.toBe(LOOKUP_URL);
+        expect(listAssistants).not.toHaveBeenCalled();
+        expect(resolvePairedAssistantPlatformId).not.toHaveBeenCalled();
+      },
+    );
 
     test("a signed-out device keeps the glyph", async () => {
       useAuthStore.setState({ platformSession: "absent", user: null });
@@ -682,8 +778,9 @@ describe("useChooserRowAvatar", () => {
         { wrapper: createWrapper() },
       );
       await settle();
-      expect(result.current).toMatchObject({ traits: null, imageUrl: null });
+      expect(result.current.imageUrl).not.toBe(LOOKUP_URL);
       expect(listAssistants).not.toHaveBeenCalled();
+      expect(resolvePairedAssistantPlatformId).not.toHaveBeenCalled();
     });
 
     test("the connected row prefers its live read over the lookup", async () => {

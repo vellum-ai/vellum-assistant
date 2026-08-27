@@ -13,7 +13,10 @@ import {
 } from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { usePlatformAvatarUrls } from "@/hooks/use-platform-avatar-urls";
+import {
+  isLockfileDrivenStore,
+  usePlatformAvatarUrls,
+} from "@/hooks/use-platform-avatar-urls";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import {
   deleteLastSeenAvatar,
@@ -24,6 +27,7 @@ import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import { lastSeenAvatarGenerations } from "@/lib/avatar-last-seen-cache";
 import { createGenerationGuard } from "@/lib/generation-guard";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
+import { resolvePairedAssistantPlatformId } from "@/lib/paired-platform-identity";
 import {
   chooserRowAvatarCacheQueryKey,
   persistLastSeenAvatar,
@@ -33,9 +37,9 @@ import {
   canReadAvatarFromLocalHost,
   readAssistantAvatarHost,
 } from "@/runtime/local-mode-host";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import {
   type ResolvedAssistant,
-  platformIdFor,
   useResolvedAssistantsStore,
 } from "@/stores/resolved-assistants-store";
 import type { AvatarRead } from "@/types/avatar";
@@ -182,13 +186,50 @@ function canReadRowAvatarViaHost(row: ResolvedAssistant): boolean {
 }
 
 /**
- * Whether `row` comes from the lockfile, where `avatarUrl` is never set and
- * the platform's thumbnail is only reachable by id through
- * {@link usePlatformAvatarUrls}. Paired rows share one id on both sides; a
- * local row's platform UUID is `platformAssistantId` (see {@link platformIdFor}).
+ * Whether `row` should consult {@link usePlatformAvatarUrls}: the store is
+ * lockfile-driven, so no row kind carries `avatarUrl` (platform-hosted rows
+ * included, since `reloadPlatformAssistants` skips the API write there) and
+ * the thumbnail is only reachable by platform id. A row that does carry one
+ * renders it directly. Pure cloud mode never gets here: the lookup query is
+ * disabled and the map stays empty.
  */
 function canLookUpRowAvatarByPlatformId(row: ResolvedAssistant): boolean {
-  return row.isPaired || row.cloud === "local";
+  return !row.avatarUrl && isLockfileDrivenStore();
+}
+
+/** Under the row prefix so `forgetAssistantAvatar` drops it with the rest. */
+function pairedPlatformIdQueryKey(assistantId: string) {
+  return [
+    ...chooserRowAvatarQueryKeyPrefix(assistantId),
+    "platformId",
+  ] as const;
+}
+
+/**
+ * The id to look `row` up by in the platform list. A platform-hosted row's
+ * `id` is its UUID; a local row's is `platformAssistantId`; a paired row's
+ * lockfile entry starts without one, so it is resolved lazily from the paired
+ * daemon and persisted (see {@link resolvePairedAssistantPlatformId}). Until
+ * that lands the row falls through to its other sources.
+ */
+function usePlatformLookupId(
+  row: ResolvedAssistant,
+  canLookUp: boolean,
+): string | null {
+  const hasPlatformSession = useHasPlatformSession();
+  const needsPairedResolve =
+    row.isPaired && !row.platformAssistantId && canLookUp;
+  const pairedQuery = useQuery<string | null>({
+    queryKey: pairedPlatformIdQueryKey(row.id),
+    queryFn: () => resolvePairedAssistantPlatformId(row.id),
+    enabled: needsPairedResolve && hasPlatformSession,
+    staleTime: Infinity,
+    retry: false,
+  });
+  if (row.platformAssistantId) {
+    return row.platformAssistantId;
+  }
+  return row.isPaired ? (pairedQuery.data ?? null) : row.id;
 }
 
 function conclusive(read: AvatarRead): LegacyAvatarRead {
@@ -307,9 +348,11 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  *    org store can supply the `Vellum-Organization-Id` header.
  * 4. Local rows (the connected one when unreachable, siblings even asleep)
  *    read their workspace through the host when one can serve it.
- * 5. Paired and local rows look their id up in the platform list
- *    (`usePlatformAvatarUrls`): lockfile rows never carry `avatarUrl`, so
- *    this is how a logged-in desktop shows a sibling's synced thumbnail.
+ * 5. Every row without `avatarUrl` in a lockfile-driven mode looks its
+ *    platform id up in the platform list (`usePlatformAvatarUrls`): lockfile
+ *    rows never carry `avatarUrl`, so this is how a logged-in desktop shows a
+ *    sibling's synced thumbnail. A paired row first resolves its platform
+ *    UUID from the paired daemon (`usePlatformLookupId`).
  * 6. The last-seen cache: whatever a live source last resolved for this id,
  *    so a row keeps its avatar while the assistant is unreachable.
  * Only live sources (1 and 3) feed the cache, at fetch time (1 does so
@@ -405,9 +448,12 @@ export function useChooserRowAvatar(
     (hostConclusive || !isEmptyAvatar(hostQuery.data));
 
   const platformAvatarUrls = usePlatformAvatarUrls();
-  const lookupCandidate = canLookUpRowAvatarByPlatformId(assistant)
-    ? (platformAvatarUrls.get(platformIdFor(assistant)) ?? null)
-    : null;
+  const canLookUp = canLookUpRowAvatarByPlatformId(assistant);
+  const lookupId = usePlatformLookupId(assistant, canLookUp);
+  const lookupCandidate =
+    canLookUp && lookupId !== null
+      ? (platformAvatarUrls.get(lookupId) ?? null)
+      : null;
   const lookupUrl =
     lookupCandidate !== failedPlatformUrl ? lookupCandidate : null;
   // Waits out an in-flight host read so a row never flashes the thumbnail
