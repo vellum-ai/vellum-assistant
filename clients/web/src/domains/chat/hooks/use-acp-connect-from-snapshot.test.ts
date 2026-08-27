@@ -529,3 +529,86 @@ describe("showAcpConnect: a live failure supersedes a dismissal", () => {
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 });
+
+describe("showAcpConnect: a flow in progress holds its own anchor", () => {
+  test("a newer failure does not move the card mid-connect", () => {
+    // Replacing the prompt moves the affordance to a different anchor row,
+    // which unmounts the one that owns the OAuth flow. The loopback poll and
+    // the manual paste state go with it, so a sign-in in progress cannot
+    // finish.
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-connecting",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: true,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect(
+      {
+        toolUseId: "tool-second-failure",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      { supersedesDismissal: true },
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-connecting",
+    );
+    expect(useInteractionStore.getState().acpConnectRevision).toBe(0);
+  });
+
+  test("the newer failure lands once the flow settles", () => {
+    // Deferred, not dropped on the floor: the card clears when the flow ends,
+    // and the newer failure carries its own marker for a snapshot to surface.
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-connecting",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-second-failure",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-second-failure",
+    );
+  });
+
+  test("the connecting card's own updates still apply", () => {
+    // Same anchor, so nothing moves; the guard must not freeze the flow out of
+    // its own prompt.
+    useInteractionStore.setState({
+      pendingAcpConnect: {
+        toolUseId: "tool-connecting",
+        reason: "auth_required",
+        conversationId: null,
+      },
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: true,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-connecting",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    expect(
+      useInteractionStore.getState().pendingAcpConnect?.conversationId,
+    ).toBe("conv-1");
+  });
+});
