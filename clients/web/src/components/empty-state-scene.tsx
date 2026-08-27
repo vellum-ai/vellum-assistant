@@ -25,7 +25,8 @@ export interface EmptyStateSceneProps {
   /** Avatar or icon well shown above the headline. */
   hero?: ReactNode;
   title: string;
-  description: string;
+  /** Omit on tight surfaces where the recipe below already says enough. */
+  description?: string;
   preview?: ReactNode;
   recipes?: ReactNode;
   primaryAction?: ReactNode;
@@ -66,14 +67,16 @@ export function EmptyStateScene({
         >
           {title}
         </h2>
-        <p
-          className={cn(
-            "max-w-md text-[var(--content-tertiary)]",
-            compact ? "text-body-small-lighter" : "text-body-medium-lighter",
-          )}
-        >
-          {description}
-        </p>
+        {description ? (
+          <p
+            className={cn(
+              "max-w-md text-[var(--content-tertiary)]",
+              compact ? "text-body-small-lighter" : "text-body-medium-lighter",
+            )}
+          >
+            {description}
+          </p>
+        ) : null}
       </div>
 
       {preview ? <div className="w-full max-w-2xl">{preview}</div> : null}

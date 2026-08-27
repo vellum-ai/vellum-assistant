@@ -299,7 +299,6 @@ function NotificationsBell() {
           density="compact"
           hero={<EmptyStateIconWell icon={Bell} />}
           title="Nothing yet."
-          description="Schedules and reminders post here when they run."
           recipes={
             <EmptyStateRecipeGrid columns={1}>
               <EmptyStateRecipeCard
@@ -310,11 +309,6 @@ function NotificationsBell() {
                 onSelect={noop}
               />
             </EmptyStateRecipeGrid>
-          }
-          secondaryAction={
-            <Button variant="ghost" size="compact" onClick={noop}>
-              Go to Schedules
-            </Button>
           }
         />
       </div>
