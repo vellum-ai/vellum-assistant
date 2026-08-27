@@ -469,10 +469,10 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * Reduced motion retimes rather than removes. The pulse is feedback, not
  * decoration: a press on a shutter whose viewfinder does not change is
  * otherwise indistinguishable from a dead button, so it stays and shortens.
- * The overshoot is the part that is movement for its own sake, and it goes.
- * `.camera-shutter-calm` is what the component applies from `useReducedMotion`
- * (which is also what its tests can read); the media query is defense-in-depth
- * for any caller that renders the markup without it. */
+ * The overshoot is the part that is movement for its own sake, so that is what
+ * it drops. `.camera-shutter-calm` is what the component applies from
+ * `useReducedMotion` (which is also what its tests can read); the media query
+ * is defense-in-depth for any caller that renders the markup without it. */
 .camera-shutter {
   --camera-shutter-morph-duration: 0.4s;
   --camera-shutter-morph-ease: cubic-bezier(0.34, 1.5, 0.5, 1);

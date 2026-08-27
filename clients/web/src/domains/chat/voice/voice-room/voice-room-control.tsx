@@ -154,11 +154,11 @@ export interface VoiceRoomControlProps {
   /**
    * `destructive` for a control acting ON the call: a mute while engaged, and
    * end-session always. `live` for the one that shows the session is running,
-   * which in camera mode is filled solid white: an un-slashed mic on glass is
-   * the single thing the redesign corrected, because a viewfinder that
-   * replaced the room's face left "is she still listening" answered by an
-   * absence of red. Off the camera surface `live` IS the neutral toning, since
-   * the room's own look already answers that. Defaults to neutral.
+   * which in camera mode is filled solid white: a viewfinder covers the room's
+   * face, so nothing else on screen answers "is she still listening", and an
+   * un-slashed mic on glass leaves that answer to an absence of red. Off the
+   * camera surface `live` IS the neutral toning, since the room's own look
+   * answers it. Defaults to neutral.
    */
   tone?: VoiceRoomControlTone;
   /**

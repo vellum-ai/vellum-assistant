@@ -7,17 +7,15 @@
  * consistent. A ring around a core, at the size the platform's own camera uses,
  * so it is the one thing on the surface nobody has to be taught.
  *
- * White, with no fill of its own. Legibility over a bright frame is the scrim's
- * job now, not the button's: both surfaces darken the band the shutter sits in,
- * so a dark backing here would be a second answer to a question already
- * answered, and it dulled the one control that is supposed to be the brightest
- * thing on the screen.
+ * White, with no fill of its own. Both surfaces darken the band the shutter
+ * sits in, so legibility over a bright frame is the scrim's job rather than the
+ * button's: a dark backing here answers a question already answered, and dulls
+ * the one control that is supposed to be the brightest thing on the screen.
  *
  * `mode` is the sampling policy the press acts on. `live` is built and
- * exercised by the stories and the suite but is not reachable in the app: the
- * capture path is photo-only until frame streaming ships, and the state is part
- * of this component's contract rather than something a future caller should
- * have to re-derive.
+ * exercised by the stories and the suite but is not reachable in the app, where
+ * the capture path is photo-only. It belongs to this component's contract
+ * rather than to whichever caller reaches it first.
  *
  * Presentational, with one exception. The caller owns what a press does, what
  * counts as busy, and the label, so nothing here reaches for a store or the
@@ -78,8 +76,8 @@ export function CameraShutter({
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // Live's press stops the stream, which the ring's own morph back to white
-    // already reports. A capture pulse there would announce a frame that was
-    // never taken.
+    // already reports. A capture pulse there would announce a frame nobody
+    // took.
     if (!live) {
       setPulses((count) => count + 1);
     }

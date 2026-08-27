@@ -4,12 +4,12 @@
  * Storybook has no `getUserMedia`, and the shutter never reads a stream anyway,
  * so a gradient stands in for the feed exactly as the design reference does.
  * The gradient runs from near-white to near-black in one frame on purpose: the
- * shutter carries no fill of its own any more, and the only interesting
- * question about a white ring is which frames it survives.
+ * shutter carries no fill of its own, and the only interesting question about a
+ * white ring is which frames it survives.
  *
- * `Live` is the one state the app cannot reach. Capture is photo-only until
- * frame streaming ships; the state is part of this component's contract, and
- * this is where it is exercised.
+ * `Live` is the one state the app cannot reach, since the capture path is
+ * photo-only. It is part of this component's contract, and this is where it is
+ * exercised.
  */
 
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";

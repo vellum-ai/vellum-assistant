@@ -5,7 +5,7 @@
  * Load-bearing contracts: the design's outer geometry (an 84px ring measured
  * border-in, around a 64px core), which is what makes the shutter the one
  * target on the surface a thumb finds without looking; both capture modes,
- * including the live one the app cannot reach yet; the capture pulse, which is
+ * including the live one the app does not reach; the capture pulse, which is
  * the ONLY thing that distinguishes a taken photo from a dead button, since a
  * viewfinder looks identical either side of a press; and the button surviving a
  * `Tooltip` wrapper, which reaches it through Radix's `asChild` slot rather
@@ -62,10 +62,10 @@ describe("CameraShutter", () => {
     expect(core().className).toContain("bg-white");
     expect(core().className).toContain("scale-100");
 
-    // Unreachable in the app today (the capture path is photo-only), and part
-    // of the component's contract regardless: the core shrinking to a crimson
-    // dot is the record-button language, and it ships with the component
-    // rather than being re-derived when streaming lands.
+    // Unreachable in the app (the capture path is photo-only), and part of the
+    // component's contract regardless: the core shrinking to a crimson dot is
+    // the record-button language, and it belongs to the component rather than
+    // to whichever caller reaches it first.
     rerender(
       <CameraShutter
         onClick={noop}
@@ -110,7 +110,7 @@ describe("CameraShutter", () => {
 
     fireEvent.click(shutter());
     // The ring morphing back to white already reports what happened. A capture
-    // pulse would report a frame that was never taken.
+    // pulse would report a frame nobody took.
     expect(pulse()).toBeNull();
   });
 

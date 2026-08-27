@@ -1032,11 +1032,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           data-testid="voice-room-camera-controls"
           className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
           // The session row's own offset, plus its 52px height, plus the 46px
-          // the design leaves between the two. The shutter grew to 84px, so the
-          // clearance had to be recomputed from the row's top edge rather than
-          // left at a constant that happened to work at 64: the thing you press
-          // often has to stay off the thing that hangs up, and it is the GAP
-          // that guarantees that, not the number.
+          // the design leaves between the two. Composed from the row's top edge
+          // rather than written as one constant: the thing you press often has
+          // to stay off the thing that hangs up, and it is the GAP that
+          // guarantees that, not the number.
           style={{
             bottom: `calc(6.125rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
           }}
@@ -1137,8 +1136,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               {/* The one control with no surface branch: the shutter exists
                   only while the viewfinder does, so it is never seen against
                   anything but video. Photo is the only mode the capture path
-                  can reach; the shutter's live state waits on frame
-                  streaming. */}
+                  reaches. */}
               <Tooltip content={t("voiceRoom.takePhoto")}>
                 <CameraShutter
                   onClick={() => void shutter()}
@@ -1177,11 +1175,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           }
           onClick={() => setLiveVoiceMuted(!muted)}
           pressed={muted}
-          // The one control the camera mode redesign exists to correct. With
-          // the viewfinder up, the room's face is gone and this button is the
-          // only thing left saying the session can still hear you, so while it
-          // is live it goes solid white rather than sitting on the same glass
-          // as the controls around it.
+          // With the viewfinder up, the room's face is covered and this button
+          // is the only thing on screen saying the session can still hear you.
+          // A live mic therefore goes solid white rather than sitting on the
+          // same glass as the controls around it, where the answer would be an
+          // absence of red.
           tone={muted ? "destructive" : "live"}
           isLight={tone?.isLight}
           surface={controlSurface}

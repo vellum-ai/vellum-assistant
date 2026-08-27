@@ -1852,11 +1852,10 @@ describe("VoiceRoom: camera", () => {
     // distinction that matters at arm's length: what happens if you hit the
     // wrong one.
     //
-    // The mic is the correction the redesign exists for. With the room's face
-    // replaced by a viewfinder, this button is the only thing left saying the
-    // session can still hear you, so a live mic goes solid white with a dark
-    // glyph rather than sitting on the same glass as its neighbours. It used
-    // to wear the same `bg-black/45` scrim as everything else.
+    // With a viewfinder over the room's face, the mic is the only thing on
+    // screen saying the session can still hear you, so a live one goes solid
+    // white with a dark glyph rather than sitting on the same glass as its
+    // neighbours, where the answer would be an absence of red.
     const mic = micButton()!;
     expect(mic.className).toContain("bg-white");
     expect(mic.className).toContain("text-neutral-900");
@@ -1888,10 +1887,10 @@ describe("VoiceRoom: camera", () => {
     // corner would join a set it is not in.
     expect(minimizeButton()!.className).toContain("bg-black/45");
 
-    // The shutter carries no fill at all any more. Legibility over a bright
-    // frame is the bottom scrim's job now, and a dark backing here was a
-    // second answer to that question that dulled the one control meant to be
-    // the brightest thing on the screen.
+    // The shutter carries no fill at all. Legibility over a bright frame is
+    // the bottom scrim's job, and a dark backing here answers a question
+    // already answered while dulling the one control meant to be the
+    // brightest thing on the screen.
     const shutter = screen.getByTestId("voice-room-shutter");
     expect(shutter.className).toContain("border-white");
     expect(shutter.className).toContain("size-[84px]");

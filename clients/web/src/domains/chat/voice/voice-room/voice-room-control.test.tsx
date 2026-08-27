@@ -3,9 +3,9 @@
  *
  * Load-bearing contracts: the three surfaces, since a control that reads the
  * wrong one is invisible rather than merely wrong; the `live` tone, whose whole
- * job is to exist only where the room's own look has been replaced by a
- * viewfinder; and the corner's exemption from the camera fills, which is what
- * keeps the bottom row reading as one set of related acts.
+ * job is to exist only where a viewfinder covers the room's own look; and the
+ * corner's exemption from the camera fills, which is what keeps the bottom row
+ * reading as one set of related acts.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";

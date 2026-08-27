@@ -68,10 +68,10 @@ function ToneCell({
 /**
  * The five states the row can be in, captioned.
  *
- * The mic is the correction this palette exists for. Camera mode used to
- * replace the room's face with a viewfinder and leave "is she still listening"
- * answered by an absence of red; a live mic is now solid white with a dark
- * glyph, and red is kept for the mic that is genuinely off.
+ * The mic is the one to read first. A viewfinder covers the room's face, so a
+ * live mic goes solid white with a dark glyph rather than leaving "is she still
+ * listening" to an absence of red; red belongs to the mic that is genuinely
+ * off.
  */
 export const CameraTones: Story = {
   render: (args) => (
