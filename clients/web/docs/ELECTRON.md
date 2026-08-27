@@ -88,7 +88,7 @@ The runtime wrapper is the surface for **imperative** access (`setDockBadge(coun
 
 Example (`runtime/power-events.ts` + `BusEventMap`): the system's `powerMonitor` fires `suspend` / `resume` / `lock` / `unlock` / `active`. Multiple renderer subsystems care (SSE reconnect, future auth-refresh on wake, future reachability probe). The right shape is:
 
-1. `packages/electron-desktop/src/power-events.ts` — subscribes to `powerMonitor`, broadcasts to all renderers via `webContents.send`.
+1. `packages/electron-desktop/src/power-events.ts` subscribes to `powerMonitor`, broadcasts to all renderers via `webContents.send`.
 2. `clients/macos/src/preload/index.ts` — `window.vellum.power.onEvent(callback) → unsubscribe`.
 3. `clients/web/src/runtime/power-events.ts` — `subscribeToPowerEvents(callback)` (the no-op-off-Electron wrapper).
 4. `clients/web/src/hooks/use-event-bus-init.ts` — calls the wrapper once at mount, fans events in as `power.suspend` / `power.resume` / etc. on the bus.
