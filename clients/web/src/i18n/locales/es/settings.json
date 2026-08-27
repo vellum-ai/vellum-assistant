@@ -1887,7 +1887,7 @@
   "timezonePicker": {
     "noMatches": "Sin coincidencias",
     "notSet": "No configurada",
-    "searchPlaceholder": "Buscar ciudad, país, desfase UTC o nombre de zona...",
+    "searchPlaceholder": "Buscar ciudad, país o desfase UTC...",
     "timezone": "Zona horaria",
     "timezonesAriaLabel": "Zonas horarias",
     "zoneName": "Nombre de la zona"

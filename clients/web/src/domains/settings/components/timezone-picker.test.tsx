@@ -84,6 +84,23 @@ describe("TimezonePicker", () => {
     expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
   });
 
+  test("an offset-shaped query matches by resolved offset, in every common spelling", () => {
+    const { field } = renderPicker();
+
+    fireEvent.focusIn(field);
+
+    // DST-free zones so the expected offsets hold year-round: Phoenix pins
+    // GMT-7 and Kolkata pins GMT+5:30.
+    for (const spelling of ["UTC-7", "gmt-7", "-07:00"]) {
+      fireEvent.change(field, { target: { value: spelling } });
+      expect(screen.getByText("Phoenix")).toBeTruthy();
+    }
+    for (const spelling of ["UTC+5:30", "+5:30", "utc+0530"]) {
+      fireEvent.change(field, { target: { value: spelling } });
+      expect(screen.getByText("Kolkata")).toBeTruthy();
+    }
+  });
+
   test("a query that matches nothing says so and stays dismissable", () => {
     const { field } = renderPicker();
 

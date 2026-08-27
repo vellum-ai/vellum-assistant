@@ -1874,7 +1874,7 @@
   "timezonePicker": {
     "noMatches": "Нет совпадений",
     "notSet": "Не задано",
-    "searchPlaceholder": "Поиск по городу, стране, смещению UTC или названию пояса...",
+    "searchPlaceholder": "Поиск по городу, стране или смещению UTC...",
     "timezone": "Часовой пояс",
     "timezonesAriaLabel": "Часовые пояса",
     "zoneName": "Название часового пояса"

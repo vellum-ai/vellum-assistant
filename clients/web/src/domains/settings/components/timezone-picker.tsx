@@ -150,6 +150,26 @@ function getDisplayName(identifier: string, notSetLabel: string): string {
   return identifier.replace(/_/g, " ");
 }
 
+/**
+ * A query shaped like an offset ("UTC-4", "gmt+5:30", "-04:00") means the
+ * offset itself, not a substring: the rendered labels carry only one
+ * spelling (`GMT-4`), so these are resolved to minutes and matched exactly.
+ * Returns null for anything else, which falls back to substring matching.
+ */
+function parseOffsetQuery(query: string): number | null {
+  const match = query.match(/^(?:utc|gmt)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) {
+    return null;
+  }
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = parseInt(match[2] ?? "0", 10);
+  const minutes = parseInt(match[3] ?? "0", 10);
+  if (hours > 14 || minutes > 59) {
+    return null;
+  }
+  return sign * (hours * 60 + minutes);
+}
+
 export interface TimezonePickerProps {
   value: string;
   onChange: (value: string) => void;
@@ -179,9 +199,13 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
   // the expensive part (see `entriesWithTime`), so there is nothing to defer.
   const query = searchText.trim().toLowerCase();
   const visible = useMemo(() => {
+    const offsetQuery = parseOffsetQuery(query);
     const matching = !query
       ? allEntries
       : allEntries.filter((entry) => {
+          if (offsetQuery !== null) {
+            return entry.offsetMinutes === offsetQuery;
+          }
           return (
             entry.city.toLowerCase().includes(query) ||
             entry.region.toLowerCase().includes(query) ||
