@@ -6,10 +6,8 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import {
-  bridgeRect,
-  COMPANION_BOB_LIFT,
   containsPoint,
-  type SurfaceRect,
+  onCompanionSurface,
 } from "@/components/companion-layout";
 import {
   CompanionSurface,
@@ -333,8 +331,8 @@ export function CompanionSurfacePage() {
    *
    * **The surface is several rects, and the answer is their union.** The
    * creature, the pill beside it, the strip of gap between them, and the
-   * introduction's card while it is drawn; see {@link bridgeRect} for why the
-   * box around them all is the wrong shape.
+   * introduction's card while it is drawn; see {@link onCompanionSurface} for
+   * why the box around them all is the wrong shape.
    */
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     // **A drag whose release this window never saw ends here.**
@@ -381,55 +379,39 @@ export function CompanionSurfacePage() {
     if (!avatar) {
       return;
     }
-    const inside = (rect: SurfaceRect): boolean =>
-      containsPoint(rect, event.clientX, event.clientY);
     // Reading a box forces layout, and this runs on every pixel of every
     // mouse-move the host forwards, so each is read once and the pill's is not
     // read at all until there is a pill.
-    const drawn = avatar.getBoundingClientRect();
-    // The creature's box, plus the strip above it the bob lifts the artwork
-    // into. The element holds still and the drawing rises off it, so a pointer
-    // on the creature's own head is outside the box it belongs to.
-    const avatarRect: SurfaceRect = {
-      left: drawn.left,
-      right: drawn.right,
-      top:
-        drawn.top -
-        (COMPANION_BOB_LIFT * avatarBox) / COMPANION_BASE_AVATAR_BOX,
-      bottom: drawn.bottom,
-    };
-    const onAvatar = inside(avatarRect);
-    // The pill and the gap only count once there is a pill: at rest its box is
-    // nothing, and a rect of nothing beside the avatar is not somewhere a
-    // pointer can be.
     const pill = expanded ? pillRef.current : null;
-    let onPill = false;
-    let onBridge = false;
-    if (pill !== null) {
-      const pillRect = pill.getBoundingClientRect();
-      onPill = inside(pillRect);
-      onBridge = inside(
-        bridgeRect(avatarRect, pillRect, {
-          // The composer row in screen pixels: one base box at the options
-          // scale, which is the options box itself.
-          rowHeight: optionsBox,
-          cardGrowth,
-        }),
-      );
-    }
+    const onSurface = onCompanionSurface(
+      { x: event.clientX, y: event.clientY },
+      {
+        avatar: avatar.getBoundingClientRect(),
+        pill: pill === null ? null : pill.getBoundingClientRect(),
+        // The composer row in screen pixels: one base box at the options
+        // scale, which is the options box itself.
+        rowHeight: optionsBox,
+        cardGrowth,
+      },
+    );
     // The introduction's card is part of the surface for as long as it is
     // drawn. Testing only the surface would leave the window click-through over
     // Next and Skip, so the presses meant to end the run would land on whatever
     // application is behind it instead.
     const introCard = introRef.current;
     const onIntro =
-      introCard !== null && inside(introCard.getBoundingClientRect());
+      introCard !== null &&
+      containsPoint(
+        introCard.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // Hover is the creature noticing a hand on *it*, so the card does not feed
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
-    setHovered(onAvatar || onPill || onBridge);
-    setInteractive(onAvatar || onPill || onBridge || onIntro);
+    setHovered(onSurface);
+    setInteractive(onSurface || onIntro);
   };
 
   // The avatar's own colour. A running call publishes one, and it wins: it is

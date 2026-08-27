@@ -122,6 +122,26 @@ const canvasOf = (container: HTMLElement): HTMLElement => {
   return canvas;
 };
 
+/**
+ * Whether the pill is open, read off the collapsed body's `inert`: the controls
+ * stay mounted at rest so they can be measured, so their presence says nothing
+ * and their being out of the tree says everything.
+ */
+const closed = (container: HTMLElement): boolean =>
+  container.querySelector("[inert]") !== null;
+
+/** Open the surface by putting the pointer on the creature. */
+const open = async (container: HTMLElement): Promise<HTMLElement> => {
+  const canvas = canvasOf(container);
+  fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+  await waitFor(() => {
+    if (closed(container)) {
+      throw new Error("Expected the pill to open");
+    }
+  });
+  return canvas;
+};
+
 /** A box the hit-test can read, which jsdom otherwise reports as all zeroes. */
 type Box = { left: number; right: number; top: number; bottom: number };
 
@@ -142,11 +162,16 @@ const pin = (element: HTMLElement, box: Box): void => {
  *
  * The surface measures itself live and nothing lays out in the test DOM, so
  * every rect would otherwise be zero and the pointer would never be over any of
- * it. Pinned as the surface draws them: the avatar's 44pt box, and the pill
- * bottom-flush across a 12pt gap to its right.
+ * it. Pinned by default as the surface draws them at the pair the layout is
+ * authored at: the avatar's 44pt box, and the pill bottom-flush across a 12pt
+ * gap to its right. A case drawing another pair hands in its own boxes.
  */
 const pinSurface = async (
   container: HTMLElement,
+  boxes: { avatar: Box; pill: Box } = {
+    avatar: { left: 100, right: 144, top: 100, bottom: 144 },
+    pill: { left: 156, right: 356, top: 100, bottom: 144 },
+  },
 ): Promise<{ avatar: HTMLElement; pill: HTMLElement }> => {
   const found = await waitFor(() => {
     const avatar = container.querySelector<HTMLElement>(".size-11");
@@ -158,8 +183,8 @@ const pinSurface = async (
     }
     return { avatar, pill };
   });
-  pin(found.avatar, { left: 100, right: 144, top: 100, bottom: 144 });
-  pin(found.pill, { left: 156, right: 356, top: 100, bottom: 144 });
+  pin(found.avatar, boxes.avatar);
+  pin(found.pill, boxes.pill);
   return found;
 };
 
@@ -173,27 +198,7 @@ const pinSurface = async (
  * swallow desktop presses in the empty canvas above and below it.
  */
 describe("the gap between the avatar and the pill", () => {
-  /**
-   * Whether the pill is open, read off the collapsed body's `inert`: the
-   * controls stay mounted at rest so they can be measured, so their presence
-   * says nothing and their being out of the tree says everything.
-   */
-  const closed = (container: HTMLElement): boolean =>
-    container.querySelector("[inert]") !== null;
-
-  /** Open the surface by putting the pointer on the creature. */
-  const open = async (container: HTMLElement): Promise<HTMLElement> => {
-    const canvas = canvasOf(container);
-    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    await waitFor(() => {
-      if (closed(container)) {
-        throw new Error("Expected the pill to open");
-      }
-    });
-    return canvas;
-  };
-
-  test("keeps the window clickable while the pointer crosses it", async () => {
+  test("keeps the window clickable and the pill open as it is crossed", async () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     const canvas = await open(container);
@@ -201,15 +206,6 @@ describe("the gap between the avatar and the pill", () => {
     fireEvent.mouseMove(canvas, { clientX: 150, clientY: 122 });
 
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
-  });
-
-  test("does not collapse the pill out from under the hand", async () => {
-    const { container } = render(<CompanionSurfacePage />);
-    await pinSurface(container);
-    const canvas = await open(container);
-
-    fireEvent.mouseMove(canvas, { clientX: 150, clientY: 122 });
-
     expect(closed(container)).toBe(false);
   });
 
@@ -255,33 +251,6 @@ describe("the gap between the avatar and the pill", () => {
 });
 
 /**
- * The creature is drawn where the bob has lifted it to, and the box it belongs
- * to holds still underneath. A hit-test against the box alone leaves the
- * creature's own head outside the surface for most of the cycle, so the pointer
- * falls through the thing it is plainly on.
- */
-describe("the avatar's rect and the bob", () => {
-  test("takes in the strip the lift raises the creature into", async () => {
-    const { container } = render(<CompanionSurfacePage />);
-    await pinSurface(container);
-
-    // Two points above the box's top edge, inside the three the bob lifts.
-    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 98 });
-
-    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
-  });
-
-  test("gives the desktop back above the lift", async () => {
-    const { container } = render(<CompanionSurfacePage />);
-    await pinSurface(container);
-
-    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 96 });
-
-    expect(setInteractiveMock).not.toHaveBeenCalledWith(true);
-  });
-});
-
-/**
  * The two sizes, which are one choice each.
  *
  * The wrapper is scaled by the options size and the creature carries the
@@ -299,9 +268,6 @@ describe("the companion surface at two sizes", () => {
     }
     return found;
   };
-
-  const avatarOf = (container: HTMLElement): HTMLElement | null =>
-    container.querySelector<HTMLElement>(".size-11");
 
   test("scales the canvas by the options size rather than the creature's", async () => {
     STATE.avatarBox = 44;
@@ -328,7 +294,7 @@ describe("the companion surface at two sizes", () => {
     pushState({
       ...STATE,
       avatarBox: 110,
-      optionsBox: undefined as unknown as number,
+      optionsBox: undefined,
     });
 
     await waitFor(() => {
@@ -344,9 +310,9 @@ describe("the companion surface at two sizes", () => {
     // The creature's own node is where the change lands, so waiting on it is
     // waiting for the state to have arrived at all.
     await waitFor(() => {
-      expect(avatarOf(container)?.style.transform).toBe(
-        "translate(-50%, -50%) scale(5)",
-      );
+      expect(
+        container.querySelector<HTMLElement>(".size-11")?.style.transform,
+      ).toBe("translate(-50%, -50%) scale(5)");
     });
     expect(wrapperOf(container).style.transform).toBe("scale(1)");
   });
@@ -362,29 +328,15 @@ describe("the companion surface at two sizes", () => {
     STATE.avatarBox = 110;
     STATE.optionsBox = 44;
     const { container } = render(<CompanionSurfacePage />);
-    const found = await waitFor(() => {
-      const avatar = container.querySelector<HTMLElement>(".size-11");
-      const pill = container.querySelector<HTMLElement>(
-        ".transition-\\[width\\]",
-      );
-      if (!avatar || !pill) {
-        throw new Error("Expected the surface to render");
-      }
-      return { avatar, pill };
-    });
     // As the surface draws them at this pair: a 110pt creature, and the pill
     // bottom-flush across the gap, 44pt tall in the creature's lower portion.
-    pin(found.avatar, { left: 100, right: 210, top: 100, bottom: 210 });
-    pin(found.pill, { left: 222, right: 422, top: 166, bottom: 210 });
-    const canvas = canvasOf(container);
+    await pinSurface(container, {
+      avatar: { left: 100, right: 210, top: 100, bottom: 210 },
+      pill: { left: 222, right: 422, top: 166, bottom: 210 },
+    });
 
     // Open it from the creature, which is the only part drawn at rest.
-    fireEvent.mouseMove(canvas, { clientX: 150, clientY: 150 });
-    await waitFor(() => {
-      if (container.querySelector("[inert]") !== null) {
-        throw new Error("Expected the pill to open");
-      }
-    });
+    const canvas = await open(container);
     setInteractiveMock.mockClear();
 
     fireEvent.mouseMove(canvas, { clientX: 216, clientY: 120 });
@@ -889,12 +841,7 @@ describe("the Watch flag on the companion surface", () => {
   /** Open the pill, which is where the way into a session would be drawn. */
   const openPill = async (container: HTMLElement): Promise<void> => {
     await pinSurface(container);
-    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
-    await waitFor(() => {
-      if (!container.querySelector('button[aria-label="Talk"]')) {
-        throw new Error("Expected the pill to open");
-      }
-    });
+    await open(container);
   };
 
   test("draws no way in when the pushed state says nothing about it", async () => {

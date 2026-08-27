@@ -13,12 +13,7 @@ import {
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
-import {
-  bridgeRect,
-  COMPANION_BOB_LIFT,
-  containsPoint,
-  type SurfaceRect,
-} from "@/components/companion-layout";
+import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
   type CompanionSurfacePhase,
@@ -231,7 +226,13 @@ export const RestingWhileWorking: Story = {
   args: { phase: "resting", working: true },
 };
 
-/** The same turn with the pill open, where the ring follows the wider shape. */
+/**
+ * The same turn with the pill open, where the ring stays on the creature.
+ *
+ * The pill changes shape beside it and the light does not move: the creature
+ * holds one spot in the canvas, so the state stays where the eye already looks
+ * for it.
+ */
 export const HoverWhileWorking: Story = {
   args: { phase: "hover", hovered: true, working: true },
 };
@@ -239,8 +240,10 @@ export const HoverWhileWorking: Story = {
 /**
  * The reply to something typed on the surface, while the card is still open.
  *
- * The card is the tallest and squarest thing the surface draws, so it is where
- * a ring written for a 44pt circle is most likely to come apart.
+ * The card is the tallest thing the surface draws, and the ring is still the
+ * circle on the creature beside it: the widest gap between the two shapes, and
+ * the clearest case that the light belongs to the creature rather than to
+ * whatever is open next to it.
  */
 export const TypingWhileWorking: Story = {
   args: {
@@ -659,10 +662,6 @@ function HoverDrivenSurface(args: StoryArgs) {
   const phase: CompanionSurfacePhase =
     args.phase === "call" ? "call" : hovered ? "hover" : "resting";
   const expanded = phase !== "resting";
-  // The pair the surface is drawn at, defaulted the way the component defaults
-  // them, since the hit-test has to measure the creature the story is showing.
-  const avatarBox = args.avatarBox ?? COMPANION_BASE_AVATAR_BOX;
-  const optionsBox = args.optionsBox ?? COMPANION_BASE_AVATAR_BOX;
 
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     const avatar = avatarRef.current;
@@ -670,34 +669,18 @@ function HoverDrivenSurface(args: StoryArgs) {
     if (!avatar || !pill) {
       return;
     }
-    const inside = (rect: SurfaceRect): boolean =>
-      containsPoint(rect, event.clientX, event.clientY);
-    const drawn = avatar.getBoundingClientRect();
-    const avatarRect: SurfaceRect = {
-      left: drawn.left,
-      right: drawn.right,
-      // The bob raises the artwork off its own box, on a wrapper inside the
-      // creature's own scale, so the lift grows with the creature. Nothing
-      // scales the stage itself, which is what the page's wrapper does.
-      top: drawn.top - (COMPANION_BOB_LIFT * avatarBox) / optionsBox,
-      bottom: drawn.bottom,
-    };
-    if (!expanded) {
-      setHovered(inside(avatarRect));
-      return;
-    }
-    const pillRect = pill.getBoundingClientRect();
     setHovered(
-      inside(avatarRect) ||
-        inside(pillRect) ||
-        inside(
-          bridgeRect(avatarRect, pillRect, {
-            // One base box, since nothing here is scaled the way the page's
-            // wrapper scales the real canvas by the options size.
-            rowHeight: COMPANION_BASE_AVATAR_BOX,
-            cardGrowth: args.cardGrowth ?? "up",
-          }),
-        ),
+      onCompanionSurface(
+        { x: event.clientX, y: event.clientY },
+        {
+          avatar: avatar.getBoundingClientRect(),
+          pill: expanded ? pill.getBoundingClientRect() : null,
+          // One base box, since nothing here is scaled the way the page's
+          // wrapper scales the real canvas by the options size.
+          rowHeight: COMPANION_BASE_AVATAR_BOX,
+          cardGrowth: args.cardGrowth ?? "up",
+        },
+      ),
     );
   };
 

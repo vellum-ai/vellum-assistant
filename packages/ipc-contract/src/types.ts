@@ -1157,8 +1157,11 @@ export interface CompanionSurfaceState {
    * The renderer draws the surface at this over the size its layout is authored
    * at and scales the creature inside that by the ratio between the two boxes,
    * so every length beside the avatar stays stated once, at the base size.
+   *
+   * Optional, and absence means a shell that predates the second axis, which
+   * the renderer reads as {@link CompanionSurfaceState.avatarBox}.
    */
-  optionsBox: number;
+  optionsBox?: number;
   /**
    * The assistant's display name, for the composer's placeholder.
    *

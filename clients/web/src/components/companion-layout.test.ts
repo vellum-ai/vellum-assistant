@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { bridgeRect, companionLayoutFor } from "./companion-layout";
+import {
+  bridgeRect,
+  companionLayoutFor,
+  onCompanionSurface,
+} from "./companion-layout";
 
 /**
  * The one derivation the pill and the introduction card are both placed by.
@@ -21,7 +25,6 @@ describe("companionLayoutFor", () => {
     expect(layout.avatarRel).toBe(1);
     expect(layout.avatarHalf).toBe(22);
     expect(layout.gap).toBe(12);
-    expect(layout.nearEdge).toBe(46);
     expect(layout.inUnits(34)).toBe(34);
   });
 
@@ -41,7 +44,6 @@ describe("companionLayoutFor", () => {
     expect(layout.avatarRel).toBe(0.4);
     expect(layout.avatarHalf).toBe(22);
     expect(layout.gap).toBe(12);
-    expect(layout.nearEdge).toBe(148);
     expect(`${layout.inUnits(34)}`).toBe("13.6");
     expect(`${layout.inUnits(148)}`).toBe("59.2");
   });
@@ -56,7 +58,6 @@ describe("companionLayoutFor", () => {
     expect(layout.avatarRel).toBe(2.5);
     expect(layout.avatarHalf).toBe(55);
     expect(layout.gap).toBe(12);
-    expect(layout.nearEdge).toBe(115);
     expect(layout.inUnits(67)).toBe(67);
   });
 
@@ -129,10 +130,10 @@ describe("the introduction's step off the creature", () => {
  * handed come from the DOM, so these are about the shape it makes of them:
  * between the facing edges, and no taller than the composer row.
  */
-describe("bridgeRect", () => {
-  const AVATAR = { left: 100, right: 144, top: 100, bottom: 144 };
-  const ROW = { rowHeight: 44, cardGrowth: "up" } as const;
+const AVATAR = { left: 100, right: 144, top: 100, bottom: 144 };
+const ROW = { rowHeight: 44, cardGrowth: "up" } as const;
 
+describe("bridgeRect", () => {
   test("spans the facing edges when the pill grows rightward", () => {
     const pill = { left: 156, right: 356, top: 100, bottom: 144 };
     expect(bridgeRect(AVATAR, pill, ROW)).toEqual({
@@ -202,5 +203,44 @@ describe("bridgeRect", () => {
     const overlapping = { left: 120, right: 320, top: 100, bottom: 144 };
     const bridge = bridgeRect(AVATAR, overlapping, ROW);
     expect(bridge.left).toBeGreaterThan(bridge.right);
+  });
+});
+
+/**
+ * The union the window is armed by, which is the one answer the renderer and
+ * the `Interactive` story both hit-test with.
+ */
+describe("onCompanionSurface", () => {
+  const PILL = { left: 156, right: 356, top: 100, bottom: 144 };
+  const at = (x: number, y: number, pill: typeof PILL | null = null): boolean =>
+    onCompanionSurface({ x, y }, { avatar: AVATAR, pill, ...ROW });
+
+  test("is the creature alone when there is no pill", () => {
+    expect(at(120, 120)).toBe(true);
+    expect(at(200, 120)).toBe(false);
+  });
+
+  /**
+   * The creature's box and nothing above it. The artwork is inset inside that
+   * box and the bob stays within the inset, so a rect reaching past the top
+   * would arm the window over empty canvas and swallow the presses meant for
+   * whatever is behind it.
+   */
+  test("leaves the canvas above the creature to the desktop", () => {
+    expect(at(120, AVATAR.top)).toBe(true);
+    expect(at(120, AVATAR.top - 2)).toBe(false);
+  });
+
+  test("carries the pointer across the gap to the pill", () => {
+    expect(at(150, 120, PILL)).toBe(true);
+    expect(at(200, 120, PILL)).toBe(true);
+  });
+
+  /**
+   * The gap is a strip, not a column. Above the row it is desktop, or the
+   * window swallows presses in the empty canvas beside a card.
+   */
+  test("does not claim the canvas above the gap", () => {
+    expect(at(150, 90, PILL)).toBe(false);
   });
 });

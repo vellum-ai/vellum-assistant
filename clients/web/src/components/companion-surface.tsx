@@ -768,8 +768,8 @@ export function CompanionSurface({
   const edge = (
     <>
       {/* Something running, as a light travelling around the edge. Drawn over
-          the body so it reads as the surface's own border, and outside it by a
-          hair so it never crowds what it is drawn around.
+          the creature so it reads as the creature's own border, and outside
+          the creature's box by a hair so it never crowds the artwork.
 
           A turn burns it in the assistant's colour, a watch session in amber,
           and the session's ring is drawn in every phase rather than only the
@@ -835,7 +835,13 @@ export function CompanionSurface({
               // line has to stay on that line, and the turns stack away from
               // it.
               `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
-            : "flex h-11 items-center rounded-full"
+            : // One row in a box whose width animates, so the row is pinned to
+              // the pill's avatar-facing edge. `growth: "left"` anchors the
+              // pill by its right, and a row left-aligned in a box narrower
+              // than itself spills past that edge, across the gap and over the
+              // creature, every time the width lags the content: through the
+              // unfurl and instantly on each label reveal.
+              `flex h-11 items-center rounded-full ${growth === "left" ? "justify-end" : ""}`
         }`}
         style={style}
         onMouseDown={onSurfaceMouseDown}

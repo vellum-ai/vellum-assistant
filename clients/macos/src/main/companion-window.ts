@@ -39,6 +39,7 @@ import {
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 import {
+  promoteCompanionSizeToAxes,
   readCompanionHidden,
   readCompanionIntroSeen,
   readCompanionSize,
@@ -228,6 +229,12 @@ let growth: CompanionGrowth = "right";
  * it to draw the avatar where the window was actually put.
  */
 let cardGrowth: CompanionCardGrowth = "up";
+
+// Module init is the first thing to ask the store for the surface's geometry,
+// so it is where an install carrying only the single size a one-axis build
+// writes has that size copied onto both per-axis keys. Once, ahead of the reads
+// below, and never again for the life of the process.
+promoteCompanionSizeToAxes();
 
 /**
  * The canvas the surface is currently drawn in.

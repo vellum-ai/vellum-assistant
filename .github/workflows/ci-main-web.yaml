@@ -14,6 +14,9 @@ on:
       # schema change here can break the web build with no web file touched.
       - 'assistant/openapi.yaml'
       - 'packages/design-library/**'
+      # The web imports this contract's types directly, so a change here can
+      # break the web type check with no web file touched.
+      - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - 'packages/avatar-manifest/**'
