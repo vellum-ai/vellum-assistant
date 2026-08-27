@@ -33,11 +33,15 @@ mock.module("electron-store", () => ({
       if (key === "companionHidden") return savedCompanionHidden ?? fallback;
       if (key === "companionIntroSeen")
         return savedCompanionIntroSeen ?? fallback;
-      if (key === "companionSize") return savedCompanionSize ?? fallback;
-      if (key === "companionAvatarSize")
+      if (key === "companionSize") {
+        return savedCompanionSize ?? fallback;
+      }
+      if (key === "companionAvatarSize") {
         return savedCompanionAvatarSize ?? fallback;
-      if (key === "companionOptionsSize")
+      }
+      if (key === "companionOptionsSize") {
         return savedCompanionOptionsSize ?? fallback;
+      }
       if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;

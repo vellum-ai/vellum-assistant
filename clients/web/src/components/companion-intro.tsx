@@ -1,9 +1,6 @@
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
-  companionGapFor,
-  companionNearEdgeFor,
-  companionScaleFor,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
@@ -13,6 +10,7 @@ import type { CSSProperties, Ref } from "react";
 
 import { useTranslation } from "@/i18n";
 
+import { companionLayoutFor } from "@/components/companion-layout";
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
@@ -190,21 +188,18 @@ export function CompanionIntro({
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY_KEYS[beat];
 
-  // Every distance to the creature comes from the contract in points and is
-  // divided into the units this card is drawn in, which are the options scale
-  // the page's wrapper has already applied. The same conversion
-  // `CompanionSurface` makes, from the same helpers, so the card and the pill
-  // hang off the creature by exactly the same amount.
-  const inUnits = (points: number): number =>
-    points / companionScaleFor(optionsBox);
-  const avatarHalfUnits = inUnits(avatarBox / 2);
+  // The same derivation `CompanionSurface` places the pill by, so the card and
+  // the pill hang off the creature by exactly the same amount.
+  const { inUnits, avatarHalf, gap, nearEdge } = companionLayoutFor(
+    avatarBox,
+    optionsBox,
+  );
+  const avatarHalfUnits = inUnits(avatarHalf);
   // The creature's half box and then the same room the surface leaves between
   // the avatar and its pill, so everything hanging off the creature sits the
   // same distance from it.
-  const stepOff = inUnits(
-    avatarBox / 2 + companionGapFor(avatarBox, optionsBox),
-  );
-  const nearEdgeUnits = inUnits(companionNearEdgeFor(avatarBox, optionsBox));
+  const stepOff = inUnits(avatarHalf + gap);
+  const nearEdgeUnits = inUnits(nearEdge);
 
   // Hung off the avatar's own edge, which is the point the host positioned this
   // window around and the point the pill is measured from too. Not off the

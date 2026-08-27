@@ -14,8 +14,6 @@ import {
   voiceActivityStartSchema,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
-  COMPANION_SIZE_AXES,
-  COMPANION_SIZES,
   COMPANION_SIZE_BOXES,
   companionCardSideFor,
   companionGapFor,
@@ -34,10 +32,7 @@ import {
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
-import {
-  COMPANION_SIZE_AXIS_LABELS,
-  COMPANION_SIZE_LABELS,
-} from "@vellumai/electron-desktop/companion-menu";
+import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 import {
   onSettingChange,
   readSetting,
@@ -656,9 +651,9 @@ let installed = false;
  * is where people reach first.
  *
  * Built in main rather than in the renderer: a menu is a native window, and
- * main is the side that owns both the sizes and the visibility. The wording
- * comes from the tray's own tables, so the two menus cannot drift into
- * describing the same surface differently.
+ * main is the side that owns both the sizes and the visibility. The size
+ * pickers come from the same builder the tray reads, so the two menus cannot
+ * drift into describing the same surface differently.
  *
  * A pure template, separately from the press that pops it, because the menu
  * itself is a native window and what is worth stating is the wording and which
@@ -671,24 +666,10 @@ export const companionContextMenuTemplate = (
     hide: () => void;
   },
 ): MenuItemConstructorOptions[] => [
-  // A submenu per axis, since the creature and the controls beside it are
-  // sized separately and one picker could only ever move both.
-  //
-  // The steps sit under those headings rather than flat at the top level. A
-  // named submenu says what its five words are before it shows them, and leaves
-  // the top level short enough to read at a glance: two headings, and the one
-  // item that is not a size.
-  ...COMPANION_SIZE_AXES.map((axis) => ({
-    label: COMPANION_SIZE_AXIS_LABELS[axis],
-    submenu: COMPANION_SIZES.map((size) => ({
-      label: COMPANION_SIZE_LABELS[size],
-      type: "radio" as const,
-      checked: current[axis] === size,
-      click: () => {
-        actions.setSize(axis, size);
-      },
-    })),
-  })),
+  // The size pickers the tray offers too, from the one builder both read. They
+  // leave the top level short enough to read at a glance: two headings, and the
+  // one item that is not a size.
+  ...companionSizeSubmenus(current, actions.setSize),
   { type: "separator" as const },
   {
     // Named for what it does to the thing under the cursor. The tray's item is

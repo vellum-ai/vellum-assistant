@@ -13,8 +13,6 @@ import {
   type LockfileAssistant,
 } from "@vellumai/local-mode/contract";
 import {
-  COMPANION_SIZE_AXES,
-  COMPANION_SIZES,
   type CompanionSize,
   type CompanionSizeAxis,
   type VellumCommand,
@@ -31,10 +29,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import {
-  COMPANION_SIZE_AXIS_LABELS,
-  COMPANION_SIZE_LABELS,
-} from "./companion-menu";
+import { companionSizeSubmenus } from "./companion-menu";
 
 export type TrayMenuIcon =
   | "check"
@@ -379,30 +374,18 @@ const buildTrayMenu = (
               trayRuntime.setCompanionVisible(item.checked);
             },
           },
-          // One submenu per axis: the creature and the controls beside it are
-          // sized separately, and a single picker could only ever move both.
-          //
-          // Named steps rather than a slider, because the avatar's box is not a
-          // style: the canvas, the pill's reach and the card's height are all
-          // derived from it, so a continuous scale would be a layout nobody had
-          // ever looked at. Radio items, since each axis is one choice and the
-          // menu has to show which step is in effect.
-          //
-          // Disabled rather than hidden while the surface is hidden: the items
-          // say the sizes are still something the companion has, and items that
-          // came and went with the checkbox above them would read as a bug.
-          ...COMPANION_SIZE_AXES.map((axis) => ({
-            label: COMPANION_SIZE_AXIS_LABELS[axis],
-            enabled: !trayRuntime.companionHidden(),
-            submenu: COMPANION_SIZES.map((size) => ({
-              label: COMPANION_SIZE_LABELS[size],
-              type: "radio" as const,
-              checked: trayRuntime.companionSize(axis) === size,
-              click: () => {
-                trayRuntime.setCompanionSize(axis, size);
-              },
-            })),
-          })),
+          // The size pickers the surface's own right-click offers too, from the
+          // one builder both read. Disabled rather than hidden while the
+          // surface is: items that came and went with the checkbox above them
+          // would read as a bug.
+          ...companionSizeSubmenus(
+            {
+              avatar: trayRuntime.companionSize("avatar"),
+              options: trayRuntime.companionSize("options"),
+            },
+            trayRuntime.setCompanionSize,
+            { enabled: !trayRuntime.companionHidden() },
+          ),
         ]
       : []),
     { type: "separator" },

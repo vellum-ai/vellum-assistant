@@ -21,12 +21,7 @@ import type {
   Ref,
 } from "react";
 
-import {
-  COMPANION_BASE_AVATAR_BOX,
-  companionGapFor,
-  companionNearEdgeFor,
-  companionScaleFor,
-} from "@vellumai/ipc-contract";
+import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
   CompanionTurn,
@@ -40,6 +35,7 @@ import { MarkdownMessage } from "@vellumai/design-library";
 import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -724,24 +720,13 @@ export function CompanionSurface({
       ? 0
       : (contentWidth ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
 
-  /**
-   * A distance in points, in the units this layout is stated in.
-   *
-   * The one conversion, and the reason the distances below are worked out in
-   * points first: the page's wrapper has already scaled the whole canvas by the
-   * options size, and the contract answers in points because that is what main
-   * sizes the window in. Dividing once at the end also keeps the numbers that
-   * reach CSS as exact as the arithmetic that made them.
-   */
-  const inUnits = (points: number): number =>
-    points / companionScaleFor(optionsBox);
-
-  // What the creature carries itself: the difference between the two boxes,
-  // since the wrapper has spent the options one already.
-  const avatarRel = avatarBox / optionsBox;
-  const avatarHalf = avatarBox / 2;
-  const gap = companionGapFor(avatarBox, optionsBox);
-  const nearEdge = companionNearEdgeFor(avatarBox, optionsBox);
+  // The distances everything below is placed by, in points, and the one
+  // conversion into the units this layout is stated in. Shared with
+  // `CompanionIntro`, whose card hangs off the same edge by the same amount.
+  const { inUnits, avatarRel, avatarHalf, gap, nearEdge } = companionLayoutFor(
+    avatarBox,
+    optionsBox,
+  );
 
   /**
    * A line in the canvas, given how far in points it sits from the avatar's
