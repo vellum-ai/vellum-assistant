@@ -17,6 +17,12 @@
  * scope is the camera, and nothing outside it should be able to reach them. The
  * scrims are plain background values, since a gradient layer has nothing to
  * hand down.
+ *
+ * The glass treatments ship as class strings for the same reason the colors
+ * ship as vars: the design gives three different pieces of chrome three
+ * different fills, and a literal written at each call site is a fill that
+ * drifts the first time one of them is retuned. Each value lives here once and
+ * every consumer names it.
  */
 
 import type { CSSProperties } from "react";
@@ -33,6 +39,22 @@ export const CAMERA_ACCENT = "#cf4370";
  * over video, so the status dot takes this instead while the assistant speaks.
  */
 export const CAMERA_ACCENT_SOFT = "#ffd9e4";
+
+/**
+ * The crimson at the weight a whole surface can be filled with: the capture
+ * accent at 90%, so a status mark painted in it still lets a little of the
+ * frame through and reads as chrome over video rather than a sticker on it.
+ * Published as `--camera-accent-fill`.
+ */
+export const CAMERA_ACCENT_FILL = "rgba(207,67,112,.9)";
+
+/**
+ * The ink a glyph takes on a fill bright enough to lose a white one: the mic
+ * while the session is live, and the flash while it is armed. Near-black rather
+ * than pure, matching the weight the rest of the room's dark text carries.
+ * Published as `--camera-ink`.
+ */
+export const CAMERA_INK = "#1a1a1a";
 
 /**
  * The warm brown the camera's own controls are filled with: flip beside the
@@ -71,6 +93,41 @@ export const CAMERA_SCRIM_BOTTOM =
   "linear-gradient(transparent, rgba(0,0,0,.46))";
 
 /**
+ * The status pill's glass: the design's own fill and hairline, under the blur
+ * that keeps it honest over a bright frame. Its own values rather than the
+ * over-media glass below, because the pill is a readout rather than a target
+ * and sits lighter than the controls it shares a screen with.
+ */
+export const CAMERA_PILL_GLASS_CLASS =
+  "border-[0.5px] border-[rgba(255,255,255,0.18)] bg-[rgba(0,0,0,0.34)] text-[rgba(255,255,255,0.88)] backdrop-blur-[8px]";
+
+/**
+ * The same pill while the camera is streaming rather than sampling: filled with
+ * the capture accent, so "this is going out live" is legible as a change in
+ * color from across the screen. The border firms up and the text goes to pure
+ * white, since a crimson fill takes more contrast than the glass does.
+ */
+export const CAMERA_PILL_LIVE_CLASS =
+  "border-[0.5px] border-[rgba(255,255,255,0.25)] bg-[var(--camera-accent-fill)] text-white backdrop-blur-[8px]";
+
+/**
+ * The flash control at rest, which the design draws heavier than the pill and
+ * behind a firmer hairline: it is a target rather than a readout, and it has to
+ * hold an edge beside the near-white it cycles into.
+ */
+export const CAMERA_FLASH_GLASS_CLASS =
+  "border-white/20 bg-black/42 text-white backdrop-blur-sm";
+
+/**
+ * The scrim any mark sitting directly on live video takes: the room's corner
+ * chrome once the viewfinder is up, the deep-link overlay's controls, and the
+ * camera's own failure message. The blur is what keeps it readable over a busy
+ * frame without pushing the fill toward opaque.
+ */
+export const CAMERA_MEDIA_GLASS_CLASS =
+  "bg-black/45 text-white backdrop-blur-sm";
+
+/**
  * The `--camera-*` vars as an inline style, for the element that owns a piece
  * of camera chrome. Mirrors the `voiceSurfaceStyle` pattern next door.
  */
@@ -78,6 +135,8 @@ export function cameraModeStyle(): CSSProperties {
   return {
     "--camera-accent": CAMERA_ACCENT,
     "--camera-accent-soft": CAMERA_ACCENT_SOFT,
+    "--camera-accent-fill": CAMERA_ACCENT_FILL,
+    "--camera-ink": CAMERA_INK,
     "--camera-warm": CAMERA_WARM,
     "--camera-warm-strong": CAMERA_WARM_STRONG,
     "--camera-destructive": CAMERA_DESTRUCTIVE,

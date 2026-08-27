@@ -251,11 +251,14 @@ export function CameraCaptureOverlay({
             something behind it gives way. The room darkens the same band for
             the same reason, and shares the gradient so the two surfaces cannot
             drift. Inert, since it lies over the controls, and it covers only
-            the bottom band so the part the user is aiming stays untouched. */}
+            the bottom band so the part the user is aiming stays untouched.
+
+            The floor is the room's too: 38% of a short window stops above the
+            shutter, leaving the control it exists for sitting on bare frame. */}
         <div
           aria-hidden
           data-testid="camera-deep-link-scrim"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-[38%]"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[max(38%,15rem)]"
           style={{ background: CAMERA_SCRIM_BOTTOM }}
         />
 

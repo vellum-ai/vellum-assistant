@@ -253,11 +253,11 @@
     "uploadFailed": "Couldn't send that photo."
   },
   "cameraStatusPill": {
-    "announcePhotoMutedSpeaking": "Photo. Muted. {name} speaking",
-    "announcePhotoMutedStatus": "Photo. Muted. {status}",
-    "announcePhotoSpeaking": "Photo. {name} speaking",
-    "announcePhotoStatus": "Photo. {status}",
+    "announceLive": "Live. {status}",
+    "announcePhoto": "Photo. {status}",
+    "live": "Live",
     "photo": "Photo",
+    "speakingState": "{name} speaking",
     "yourAssistant": "Your assistant"
   },
   "cardSurface": {

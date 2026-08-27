@@ -117,10 +117,11 @@ const LIVE_VOICE_STATUS_ENGLISH: Record<LiveVoiceStatusKey, string> = {
 };
 
 /**
- * English activity label per session state, shared by every surface that shows
- * session activity (the composer's voice bar and the title-bar session pill),
- * so the two always agree. Derived from {@link LIVE_VOICE_STATE_KEYS}, which is
- * the only place a phase and its wording are paired.
+ * English activity label per session state, for the native surfaces with no
+ * translator in reach: the iOS Live Activity's push registration reads it, and
+ * enumerates it to cover every phase. Derived from
+ * {@link LIVE_VOICE_STATE_KEYS}, which is the only place a phase and its
+ * wording are paired.
  *
  * The assertion restates the shape `Object.entries` widens to `string`.
  */
@@ -177,9 +178,13 @@ export function liveVoiceSurfaceLabelKey(
 }
 
 /**
- * English copy for {@link liveVoiceSurfaceLabelKey}, for the surfaces that read
- * the label itself: the room's caption and the iOS Live Activity mirror. Empty
- * for the phases that carry no word.
+ * English copy for {@link liveVoiceSurfaceLabelKey}, for the surfaces that
+ * cannot reach a translator: the iOS Live Activity mirror and the push
+ * registration that hands its wording to native code. Empty for the phases that
+ * carry no word.
+ *
+ * Every surface rendered by this app reads the key instead, so a Spanish or
+ * Russian reader gets the session's state in their own language.
  */
 export function liveVoiceSurfaceLabel(
   state: LiveVoiceSessionState,

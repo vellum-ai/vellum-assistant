@@ -1724,7 +1724,7 @@ describe("VoiceRoom: camera", () => {
     expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
   });
 
-  test("the pill is the only announcer of voice state while the camera is open", async () => {
+  test("one region announces the voice state, camera open or closed", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
     startOwnedSession("listening");
@@ -1739,15 +1739,16 @@ describe("VoiceRoom: camera", () => {
       fireEvent.click(cameraToggle()!);
     });
 
-    // Open: the pill says it with the mode attached, and the old region stands
-    // down, so a screen reader hears the state once rather than twice.
-    expect(announcer().textContent).toBe("");
-    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
-      "Photo. Listening…",
-    );
+    // Open: the same region takes the mode word, rather than a second region
+    // arriving with its words already in it, which assistive tech would not
+    // reliably announce. The pill draws the state and says nothing.
+    expect(announcer().textContent).toBe("Photo. Listening…");
+    const pill = screen.getByTestId("camera-status-pill");
+    expect(pill.getAttribute("aria-live")).toBeNull();
+    expect(pill.querySelector(".sr-only")).toBeNull();
   });
 
-  test("the pill keeps the muted prefix the standing-down region carried", async () => {
+  test("the announcement keeps the muted prefix once the camera is open", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
     startOwnedSession("listening");
@@ -1765,12 +1766,10 @@ describe("VoiceRoom: camera", () => {
       fireEvent.click(cameraToggle()!);
     });
 
-    // Open: the region stands down, so the pill has to carry the mic's state or
-    // it is lost for the rest of the phase.
-    expect(announcer().textContent).toBe("");
-    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
-      "Photo. Muted. Thinking…",
-    );
+    // Open: the mode leads and the prefix survives, since the visible row
+    // carries only the phase word and the mic's state would otherwise be lost
+    // for the rest of it.
+    expect(announcer().textContent).toBe("Photo. Muted. Thinking…");
   });
 
   test("the pill carries the session's own label, not a fixed listening word", async () => {
@@ -1827,7 +1826,7 @@ describe("VoiceRoom: camera", () => {
     // neighbours, where the answer would be an absence of red.
     const mic = micButton()!;
     expect(mic.className).toContain("bg-white");
-    expect(mic.className).toContain("text-neutral-900");
+    expect(mic.className).toContain("text-[var(--camera-ink)]");
 
     // The camera's own controls take the warm fill: a third hue, because the
     // row already spends white on "the session is live" and red on "this

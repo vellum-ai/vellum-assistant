@@ -18,13 +18,17 @@
  * while it is audibly talking: it says everything "Speaking…" would, plus
  * whose voice it is.
  *
- * Photo is the only mode it renders, and it answers no press, so it is a status
- * region rather than a button.
+ * Two modes, told apart by fill as well as by word. Photo is glass, so the
+ * frame reads through the mark that is only sampling it; Live is filled with
+ * the capture accent, because "this is going out continuously" is the one thing
+ * about the surface that has to be legible without reading.
  *
- * The announcement carries one thing the visible row does not: a muted mic, in
- * every phase rather than only the one the session relabels for it. The pill is
- * the room's sole announcer while the viewfinder is up, so a phase word on its
- * own would leave a screen-reader user unaware the mic is off.
+ * It answers no press, so it is a plain region rather than a button, and it
+ * announces nothing: a live region that mounts with its first sentence already
+ * inside it is announced unreliably, since assistive tech watches an existing
+ * region for changes rather than a new one for arrival. The room owns one
+ * always-mounted region and fills it from {@link useCameraStatusAnnouncement},
+ * which is the same sentence this pill would have spoken.
  *
  * A configured assistant name is arbitrarily long, so the name is the one part
  * that gives way: it truncates to an ellipsis inside whatever width the room
@@ -41,10 +45,42 @@ import { useReducedMotion } from "motion/react";
 
 import { useTranslation } from "@/i18n";
 
-import { cameraModeStyle } from "./camera-mode-paint";
+import {
+  CAMERA_PILL_GLASS_CLASS,
+  CAMERA_PILL_LIVE_CLASS,
+  cameraModeStyle,
+} from "./camera-mode-paint";
 import type { CameraVoiceState } from "./use-camera-voice-state";
 
+/**
+ * What the camera is doing: sampling single frames, or streaming. Only `photo`
+ * is reachable from the app today; `live` is the mode the design ships the pill
+ * for, and the variant exists so the treatment lands with the surface rather
+ * than after it.
+ */
+export type CameraMode = "photo" | "live";
+
+/** The mode's own word, which leads the pill and the announcement alike. */
+const MODE_WORD_KEYS = {
+  photo: "cameraStatusPill.photo",
+  live: "cameraStatusPill.live",
+} as const;
+
+/** The sentence the mode's word opens, with the session's state inside it. */
+const MODE_ANNOUNCE_KEYS = {
+  photo: "cameraStatusPill.announcePhoto",
+  live: "cameraStatusPill.announceLive",
+} as const;
+
+/** The pill's fill per mode. See `camera-mode-paint.ts` for the values. */
+const MODE_CONTAINER_CLASSES = {
+  photo: CAMERA_PILL_GLASS_CLASS,
+  live: CAMERA_PILL_LIVE_CLASS,
+} as const;
+
 export interface CameraStatusPillProps {
+  /** What the camera is doing. Defaults to `photo`. */
+  mode?: CameraMode;
   /** Whose voice is active. See `use-camera-voice-state.ts`. */
   voiceState: CameraVoiceState;
   /**
@@ -59,57 +95,87 @@ export interface CameraStatusPillProps {
   statusLabel: string;
   /** The session assistant's name, spoken when it is the one talking. */
   assistantName?: string | null;
-  /**
-   * Whether the mic is muted. Read by the announcement alone: the visible row
-   * carries whatever word the session's own label gives it, so nothing here
-   * takes a second decision about mute that could drift from that one.
-   */
+}
+
+/**
+ * Everything the spoken sentence needs, which is the pill's own props plus the
+ * mic. Mute is announced and not drawn: the visible row carries whatever word
+ * the session's label gives it, so nothing takes a second decision about mute
+ * that could drift from that one.
+ */
+export interface CameraStatusAnnouncement extends CameraStatusPillProps {
+  /** Whether the mic is muted. */
   muted?: boolean;
 }
 
+/** The name the pill speaks, with a fallback rather than naming nobody. */
+function useAssistantWord(assistantName: string | null | undefined): string {
+  const { t } = useTranslation("chat");
+  return assistantName?.trim() || t("cameraStatusPill.yourAssistant");
+}
+
+/**
+ * The one sentence camera mode says, for the room's always-mounted live region.
+ * `null` while the camera is closed, where the room's own state announcer takes
+ * the session back and this returns the empty string rather than unmounting a
+ * region assistive tech is watching.
+ *
+ * Composed rather than looked up in a key grid: the mode's word opens the
+ * sentence, the session's state closes it, and mute wraps the state with the
+ * room's own `voiceRoom.mutedState` pattern. A grid would need a key per mode
+ * per mute per speaker, and every mode added would double it.
+ *
+ * The mute wrap is what the visible row does not carry. The session relabels
+ * only `listening` for a muted mic, so "Thinking…" on its own tells a
+ * screen-reader user the assistant is working without telling them it cannot
+ * hear them. The one phase the session does relabel is skipped, since wrapping
+ * that reads "Muted. Muted".
+ */
+export function useCameraStatusAnnouncement(
+  status: CameraStatusAnnouncement | null,
+): string {
+  const { t } = useTranslation("chat");
+  const name = useAssistantWord(status?.assistantName);
+
+  if (!status) {
+    return "";
+  }
+
+  const { mode = "photo", voiceState, statusLabel, muted } = status;
+  const mutedWord = t("liveVoiceStatus.muted");
+  const spoken =
+    voiceState === "assistant"
+      ? t("cameraStatusPill.speakingState", { name })
+      : statusLabel || (muted ? mutedWord : "");
+
+  if (!spoken) {
+    return t(MODE_WORD_KEYS[mode]);
+  }
+
+  const state =
+    muted && spoken !== mutedWord
+      ? t("voiceRoom.mutedState", { state: spoken })
+      : spoken;
+  return t(MODE_ANNOUNCE_KEYS[mode], { status: state });
+}
+
 export function CameraStatusPill({
+  mode = "photo",
   voiceState,
   statusLabel,
   assistantName,
-  muted,
 }: CameraStatusPillProps) {
   const { t } = useTranslation("chat");
   const reduce = useReducedMotion();
 
-  const name = assistantName?.trim() || t("cameraStatusPill.yourAssistant");
+  const name = useAssistantWord(assistantName);
   const speaking = voiceState === "assistant";
   const voiceWord = speaking ? name : statusLabel;
 
-  // The pill is the only announcer while the viewfinder is up, so a muted mic
-  // has to reach the announcement in the phases the session does not relabel
-  // for it: "Thinking…" alone tells a screen-reader user the assistant is
-  // working without telling them it cannot hear them. `listening` is the one
-  // phase the session does relabel, and prefixing that reads "Muted. Muted".
-  const mutedWord = t("liveVoiceStatus.muted");
-  const announcedWord = voiceWord || (muted ? mutedWord : "");
-  const prefixMuted = Boolean(muted) && announcedWord !== mutedWord;
-
-  const announcement = speaking
-    ? t(
-        prefixMuted
-          ? "cameraStatusPill.announcePhotoMutedSpeaking"
-          : "cameraStatusPill.announcePhotoSpeaking",
-        { name },
-      )
-    : announcedWord
-      ? t(
-          prefixMuted
-            ? "cameraStatusPill.announcePhotoMutedStatus"
-            : "cameraStatusPill.announcePhotoStatus",
-          { status: announcedWord },
-        )
-      : t("cameraStatusPill.photo");
-
   return (
     <div
-      role="status"
-      aria-live="polite"
       data-testid="camera-status-pill"
+      data-camera-mode={mode}
       style={cameraModeStyle()}
       className={cn(
         // A floor width, so the word swapping between the session's phases and
@@ -118,21 +184,19 @@ export function CameraStatusPill({
         // it knows what corner chrome the pill has to keep clear of.
         "inline-flex min-w-[9rem] max-w-full items-center justify-center",
         "rounded-full",
-        "border-[0.5px] border-[rgba(255,255,255,0.18)] bg-[rgba(0,0,0,0.34)]",
+        "px-3 py-[5px]",
+        "text-label-medium-default",
         // Blur rather than a heavier fill: the frame behind can be any
         // brightness, and an opaque chip over a viewfinder reads as a hole.
-        "px-3 py-[5px] backdrop-blur-[8px]",
-        "text-label-medium-default text-[rgba(255,255,255,0.88)]",
+        MODE_CONTAINER_CLASSES[mode],
         // The token's 11px at the design's 600. Rebinding the weight var beats
         // a `font-semibold` beside it: both set `font-weight`, and which one
         // wins is Tailwind's utility ordering rather than the order written.
         "[--text-label-medium-default-weight:600]",
       )}
     >
-      {/* The visible row is a set of fragments, so it is hidden from assistive
-          tech and this sentence is announced in its place. */}
-      <span className="sr-only">{announcement}</span>
-
+      {/* A set of fragments rather than a sentence, so it is hidden from
+          assistive tech; the room's live region speaks the sentence. */}
       <span
         aria-hidden
         className="inline-flex min-w-0 items-center gap-[7px] whitespace-nowrap"
@@ -150,7 +214,7 @@ export function CameraStatusPill({
             voiceState !== "idle" && !reduce && "camera-status-blink",
           )}
         />
-        <span className="flex-none">{t("cameraStatusPill.photo")}</span>
+        <span className="flex-none">{t(MODE_WORD_KEYS[mode])}</span>
         {voiceWord ? (
           <>
             <span className="flex-none opacity-45">·</span>
