@@ -43,7 +43,7 @@ import { createSelectors } from "@/utils/create-selectors";
  *   turn-boundary `ptt_release` frame in manual mode. Distinct from `thinking`
  *   because it stamps end-of-speech latency and gates the
  *   `utterance_discarded` return to `listening`, though the two share a label
- *   (see {@link LIVE_VOICE_STATE_LABELS}).
+ *   (see {@link LIVE_VOICE_STATE_KEYS}).
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
@@ -85,8 +85,13 @@ export type LiveVoiceStatusKey =
  * unique to `transcribing` puts two words for one phase on screen at once,
  * across a window that is usually under a second and that offers the user
  * nothing to act on.
+ *
+ * A phase and its wording are paired here and nowhere else. The wording itself
+ * is `liveVoiceStatus` in the `chat` catalog, and every surface resolves the
+ * key through it, so each of them says the same thing in the reader's own
+ * language.
  */
-const LIVE_VOICE_STATE_KEYS: Record<
+export const LIVE_VOICE_STATE_KEYS: Record<
   LiveVoiceSessionState,
   LiveVoiceStatusKey | null
 > = {
@@ -99,39 +104,6 @@ const LIVE_VOICE_STATE_KEYS: Record<
   ending: "liveVoiceStatus.ending",
   failed: null,
 };
-
-/**
- * English copy per key, mirroring `liveVoiceStatus` in the `chat` catalog. What
- * the surfaces reading a label rather than a key resolve to, the iOS Live
- * Activity registration among them: it hands its wording to native code, which
- * has no translator in reach.
- */
-const LIVE_VOICE_STATUS_ENGLISH: Record<LiveVoiceStatusKey, string> = {
-  "liveVoiceStatus.connecting": "Connecting…",
-  "liveVoiceStatus.reconnecting": "Reconnecting…",
-  "liveVoiceStatus.listening": "Listening…",
-  "liveVoiceStatus.thinking": "Thinking…",
-  "liveVoiceStatus.speaking": "Speaking…",
-  "liveVoiceStatus.ending": "Ending…",
-  "liveVoiceStatus.muted": "Muted",
-};
-
-/**
- * English activity label per session state, for the native surfaces with no
- * translator in reach: the iOS Live Activity's push registration reads it, and
- * enumerates it to cover every phase. Derived from
- * {@link LIVE_VOICE_STATE_KEYS}, which is the only place a phase and its
- * wording are paired.
- *
- * The assertion restates the shape `Object.entries` widens to `string`.
- */
-export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> =
-  Object.fromEntries(
-    Object.entries(LIVE_VOICE_STATE_KEYS).map(([state, key]) => [
-      state,
-      key ? LIVE_VOICE_STATUS_ENGLISH[key] : "",
-    ]),
-  ) as Record<LiveVoiceSessionState, string>;
 
 /**
  * The catalog key a *surface* shows for a session: the phase's own key plus the
@@ -147,8 +119,8 @@ export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> =
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
  * audible is wrong for the room's caption, wrong for its screen-reader
  * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
- * that renders session activity resolves this, the voice room and the iOS Live
- * Activity mirror, so the island always reads exactly what the room reads.
+ * that renders session activity calls this, the room and the out-of-app
+ * mirrors alike, so the island always reads exactly what the room reads.
  *
  * `listening` is the same problem through the microphone: the session holds
  * that phase while the mic is muted, so the surface claims to be listening
@@ -175,30 +147,6 @@ export function liveVoiceSurfaceLabelKey(
     return "liveVoiceStatus.thinking";
   }
   return LIVE_VOICE_STATE_KEYS[state];
-}
-
-/**
- * English copy for {@link liveVoiceSurfaceLabelKey}, for the surfaces that
- * cannot reach a translator: the iOS Live Activity mirror and the push
- * registration that hands its wording to native code. Empty for the phases that
- * carry no word.
- *
- * Every surface rendered by this app reads the key instead, so a Spanish or
- * Russian reader gets the session's state in their own language.
- */
-export function liveVoiceSurfaceLabel(
-  state: LiveVoiceSessionState,
-  reconnecting: boolean,
-  assistantAudioActive: boolean,
-  muted: boolean,
-): string {
-  const key = liveVoiceSurfaceLabelKey(
-    state,
-    reconnecting,
-    assistantAudioActive,
-    muted,
-  );
-  return key ? LIVE_VOICE_STATUS_ENGLISH[key] : "";
 }
 
 /**
@@ -475,7 +423,7 @@ export interface LiveVoiceState {
   /**
    * Latency measurements for the last turn, `null` until a turn is measured.
    * Debug surface only — per the minimal-treatment note on
-   * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
+   * {@link LIVE_VOICE_STATE_KEYS}, no surface renders this: the controller
    * logs one `console.debug("[live-voice] turn latency", …)` line per
    * completed turn and this field waits for a future debug panel.
    */

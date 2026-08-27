@@ -43,17 +43,23 @@
  * is never read: it changes per animation frame and would exhaust the budget
  * within a second. `activityLabel` is read and is safe to: the daemon emits it
  * only on a change it wants surfaced, a few times per turn at most.
+ *
+ * The active locale is the one input that is not the session's. The phase label
+ * is catalog copy, so a language switch changes what both surfaces should read
+ * while nothing in the store moves, and the mirror re-reads the session itself
+ * on one.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   isLiveVoiceSessionActive,
-  liveVoiceSurfaceLabel,
+  liveVoiceSurfaceLabelKey,
   subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useTranslation, type TFunction } from "@/i18n";
 import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
@@ -88,22 +94,26 @@ import { assistantDisplayName } from "@/utils/assistant-display-name";
  */
 function toActivityContent(
   session: LiveVoiceState,
+  t: TFunction<"chat">,
 ): VoiceLiveActivityContent | null {
   if (!isLiveVoiceSessionActive(session.state)) {
     return null;
   }
+  const labelKey = liveVoiceSurfaceLabelKey(
+    session.state,
+    session.reconnecting,
+    session.assistantAudioActive,
+    session.muted,
+  );
   return {
     phase: session.state,
-    // The room's label, verbatim: the same `liveVoiceSurfaceLabel` call the
-    // room makes, including its "Reconnecting…" relabel, its
-    // silent-`speaking` to "Thinking…" remap, and its muted-`listening` to
-    // "Muted" remap, so the island never has wording of its own to drift from.
-    label: liveVoiceSurfaceLabel(
-      session.state,
-      session.reconnecting,
-      session.assistantAudioActive,
-      session.muted,
-    ),
+    // The room's label: the same `liveVoiceSurfaceLabelKey` call the room
+    // makes, resolved through the same catalog, including its "Reconnecting…"
+    // relabel, its silent-`speaking` to "Thinking…" remap, and its
+    // muted-`listening` to "Muted" remap. The island and the desktop panel
+    // therefore have no wording of their own to drift from, and they read in
+    // whatever language the app is in.
+    label: labelKey ? t(labelKey) : "",
     // The accent the avatar (and therefore the voice room) renders. `""` for
     // an avatar with no color to match: the native side canonicalizes
     // unparseable input to its neutral gray. An avatar still loading when the
@@ -210,6 +220,21 @@ function sameContent(
 }
 
 export function useLiveActivityMirror(): void {
+  const { t } = useTranslation("chat");
+  /**
+   * The translator the effect below resolves the phase label with.
+   *
+   * Held in a ref rather than closed over, because the effect runs once for the
+   * mirror's whole lifetime: making it depend on `t` would tear the mirror down
+   * on a language switch, and its cleanup ends the activity.
+   */
+  const translate = useRef(t);
+  /**
+   * Re-runs the mirror against the session as it stands, or `null` before the
+   * effect has mounted and after it has torn down.
+   */
+  const resync = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     /**
      * The last payload handed to the bridge, or `null` when no activity has
@@ -281,7 +306,7 @@ export function useLiveActivityMirror(): void {
     };
 
     const sync = (session: LiveVoiceState): void => {
-      const content = toActivityContent(session);
+      const content = toActivityContent(session, translate.current);
 
       if (content === null) {
         if (pushed === null) {
@@ -340,6 +365,7 @@ export function useLiveActivityMirror(): void {
     // plugin holds at most one activity, so a redundant `start` updates the
     // running one rather than stacking a second island.
     sync(useLiveVoiceStore.getState());
+    resync.current = () => sync(useLiveVoiceStore.getState());
     const unsubscribe = subscribeSettledLiveVoiceState(sync);
     // Subscribed for the mirror's whole lifetime rather than per activity: the
     // token can arrive before the next settled state does, and a listener
@@ -348,7 +374,7 @@ export function useLiveActivityMirror(): void {
       ({ token }) => {
         pushToken = token;
         const session = useLiveVoiceStore.getState();
-        const content = toActivityContent(session);
+        const content = toActivityContent(session, translate.current);
         // A token for a session that has already ended registers nothing: the
         // activity it addresses is on its way out, and the `end` path has
         // already dropped the registration.
@@ -359,6 +385,7 @@ export function useLiveActivityMirror(): void {
     );
 
     return () => {
+      resync.current = null;
       unsubscribe();
       unsubscribeToken();
       // A surface that outlives its mirror sits on the Lock Screen, or floats
@@ -373,4 +400,13 @@ export function useLiveActivityMirror(): void {
       }
     };
   }, []);
+
+  // The phase label is catalog copy, so switching language mid-call changes
+  // what both surfaces should read while nothing in the session moves. Nothing
+  // would push it otherwise, and the island a user is looking at would stay in
+  // the language they just left.
+  useEffect(() => {
+    translate.current = t;
+    resync.current?.();
+  }, [t]);
 }

@@ -5,10 +5,13 @@ reader, or a real OS setting, so it runs by hand.
 
 Surface under test: the voice room with the viewfinder up, under
 `src/domains/chat/voice/voice-room/` (the camera paths of `voice-room.tsx`,
-`camera-status-pill.tsx`, `camera-flash-control.tsx`, `camera-shutter.tsx`, and
-`voice-room-control.tsx` at `surface="camera"`), plus the deep-link capture
-overlay in `src/domains/chat/components/chat-attachments/`, which shares the
-shutter and the bottom scrim.
+`camera-status-pill.tsx`, `camera-flash-control.tsx`, and
+`voice-room-control.tsx` at `surface="camera"`). Two things it runs on live
+outside that directory and are in scope with it: the shutter at
+`src/domains/chat/voice/camera-shutter.tsx`, which the room shares with the
+deep-link capture overlay, and that overlay itself in
+`src/domains/chat/components/chat-attachments/`, which also shares the bottom
+scrim.
 
 ## iPhone
 
@@ -126,11 +129,12 @@ the redesign is called shipped.
       resting state also carries `backdrop-blur-sm`, which the handoff draws as
       a flat fill. Confirm the glyph sits as a sibling of the icons beside it,
       and that the blur is wanted over a busy frame.
-- [ ] Localized session words on the minimized surfaces. The composer's voice
-      bar and the title-bar session pill read the session's state through the
-      catalog rather than the store's English map, so they follow the app
-      language the way the room already did. Sweep them in Spanish and Russian
-      alongside the room.
+- [ ] Localized session words on the surfaces outside the room. The composer's
+      voice bar, the title-bar session pill, the iOS Dynamic Island and the
+      macOS companion panel all read the session's state through the catalog,
+      so they follow the app language the way the room does. Sweep them in
+      Spanish and Russian alongside the room, the island backgrounded so a
+      server-composed push is what lands.
 
 ## Known adjacent issues
 

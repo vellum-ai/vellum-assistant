@@ -16,8 +16,7 @@ import {
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
-  LIVE_VOICE_STATE_LABELS,
-  liveVoiceSurfaceLabel,
+  LIVE_VOICE_STATE_KEYS,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
@@ -214,53 +213,66 @@ describe("useLiveVoiceStore — room minimize", () => {
   });
 });
 
-describe("LIVE_VOICE_STATE_LABELS", () => {
+/**
+ * What a surface renders for a session in English: the key the resolver
+ * returns, read out of the catalog every surface reads it out of.
+ */
+function surfaceLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+  muted: boolean,
+): string {
+  const key = liveVoiceSurfaceLabelKey(
+    state,
+    reconnecting,
+    assistantAudioActive,
+    muted,
+  );
+  if (!key) {
+    return "";
+  }
+  const slot = key.replace("liveVoiceStatus.", "");
+  return enChat.liveVoiceStatus[slot as keyof typeof enChat.liveVoiceStatus];
+}
+
+describe("LIVE_VOICE_STATE_KEYS", () => {
   /**
-   * `toVoiceAvatarVisual` collapses `transcribing` into `thinking`, so a label
-   * of its own put two different words for one phase on screen at once: the
+   * `toVoiceAvatarVisual` collapses `transcribing` into `thinking`, so a key of
+   * its own put two different words for one phase on screen at once: the
    * avatar and eyes caption reading thinking, the label reading transcribing.
    */
   test("gives transcribing no wording of its own", () => {
-    expect(LIVE_VOICE_STATE_LABELS.transcribing).toBe(
-      LIVE_VOICE_STATE_LABELS.thinking,
+    expect(LIVE_VOICE_STATE_KEYS.transcribing).toBe(
+      LIVE_VOICE_STATE_KEYS.thinking,
     );
   });
 
-  /** The collapse is the label's, not the phase's: the state still exists. */
+  /** The collapse is the wording's, not the phase's: the state still exists. */
   test("keeps transcribing a distinct session state", () => {
     expect(toVoiceAvatarVisual("transcribing", false)).toBe(
       toVoiceAvatarVisual("thinking", false),
     );
-    expect(liveVoiceSurfaceLabel("transcribing", false, true, false)).toBe(
-      "Thinking…",
-    );
+    expect(surfaceLabel("transcribing", false, true, false)).toBe("Thinking…");
   });
 });
 
-describe("liveVoiceSurfaceLabel", () => {
+describe("liveVoiceSurfaceLabelKey", () => {
   test("a speaking phase with no audio playing reads as thinking", () => {
     // `speaking` stays set across a mid-turn tool run (the ack was spoken and
     // the assistant is now silent) so every surface says "Thinking…".
-    expect(liveVoiceSurfaceLabel("speaking", false, false, false)).toBe(
-      "Thinking…",
-    );
-    expect(liveVoiceSurfaceLabel("speaking", false, true, false)).toBe(
-      "Speaking…",
-    );
+    expect(surfaceLabel("speaking", false, false, false)).toBe("Thinking…");
+    expect(surfaceLabel("speaking", false, true, false)).toBe("Speaking…");
   });
 
   test("carries the reconnecting relabel through unchanged", () => {
-    expect(liveVoiceSurfaceLabel("connecting", true, false, false)).toBe(
+    expect(surfaceLabel("connecting", true, false, false)).toBe(
       "Reconnecting…",
     );
-    expect(liveVoiceSurfaceLabel("listening", false, false, false)).toBe(
-      "Listening…",
-    );
+    expect(surfaceLabel("listening", false, false, false)).toBe("Listening…");
     // Only `connecting` reads the signal: a retry that has already reconnected
     // far enough to listen is listening.
-    expect(liveVoiceSurfaceLabel("listening", true, false, false)).toBe(
-      "Listening…",
-    );
+    expect(surfaceLabel("listening", true, false, false)).toBe("Listening…");
   });
 
   /**
@@ -268,16 +280,12 @@ describe("liveVoiceSurfaceLabel", () => {
    * surface claims to be listening beside a mute button that says it is not.
    */
   test("a muted listening phase reads as muted", () => {
-    expect(liveVoiceSurfaceLabel("listening", false, false, true)).toBe(
-      "Muted",
-    );
+    expect(surfaceLabel("listening", false, false, true)).toBe("Muted");
   });
 
   /** A state rather than an activity, so no ellipsis where the phases have one. */
   test("says muted without an ellipsis", () => {
-    expect(liveVoiceSurfaceLabel("listening", false, false, true)).not.toContain(
-      "\u2026",
-    );
+    expect(surfaceLabel("listening", false, false, true)).not.toContain("…");
   });
 
   /**
@@ -285,15 +293,9 @@ describe("liveVoiceSurfaceLabel", () => {
    * speaking, so relabelling those would trade one false statement for another.
    */
   test("leaves the assistant's own phases alone while muted", () => {
-    expect(liveVoiceSurfaceLabel("thinking", false, false, true)).toBe(
-      "Thinking…",
-    );
-    expect(liveVoiceSurfaceLabel("speaking", false, true, true)).toBe(
-      "Speaking…",
-    );
-    expect(liveVoiceSurfaceLabel("transcribing", false, false, true)).toBe(
-      "Thinking…",
-    );
+    expect(surfaceLabel("thinking", false, false, true)).toBe("Thinking…");
+    expect(surfaceLabel("speaking", false, true, true)).toBe("Speaking…");
+    expect(surfaceLabel("transcribing", false, false, true)).toBe("Thinking…");
   });
 
   /**
@@ -301,20 +303,15 @@ describe("liveVoiceSurfaceLabel", () => {
    * session that is not currently connected at all.
    */
   test("does not hide a reconnect behind the mute", () => {
-    expect(liveVoiceSurfaceLabel("connecting", true, false, true)).toBe(
-      "Reconnecting…",
-    );
+    expect(surfaceLabel("connecting", true, false, true)).toBe("Reconnecting…");
   });
-});
 
-describe("liveVoiceSurfaceLabelKey", () => {
   /**
-   * The key and the English label are the same decision, so a surface that
-   * translates the key cannot say a different thing from the surfaces that read
-   * the label. The catalog is the other half of that: a key whose English copy
-   * had drifted would translate into a word the room never shows.
+   * The key table is the only source of session wording, so a key naming a
+   * message the catalog does not carry leaves every surface rendering the key
+   * itself, the island and the macOS companion included.
    */
-  test("keys the copy the English label reads out", () => {
+  test("keys copy the catalog actually carries", () => {
     const cases: [LiveVoiceSessionState, boolean, boolean, boolean][] = [
       ["connecting", false, false, false],
       ["connecting", true, false, false],
@@ -328,12 +325,10 @@ describe("liveVoiceSurfaceLabelKey", () => {
     ];
 
     for (const [state, reconnecting, audio, muted] of cases) {
-      const key = liveVoiceSurfaceLabelKey(state, reconnecting, audio, muted);
-      expect(key).not.toBeNull();
-      const slot = key!.replace("liveVoiceStatus.", "");
-      expect(liveVoiceSurfaceLabel(state, reconnecting, audio, muted)).toBe(
-        enChat.liveVoiceStatus[slot as keyof typeof enChat.liveVoiceStatus],
-      );
+      expect(
+        liveVoiceSurfaceLabelKey(state, reconnecting, audio, muted),
+      ).not.toBeNull();
+      expect(surfaceLabel(state, reconnecting, audio, muted)).toBeTruthy();
     }
   });
 

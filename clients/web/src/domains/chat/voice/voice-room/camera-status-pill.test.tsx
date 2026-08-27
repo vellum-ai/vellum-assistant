@@ -17,16 +17,33 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render, screen } from "@testing-library/react";
 
-import { liveVoiceSurfaceLabel } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { liveVoiceSurfaceLabelKey } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   CameraStatusPill,
   useCameraStatusAnnouncement,
   type CameraStatusAnnouncement,
 } from "@/domains/chat/voice/voice-room/camera-status-pill";
+import { fixedT } from "@/i18n";
 
 afterEach(() => {
   cleanup();
 });
+
+/** The session's own surface label, resolved the way every surface resolves it. */
+function surfaceLabel(
+  state: Parameters<typeof liveVoiceSurfaceLabelKey>[0],
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+  muted: boolean,
+): string {
+  const key = liveVoiceSurfaceLabelKey(
+    state,
+    reconnecting,
+    assistantAudioActive,
+    muted,
+  );
+  return key ? fixedT("chat")(key) : "";
+}
 
 const pill = () => screen.getByTestId("camera-status-pill");
 const dot = () => screen.getByTestId("camera-status-dot");
@@ -175,7 +192,7 @@ describe("CameraStatusPill", () => {
     render(
       <CameraStatusPill
         voiceState="idle"
-        statusLabel={liveVoiceSurfaceLabel("connecting", true, false, false)}
+        statusLabel={surfaceLabel("connecting", true, false, false)}
         assistantName="Luna"
       />,
     );

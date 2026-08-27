@@ -440,6 +440,35 @@ describe("useVoiceCamera: two flips at once", () => {
     expect(facing()).toBe("environment");
     expect(flipSpy).toHaveBeenCalledTimes(2);
   });
+
+  test("holds its claim through its own fallback reacquisition", async () => {
+    // On Capacitor with the native preview refused, the flip takes the web
+    // branch, and `acquire` releases the capture to request the replacement.
+    // That release is the running flip's own, so it must leave the claim
+    // standing: `sourceRef` reads `native-pending` across the await, and a
+    // second tap that got past both guards would start a competing flip.
+    startSpy.mockImplementation(async () => false);
+    const getUserMedia = mock(async () => fakeStream());
+    stubMediaDevices(getUserMedia);
+
+    render(<Probe />);
+    await press("open");
+    expect(facing()).toBe("environment");
+
+    const slowStart = deferredCall<boolean>();
+    startSpy.mockImplementation(slowStart.answer);
+    await press("flip");
+
+    // Lands while the first flip is still inside `acquire`.
+    await press("flip");
+    expect(startSpy).toHaveBeenCalledTimes(2);
+
+    await settle(() => slowStart.resolve(false));
+
+    expect(facing()).toBe("user");
+    expect(startSpy).toHaveBeenCalledTimes(2);
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("useVoiceCamera: a flip the bridge never answers", () => {

@@ -254,10 +254,15 @@
   },
   "cameraStatusPill": {
     "announceLive": "En vivo. {status}",
+    "announceLiveMuted": "En vivo. Silenciado. {status}",
+    "announceLiveMutedSpeaking": "En vivo. Silenciado. {name} está hablando",
+    "announceLiveSpeaking": "En vivo. {name} está hablando",
     "announcePhoto": "Foto. {status}",
+    "announcePhotoMuted": "Foto. Silenciado. {status}",
+    "announcePhotoMutedSpeaking": "Foto. Silenciado. {name} está hablando",
+    "announcePhotoSpeaking": "Foto. {name} está hablando",
     "live": "En vivo",
     "photo": "Foto",
-    "speakingState": "{name} está hablando",
     "yourAssistant": "Tu asistente"
   },
   "cardSurface": {
