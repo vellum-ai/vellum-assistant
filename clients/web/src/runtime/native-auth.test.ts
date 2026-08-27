@@ -239,7 +239,11 @@ describe("startAuthFlow on Electron", () => {
     const startOAuth = mock(() =>
       Promise.resolve({ sessionToken: "session-token" }),
     );
-    windowWithBridge.vellum = { platform: "electron", auth: { startOAuth } };
+    windowWithBridge.vellum = {
+      platform: "electron",
+      auth: { startOAuth },
+      menu: { setPlatformSession: async () => {} },
+    };
     refreshSession.mockImplementationOnce(async () => {
       useResolvedAssistantsStore.setState({
         assistants: [
