@@ -123,6 +123,82 @@ describe("sendDiscordReply", () => {
     await sendDiscordReply({ channelId: "C1" }, "   ");
     expect(calls).toHaveLength(0);
   });
+
+  test("an approval card carries its buttons on the shared apr: convention", async () => {
+    await sendDiscordReply({ channelId: "C1" }, "Approve?", {
+      requestId: "req-1",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "reply approve or reject",
+    });
+
+    const body = JSON.parse(calls[0].body as string);
+    expect(body.components).toEqual([
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 1,
+            label: "Approve once",
+            custom_id: "apr:req-1:approve_once",
+          },
+          {
+            type: 2,
+            style: 4,
+            label: "Reject",
+            custom_id: "apr:req-1:reject",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("buttons ride only the final chunk of a long card", async () => {
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
+    await sendDiscordReply({ channelId: "C1" }, long, {
+      requestId: "req-1",
+      actions: [{ id: "approve_once", label: "Approve once" }],
+      plainTextFallback: "reply approve",
+    });
+
+    expect(calls.length).toBeGreaterThan(1);
+    const withComponents = calls.filter(
+      (c) => JSON.parse(c.body as string).components !== undefined,
+    );
+    // The final chunk's id is the one the delivery row records, so the
+    // message a press arrives on is the message the row can find.
+    expect(withComponents).toHaveLength(1);
+    expect(calls.indexOf(withComponents[0])).toBe(calls.length - 1);
+  });
+
+  test("an action's own emphasis outranks positional styling", async () => {
+    await sendDiscordReply({ channelId: "C1" }, "Meet?", {
+      requestId: "req-1",
+      actions: [
+        { id: "accept", label: "Accept", emphasis: "secondary" },
+        { id: "later", label: "Later" },
+      ],
+      plainTextFallback: "reply accept or later",
+    });
+
+    const row = JSON.parse(calls[0].body as string).components[0];
+    expect(row.components[0].style).toBe(2);
+    expect(row.components[1].style).toBe(2);
+  });
+
+  test("a custom_id past Discord's cap throws instead of sending a dead button", async () => {
+    await expect(
+      sendDiscordReply({ channelId: "C1" }, "Approve?", {
+        requestId: "r".repeat(120),
+        actions: [{ id: "approve_once", label: "Approve once" }],
+        plainTextFallback: "reply approve",
+      }),
+    ).rejects.toThrow("100-character limit");
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("sendDiscordAttachments", () => {
@@ -182,6 +258,12 @@ describe("sendDiscordAttachments", () => {
 describe("editDiscordMessage", () => {
   const bodyOf = (index = 0): Record<string, unknown> =>
     JSON.parse(String(calls[index]?.body)) as Record<string, unknown>;
+
+  test("an edit always strips components, so a settled card keeps no live buttons", async () => {
+    await editDiscordMessage({ channelId: "C1" }, "m1", "Approved");
+    const body = JSON.parse(calls[0].body as string);
+    expect(body.components).toEqual([]);
+  });
 
   test("patches the message rather than posting a new one", async () => {
     await editDiscordMessage({ channelId: "C1" }, "M9", "revised");

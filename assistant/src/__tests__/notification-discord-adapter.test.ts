@@ -10,7 +10,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const dmOpens: string[] = [];
-const sendCalls: Array<{ channelId: string; text: string }> = [];
+const sendCalls: Array<{
+  channelId: string;
+  text: string;
+  approval?: { requestId: string } | undefined;
+}> = [];
 const editCalls: Array<{ channelId: string; messageId: string; text: string }> =
   [];
 
@@ -22,8 +26,15 @@ mock.module("../messaging/providers/discord/api.js", () => ({
 }));
 
 mock.module("../messaging/providers/discord/send.js", () => ({
-  sendDiscordReply: async (target: { channelId: string }, text: string) => {
-    sendCalls.push({ channelId: target.channelId, text });
+  sendDiscordReply: async (
+    target: { channelId: string },
+    text: string,
+    approval?: { requestId: string },
+  ) => {
+    if (approval && failRichSends) {
+      throw new Error("simulated component rejection");
+    }
+    sendCalls.push({ channelId: target.channelId, text, approval });
     return { lastMessageId: String(2000 + sendCalls.length) };
   },
   editDiscordMessage: async (
@@ -68,10 +79,13 @@ function makeDestination(
   };
 }
 
+let failRichSends = false;
+
 beforeEach(() => {
   dmOpens.length = 0;
   sendCalls.length = 0;
   editCalls.length = 0;
+  failRichSends = false;
 });
 
 describe("DiscordAdapter.send", () => {
@@ -87,7 +101,7 @@ describe("DiscordAdapter.send", () => {
     expect(sendCalls[0].text).toContain("Your task finished.");
   });
 
-  test("approval notifications carry the typed-command instructions", async () => {
+  test("approval notifications deliver with component buttons", async () => {
     const adapter = new DiscordAdapter();
     const result = await adapter.send(
       makePayload({
@@ -102,6 +116,28 @@ describe("DiscordAdapter.send", () => {
 
     expect(result.success).toBe(true);
     expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].approval?.requestId).toBe("req-1");
+    // The rich card carries no typed-command tail; buttons are the controls.
+    expect(sendCalls[0].text).not.toContain("Reply");
+  });
+
+  test("a failed rich delivery falls back to the typed-command card", async () => {
+    failRichSends = true;
+    const adapter = new DiscordAdapter();
+    const result = await adapter.send(
+      makePayload({
+        approvalContext: {
+          requestId: "req-1",
+          actions: [{ id: "approve_once", label: "Approve once" }],
+          plainTextFallback: 'Reply "approve" or "reject" to decide.',
+        },
+      }),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(true);
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].approval).toBeUndefined();
     expect(sendCalls[0].text).toContain(
       'Reply "approve" or "reject" to decide.',
     );
