@@ -41,7 +41,7 @@ describe("vellum-model-routing", () => {
 
   test("getManagedUpstream resolves a bare catalog id to its owner", () => {
     expect(getManagedUpstream("claude-fable-5")).toBe("anthropic");
-    expect(getManagedUpstream("qwen/qwen3-8b")).toBe("hosted");
+    expect(getManagedUpstream("qwen/qwen3-8b")).toBe("vellum");
   });
 
   test("getManagedUpstream resolves a routing string by its prefix", () => {
@@ -71,7 +71,7 @@ describe("vellum-model-routing", () => {
       "anthropic",
       "fireworks",
       "gemini",
-      "hosted",
+      "vellum",
       "openai",
       "together",
     ]);

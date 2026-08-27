@@ -35,7 +35,6 @@ import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { BasetenProvider } from "../baseten/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
-import { HostedProvider } from "../hosted/client.js";
 import { MinimaxProvider } from "../minimax/client.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
@@ -55,6 +54,7 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
+import { VellumProvider } from "../vellum/client.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
@@ -205,8 +205,8 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
-  hosted: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
-    new HostedProvider(apiKey, model, {
+  vellum: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new VellumProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
@@ -557,6 +557,15 @@ function buildConnectionAdapter(
   },
 ): Provider | null {
   const provider = opts.provider ?? connection.provider;
+  // The connection's own `vellum` column is a routing sentinel. Dispatch
+  // only when the caller names an upstream, including Vellum-hosted GPU
+  // models whose catalog id is also `vellum`.
+  if (
+    connection.provider === VELLUM_MANAGED_PROVIDER &&
+    opts.provider === undefined
+  ) {
+    return null;
+  }
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
   if (!entry) {
     return null;

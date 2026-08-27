@@ -51,8 +51,8 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     managed: true,
     proxyPath: "/v1/runtime-proxy/together",
   },
-  hosted: {
-    name: "hosted",
+  vellum: {
+    name: "vellum",
     managed: true,
     proxyPath: "/v1/runtime-proxy/vellum",
   },

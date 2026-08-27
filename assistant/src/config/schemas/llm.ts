@@ -58,10 +58,10 @@ export const KNOWN_LLM_PROVIDERS = [
   "opencode",
   "baseten",
   "poolside",
-  // Routing identities rather than adapters: "vellum" = the platform-managed
-  // route (upstream derived from the model at dispatch), "chatgpt" = the
-  // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;
-  // dispatch substitutes the real upstream before any adapter lookup.
+  // Routing identities: "vellum" = the platform-managed route (upstream
+  // derived from the model at dispatch) and the catalog owner of
+  // Vellum-hosted GPU models; "chatgpt" = the subscription route to OpenAI.
+  // Dispatch substitutes a concrete upstream before adapter lookup.
   "vellum",
   "chatgpt",
 ] as const;

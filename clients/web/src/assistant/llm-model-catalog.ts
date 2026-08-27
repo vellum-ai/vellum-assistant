@@ -894,7 +894,7 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
-  hosted: [
+  vellum: [
     {
       id: "qwen/qwen3-8b",
       displayName: "Qwen3 8B",
@@ -924,7 +924,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
-  hosted: "qwen/qwen3-8b",
+  vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
 
@@ -934,9 +934,8 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  // Not catalog providers: the platform-managed routing sentinel and the
-  // subscription-auth pseudo-provider. Cards and pickers render both as
-  // providers, so they need display names.
+  // Routing identities that cards and pickers render as providers.
+  // `vellum` is also the catalog owner of Vellum-hosted GPU models.
   vellum: "Vellum",
   chatgpt: "ChatGPT Subscription",
   anthropic: "Anthropic",
@@ -954,7 +953,6 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
-  hosted: "Vellum Hosted",
 };
 
 /**
@@ -980,7 +978,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
-  hosted: true,
+  vellum: true,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
@@ -997,7 +995,7 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
-  "hosted",
+  "vellum",
 ] as const;
 
 /**
@@ -1124,6 +1122,11 @@ export function getDefaultModelForProvider(
   // users see one consistent "default" for the subscription.
   if (provider === "chatgpt") {
     return "gpt-5.6-luna";
+  }
+  // The Vellum picker serves the union of managed catalogs. The GPU
+  // catalog's defaultModel is not the Vellum connection default.
+  if (provider === "vellum") {
+    return undefined;
   }
   return DEFAULT_MODEL_BY_PROVIDER[provider as LlmProviderId];
 }

@@ -2216,13 +2216,13 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "Your Poolside API key",
   },
   {
-    id: "hosted",
-    displayName: "Vellum Hosted",
+    id: "vellum",
+    displayName: "Vellum",
     subtitle:
       "Models served on Vellum GPU nodes through the managed connection.",
-    setupMode: "keyless",
+    setupMode: "api-key",
     setupHint:
-      "Available on the Vellum managed connection when developer mode is on.",
+      "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
     featureFlag: "settings-developer-nav",
     models: [
       {

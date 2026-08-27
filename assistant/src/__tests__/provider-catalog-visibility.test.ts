@@ -19,10 +19,10 @@ function makeConfig(): AssistantConfig {
 }
 
 describe("getVisibleProviderCatalog", () => {
-  test("hides the hosted catalog unless developer mode is on", () => {
+  test("hides Vellum-hosted GPU models unless developer mode is on", () => {
     setOverridesForTesting({});
     const hidden = getVisibleProviderCatalog(makeConfig());
-    expect(hidden.find((p) => p.id === "hosted")).toBeUndefined();
+    expect(hidden.find((p) => p.id === "vellum")).toBeUndefined();
     expect(
       hidden
         .flatMap((p) => p.models)
@@ -31,9 +31,9 @@ describe("getVisibleProviderCatalog", () => {
 
     setOverridesForTesting({ "settings-developer-nav": true });
     const visible = getVisibleProviderCatalog(makeConfig());
-    const hosted = visible.find((p) => p.id === "hosted");
-    expect(hosted).toBeDefined();
-    expect(hosted!.models.map((m) => m.id)).toEqual(["qwen/qwen3-8b"]);
+    const vellum = visible.find((p) => p.id === "vellum");
+    expect(vellum).toBeDefined();
+    expect(vellum!.models.map((m) => m.id)).toEqual(["qwen/qwen3-8b"]);
   });
 
   test("shows openai-compatible endpoints unconditionally (GA'ed)", () => {

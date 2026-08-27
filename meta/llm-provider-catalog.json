@@ -2165,11 +2165,11 @@
       ]
     },
     {
-      "id": "hosted",
-      "displayName": "Vellum Hosted",
+      "id": "vellum",
+      "displayName": "Vellum",
       "subtitle": "Models served on Vellum GPU nodes through the managed connection.",
-      "setupMode": "keyless",
-      "setupHint": "Available on the Vellum managed connection when developer mode is on.",
+      "setupMode": "api-key",
+      "setupHint": "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
       "supportsPlatformAuth": true,
       "featureFlag": "settings-developer-nav",
       "defaultModel": "qwen/qwen3-8b",
