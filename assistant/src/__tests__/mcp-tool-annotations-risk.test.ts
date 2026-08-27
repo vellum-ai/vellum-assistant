@@ -72,9 +72,12 @@ describe("MCP tool risk from annotations", () => {
     expect(riskFor("high")).toBe(RiskLevel.High);
   });
 
-  test("readOnlyHint steps down one level", () => {
-    expect(riskFor("high", { readOnlyHint: true })).toBe(RiskLevel.Medium);
+  test("readOnlyHint steps down from the medium default", () => {
     expect(riskFor("medium", { readOnlyHint: true })).toBe(RiskLevel.Low);
+  });
+
+  test("readOnlyHint cannot lower a server the user pinned to high", () => {
+    expect(riskFor("high", { readOnlyHint: true })).toBe(RiskLevel.High);
   });
 
   test("readOnlyHint cannot step below low", () => {
