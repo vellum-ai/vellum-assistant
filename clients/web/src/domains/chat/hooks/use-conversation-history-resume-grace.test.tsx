@@ -16,6 +16,9 @@ const realPaginationModule = await import(
 );
 
 let paginationIsError = false;
+let paginationIsSuccess = false;
+let invalidateSpy = mock(async () => {});
+let onNativeMobile = true;
 
 function paginationStub(): HistoryPaginationResult {
   return {
@@ -24,14 +27,14 @@ function paginationStub(): HistoryPaginationResult {
     subagentNotifications: undefined,
     backgroundToolCompletions: undefined,
     isLoading: false,
-    isSuccess: false,
+    isSuccess: paginationIsSuccess,
     isError: paginationIsError,
     error: paginationIsError ? new Error("probe failed") : null,
     hasMore: false,
     isFetchingOlderPages: false,
     isFetching: false,
     fetchOlderPage: () => {},
-    invalidate: async () => {},
+    invalidate: invalidateSpy,
     removeCache: () => {},
     latestPageOldestTimestamp: null,
     oldestLoadedTimestamp: null,
@@ -46,6 +49,12 @@ mock.module("@/domains/chat/transcript/use-history-pagination", () => ({
 
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
+}));
+
+const realPlatformDetection = await import("@/runtime/platform-detection");
+mock.module("@/runtime/platform-detection", () => ({
+  ...realPlatformDetection,
+  isNativeMobile: () => onNativeMobile,
 }));
 
 const { useConversationHistory } = await import(
@@ -81,6 +90,9 @@ beforeEach(() => {
   __resetForTesting();
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
   paginationIsError = false;
+  paginationIsSuccess = false;
+  onNativeMobile = true;
+  invalidateSpy = mock(async () => {});
   useChatSessionStore.getState().setError(null);
 });
 
@@ -88,6 +100,9 @@ afterEach(() => {
   cleanup();
   __resetForTesting();
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
+  paginationIsError = false;
+  paginationIsSuccess = false;
+  onNativeMobile = true;
   useChatSessionStore.getState().setError(null);
 });
 
@@ -143,5 +158,112 @@ describe("useConversationHistory resume grace on history errors", () => {
     expect(currentError()?.message).toBe(
       "Failed to load conversation history. Please try again.",
     );
+    expect(currentError()?.code).toBe("CONVERSATION_HISTORY_LOAD_FAILED");
+  });
+
+  test("clears the history error when the query recovers", () => {
+    // GIVEN a history hook showing an initial-page error
+    const { rerender } = renderHistory();
+    paginationIsError = true;
+    paginationIsSuccess = false;
+    rerender();
+    expect(currentError()?.code).toBe("CONVERSATION_HISTORY_LOAD_FAILED");
+
+    // WHEN the history query successfully refetches
+    paginationIsError = false;
+    paginationIsSuccess = true;
+    rerender();
+
+    // THEN the blocking error is cleared
+    expect(currentError()).toBeNull();
+  });
+
+  test("does not overwrite a billing error with a history load error", () => {
+    // GIVEN a billing error is already surfaced
+    const billingError = {
+      message: "Out of credits",
+      errorCategory: "credits_exhausted",
+    };
+    useChatSessionStore.getState().setError(billingError);
+
+    // WHEN the initial history page errors
+    const { rerender } = renderHistory();
+    paginationIsError = true;
+    paginationIsSuccess = false;
+    rerender();
+
+    // THEN the billing error is preserved
+    expect(currentError()).toEqual(billingError);
+  });
+
+  test("does not clear non-history errors when the query recovers", () => {
+    // GIVEN a billing error is already surfaced
+    const billingError = {
+      message: "Out of credits",
+      errorCategory: "credits_exhausted",
+    };
+    useChatSessionStore.getState().setError(billingError);
+
+    // WHEN the history query successfully refetches
+    const { rerender } = renderHistory();
+    paginationIsError = false;
+    paginationIsSuccess = true;
+    rerender();
+
+    // THEN the billing error is preserved
+    expect(currentError()).toEqual(billingError);
+  });
+
+  test("clears the history error and retries on native mobile app resume", () => {
+    // GIVEN a history hook showing an initial-page error on a native shell
+    const { rerender } = renderHistory();
+    paginationIsError = true;
+    paginationIsSuccess = false;
+    rerender();
+    expect(currentError()?.code).toBe("CONVERSATION_HISTORY_LOAD_FAILED");
+
+    // WHEN the user foregrounds the native mobile app
+    act(() => {
+      publish("app.resume", { signal: "app_state" });
+    });
+
+    // THEN the error is cleared and history is refetched
+    expect(currentError()).toBeNull();
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not retry on app resume when not on native mobile", () => {
+    // GIVEN a history hook showing an initial-page error on a non-native client
+    onNativeMobile = false;
+    const { rerender } = renderHistory();
+    paginationIsError = true;
+    paginationIsSuccess = false;
+    rerender();
+    expect(currentError()?.code).toBe("CONVERSATION_HISTORY_LOAD_FAILED");
+
+    // WHEN the client resumes
+    act(() => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    // THEN the error and query are left untouched
+    expect(currentError()?.code).toBe("CONVERSATION_HISTORY_LOAD_FAILED");
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("does not retry on native mobile app resume when the query is healthy", () => {
+    // GIVEN a healthy history query on a native shell
+    const { rerender } = renderHistory();
+    paginationIsError = false;
+    paginationIsSuccess = true;
+    rerender();
+
+    // WHEN the user foregrounds the native mobile app
+    act(() => {
+      publish("app.resume", { signal: "app_state" });
+    });
+
+    // THEN no redundant refetch is issued
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });
