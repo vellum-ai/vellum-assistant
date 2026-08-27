@@ -33,8 +33,14 @@ export function createDiscordInboundEventHandler(options: {
     // notices in public, so only DMs carry that field. An unattributed
     // event's actor is a synthetic system id, not a person: seeding a
     // contact from it would mint a ghost and, on a DM, bind that ghost to a
-    // real conversation.
-    if (!event.source.actorUnattributed) {
+    // real conversation. Reactions never seed either: they ride ungated
+    // (no admission gate stands before them), so seeding here would mint a
+    // contact record for any stranger who reacts in a visible channel, and
+    // the daemon's intercept then reads that record as an existing contact.
+    if (
+      !event.source.actorUnattributed &&
+      event.message.eventKind !== "reaction"
+    ) {
       void upsertContactChannel({
         sourceChannel: "discord",
         externalUserId: event.actor.actorExternalId,

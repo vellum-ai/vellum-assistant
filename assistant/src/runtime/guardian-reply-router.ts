@@ -383,11 +383,27 @@ export async function routeGuardianReply(
       // signal (it must not trigger an agent turn).
       return notConsumed();
     }
-    const request = await getPendingRequestByDestinationMessageOrNull(
-      channel,
-      guardianChatId,
-      reactedMessageTs,
-    );
+    // A delivery row keys its card by the destination the adapter delivered
+    // to, and channels address that destination in one of two modalities: a
+    // chat (the conversation the reaction arrives from) or a person (the
+    // guardian's own user id, which person-addressed adapters store so a
+    // stale room id can never become a delivery target). The reactor on an
+    // approval card is the person it was delivered to, so their id is the
+    // second probe; identity validation in applyGuardianDecision still
+    // guards the decision itself.
+    const request =
+      (await getPendingRequestByDestinationMessageOrNull(
+        channel,
+        guardianChatId,
+        reactedMessageTs,
+      )) ??
+      (actor.actorExternalUserId
+        ? await getPendingRequestByDestinationMessageOrNull(
+            channel,
+            actor.actorExternalUserId,
+            reactedMessageTs,
+          )
+        : null);
     if (!request) {
       // The reacted message is not a known pending approval card (a stray
       // reaction, or one whose request was already resolved). Never approve
