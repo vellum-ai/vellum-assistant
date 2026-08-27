@@ -578,6 +578,9 @@
     "usageSubtitle": "Счётчики токенов и вызовов, нормализованные маршрутом ассистента.",
     "usageTitle": "Использование"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Загрузка PDF"
+  },
   "pinnedAppColorSwatches": {
     "colors": {
       "green": "Зелёный",

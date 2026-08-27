@@ -1111,6 +1111,9 @@
   "pageTabs": {
     "formStepsAria": "Pasos del formulario"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Cargando PDF"
+  },
   "phaseGroupedStepList": {
     "startedAt": "Comenzó a las {time}"
   },

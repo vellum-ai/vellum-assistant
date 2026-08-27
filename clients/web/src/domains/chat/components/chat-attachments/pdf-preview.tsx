@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 // `?url` emits the package's prebuilt worker as a hashed asset and yields its
@@ -10,6 +9,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 // https://vite.dev/guide/assets#explicit-url-imports
 import PDF_WORKER_URL from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
+import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 
 /**
@@ -63,6 +63,11 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
   const containerRef = useRef<HTMLSpanElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
+  // Width/height of page 1, applied to every canvas so the boxes hold their
+  // page's shape from the moment they mount. A canvas has no intrinsic size
+  // until `renderPage` draws into it, so without this the row collapses to
+  // the 2:1 default and the transcript reflows again as each page arrives.
+  const [pageAspectRatio, setPageAspectRatio] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
@@ -77,6 +82,7 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
       setError(null);
       setPdf(null);
       setNumPages(0);
+      setPageAspectRatio(null);
       renderedPages.current.clear();
 
       try {
@@ -95,6 +101,13 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           void doc.destroy();
           return;
         }
+        const firstPage = await doc.getPage(1);
+        if (cancelled) {
+          void doc.destroy();
+          return;
+        }
+        const { width, height } = firstPage.getViewport({ scale: 1 });
+        setPageAspectRatio(height > 0 ? width / height : null);
         setPdf(doc);
         setNumPages(Math.min(doc.numPages, MAX_PAGES));
       } catch {
@@ -206,8 +219,8 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
   if (isLoading) {
     return (
-      <span className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-white/70" />
+      <span className="flex justify-center">
+        <PdfPageSkeleton />
       </span>
     );
   }
@@ -233,7 +246,12 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           ref={setCanvasRef(i + 1)}
           data-page={i + 1}
           className="w-[90vw] max-w-[800px]"
-          style={{ height: "auto" }}
+          style={{
+            height: "auto",
+            ...(pageAspectRatio === null
+              ? {}
+              : { aspectRatio: pageAspectRatio }),
+          }}
         />
       ))}
     </span>

@@ -9,8 +9,8 @@
 
 import { type ReactNode } from "react";
 
+import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
-import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
 import { useBlobObjectUrl } from "@/domains/chat/components/local-file/use-local-file-info";
 
 interface PdfFilePreviewProps {
@@ -20,8 +20,11 @@ interface PdfFilePreviewProps {
 export function PdfFilePreview({ blob }: PdfFilePreviewProps): ReactNode {
   const url = useBlobObjectUrl(blob, "application/pdf");
 
+  // The page shape rather than the prose-line placeholder: this state runs
+  // straight into `PdfPreview`'s own loading state, so a different shape here
+  // would have the drawer swap placeholders on the way to the same document.
   if (url === null) {
-    return <PreviewSkeleton />;
+    return <PdfPageSkeleton />;
   }
 
   return (
