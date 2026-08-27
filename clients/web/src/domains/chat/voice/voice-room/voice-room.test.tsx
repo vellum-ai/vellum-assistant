@@ -1776,6 +1776,32 @@ describe("VoiceRoom: camera", () => {
     );
   });
 
+  test("the pill keeps the muted prefix the standing-down region carried", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    const announcer = () => screen.getByTestId("voice-room-state-announcer");
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "thinking", muted: true });
+    });
+
+    // Closed: the room prefixes the phases the session does not relabel.
+    expect(announcer().textContent).toBe("Muted. Thinking…");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the region stands down, so the pill has to carry the mic's state or
+    // it is lost for the rest of the phase.
+    expect(announcer().textContent).toBe("");
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo. Muted. Thinking…",
+    );
+  });
+
   test("the pill carries the session's own label, not a fixed listening word", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();

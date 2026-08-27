@@ -241,6 +241,8 @@
     "title": "Tomar una foto"
   },
   "cameraStatusPill": {
+    "announcePhotoMutedSpeaking": "Foto. Silenciado. {name} está hablando",
+    "announcePhotoMutedStatus": "Foto. Silenciado. {status}",
     "announcePhotoSpeaking": "Foto. {name} está hablando",
     "announcePhotoStatus": "Foto. {status}",
     "photo": "Foto",

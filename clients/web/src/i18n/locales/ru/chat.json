@@ -140,6 +140,8 @@
     "unrecognizedCall": "Неизвестный вызов"
   },
   "cameraStatusPill": {
+    "announcePhotoMutedSpeaking": "Фото. Без звука. {name} говорит",
+    "announcePhotoMutedStatus": "Фото. Без звука. {status}",
     "announcePhotoSpeaking": "Фото. {name} говорит",
     "announcePhotoStatus": "Фото. {status}",
     "photo": "Фото",

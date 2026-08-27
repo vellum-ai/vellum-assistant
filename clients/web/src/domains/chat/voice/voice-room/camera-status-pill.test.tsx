@@ -103,6 +103,65 @@ describe("CameraStatusPill", () => {
     expect(pill().textContent).toContain("Your assistant");
   });
 
+  test("a muted mic reaches the announcement in a phase that never says so", () => {
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Thinking…"
+        assistantName="Luna"
+        muted
+      />,
+    );
+
+    // The session does not relabel its own phases for mute, and the pill is the
+    // only announcer while the viewfinder is up, so "Thinking…" alone would
+    // leave a screen-reader user unaware the mic is off.
+    expect(announcement()).toBe("Photo. Muted. Thinking…");
+    // The design's row carries the status word only.
+    expect(screen.getByTestId("camera-status-word").textContent).toBe(
+      "Thinking…",
+    );
+  });
+
+  test("a muted mic reaches the announcement while the assistant talks", () => {
+    render(
+      <CameraStatusPill
+        voiceState="assistant"
+        statusLabel="Speaking…"
+        assistantName="Luna"
+        muted
+      />,
+    );
+
+    expect(announcement()).toBe("Photo. Muted. Luna speaking");
+  });
+
+  test("does not say muted twice when the word already says it", () => {
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Muted"
+        assistantName="Luna"
+        muted
+      />,
+    );
+
+    expect(announcement()).toBe("Photo. Muted");
+  });
+
+  test("an unmuted phase announces exactly what it did", () => {
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Thinking…"
+        assistantName="Luna"
+        muted={false}
+      />,
+    );
+
+    expect(announcement()).toBe("Photo. Thinking…");
+  });
+
   test("a muted mic replaces the listening word, in both channels", () => {
     render(
       <CameraStatusPill

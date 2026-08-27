@@ -865,6 +865,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             voiceState={cameraVoiceState}
             statusLabel={cameraStatusKey ? t(cameraStatusKey) : ""}
             assistantName={assistantName}
+            muted={muted}
           />
         </div>
       ) : null}
@@ -1192,7 +1193,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       >
         {/* The status pill is the announcer while the camera is open, and it
             says the same label with the mode attached, so this region stands
-            down rather than reading the state twice.
+            down rather than reading the state twice. It takes the mute prefix
+            below with it, on the same rule.
 
             A muted `listening` already reads as "Muted", so prefixing it again
             would announce "Muted. Muted". The assistant's own phases still

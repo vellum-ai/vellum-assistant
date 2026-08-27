@@ -21,6 +21,11 @@
  * Photo is the only mode it renders, and it answers no press, so it is a status
  * region rather than a button.
  *
+ * The announcement carries one thing the visible row does not: a muted mic, in
+ * every phase rather than only the one the session relabels for it. The pill is
+ * the room's sole announcer while the viewfinder is up, so a phase word on its
+ * own would leave a screen-reader user unaware the mic is off.
+ *
  * A configured assistant name is arbitrarily long, so the name is the one part
  * that gives way: it truncates to an ellipsis inside whatever width the room
  * allows the pill, leaving the dot and the mode word whole. The announcement
@@ -54,12 +59,19 @@ export interface CameraStatusPillProps {
   statusLabel: string;
   /** The session assistant's name, spoken when it is the one talking. */
   assistantName?: string | null;
+  /**
+   * Whether the mic is muted. Read by the announcement alone: the visible row
+   * carries whatever word the session's own label gives it, so nothing here
+   * takes a second decision about mute that could drift from that one.
+   */
+  muted?: boolean;
 }
 
 export function CameraStatusPill({
   voiceState,
   statusLabel,
   assistantName,
+  muted,
 }: CameraStatusPillProps) {
   const { t } = useTranslation("chat");
   const reduce = useReducedMotion();
@@ -67,6 +79,31 @@ export function CameraStatusPill({
   const name = assistantName?.trim() || t("cameraStatusPill.yourAssistant");
   const speaking = voiceState === "assistant";
   const voiceWord = speaking ? name : statusLabel;
+
+  // The pill is the only announcer while the viewfinder is up, so a muted mic
+  // has to reach the announcement in the phases the session does not relabel
+  // for it: "Thinking…" alone tells a screen-reader user the assistant is
+  // working without telling them it cannot hear them. `listening` is the one
+  // phase the session does relabel, and prefixing that reads "Muted. Muted".
+  const mutedWord = t("liveVoiceStatus.muted");
+  const announcedWord = voiceWord || (muted ? mutedWord : "");
+  const prefixMuted = Boolean(muted) && announcedWord !== mutedWord;
+
+  const announcement = speaking
+    ? t(
+        prefixMuted
+          ? "cameraStatusPill.announcePhotoMutedSpeaking"
+          : "cameraStatusPill.announcePhotoSpeaking",
+        { name },
+      )
+    : announcedWord
+      ? t(
+          prefixMuted
+            ? "cameraStatusPill.announcePhotoMutedStatus"
+            : "cameraStatusPill.announcePhotoStatus",
+          { status: announcedWord },
+        )
+      : t("cameraStatusPill.photo");
 
   return (
     <div
@@ -94,13 +131,7 @@ export function CameraStatusPill({
     >
       {/* The visible row is a set of fragments, so it is hidden from assistive
           tech and this sentence is announced in its place. */}
-      <span className="sr-only">
-        {speaking
-          ? t("cameraStatusPill.announcePhotoSpeaking", { name })
-          : voiceWord
-            ? t("cameraStatusPill.announcePhotoStatus", { status: voiceWord })
-            : t("cameraStatusPill.photo")}
-      </span>
+      <span className="sr-only">{announcement}</span>
 
       <span
         aria-hidden
