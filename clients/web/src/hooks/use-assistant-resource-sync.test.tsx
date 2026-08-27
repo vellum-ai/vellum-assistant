@@ -892,7 +892,7 @@ describe("useAssistantResourceSync", () => {
   test("avatar_updated drops the platform lookup entry without a refetch", async () => {
     const queryClient = freshQueryClient();
     queryClient.invalidateQueries = mock(() => Promise.resolve()) as never;
-    const key = platformAvatarUrlsQueryKey("user-1");
+    const key = platformAvatarUrlsQueryKey("user-1", null);
     queryClient.setQueryData(
       key,
       new Map([

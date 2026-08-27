@@ -602,7 +602,7 @@ describe("useChooserRowAvatar", () => {
       expect(
         queryClient
           .getQueryData<Map<string, string>>(
-            platformAvatarUrlsQueryKey("user-1"),
+            platformAvatarUrlsQueryKey("user-1", null),
           )
           ?.has("other"),
       ).toBe(false);

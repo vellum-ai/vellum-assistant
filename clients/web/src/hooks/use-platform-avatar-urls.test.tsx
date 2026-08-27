@@ -53,6 +53,7 @@ const actualApi = await import("@/assistant/api");
 mock.module("@/assistant/api", () => ({ ...actualApi, listAssistants }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
+const { useOrganizationStore } = await import("@/stores/organization-store");
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const {
@@ -223,6 +224,23 @@ describe("usePlatformAvatarUrls", () => {
     });
   });
 
+  test("an organization switch gets a fresh list", async () => {
+    const wrapper = createWrapper();
+    const { result } = renderHook(() => usePlatformAvatarUrls(), { wrapper });
+    await waitFor(() => {
+      expect(result.current.get("a")).toBe(WITH_AVATAR);
+    });
+
+    act(() =>
+      useOrganizationStore.setState({ currentOrganizationId: "org-2" }),
+    );
+
+    await waitFor(() => {
+      expect(listAssistants).toHaveBeenCalledTimes(2);
+    });
+    useOrganizationStore.setState({ currentOrganizationId: null });
+  });
+
   test("never writes the resolved-assistants store", async () => {
     const setState = spyOn(useResolvedAssistantsStore, "setState");
     const before = useResolvedAssistantsStore.getState().assistants;
@@ -285,7 +303,7 @@ describe("suppressPlatformAvatarUrl", () => {
 
     expect(result.current.has("a")).toBe(false);
     expect(
-      queryClient.getQueryState(platformAvatarUrlsQueryKey("user-1"))
+      queryClient.getQueryState(platformAvatarUrlsQueryKey("user-1", null))
         ?.fetchStatus,
     ).toBe("idle");
 

@@ -5,6 +5,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 
 export type PlatformAvatarUrls = ReadonlyMap<string, string>;
 
@@ -13,9 +14,15 @@ const EMPTY_AVATAR_URLS: PlatformAvatarUrls = new Map();
 /** Matches the row-level avatar clocks so a re-synced thumbnail shows within a minute. */
 export const PLATFORM_AVATAR_URLS_STALE_TIME_MS = 60_000;
 
-/** Keyed by user so a sign-out never serves another account's thumbnails. */
-export function platformAvatarUrlsQueryKey(userId: string | null) {
-  return ["platformAvatarUrls", userId] as const;
+/**
+ * Keyed by user and organization: a sign-out never serves another account's
+ * thumbnails, and an org switch rescopes the list with the request header.
+ */
+export function platformAvatarUrlsQueryKey(
+  userId: string | null,
+  organizationId: string | null,
+) {
+  return ["platformAvatarUrls", userId, organizationId] as const;
 }
 
 const PLATFORM_AVATAR_URLS_KEY_PREFIX = ["platformAvatarUrls"] as const;
@@ -98,8 +105,9 @@ export function usePlatformAvatarUrls(): PlatformAvatarUrls {
   const hasPlatformSession = useHasPlatformSession();
   const userId = useAuthStore.use.user()?.id ?? null;
   const isOrgReady = useIsOrgReady();
+  const organizationId = useRequestOrganizationId();
   const query = useQuery<PlatformAvatarUrls>({
-    queryKey: platformAvatarUrlsQueryKey(userId),
+    queryKey: platformAvatarUrlsQueryKey(userId, organizationId),
     queryFn: fetchPlatformAvatarUrls,
     enabled: hasPlatformSession && isOrgReady && isLockfileDrivenStore(),
     staleTime: PLATFORM_AVATAR_URLS_STALE_TIME_MS,
