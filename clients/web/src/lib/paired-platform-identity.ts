@@ -6,9 +6,10 @@ import {
 } from "@/lib/local-mode";
 
 /**
- * One attempt per paired target per session; a miss (unreachable,
- * unregistered) is cached too. Keyed by gateway URL as well as id so a
- * same-name re-pair to another gateway probes again.
+ * One resolved UUID per paired target per session. A miss (unreachable,
+ * not yet registered) is evicted so the next ask probes again. Keyed by
+ * gateway URL as well as id so a same-name re-pair to another gateway
+ * probes again.
  */
 const pairedPlatformIdCache = new Map<string, Promise<string | null>>();
 
@@ -39,7 +40,12 @@ export function resolvePairedAssistantPlatformId(
   if (cached) {
     return cached;
   }
-  const promise = fetchAndPersistPairedPlatformId(assistantId);
+  const promise = fetchAndPersistPairedPlatformId(assistantId).then((id) => {
+    if (id === null) {
+      pairedPlatformIdCache.delete(key);
+    }
+    return id;
+  });
   pairedPlatformIdCache.set(key, promise);
   return promise;
 }

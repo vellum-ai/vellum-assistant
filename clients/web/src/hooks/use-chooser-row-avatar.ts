@@ -224,7 +224,10 @@ function usePlatformLookupId(
     queryKey: pairedPlatformIdQueryKey(row.id, row.runtimeUrl),
     queryFn: () => resolvePairedAssistantPlatformId(row.id),
     enabled: needsPairedResolve && hasPlatformSession,
-    staleTime: Infinity,
+    // A miss goes stale so a later mount or resume probes again.
+    staleTime: (query) =>
+      query.state.data ? Infinity : EMPTY_AVATAR_STALE_TIME_MS,
+    refetchOnWindowFocus: (query) => !query.state.data,
     retry: false,
   });
   if (row.platformAssistantId) {
