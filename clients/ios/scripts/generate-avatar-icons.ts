@@ -20,7 +20,7 @@
  *
  * Each entry is a classic `.appiconset` holding a single opaque 1024x1024 PNG:
  * a solid field in the trait color with the eye style's paths centered on top,
- * sized to the share of the icon that style's art claims on an avatar. The
+ * sized to that style's share of the icon (see {@link eyeSpanFraction}). The
  * PNGs carry no alpha channel at all; `encodeOpaqueRgbPng` below documents why.
  */
 
@@ -65,11 +65,22 @@ const GENERATOR_COMMAND = "bun clients/ios/scripts/generate-avatar-icons.ts";
 const ICON_PX = 1024;
 
 /**
- * Fraction of the icon the library's largest eye pair spans. Every other style
- * spans a proportionally smaller share, so the icons carry the same size
- * differences the eye art has on an avatar. See {@link eyeSpanFraction}.
+ * Fraction of the icon an eye pair's tight bounds span, for every style the
+ * table below does not name.
+ *
+ * `clients/web/src/components/avatar/app-icon-preview.tsx` mirrors both this
+ * number and the table, so its on-screen preview frames a pair the way the
+ * shipped PNG does. Each side pins the numbers in its own tests, since a web
+ * bundle cannot import a build script that rasterizes SVG. A span moves here
+ * only alongside that file, and the catalog is regenerated with it.
  */
-const EYE_CANVAS_FRACTION = 0.5;
+const DEFAULT_EYE_SPAN_FRACTION = 0.5;
+
+/** Eye styles framed wider or narrower than {@link DEFAULT_EYE_SPAN_FRACTION}. */
+const EYE_SPAN_FRACTION_OVERRIDES: Record<string, number> = {
+  dazed: 0.55,
+  bashful: 0.4,
+};
 
 /**
  * Canvas the eye bounds below are measured on, in px. The scan reports whole
@@ -366,41 +377,9 @@ function eyeArtworkBounds(eyeStyle: EyeStyle): EyeBounds {
   return bounds;
 }
 
-/**
- * Size of an eye style's artwork on its own source canvas, aspect-fit onto a
- * square.
- *
- * `composeSvg` draws a style onto a body by aspect-fitting its `sourceViewBox`
- * into the body's viewBox, so on a square canvas the pair lands at exactly this
- * fraction of the edge: it is the size the pair reads at on an avatar. The
- * library varies widely here, from art that fills most of its canvas to art
- * that occupies under a third of it.
- */
-function relativeEyeExtent(eyeStyle: EyeStyle): number {
-  const bounds = eyeArtworkBounds(eyeStyle);
-  const canvas = Math.max(
-    eyeStyle.sourceViewBox.width,
-    eyeStyle.sourceViewBox.height,
-  );
-  return Math.max(bounds.width, bounds.height) / canvas;
-}
-
-let largestEyeExtent: number | undefined;
-
-/**
- * Fraction of the icon one style's pair spans: {@link EYE_CANVAS_FRACTION} for
- * the largest style in the library, and less for every other one in proportion
- * to how much smaller it is drawn on an avatar. The normalizer covers the whole
- * library rather than the scope being generated, so a `--pilot` slice renders
- * exactly the artwork the full catalog ships.
- */
-function eyeSpanFraction(eyeStyle: EyeStyle): number {
-  if (largestEyeExtent === undefined) {
-    largestEyeExtent = Math.max(
-      ...getCharacterComponents().eyeStyles.map(relativeEyeExtent),
-    );
-  }
-  return EYE_CANVAS_FRACTION * (relativeEyeExtent(eyeStyle) / largestEyeExtent);
+/** Fraction of the icon one style's pair spans. */
+function eyeSpanFraction(eyeStyleId: string): number {
+  return EYE_SPAN_FRACTION_OVERRIDES[eyeStyleId] ?? DEFAULT_EYE_SPAN_FRACTION;
 }
 
 /**
@@ -423,7 +402,7 @@ function iconCellSvg(
 ): string {
   const eyeStyle = requireEyeStyle(traits.eyeStyle);
   const bounds = eyeArtworkBounds(eyeStyle);
-  const span = size * eyeSpanFraction(eyeStyle);
+  const span = size * eyeSpanFraction(eyeStyle.id);
   const scale = Math.min(span / bounds.width, span / bounds.height);
   const translateX = x + size / 2 - (bounds.minX + bounds.width / 2) * scale;
   const translateY = y + size / 2 - (bounds.minY + bounds.height / 2) * scale;

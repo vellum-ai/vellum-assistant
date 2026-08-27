@@ -59,7 +59,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
   // picker usable for exactly the users who cannot sync from an avatar.
   const catalog = components ?? bundledComponents;
   // With no alternate applied the thumbnail stands in for the app's primary
-  // icon, which frames its pair larger than the generated bundles frame theirs.
+  // icon, which frames its pair on the default span whatever style it draws.
   const appliedTraits = traitsForAppIconName(sync.currentIcon);
   const traits = appliedTraits ?? DEFAULT_APP_ICON_TRAITS;
 
@@ -79,7 +79,6 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
             components={catalog}
             eyeStyle={traits.eyeStyle}
             color={traits.color}
-            availableIcons={sync.availableIcons}
             primary={appliedTraits === null}
             size={ROW_PREVIEW_SIZE}
           />

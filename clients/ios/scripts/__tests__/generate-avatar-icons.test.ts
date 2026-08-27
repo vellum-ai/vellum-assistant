@@ -79,30 +79,28 @@ const PILOT_GENERATION_TIMEOUT_MS = 300_000;
 /** Width and height of every generated icon, in px. */
 const ICON_PX = 1024;
 
-/** Fraction of the icon the library's largest eye pair is fitted to. */
-const EYE_CANVAS_FRACTION = 0.5;
+/** Fraction of the icon a pair spans when the table below leaves it alone. */
+const DEFAULT_EYE_SPAN_FRACTION = 0.5;
 
 /**
- * Each eye style's size relative to the largest pair in the library.
+ * Fraction of the icon each eye style's pair is fitted to, pinned as literals.
  *
- * Ground truth for the framing: the generator derives these from the library's
- * own art, and the numbers below say what that derivation has to come out at,
- * so a change to the scaling shows up as a diff here rather than silently in
- * 54 PNGs. `clients/web/src/components/avatar/app-icon-preview.test.tsx` pins
- * this same table against its own independent measurement of the same artwork,
- * so the preview and the shipped icons cannot drift apart across the bundle
- * boundary between them.
+ * `clients/web/src/components/avatar/app-icon-preview.test.tsx` pins the same
+ * numbers against its own independent measurement of the same artwork, so the
+ * on-screen preview and the shipped icons cannot drift apart across the bundle
+ * boundary between them. A span that moved on one side alone fails here rather
+ * than silently in 54 PNGs.
  */
-const EXPECTED_EYE_SCALE: Record<string, number> = {
-  grumpy: 1.0,
-  angry: 0.7893,
-  curious: 0.6119,
-  goofy: 0.5738,
-  surprised: 0.7959,
-  bashful: 0.4215,
-  gentle: 0.555,
-  quirky: 0.4438,
-  dazed: 0.7243,
+const EXPECTED_EYE_SPAN_FRACTION: Record<string, number> = {
+  grumpy: 0.5,
+  angry: 0.5,
+  curious: 0.5,
+  goofy: 0.5,
+  surprised: 0.5,
+  bashful: 0.4,
+  gentle: 0.5,
+  quirky: 0.5,
+  dazed: 0.55,
 };
 
 /**
@@ -195,11 +193,11 @@ function eyeStyleOf(setName: string): string {
 
 /** Span the artwork of one eye style is expected to reach, in icon px. */
 function expectedSpanPx(eyeStyleId: string): number {
-  const scale = EXPECTED_EYE_SCALE[eyeStyleId];
-  if (scale === undefined) {
-    throw new Error(`No expected scale for eye style "${eyeStyleId}"`);
+  const fraction = EXPECTED_EYE_SPAN_FRACTION[eyeStyleId];
+  if (fraction === undefined) {
+    throw new Error(`No expected span for eye style "${eyeStyleId}"`);
   }
-  return ICON_PX * EYE_CANVAS_FRACTION * scale;
+  return ICON_PX * fraction;
 }
 
 /** Longer edge of the artwork on one generated icon, in px. */
@@ -358,15 +356,23 @@ describe("generateAvatarIcons", () => {
     GENERATION_TIMEOUT_MS,
   );
 
-  test("scales exactly the eye styles the library ships", () => {
+  test("spans half the icon by default, dazed wider and bashful narrower", () => {
     const libraryIds = traitCombinations(COMMITTED_SCOPE).map(
       (traits) => traits.eyeStyle,
     );
-    expect(Object.keys(EXPECTED_EYE_SCALE).sort()).toEqual(
+    expect(Object.keys(EXPECTED_EYE_SPAN_FRACTION).sort()).toEqual(
       [...new Set(libraryIds)].sort(),
     );
-    // The largest pair is the one that keeps the whole fraction.
-    expect(Math.max(...Object.values(EXPECTED_EYE_SCALE))).toBe(1);
+    expect(EXPECTED_EYE_SPAN_FRACTION.dazed).toBe(0.55);
+    expect(EXPECTED_EYE_SPAN_FRACTION.bashful).toBe(0.4);
+    for (const [eyeStyleId, fraction] of Object.entries(
+      EXPECTED_EYE_SPAN_FRACTION,
+    )) {
+      if (eyeStyleId === "dazed" || eyeStyleId === "bashful") {
+        continue;
+      }
+      expect(fraction).toBe(DEFAULT_EYE_SPAN_FRACTION);
+    }
   });
 
   test(
@@ -397,13 +403,12 @@ describe("generateAvatarIcons", () => {
   );
 
   test(
-    "draws bashful well under surprised",
+    "draws bashful narrower than surprised",
     () => {
       const { iconsDir } = catalog();
-      // The two styles are the same shape: `bashful` is small on its own source
-      // canvas where `surprised` is large, and that is the whole difference
-      // between them, so an icon set that ignored the source canvas would draw
-      // the two at the same size.
+      // The two styles are the same shape, so drawing both at the default span
+      // would ship two icons a user cannot tell apart. `bashful` is the one
+      // the table narrows.
       const bashful = renderedSpanPx(
         iconsDir,
         "avatar-eyes-bashful-green.appiconset",
@@ -412,7 +417,7 @@ describe("generateAvatarIcons", () => {
         iconsDir,
         "avatar-eyes-surprised-green.appiconset",
       );
-      expect(bashful).toBeLessThan(surprised * 0.6);
+      expect(bashful).toBeLessThan(surprised * 0.85);
     },
     GENERATION_TIMEOUT_MS,
   );

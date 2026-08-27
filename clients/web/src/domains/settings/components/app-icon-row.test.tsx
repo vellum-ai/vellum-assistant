@@ -264,8 +264,7 @@ describe("AppIconRow", () => {
     await waitFor(() => {
       expect(buttonByText("Change")).toBeDefined();
     });
-    // The icon the app ships spans half its field, where a generated bundle
-    // takes the smaller share its eye style claims on an avatar.
+    // The icon the app ships spans half its field whatever pair it draws.
     expect(previewEyeWidth()).toBeCloseTo(previewSize() / 2, 1);
   });
 
@@ -282,9 +281,9 @@ describe("AppIconRow", () => {
       expect(buttonByText("Change")).toBeDefined();
     });
     expect(previewEyePaths()).toEqual(catalogPaths("bashful"));
-    // bashful is among the smallest pairs the library draws, at well under
-    // half the field. Its exact share is pinned in the preview's own tests.
-    expect(previewEyeWidth()).toBeLessThan(previewSize() / 3);
+    // bashful is one of the pairs the span table frames narrower than the
+    // default. Its exact share is pinned in the preview's own tests.
+    expect(previewEyeWidth()).toBeLessThan(previewSize() / 2 - 1);
   });
 
   test("applies the pair the picker was left on and closes", async () => {
