@@ -182,10 +182,10 @@ export interface LiveVoiceStartOptions {
    * A first turn to take on the session's behalf, sent once the microphone is
    * live, so the assistant speaks without waiting for the user.
    *
-   * It travels the ordinary typed-turn path, so it becomes a real user message
-   * in the conversation exactly as a spoken one does. That is why callers gate
-   * it on an empty conversation: a seed in a thread already underway reads as
-   * a line the user never wrote.
+   * Sent as a hidden turn: the row persists and the model sees it, but it does
+   * not render in the transcript. An assistant too old to understand that
+   * persists it visibly, so callers still gate it on an empty conversation and
+   * still pick copy a person could plausibly have sent.
    *
    * Spent at most once per `start()`, and only by a session whose microphone
    * came up. A reconnect never re-sends it, so a socket blip cannot make the
@@ -861,7 +861,12 @@ export function useLiveVoice(
             const seedText = pendingSeedTextRef.current;
             pendingSeedTextRef.current = null;
             if (seedText !== null) {
-              sendTextTurn(session, seedText);
+              // `hidden`: the seed is an instruction, not something the user
+              // typed, so it drives the turn and stays in the model's context
+              // while never rendering in the transcript. An assistant too old
+              // to know the field persists it visibly instead, which is why
+              // the copy still reads as a sentence a person could have sent.
+              sendTextTurn(session, seedText, { hidden: true });
             }
           });
         }),
@@ -1629,8 +1634,12 @@ function releasePushToTalk(session: SessionContext): void {
  * a refused turn does not leave an anchor for the next reply's audio to pair
  * against.
  */
-function sendTextTurn(session: SessionContext, text: string): boolean {
-  const sent = session.client.sendText(text);
+function sendTextTurn(
+  session: SessionContext,
+  text: string,
+  options?: { hidden?: boolean },
+): boolean {
+  const sent = session.client.sendText(text, options);
   if (sent) {
     session.speechEndedAtMs = performance.now();
   }

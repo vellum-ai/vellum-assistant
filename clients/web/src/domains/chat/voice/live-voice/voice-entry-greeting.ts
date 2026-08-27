@@ -15,22 +15,24 @@ import { t } from "@/i18n";
 /**
  * The seed turn for a voice entry, or `undefined` to open silent.
  *
- * **Only on an empty conversation.** The seed is not a private instruction: it
- * travels the ordinary typed-turn path, so the daemon runs it as a real user
- * utterance and persists it as a user message, permanently, exactly as a
- * spoken one. At the top of a thread with nothing else in it, that reads as
- * what it is, an opener. In a thread already underway it is a line the user
- * never wrote, appearing in their history every time they open voice, which is
- * a worse problem than the silence it answers.
+ * **Only on an empty conversation.** The seed travels as a hidden turn, so on
+ * a current assistant it drives the reply without ever rendering. An assistant
+ * too old to understand `hidden` persists it as an ordinary user message
+ * instead, and that message is permanent. At the top of an otherwise empty
+ * thread it reads as an opener; in a thread already underway it is a line the
+ * user never wrote, appearing every time they open voice, which is a worse
+ * problem than the silence it answers. The gate is what keeps the degraded
+ * case tolerable.
  *
  * The gate also lands the behaviour where the silence hurts. A room opened on
  * an existing thread has the conversation on screen to react to; a room opened
  * on a blank one has nothing at all.
  *
- * **An instruction, not an arrival line.** The seed shows as the user either
- * way, so the choice is only about what it buys. An instruction bounds the
- * opener: without the length cap the assistant is free to deliver a paragraph
- * before the user can get a word in.
+ * **The copy says what it is, then what it wants.** It names itself as
+ * automatic, so the degraded case reads as a machine message rather than words
+ * put in the user's mouth, and it tells the model the same thing. The length
+ * cap is the rest of it: without one the assistant is free to deliver a
+ * paragraph before the user can get a word in.
  */
 export function voiceEntryGreetingSeed(
   conversationIsEmpty: boolean,

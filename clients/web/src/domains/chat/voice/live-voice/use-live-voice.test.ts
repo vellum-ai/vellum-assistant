@@ -3287,6 +3287,10 @@ describe("speak first (seed turn)", () => {
     await emitReady(h);
 
     expect(h.client.sentText).toEqual([SEED]);
+    // Hidden: the seed drives the turn and stays in the model's context, but
+    // it is not something the user typed and must not render as though it
+    // were.
+    expect(h.client.sentTextOptions).toEqual([{ hidden: true }]);
     // The seed does not hold up the mic. Capture is running and the session
     // is in `listening`, so the user can talk over the greeting.
     expect(h.view.result.current.state).toBe("listening");

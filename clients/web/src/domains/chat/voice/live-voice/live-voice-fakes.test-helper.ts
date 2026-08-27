@@ -51,6 +51,8 @@ export class FakeClient {
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   sentText: string[] = [];
+  /** Per-send options, index-aligned with {@link sentText}. */
+  sentTextOptions: ({ hidden?: boolean } | undefined)[] = [];
   /**
    * Mirrors the real client's `ready.textInput` echo. False by default, as the
    * real one is until a `ready` frame says otherwise, so a test that wants a
@@ -97,11 +99,12 @@ export class FakeClient {
   sendAudio(pcm: ArrayBuffer): void {
     this.sentAudio.push(pcm);
   }
-  sendText(text: string): boolean {
+  sendText(text: string, options?: { hidden?: boolean }): boolean {
     if (!this.textInputSupported) {
       return false;
     }
     this.sentText.push(text);
+    this.sentTextOptions.push(options);
     return true;
   }
   get supportsTextInput(): boolean {

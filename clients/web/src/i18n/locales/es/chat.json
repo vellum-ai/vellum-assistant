@@ -1535,7 +1535,7 @@
     "unmuteMicrophone": "Activar el micrófono"
   },
   "voiceEntryGreeting": {
-    "seed": "Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
+    "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."

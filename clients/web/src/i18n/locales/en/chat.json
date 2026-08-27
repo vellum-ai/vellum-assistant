@@ -1535,7 +1535,7 @@
     "unmuteMicrophone": "Unmute microphone"
   },
   "voiceEntryGreeting": {
-    "seed": "Greet me in one short sentence, then ask what I'd like to work on."
+    "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
