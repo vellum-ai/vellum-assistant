@@ -33,7 +33,10 @@ const CAPTION_TIMEOUT_MS = 30_000;
 const CAPTION_SYSTEM_PROMPT =
   "You are a vision assistant. Describe the image concisely in 1-2 sentences. " +
   "Focus on the key visual content, text, charts, or UI elements that would be " +
-  "relevant for a text-based assistant to understand and reason about.";
+  "relevant for a text-based assistant to understand and reason about. " +
+  "Describe only what is visible: quote any text or numbers exactly as they " +
+  "are printed, and do not guess at, complete, or interpret what the image " +
+  "does not show.";
 
 const CAPTION_USER_PROMPT =
   "Describe this image concisely for a text-only assistant.";

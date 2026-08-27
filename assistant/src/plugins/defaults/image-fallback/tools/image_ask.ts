@@ -14,6 +14,13 @@
  * that its endpoint rejects) runs without the tool on that call, since the
  * tool list for the call is already built; the next turn gates correctly.
  *
+ * Everything here works against the failure mode that matters: a text-only
+ * model stating a detail it never saw. The vision prompt confines the answer
+ * to what is visible and has it lead with a marker when the image does not
+ * show it; the result relays that as an explicit "not in image" instead of a
+ * value; and the answer is always framed as one model's reading of the image
+ * rather than as fact.
+ *
  * Nothing here throws: every failure comes back as an `isError` result the
  * model can read and act on.
  */
@@ -40,13 +47,44 @@ import { describeImage, findVisionProfile } from "../src/vision-caption.js";
 /** Response cap for one answer: room for quoted text, not for an essay. */
 const ANSWER_MAX_TOKENS = 1024;
 
+/**
+ * Marker the vision model is told to lead with when the image does not
+ * contain the answer.
+ *
+ * A declared protocol, not a guess: the answer is scanned for this exact
+ * prefix and nothing else, so the caller learns the answer is unsupported
+ * without any heuristic reading of the prose. A model that ignores the
+ * instruction just yields an ordinary answer, which is the behavior without
+ * the marker at all.
+ */
+const NOT_VISIBLE_MARKER = "NOT_VISIBLE:";
+
 const ASK_SYSTEM_PROMPT =
   "You are a vision assistant answering one question about one image for a " +
   "text-only assistant that cannot see it. Answer only from what is visible " +
   "in the image. Quote text and numbers exactly as they are printed, " +
-  "including case, punctuation, and units. If the answer is not visible in " +
-  "the image, say so plainly instead of guessing or inferring it from " +
-  "context.";
+  "including case, punctuation, spacing, and units, and never round, " +
+  "reformat, complete, or correct them. Do not infer the answer from context, " +
+  "from what the image is probably of, or from anything you know outside it. " +
+  `If the answer is not visible in the image, or the image is too small, ` +
+  `blurred, or cropped to read it, begin your reply with ${NOT_VISIBLE_MARKER} ` +
+  "and then say what you can see instead. Never guess a value in order to " +
+  "have something to answer with.";
+
+/**
+ * The answer text plus whether the vision model reported the image does not
+ * show it.
+ */
+function readAnswer(raw: string): { answer: string; notVisible: boolean } {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith(NOT_VISIBLE_MARKER)) {
+    return { answer: trimmed, notVisible: false };
+  }
+  return {
+    answer: trimmed.slice(NOT_VISIBLE_MARKER.length).trim(),
+    notVisible: true,
+  };
+}
 
 function errorResult(content: string): ToolExecutionResult {
   return { content, isError: true };
@@ -78,9 +116,16 @@ const imageAsk = {
     'the image with `image` (the filename from the summary, e.g. "chart.png", ' +
     "or its stored path); omit `image` to use the most recent one. The model " +
     "answering sees only the image and your question: it has no conversation " +
-    "history, no memory, and no tools, so make each question self-contained " +
-    "and specific rather than referring to what was said earlier. Ask one " +
-    "question per call. The answer comes back as text, never as an image.",
+    "history, no memory of earlier turns, no access to files, and no tools. " +
+    "Make each question self-contained and specific, naming what to look for " +
+    "rather than referring to anything said earlier. Ask one question per " +
+    "call, and call it again for the next detail rather than asking for " +
+    "several at once. Ask whenever a detail matters instead of working from " +
+    "what the summary implies. The answer is one model's reading of the " +
+    "image, so pass on what it says and do not add detail it did not give; " +
+    "when it reports the answer is not in the image, say that rather than " +
+    "supplying a plausible value. The answer comes back as text, never as an " +
+    "image.",
   input_schema: {
     type: "object",
     properties: {
@@ -182,8 +227,25 @@ const imageAsk = {
         );
       }
 
+      const name = basename(match.filePath);
+      const read = readAnswer(answer);
+      if (read.notVisible) {
+        return {
+          content:
+            `The image "${name}" does not show the answer to that question. ` +
+            `What the vision model could see: ${read.answer}\n\n` +
+            "Do not state the detail you asked for as fact. Ask about " +
+            "something the image does show, or tell the user it is not in " +
+            "the image.",
+          isError: false,
+          status: "not in image",
+        };
+      }
+
       return {
-        content: `Answer about "${basename(match.filePath)}": ${answer}`,
+        content:
+          `Answer about "${name}", read from the image by a vision model: ` +
+          `${read.answer}`,
         isError: false,
       };
     } catch (err) {
