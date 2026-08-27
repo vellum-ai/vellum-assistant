@@ -62,6 +62,11 @@ function normalizeSlackReaction(
           emoji: event.reaction,
           targetMessageId: event.item.ts,
         },
+        // Transition dual-write: a daemon that predates the structured
+        // payload dispatches reactions on the kind and then reads this
+        // string, so a structured-only event would crash it during an
+        // upgrade-skew window. Remove once a release ships both sides.
+        callbackData: `${op === "added" ? "reaction" : "reaction_removed"}:${event.reaction}`,
       },
       actor: {
         actorExternalId: event.user,
