@@ -1,7 +1,6 @@
-import { Bell, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
-import { PageEmptyState } from "@/components/page-empty-state";
 import { useTranslation } from "@/i18n";
 
 import type {
@@ -10,6 +9,7 @@ import type {
   FeedItemStatus,
 } from "@vellumai/assistant-api";
 import { Collapsible, Typography } from "@vellumai/design-library";
+import { NotificationsEmptyState } from "./components/notifications-empty-state";
 import { HomeFeedFilterBar } from "./home-feed-filter-bar";
 import { HomeRecapRow } from "./home-recap-row";
 import type { FeedTimeGroup } from "./utils";
@@ -135,11 +135,7 @@ export function HomeFeedList({
             {t("homeFeedList.noMatches")}
           </Typography>
         ) : (
-          <PageEmptyState
-            icon={Bell}
-            title={t("homeFeedList.emptyTitle")}
-            description={t("homeFeedList.emptyBody")}
-          />
+          <NotificationsEmptyState />
         )
       ) : (
         [...grouped.entries()].map(([group, groupItems]) => (

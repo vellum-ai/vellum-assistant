@@ -30,8 +30,6 @@
     "yesterday": "Ayer",
     "older": "Anteriores",
     "noMatches": "Ningún elemento coincide con el filtro seleccionado.",
-    "emptyTitle": "Todavía no hay notificaciones",
-    "emptyBody": "Las novedades y la actividad de tu asistente aparecerán aquí.",
     "earlier": "Anteriores ({count, number})",
     "dismissed": "Descartadas ({count, number})"
   },
@@ -62,7 +60,6 @@
     "ariaLabelUnread": "Notificaciones (sin leer)",
     "heading": "Notificaciones",
     "loadFailed": "No se pudieron cargar las notificaciones.",
-    "empty": "Todavía no hay notificaciones.",
     "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
   },
   "notificationsBellDetail": { "back": "Volver a las notificaciones" },
@@ -86,5 +83,33 @@
       "cancelled": "Cancelada",
       "leftUnverified": "Sin verificar"
     }
+  },
+  "notificationsEmptyState": {
+    "title": "Todavía no hay nada que contar.",
+    "description": "Publicaré aquí cuando se ejecute una programación, salte un recordatorio o algo necesite tu atención.",
+    "previewLabel": "Ejemplo",
+    "briefingExampleTitle": "Resumen matutino",
+    "briefingExampleSummary": "Hoy tienes tres reuniones, dos correos pendientes de respuesta y lluvia a partir de las 16:00.",
+    "triageExampleTitle": "Revisión de la bandeja de entrada",
+    "triageExampleSummary": "Cuatro correos necesitan respuesta. Los borradores están listos para que los revises.",
+    "reminderExampleTitle": "Recordatorio: enviar el resumen del sprint",
+    "reminderExampleSummary": "Me pediste que te avisara antes de la reunión de equipo de las 16:00.",
+    "briefingRecipeTitle": "Resumen matutino",
+    "briefingRecipeMeta": "Cada día",
+    "briefingRecipeDescription": "Calendario, correo y noticias, cada día laborable a las 8:00.",
+    "triageRecipeTitle": "Revisión de la bandeja de entrada",
+    "triageRecipeMeta": "Cada 2 h",
+    "triageRecipeDescription": "Cada 2 horas, marco lo que necesita respuesta y redacto el borrador.",
+    "seeSchedules": "Ver todas las programaciones"
+  },
+  "notificationsBellEmptyState": {
+    "title": "Todavía no hay nada.",
+    "briefingRecipeTitle": "Configurar un resumen matutino",
+    "briefingRecipeMeta": "Cada día",
+    "briefingRecipeDescription": "Tu primera notificación, mañana a las 8:00."
+  },
+  "notificationRecipeCard": {
+    "briefingPrompt": "Configúrame un resumen matutino: cada día laborable a las 8:00, revisa mi calendario, mi bandeja de entrada y las noticias, y publica un resumen breve en mis notificaciones.",
+    "triagePrompt": "Configura una programación que se ejecute cada 2 horas: revisa mi bandeja de entrada, marca los correos que necesitan respuesta y redacta un borrador de cada respuesta para que yo la revise."
   }
 }

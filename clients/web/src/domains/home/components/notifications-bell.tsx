@@ -37,6 +37,7 @@ import {
   NOTIFICATIONS_PANEL_HEADER_CLASS,
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
+import { NotificationsBellEmptyState } from "./notifications-empty-state";
 
 /**
  * Router state read by `HomePageRoute`: arriving at the Activity page with a
@@ -324,14 +325,16 @@ export function NotificationsBell() {
 
   const list =
     visibleItems.length === 0 ? (
-      <Typography
-        variant="body-medium-lighter"
-        className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
-      >
-        {feedQuery.isError
-          ? t("notificationsBell.loadFailed")
-          : t("notificationsBell.empty")}
-      </Typography>
+      feedQuery.isError ? (
+        <Typography
+          variant="body-medium-lighter"
+          className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
+        >
+          {t("notificationsBell.loadFailed")}
+        </Typography>
+      ) : (
+        <NotificationsBellEmptyState onLaunchRecipe={closePanel} />
+      )
     ) : (
       <div
         ref={restoreListScroll}

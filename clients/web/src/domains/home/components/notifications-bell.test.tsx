@@ -34,7 +34,10 @@ mock.module("@/hooks/use-touch-mobile", () => ({
   TOUCH_MOBILE_MEDIA_QUERY: "(width < 48rem) and (pointer: coarse)",
 }));
 
-const feedRef: { items: FeedItem[] } = { items: [] };
+const feedRef: { items: FeedItem[]; isError: boolean } = {
+  items: [],
+  isError: false,
+};
 
 interface UpdateStatusVars {
   itemId: string;
@@ -71,7 +74,7 @@ mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
   useHomeFeedQuery: () => ({
     data: { items: feedRef.items },
     isLoading: false,
-    isError: false,
+    isError: feedRef.isError,
     updateStatus: {
       mutate: (vars: UpdateStatusVars) => {
         updateStatusCalls.push(vars);
@@ -111,13 +114,30 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
 }));
 
-// Mocked at the boundary the bell calls, so "Go to Conversation" can be
-// asserted without dragging the conversation stores, haptics, and sound
-// manager that the real helper drives into a popover test.
+// Mocked at the boundary the bell calls, so "Go to Conversation" and the
+// empty state's recipe can be asserted without dragging the conversation
+// stores, haptics, and sound manager that the real helpers drive into a
+// popover test.
 const navigateToConversationMock = mock((..._args: unknown[]) => {});
+const navigateToNewConversationMock = mock((..._args: unknown[]) => "draft-1");
 
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: navigateToConversationMock,
+  navigateToNewConversation: navigateToNewConversationMock,
+}));
+
+// The empty state leads with the assistant's avatar where there is one. The
+// bell has no assistant to read here, so this pins its icon fallback.
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    state: null,
+    isLoading: false,
+    isSuccess: true,
+    invalidate: () => {},
+  }),
 }));
 
 /**
@@ -308,6 +328,7 @@ function detailFooter(): HTMLElement {
 beforeEach(() => {
   isTouchMobileRef.value = false;
   feedRef.items = [];
+  feedRef.isError = false;
   conversationListsRef.foreground = [];
   conversationListsRef.background = [];
   conversationListsRef.scheduled = [];
@@ -325,6 +346,7 @@ beforeEach(() => {
   triggerActionRef.outcome = "pending";
   navigateMock.mockClear();
   navigateToConversationMock.mockClear();
+  navigateToNewConversationMock.mockClear();
 });
 
 afterEach(async () => {
@@ -444,6 +466,64 @@ describe("NotificationsBell panel", () => {
     await openBell();
 
     expect(screen.queryByRole("button", { name: "View all" })).toBeNull();
+  });
+});
+
+describe("NotificationsBell empty state", () => {
+  test("offers the schedule that produces the first notification", async () => {
+    await openBell();
+
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /^Set up a morning briefing/ }),
+    ).toBeTruthy();
+  });
+
+  test("carries neither a description line nor a secondary action", async () => {
+    // The panel already names itself "Notifications", so a description would
+    // restate the heading, and a second button would compete with the recipe.
+    await openBell();
+
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.queryByText(/schedule runs/)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "See all schedules" }),
+    ).toBeNull();
+  });
+
+  test("the recipe closes the panel and seeds a conversation", async () => {
+    await openBell();
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /^Set up a morning briefing/ }),
+      );
+      // The close runs off a frame, so it has to settle inside the act scope
+      // that owns the click.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(navigateToNewConversationMock).toHaveBeenCalledTimes(1);
+    const [, options] = navigateToNewConversationMock.mock.calls[0] as [
+      unknown,
+      { prompt?: string },
+    ];
+    expect(options.prompt).toContain("morning briefing");
+    // The panel dismisses itself, so the conversation it opened is not left
+    // behind a popover.
+    expect(screen.queryByText("Nothing yet.")).toBeNull();
+  });
+
+  test("a failed load keeps its own message instead of the scene", async () => {
+    feedRef.isError = true;
+
+    await openBell();
+
+    expect(screen.getByText("Couldn't load notifications.")).toBeTruthy();
+    expect(screen.queryByText("Nothing yet.")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Set up a morning briefing/ }),
+    ).toBeNull();
   });
 });
 
