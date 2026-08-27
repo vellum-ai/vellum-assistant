@@ -1259,6 +1259,7 @@ export const defaultPostinstallRunner: PostinstallRunner = async ({
     timeout: POSTINSTALL_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,
     env: pluginPostinstallEnv(bun),
+    windowsHide: true,
   });
 };
 
@@ -1377,6 +1378,7 @@ export const defaultGitRunner: GitRunner = async (args, opts) => {
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
     env: pluginGitEnv(),
+    windowsHide: true,
   });
   return { stdout };
 };

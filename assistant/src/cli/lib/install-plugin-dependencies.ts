@@ -319,6 +319,7 @@ export const defaultDependencyInstaller: DependencyInstaller = async ({
     timeout: DEPENDENCY_INSTALL_TIMEOUT_MS,
     maxBuffer: 32 * 1024 * 1024,
     env: dependencyInstallEnv(bun),
+    windowsHide: true,
   });
 };
 

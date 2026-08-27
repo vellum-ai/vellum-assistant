@@ -165,6 +165,7 @@ async function downloadBun(installDir: string): Promise<string> {
         : ["unzip", "-o", tmpZip, "-d", installDir],
       stdout: "ignore",
       stderr: "pipe",
+      windowsHide: true,
     });
     await proc.exited;
     if (proc.exitCode !== 0) {
