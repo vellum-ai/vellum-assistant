@@ -2533,16 +2533,6 @@ function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
     if (
       containsTokenCaseInsensitive(
         message,
-        EXTENSION_STATUS_ERROR_MARKER.UNAUTHORIZED_ORIGIN,
-      )
-    ) {
-      actions.push(
-        "Ensure this extension ID is present in chrome-extension-allowlist.local.json in $GATEWAY_SECURITY_DIR and restart the assistant.",
-      );
-    }
-    if (
-      containsTokenCaseInsensitive(
-        message,
         EXTENSION_STATUS_ERROR_MARKER.NATIVE_MESSAGING_HOST,
       )
     ) {

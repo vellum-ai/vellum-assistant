@@ -21,7 +21,6 @@ export const BROWSER_STATUS_INPUT_FIELD = {
 } as const;
 
 export const EXTENSION_STATUS_ERROR_MARKER = {
-  UNAUTHORIZED_ORIGIN: "unauthorized_origin",
   NATIVE_MESSAGING_HOST: "native messaging host",
   HTTP_401: "401",
 } as const;
