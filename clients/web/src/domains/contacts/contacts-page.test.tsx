@@ -16,7 +16,7 @@ import { createElement, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
-import type { ContactPayload } from "@/domains/contacts/types";
+import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 import * as rqGen from "@/generated/daemon/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
@@ -28,6 +28,8 @@ let toastErrorCalls: string[] = [];
 let upsertShouldReject = false;
 let lastUpsertBody: unknown = null;
 let contactsFixture: ContactPayload[] = [];
+let availableChannelsOverride: ChannelInfo[] | null = null;
+const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const unhandledRejections: unknown[] = [];
 
 const GUARDIAN = {
@@ -150,7 +152,14 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
   },
   deleteContact: async () => {},
   verifyContactChannel: async () => {},
-  linkContactChannelAccount: async () => GUARDIAN,
+  linkContactChannelAccount: async (
+    _assistantId: string,
+    _contact: { id: string; displayName: string },
+    channel: { type: string; address: string },
+  ) => {
+    linkAndVerifyCalls.push(channel);
+    return GUARDIAN;
+  },
   redeemA2AInvite: async () => ({ success: true }),
 }));
 
@@ -182,11 +191,20 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
-  channelsAvailableGet: async () => ({
-    data: undefined,
-    error: undefined,
-    response: { ok: false, status: 404 },
-  }),
+  channelsAvailableGet: async () => {
+    if (availableChannelsOverride) {
+      return {
+        data: { channels: availableChannelsOverride },
+        error: undefined,
+        response: { ok: true, status: 200 },
+      };
+    }
+    return {
+      data: undefined,
+      error: undefined,
+      response: { ok: false, status: 404 },
+    };
+  },
 }));
 
 const { ContactsPage } = await import("@/domains/contacts/contacts-page");
@@ -248,6 +266,8 @@ beforeEach(() => {
   upsertShouldReject = false;
   lastUpsertBody = null;
   contactsFixture = [GUARDIAN, ALICE, PEER];
+  availableChannelsOverride = null;
+  linkAndVerifyCalls.length = 0;
   unhandledRejections.length = 0;
   process.on("unhandledRejection", onUnhandled);
 });
@@ -429,5 +449,62 @@ describe("ContactsPage contact permissions", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unhandledRejections).toEqual([]);
+  });
+});
+
+describe("ContactsPage plugin verify", () => {
+  test("opens the manual verify modal instead of starting the iMessage setup chat", async () => {
+    availableChannelsOverride = [
+      {
+        id: "imessage",
+        source: "plugin:imessage",
+        label: "iMessage",
+        subtitle: "Provided by the iMessage plugin",
+        icon: "message-square",
+        supportsVerification: false,
+        setupMessages: {
+          guardian: "I want to set up iMessage. Can you help me?",
+          contact: "I'd like to reach you on iMessage. Can you help me get set up?",
+        },
+      },
+    ];
+    const onStartSetupConversation = mock(() => {});
+
+    render(
+      <Wrapper>
+        <ContactsPage
+          assistantId="asst-1"
+          onStartSetupConversation={onStartSetupConversation}
+        />
+      </Wrapper>,
+    );
+
+    const verify = await waitFor(() => getButton("Verify"));
+    fireEvent.click(verify);
+
+    expect(onStartSetupConversation).not.toHaveBeenCalled();
+    const addressInput = await waitFor(() =>
+      getInputByPlaceholder("+15551234567"),
+    );
+    fireEvent.change(addressInput, { target: { value: "+15551234567" } });
+
+    const dialog = document.querySelector('[data-slot="modal-content"]');
+    if (!dialog) {
+      throw new Error("expected the verify modal");
+    }
+    const confirm = Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Verify",
+    );
+    if (!confirm) {
+      throw new Error("expected a Verify button in the modal");
+    }
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      expect(linkAndVerifyCalls).toEqual([
+        { type: "imessage", address: "+15551234567" },
+      ]);
+    });
+    expect(onStartSetupConversation).not.toHaveBeenCalled();
   });
 });

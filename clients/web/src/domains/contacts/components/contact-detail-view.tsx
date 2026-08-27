@@ -29,7 +29,7 @@ interface ContactDetailViewProps {
   onDelete: () => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
-  onVerifyChannel?: (type: string) => void;
+  onVerifyChannel?: (type: string, address?: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
   /** Opens the roster picker for a linkable channel row. */
   onLinkAccount?: (channelId: string) => void;
