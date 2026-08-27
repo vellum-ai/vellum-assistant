@@ -1544,7 +1544,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
   // The agent loop's tool_use_preview_start / server_tool_start /
   // tool_use_start / tool_result
   // events reach the voice callbacks so the session can track per-turn tool
-  // activity. The bridge is the single truncation point for tool results —
+  // activity. The bridge is the single truncation point for tool results:
   // the raw result can be huge and must never travel further into the voice
   // layer.
 

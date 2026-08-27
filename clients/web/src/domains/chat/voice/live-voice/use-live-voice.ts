@@ -1072,7 +1072,7 @@ export function useLiveVoice(
           if (isSpeech) {
             // Mark audio flowing before the phase flip so no render observes
             // `speaking` without `assistantAudioActive` (which would blink the
-            // avatar to `thinking` at the top of every response — JARVIS-1279).
+            // avatar to `thinking` at the top of every response; JARVIS-1279).
             markAssistantAudioActive(session);
             useLiveVoiceStore.getState().setState("speaking");
           }
