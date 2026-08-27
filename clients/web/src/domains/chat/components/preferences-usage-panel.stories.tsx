@@ -238,8 +238,9 @@ export const MidCycle: Story = {
 
 /**
  * The grants used up with credits still in the wallet behind them. The
- * percentage steps aside and the amber extra-credits line takes the bar's
- * place, and no strip appears: the next turn still has something to draw on.
+ * percentage keeps its neutral color while the amber extra-credits line takes
+ * the bar's place, and no strip appears: the next turn still has something to
+ * draw on.
  */
 export const SpentBundle: Story = {
   name: "Spent bundle, extra credits",
