@@ -381,6 +381,13 @@
     "providerLabel": "Proveedor",
     "unavailableOption": "{name} (no disponible)"
   },
+  "chatgptDefaultProviderStep": {
+    "applied": "ChatGPT ahora es tu proveedor predeterminado para el chat.",
+    "applying": "Estableciendo ChatGPT como tu proveedor predeterminado...",
+    "done": "Listo",
+    "offerHint": "El chat sigue usando tu proveedor predeterminado actual.",
+    "useForChat": "Usar ChatGPT para el chat"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Puede que tú o el administrador de tu equipo tengáis que activar la autorización por código de dispositivo <settingsLink>en los ajustes de ChatGPT</settingsLink>.",
     "connected": "Suscripción a ChatGPT conectada correctamente.",

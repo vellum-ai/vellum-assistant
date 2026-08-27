@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellumai/design-library/components/toast";
@@ -18,6 +20,13 @@ import { captureError } from "@/lib/sentry/capture-error";
 export interface ProviderActions {
   /** Point the default provider at this connection. No-op when ineligible. */
   setDefault: (conn: ProviderConnection) => void;
+  /**
+   * `setDefault` for callers that must know when the write landed: resolves
+   * once the config carries the new default, rejects if it did not (the
+   * failure toast is raised either way). Stable across renders, so an effect
+   * can depend on it.
+   */
+  setDefaultAsync: (conn: ProviderConnection) => Promise<void>;
   /** True while the set-default mutation targets `name`. */
   isSettingDefault: (name: string) => boolean;
   deleteConnection: (name: string) => Promise<void>;
@@ -55,14 +64,24 @@ export function useProviderActions(
     },
   });
 
+  const { mutateAsync } = setDefaultMutation;
+
+  const setDefaultAsync = useCallback(
+    async (conn: ProviderConnection) => {
+      if (!isDefaultProviderId(conn.provider)) {
+        return;
+      }
+      await mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { provider: conn.provider, connectionName: conn.name },
+      });
+    },
+    [assistantId, mutateAsync],
+  );
+
   function setDefault(conn: ProviderConnection) {
-    if (!isDefaultProviderId(conn.provider)) {
-      return;
-    }
-    setDefaultMutation.mutate({
-      path: { assistant_id: assistantId },
-      body: { provider: conn.provider, connectionName: conn.name },
-    });
+    // Fire and forget: `onError` already reports the failure as a toast.
+    void setDefaultAsync(conn).catch(() => {});
   }
 
   function isSettingDefault(name: string): boolean {
@@ -94,5 +113,5 @@ export function useProviderActions(
     }
   }
 
-  return { setDefault, isSettingDefault, deleteConnection };
+  return { setDefault, setDefaultAsync, isSettingDefault, deleteConnection };
 }
