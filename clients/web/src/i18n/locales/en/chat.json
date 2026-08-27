@@ -1161,7 +1161,8 @@
     "loadingPreview": "Loading preview"
   },
   "previewTruncationNotice": {
-    "showingFirst": "Showing the first {size}"
+    "markdown": "Showing the first 512 KB",
+    "text": "Showing the first 2 MB"
   },
   "previewUnsupported": {
     "downloadFile": "Download file",

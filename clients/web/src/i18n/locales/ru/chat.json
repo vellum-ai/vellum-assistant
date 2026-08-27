@@ -604,7 +604,8 @@
     "cannotPreview": "Не удаётся показать этот файл"
   },
   "previewTruncationNotice": {
-    "showingFirst": "Показаны первые {size}"
+    "markdown": "Показаны первые 512 КБ",
+    "text": "Показаны первые 2 МБ"
   },
   "previewUnsupported": {
     "noPreviewForType": "Нет предпросмотра для этого типа файла"

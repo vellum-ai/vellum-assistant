@@ -9,7 +9,6 @@
 
 import { type ReactNode } from "react";
 
-import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
 import { PreviewTruncationNotice } from "@/domains/chat/components/local-file/preview/preview-truncation-notice";
@@ -50,9 +49,7 @@ export function TextPreview({ blob, filename }: TextPreviewProps): ReactNode {
       </pre>
       {truncated && (
         <PreviewTruncationNotice>
-          {t("previewTruncationNotice.showingFirst", {
-            size: formatAttachmentSize(MAX_DISPLAYED_BYTES),
-          })}
+          {t("previewTruncationNotice.text")}
         </PreviewTruncationNotice>
       )}
     </div>
