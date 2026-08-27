@@ -266,6 +266,7 @@ export function ensureLocalRuntime(
     cwd: installDir,
     stdio: "inherit",
     env: envWithBunPath(process.env),
+    windowsHide: true,
   });
 
   if (result.error || result.status !== 0) {
@@ -517,6 +518,7 @@ function ensureBunInstalled(): void {
     execFileSync(resolveBunExecutable(), ["--version"], {
       stdio: "pipe",
       env: envWithBunPath(process.env),
+      windowsHide: true,
     });
     return;
   } catch {
@@ -555,6 +557,7 @@ function ensureBunInstalled(): void {
       stdio: "pipe",
       timeout: 60_000,
       env: installEnv,
+      windowsHide: true,
     });
     console.log("   Bun installed successfully");
   } catch {
