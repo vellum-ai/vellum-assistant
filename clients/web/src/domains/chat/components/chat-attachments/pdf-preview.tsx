@@ -1,6 +1,14 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+// `?url` emits the package's prebuilt worker as a hashed asset and yields its
+// URL, so the worker is served from our own origin and its version is the
+// `pdfjs-dist` this bundle imports. Not `?worker&url`: the file is already a
+// built worker bundle and needs emitting as-is, not recompiling as a worker
+// entry. A bare `new URL(..., import.meta.url)` does not work here either,
+// since Vite resolves that form for relative paths, not package specifiers.
+// https://vite.dev/guide/assets#explicit-url-imports
+import PDF_WORKER_URL from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
 
@@ -38,7 +46,7 @@ let pdfJsConfigured = false;
 async function loadPdfJs() {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   if (!pdfJsConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
+    pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
     pdfJsConfigured = true;
   }
   return pdfjs;
