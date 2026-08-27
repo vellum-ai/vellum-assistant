@@ -147,8 +147,11 @@ const meta: Meta<TakeoverPlaygroundArgs> = {
     },
     obscureCredits: {
       description:
-        "Flip `obscure-credits`, which states bundles by catalog name instead of by monthly rate.",
-      control: "boolean",
+        "Flip `obscure-credits`, which states bundles by catalog name instead of by monthly rate. Live only on `Playground`.",
+      // Hidden everywhere but `Playground`: the flag is a module-level singleton,
+      // and the docs page mounts every curated story into one iframe, so a
+      // control there would flip the treatment for all of them at once.
+      control: false,
     },
   },
   args: {
@@ -176,11 +179,12 @@ const meta: Meta<TakeoverPlaygroundArgs> = {
 export default meta;
 type Story = StoryObj<TakeoverPlaygroundArgs>;
 
-// Every curated story below pins `obscureCredits: false`. The flag is a
-// module-level Zustand singleton and the docs page mounts all of these into one
-// iframe at once, so a story that flipped it would flip it for its neighbours
-// too. The flag-on treatment belongs to `Playground`, where exactly one story is
-// mounted at a time.
+// Every curated story below pins `obscureCredits: false` and exposes no control
+// for it. The flag is a module-level Zustand singleton and the docs page mounts
+// all of these into one iframe at once, so a story that flipped it would flip it
+// for its neighbours too, and their decorators would not re-run to undo it. The
+// flag-on treatment belongs to `Playground`, which carries the only live control
+// and stays off the docs page so it is never mounted beside them.
 
 /**
  * The whole surface, driven from the Controls panel. Opens on the rollout of a
@@ -188,7 +192,12 @@ type Story = StoryObj<TakeoverPlaygroundArgs>;
  * and the bundle applied the moment the subscription was accepted, so its chip
  * is already checked.
  */
-export const Playground: Story = {};
+export const Playground: Story = {
+  tags: ["!autodocs"],
+  argTypes: {
+    obscureCredits: { control: "boolean" },
+  },
+};
 
 /** Waiting on Stripe after a package checkout: the package names itself. */
 export const Confirming: Story = {
