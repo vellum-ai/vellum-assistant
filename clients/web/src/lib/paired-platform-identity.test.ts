@@ -87,16 +87,24 @@ describe("resolvePairedAssistantPlatformId", () => {
     expect(updateLockfileAssistant).toHaveBeenCalledTimes(1);
   });
 
-  test("caches a miss so an unreachable daemon is not re-asked", async () => {
-    fetchPlatformStatus.mockResolvedValue(null);
+  test("a miss is not cached, so a recovered daemon is asked again", async () => {
+    fetchPlatformStatus.mockResolvedValueOnce(null);
     await expect(
       resolvePairedAssistantPlatformId("paired-remote"),
     ).resolves.toBeNull();
-    await expect(
-      resolvePairedAssistantPlatformId("paired-remote"),
-    ).resolves.toBeNull();
-    expect(fetchPlatformStatus).toHaveBeenCalledTimes(1);
     expect(updateLockfileAssistant).not.toHaveBeenCalled();
+    await expect(
+      resolvePairedAssistantPlatformId("paired-remote"),
+    ).resolves.toBe(UUID);
+    expect(fetchPlatformStatus).toHaveBeenCalledTimes(2);
+  });
+
+  test("concurrent asks share one in-flight probe", async () => {
+    await Promise.all([
+      resolvePairedAssistantPlatformId("paired-remote"),
+      resolvePairedAssistantPlatformId("paired-remote"),
+    ]);
+    expect(fetchPlatformStatus).toHaveBeenCalledTimes(1);
   });
 
   test("returns the persisted id without a daemon read", async () => {
