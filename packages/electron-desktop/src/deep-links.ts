@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { BrowserWindow, app, type WebContents } from "electron";
 import { z } from "zod";
 
@@ -348,7 +350,7 @@ export const installDeepLinks = (): void => {
   for (const scheme of REGISTERED_SCHEMES) {
     if (!app.isPackaged && process.argv[1]) {
       app.setAsDefaultProtocolClient(scheme, process.execPath, [
-        process.argv[1],
+        resolve(process.argv[1]),
       ]);
     } else {
       app.setAsDefaultProtocolClient(scheme);

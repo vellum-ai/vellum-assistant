@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import {
   afterEach,
   beforeEach,
@@ -503,23 +505,29 @@ describe("installDeepLinks", () => {
     expect(drain(allowedEvent)).toEqual([]);
   });
 
-  test("registers unpackaged apps with their executable and entry point", () => {
-    installDeepLinks();
-    const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
+  test("registers unpackaged apps with absolute executable and entry paths", () => {
+    const entryPoint = process.argv[1];
+    process.argv[1] = ".";
+    try {
+      installDeepLinks();
+      const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
 
-    installDeepLinks();
-    installDeepLinks();
+      installDeepLinks();
+      installDeepLinks();
 
-    const expected = resolveRegisteredSchemes(
-      resolveEnvironmentName(process.env),
-    );
-    expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
-      expected.map((scheme) => [scheme, process.execPath, [process.argv[1]]]),
-    );
-    // Idempotent — repeated calls don't register again.
-    expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(
-      firstCallCount,
-    );
+      const expected = resolveRegisteredSchemes(
+        resolveEnvironmentName(process.env),
+      );
+      expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
+        expected.map((scheme) => [scheme, process.execPath, [resolve(".")]]),
+      );
+      // Idempotent — repeated calls don't register again.
+      expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(
+        firstCallCount,
+      );
+    } finally {
+      process.argv[1] = entryPoint;
+    }
   });
 
   test("subscribes to will-finish-launching and registers an open-url listener under it", () => {
