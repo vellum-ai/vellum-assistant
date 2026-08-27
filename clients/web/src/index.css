@@ -477,6 +477,9 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   --camera-shutter-morph-duration: 0.4s;
   --camera-shutter-morph-ease: cubic-bezier(0.34, 1.5, 0.5, 1);
   --camera-shutter-pulse-duration: 500ms;
+  /* The ring takes the duration but not the ease: the morph curve overshoots
+   * past 1, which on a color means interpolating past the target, so only the
+   * core's scale is timed with it. */
   transition: border-color var(--camera-shutter-morph-duration) ease;
 }
 
@@ -496,10 +499,20 @@ html[data-page-transition="pop"]::view-transition-new(root) {
     opacity var(--camera-shutter-morph-duration) ease;
 }
 
+/* The lit frame declares the crimson literal first and then reads the same
+ * color back off `--camera-accent` (published by `camera-mode-paint.ts` and
+ * inherited from the shutter this span sits inside): engines without
+ * color-mix() (Safari/iOS < 16.2, which the iOS shell still targets) drop the
+ * second declaration and keep the literal, and everywhere else the accent stays
+ * single-sourced. Same pattern as the wave accents below. The later frames fade
+ * to nothing, which is a color with no identity to duplicate. */
 @keyframes camera-shutter-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75); }
-  70% { box-shadow: 0 0 0 12px rgba(207, 67, 112, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(207, 67, 112, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--camera-accent) 75%, transparent);
+  }
+  70% { box-shadow: 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 .camera-shutter-pulse {

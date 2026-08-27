@@ -93,4 +93,16 @@ describe("VoiceRoomControl", () => {
     expect(media.className).toContain("bg-black/45");
     expect(media.className).not.toContain("bg-white");
   });
+
+  test("every control is the same 52px, on every surface", () => {
+    // 52 clears the 44pt a thumb needs on its own, so nothing here depends on
+    // an invisible margin the way the flash control does. Held equal across the
+    // surfaces because the row is the same row whether or not the viewfinder is
+    // up, and a control that resized as the camera opened would move out from
+    // under a thumb already on its way to it.
+    for (const surface of ["room", "media", "camera"] as const) {
+      expect(renderControl({ surface }).className).toContain("size-13");
+      cleanup();
+    }
+  });
 });

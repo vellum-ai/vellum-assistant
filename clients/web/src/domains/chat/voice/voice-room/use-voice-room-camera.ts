@@ -29,22 +29,40 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useVoiceCamera, type VoiceCamera } from "./voice-camera";
 
+/** The catalog keys this hook can hand back. See {@link CAMERA_ERROR_KEYS}. */
+export type CameraErrorKey =
+  | "cameraError.permissionDenied"
+  | "cameraError.noDevice"
+  | "cameraError.deviceInUse"
+  | "cameraError.unsupported"
+  | "cameraError.unknown"
+  | "cameraError.captureFailed"
+  | "cameraError.uploadFailed"
+  | "cameraError.notDelivered"
+  | "cameraError.refused"
+  | "cameraError.storeFailed";
+
 /**
- * What the room tells the user when the camera or a photo fails. Short and
- * plain: it is read at a glance, over a live call, by someone holding a phone
- * up at something.
+ * What the room tells the user when the camera or a photo fails, as a catalog
+ * key. Short and plain copy: it is read at a glance, over a live call, by
+ * someone holding a phone up at something.
+ *
+ * Keys rather than sentences because this module is a hook, not a component,
+ * and the room is where a translator's `t` already is. Same reason the status
+ * pill takes the session's word as a key: one decision table, translated once,
+ * at the surface that renders it.
  */
-const CAMERA_ERROR_COPY: Record<string, string> = {
-  "permission-denied": "Camera access is off for Vellum.",
-  "no-device": "No camera found.",
-  "device-in-use": "Another app is using the camera.",
-  unsupported: "This device can't open a camera.",
-  unknown: "Couldn't open the camera.",
-  "capture-failed": "Couldn't take that photo.",
-  "upload-failed": "Couldn't send that photo.",
-  "not-delivered": "Reconnecting. Take that one again.",
-  refused: "Your assistant can't receive photos yet.",
-  "store-failed": "Couldn't add that photo to the conversation.",
+const CAMERA_ERROR_KEYS: Record<string, CameraErrorKey> = {
+  "permission-denied": "cameraError.permissionDenied",
+  "no-device": "cameraError.noDevice",
+  "device-in-use": "cameraError.deviceInUse",
+  unsupported: "cameraError.unsupported",
+  unknown: "cameraError.unknown",
+  "capture-failed": "cameraError.captureFailed",
+  "upload-failed": "cameraError.uploadFailed",
+  "not-delivered": "cameraError.notDelivered",
+  refused: "cameraError.refused",
+  "store-failed": "cameraError.storeFailed",
 };
 
 /**
@@ -79,8 +97,11 @@ export interface VoiceRoomCamera {
    * is behind the room.
    */
   readonly photos: readonly VoiceRoomPhoto[];
-  /** User-facing failure for the camera or the last photo, or null. */
-  readonly errorMessage: string | null;
+  /**
+   * Catalog key for the camera's or the last photo's failure, or null.
+   * Translated by the room, which is where the copy is read.
+   */
+  readonly errorKey: CameraErrorKey | null;
   /** Capture the current frame, upload it, and hand it to the session. */
   readonly shutter: () => Promise<void>;
   /** Open the viewfinder. Call directly from a tap (iOS permission alert). */
@@ -245,14 +266,16 @@ export function useVoiceRoomCamera(
 
   // The camera's own failure wins over a stale photo failure: if the viewfinder
   // is not running, "couldn't send that photo" describes the wrong problem.
-  const errorKey = camera.error ?? sendError;
+  const failure = camera.error ?? sendError;
 
   return {
     camera,
     sending,
     photos,
-    errorMessage: errorKey
-      ? (CAMERA_ERROR_COPY[errorKey] ?? CAMERA_ERROR_COPY.unknown!)
+    // A classification with no copy of its own (`aborted`, which nothing is
+    // meant to show) still says something rather than going silent.
+    errorKey: failure
+      ? (CAMERA_ERROR_KEYS[failure] ?? CAMERA_ERROR_KEYS.unknown!)
       : null,
     shutter,
     open,

@@ -1955,6 +1955,36 @@ describe("VoiceRoom: camera", () => {
     expect(screen.queryByTestId("voice-room-flash")).toBeNull();
   });
 
+  test("camera mode hands a keyboard the room from the corner down", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Corner chrome, then the shutter row, then the session row: the order the
+    // eye reads them in, so a keyboard walks the surface top to bottom. Every
+    // control the camera adds is reachable, and none of them lands between the
+    // two mutes. Flash, absent on this path, joins its own row ahead of the
+    // shutter. The pill is not here on purpose: it answers no press.
+    const order = Array.from(
+      document.querySelectorAll<HTMLElement>("button:not([disabled])"),
+    ).map((button) => button.getAttribute("aria-label"));
+
+    expect(order).toEqual([
+      "Minimize voice room",
+      "Take a photo",
+      "Flip camera",
+      "Mute microphone",
+      "Mute assistant",
+      "Close camera",
+      "End voice session",
+    ]);
+  });
+
   test("a failed flip falls back to the camera the user already had", async () => {
     // A phone that cannot hold two captures at once: the first camera opens,
     // the flip's request fails, and reopening the original succeeds.
@@ -2004,7 +2034,9 @@ describe("VoiceRoom: camera", () => {
       });
 
       expect(uploadChatAttachmentSpy).toHaveBeenCalled();
-      expect(screen.queryByText(/Reconnecting/)).not.toBeNull();
+      expect(screen.getByTestId("voice-room-camera-error").textContent).toMatch(
+        /Reconnecting/,
+      );
       // The viewfinder stays up: the user is being asked to take it again.
       expect(viewfinder()).not.toBeNull();
     } finally {
@@ -2092,7 +2124,9 @@ describe("VoiceRoom: camera", () => {
           .getAllByTestId("voice-room-photo")[0]
           ?.getAttribute("data-status"),
       ).toBe("failed");
-      expect(screen.queryByText(/can't receive photos/)).not.toBeNull();
+      expect(screen.getByTestId("voice-room-camera-error").textContent).toMatch(
+        /can't receive photos/,
+      );
     } finally {
       restoreCapture();
     }
@@ -2137,6 +2171,45 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()).toBeNull();
     // The denial is named where the user is looking, rather than leaving a
     // control that appears to do nothing.
-    expect(screen.queryByText(/Camera access is off/)).not.toBeNull();
+    expect(screen.getByTestId("voice-room-camera-error").textContent).toMatch(
+      /Camera access is off/,
+    );
+  });
+
+  test("a camera failure is spoken by a region that was already listening", async () => {
+    stubMediaDevices(async () => {
+      throw new DOMException("denied", "NotAllowedError");
+    });
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Mounted and silent before anything fails. Assistive tech announces a
+    // change made inside a region it was already watching, so a region that
+    // arrives with the message already in it is announced by nothing reliable.
+    const announcer = () => screen.getByTestId("voice-room-camera-announcer");
+    expect(announcer().textContent).toBe("");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(announcer().textContent).toMatch(/Camera access is off/);
+    // A sentence, not the key that names it. The hook classifies the failure
+    // and the room translates it, so a key with no catalog entry would reach
+    // the user as "cameraError.permissionDenied" in every language including
+    // this one.
+    expect(announcer().textContent).not.toContain("cameraError.");
+    // The visible chip says the same words, so it is decoration by then:
+    // announcing both would read the failure twice.
+    expect(
+      screen.getByTestId("voice-room-camera-error").getAttribute("aria-hidden"),
+    ).toBe("true");
+    // And a camera failure never costs the session its own announcement: the
+    // message stands until the camera is opened or closed again, which folded
+    // into one region would silence every state change for that whole time.
+    expect(screen.getByTestId("voice-room-state-announcer").textContent).toBe(
+      "Listening…",
+    );
   });
 });

@@ -12,41 +12,20 @@
  * exercised.
  */
 
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 
 // The morph timings and the capture keyframe are hand-written in the app
 // stylesheet, which Storybook's preview.css does not pull in.
 import "@/index.css";
 
 import { CameraShutter } from "./camera-shutter";
-
-/**
- * A frame to read the shutter against: two stops of brightness, because a
- * control that only has to survive mid-grey is not being tested. Story-local
- * sample content standing in for camera video, not app styling.
- */
-const overFakeFeed: Decorator = (Story) => (
-  <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 48,
-      minHeight: 260,
-      padding: "56px 32px",
-      background:
-        "linear-gradient(115deg, #f4efe6 0%, #a9927a 38%, #2c2620 72%, #0b0a09 100%)",
-    }}
-  >
-    <Story />
-  </div>
-);
+import { CameraRowFlipStandIn, overFakeFeed } from "./camera-story-feed";
 
 const meta: Meta<typeof CameraShutter> = {
   title: "Chat/Voice/CameraShutter",
   component: CameraShutter,
   parameters: { layout: "fullscreen" },
-  decorators: [overFakeFeed],
+  decorators: [overFakeFeed({ gap: 48 })],
   args: {
     ariaLabel: "Take photo",
     mode: "photo",
@@ -126,9 +105,12 @@ export const ReducedMotion: Story = {
 export const InTheCameraRow: Story = {
   render: (args) => (
     <div className="relative flex w-[390px] items-center justify-center">
-      <span className="absolute left-11 size-[46px] rounded-full border border-white/20 bg-black/42" />
+      <span
+        aria-hidden
+        className="absolute left-11 size-[46px] rounded-full border border-white/20 bg-black/42"
+      />
       <CameraShutter {...args} />
-      <span className="absolute right-[30px] size-13 rounded-full bg-[rgba(90,74,64,0.75)]" />
+      <CameraRowFlipStandIn />
     </div>
   ),
 };

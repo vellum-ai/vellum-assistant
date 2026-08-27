@@ -11,38 +11,18 @@
  * live mic never reads as a muted one.
  */
 
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CameraOff, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
-import { VoiceRoomControl } from "./voice-room-control";
+import { overFakeFeed } from "@/domains/chat/voice/camera-story-feed";
 
-/**
- * A frame to read the controls against: two stops of brightness, because a row
- * that only has to survive mid-grey is not being tested. Story-local sample
- * content standing in for camera video, not app styling.
- */
-const overFakeFeed: Decorator = (Story) => (
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: 32,
-      minHeight: 240,
-      padding: "56px 24px",
-      background:
-        "linear-gradient(115deg, #f4efe6 0%, #a9927a 38%, #2c2620 72%, #0b0a09 100%)",
-    }}
-  >
-    <Story />
-  </div>
-);
+import { VoiceRoomControl } from "./voice-room-control";
 
 const meta: Meta<typeof VoiceRoomControl> = {
   title: "Chat/Voice/VoiceRoomControl",
   component: VoiceRoomControl,
   parameters: { layout: "fullscreen" },
-  decorators: [overFakeFeed],
+  decorators: [overFakeFeed({ direction: "column" })],
   args: { surface: "camera", onClick: () => {} },
 };
 
