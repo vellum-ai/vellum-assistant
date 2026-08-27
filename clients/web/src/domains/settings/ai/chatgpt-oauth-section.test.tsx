@@ -8,12 +8,14 @@
  * being reachable behind the disclosure; its own behaviour is unchanged.
  *
  * With the flag off, covers that redirect-and-paste is the whole section: no
- * code is minted and no disclosure is offered.
+ * code is minted and no disclosure is offered, and that a value landing after
+ * mount leaves that section as it is.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -290,6 +292,20 @@ describe("ChatgptOAuthSection with device-code login off", () => {
     expect(screen.queryByText("Sign in with ChatGPT")).toBeNull();
     expect(screen.queryByText("Other sign-in options")).toBeNull();
     expect(screen.queryByText("Hide other sign-in options")).toBeNull();
+    expect(startCalls).toBe(0);
+  });
+
+  // A mount that reads the pre-hydration default owns the section for that
+  // visit. Adopting the value that lands afterwards would unmount the paste
+  // flow along with a PKCE exchange the user may already have started.
+  test("a flag value arriving after mount leaves the paste flow standing", () => {
+    renderSection();
+
+    act(() => setDeviceCodeLoginFlag(true));
+
+    expect(screen.getByText("Open ChatGPT sign-in")).toBeDefined();
+    expect(screen.queryByText("Sign in with ChatGPT")).toBeNull();
+    expect(screen.queryByText("Other sign-in options")).toBeNull();
     expect(startCalls).toBe(0);
   });
 });

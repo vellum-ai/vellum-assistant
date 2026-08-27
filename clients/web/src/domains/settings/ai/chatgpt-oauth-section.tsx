@@ -33,7 +33,15 @@ export function ChatgptOAuthSection({
   onConnected,
 }: ChatgptOAuthSectionProps) {
   const { t } = useTranslation("settings");
-  const deviceCodeLoginOn = useChatgptDeviceCodeLogin();
+  const deviceCodeLoginFlag = useChatgptDeviceCodeLogin();
+  // The flag picks the section's shape once, at mount, and a value that lands
+  // afterwards never changes it. Swapping the flows mid-visit would unmount
+  // whichever one the user had already started: a pending PKCE exchange and a
+  // pasted callback URL would go with it, stranding the authorization page
+  // they had opened. A mount that reads the pre-hydration default keeps the
+  // redirect-and-paste flow, which signs in on its own, and the next time the
+  // editor opens the settled value leads.
+  const [deviceCodeLoginOn] = useState(deviceCodeLoginFlag);
   const [otherOptionsOpen, setOtherOptionsOpen] = useState(false);
   const [deviceAuthUnsupported, setDeviceAuthUnsupported] = useState(false);
   const handleDeviceAuthUnsupported = useCallback(

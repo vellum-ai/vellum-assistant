@@ -10,9 +10,9 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 /**
  * No pending state to wait on: the flag defaults off and a `false` read renders
  * the redirect-and-paste flow, so the pre-hydration window already shows a
- * working sign-in and only ever swaps forward once the real value lands. The
- * section itself mounts from a user opening the provider editor, well after
- * flags settle.
+ * working sign-in. Callers latch the value they read at mount rather than
+ * following it, because a sign-in already under way must not be swapped out
+ * from under the user when the settled value lands.
  */
 export function useChatgptDeviceCodeLogin(): boolean {
   return useClientFeatureFlagStore.use.chatgptDeviceCodeLogin();
