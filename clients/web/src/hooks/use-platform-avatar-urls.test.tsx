@@ -14,6 +14,7 @@ import {
   describe,
   expect,
   mock,
+  setSystemTime,
   spyOn,
   test,
 } from "bun:test";
@@ -42,6 +43,13 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
+const resolvePairedAssistantPlatformId = mock(
+  async (_id: string): Promise<string | null> => null,
+);
+mock.module("@/lib/paired-platform-identity", () => ({
+  resolvePairedAssistantPlatformId,
+}));
+
 const listAssistants = mock(
   async (): Promise<AssistantApi.ListAssistantsResult> => ({
     ok: true,
@@ -58,10 +66,12 @@ const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const {
   platformAvatarUrlsQueryKey,
-  resetPlatformAvatarUrlSuppressionsForTests,
+  supersedePlatformAvatar,
   suppressPlatformAvatarUrl,
   usePlatformAvatarUrls,
 } = await import("@/hooks/use-platform-avatar-urls");
+const { AVATAR_SUPERSEDE_WINDOW_MS, resetAvatarSupersedeForTests } =
+  await import("@/lib/avatar-supersede");
 
 const initialAuthState = useAuthStore.getState();
 
@@ -106,7 +116,8 @@ beforeEach(() => {
   remoteGatewayMode = false;
   gatewayAuthEnabled = false;
   orgReady = true;
-  resetPlatformAvatarUrlSuppressionsForTests();
+  resetAvatarSupersedeForTests();
+  resolvePairedAssistantPlatformId.mockClear();
   signIn();
   listAssistants.mockResolvedValue({
     ok: true,
@@ -121,6 +132,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  setSystemTime();
   listAssistants.mockReset();
   useAuthStore.setState(initialAuthState, true);
 });
@@ -192,6 +204,26 @@ describe("usePlatformAvatarUrls", () => {
     });
     await settle();
     expect(result.current.size).toBe(0);
+  });
+
+  test("a failed poll keeps the last good map", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => usePlatformAvatarUrls(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => {
+      expect(result.current.get("a")).toBe(WITH_AVATAR);
+    });
+
+    listAssistants.mockRejectedValueOnce(new Error("offline"));
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: ["platformAvatarUrls"] }),
+    );
+    expect(listAssistants).toHaveBeenCalledTimes(2);
+    await settle();
+    expect(result.current.get("a")).toBe(WITH_AVATAR);
   });
 
   test("one list call serves every consumer in a stale window", async () => {
@@ -319,7 +351,7 @@ describe("suppressPlatformAvatarUrl", () => {
     ).toBe("success");
   });
 
-  test("a list started after suppression carries the id again", async () => {
+  test("a list started inside the window still omits the id; one after it carries it again", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -338,10 +370,79 @@ describe("suppressPlatformAvatarUrl", () => {
     await act(() =>
       queryClient.refetchQueries({ queryKey: ["platformAvatarUrls"] }),
     );
-
     expect(listAssistants).toHaveBeenCalledTimes(2);
+    await settle();
+    expect(result.current.has("a")).toBe(false);
+
+    setSystemTime(new Date(Date.now() + AVATAR_SUPERSEDE_WINDOW_MS));
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: ["platformAvatarUrls"] }),
+    );
+    expect(listAssistants).toHaveBeenCalledTimes(3);
     await waitFor(() => {
       expect(result.current.get("a")).toBe(WITH_AVATAR);
     });
+  });
+});
+
+describe("supersedePlatformAvatar", () => {
+  const PAIRED_UUID = "11111111-2222-4333-8444-555555555555";
+
+  test("a paired row without a persisted UUID is suppressed under the UUID the daemon answers", async () => {
+    resolvePairedAssistantPlatformId.mockResolvedValueOnce(PAIRED_UUID);
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "paired-slug",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+          cloud: "paired",
+        },
+      ],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const key = platformAvatarUrlsQueryKey("user-1", null);
+    queryClient.setQueryData(key, new Map([[PAIRED_UUID, WITH_AVATAR]]));
+
+    act(() => supersedePlatformAvatar(queryClient, "paired-slug"));
+
+    await waitFor(() => {
+      expect(resolvePairedAssistantPlatformId).toHaveBeenCalledWith(
+        "paired-slug",
+      );
+    });
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<Map<string, string>>(key)?.has(PAIRED_UUID),
+      ).toBe(false);
+    });
+  });
+
+  test("a row with a known platform id never asks the paired daemon", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "paired-slug",
+          isLocal: false,
+          isPlatformHosted: false,
+          isPaired: true,
+          cloud: "paired",
+          platformAssistantId: PAIRED_UUID,
+        },
+      ],
+    });
+    const queryClient = new QueryClient();
+    const key = platformAvatarUrlsQueryKey("user-1", null);
+    queryClient.setQueryData(key, new Map([[PAIRED_UUID, WITH_AVATAR]]));
+
+    supersedePlatformAvatar(queryClient, "paired-slug");
+
+    expect(resolvePairedAssistantPlatformId).not.toHaveBeenCalled();
+    expect(
+      queryClient.getQueryData<Map<string, string>>(key)?.has(PAIRED_UUID),
+    ).toBe(false);
   });
 });

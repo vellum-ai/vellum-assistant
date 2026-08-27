@@ -3,9 +3,17 @@ import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { listAssistants } from "@/assistant/api";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
+import {
+  isAvatarSuperseded,
+  markAvatarSuperseded,
+} from "@/lib/avatar-supersede";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
+import {
+  resolvePlatformAssistantId,
+  useResolvedAssistantsStore,
+} from "@/stores/resolved-assistants-store";
 
 export type PlatformAvatarUrls = ReadonlyMap<string, string>;
 
@@ -28,32 +36,18 @@ export function platformAvatarUrlsQueryKey(
 const PLATFORM_AVATAR_URLS_KEY_PREFIX = ["platformAvatarUrls"] as const;
 
 /**
- * Per-id tombstones stamped with the fetch generation current at suppression.
- * A list fetch that started at or before the stamp omits the id when it
- * lands; one that started after it is fresher than the suppression and
- * carries the id again, clearing the tombstone.
- */
-const suppressedPlatformIds = new Map<string, number>();
-let fetchGeneration = 0;
-
-export function resetPlatformAvatarUrlSuppressionsForTests(): void {
-  suppressedPlatformIds.clear();
-  fetchGeneration = 0;
-}
-
-/**
- * Drops one platform id from every cached map without refetching. Mirrors
- * the store's `clearAvatarUrl`: live evidence outranks a URL observed
- * earlier, and the platform copy lags the daemon's async sync, so an
- * immediate refetch would only re-serve the stale URL. The next stale-window
- * refetch restores it. A list in flight keeps its siblings and lands without
- * this id (see the tombstones above); nothing is cancelled.
+ * Drops one platform id from every cached map without refetching and marks
+ * it superseded (see `avatar-supersede`): live evidence outranks a URL
+ * observed earlier, and the platform copy lags the daemon's async sync, so
+ * an immediate refetch would only re-serve the stale URL. A list in flight
+ * keeps its siblings and lands without this id; nothing is cancelled. The
+ * first refetch after the window restores it.
  */
 export function suppressPlatformAvatarUrl(
   queryClient: QueryClient,
   platformAssistantId: string,
 ): void {
-  suppressedPlatformIds.set(platformAssistantId, fetchGeneration);
+  markAvatarSuperseded(platformAssistantId);
   queryClient.setQueriesData<PlatformAvatarUrls>(
     { queryKey: PLATFORM_AVATAR_URLS_KEY_PREFIX },
     (urls) => {
@@ -68,6 +62,36 @@ export function suppressPlatformAvatarUrl(
 }
 
 /**
+ * Everything a fresher local avatar read outranks for `assistantId`: the
+ * row's synced `avatarUrl` and its platform lookup entry. A paired row keyed
+ * by its local slug is also suppressed under its platform UUID once the
+ * paired daemon answers, since that is the key the list carries.
+ */
+export function supersedePlatformAvatar(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
+  const store = useResolvedAssistantsStore.getState();
+  store.clearAvatarUrl(assistantId);
+  suppressPlatformAvatarUrl(
+    queryClient,
+    resolvePlatformAssistantId(assistantId),
+  );
+  const row = store.assistants.find((a) => a.id === assistantId);
+  if (row?.isPaired && !row.platformAssistantId) {
+    // Dynamic: the resolver reaches the auth store, which reaches this
+    // module through the avatar hooks.
+    void import("@/lib/paired-platform-identity")
+      .then((m) => m.resolvePairedAssistantPlatformId(assistantId))
+      .then((platformId) => {
+        if (platformId) {
+          suppressPlatformAvatarUrl(queryClient, platformId);
+        }
+      });
+  }
+}
+
+/**
  * Modes where the resolved store is lockfile-driven, so its rows never carry
  * `avatarUrl` and the platform list is only reachable through a side query.
  * Gateway auth has no platform list at all.
@@ -76,40 +100,23 @@ export function isLockfileDrivenStore(): boolean {
   return (isLocalClient() || isRemoteGatewayMode()) && !isGatewayAuthEnabled();
 }
 
-/** Never throws: a chooser row falls back to its other sources, not an error. */
+/**
+ * Throws on failure so React Query keeps the last good map through a failed
+ * poll; with no prior data the hook reads that as an empty map, and a
+ * chooser row falls back to its other sources, never an error.
+ */
 async function fetchPlatformAvatarUrls(): Promise<PlatformAvatarUrls> {
-  const startGeneration = ++fetchGeneration;
-  try {
-    const result = await listAssistants();
-    if (!result.ok) {
-      return EMPTY_AVATAR_URLS;
+  const result = await listAssistants();
+  if (!result.ok) {
+    throw new Error(`Failed to list assistants (${result.status})`);
+  }
+  const urls = new Map<string, string>();
+  for (const assistant of result.data) {
+    if (assistant.avatar_url && !isAvatarSuperseded(assistant.id)) {
+      urls.set(assistant.id, assistant.avatar_url);
     }
-    const urls = new Map<string, string>();
-    for (const assistant of result.data) {
-      if (
-        assistant.avatar_url &&
-        !isSuppressed(assistant.id, startGeneration)
-      ) {
-        urls.set(assistant.id, assistant.avatar_url);
-      }
-    }
-    return urls;
-  } catch {
-    return EMPTY_AVATAR_URLS;
   }
-}
-
-/** Suppressed during or after this fetch; an older tombstone is stale and dropped. */
-function isSuppressed(platformAssistantId: string, startGeneration: number) {
-  const suppressedAt = suppressedPlatformIds.get(platformAssistantId);
-  if (suppressedAt === undefined) {
-    return false;
-  }
-  if (suppressedAt >= startGeneration) {
-    return true;
-  }
-  suppressedPlatformIds.delete(platformAssistantId);
-  return false;
+  return urls;
 }
 
 /**
@@ -131,6 +138,11 @@ export function usePlatformAvatarUrls(): PlatformAvatarUrls {
     queryFn: fetchPlatformAvatarUrls,
     enabled: hasPlatformSession && isOrgReady && isLockfileDrivenStore(),
     staleTime: PLATFORM_AVATAR_URLS_STALE_TIME_MS,
+    // staleTime alone never refetches a chooser that stays mounted, and a
+    // sibling's change on another client sends no event here; poll while
+    // the window is in the foreground.
+    refetchInterval: PLATFORM_AVATAR_URLS_STALE_TIME_MS,
+    refetchIntervalInBackground: false,
     retry: false,
   });
   return query.data ?? EMPTY_AVATAR_URLS;
