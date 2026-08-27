@@ -251,10 +251,12 @@ export function registerContactsCommand(program: Command): void {
       );
 
       // -----------------------------------------------------------------------
-      // prompt
+      // prompt (alias: add)
       // -----------------------------------------------------------------------
 
-      subcommand(contacts, "prompt").action(
+      subcommand(contacts, "prompt")
+        .alias("add")
+        .action(
         async (
           opts: {
             channel?: string;

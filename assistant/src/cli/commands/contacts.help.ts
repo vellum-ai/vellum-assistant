@@ -15,7 +15,13 @@ can be linked to external identifiers — phone numbers,
 Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
+New contacts are created with \`contacts prompt\` (alias: \`contacts add\`),
+which opens an address-entry UI in the user's app. \`contacts invites\`
+generates redeemable invite tokens for onboarding new channels on existing
+contacts.
+
 Examples:
+  $ assistant contacts prompt --channel email --role trusted-contact --label "Jane Doe"
   $ assistant contacts list
   $ assistant contacts get abc-123
   $ assistant contacts invites list`,
@@ -86,7 +92,7 @@ Examples:
     },
     {
       name: "prompt",
-      description: "Prompt user to register a contact channel via the app UI",
+      description: "Create or update a contact by collecting a channel address via the app UI",
       options: [
         {
           flags: "--channel <channel>",
@@ -129,16 +135,18 @@ Examples:
       ],
       helpText: `
 Opens a contact address prompt in the user's app. The user enters a channel
-address (phone number, email, Telegram ID, etc.). The address is saved with
-status "unverified" unless --verify is set, which attests the channel the
-same way Contacts Verify me does.
+address (phone number, email, Telegram ID, etc.). If no contact exists for
+the submitted (channel_type, address) pair, a new contact is created;
+otherwise the existing contact is updated with the new channel.
+
+The channel is saved with status "unverified" unless --verify is set, which
+attests the channel the same way Contacts Verify me does.
 
 Examples:
-  $ assistant contacts prompt --channel phone --role guardian
+  $ assistant contacts prompt --channel email --role trusted-contact --label "Jane Doe"
+  $ assistant contacts prompt --channel phone --role guardian --default-value "+15551234567"
   $ assistant contacts prompt --channel imessage --role guardian --verify \\
-      --label "Your iMessage number" --placeholder "+15551234567"
-
-Run \`assistant contacts prompt --help\` for full option details.`,
+      --label "Your iMessage number" --placeholder "+15551234567"`,
     },
     {
       name: "channels",
