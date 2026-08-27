@@ -38,7 +38,9 @@ const appListeners = new Map<string, Listener>();
 const appOnMock = mock((event: string, listener: Listener) => {
   appListeners.set(event, listener);
 });
-const setAsDefaultProtocolClientMock = mock((_scheme: string) => true);
+const setAsDefaultProtocolClientMock = mock(
+  (_scheme: string, _path?: string, _args?: string[]) => true,
+);
 const ipcHandleMock = mock(
   (_channel: string, _handler: (...args: unknown[]) => unknown) => undefined,
 );
@@ -52,11 +54,15 @@ let windows: Array<{
 }> = [];
 
 let appIsReady = true;
+let appIsPackaged = false;
 mock.module("electron", () => ({
   app: {
     on: appOnMock,
     setAsDefaultProtocolClient: setAsDefaultProtocolClientMock,
     isReady: () => appIsReady,
+    get isPackaged() {
+      return appIsPackaged;
+    },
   },
   ipcMain: { handle: ipcHandleMock, on: ipcOnMock },
   BrowserWindow: { getAllWindows: () => windows },
@@ -115,6 +121,7 @@ beforeEach(() => {
   ensureMainWindowVisibleMock.mockClear();
   windows = [];
   appIsReady = true;
+  appIsPackaged = false;
   configureTestRuntime();
 });
 
@@ -496,18 +503,19 @@ describe("installDeepLinks", () => {
     expect(drain(allowedEvent)).toEqual([]);
   });
 
-  test("registers only the env-appropriate schemes and is idempotent across repeated calls", () => {
+  test("registers unpackaged apps with their executable and entry point", () => {
     installDeepLinks();
     const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
 
     installDeepLinks();
     installDeepLinks();
 
-    const schemes = setAsDefaultProtocolClientMock.mock.calls.map((c) => c[0]);
     const expected = resolveRegisteredSchemes(
       resolveEnvironmentName(process.env),
     );
-    expect(schemes).toEqual(expected);
+    expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
+      expected.map((scheme) => [scheme, process.execPath, [process.argv[1]]]),
+    );
     // Idempotent — repeated calls don't register again.
     expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(
       firstCallCount,
