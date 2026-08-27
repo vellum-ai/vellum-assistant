@@ -10,7 +10,7 @@ import {
   FileVideo,
   X,
 } from "lucide-react";
-import type { FC, ReactNode } from "react";
+import type { FC, MouseEventHandler, ReactNode } from "react";
 
 import { useTranslation } from "@/i18n";
 
@@ -27,11 +27,11 @@ interface AttachmentChipProps {
   filename: string;
   mimeType: string;
   previewUrl: string | null;
-  /** When omitted, the chip renders in read-only mode (no remove button).
-   *  This lets the same chip be reused inside sent user message bubbles. */
-  onRemove?: (id: string) => void;
+  onRemove: (id: string) => void;
   /** Called when the user clicks an image chip to open a full-screen preview. */
   onPreview?: () => void;
+  /** The composer's press guard for the remove control. */
+  onRemoveMouseDown?: MouseEventHandler<HTMLElement>;
 }
 
 const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
@@ -54,6 +54,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
   previewUrl,
   onRemove,
   onPreview,
+  onRemoveMouseDown,
 }) => {
   const { t } = useTranslation("chat");
   const kind = classifyAttachment(mimeType, filename);
@@ -94,22 +95,21 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
       <span className="min-w-0 max-w-[156px] truncate text-body-small-default leading-4 text-[var(--content-secondary)]">
         {displayName}
       </span>
-      {onRemove ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="h-8 w-px shrink-0 bg-[var(--border-disabled)]" />
-          <Button
-            variant="ghost"
-            size="compact"
-            expandOnMobile={false}
-            iconOnly={<X />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove(id);
-            }}
-            aria-label={t("attachmentChip.removeAria", { filename })}
-          />
-        </div>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="h-8 w-px shrink-0 bg-[var(--border-disabled)]" />
+        <Button
+          variant="ghost"
+          size="compact"
+          expandOnMobile={false}
+          iconOnly={<X />}
+          onMouseDown={onRemoveMouseDown}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(id);
+          }}
+          aria-label={t("attachmentChip.removeAria", { filename })}
+        />
+      </div>
     </div>
   );
 };

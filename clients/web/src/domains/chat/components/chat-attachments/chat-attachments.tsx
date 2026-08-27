@@ -1,22 +1,22 @@
 import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
 import type { FC, MouseEventHandler } from "react";
-import { useCallback, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "@/i18n";
 
 import { Button, cn } from "@vellumai/design-library";
 
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
-import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 import { AttachmentTile } from "@/domains/chat/components/chat-attachments/attachment-tile";
 import { useAttachmentFilePicker } from "@/domains/chat/components/chat-attachments/use-attachment-file-picker";
+import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { useFailedPreviewIds } from "@/domains/chat/components/chat-attachments/use-failed-preview-ids";
 import type {
   ChatAttachment,
-  PendingAttachmentUpload,
   UploadedAttachment,
 } from "@/domains/chat/composer-store";
 import {
-  isImageAttachment,
+  classifyAttachment,
   middleTruncate,
 } from "@/domains/chat/components/chat-attachments/utils";
 
@@ -29,7 +29,7 @@ interface ChatAttachmentsStripProps {
    * attachment on its own.
    */
   tileImages?: boolean;
-  /** The composer's press guard for the tile's remove control. */
+  /** The composer's press guard, worn by every control the strip renders. */
   pressGuard?: MouseEventHandler<HTMLElement>;
 }
 
@@ -38,16 +38,14 @@ interface ChatAttachmentsStripProps {
  * still uploading or already carries a decodable preview. Anything else keeps
  * the chip, which is the only place its filename or its error shows.
  */
-function isTiledImage(
-  att: ChatAttachment,
-): att is PendingAttachmentUpload | UploadedAttachment {
+function isTiledImage(att: ChatAttachment): boolean {
   if (att.kind !== "uploading" && att.kind !== "uploaded") {
     return false;
   }
   if (att.kind === "uploaded" && att.previewUrl === null) {
     return false;
   }
-  return isImageAttachment({ name: att.filename, type: att.mimeType });
+  return classifyAttachment(att.mimeType, att.filename) === "image";
 }
 
 /**
@@ -61,20 +59,25 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   pressGuard,
 }) => {
   const { t } = useTranslation("chat");
-  const [previewAttachment, setPreviewAttachment] =
-    useState<UploadedAttachment | null>(null);
-  const handleClosePreview = useCallback(() => setPreviewAttachment(null), []);
-  // Local ids whose preview the browser could not decode (a TIFF, or a HEIF
-  // whose conversion fell back). Their tile would be a blank square with no
-  // filename, so they drop back to the chip.
-  const [failedPreviewIds, setFailedPreviewIds] = useState<ReadonlySet<string>>(
-    new Set(),
+  // Every finished upload is a gallery sibling, so the lightbox arrows move
+  // between the attached photos instead of opening one at a time. Composer
+  // previews are inline blob URLs, so the modal needs no assistant to fetch
+  // from.
+  const uploadedAttachments = useMemo(
+    () =>
+      attachments.filter(
+        (att): att is UploadedAttachment => att.kind === "uploaded",
+      ),
+    [attachments],
   );
-  const markPreviewFailed = useCallback((localId: string) => {
-    setFailedPreviewIds((prev) =>
-      prev.has(localId) ? prev : new Set(prev).add(localId),
-    );
-  }, []);
+  const { openPreview, previewModal } = useAttachmentPreview(
+    null,
+    uploadedAttachments,
+  );
+  // A preview the browser could not decode (a TIFF, or a HEIF whose conversion
+  // fell back) would tile as a blank square with no filename, so it drops back
+  // to the chip.
+  const { failedIds, markFailed } = useFailedPreviewIds();
 
   if (attachments.length === 0) {
     return null;
@@ -86,12 +89,13 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
         className={cn(
           "flex gap-2 overflow-x-auto px-3 pb-1.5 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
           // A tile row sits 12px below the card's top edge, against the 8px a
-          // chip row takes.
-          tileImages ? "pt-3" : "pt-2",
+          // chip row takes, and a chip beside a tile keeps its own height
+          // rather than stretching to the tile's.
+          tileImages ? "items-start pt-3" : "pt-2",
         )}
       >
         {attachments.map((att) => {
-          const previewFailed = failedPreviewIds.has(att.localId);
+          const previewFailed = failedIds.has(att.localId);
           if (tileImages && !previewFailed && isTiledImage(att)) {
             const uploaded = att.kind === "uploaded" ? att : null;
             return (
@@ -100,15 +104,14 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 id={att.localId}
                 filename={att.filename}
                 previewUrl={uploaded?.previewUrl ?? null}
-                uploading={att.kind === "uploading"}
                 onRemove={onRemove}
-                onPreview={
-                  uploaded ? () => setPreviewAttachment(uploaded) : undefined
-                }
-                onPreviewError={
-                  uploaded ? () => markPreviewFailed(att.localId) : undefined
-                }
-                onRemoveMouseDown={pressGuard}
+                onPreview={() => {
+                  if (uploaded) {
+                    openPreview(uploaded);
+                  }
+                }}
+                onPreviewError={() => markFailed(att.localId)}
+                pressGuard={pressGuard}
               />
             );
           }
@@ -119,6 +122,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 localId={att.localId}
                 filename={att.filename}
                 onCancel={onRemove}
+                onRemoveMouseDown={pressGuard}
               />
             );
           }
@@ -143,6 +147,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   size="compact"
                   expandOnMobile={false}
                   iconOnly={<X />}
+                  onMouseDown={pressGuard}
                   onClick={() => onRemove(att.localId)}
                   aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
                 />
@@ -163,6 +168,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 <Button
                   variant="ghost"
                   size="compact"
+                  onMouseDown={pressGuard}
                   onClick={() => onRemove(att.localId)}
                   aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
                   className="ml-0.5 underline"
@@ -181,18 +187,13 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
               mimeType={att.mimeType}
               previewUrl={previewFailed ? null : att.previewUrl}
               onRemove={onRemove}
-              onPreview={() => setPreviewAttachment(att)}
+              onPreview={() => openPreview(att)}
+              onRemoveMouseDown={pressGuard}
             />
           );
         })}
       </div>
-      {previewAttachment && (
-        <AttachmentPreviewModal
-          open
-          onClose={handleClosePreview}
-          attachment={previewAttachment}
-        />
-      )}
+      {previewModal}
     </>
   );
 };

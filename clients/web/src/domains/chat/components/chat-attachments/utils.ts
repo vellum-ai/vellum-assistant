@@ -1,3 +1,5 @@
+import { GENERIC_MIME_TYPES } from "@/domains/chat/utils/mime-sniff";
+
 /**
  * Format a raw byte count into a short human-readable string (e.g. "12 KB", "3.4 MB").
  *
@@ -76,18 +78,29 @@ export type AttachmentIconKind =
   | "file";
 
 /**
- * Classify an attachment by its MIME type / filename extension so the chip can
- * render an appropriate icon. Kept in sync with the macOS `iconForMimeType`
- * helper so the icon surface is consistent across clients.
+ * Classify an attachment by its MIME type / filename extension so every surface
+ * that renders it agrees on what it is. Kept in sync with the macOS
+ * `iconForMimeType` helper so the icon surface is consistent across clients.
+ *
+ * A declared type wins. Only where the type names nothing does the filename
+ * settle whether the file is an image, so a photo picked as
+ * `application/octet-stream` reads as one while a video named `clip.gif` stays
+ * a video.
  */
 export function classifyAttachment(
   mimeType: string,
   filename: string,
 ): AttachmentIconKind {
-  const mime = (mimeType || "").toLowerCase();
+  const mime = (mimeType || "").trim().toLowerCase();
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
 
   if (mime.startsWith("image/")) {
+    return "image";
+  }
+  if (
+    GENERIC_MIME_TYPES.has(mime) &&
+    isImageAttachment({ name: filename, type: mimeType })
+  ) {
     return "image";
   }
   if (mime.startsWith("video/")) {

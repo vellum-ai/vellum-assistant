@@ -18,8 +18,8 @@ import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-previ
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import {
+  classifyAttachment,
   formatAttachmentSize,
-  isImageAttachment,
 } from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -274,18 +274,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   }
 
   const mime = attachment.mimeType.toLowerCase();
-  const isImage = isImageAttachment({
-    name: attachment.filename,
-    type: attachment.mimeType,
-  });
-  const isVideo = mime.startsWith("video/");
-  // Some uploads come through with a generic application/octet-stream MIME;
-  // fall back to the filename extension so a real PDF still gets the inline
-  // preview branch.
-  const isPdf =
-    mime === "application/pdf" ||
-    (mime === "application/octet-stream" &&
-      attachment.filename.toLowerCase().endsWith(".pdf"));
+  // One classifier picks the media branch, the same one the chip, the tile and
+  // the message square read: a photo delivered as application/octet-stream
+  // previews as an image, and a video named after an image format stays a
+  // video.
+  const kind = classifyAttachment(attachment.mimeType, attachment.filename);
+  const isImage = kind === "image";
+  const isVideo = kind === "video";
+  const isPdf = kind === "pdf";
   const extension = getExtension(attachment.filename);
   // Route by MIME first (text/* and the JSON/JS/XML application types), then
   // fall back to the file extension for uploads that arrive as
