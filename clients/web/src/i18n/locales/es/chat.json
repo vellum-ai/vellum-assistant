@@ -1203,9 +1203,8 @@
     "submitFailed": "No se pudo enviar tu respuesta. Inténtalo de nuevo."
   },
   "questionPromptCard": {
-    "closeQuestionAria": "Cerrar pregunta",
+    "expandAria": "Reabrir pregunta",
     "minimizeAria": "Minimizar pregunta",
-    "minimizedSummary": "{count, plural, one {# opción} other {# opciones}} · Toca para reabrir",
     "nextQuestionAria": "Pregunta siguiente",
     "optionAria": "Opción {number}: {label}",
     "previousQuestionAria": "Pregunta anterior",
@@ -1216,7 +1215,7 @@
     "skipped": "Omitida",
     "skippedHint": "Omitida: elige una opción para anular",
     "typeDifferentAnswerAria": "Escribe una respuesta diferente",
-    "typeSomethingElsePlaceholder": "Escribe algo más"
+    "typeSomethingElsePlaceholder": "Algo más"
   },
   "queuedMessagesDrawer": {
     "cancelAll": "Cancelar todos",
