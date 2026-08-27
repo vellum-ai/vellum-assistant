@@ -28,10 +28,7 @@ import {
 } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
-import {
-  normalizeTelegramReactionEvents,
-  normalizeTelegramUpdate,
-} from "../../telegram/normalize.js";
+import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import {
@@ -285,41 +282,6 @@ export function createTelegramWebhookHandler(
       if (!callbackData) return false;
       return callbackData.startsWith("apr:");
     };
-
-    // message_reaction updates ride their own lane: Telegram reports one
-    // user's reaction change as a diff of their whole reaction set, so a
-    // single update fans out to per-emoji events, and none of the message
-    // machinery below (commands, attachments, callback acks, inline-button
-    // clearing) applies to a reaction.
-    const reactionEvents = normalizeTelegramReactionEvents(payload);
-    if (reactionEvents !== null) {
-      for (const reactionEvent of reactionEvents) {
-        try {
-          await handleInbound(config, reactionEvent, {
-            transportMetadata: buildTelegramTransportMetadata(),
-            replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/telegram`,
-            traceId,
-          });
-        } catch (err) {
-          if (err instanceof CircuitBreakerOpenError) {
-            // A guardian's approval-by-reaction must survive a runtime
-            // outage, so ask Telegram to redeliver the update. Events
-            // already forwarded dedup by externalMessageId on redelivery.
-            if (updateId !== undefined)
-              dedupCache.unreserve(updateId, reservedGeneration);
-            return Response.json(
-              { error: SERVICE_UNAVAILABLE_ERROR },
-              {
-                status: 503,
-                headers: { "Retry-After": String(err.retryAfterSecs) },
-              },
-            );
-          }
-          tlog.error({ err, updateId }, "Failed to forward reaction event");
-        }
-      }
-      return respond({ ok: true });
-    }
 
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);

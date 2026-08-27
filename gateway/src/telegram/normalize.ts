@@ -8,9 +8,7 @@ import type {
   Chat,
   Document as TelegramApiDocument,
   Message,
-  MessageReactionUpdated,
   PhotoSize,
-  ReactionTypeEmoji,
   Update,
   User,
   Voice,
@@ -142,142 +140,12 @@ const TelegramCallbackQuerySchema = z.object({
   data: optionalString(),
 });
 
-/**
- * One entry of a reaction list. Only the `emoji` variant of Telegram's
- * ReactionType union is modeled: a `custom_emoji` or `paid` entry parses to
- * an entry whose `emoji` is undefined and is skipped by the diff, because
- * neither carries a character the shared decision vocabulary or a transcript
- * annotation can express.
- */
-const TelegramReactionTypeSchema = z.object({
-  type: optionalString(),
-  emoji: optionalString(),
-});
-
-const TelegramMessageReactionSchema = z.object({
-  chat: z
-    .object({ id: optionalNumber(), type: optionalString() })
-    .optional()
-    .catch(undefined),
-  message_id: optionalNumber(),
-  /** Absent when the reactor is anonymous (`actor_chat` carries a chat instead). */
-  user: TelegramFromSchema,
-  old_reaction: z.array(TelegramReactionTypeSchema).catch([]),
-  new_reaction: z.array(TelegramReactionTypeSchema).catch([]),
-});
-
 const TelegramUpdateSchema = z.object({
   update_id: optionalNumber(),
   message: TelegramMessageSchema.optional().catch(undefined),
   edited_message: TelegramMessageSchema.optional().catch(undefined),
   callback_query: TelegramCallbackQuerySchema.optional().catch(undefined),
-  message_reaction: TelegramMessageReactionSchema.optional().catch(undefined),
 });
-
-/** The emoji characters a reaction list carries, `emoji`-type entries only. */
-function reactionEmojiSet(
-  entries: z.infer<typeof TelegramReactionTypeSchema>[],
-): Set<string> {
-  const set = new Set<string>();
-  for (const entry of entries) {
-    if (entry.type === "emoji" && entry.emoji) {
-      set.add(entry.emoji);
-    }
-  }
-  return set;
-}
-
-/**
- * Normalize a `message_reaction` update into reaction events. Returns null
- * when the update is not a reaction update, and an array otherwise: Telegram
- * reports one user's reaction change as a diff of their whole reaction set,
- * so a single update can carry several per-emoji added/removed events (an
- * empty array when nothing forwardable changed).
- *
- * Reactions from non-private chats are rejected like every other Telegram
- * update (v1 is DM-only), and an anonymous reaction names no user, so it
- * cannot be attributed and is dropped.
- */
-export function normalizeTelegramReactionEvents(
-  payload: Record<string, unknown>,
-): GatewayInboundEvent[] | null {
-  const parsed = TelegramUpdateSchema.safeParse(payload);
-  if (!parsed.success) {
-    return null;
-  }
-  const update = parsed.data;
-  const reactionUpdate = update.message_reaction;
-  if (!reactionUpdate) {
-    return null;
-  }
-
-  const updateId = update.update_id;
-  const chatId = reactionUpdate.chat?.id;
-  const chatType = reactionUpdate.chat?.type;
-  const messageId = reactionUpdate.message_id;
-  if (updateId == null || chatId == null || messageId == null) {
-    return [];
-  }
-  if (chatType !== "private") {
-    return [];
-  }
-  const from = reactionUpdate.user;
-  if (!from?.id) {
-    return [];
-  }
-
-  const oldSet = reactionEmojiSet(reactionUpdate.old_reaction);
-  const newSet = reactionEmojiSet(reactionUpdate.new_reaction);
-  const changes: { op: "added" | "removed"; emoji: string }[] = [];
-  for (const emoji of newSet) {
-    if (!oldSet.has(emoji)) changes.push({ op: "added", emoji });
-  }
-  for (const emoji of oldSet) {
-    if (!newSet.has(emoji)) changes.push({ op: "removed", emoji });
-  }
-
-  const displayName = [from.first_name, from.last_name]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-
-  return changes.map(({ op, emoji }) => ({
-    version: "v1" as const,
-    sourceChannel: "telegram" as const,
-    receivedAt: new Date().toISOString(),
-    message: {
-      eventKind: "reaction" as const,
-      // A reaction has no user-authored text; its payload is structured.
-      content: "",
-      conversationExternalId: String(chatId),
-      // The update id is unique per update and an emoji appears in the diff
-      // with one op at most, so the pair identifies the event.
-      externalMessageId:
-        op === "added"
-          ? `${updateId}:reaction:${emoji}`
-          : `${updateId}:reaction:${emoji}:removed`,
-      reaction: { op, emoji, targetMessageId: String(messageId) },
-    },
-    actor: {
-      actorExternalId: String(from.id),
-      username: from.username,
-      displayName: displayName || undefined,
-      firstName: from.first_name,
-      lastName: from.last_name,
-      languageCode: from.language_code,
-      isBot: from.is_bot,
-    },
-    source: {
-      updateId: String(updateId),
-      messageId: String(messageId),
-      chatType,
-      // Non-private chats were rejected above, so one human reader is proven.
-      isDirectMessage: true,
-      conversationType: "dm" as const,
-    },
-    raw: payload,
-  }));
-}
 
 /**
  * Normalize a Telegram webhook payload into a GatewayInboundEvent.
@@ -515,32 +383,6 @@ type _TelegramApiCrossChecks = [
     OfficialValueSatisfiesOurs<
       z.infer<typeof TelegramCallbackQuerySchema>,
       CallbackQuery
-    >
-  >,
-  Expect<
-    ModeledKeysAreOfficial<
-      z.infer<typeof TelegramMessageReactionSchema>,
-      MessageReactionUpdated
-    >
-  >,
-  Expect<
-    OfficialValueSatisfiesOurs<
-      z.infer<typeof TelegramMessageReactionSchema>,
-      MessageReactionUpdated
-    >
-  >,
-  // Checked against the `emoji` variant alone: `keyof` a union keeps only
-  // shared keys, and the schema deliberately reads a field one variant has.
-  Expect<
-    ModeledKeysAreOfficial<
-      z.infer<typeof TelegramReactionTypeSchema>,
-      ReactionTypeEmoji
-    >
-  >,
-  Expect<
-    OfficialValueSatisfiesOurs<
-      z.infer<typeof TelegramReactionTypeSchema>,
-      ReactionTypeEmoji
     >
   >,
   Expect<ModeledKeysAreOfficial<TelegramChat, Chat>>,

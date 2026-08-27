@@ -215,9 +215,10 @@ describe("connect and identify", () => {
     };
     expect(identify.op).toBe(2);
     expect(identify.d.token).toBe("token-abc");
-    // GUILDS | GUILD_MESSAGES | DIRECT_MESSAGES: the unprivileged bitmask,
-    // pinned in intents.ts.
-    expect(identify.d.intents).toBe(4609);
+    // GUILDS | GUILD_MESSAGES | GUILD_MESSAGE_REACTIONS | DIRECT_MESSAGES |
+    // DIRECT_MESSAGE_REACTIONS: the unprivileged bitmask, pinned in
+    // intents.ts.
+    expect(identify.d.intents).toBe(13825);
   });
 
   test("a transient REST failure retries and connects on success", async () => {

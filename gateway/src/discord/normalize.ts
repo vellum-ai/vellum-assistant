@@ -138,16 +138,24 @@ export function normalizeDiscordMessageReaction(
   },
 ): DiscordInboundEvent | null {
   // The emoji rides in Discord's own vocabulary: a unicode emoji's name IS
-  // the character, and a custom emoji's name is its guild-local name. An
-  // entry with no name (a deleted custom emoji on REMOVE) cannot be
-  // expressed and is dropped.
-  const emoji = reaction.emoji?.name;
+  // the character, and a custom emoji is forwarded in its canonical
+  // `<:name:id>` mention form. The mention form is load-bearing for the
+  // guardian rail: a guild custom emoji's name is arbitrary text in the
+  // same string space as Slack's colon names, so a bare name like
+  // `white_check_mark` would read as approval vocabulary; the angle-bracket
+  // form can never collide with it, keeping custom emoji non-actionable
+  // transcript annotations with an unambiguous identity. An entry with no
+  // name (a deleted custom emoji on REMOVE) cannot be expressed and drops.
   if (!reaction.message_id || !reaction.channel_id || !reaction.user_id) {
     return null;
   }
-  if (emoji == null || emoji.length === 0) {
+  const emojiName = reaction.emoji?.name;
+  if (emojiName == null || emojiName.length === 0) {
     return null;
   }
+  const customEmojiId = reaction.emoji?.id;
+  const emoji =
+    customEmojiId != null ? `<:${emojiName}:${customEmojiId}>` : emojiName;
   const inThread = options.parentChannelId !== undefined;
   const isDirectMessage = reaction.guild_id === undefined;
   // The reactor joins the dedup id so two users reacting with the same emoji

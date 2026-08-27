@@ -539,7 +539,7 @@ describe("normalizeDiscordMessageReaction", () => {
     );
   });
 
-  test("a custom emoji forwards its guild-local name as the vocabulary", () => {
+  test("a custom emoji forwards its mention form, never its bare name", () => {
     const event = normalizeDiscordMessageReaction(
       parseReaction({
         user_id: "user-1",
@@ -551,7 +551,26 @@ describe("normalizeDiscordMessageReaction", () => {
       { op: "added", raw: {} },
     );
 
-    expect(event!.message.reaction!.emoji).toBe("party_blob");
+    expect(event!.message.reaction!.emoji).toBe("<:party_blob:111222333>");
+  });
+
+  test("a custom emoji squatting on approval vocabulary stays inert", () => {
+    // A guild can name a custom emoji anything, including a Slack decision
+    // name. The mention form is what keeps it out of the approval map.
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "channel-1",
+        message_id: "msg-1",
+        guild_id: "guild-1",
+        emoji: { id: "999888777", name: "white_check_mark" },
+      }),
+      { op: "added", raw: {} },
+    );
+
+    expect(event!.message.reaction!.emoji).toBe(
+      "<:white_check_mark:999888777>",
+    );
   });
 
   test("an emoji with no name cannot be expressed and drops", () => {

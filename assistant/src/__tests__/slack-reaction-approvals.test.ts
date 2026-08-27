@@ -71,6 +71,15 @@ describe("reactionDecisionForEmoji", () => {
     });
   });
 
+  test("a Discord custom emoji in mention form never resolves a decision", () => {
+    // A guild custom emoji can be named after a Slack decision word; the
+    // gateway forwards it as its mention form, which must stay unmapped.
+    expect(
+      reactionDecisionForEmoji("<:white_check_mark:999888777>"),
+    ).toBeNull();
+    expect(reactionDecisionForEmoji("<:thumbsup:999888777>")).toBeNull();
+  });
+
   test("returns null for unknown emoji", () => {
     const result = reactionDecisionForEmoji("tada");
     expect(result).toBeNull();
