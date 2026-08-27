@@ -29,6 +29,10 @@
  * filename, which is the handle the `image_ask` tool resolves back to bytes
  * when the model needs a detail the caption left out.
  *
+ * `imageFallback.captionMode` chooses between the two. `caption` (the default)
+ * describes every image up front. `handle-only` substitutes the name alone and
+ * makes no vision call, leaving every look to `image_ask`.
+ *
  * Fail-open is the dominant error mode: a captioning failure leaves a
  * placeholder text block rather than the raw image (which a text-only provider
  * would reject) or nothing (which would lose information).
@@ -49,6 +53,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import { imageHash } from "./caption-cache.js";
+import { getCaptionMode } from "./caption-mode.js";
 import { recordConversationImage } from "./image-index.js";
 import { persistImage } from "./image-persist.js";
 import { captionImage } from "./vision-caption.js";
@@ -129,6 +134,9 @@ export async function captionImageBlocks(
   logger: PluginLogger,
 ): Promise<number> {
   let replaced = 0;
+  // Read once per block array rather than per image: the setting cannot
+  // change mid-sweep, and the config accessor is a cached read either way.
+  const mode = getCaptionMode();
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -157,7 +165,19 @@ export async function captionImageBlocks(
       filePath != null ? basename(filePath) : null,
     );
 
-    if (visionProfileKey != null) {
+    if (visionProfileKey != null && mode === "handle-only") {
+      // The image is named but not described: nothing is spent on it unless
+      // the model calls `image_ask`. An image with no file behind it cannot be
+      // asked about, so say that rather than offering a handle that resolves
+      // to nothing.
+      blocks[i] = {
+        type: "text",
+        text:
+          filePath != null
+            ? `${prefix} available via image_ask]`
+            : `${prefix}: no stored copy available to examine]`,
+      };
+    } else if (visionProfileKey != null) {
       const caption = await captionImage(
         image,
         conversationId,

@@ -31,6 +31,7 @@ import { ConversationsConfigSchema } from "./schemas/conversations.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
+import { ImageFallbackConfigSchema } from "./schemas/image-fallback.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
 import { JournalConfigSchema } from "./schemas/journal.js";
 import { LiveVoiceConfigSchema } from "./schemas/live-voice.js";
@@ -100,6 +101,9 @@ export const AssistantConfigSchema = z.object({
   heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
   hostBrowser: HostBrowserConfigSchema.default(
     HostBrowserConfigSchema.parse({}),
+  ),
+  imageFallback: ImageFallbackConfigSchema.default(
+    ImageFallbackConfigSchema.parse({}),
   ),
   conversations: ConversationsConfigSchema.default(
     ConversationsConfigSchema.parse({}),
