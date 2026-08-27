@@ -785,14 +785,10 @@ export const DEFAULT_COMPANION_SIZE: CompanionSize = "medium";
 /**
  * The two things on the surface a user sizes, sized separately.
  *
- * The creature and the controls beside it are one object to look at and two
- * things to want at different sizes: an avatar big enough to read from across
- * the room does not mean a pill that wide, and a pill sized for its labels does
- * not mean a mascot that small. Both axes take the same five steps
- * ({@link COMPANION_SIZES}), so there is one vocabulary and two answers rather
- * than two scales to learn.
- *
- * `avatar` sizes the creature, its glow and its bob. `options` sizes the pill,
+ * An avatar big enough to read from across the room does not mean a pill that
+ * wide, and both axes take the same five steps ({@link COMPANION_SIZES}), so
+ * there is one vocabulary and two answers rather than two scales to learn.
+ * `avatar` sizes the creature, its glow and its bob; `options` sizes the pill,
  * the typing card, the call's body and the introduction's card.
  */
 export const COMPANION_SIZE_AXES = ["avatar", "options"] as const;
@@ -829,6 +825,21 @@ export const COMPANION_BASE_CANVAS_PAD = 24;
  * it.
  */
 export const COMPANION_BASE_CARD_HEIGHT = 290;
+
+/**
+ * The widest the pill draws at the base size, measured from its avatar-facing
+ * edge.
+ *
+ * An outer width, padding included: the renderer draws a pill as its measured
+ * body plus its own clearance at either end, and that whole width is what has
+ * to fit. The typing card is exactly this wide, being the one state that states
+ * a width rather than measuring one.
+ *
+ * A ceiling rather than a width, since every other state is as wide as its
+ * content. Main sizes the canvas to hold this much beyond the gap, so a state
+ * that wanted more would be clipped by the window.
+ */
+export const COMPANION_BASE_MAX_PILL_WIDTH = 316;
 
 /**
  * The room between the avatar's edge and the options pill beside it, at the
@@ -926,6 +937,9 @@ export const companionNearEdgeFor = (
  * rises its whole height from there; growing down, its composer row holds that
  * line and the rest of the card falls away below it. The avatar's own half box
  * is the floor under both, for a creature taller than the card beside it.
+ *
+ * Only main consumes this: the renderer names that edge with `100%` and lets
+ * main size the canvas. It lives here to sit beside the constants it reads.
  */
 export const companionCardSideFor = (
   avatarBox: number,
@@ -941,21 +955,6 @@ export const companionCardSideFor = (
     ) + companionPadFor(avatarBox, optionsBox)
   );
 };
-
-/**
- * The near edge at the size the surface's layout is authored at.
- *
- * {@link companionNearEdgeFor} with both boxes at the base, which is what that
- * helper comes to whenever the two sizes agree. A name of its own because it is
- * the distance the whole layout is authored around, and because a helper that
- * stopped reducing to it would be one that had quietly moved the avatar.
- *
- * Anything whose answer moves with either size calls the helper instead.
- */
-export const COMPANION_NEAR_EDGE = companionNearEdgeFor(
-  COMPANION_BASE_AVATAR_BOX,
-  COMPANION_BASE_AVATAR_BOX,
-);
 
 /**
  * The assistant's character, as the three trait ids it is composed from.

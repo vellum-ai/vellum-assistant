@@ -457,13 +457,26 @@ describe("companion surface sizes", () => {
     );
   });
 
-  test("writing skips persisting when the effective value is unchanged", () => {
+  test("writing skips persisting when the axis's own key already says so", () => {
     savedCompanionOptionsSize = "large";
     writeCompanionSize("options", "large");
     expect(storeSetMock).not.toHaveBeenCalled();
 
     writeCompanionSize("options", "small");
     expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "small");
+  });
+
+  /**
+   * The axis's own key, not the effective value that falls back to the shared
+   * one. Someone carrying `huge` from a one-axis build who picks Huge on an
+   * axis is asking for it to be that axis's own answer, and skipping the write
+   * because the fallback already agreed would leave them on the fallback
+   * forever.
+   */
+  test("an explicit pick matching the shared fallback still lands on its axis", () => {
+    savedCompanionSize = "huge";
+    writeCompanionSize("avatar", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
   });
 
   /**

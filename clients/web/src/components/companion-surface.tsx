@@ -21,7 +21,10 @@ import type {
   Ref,
 } from "react";
 
-import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
+import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_MAX_PILL_WIDTH,
+} from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
   CompanionTurn,
@@ -210,7 +213,7 @@ const AVATAR_IMAGE = 28;
  * background runs flush into the pill's border and its corner gets clipped,
  * which reads as the surface being cut off.
  */
-const INNER_GAP = 8;
+export const INNER_GAP = 8;
 
 /**
  * Body widths to use until the content has been measured.
@@ -225,8 +228,9 @@ const INNER_GAP = 8;
  * plugins contribute actions (LUM-3097) no hardcoded number can be correct, and
  * these become nothing but the value for the first frame.
  *
- * **Every entry stays at or under 316**, which is `BASE_MAX_BODY_WIDTH` in
- * `companion-window.ts`. The window is a fixed canvas sized once for the widest
+ * **Every measured body plus an {@link INNER_GAP} at either end stays at or
+ * under {@link COMPANION_BASE_MAX_PILL_WIDTH}**, which is the whole width a
+ * pill actually draws. The window is a fixed canvas sized once for the widest
  * state the surface has, so the ceiling is the host's rather than this file's:
  * a state that wanted more would be clipped by the window, and buying the room
  * back means resizing the canvas, which is the thing a fixed canvas exists to
@@ -262,7 +266,7 @@ export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
  * measuring it would size the card to whatever the last turn happened to say
  * and reflow the whole surface on every message.
  */
-const CARD_WIDTH = 316;
+const CARD_WIDTH = COMPANION_BASE_MAX_PILL_WIDTH;
 
 /**
  * The tallest the conversation gets before it scrolls.

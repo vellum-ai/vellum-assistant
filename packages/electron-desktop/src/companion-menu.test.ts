@@ -13,7 +13,7 @@ import { companionSizeSubmenus } from "./companion-menu";
  * the items sit and whether they stand down.
  */
 describe("companionSizeSubmenus", () => {
-  /** Only what a menu item is read for here, as `tray-model.test.ts` has it. */
+  /** Only what a menu item is read for here. */
   type MenuItem = {
     label?: string;
     enabled?: boolean;
