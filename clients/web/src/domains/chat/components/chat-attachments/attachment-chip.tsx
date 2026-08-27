@@ -30,8 +30,11 @@ interface AttachmentChipProps {
   onRemove: (id: string) => void;
   /** Called when the user clicks an image chip to open a full-screen preview. */
   onPreview?: () => void;
+  /** Called when the browser cannot decode the preview. Lets the owner drop
+   *  the thumbnail for the kind icon. */
+  onPreviewError?: () => void;
   /** The composer's press guard for the remove control. */
-  onRemoveMouseDown?: MouseEventHandler<HTMLElement>;
+  pressGuard?: MouseEventHandler<HTMLElement>;
 }
 
 const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
@@ -54,7 +57,8 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
   previewUrl,
   onRemove,
   onPreview,
-  onRemoveMouseDown,
+  onPreviewError,
+  pressGuard,
 }) => {
   const { t } = useTranslation("chat");
   const kind = classifyAttachment(mimeType, filename);
@@ -83,14 +87,21 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
       <div
         role={hasPreview ? "img" : undefined}
         aria-label={hasPreview ? filename : undefined}
-        className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
-        style={
-          hasPreview && previewUrl
-            ? { backgroundImage: `url(${JSON.stringify(previewUrl)})` }
-            : undefined
-        }
+        className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--surface-lift)] text-[var(--content-secondary)]"
       >
-        {hasPreview ? null : ICON_BY_KIND[kind]}
+        {hasPreview ? (
+          // A real <img> rather than a CSS background so an undecodable
+          // preview raises `onError` and the owner can fall back to the icon.
+          <img
+            src={previewUrl}
+            alt=""
+            draggable={false}
+            onError={onPreviewError}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          ICON_BY_KIND[kind]
+        )}
       </div>
       <span className="min-w-0 max-w-[156px] truncate text-body-small-default leading-4 text-[var(--content-secondary)]">
         {displayName}
@@ -102,7 +113,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
           size="compact"
           expandOnMobile={false}
           iconOnly={<X />}
-          onMouseDown={onRemoveMouseDown}
+          onMouseDown={pressGuard}
           onClick={(e) => {
             e.stopPropagation();
             onRemove(id);

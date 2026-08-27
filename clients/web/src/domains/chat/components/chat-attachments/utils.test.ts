@@ -76,6 +76,11 @@ describe("classifyAttachment", () => {
     expect(classifyAttachment("application/octet-stream", "report.pdf")).toBe(
       "pdf",
     );
+    // A dotless name has no extension to fall back to, so the whole name is
+    // not read as one.
+    expect(classifyAttachment("application/octet-stream", "pdf")).not.toBe(
+      "pdf",
+    );
   });
 
   test("keeps a declared type over the filename", () => {
@@ -86,6 +91,15 @@ describe("classifyAttachment", () => {
     // The preview modal routes on this answer, so a text file named after a
     // PDF must not reach the PDF renderer.
     expect(classifyAttachment("text/plain", "notes.pdf")).toBe("text");
-    expect(classifyAttachment("application/json", "data.pdf")).not.toBe("pdf");
+    expect(classifyAttachment("application/json", "data.pdf")).toBe("file");
+    expect(
+      classifyAttachment("application/pdf; charset=binary", "report.pdf"),
+    ).toBe("pdf");
+    expect(
+      classifyAttachment(
+        "application/octet-stream; charset=binary",
+        "photo.jpg",
+      ),
+    ).toBe("image");
   });
 });

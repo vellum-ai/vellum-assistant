@@ -221,7 +221,14 @@ function normalizeMimeType(raw: string | null): string | null {
   return mime.length > 0 ? mime : null;
 }
 
-function extensionOf(filename: string): string {
+/**
+ * A filename's extension, lowercased, or `""` where it has none.
+ *
+ * Reads only the last path segment, so a directory named `photos.2024` does not
+ * lend its suffix to a dotless file inside it, and a leading dot names a hidden
+ * file rather than an extension.
+ */
+export function extensionOf(filename: string): string {
   const base = filename.slice(filename.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   if (dot <= 0) {

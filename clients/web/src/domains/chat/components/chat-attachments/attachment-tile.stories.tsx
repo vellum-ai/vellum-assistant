@@ -20,7 +20,7 @@ import {
   SAMPLE_PREVIEWS,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { AttachmentTile } from "@/domains/chat/components/chat-attachments/attachment-tile";
-import { COMPOSER_MOBILE_RADIUS_CLASS } from "@/domains/chat/components/chat-composer/voice-composer-bar";
+import { COMPOSER_MOBILE_RADIUS_CLASS } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 
 /** 160x96, so the square crop drops a slice off each end. */
 const LANDSCAPE_PREVIEW = makeSamplePreview(160, 96);

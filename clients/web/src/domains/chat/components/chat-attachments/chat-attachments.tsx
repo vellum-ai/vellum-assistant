@@ -59,44 +59,60 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   pressGuard,
 }) => {
   const { t } = useTranslation("chat");
+  // A preview the browser could not decode (a TIFF, or a HEIF whose conversion
+  // fell back) would tile as a blank square with no filename, so it drops back
+  // to the chip and its kind icon.
+  const { failedIds, markFailed } = useFailedPreviewIds();
+  // Render from the sanitized list rather than the input, so a URL already
+  // known to be dead reaches neither the strip nor the lightbox.
+  const displayAttachments = useMemo(
+    () =>
+      failedIds.size === 0
+        ? attachments
+        : attachments.map((att) =>
+            att.kind === "uploaded" && failedIds.has(att.localId)
+              ? { ...att, previewUrl: null }
+              : att,
+          ),
+    [attachments, failedIds],
+  );
   // Every finished upload is a gallery sibling, so the lightbox arrows move
   // between the attached photos instead of opening one at a time. Composer
   // previews are inline blob URLs, so the modal needs no assistant to fetch
   // from.
   const uploadedAttachments = useMemo(
     () =>
-      attachments.filter(
+      displayAttachments.filter(
         (att): att is UploadedAttachment => att.kind === "uploaded",
       ),
-    [attachments],
+    [displayAttachments],
   );
   const { openPreview, previewModal } = useAttachmentPreview(
     null,
     uploadedAttachments,
   );
-  // A preview the browser could not decode (a TIFF, or a HEIF whose conversion
-  // fell back) would tile as a blank square with no filename, so it drops back
-  // to the chip.
-  const { failedIds, markFailed } = useFailedPreviewIds();
 
   if (attachments.length === 0) {
     return null;
   }
+
+  // A chip beside a tile keeps its own height rather than stretching to the
+  // tile's. A row with no tile in it is all one height, so it stretches.
+  const hasTile = tileImages && displayAttachments.some(isTiledImage);
 
   return (
     <>
       <div
         className={cn(
           "flex gap-2 overflow-x-auto px-3 pb-1.5 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
-          // A tile row sits 12px below the card's top edge, against the 8px a
-          // chip row takes, and a chip beside a tile keeps its own height
-          // rather than stretching to the tile's.
-          tileImages ? "items-start pt-3" : "pt-2",
+          // The card insets its content 12px on mobile, against the 8px a
+          // desktop chip row takes.
+          tileImages ? "pt-3" : "pt-2",
+          hasTile && "items-start",
         )}
       >
-        {attachments.map((att) => {
-          const previewFailed = failedIds.has(att.localId);
-          if (tileImages && !previewFailed && isTiledImage(att)) {
+        {displayAttachments.map((att) => {
+          if (tileImages && isTiledImage(att)) {
             const uploaded = att.kind === "uploaded" ? att : null;
             return (
               <AttachmentTile
@@ -122,7 +138,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 localId={att.localId}
                 filename={att.filename}
                 onCancel={onRemove}
-                onRemoveMouseDown={pressGuard}
+                pressGuard={pressGuard}
               />
             );
           }
@@ -185,10 +201,11 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
               id={att.localId}
               filename={att.filename}
               mimeType={att.mimeType}
-              previewUrl={previewFailed ? null : att.previewUrl}
+              previewUrl={att.previewUrl}
               onRemove={onRemove}
               onPreview={() => openPreview(att)}
-              onRemoveMouseDown={pressGuard}
+              onPreviewError={() => markFailed(att.localId)}
+              pressGuard={pressGuard}
             />
           );
         })}

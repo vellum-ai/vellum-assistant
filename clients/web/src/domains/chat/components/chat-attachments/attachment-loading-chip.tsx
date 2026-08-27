@@ -11,14 +11,14 @@ interface AttachmentLoadingChipProps {
   filename: string;
   onCancel: (localId: string) => void;
   /** The composer's press guard for the cancel control. */
-  onRemoveMouseDown?: MouseEventHandler<HTMLElement>;
+  pressGuard?: MouseEventHandler<HTMLElement>;
 }
 
 export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
   localId,
   filename,
   onCancel,
-  onRemoveMouseDown,
+  pressGuard,
 }) => {
   const { t } = useTranslation("chat");
   const displayName = middleTruncate(filename);
@@ -40,7 +40,7 @@ export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
         size="compact"
         expandOnMobile={false}
         iconOnly={<X />}
-        onMouseDown={onRemoveMouseDown}
+        onMouseDown={pressGuard}
         onClick={() => onCancel(localId)}
         aria-label={t("attachmentLoadingChip.cancelUploadAria", { filename })}
       />

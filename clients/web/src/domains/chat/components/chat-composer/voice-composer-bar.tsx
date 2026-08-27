@@ -69,6 +69,10 @@ import {
   isLiveVoiceMicLive,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  COMPOSER_MOBILE_RADIUS_CLASS,
+  COMPOSER_RADIUS_CLASS,
+} from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import { VOICE_WAVE_EDGE_FADE_CLASS } from "@/domains/chat/voice/voice-room/voice-listening-waves";
 import {
   MESH_INLINE_TUNING,
@@ -95,23 +99,6 @@ const SILENT_AMPLITUDE = () => 0;
  * beneath it. Touch takes the extra 4px the expanded tap targets want.
  */
 const BAR_HEIGHT_CLASS = "h-10 touch-mobile:h-11";
-
-/**
- * The chat input's own corner radius. Exported so the composer card and this
- * bar can never drift apart: they are stacked with 8px between them, and two
- * different radii at that distance read as two unrelated widgets rather than
- * one control area.
- */
-export const COMPOSER_RADIUS_CLASS = "rounded-[10px]";
-
-/**
- * The same corner at mobile widths, where the composer card is a 26px pill
- * (half its 52px collapsed height) rather than the desktop panel. The bar
- * tracks whichever card it is stacked on, so the two still read as one control
- * area; a 10px bar over a pill would not. Exported for the same reason as its
- * desktop sibling: the card and the bar cannot be allowed to drift.
- */
-export const COMPOSER_MOBILE_RADIUS_CLASS = "rounded-[26px]";
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
