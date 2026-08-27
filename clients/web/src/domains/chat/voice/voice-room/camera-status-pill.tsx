@@ -66,10 +66,28 @@ const MODE_WORD_KEYS = {
   live: "cameraStatusPill.live",
 } as const;
 
-/** The sentence the mode's word opens, with the session's state inside it. */
+/**
+ * The whole sentence the room speaks, per mode and per state.
+ *
+ * Four messages a mode rather than one with a translated fragment pushed into
+ * it. "Muted" and the assistant's name belong inside the sentence a translator
+ * is writing, so the mute can move where the language puts it and the name can
+ * take whatever the verb agrees with. A nested `t()` would fix both at English
+ * word order. See `docs/I18N.md`.
+ */
 const MODE_ANNOUNCE_KEYS = {
-  photo: "cameraStatusPill.announcePhoto",
-  live: "cameraStatusPill.announceLive",
+  photo: {
+    status: "cameraStatusPill.announcePhoto",
+    mutedStatus: "cameraStatusPill.announcePhotoMuted",
+    speaking: "cameraStatusPill.announcePhotoSpeaking",
+    mutedSpeaking: "cameraStatusPill.announcePhotoMutedSpeaking",
+  },
+  live: {
+    status: "cameraStatusPill.announceLive",
+    mutedStatus: "cameraStatusPill.announceLiveMuted",
+    speaking: "cameraStatusPill.announceLiveSpeaking",
+    mutedSpeaking: "cameraStatusPill.announceLiveMutedSpeaking",
+  },
 } as const;
 
 /** The pill's fill per mode. See `camera-mode-paint.ts` for the values. */
@@ -120,16 +138,16 @@ function useAssistantWord(assistantName: string | null | undefined): string {
  * the session back and this returns the empty string rather than unmounting a
  * region assistive tech is watching.
  *
- * Composed rather than looked up in a key grid: the mode's word opens the
- * sentence, the session's state closes it, and mute wraps the state with the
- * room's own `voiceRoom.mutedState` pattern. A grid would need a key per mode
- * per mute per speaker, and every mode added would double it.
+ * One message per state rather than a sentence assembled here: the mode, the
+ * mute and the speaker pick the key, and the sentence behind it is whole. What
+ * still interpolates is the one part no catalog can hold, the session's own
+ * status word or the assistant's name.
  *
- * The mute wrap is what the visible row does not carry. The session relabels
+ * Saying the mute is what the visible row does not do. The session relabels
  * only `listening` for a muted mic, so "Thinking…" on its own tells a
  * screen-reader user the assistant is working without telling them it cannot
- * hear them. The one phase the session does relabel is skipped, since wrapping
- * that reads "Muted. Muted".
+ * hear them. The one phase the session does relabel takes the plain sentence,
+ * since the muted one over it reads "Muted. Muted".
  */
 export function useCameraStatusAnnouncement(
   status: CameraStatusAnnouncement | null,
@@ -142,21 +160,20 @@ export function useCameraStatusAnnouncement(
   }
 
   const { mode = "photo", voiceState, statusLabel, muted } = status;
-  const mutedWord = t("liveVoiceStatus.muted");
-  const spoken =
-    voiceState === "assistant"
-      ? t("cameraStatusPill.speakingState", { name })
-      : statusLabel || (muted ? mutedWord : "");
+  const keys = MODE_ANNOUNCE_KEYS[mode];
 
-  if (!spoken) {
-    return t(MODE_WORD_KEYS[mode]);
+  if (voiceState === "assistant") {
+    return t(muted ? keys.mutedSpeaking : keys.speaking, { name });
   }
 
-  const state =
-    muted && spoken !== mutedWord
-      ? t("voiceRoom.mutedState", { state: spoken })
-      : spoken;
-  return t(MODE_ANNOUNCE_KEYS[mode], { status: state });
+  const mutedWord = t("liveVoiceStatus.muted");
+  const state = statusLabel || (muted ? mutedWord : "");
+  if (!state) {
+    return t(MODE_WORD_KEYS[mode]);
+  }
+  return t(muted && state !== mutedWord ? keys.mutedStatus : keys.status, {
+    status: state,
+  });
 }
 
 export function CameraStatusPill({

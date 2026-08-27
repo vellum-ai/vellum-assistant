@@ -161,10 +161,15 @@
   },
   "cameraStatusPill": {
     "announceLive": "Прямой эфир. {status}",
+    "announceLiveMuted": "Прямой эфир. Без звука. {status}",
+    "announceLiveMutedSpeaking": "Прямой эфир. Без звука. {name} говорит",
+    "announceLiveSpeaking": "Прямой эфир. {name} говорит",
     "announcePhoto": "Фото. {status}",
+    "announcePhotoMuted": "Фото. Без звука. {status}",
+    "announcePhotoMutedSpeaking": "Фото. Без звука. {name} говорит",
+    "announcePhotoSpeaking": "Фото. {name} говорит",
     "live": "Прямой эфир",
     "photo": "Фото",
-    "speakingState": "{name} говорит",
     "yourAssistant": "Ваш ассистент"
   },
   "channelReferenceChip": {

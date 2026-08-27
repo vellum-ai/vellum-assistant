@@ -505,8 +505,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   //
   // Taken as a catalog key and resolved here, once, for every surface in the
   // room that shows it: the connect caption, the state announcer, and the
-  // camera's status pill. Deriving it twice (a key for one, English for the
-  // other) is what lets the two drift.
+  // camera's status pill. The out-of-app mirrors take the same key and resolve
+  // it through the same catalog, so one table decides the wording and every
+  // surface reads it in the language the app is in.
   const stateLabelKey = liveVoiceSurfaceLabelKey(
     state,
     reconnecting,
@@ -1159,11 +1160,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                     ariaLabel={t(FLASH_LABEL_KEYS[flashMode])}
                     autoBadge={t("voiceRoom.flashAutoBadge")}
                     onClick={() => setFlashMode(nextFlashMode(flashMode))}
-                    // Centred 56px from its edge, the same distance flip sits
-                    // from the other: the two flank the shutter symmetrically,
-                    // and the 46px control needs the smaller offset to get
-                    // there than flip's 52px one does.
-                    className="absolute left-[33px]"
+                    // The design's own offset. It is not flip's on the other
+                    // side: the design places the two flanks independently, so
+                    // matching them to each other is a departure from it.
+                    className="absolute left-11"
                     testId="voice-room-flash"
                   />
                 </Tooltip>

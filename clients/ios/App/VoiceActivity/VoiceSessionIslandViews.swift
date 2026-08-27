@@ -19,9 +19,10 @@ import UIKit
 //
 // 1. **No native phase copy.** Every string describing the *session* is either
 //    `ContentState.label` or `VoiceSessionAttributes.assistantName`, both
-//    passed through from the web side. `LIVE_VOICE_STATE_LABELS` /
-//    `liveVoiceSurfaceLabel` in `live-voice-store.ts` own the wording — this
-//    shell ships on App Store cadence while that copy deploys continuously,
+//    passed through from the web side. `LIVE_VOICE_STATE_KEYS` /
+//    `liveVoiceSurfaceLabelKey` in `live-voice-store.ts`, resolved through the
+//    web's own catalog, own the wording: this shell ships on App Store cadence
+//    while that copy deploys continuously,
 //    so a native `switch` over `phase` would fossilize old strings. Tight
 //    slots truncate the passed label; they never substitute a shorter native
 //    one.
@@ -526,8 +527,8 @@ struct VoiceApprovalControls: View {
 /// Always one line with a tail ellipsis. The web side decides how long the
 /// string is, so the tight slots shorten what they were given instead of
 /// substituting a native string of their own. Every phase that reaches an
-/// activity has a non-empty label (`LIVE_VOICE_STATE_LABELS` maps only the
-/// phases with no activity to `""`), and the plugin rejects an empty
+/// activity has a non-empty label (`LIVE_VOICE_STATE_KEYS` keys only the
+/// phases with no activity to nothing), and the plugin rejects an empty
 /// `assistantName`, so there is no empty-string case to special-case.
 struct VoiceSessionText: View {
     let text: String

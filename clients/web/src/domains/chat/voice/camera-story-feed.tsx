@@ -145,7 +145,7 @@ export function CameraRowScene({
         {...ROW_FLASH}
         {...flash}
         onClick={() => {}}
-        className="absolute left-[33px]"
+        className="absolute left-11"
       />
       <CameraShutter {...shutter} />
       <CameraRowFlipStandIn />

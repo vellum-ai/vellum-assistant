@@ -274,9 +274,9 @@ export function useVoiceCamera(
   const flashProbeEpochRef = useRef(0);
   // The flip that is running, as its own identity, or null for none. See
   // `flipCamera`: two of them overlapping spin the hardware twice and agree on
-  // the wrong answer. An identity rather than a flag because releasing the
-  // camera drops the claim (see `stopCapture`), and a flip that resumes after
-  // that must not drop the claim of the flip that replaced it.
+  // the wrong answer. An identity rather than a flag because an external
+  // release drops the claim (see `releaseCamera`), and a flip that resumes
+  // after that must not drop the claim of the flip that replaced it.
   const flipInFlightRef = useRef<object | null>(null);
   // True while a flash-capable camera is running with a mode other than off,
   // which is exactly when the plugin has state of ours to hand back. Cleared
@@ -291,17 +291,19 @@ export function useVoiceCamera(
     useState<string[]>(NO_FLASH_MODES);
   const flashMode = useVoicePrefsStore.use.flashMode();
 
+  /**
+   * Tear the running capture down.
+   *
+   * Every path that stops the hardware goes through here, including the flip's
+   * own reacquisition, so it deliberately says nothing about the flip claim:
+   * that belongs to {@link releaseCamera}, which is the external half.
+   */
   const stopCapture = useCallback(() => {
     // Cancels any acquire still in flight, so its stream is stopped on arrival
     // rather than installed behind this release, and any flash probe still in
     // flight, whose camera is the one going away here.
     acquireEpochRef.current++;
     flashProbeEpochRef.current++;
-    // A flip still running belongs to the camera this releases, so its claim
-    // goes with it. Nothing else clears the claim of a bridge call that never
-    // comes back, and a flip left marked in flight is a flip button that never
-    // works again, across a close and a reopen included.
-    flipInFlightRef.current = null;
     const source = sourceRef.current;
     sourceRef.current = null;
     if (source === "native-pending" || source === "native") {
@@ -326,6 +328,24 @@ export function useVoiceCamera(
       videoRef.current.srcObject = null;
     }
   }, [videoRef]);
+
+  /**
+   * Give the camera up on someone else's say-so: the user closing the
+   * viewfinder, or the component going away.
+   *
+   * This is the only thing that abandons a running flip's claim, and it has to
+   * be. Nothing else clears the claim of a bridge call that never comes back,
+   * so a flip left marked in flight is a flip button that never works again,
+   * across a close and a reopen included. A flip's *own* reacquisition calls
+   * `stopCapture` directly instead: on the fallback path the flip releases the
+   * capture to request the other camera, and dropping its claim there would
+   * leave the guard open for a second tap to start a competing flip while the
+   * first one is still mid-await.
+   */
+  const releaseCamera = useCallback(() => {
+    flipInFlightRef.current = null;
+    stopCapture();
+  }, [stopCapture]);
 
   /**
    * Ask the camera that is running what it can do with its flash.
@@ -507,12 +527,12 @@ export function useVoiceCamera(
   }, [facing, start]);
 
   const closeCamera = useCallback(() => {
-    stopCapture();
+    releaseCamera();
     setOpen(false);
     setNative(false);
     setError(null);
     setSupportedFlashModes(NO_FLASH_MODES);
-  }, [stopCapture]);
+  }, [releaseCamera]);
 
   /**
    * Switch cameras, keeping the viewfinder up.
@@ -536,6 +556,12 @@ export function useVoiceCamera(
    * which is a viewfinder mirrored the wrong way and every later flip working
    * from a facing the camera does not have. Dropping the second tap is also
    * what the user meant by it.
+   *
+   * The claim survives this flip's own reacquisition. On the fallback path
+   * `acquire` releases the capture before requesting the replacement, and
+   * `sourceRef` reads `native-pending` across that await, so a claim dropped
+   * there would leave both guards open for a second tap. Only `releaseCamera`
+   * abandons a claim, which is why `acquire` calls `stopCapture` directly.
    */
   const flipCamera = useCallback(async () => {
     if (!sourceRef.current || flipInFlightRef.current) {
@@ -652,7 +678,7 @@ export function useVoiceCamera(
   // The capture outlives React's own teardown of the element, so releasing
   // the hardware has to be explicit. Without this the camera light stays on
   // after the room closes.
-  useEffect(() => stopCapture, [stopCapture]);
+  useEffect(() => releaseCamera, [releaseCamera]);
 
   // The `<video>` renders on the same commit that flips `open`, so a stream
   // acquired in `start()` has no element to attach to yet. This runs after

@@ -408,9 +408,10 @@ export type VoiceActivityPhase = (typeof VOICE_ACTIVITY_PHASES)[number];
 export interface VoiceActivityContent {
   phase: VoiceActivityPhase;
   /**
-   * User-facing phase copy, passed through from the web layer verbatim
-   * (`liveVoiceSurfaceLabel`), so the surface shows exactly what the voice room
-   * shows. Main and the surface own no phase wording of their own. The wording
+   * User-facing phase copy, passed through from the web layer verbatim: the
+   * web resolves `liveVoiceSurfaceLabelKey` through its own catalog, so the
+   * surface shows exactly what the voice room shows, in the language the app is
+   * in. Main and the surface own no phase wording of their own. The wording
    * deploys continuously with the web bundle while the shell ships on release
    * cadence, so a `switch` over `phase` on this side would fossilize.
    */
