@@ -146,11 +146,10 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
           <div className="flex justify-end">
             <Button
               onClick={() => {
-                // The dedicated page supersedes the in-place panel, so close
-                // it on hand-off (matching the narrow-viewport redirect in
-                // chat-content-layout.tsx). Otherwise the return trip to the
-                // conversation re-renders the panel from stale store state,
-                // as a dead drawer if the skill was removed on the page.
+                // The dedicated page supersedes the in-place panel: close it
+                // on hand-off, or the backTo return trip re-renders it from
+                // stale viewer-store state (a dead drawer once the skill is
+                // removed on the page).
                 onClose();
                 navigate(routes.skills.detail(skillId), {
                   state: skillDetailBackState(location),
