@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 // `?url` emits the package's prebuilt worker as a hashed asset and yields its
 // URL, so the worker is served from our own origin and its version is the
@@ -11,6 +17,8 @@ import PDF_WORKER_URL from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 
 import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/utils";
+import { PreviewTruncationNotice } from "@/domains/chat/components/local-file/preview/preview-truncation-notice";
+import { useTranslation } from "@/i18n";
 
 /**
  * Inline PDF preview rendered via pdfjs-dist canvas. Bypasses Safari/WebKit
@@ -55,14 +63,25 @@ async function loadPdfJs() {
 interface PdfPreviewProps {
   url: string;
   className?: string;
+  /**
+   * Shown when the document cannot be read. The surfaces this renders on
+   * present failure differently (a card over the modal's dark backdrop, a
+   * compact row in the drawer) and each already owns a component that does
+   * it, so the choice, and the wording, belong to the caller.
+   */
+  errorFallback: ReactNode;
 }
 
-export function PdfPreview({ url, className }: PdfPreviewProps) {
+export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
+  const { t } = useTranslation("chat");
   // Spans with block/flex classes rather than divs: the preview also renders
   // inline in chat markdown, where a div inside <p> is invalid HTML.
   const containerRef = useRef<HTMLSpanElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
+  // What the document holds, against `numPages` which is what MAX_PAGES
+  // allows: the gap is what the reader is not being shown.
+  const [totalPages, setTotalPages] = useState(0);
   // Width/height of page 1, stamped onto each canvas as it mounts so the box
   // holds a page's shape before anything is drawn into it: a canvas has no
   // intrinsic size until `renderPage` runs, so the row would otherwise
@@ -72,7 +91,7 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
   // over the real dimensions `renderPage` sets.
   const placeholderAspectRatio = useRef<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const renderedPages = useRef<Set<number>>(new Set());
 
@@ -82,9 +101,10 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
     async function load() {
       setIsLoading(true);
-      setError(null);
+      setFailed(false);
       setPdf(null);
       setNumPages(0);
+      setTotalPages(0);
       placeholderAspectRatio.current = null;
       renderedPages.current.clear();
 
@@ -124,9 +144,10 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
         placeholderAspectRatio.current = height > 0 ? width / height : null;
         setPdf(doc);
         setNumPages(Math.min(doc.numPages, MAX_PAGES));
+        setTotalPages(doc.numPages);
       } catch {
         if (!cancelled) {
-          setError("Failed to load PDF.");
+          setFailed(true);
         }
       } finally {
         if (!cancelled) {
@@ -259,14 +280,8 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
     );
   }
 
-  if (error) {
-    return (
-      <span className="block w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-        <span className="text-body-medium-lighter block text-white/80">
-          {error}
-        </span>
-      </span>
-    );
+  if (failed) {
+    return errorFallback;
   }
 
   return (
@@ -283,6 +298,11 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           style={{ height: "auto" }}
         />
       ))}
+      {totalPages > numPages && (
+        <PreviewTruncationNotice as="span">
+          {t("pdfPreview.pageCapNotice", { count: numPages })}
+        </PreviewTruncationNotice>
+      )}
     </span>
   );
 }

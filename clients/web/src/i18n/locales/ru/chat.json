@@ -45,6 +45,9 @@
     "switchTo": "Переключиться на {name}",
     "unnamedAssistant": "Безымянный ассистент"
   },
+  "attachmentPreviewModal": {
+    "pdfLoadFailed": "Не удалось показать этот PDF"
+  },
   "cacheBreakpointMapCard": {
     "description": "Где {count, plural, one {# точка разрыва кэша попала} few {# точки разрыва кэша попали} many {# точек разрыва кэша попали} other {# точки разрыва кэша попали}} в префикс этого запроса и какие сегменты прочитали, а какие создали заново.",
     "estimatedTokens": "≈ {count} токенов",
@@ -580,6 +583,9 @@
   },
   "pdfPageSkeleton": {
     "loadingPdf": "Загрузка PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Показана первая страница} few {Показаны первые # страницы} many {Показаны первые # страниц} other {Показаны первые # страницы}}"
   },
   "pinnedAppColorSwatches": {
     "colors": {

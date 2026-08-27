@@ -11,13 +11,18 @@ import { type ReactNode } from "react";
 
 import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
+import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { useBlobObjectUrl } from "@/domains/chat/components/local-file/use-local-file-info";
 
 interface PdfFilePreviewProps {
   blob: Blob;
+  filename: string;
 }
 
-export function PdfFilePreview({ blob }: PdfFilePreviewProps): ReactNode {
+export function PdfFilePreview({
+  blob,
+  filename,
+}: PdfFilePreviewProps): ReactNode {
   const url = useBlobObjectUrl(blob, "application/pdf");
 
   // The page shape rather than the prose-line placeholder: this state runs
@@ -33,7 +38,10 @@ export function PdfFilePreview({ blob }: PdfFilePreviewProps): ReactNode {
     // the placeholder overflows a drawer a few hundred pixels wide and then
     // snaps smaller the moment the first canvas replaces it.
     <span className="block w-full [&_[data-slot=skeleton]]:w-full! [&_canvas]:w-full!">
-      <PdfPreview url={url} />
+      <PdfPreview
+        url={url}
+        errorFallback={<PreviewError filename={filename} />}
+      />
     </span>
   );
 }

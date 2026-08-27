@@ -311,7 +311,19 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     }
 
     if (isPdf && effectiveUrl) {
-      return <PdfPreview url={effectiveUrl} />;
+      return (
+        <PdfPreview
+          url={effectiveUrl}
+          errorFallback={
+            <PreviewMessageCard
+              message={t("attachmentPreviewModal.pdfLoadFailed")}
+              filename={attachment.filename}
+              onDownload={handleDownload}
+              downloadDisabled={!effectiveUrl}
+            />
+          }
+        />
+      );
     }
 
     if (isImage && effectiveUrl && decodeFailedUrl !== effectiveUrl) {
@@ -362,7 +374,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           leftIcon={<Download />}
           onClick={handleDownload}
           disabled={!effectiveUrl}
-          aria-label={t("attachmentPreviewModal.downloadAria", { filename: attachment.filename })}
+          aria-label={t("attachmentPreviewModal.downloadAria", {
+            filename: attachment.filename,
+          })}
           className="mt-4 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent"
           tintColor="currentColor"
         >
@@ -377,7 +391,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label={t("attachmentPreviewModal.previewAria", { filename: attachment.filename })}
+      aria-label={t("attachmentPreviewModal.previewAria", {
+        filename: attachment.filename,
+      })}
       // Focusable so the overlay can hold keyboard focus for the arrow-key
       // handler; the ring is suppressed since the dialog is the whole screen.
       tabIndex={-1}
@@ -436,7 +452,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             expandOnMobile={false}
             onClick={handleDownload}
             disabled={!effectiveUrl}
-            aria-label={t("attachmentPreviewModal.downloadAria", { filename: attachment.filename })}
+            aria-label={t("attachmentPreviewModal.downloadAria", {
+              filename: attachment.filename,
+            })}
             className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />

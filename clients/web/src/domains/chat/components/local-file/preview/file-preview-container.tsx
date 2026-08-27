@@ -81,7 +81,7 @@ function previewFor(
     case "text":
       return <TextPreview blob={blob} filename={filename} />;
     case "pdf":
-      return <PdfFilePreview blob={blob} />;
+      return <PdfFilePreview blob={blob} filename={filename} />;
     case "image":
     case "audio":
     case "video":

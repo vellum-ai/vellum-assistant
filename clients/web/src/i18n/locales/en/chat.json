@@ -124,6 +124,7 @@
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
     "nextAttachmentAria": "Next attachment",
+    "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",
     "previousAttachmentAria": "Previous attachment"
   },
@@ -1113,6 +1114,9 @@
   },
   "pdfPageSkeleton": {
     "loadingPdf": "Loading PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Showing the first page} other {Showing the first # pages}}"
   },
   "phaseGroupedStepList": {
     "startedAt": "Started at {time}"
