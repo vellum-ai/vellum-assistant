@@ -127,7 +127,8 @@ export function SkillDetailPage() {
   }, [navigate, exitTarget]);
 
   // Register as the mobile back-swipe owner so a left-edge swipe navigates
-  // back to the skills list instead of opening the nav drawer (`ChatLayout`
+  // to the exit target (the origin conversation when `backTo` is present,
+  // otherwise the skills list) instead of opening the nav drawer (`ChatLayout`
   // only yields the edge while an owner is registered). The container ref is
   // threaded into `SkillDetailMobile`'s portaled overlay root — a page-level
   // wrapper wouldn't contain the overlay's DOM, so the drag transform would
