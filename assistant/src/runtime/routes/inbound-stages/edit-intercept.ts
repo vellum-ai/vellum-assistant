@@ -16,11 +16,11 @@
  * resolvable target is dropped.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import { mergeProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { mergeProviderMessageMetadata } from "../../../messaging/read-provider-metadata.js";
 import type { MessageRow } from "../../../persistence/conversation-crud.js";
 import {
   getMessageById,
@@ -208,14 +208,8 @@ export async function handleEditIntercept(
     // Every channel marks its edits. Slack's envelope carries the extra
     // fields its own renderer needs; the rest stamp the neutral shape that
     // readProviderMetadata serves to every channel-agnostic reader.
-    const outerMetadata: Record<string, unknown> =
-      existingRow?.metadata != null
-        ? safeParseRecord(existingRow.metadata)
-        : {};
     const providerMeta = mergeProviderMessageMetadata(
-      typeof outerMetadata.providerMeta === "string"
-        ? outerMetadata.providerMeta
-        : null,
+      existingRow?.metadata ?? null,
       {
         source: sourceChannel,
         conversationExternalId,

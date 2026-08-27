@@ -3999,7 +3999,9 @@ export function updateMessageMetadata(
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
-  const existing = row?.metadata ? JSON.parse(row.metadata) : {};
+  // Sanitized like the transactional sibling above: a malformed stored
+  // envelope must not fail the update that is trying to stamp the row.
+  const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
   db.update(messages)
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))

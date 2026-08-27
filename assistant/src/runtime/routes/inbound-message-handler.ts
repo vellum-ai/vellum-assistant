@@ -42,7 +42,6 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import { mergeProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
@@ -65,6 +64,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { mergeProviderMessageMetadata } from "../../messaging/read-provider-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
 import {
   attachInlineAttachmentToMessage,
@@ -586,13 +586,14 @@ export async function handleChannelInbound({
 
     if (!existingSlackMeta) {
       const providerMeta = mergeProviderMessageMetadata(
-        typeof parentMetadata.providerMeta === "string"
-          ? parentMetadata.providerMeta
-          : null,
+        row?.metadata ?? null,
         {
           source: sourceChannel,
           conversationExternalId,
           messageId: deletedMessageTs,
+          ...(sourceMetadata?.threadId
+            ? { threadId: sourceMetadata.threadId }
+            : {}),
         },
         { deletedAt: Date.now() },
       );
