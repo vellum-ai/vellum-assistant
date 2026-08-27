@@ -95,9 +95,14 @@ export function useBriefingRecipeCard(
 ): BriefingRecipeCard {
   const dismissedAt = briefingRecipeDismissedAtStorage.useValue();
 
+  // Also gated on the assistant, which resolves asynchronously and is null for
+  // the first frames after a load. Without an assistant the options answer
+  // with an empty list rather than a fetch, which would read as "no schedules"
+  // and offer a recipe whose conversation has nothing to open against.
+  // Disabled, the query reports pending, and pending never shows the card.
   const schedulesQuery = useQuery({
     ...schedulesListQueryOptions(assistantId ?? undefined),
-    enabled,
+    enabled: enabled && Boolean(assistantId),
   });
 
   const dismiss = useCallback(() => {
@@ -111,11 +116,20 @@ export function useBriefingRecipeCard(
     schedules !== undefined &&
     !schedules.some(isLiveUserSchedule);
 
-  // Ordered so the two cheap reads settle it first. The bell re-renders with
-  // every layout update, and `isDismissalReadable` touches storage, so it runs
+  // The assistant is re-checked here rather than left to the `enabled` flag
+  // above. A disabled query still reports whatever its key already holds, and
+  // the assistant-less key resolves to an empty list without a fetch, so the
+  // visibility answer states the requirement itself instead of resting on what
+  // happens to be cached.
+  //
+  // Ordered so the cheap reads settle it first: the bell re-renders with every
+  // layout update, and `isDismissalReadable` touches storage, so that one runs
   // only in the state where its answer can still change the outcome.
   const isVisible =
-    hasSettledEmptyList && dismissedAt === 0 && isDismissalReadable();
+    Boolean(assistantId) &&
+    hasSettledEmptyList &&
+    dismissedAt === 0 &&
+    isDismissalReadable();
 
   return { isVisible, dismiss };
 }

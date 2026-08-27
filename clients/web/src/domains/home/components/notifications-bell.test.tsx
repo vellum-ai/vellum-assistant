@@ -266,10 +266,14 @@ function skill(id: string): { id: string } {
   return { id };
 }
 
+// The active assistant resolves asynchronously, so it is null for the first
+// frames after a load. Held in a ref so a test can render that window.
+const activeAssistantIdRef: { value: string | null } = { value: "assistant-1" };
+
 mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
   store.use = {
-    activeAssistantId: () => "assistant-1",
+    activeAssistantId: () => activeAssistantIdRef.value,
   };
   return { useResolvedAssistantsStore: store };
 });
@@ -365,6 +369,7 @@ beforeEach(() => {
   skillsRef.isPending = false;
   schedulesEnabledCalls.length = 0;
   skillsEnabledCalls.length = 0;
+  activeAssistantIdRef.value = "assistant-1";
   // The recipe's dismissal is the one piece of state that outlives a render,
   // so each test starts from a store that has never been written to.
   localStorage.clear();
@@ -652,6 +657,18 @@ describe("NotificationsBell briefing recipe gating", () => {
     expect(
       screen.queryByRole("button", { name: RECIPE_DISMISS_LABEL }),
     ).toBeNull();
+  });
+
+  test("hides the recipe before the active assistant resolves", async () => {
+    // No assistant means no list to judge by, and a recipe launched here would
+    // seed a conversation with nothing to open it against.
+    activeAssistantIdRef.value = null;
+
+    await openBell();
+
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+    expect(screen.getByText("Nothing yet.")).toBeTruthy();
+    expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(false);
   });
 
   test("the recipe gate does not fetch schedules for a feed that has items", async () => {
