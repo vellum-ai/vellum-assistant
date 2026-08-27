@@ -47,6 +47,15 @@ const PLAYERS: readonly PlayerCommand[] = [
   {
     mode: "streaming",
     name: "ffplay",
+    // No channel-count flag. ffplay 7.x rejects `-ac` outright ("Option not
+    // found"), and `-ch_layout` does not exist before 5.1, so either spelling
+    // is broken on some supported machine. The pcm demuxer's `ch_layout`
+    // defaults to mono on every version, which is exactly what these frames
+    // are, so the portable answer is to say nothing and take the default.
+    //
+    // Getting this wrong fails silently: ffplay exits immediately, `adopt()`
+    // settles on that exit like any finished playback, and the session prints
+    // "Speaking via ffplay" while making no sound at all.
     args: (sampleRate) => [
       "-hide_banner",
       "-loglevel",
@@ -57,8 +66,6 @@ const PLAYERS: readonly PlayerCommand[] = [
       "s16le",
       "-ar",
       String(sampleRate),
-      "-ac",
-      "1",
       "-i",
       "pipe:0",
     ],
