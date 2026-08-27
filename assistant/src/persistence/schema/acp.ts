@@ -51,6 +51,15 @@ export const acpSessionHistory = sqliteTable(
     index("idx_acp_session_history_parent_conversation_id").on(
       table.parentConversationId,
     ),
+    // Partial in the database (see migration 373): only rows carrying a
+    // credential failure are indexed, which is what keeps the marker lookup a
+    // fixed cost rather than one that grows with a conversation's run count.
+    // Declared here without the predicate because the schema builder has no
+    // way to express one; the migration is the source of truth for its shape.
+    index("idx_acp_session_history_auth_marker").on(
+      table.parentConversationId,
+      table.startedAt,
+    ),
   ],
 );
 
