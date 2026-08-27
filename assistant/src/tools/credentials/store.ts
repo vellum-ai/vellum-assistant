@@ -37,7 +37,6 @@ import {
 import { getLogger } from "../../util/logger.js";
 import {
   assertMetadataWritable,
-  persistCredentialMetadata,
   upsertCredentialMetadata,
 } from "./metadata-store.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
@@ -162,7 +161,6 @@ export async function storeCredentialValue(
     allowedDomains: input.allowedDomains,
     injectionTemplates: input.injectionTemplates,
   });
-  await persistCredentialMetadata(metadata);
   const { syncManualTokenConnection } =
     await import("../../oauth/manual-token-connection.js");
   await syncManualTokenConnection(service);
