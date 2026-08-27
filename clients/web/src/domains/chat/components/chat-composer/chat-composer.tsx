@@ -190,8 +190,8 @@ export interface ChatComposerProps {
   // takes its first turn on the user's behalf so the assistant speaks first,
   // and one opened on a thread already underway does not. Pass the same value
   // the empty state renders from, so the two cannot disagree about what empty
-  // means. Optional, defaulting to false: a caller that says nothing gets the
-  // silent room it had before.
+  // means. Optional, defaulting to false: a caller that says nothing opens a
+  // silent room.
   conversationIsEmpty?: boolean;
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row

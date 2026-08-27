@@ -246,11 +246,11 @@ export interface LiveVoiceSessionStarter {
   /**
    * Start a session, consuming the prewarmed player when one exists.
    *
-   * `seedText` takes a first turn on the session's behalf as soon as the
-   * server is `ready`, so the assistant speaks before the user has to
-   * (JARVIS-1649). It becomes a real user message in the conversation, so a
-   * caller passes one only where that reads honestly. See
-   * `voice-entry-greeting.ts` for the rule and the copy.
+   * `seedText` takes a first turn on the session's behalf once the microphone
+   * is live, so the assistant speaks without waiting for the user. It becomes
+   * a real user message in the conversation, so a caller passes one only where
+   * that reads honestly. See `voice-entry-greeting.ts` for the rule and the
+   * copy.
    */
   start(
     assistantId: string,

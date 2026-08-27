@@ -3233,8 +3233,8 @@ describe("echo-cancelling output route", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Speak first (JARVIS-1649): a caller-supplied seed turn, sent on `ready` so
-// the assistant opens the conversation instead of the user having to.
+// Speak first: a caller-supplied seed turn, sent once the microphone is live,
+// so the assistant opens the conversation instead of the user having to.
 // ---------------------------------------------------------------------------
 
 describe("speak first (seed turn)", () => {
@@ -3271,11 +3271,13 @@ describe("speak first (seed turn)", () => {
         conversationId: "conv-1",
         turnDetection: "server_vad",
       });
-      await Promise.resolve();
+      // Fully drained, not a single microtask: the seed rides behind the
+      // capture-startup await.
+      await flushMicrotasks();
     });
   }
 
-  test("takes the seed turn as soon as the server is ready", async () => {
+  test("takes the seed turn once the session is ready and the mic is up", async () => {
     const h = renderController();
     await startWithSeed(h);
     // Nothing before `ready`: the socket is not active yet, and the daemon
@@ -3285,10 +3287,49 @@ describe("speak first (seed turn)", () => {
     await emitReady(h);
 
     expect(h.client.sentText).toEqual([SEED]);
-    // The seed does not hold up the mic. Capture still comes up and the
-    // session lands in `listening`, so the user can talk over the greeting.
+    // The seed does not hold up the mic. Capture is running and the session
+    // is in `listening`, so the user can talk over the greeting.
     expect(h.view.result.current.state).toBe("listening");
     expect(h.getCapture().startCount).toBe(1);
+  });
+
+  test("never greets into a session whose microphone failed", async () => {
+    // A denied mic still gets a `ready` from the server. Seeding on that
+    // alone persists a user message the user never wrote into a conversation
+    // they can neither hear nor talk to, and the session then fails.
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.startResult = { ok: false, error: "permission-denied" };
+      },
+    });
+    await startWithSeed(h);
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("failed");
+  });
+
+  test("greets on a retry after a first attempt lost its microphone", async () => {
+    // The seed outlives a spent attempt: it is owed until some session
+    // actually opens with a mic, so the greeting is not lost to one denial.
+    let failNextCapture = true;
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        if (failNextCapture) {
+          capture.startResult = { ok: false, error: "permission-denied" };
+          failNextCapture = false;
+        }
+      },
+    });
+    await startWithSeed(h);
+    await emitReady(h);
+    expect(h.client.sentText).toEqual([]);
+
+    await startWithSeed(h);
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
   });
 
   test("opens silent when the caller asks for no greeting", async () => {
@@ -3336,8 +3377,7 @@ describe("speak first (seed turn)", () => {
 
   test("still greets after a pre-ready connect retry, which never got to", async () => {
     // The initial-connect resilience path (JARVIS-1282) re-enters the connect
-    // flow before any `ready` landed, so the seed is still owed. This is why
-    // the seed is consumed on `ready` rather than cleared on every connect.
+    // flow before any `ready` landed, so the seed is still owed.
     const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
     await startWithSeed(h);
     await act(async () => {

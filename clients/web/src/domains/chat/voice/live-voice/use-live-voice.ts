@@ -179,18 +179,17 @@ export interface LiveVoiceStartOptions {
    */
   handsFree?: boolean;
   /**
-   * A first turn to take on the session's behalf, sent the moment the server
-   * says `ready`, so the assistant speaks before the user has to (JARVIS-1649).
+   * A first turn to take on the session's behalf, sent once the microphone is
+   * live, so the assistant speaks without waiting for the user.
    *
-   * It travels the ordinary typed-turn path, which means it becomes a real
-   * user message in the conversation exactly as a spoken one would. That is
-   * the whole cost of the feature and the reason callers gate on an empty
-   * conversation: a seed sent into a thread already underway reads as a line
-   * the user never wrote.
+   * It travels the ordinary typed-turn path, so it becomes a real user message
+   * in the conversation exactly as a spoken one does. That is why callers gate
+   * it on an empty conversation: a seed in a thread already underway reads as
+   * a line the user never wrote.
    *
-   * Sent at most once per `start()`. Reconnects (and the pre-`ready`
-   * initial-connect retries) never re-send it, so a socket blip mid-session
-   * cannot make the assistant greet twice.
+   * Spent at most once per `start()`, and only by a session whose microphone
+   * came up. A reconnect never re-sends it, so a socket blip cannot make the
+   * assistant greet twice.
    */
   seedText?: string;
 }
@@ -413,14 +412,13 @@ export function useLiveVoice(
   const hasReadyRef = useRef(false);
   const initialConnectAttemptRef = useRef(0);
   // The seed turn a caller asked for (see `LiveVoiceStartOptions.seedText`),
-  // held from `start()` until the first `ready` consumes it.
+  // held from `start()` until a session with a live microphone spends it.
   //
-  // Hook-scoped rather than session-scoped, and consumed rather than flagged,
-  // because every connect attempt builds a *fresh* `SessionContext`: a flag
-  // living there would reset on the reconnect path and greet a second time on
-  // a socket blip. Consuming also gets the pre-`ready` retry right for free:
-  // those attempts never reached a `ready`, so the seed is still armed for
-  // whichever attempt finally lands.
+  // Hook-scoped rather than session-scoped, because every connect attempt
+  // builds a *fresh* `SessionContext`: a flag living there resets on the
+  // reconnect path and greets a second time on a socket blip. The ref outlives
+  // every attempt, so a connect that fails before `ready` still owes the
+  // greeting to whichever attempt finally lands.
   const pendingSeedTextRef = useRef<string | null>(null);
   const connectSessionRef = useRef<
     | ((
@@ -837,30 +835,35 @@ export function useLiveVoice(
           // start-time value — session ownership for a draft-started session
           // hinges on it (see `isLiveVoiceSessionOwnedBy`).
           useLiveVoiceStore.getState().setConversationId(frame.conversationId);
-          // Speak first (JARVIS-1649). Consumed, so only the first `ready` of
-          // a `start()` can spend it.
+          // The seed turn waits for the microphone, and is spent only by a
+          // session that got one.
           //
-          // Gated on the echo, never on hope: an assistant that predates typed
-          // turns answers a `text` frame with `unknown_type`, which is
-          // byte-identical to the `update_config` rejection and so cannot be
-          // told apart after the fact. `sendText` refuses on the same echo, so
-          // the seed is simply dropped there and the session opens silent,
-          // the pre-JARVIS-1649 behaviour, which is the right thing to
-          // degrade to.
+          // A `ready` says nothing about capture: permission can be denied,
+          // the device can be absent, the graph can fail to build, and the
+          // server still readies. `finishCaptureStartup` fails the session on
+          // any of those, so a seed dispatched ahead of it persists a user
+          // message into a conversation the user can neither hear nor talk to.
+          // `captureRunning` is that success signal.
           //
-          // Before `finishCaptureStartup`, deliberately: the turn is dispatched
-          // while mic acquisition is still settling, which is both the earliest
-          // the assistant can start talking and the one moment the daemon's
-          // turn floor cannot be blocked by a speech onset. Nothing here sets
-          // `thinking`. The daemon's own `thinking` frame does, and
-          // `finishCaptureStartup` only claims `listening` out of `connecting`,
-          // so the two cannot fight whichever order they land in.
-          const seedText = pendingSeedTextRef.current;
-          pendingSeedTextRef.current = null;
-          if (seedText !== null) {
-            sendTextTurn(session, seedText);
-          }
-          void finishCaptureStartup(session, teardown);
+          // Consuming (rather than flagging) is what keeps a reconnect from
+          // greeting twice while still owing the greeting to a connect attempt
+          // that failed before `ready`.
+          //
+          // `sendText` gates on the `ready.textInput` echo: an assistant
+          // without typed turns answers `unknown_type`, byte-identical to the
+          // `update_config` rejection and impossible to tell apart, so an
+          // unsupported seed is dropped and the room opens silent. Nothing
+          // here sets `thinking`; the daemon's own `thinking` frame does.
+          void finishCaptureStartup(session, teardown).then(() => {
+            if (!live() || !session.captureRunning) {
+              return;
+            }
+            const seedText = pendingSeedTextRef.current;
+            pendingSeedTextRef.current = null;
+            if (seedText !== null) {
+              sendTextTurn(session, seedText);
+            }
+          });
         }),
         client.on("speechStarted", () => {
           if (!live() || !session.handsFree) {
@@ -1363,7 +1366,7 @@ export function useLiveVoice(
       initialConnectAttemptRef.current = 0;
       hasReadyRef.current = false;
       // Armed here rather than inside `connectSession`, which the reconnect
-      // path also enters (carrying the same `startOptions`): a session that
+      // path also enters carrying the same `startOptions`: a session that
       // already greeted must not greet again when its socket comes back.
       pendingSeedTextRef.current = startOptions?.seedText?.trim() || null;
       await connectSession(assistantId, conversationId, startOptions ?? {});
