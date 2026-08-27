@@ -53,16 +53,38 @@ export function registrationMetadata(architecture: PreviewArchitecture) {
   };
 }
 
+export function vcpkgMsbuildArguments(root?: string): string[] {
+  if (!root) {
+    return [];
+  }
+  const normalizedRoot = root.endsWith("\\") || root.endsWith("/")
+    ? root
+    : `${root}\\`;
+  return [`/p:VcpkgRoot=${normalizedRoot}`];
+}
+
 function testArchitectureSelection() {
   assert.deepEqual(resolveArchitectures(undefined, "x64"), ["x64"]);
   assert.deepEqual(resolveArchitectures(undefined, "arm64"), ["arm64"]);
   assert.deepEqual(resolveArchitectures("all", "x64"), ["x64", "arm64"]);
   assert.throws(() => resolveArchitectures("ia32"), /Unsupported architecture/);
+  assert.deepEqual(vcpkgMsbuildArguments(), []);
+  assert.deepEqual(vcpkgMsbuildArguments("C:\\vcpkg"), [
+    "/p:VcpkgRoot=C:\\vcpkg\\",
+  ]);
+  assert.deepEqual(vcpkgMsbuildArguments("C:\\vcpkg\\"), [
+    "/p:VcpkgRoot=C:\\vcpkg\\",
+  ]);
 }
 
-export async function runNativeCommand(command: string[], cwd = windowsRoot) {
+export async function runNativeCommand(
+  command: string[],
+  cwd = windowsRoot,
+  env: Record<string, string | undefined> = process.env,
+) {
   const child = Bun.spawn(command, {
     cwd,
+    env,
     stderr: "inherit",
     stdout: "inherit",
   });
@@ -121,11 +143,16 @@ async function main() {
   if (!msbuild) {
     throw new Error("MSBuild is required in a Visual Studio developer shell");
   }
-  for (const architecture of resolveArchitectures(argValue("--arch"))) {
+  const vcpkgRoot = process.env.VCPKG_ROOT ?? process.env.VCPKG_INSTALLATION_ROOT;
+  const vcpkgArguments = vcpkgMsbuildArguments(vcpkgRoot);
+  for (const architecture of resolveArchitectures(
+    argValue("--arch"),
+    process.env.ELECTRON_TARGET_ARCH ?? process.arch,
+  )) {
     const platform = architecture === "arm64" ? "ARM64" : "x64";
     const project = join(handlerRoot, "Vellum.PreviewHandler.vcxproj");
-    await runNativeCommand([msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, "/m"]);
-    await runNativeCommand([msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, "/m"]);
+    await runNativeCommand([msbuild, project, "/p:Configuration=Release", `/p:Platform=${platform}`, ...vcpkgArguments, "/m"]);
+    await runNativeCommand([msbuild, project, "/p:Configuration=Tests", `/p:Platform=${platform}`, ...vcpkgArguments, "/m"]);
     const output = join(handlerRoot, "build", platform, "Release");
     await writeFile(join(output, "registration.json"), `${JSON.stringify(registrationMetadata(architecture), null, 2)}\n`);
     if (architecture === (process.arch === "arm64" ? "arm64" : "x64")) {

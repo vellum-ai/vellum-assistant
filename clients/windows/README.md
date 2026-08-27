@@ -126,6 +126,11 @@ is used when its sha256 matches `scripts/bun-release.ts`, otherwise the
 matching GitHub release is downloaded and verified. Bump the pins there when
 the Bun version changes.
 
+`build:preview-handler` uses Visual Studio's vcpkg integration by default. Set
+`VCPKG_ROOT` to a standalone vcpkg checkout when the Visual Studio-bundled copy
+is too old for the manifest's pinned dependency baseline. The checkout must
+contain full Git history, and the build script forwards the root to MSBuild.
+
 Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
 runs the same steps per architecture, then install-, launch-, and
 uninstall-tests the installer.

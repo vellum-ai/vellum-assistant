@@ -38,6 +38,14 @@ const dotnetDownloads = {
 const dotnetArchitecture = (): keyof typeof dotnetDownloads =>
   process.arch === "arm64" ? "arm64" : "x64";
 
+export const dotnetEnvironment = (
+  environment: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> => {
+  const result = { ...environment };
+  delete result.MSBUILD_EXE_PATH;
+  return result;
+};
+
 const projectDotnetPath = (): string =>
   join(
     windowsRoot,
@@ -186,6 +194,10 @@ const checkConfiguration = async (): Promise<void> => {
     /<RuntimeIdentifiers>win-x64;win-arm64<\/RuntimeIdentifiers>/,
   );
   assert.match(project, /<SelfContained>true<\/SelfContained>/);
+  assert.deepEqual(
+    dotnetEnvironment({ MSBUILD_EXE_PATH: "C:\\msbuild.exe", PATH: "C:\\bin" }),
+    { PATH: "C:\\bin" },
+  );
 };
 
 const main = async (): Promise<void> => {
@@ -194,6 +206,7 @@ const main = async (): Promise<void> => {
     return;
   }
   const dotnet = await ensureDotnet();
+  const environment = dotnetEnvironment();
   if (process.argv.includes("--test")) {
     await runNativeCommand(
       [
@@ -207,6 +220,7 @@ const main = async (): Promise<void> => {
         "win-x64",
       ],
       nativeRoot,
+      environment,
     );
   }
   // CI passes --arch all; local dev builds the current architecture.
@@ -229,6 +243,7 @@ const main = async (): Promise<void> => {
         join(windowsRoot, "resources", "native-helper", architecture),
       ],
       nativeRoot,
+      environment,
     );
   }
 };
