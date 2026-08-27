@@ -345,12 +345,14 @@ export const installDeepLinks = (): void => {
   // Non-production builds register only their env-specific scheme
   // (e.g. `vellum-assistant-dev`) to avoid hijacking production
   // callbacks when both apps coexist.
-  const protocolClientArgs: [] | [string, string[]] =
-    !app.isPackaged && process.argv[1]
-      ? [process.execPath, [process.argv[1]]]
-      : [];
   for (const scheme of REGISTERED_SCHEMES) {
-    app.setAsDefaultProtocolClient(scheme, ...protocolClientArgs);
+    if (!app.isPackaged && process.argv[1]) {
+      app.setAsDefaultProtocolClient(scheme, process.execPath, [
+        process.argv[1],
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient(scheme);
+    }
   }
 
   app.on("will-finish-launching", () => {
