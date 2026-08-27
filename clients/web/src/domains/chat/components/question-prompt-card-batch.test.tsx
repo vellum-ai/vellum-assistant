@@ -54,8 +54,7 @@ describe("QuestionPromptCard batch routing", () => {
     const submissions: QuestionResponseEntry[][] = [];
     renderBatch((r) => submissions.push(r));
 
-    // Page past the first question without answering it, which is the move
-    // that stranded a real user.
+    // Page past the first question without answering it.
     fireEvent.click(screen.getByLabelText("Next question"));
     expect(screen.getByText("How often should it report?")).toBeTruthy();
 
