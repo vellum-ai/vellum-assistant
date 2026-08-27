@@ -56,7 +56,8 @@ const acpConfig = await installAcpConfigStub();
 const { initializeDb } = await import("../../persistence/db-init.js");
 await initializeDb();
 
-const { claudeTokenDigest } = await import("../acp-auth-marker-store.js");
+const { claudeTokenDigest, noteClaudeTokenRefused } =
+  await import("../acp-auth-marker-store.js");
 const { clearHistory, insertHistoryRow } =
   await import("./helpers/acp-history-db.js");
 
@@ -487,6 +488,56 @@ describe("acpConnectCardStillWarranted: a pre-spawn card and configured tokens",
     return acpConnectCardStillWarranted("conv-still-nothing").then(
       (warranted) => {
         expect(warranted).toBe(true);
+      },
+    );
+  });
+});
+
+describe("acpConnectCardStillWarranted: a resolved credential Claude already refused", () => {
+  test("stands while the only credential a spawn would pick is the refused one", () => {
+    // Standing down needs a replacement to stand down *to*. With none stored,
+    // the resolver still reports the refused configured token, and the next
+    // spawn rejects it exactly as this one did. Reading that as repaired drops
+    // the card and lets a second prompt open beside it.
+    clearHistory();
+    const token = "sk-ant-oat-config-refused";
+    getReturn = undefined;
+    acpConfig.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: token },
+        },
+      },
+    });
+    noteClaudeTokenRefused(claudeTokenDigest(token), 1000);
+    markAcpConnectCardRaised("conv-refused-config", "claude");
+
+    return acpConnectCardStillWarranted("conv-refused-config").then(
+      (warranted) => {
+        expect(warranted).toBe(true);
+      },
+    );
+  });
+
+  test("falls once the resolved credential is one Claude has not refused", () => {
+    clearHistory();
+    getReturn = undefined;
+    acpConfig.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-config-fresh" },
+        },
+      },
+    });
+    markAcpConnectCardRaised("conv-fresh-config", "claude");
+
+    return acpConnectCardStillWarranted("conv-fresh-config").then(
+      (warranted) => {
+        expect(warranted).toBe(false);
       },
     );
   });

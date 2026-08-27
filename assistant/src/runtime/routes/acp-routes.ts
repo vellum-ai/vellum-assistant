@@ -9,7 +9,10 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { acpAuthMarkerStillCurrent } from "../../acp/acp-auth-marker-store.js";
+import {
+  acpAuthMarkerStillCurrent,
+  MARKER_SCAN_LIMIT,
+} from "../../acp/acp-auth-marker-store.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import {
@@ -46,18 +49,6 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
 
 const log = getLogger("acp-routes");
-
-/**
- * How many of a conversation's newest markers are examined before giving up on
- * finding a current one.
- *
- * A conversation keeps every marker it has ever had, so this is what makes the
- * lookup a fixed read rather than one that grows with its failure history. A
- * current marker older than this window is not reached, which trades an exotic
- * case (the newest twenty failures all naming credentials that have since
- * changed, with an older one still matching) for a bounded query.
- */
-const MARKER_SCAN_LIMIT = 20;
 
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;

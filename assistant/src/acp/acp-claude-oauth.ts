@@ -313,5 +313,16 @@ export async function acpConnectCardStillWarranted(
   }
   const { resolvedClaudeCredentialDigest } =
     await import("./prepare-agent-env.js");
-  return (await resolvedClaudeCredentialDigest(agentId)) === undefined;
+  const resolved = await resolvedClaudeCredentialDigest(agentId);
+  if (resolved === undefined) {
+    return true;
+  }
+  // Resolving something is not the same as having a repair. A configured
+  // token Claude already refused stands down only once the vault offers an
+  // alternative, so with no replacement stored the resolver still reports it
+  // and the next spawn rejects it exactly as this one did. Treating that as
+  // fixed drops the card and lets a second prompt open beside it.
+  const { claudeCredentialRefused } =
+    await import("./acp-auth-marker-store.js");
+  return claudeCredentialRefused(resolved);
 }

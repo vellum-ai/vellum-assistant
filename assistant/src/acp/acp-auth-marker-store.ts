@@ -20,7 +20,7 @@ const log = getLogger("acp-auth-marker-store");
  * and erring toward "no current marker" only forgets bookkeeping that the next
  * failure recreates.
  */
-const MARKER_SCAN_LIMIT = 20;
+export const MARKER_SCAN_LIMIT = 20;
 
 /** Digest a Claude token for identity comparison. Never stores the token. */
 export function claudeTokenDigest(token: string): string {
@@ -98,7 +98,18 @@ export function noteClaudeTokenRefused(
  * refused.
  */
 export function claudeTokenRefusedByClaude(token: string): boolean {
-  const digest = claudeTokenDigest(token);
+  return claudeCredentialRefused(claudeTokenDigest(token));
+}
+
+/**
+ * Whether Claude has refused the credential with this digest.
+ *
+ * The same question as {@link claudeTokenRefusedByClaude}, for callers that
+ * hold an identity rather than the token itself: a resolver reports which
+ * credential a spawn would pick, and "would pick it" is not the same as
+ * "it works".
+ */
+export function claudeCredentialRefused(digest: string): boolean {
   try {
     const row = getDb()
       .select({ digest: acpRefusedCredentials.digest })
