@@ -1150,6 +1150,9 @@
     "settingsAriaLabel": "Ajustes de uso y facturación",
     "title": "Uso"
   },
+  "previewError": {
+    "cannotPreview": "No se puede previsualizar este archivo"
+  },
   "previewMessageCard": {
     "download": "Descargar",
     "downloadAria": "Descargar {filename}"
@@ -1157,9 +1160,13 @@
   "previewSkeleton": {
     "loadingPreview": "Cargando vista previa"
   },
+  "previewTruncationNotice": {
+    "showingFirst": "Mostrando los primeros {size}"
+  },
   "previewUnsupported": {
     "downloadFile": "Descargar archivo",
-    "goToFile": "Ir al archivo"
+    "goToFile": "Ir al archivo",
+    "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."

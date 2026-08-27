@@ -1150,6 +1150,9 @@
     "settingsAriaLabel": "Usage and billing settings",
     "title": "Usage"
   },
+  "previewError": {
+    "cannotPreview": "Can't preview this file"
+  },
   "previewMessageCard": {
     "download": "Download",
     "downloadAria": "Download {filename}"
@@ -1157,9 +1160,13 @@
   "previewSkeleton": {
     "loadingPreview": "Loading preview"
   },
+  "previewTruncationNotice": {
+    "showingFirst": "Showing the first {size}"
+  },
   "previewUnsupported": {
     "downloadFile": "Download file",
-    "goToFile": "Go to file"
+    "goToFile": "Go to file",
+    "noPreviewForType": "No preview for this file type"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
