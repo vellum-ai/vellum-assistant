@@ -17,6 +17,7 @@ import { createElement } from "react";
 
 import { appIconNameForTraits } from "@/utils/avatar-app-icon";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { tightPathBBox, unionBBox } from "@/utils/eye-bbox";
 import type { AppIconState } from "@/runtime/app-icon";
 import type { AvatarState } from "@/types/avatar";
 
@@ -147,6 +148,31 @@ function previewEyePaths(): (string | null)[] {
   );
 }
 
+/** Rendered width of the one preview on screen, in px. */
+function previewSize(): number {
+  const svg = document.querySelector('[data-testid="app-icon-preview"]');
+  const width = Number(svg?.getAttribute("width"));
+  if (!Number.isFinite(width) || width <= 0) {
+    throw new Error("No preview rendered");
+  }
+  return width;
+}
+
+/** On-screen width of that preview's eye art, in px. */
+function previewEyeWidth(): number {
+  const group = document.querySelector('[data-testid="app-icon-preview-eyes"]');
+  const transform = group?.getAttribute("transform") ?? "";
+  const scale = Number(transform.match(/^matrix\((-?[\d.]+),/)?.[1]);
+  if (!Number.isFinite(scale)) {
+    throw new Error(`Unexpected eye transform: ${transform}`);
+  }
+  const paths = Array.from(group?.querySelectorAll("path") ?? []);
+  const bounds = unionBBox(
+    paths.map((path) => tightPathBBox(path.getAttribute("d") ?? "")),
+  );
+  return bounds.w * scale;
+}
+
 function catalogPaths(eyeStyleId: string): (string | null)[] {
   const eyeStyle = BUNDLED_COMPONENTS.eyeStyles.find(
     (entry) => entry.id === eyeStyleId,
@@ -230,6 +256,35 @@ describe("AppIconRow", () => {
     });
     expect(previewFill()).toBe(hexFor("teal"));
     expect(previewEyePaths()).toEqual(catalogPaths("goofy"));
+  });
+
+  test("frames the default icon the way the primary asset frames it", async () => {
+    await renderRow();
+
+    await waitFor(() => {
+      expect(buttonByText("Change")).toBeDefined();
+    });
+    // The icon the app ships spans half its field, where a generated bundle
+    // takes the smaller share its eye style claims on an avatar.
+    expect(previewEyeWidth()).toBeCloseTo(previewSize() / 2, 1);
+  });
+
+  test("frames an applied alternate the way its own bundle frames it", async () => {
+    iconState = {
+      supported: true,
+      current: appIconNameForTraits("bashful", "green"),
+      available: ALL_ICONS,
+    };
+
+    await renderRow();
+
+    await waitFor(() => {
+      expect(buttonByText("Change")).toBeDefined();
+    });
+    expect(previewEyePaths()).toEqual(catalogPaths("bashful"));
+    // bashful is among the smallest pairs the library draws, at well under
+    // half the field. Its exact share is pinned in the preview's own tests.
+    expect(previewEyeWidth()).toBeLessThan(previewSize() / 3);
   });
 
   test("applies the pair the picker was left on and closes", async () => {

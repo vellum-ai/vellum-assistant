@@ -1,5 +1,5 @@
 /**
- * On-screen preview of a bundled iOS alternate app icon.
+ * On-screen preview of an iOS app icon.
  *
  * Draws what `clients/ios/scripts/generate-avatar-icons.ts` bakes into each
  * `avatar-eyes-<eyeStyle>-<color>.appiconset`: a solid field in the trait
@@ -10,6 +10,11 @@
  * rasterizer would find. Framing against the control-point box the voice room
  * uses (`pathBBox`) would place the `angry` eyes about 6% of the icon above
  * where the shipped PNG has them.
+ *
+ * The app's primary icon (`clients/ios/App/App/AppIcon.icon`) is drawn by hand
+ * rather than generated, and it places its pair at the full
+ * {@link EYE_CANVAS_FRACTION} span, so a preview standing in for it passes
+ * {@link AppIconPreviewProps.primary} to be framed that way.
  *
  * Purely presentational: no store, hook, or native bridge. An eye style or
  * color the components catalog does not carry renders as the field alone
@@ -55,6 +60,12 @@ export interface AppIconPreviewProps {
   components: CharacterComponents | null;
   eyeStyle: string;
   color: string;
+  /**
+   * Frame the pair the way the app's primary icon frames its own: the whole
+   * {@link EYE_CANVAS_FRACTION} span, whatever style is on screen. Alternates
+   * leave this off and take their own share of the field.
+   */
+  primary?: boolean;
   /** Rendered width and height in px. */
   size?: number;
   className?: string;
@@ -129,15 +140,18 @@ function measureCatalog(
  * The pair is fitted by its wider axis to its share of the field, which is
  * {@link EYE_CANVAS_FRACTION} for the largest style in the catalog and less
  * for the rest in proportion to how much smaller they are drawn on an avatar.
- * Taking the smaller of the two ratios caps a pair taller than it is wide at
- * that same fraction of the height, so an unusually tall pair cannot outgrow a
- * wide one. Returns null for art that is missing or degenerate, which is what
- * makes an unknown id render the field alone.
+ * A `primary` preview takes the whole fraction instead, since the icon it
+ * stands in for is framed that way whichever pair it carries. Taking the
+ * smaller of the two ratios caps a pair taller than it is wide at that same
+ * fraction of the height, so an unusually tall pair cannot outgrow a wide one.
+ * Returns null for art that is missing or degenerate, which is what makes an
+ * unknown id render the field alone.
  */
 function resolveEyeArt(
   components: CharacterComponents | null,
   eyeStyleId: string,
   size: number,
+  primary: boolean,
 ): IconEyeArt | null {
   const eyeStyle = components?.eyeStyles.find((eye) => eye.id === eyeStyleId);
   if (!components || !eyeStyle) {
@@ -153,7 +167,9 @@ function resolveEyeArt(
   );
   const { bbox } = measurement;
   const span =
-    size * EYE_CANVAS_FRACTION * (measurement.extent / largestExtent);
+    size *
+    EYE_CANVAS_FRACTION *
+    (primary ? 1 : measurement.extent / largestExtent);
   const scale = Math.min(span / bbox.w, span / bbox.h);
   const translateX = size / 2 - (bbox.x + bbox.w / 2) * scale;
   const translateY = size / 2 - (bbox.y + bbox.h / 2) * scale;
@@ -167,12 +183,13 @@ export function AppIconPreview({
   components,
   eyeStyle,
   color,
+  primary = false,
   size = DEFAULT_SIZE,
   className,
 }: AppIconPreviewProps) {
   const art = useMemo(
-    () => resolveEyeArt(components, eyeStyle, size),
-    [components, eyeStyle, size],
+    () => resolveEyeArt(components, eyeStyle, size, primary),
+    [components, eyeStyle, size, primary],
   );
   const fieldHex = components?.colors.find((entry) => entry.id === color)?.hex;
   const radius = size * CORNER_RADIUS_FRACTION;

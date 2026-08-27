@@ -32,6 +32,9 @@ const GREEN_HEX = "#4C9B50";
 const WIDE_EYE_STYLE = "grumpy";
 const ROUND_EYE_STYLE = "gentle";
 
+/** The pair `clients/ios/App/App/AppIcon.icon` draws, at half the icon. */
+const PRIMARY_EYE_STYLE = "quirky";
+
 /**
  * Union bounds of each bundled eye style's artwork, in its own path units.
  *
@@ -255,6 +258,30 @@ describe("AppIconPreview", () => {
     };
 
     expect(spanOf("bashful")).toBeLessThan(spanOf("surprised") * 0.6);
+  });
+
+  test("frames the primary icon on the whole fraction, not its style's share", () => {
+    const { container } = render(
+      <AppIconPreview
+        components={BUNDLED_COMPONENTS}
+        eyeStyle={PRIMARY_EYE_STYLE}
+        color="green"
+        size={SIZE}
+        primary
+      />,
+    );
+
+    const { box, centerX, centerY } = placement(
+      container,
+      sampledBounds(PRIMARY_EYE_STYLE),
+    );
+    expectWithinTolerance(centerX, SIZE / 2);
+    expectWithinTolerance(centerY, SIZE / 2);
+    expectWithinTolerance(box.w, SIZE * EYE_CANVAS_FRACTION);
+    // The same pair as an alternate is fitted to under half of that, so the
+    // span above is the framing this asks for rather than one quirky reaches
+    // on its own.
+    expect(sampledSpan(PRIMARY_EYE_STYLE, SIZE)).toBeLessThan(box.w / 2);
   });
 
   test("fits a rounder pair by whichever axis is longer", () => {

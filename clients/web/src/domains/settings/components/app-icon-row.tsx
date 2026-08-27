@@ -58,8 +58,10 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
   // wearing an uploaded image resolved without one, which is what keeps the
   // picker usable for exactly the users who cannot sync from an avatar.
   const catalog = components ?? bundledComponents;
-  const traits =
-    traitsForAppIconName(sync.currentIcon) ?? DEFAULT_APP_ICON_TRAITS;
+  // With no alternate applied the thumbnail stands in for the app's primary
+  // icon, which frames its pair larger than the generated bundles frame theirs.
+  const appliedTraits = traitsForAppIconName(sync.currentIcon);
+  const traits = appliedTraits ?? DEFAULT_APP_ICON_TRAITS;
 
   return (
     <>
@@ -77,6 +79,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
             components={catalog}
             eyeStyle={traits.eyeStyle}
             color={traits.color}
+            primary={appliedTraits === null}
             size={ROW_PREVIEW_SIZE}
           />
           <Button variant="outlined" onClick={() => setOpen(true)}>
