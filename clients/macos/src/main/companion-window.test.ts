@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_CANVAS_PAD,
   COMPANION_SIZES,
+  companionGapFor,
   type CompanionSurfaceState,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
@@ -220,6 +223,16 @@ const START = {
 } as const;
 
 /**
+ * The size the placement cases are written against, which is the one the
+ * renderer's layout is authored at. Every other size is the same arithmetic
+ * scaled, which `geometryFor` has its own cases for.
+ */
+const GEOMETRY = geometryFor("small");
+const CANVAS_WIDTH = GEOMETRY.canvasWidth;
+const RISE_ABOVE = GEOMETRY.riseAbove;
+const DROP_BELOW = GEOMETRY.dropBelow;
+
+/**
  * The growth direction is the only rule in the companion window worth testing
  * without a window server: everything else is Electron plumbing. It decides
  * which way the pill unfurls out of the avatar, and getting it wrong runs the
@@ -230,8 +243,10 @@ const START = {
 // cases readable.
 const DISPLAY = { x: 0, width: 1440 };
 
-// 360 - 44: the clearance the body needs on the side it grows into.
-const NEEDED = 316;
+// The clearance the pill needs on the side it grows into, measured from the
+// avatar's centre the way the room on each side is: the avatar's half box, the
+// gap, then the widest body.
+const NEEDED = GEOMETRY.maxReach;
 
 describe("growthFor", () => {
   test("grows rightward with room to the right", () => {
@@ -255,6 +270,34 @@ describe("growthFor", () => {
     expect(growthFor(DISPLAY.width - NEEDED + 1, DISPLAY, GEOMETRY)).toBe(
       "left",
     );
+  });
+
+  /**
+   * The gap and the avatar's half box are part of the clearance, not slack the
+   * pill can be squeezed into. A test measured against the body alone would
+   * pass with the pill's leading edge already off the display.
+   */
+  test("counts the gap and the half box as room the pill needs", () => {
+    expect(NEEDED).toBe(
+      GEOMETRY.avatarBox / 2 + GEOMETRY.gap + GEOMETRY.maxBodyWidth,
+    );
+    expect(
+      growthFor(DISPLAY.width - GEOMETRY.maxBodyWidth, DISPLAY, GEOMETRY),
+    ).toBe("left");
+  });
+
+  /**
+   * The room is measured from the avatar's centre while the pill starts at the
+   * avatar's edge, so the half box is the difference between fitting and
+   * clipping. 340pt on the right clears the gap and the widest body and still
+   * cuts the controls off.
+   */
+  test("flips when only the avatar's half box is missing on the right", () => {
+    const centre = DISPLAY.width - 340;
+    expect(DISPLAY.width - centre).toBeGreaterThan(
+      GEOMETRY.gap + GEOMETRY.maxBodyWidth,
+    );
+    expect(growthFor(centre, DISPLAY, GEOMETRY)).toBe("left");
   });
 
   test("measures against the display's own origin, not the screen's", () => {
@@ -284,16 +327,6 @@ describe("growthFor", () => {
  * somewhere the user can reach. A surface pushed off the display cannot be
  * dragged back, because there is nothing left on screen to grab.
  */
-
-/**
- * The size the placement cases are written against, which is the one the
- * renderer's layout is authored at. Every other size is the same arithmetic
- * scaled, which `geometryFor` has its own cases for.
- */
-const GEOMETRY = geometryFor("small");
-const CANVAS_WIDTH = GEOMETRY.canvasWidth;
-const RISE_ABOVE = GEOMETRY.riseAbove;
-const DROP_BELOW = GEOMETRY.dropBelow;
 
 /** A 1440x900 display with the menu bar taken off the top. */
 const WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
@@ -549,8 +582,38 @@ describe("geometryFor", () => {
   test("draws `small` at the size the renderer's layout is authored at", () => {
     const small = geometryFor("small");
     expect(small.avatarBox).toBe(44);
-    expect(small.canvasWidth).toBe(724);
+    expect(small.canvasWidth).toBe(748);
     expect(small.canvasHeight).toBe(338);
+    expect(small.maxReach).toBe(350);
+  });
+
+  /**
+   * What the width is actually for: the avatar's half box, the gap the pill
+   * hangs off it by, and the widest body, on both sides so main can flip the
+   * direction without resizing the window, plus the shadow's room.
+   */
+  test("holds the pill's whole reach on both sides of the avatar", () => {
+    for (const size of COMPANION_SIZES) {
+      const geometry = geometryFor(size);
+      const pad =
+        (COMPANION_BASE_CANVAS_PAD * geometry.avatarBox) /
+        COMPANION_BASE_AVATAR_BOX;
+      expect(geometry.maxReach).toBe(
+        geometry.avatarBox / 2 + geometry.gap + geometry.maxBodyWidth,
+      );
+      expect(geometry.canvasWidth).toBe(
+        Math.round(2 * (geometry.maxReach + pad)),
+      );
+    }
+  });
+
+  test("takes the gap from the contract rather than a copy of it", () => {
+    for (const size of COMPANION_SIZES) {
+      const geometry = geometryFor(size);
+      expect(geometry.gap).toBe(
+        companionGapFor(geometry.avatarBox, geometry.avatarBox),
+      );
+    }
   });
 
   /**
@@ -567,7 +630,9 @@ describe("geometryFor", () => {
     expect(large.canvasHeight).toBe(small.canvasHeight * scale);
     expect(large.riseAbove).toBe(small.riseAbove * scale);
     expect(large.dropBelow).toBe(small.dropBelow * scale);
-    expect(large.maxPillWidth).toBe(small.maxPillWidth * scale);
+    expect(large.gap).toBe(small.gap * scale);
+    expect(large.maxBodyWidth).toBe(small.maxBodyWidth * scale);
+    expect(large.maxReach).toBe(small.maxReach * scale);
   });
 
   test("grows monotonically through the named steps", () => {

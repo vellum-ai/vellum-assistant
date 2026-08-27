@@ -1,6 +1,7 @@
 import {
   COMPANION_INTRO_BEATS,
   COMPANION_NEAR_EDGE,
+  companionGapFor,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
@@ -42,11 +43,16 @@ import type {
  * the main process for a card that is on screen once in an install's life.
  */
 
-/** Gap between the avatar's edge and the card, in base layout points. */
-const AVATAR_GAP = 12;
-
 /** The avatar's box the layout is authored at, as `CompanionSurface` has it. */
 const AVATAR_BOX = 44;
+
+/**
+ * The room between the avatar's edge and the card, which is the same room the
+ * surface leaves between the avatar and its pill. One number from the contract
+ * rather than one per neighbour, so everything hanging off the creature sits
+ * the same distance from it.
+ */
+const AVATAR_GAP = companionGapFor(AVATAR_BOX, AVATAR_BOX);
 
 /**
  * The card's width, fixed rather than measured.
@@ -54,9 +60,9 @@ const AVATAR_BOX = 44;
  * Prose has no natural width, so measuring would size the card to whichever
  * beat happened to say the most and change its shape as the run advanced. This
  * is the same bargain the typing card makes, and it fits the canvas at every
- * size: the window reaches `maxPillWidth - avatarBox / 2` past the avatar in
- * both directions (`geometryFor` in `companion-window.ts`), which is 338 at the
- * size this layout is authored at.
+ * size: the window reaches `avatarBox / 2 + gap + maxBodyWidth` past the avatar
+ * in both directions (`geometryFor` in `companion-window.ts`), which is 350 at
+ * the size this layout is authored at.
  */
 const CARD_WIDTH = 244;
 
@@ -181,10 +187,10 @@ export function CompanionIntro({
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY_KEYS[beat];
 
-  // The pill's own horizontal anchoring, repeated rather than shared, because
-  // the card is a sibling of the pill and not inside it: it must not inherit
-  // the width that animates from beat to beat. Anchoring to the same edge is
-  // what makes the card and the pill read as one object being annotated.
+  // Hung off the avatar's own edge, which is the point the host positioned this
+  // window around and the point the pill is measured from too. Not off the
+  // pill: that box changes width from beat to beat as controls are spotlighted,
+  // and a card pinned to it would slide about while being read.
   const placement: CSSProperties =
     growth === "left"
       ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }

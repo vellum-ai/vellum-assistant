@@ -37,8 +37,8 @@ const DEMO_CALL: VoiceActivityState = {
 
 /**
  * A real assistant avatar, composed from the same bundled character components
- * the hatching screen uses, so what is on the pill is a genuine avatar rather
- * than a stand-in that happens to be round. Composed once at module scope: it
+ * the hatching screen uses, so what is beside the pill is a genuine avatar
+ * rather than a stand-in that happens to be round. Composed once at module scope: it
  * is a pure function of constants.
  */
 const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
