@@ -1041,8 +1041,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           }}
         >
           {errorMessage ? (
+            // Visual only. A live region carrying its own first content is
+            // announced unreliably, since assistive tech watches an existing
+            // region for changes rather than a new one for arrival, and this
+            // element mounts with the message already in it. The always-mounted
+            // region at the foot of the room speaks it instead.
             <p
-              role="status"
+              aria-hidden
+              data-testid="voice-room-camera-error"
               className={cn(
                 "rounded-full px-3 py-1 text-xs",
                 // Same reason the controls get a scrim: a failed send reported
@@ -1278,6 +1284,23 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           : muted && state !== "listening"
             ? t("voiceRoom.mutedState", { state: stateLabel })
             : stateLabel}
+      </div>
+
+      {/* The camera's own failures, in words.
+
+          A region of its own rather than a branch of the one above, because the
+          two answer different questions and a failure stands until the camera is
+          opened or closed again: folding it in would silence every state change
+          for as long as the message lasted. Mounted whether or not there is
+          anything to say, since assistive tech announces a change made INSIDE a
+          region it was already watching, not the arrival of a region that comes
+          with its words already in it. */}
+      <div
+        aria-live="polite"
+        className="sr-only"
+        data-testid="voice-room-camera-announcer"
+      >
+        {errorMessage ?? ""}
       </div>
     </motion.div>
   );

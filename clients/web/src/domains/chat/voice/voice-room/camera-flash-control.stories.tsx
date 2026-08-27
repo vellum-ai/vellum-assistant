@@ -15,6 +15,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
+import {
+  CameraRowFlipStandIn,
+  overFakeFeed,
+} from "@/domains/chat/voice/camera-story-feed";
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
 import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
@@ -27,24 +31,6 @@ const LABELS: Record<FlashMode, string> = {
 };
 
 const ORDER: FlashMode[] = ["off", "auto", "on"];
-
-/**
- * A stand-in for the viewfinder. Two stops of brightness in one frame, because
- * a control that only has to survive mid-grey is not being tested.
- */
-function FeedBackdrop({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="flex min-h-[280px] items-center justify-center gap-10 rounded-xl p-10"
-      style={{
-        background:
-          "linear-gradient(115deg, #f4efe6 0%, #a9927a 38%, #2c2620 72%, #0b0a09 100%)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
 
 /** One state, captioned, so the three can be compared side by side. */
 function StateCell({ mode }: { mode: FlashMode }) {
@@ -64,14 +50,8 @@ function StateCell({ mode }: { mode: FlashMode }) {
 const meta: Meta<typeof CameraFlashControl> = {
   title: "Chat/Voice/Camera Flash Control",
   component: CameraFlashControl,
-  parameters: { layout: "centered" },
-  decorators: [
-    (Story) => (
-      <FeedBackdrop>
-        <Story />
-      </FeedBackdrop>
-    ),
-  ],
+  parameters: { layout: "fullscreen" },
+  decorators: [overFakeFeed({ gap: 40 })],
 };
 
 export default meta;
@@ -134,10 +114,13 @@ export const InTheShutterRow: Story = {
         onClick={() => {}}
         className="absolute left-11"
       />
-      <span className="flex size-[84px] items-center justify-center rounded-full border-[2.5px] border-white">
+      <span
+        aria-hidden
+        className="flex size-[84px] items-center justify-center rounded-full border-[2.5px] border-white"
+      >
         <span className="size-16 rounded-full bg-white" />
       </span>
-      <span className="absolute right-[30px] size-13 rounded-full bg-[rgba(90,74,64,0.75)]" />
+      <CameraRowFlipStandIn />
     </div>
   ),
 };

@@ -139,6 +139,14 @@
     "syntheticYield": "Пауза · сжатие не уместило следующий шаг",
     "unrecognizedCall": "Неизвестный вызов"
   },
+  "cameraDeepLink": {
+    "captureFailed": "Не удалось сделать фото. Попробуйте ещё раз.",
+    "close": "Закрыть камеру",
+    "flip": "Сменить камеру",
+    "openFailed": "Не удалось открыть камеру.",
+    "shutter": "Сделать фото",
+    "title": "Сделать фото"
+  },
   "cameraStatusPill": {
     "announcePhotoMutedSpeaking": "Фото. Без звука. {name} говорит",
     "announcePhotoMutedStatus": "Фото. Без звука. {status}",
@@ -730,5 +738,25 @@
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "Нативная диктовка {clientName} не вернула расшифровку. Проверьте нативное распознавание речи в системных настройках и повторите попытку."
+  },
+  "voiceRoom": {
+    "ariaLabel": "Голосовой сеанс",
+    "closeCamera": "Закрыть камеру",
+    "endSessionAria": "Завершить голосовой сеанс",
+    "endSessionTooltip": "Завершить сеанс",
+    "flashAuto": "Автоматическая вспышка",
+    "flashAutoBadge": "А",
+    "flashOff": "Вспышка выключена",
+    "flashOn": "Вспышка включена",
+    "flipCamera": "Сменить камеру",
+    "minimizeAria": "Свернуть голосовую комнату",
+    "minimizeTooltip": "Свернуть (сеанс продолжится)",
+    "muteAssistant": "Отключить звук ассистента",
+    "muteMicrophone": "Отключить микрофон",
+    "mutedState": "Без звука. {state}",
+    "showCamera": "Показать камеру",
+    "takePhoto": "Сделать фото",
+    "unmuteAssistant": "Включить звук ассистента",
+    "unmuteMicrophone": "Включить микрофон"
   }
 }

@@ -14,40 +14,32 @@
  * "Listening" would be telling them the mic is open.
  */
 
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 
 // The dot's blink is a hand-written keyframe in the app stylesheet, which
 // Storybook's preview.css does not pull in.
 import "@/index.css";
 
-import { CameraStatusPill } from "./camera-status-pill";
+import {
+  CAMERA_STORY_FEED_DIM,
+  overFakeFeed,
+} from "@/domains/chat/voice/camera-story-feed";
 
-/**
- * A frame to read the pill against: a dim room, lit from the top left, which
- * is the case the pill's glass has to survive. Story-local sample content
- * standing in for camera video, not app styling.
- */
-const overFakeFeed: Decorator = (Story) => (
-  <div
-    style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: 16,
-      padding: "56px 24px",
-      background:
-        "radial-gradient(120% 90% at 22% 8%, #6d5c4d 0%, #3a3129 42%, #17130f 100%)",
-    }}
-  >
-    <Story />
-  </div>
-);
+import { CameraStatusPill } from "./camera-status-pill";
 
 const meta: Meta<typeof CameraStatusPill> = {
   title: "Chat/Voice/CameraStatusPill",
   component: CameraStatusPill,
   parameters: { layout: "fullscreen" },
-  decorators: [overFakeFeed],
+  // The dim frame rather than the bright one: what the pill's glass has to
+  // survive is a frame with nothing in it to read against.
+  decorators: [
+    overFakeFeed({
+      direction: "column",
+      gap: 16,
+      background: CAMERA_STORY_FEED_DIM,
+    }),
+  ],
   args: {
     voiceState: "idle",
     statusLabel: "Listening…",

@@ -120,4 +120,27 @@ describe("CameraFlashControl", () => {
     expect(badge("on")).toBe("");
     expect(badge("off")).toBe("");
   });
+
+  test("the target reaches a thumb even though the circle does not", () => {
+    render(
+      <CameraFlashControl
+        mode="off"
+        ariaLabel="Flash off"
+        autoBadge="A"
+        onClick={() => {}}
+        testId="flash"
+      />,
+    );
+
+    // 46px of visible circle, because a wider one crowds the shutter beside it,
+    // and 4px of invisible margin on every side taking the pressable box to 54.
+    // The platform minimum is 44, and it is the pseudo-element that gets this
+    // control there, so a restyle that drops it breaks the one thing about this
+    // button nobody can see.
+    const className = screen.getByTestId("flash").className;
+    expect(className).toContain("size-[46px]");
+    expect(className).toContain("after:absolute");
+    expect(className).toContain("after:-inset-1");
+    expect(className).toContain("after:content-['']");
+  });
 });
