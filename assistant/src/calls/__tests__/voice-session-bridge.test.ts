@@ -390,6 +390,7 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     );
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
+      scripted: true,
       hidden: true,
       messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
     });
@@ -404,8 +405,11 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
 
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
+    // Visible AND scripted: the opener is shown, but the assistant wrote it,
+    // so it is not the user taking a turn.
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
+      scripted: true,
     });
   });
 
@@ -425,6 +429,7 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     // analytics already read.
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
+      scripted: true,
       client: {
         voice: true,
         voice_session_id: "session-123",
@@ -444,8 +449,39 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
 
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
+      scripted: true,
       client: { voice: true, voice_session_id: "session-123" },
     });
+  });
+
+  test("a turn the user really spoke is left unmarked, not marked false", async () => {
+    // Absent means UNKNOWN and falls through to the legacy classifier, which
+    // is the safe answer here. Stamping `false` would assert this turn was
+    // typed by the user, and a wrong `false` is trusted downstream.
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is on my calendar",
+    });
+
+    expect(fake.lastPersistOpts()?.metadata).not.toHaveProperty("scripted");
+  });
+
+  test("scripted is not derived from hidden", async () => {
+    // The two answer different questions, and the opener is the case that
+    // separates them: shown to the user, written by the assistant. Deriving
+    // one from the other lets every visible-but-scripted turn count as
+    // activation, which is the largest single source of funnel inflation.
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
+
+    const metadata = fake.lastPersistOpts()?.metadata;
+    expect(metadata?.scripted).toBe(true);
+    expect(metadata).not.toHaveProperty("hidden");
   });
 
   test("a phone turn carries no client bag", async () => {
@@ -501,6 +537,7 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
     expect(fake.lastPersistOpts()?.content).toBe(SYNTHETIC_CONTENT);
     expect(fake.lastPersistOpts()?.metadata).toEqual({
       voiceSessionTurn: true,
+      scripted: true,
       hidden: true,
     });
     expect(echoes).toHaveLength(0);

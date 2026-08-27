@@ -4953,7 +4953,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // silent" onto a session that has turns, a contradictory row. Setting it
       // before can at worst leave a silent session unexplained, which is a gap
       // rather than a false statement.
-      this.dispatchedTurn = true;
+      //
+      // A synthetic prompt does not count. The silence classification answers
+      // "did anything come from the person?", and the session opening by
+      // greeting them is the session talking to itself. Counting it would
+      // retire the whole taxonomy for every greeted session: `no_speech`,
+      // `text_only` and `no_turn` become unreachable, and `no_audio` survives
+      // only where capture failed early enough to withhold the greeting. That
+      // is the one rate the funnel has for "voice didn't work for me".
+      if (!activeTurn.hiddenPrompt) {
+        this.dispatchedTurn = true;
+      }
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,

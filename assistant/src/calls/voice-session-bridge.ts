@@ -1031,6 +1031,19 @@ export async function startVoiceTurn(
         // Durable "this turn came from an open voice session" marker; see
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
+        // Auto-sent on the user's behalf rather than spoken or typed by them,
+        // so activation metrics exclude it (see the `scripted` contract on the
+        // send route). Keyed off the synthetic set, NOT off
+        // `isHiddenSyntheticPrompt`: the two answer different questions, and
+        // deriving one from the other is what lets a visible-but-scripted turn
+        // through. `hidden` decides whether a human sees the row; `scripted`
+        // decides whether it counts as the user taking a turn.
+        //
+        // Only ever `true` here. A genuine voice turn is left absent rather
+        // than stamped `false`, because absent means UNKNOWN and falls through
+        // to the legacy classifier, while a wrong `false` is trusted
+        // downstream.
+        ...(isSyntheticVoicePrompt ? { scripted: true } : {}),
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
         ...(isEscalationContinuation
           ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
