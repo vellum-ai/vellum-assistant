@@ -11,6 +11,14 @@
  * uses (`pathBBox`) would place the `angry` eyes about 6% of the icon above
  * where the shipped PNG has them.
  *
+ * An alternate's share is measured against the largest pair the installed
+ * shell bundles, the same pair its PNGs were normalized against when it was
+ * built. The web layer ships independently of that binary, so the catalog it
+ * carries can name styles the shell has no bundle for, and taking the
+ * denominator from {@link AppIconPreviewProps.availableIcons} keeps every
+ * preview framed like the PNG on the device rather than like whatever the web
+ * bundle happens to know about.
+ *
  * The app's primary icon (`clients/ios/App/App/AppIcon.icon`) is drawn by hand
  * rather than generated, and it places its pair at the full
  * {@link EYE_CANVAS_FRACTION} span, so a preview standing in for it passes
@@ -24,6 +32,7 @@
 
 import { useMemo } from "react";
 
+import { traitsForAppIconName } from "@/utils/avatar-app-icon";
 import { tightPathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type {
   CharacterComponents,
@@ -55,11 +64,21 @@ const UNKNOWN_FIELD_FILL = "var(--surface-sunken)";
 /** Default preview size, matching the avatar builder's inline thumbnails. */
 const DEFAULT_SIZE = 64;
 
+/** Shared empty list, so an omitted prop keeps a stable identity. */
+const NO_ICONS: readonly string[] = [];
+
 export interface AppIconPreviewProps {
   /** Trait catalog the ids resolve against. Null while it is still loading. */
   components: CharacterComponents | null;
   eyeStyle: string;
   color: string;
+  /**
+   * Every alternate icon name the installed shell bundles, the same list the
+   * picker gates Set on. The eye styles those names carry are what the
+   * per-style spans are normalized against; a list naming no style this
+   * catalog measures normalizes against the whole catalog instead.
+   */
+  availableIcons?: readonly string[];
   /**
    * Frame the pair the way the app's primary icon frames its own: the whole
    * {@link EYE_CANVAS_FRACTION} span, whatever style is on screen. Alternates
@@ -135,15 +154,56 @@ function measureCatalog(
 }
 
 /**
+ * Eye style ids the installed shell bundles an icon for, sorted and deduped
+ * into one string. Reducing the names to a key keeps the framing memo stable
+ * when a caller hands down a fresh array carrying the same icons.
+ */
+function installedEyeStyleKey(availableIcons: readonly string[]): string {
+  const styles = new Set<string>();
+  for (const name of availableIcons) {
+    const traits = traitsForAppIconName(name);
+    if (traits !== null) {
+      styles.add(traits.eyeStyle);
+    }
+  }
+  return Array.from(styles).sort().join(",");
+}
+
+/**
+ * The extent the per-style spans divide by: the largest pair among the styles
+ * the installed shell bundles, since the shipped PNGs were normalized against
+ * exactly those. Falls back to the largest pair in the catalog when the key
+ * names no style this catalog measures, which is what a surface with no shell
+ * answer behind it gets.
+ */
+function normalizationExtent(
+  measured: Map<string, EyeMeasurement>,
+  installedKey: string,
+): number {
+  const installed =
+    installedKey.length > 0 ? new Set(installedKey.split(",")) : null;
+  let installedLargest = 0;
+  let catalogLargest = 0;
+  for (const [eyeStyleId, entry] of measured) {
+    catalogLargest = Math.max(catalogLargest, entry.extent);
+    if (installed !== null && installed.has(eyeStyleId)) {
+      installedLargest = Math.max(installedLargest, entry.extent);
+    }
+  }
+  return installedLargest > 0 ? installedLargest : catalogLargest;
+}
+
+/**
  * Scale and center an eye style's artwork on a `size` square field.
  *
  * The pair is fitted by its wider axis to its share of the field, which is
- * {@link EYE_CANVAS_FRACTION} for the largest style in the catalog and less
- * for the rest in proportion to how much smaller they are drawn on an avatar.
- * A `primary` preview takes the whole fraction instead, since the icon it
- * stands in for is framed that way whichever pair it carries. Taking the
- * smaller of the two ratios caps a pair taller than it is wide at that same
- * fraction of the height, so an unusually tall pair cannot outgrow a wide one.
+ * {@link EYE_CANVAS_FRACTION} for the largest style the installed shell
+ * bundles and less for the rest in proportion to how much smaller they are
+ * drawn on an avatar. A `primary` preview takes the whole fraction instead,
+ * since the icon it stands in for is framed that way whichever pair it
+ * carries. Taking the smaller of the two ratios caps a pair taller than it is
+ * wide at that same fraction of the height, so an unusually tall pair cannot
+ * outgrow a wide one.
  * Returns null for art that is missing or degenerate, which is what makes an
  * unknown id render the field alone.
  */
@@ -152,6 +212,7 @@ function resolveEyeArt(
   eyeStyleId: string,
   size: number,
   primary: boolean,
+  installedKey: string,
 ): IconEyeArt | null {
   const eyeStyle = components?.eyeStyles.find((eye) => eye.id === eyeStyleId);
   if (!components || !eyeStyle) {
@@ -162,9 +223,7 @@ function resolveEyeArt(
   if (!measurement) {
     return null;
   }
-  const largestExtent = Math.max(
-    ...Array.from(measured.values(), (entry) => entry.extent),
-  );
+  const largestExtent = normalizationExtent(measured, installedKey);
   const { bbox } = measurement;
   const span =
     size *
@@ -183,13 +242,18 @@ export function AppIconPreview({
   components,
   eyeStyle,
   color,
+  availableIcons = NO_ICONS,
   primary = false,
   size = DEFAULT_SIZE,
   className,
 }: AppIconPreviewProps) {
+  const installedKey = useMemo(
+    () => installedEyeStyleKey(availableIcons),
+    [availableIcons],
+  );
   const art = useMemo(
-    () => resolveEyeArt(components, eyeStyle, size, primary),
-    [components, eyeStyle, size, primary],
+    () => resolveEyeArt(components, eyeStyle, size, primary, installedKey),
+    [components, eyeStyle, size, primary, installedKey],
   );
   const fieldHex = components?.colors.find((entry) => entry.id === color)?.hex;
   const radius = size * CORNER_RADIUS_FRACTION;

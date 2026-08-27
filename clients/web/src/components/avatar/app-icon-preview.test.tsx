@@ -143,6 +143,21 @@ function sampledSpan(eyeStyleId: string, size: number): number {
   return size * EYE_CANVAS_FRACTION * sampledEyeScale(eyeStyleId);
 }
 
+/** The same span when only `installed` styles set the denominator. */
+function sampledSpanAmong(
+  eyeStyleId: string,
+  size: number,
+  installed: readonly string[],
+): number {
+  const largest = Math.max(...installed.map((id) => sampledEyeExtent(id)));
+  return size * EYE_CANVAS_FRACTION * (sampledEyeExtent(eyeStyleId) / largest);
+}
+
+/** The icon names a shell bundling `installed` styles on green would report. */
+function availableIconsFor(installed: readonly string[]): string[] {
+  return installed.map((id) => `avatar-eyes-${id}-green`);
+}
+
 /** Parse the `matrix(a,b,c,d,e,f)` the eye group is placed with. */
 function readMatrix(group: Element): { scale: number; tx: number; ty: number } {
   const transform = group.getAttribute("transform") ?? "";
@@ -258,6 +273,65 @@ describe("AppIconPreview", () => {
     };
 
     expect(spanOf("bashful")).toBeLessThan(spanOf("surprised") * 0.6);
+  });
+
+  test("normalizes spans against the largest style the shell bundles", () => {
+    // A shell holding no `grumpy` bundle sized its PNGs against `angry`, the
+    // largest pair it does hold, so every icon it carries is drawn larger than
+    // the whole catalog would draw it.
+    const installed = ["angry", ROUND_EYE_STYLE];
+    expect(installed).not.toContain(WIDE_EYE_STYLE);
+    const { container } = render(
+      <AppIconPreview
+        components={BUNDLED_COMPONENTS}
+        eyeStyle={ROUND_EYE_STYLE}
+        color="green"
+        size={SIZE}
+        availableIcons={availableIconsFor(installed)}
+      />,
+    );
+
+    const { box, centerX, centerY } = placement(
+      container,
+      sampledBounds(ROUND_EYE_STYLE),
+    );
+    expectWithinTolerance(centerX, SIZE / 2);
+    expectWithinTolerance(centerY, SIZE / 2);
+    const span = Math.max(box.w, box.h);
+    expectWithinTolerance(
+      span,
+      sampledSpanAmong(ROUND_EYE_STYLE, SIZE, installed),
+    );
+    // Normalizing against the whole catalog frames the same pair visibly
+    // smaller, so the span above is the installed set's denominator at work
+    // rather than a number both answers would satisfy.
+    expect(sampledSpan(ROUND_EYE_STYLE, SIZE)).toBeLessThan(span - 1);
+  });
+
+  test("normalizes against the whole catalog when no bundled style is named", () => {
+    // The empty list is a surface with no shell answer behind it; the second
+    // is a shell whose names carry no style this catalog measures.
+    for (const availableIcons of [
+      [],
+      ["AppIcon", "avatar-eyes-unknown-green"],
+    ]) {
+      const { container } = render(
+        <AppIconPreview
+          components={BUNDLED_COMPONENTS}
+          eyeStyle={ROUND_EYE_STYLE}
+          color="green"
+          size={SIZE}
+          availableIcons={availableIcons}
+        />,
+      );
+
+      const { box } = placement(container, sampledBounds(ROUND_EYE_STYLE));
+      expectWithinTolerance(
+        Math.max(box.w, box.h),
+        sampledSpan(ROUND_EYE_STYLE, SIZE),
+      );
+      cleanup();
+    }
   });
 
   test("frames the primary icon on the whole fraction, not its style's share", () => {

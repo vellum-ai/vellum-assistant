@@ -158,6 +158,7 @@ export function AppIconModal({
                 components={components}
                 eyeStyle={eyeStyleId}
                 color={colorId}
+                availableIcons={availableIcons}
                 size={PREVIEW_SIZE}
               />
             </div>

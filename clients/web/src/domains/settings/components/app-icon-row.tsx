@@ -79,6 +79,7 @@ function AppIconRowContent({ assistantId, sync }: AppIconRowContentProps) {
             components={catalog}
             eyeStyle={traits.eyeStyle}
             color={traits.color}
+            availableIcons={sync.availableIcons}
             primary={appliedTraits === null}
             size={ROW_PREVIEW_SIZE}
           />
