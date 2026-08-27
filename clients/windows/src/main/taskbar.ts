@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   app,
   nativeImage,
@@ -7,6 +9,12 @@ import {
 import { z } from "zod";
 
 import { DOCK_SET_BADGE, type AssistantStatus } from "@vellumai/ipc-contract";
+import { onAvatarChange } from "@vellumai/electron-desktop/avatar";
+import { avatarBitmap } from "@vellumai/electron-desktop/avatar-image";
+import {
+  applyAlphaMask,
+  roundedRectCoverage,
+} from "@vellumai/electron-desktop/image-mask";
 import { getStatus, onStatusChange } from "@vellumai/electron-desktop/status";
 
 import { on } from "./ipc.client";
@@ -14,9 +22,46 @@ import { on } from "./ipc.client";
 export interface TaskbarOptions {
   getWindow: () => BrowserWindow | null;
   createOverlayIcon?: (count: number) => NativeImage;
+  createAvatarIcon?: () => NativeImage | null;
 }
 
 let unreadCount = 0;
+
+const AVATAR_ICON_PX = 256;
+const AVATAR_CORNER_RADIUS_RATIO = 0.22;
+
+/** The assistant avatar clipped to a rounded square, or null with no avatar. */
+export const createAvatarWindowIcon = (): NativeImage | null => {
+  const avatar = avatarBitmap(AVATAR_ICON_PX);
+  if (!avatar) {
+    return null;
+  }
+  const masked = applyAlphaMask(
+    avatar,
+    AVATAR_ICON_PX,
+    roundedRectCoverage(
+      AVATAR_ICON_PX,
+      AVATAR_ICON_PX * AVATAR_CORNER_RADIUS_RATIO,
+    ),
+  );
+  return nativeImage.createFromBitmap(masked, {
+    width: AVATAR_ICON_PX,
+    height: AVATAR_ICON_PX,
+  });
+};
+
+// The per-environment app icon electron-builder copies beside the resources;
+// absent in dev, where Electron's default icon stays.
+let bundleIconCache: NativeImage | null | undefined;
+const bundleIcon = (): NativeImage | null => {
+  if (bundleIconCache === undefined) {
+    const icon = nativeImage.createFromPath(
+      path.join(process.resourcesPath ?? "", "icon.ico"),
+    );
+    bundleIconCache = icon.isEmpty() ? null : icon;
+  }
+  return bundleIconCache;
+};
 
 const BADGE_SIZE = 16;
 const BADGE_GLYPHS: Readonly<Record<string, readonly number[]>> = {
@@ -119,7 +164,32 @@ const progressForStatus = (
 
 export const installTaskbar = (options: TaskbarOptions): void => {
   const overlayIcons = new Map<number, NativeImage>();
-  const createOverlayIcon = options.createOverlayIcon ?? createUnreadOverlayIcon;
+  const createOverlayIcon =
+    options.createOverlayIcon ?? createUnreadOverlayIcon;
+  const createAvatarIcon = options.createAvatarIcon ?? createAvatarWindowIcon;
+  // Mirrors the macOS Dock: show the avatar once one exists, restore the
+  // bundled icon when it is cleared, and leave the first paint alone.
+  let avatarApplied = false;
+  const applyAvatar = (): void => {
+    const win = options.getWindow();
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+    const icon = createAvatarIcon();
+    if (icon) {
+      win.setIcon(icon);
+      avatarApplied = true;
+      return;
+    }
+    if (!avatarApplied) {
+      return;
+    }
+    const bundle = bundleIcon();
+    if (bundle) {
+      win.setIcon(bundle);
+      avatarApplied = false;
+    }
+  };
   const apply = (): void => {
     const win = options.getWindow();
     if (!win || win.isDestroyed()) {
@@ -149,10 +219,15 @@ export const installTaskbar = (options: TaskbarOptions): void => {
     apply();
   });
   const unsubscribeStatus = onStatusChange(apply);
-  app.on("browser-window-created", () => queueMicrotask(apply));
+  const unsubscribeAvatar = onAvatarChange(applyAvatar);
+  app.on("browser-window-created", () => {
+    queueMicrotask(apply);
+    queueMicrotask(applyAvatar);
+  });
   app.on("before-quit", () => {
     unreadCount = 0;
     apply();
     unsubscribeStatus();
+    unsubscribeAvatar();
   });
 };

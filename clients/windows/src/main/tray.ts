@@ -3,18 +3,41 @@ import path from "node:path";
 import { app, nativeImage, shell, type NativeImage } from "electron";
 
 import { openAboutWindow } from "@vellumai/electron-desktop/about";
+import { acceleratorOption } from "@vellumai/electron-desktop/commands";
 import { getWatchedLockfile } from "@vellumai/electron-desktop/lockfile-watcher";
 import { configureStatusIconFallback } from "@vellumai/electron-desktop/status-icon";
 import {
   configureTrayModel,
   installTray,
+  type TrayMenuIcon,
 } from "@vellumai/electron-desktop/tray-model";
+import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
 import {
   DEFAULT_COMPANION_SIZE,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
 
+import {
+  MENU_ICON_CIRCLECHECK,
+  MENU_ICON_MESSAGECIRCLE,
+  MENU_ICON_MESSAGECIRCLEPLUS,
+  MENU_ICON_MESSAGESQUARE,
+  MENU_ICON_POWER,
+  MENU_ICON_REFRESHCW,
+  MENU_ICON_SETTINGS,
+} from "./assets/menu-icons";
 import { current, ensureVisible, toggleVisibility } from "./main-window";
+import { menuIcon } from "./menu-icon";
+
+const ICONS: Record<TrayMenuIcon, () => NativeImage> = {
+  check: menuIcon(MENU_ICON_CIRCLECHECK),
+  feedback: menuIcon(MENU_ICON_MESSAGECIRCLE),
+  "new-conversation": menuIcon(MENU_ICON_MESSAGECIRCLEPLUS),
+  conversation: menuIcon(MENU_ICON_MESSAGESQUARE),
+  power: menuIcon(MENU_ICON_POWER),
+  refresh: menuIcon(MENU_ICON_REFRESHCW),
+  settings: menuIcon(MENU_ICON_SETTINGS),
+};
 
 let cachedIcon: NativeImage | null = null;
 
@@ -49,7 +72,7 @@ export const installWindowsTray = (
   const icon = getTrayIcon();
   configureStatusIconFallback(icon.isEmpty() ? null : icon);
   configureTrayModel({
-    accelerator: () => ({}),
+    accelerator: acceleratorOption,
     // Windows has no companion surface, so every companion field here is the
     // inert answer rather than an implementation. The size still has to be a
     // real one: the tray model reads it to mark a radio item, and the menu it
@@ -60,8 +83,8 @@ export const installWindowsTray = (
     dispatch,
     featureEnabled,
     getLockfile: getWatchedLockfile,
-    icon: () => undefined,
-    onboardingActive: () => false,
+    icon: (icon) => ICONS[icon](),
+    onboardingActive: readOnboardingActive,
     openComponentGallery: () => {
       void shell.openExternal("http://localhost:6007");
     },

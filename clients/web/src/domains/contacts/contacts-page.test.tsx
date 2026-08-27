@@ -26,6 +26,8 @@ import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 let toastErrorCalls: string[] = [];
 let upsertShouldReject = false;
+let lastUpsertBody: unknown = null;
+let contactsFixture: ContactPayload[] = [];
 const unhandledRejections: unknown[] = [];
 
 const GUARDIAN = {
@@ -36,6 +38,28 @@ const GUARDIAN = {
   channels: [],
   interactionCount: 0,
   contactType: null,
+} as unknown as ContactPayload;
+
+const ALICE = {
+  id: "c-alice",
+  role: "contact",
+  displayName: "Alice",
+  notes: "",
+  channels: [],
+  interactionCount: 0,
+  contactType: "human",
+  autoApproveThreshold: null,
+} as unknown as ContactPayload;
+
+const PEER = {
+  id: "c-peer",
+  role: "contact",
+  displayName: "Peer Assistant",
+  notes: "",
+  channels: [],
+  interactionCount: 0,
+  contactType: "assistant",
+  autoApproveThreshold: null,
 } as unknown as ContactPayload;
 
 const CONTACTS_KEY = ["contactsGet", "test"] as const;
@@ -55,12 +79,74 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   ToastContent: () => null,
 }));
 
+mock.module("@vellumai/design-library/components/select", () => ({
+  Select: ({
+    value,
+    onChange,
+    onSelectNone,
+    options,
+    disabled,
+  }: {
+    value: string | null;
+    onChange: (value: string) => void;
+    onSelectNone?: () => void;
+    options: Array<{ value: string | null; label: string }>;
+    disabled?: boolean;
+  }) =>
+    createElement(
+      "select",
+      {
+        "data-testid": "contact-permissions-select",
+        disabled,
+        value: value ?? "",
+        onChange: (event: { target: { value: string } }) => {
+          const next = event.target.value;
+          if (next === "") {
+            onSelectNone?.();
+            return;
+          }
+          onChange(next);
+        },
+      },
+      options.map((option) =>
+        createElement(
+          "option",
+          { key: option.value ?? "inherit", value: option.value ?? "" },
+          option.label,
+        ),
+      ),
+    ),
+}));
+
+mock.module("@/hooks/use-assistant-channels", () => ({
+  useAssistantChannels: () => ({
+    channels: [],
+    pendingChannelKey: null,
+    onSetup: () => {},
+    onDisconnect: () => {},
+  }),
+}));
+
 mock.module("@/domains/contacts/contacts-gateway", () => ({
-  upsertContact: async () => {
+  upsertContact: async (
+    _assistantId: string,
+    body: {
+      id?: string;
+      displayName: string;
+      autoApproveThreshold?: ContactPayload["autoApproveThreshold"];
+    },
+  ) => {
+    lastUpsertBody = body;
     if (upsertShouldReject) {
       throw new ApiError(404, "Not found");
     }
-    return GUARDIAN;
+    if (body.id === ALICE.id) {
+      return { ...ALICE, ...body };
+    }
+    if (body.id === PEER.id) {
+      return { ...PEER, ...body };
+    }
+    return { ...GUARDIAN, ...body };
   },
   deleteContact: async () => {},
   verifyContactChannel: async () => {},
@@ -75,7 +161,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
     queryKey: CONTACTS_KEY,
-    queryFn: async () => ({ contacts: [GUARDIAN] }),
+    queryFn: async () => ({ contacts: contactsFixture }),
   }),
   contactsGetQueryKey: () => CONTACTS_KEY,
   contactsGetSetQueryData: () => {},
@@ -147,9 +233,21 @@ function onUnhandled(reason: unknown) {
   unhandledRejections.push(reason);
 }
 
+function getButtonByText(label: string): HTMLButtonElement {
+  const match = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((button) => button.textContent?.includes(label));
+  if (!match) {
+    throw new Error(`expected a button containing "${label}"`);
+  }
+  return match;
+}
+
 beforeEach(() => {
   toastErrorCalls = [];
   upsertShouldReject = false;
+  lastUpsertBody = null;
+  contactsFixture = [GUARDIAN, ALICE, PEER];
   unhandledRejections.length = 0;
   process.on("unhandledRejection", onUnhandled);
 });
@@ -237,6 +335,98 @@ describe("ContactsPage mutation error handling", () => {
 
     // ...and the rejection never escaped to window.onunhandledrejection.
     // `.mutate()` keeps it internal to React Query.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unhandledRejections).toEqual([]);
+  });
+});
+
+describe("ContactsPage contact permissions", () => {
+  test("hides Permissions on the guardian, the assistant, and a peer assistant", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(document.querySelector('[data-testid="contact-permissions"]')).toBe(
+      null,
+    );
+
+    fireEvent.click(getButtonByText("your assistant"));
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "Where your assistant can be reached.",
+      );
+    });
+    expect(document.querySelector('[data-testid="contact-permissions"]')).toBe(
+      null,
+    );
+
+    fireEvent.click(getButtonByText("Peer Assistant"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(document.querySelector('[data-testid="contact-permissions"]')).toBe(
+      null,
+    );
+  });
+
+  test("lets a regular human contact set a risk ceiling", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+
+    const select = await waitFor(() => {
+      const node = document.querySelector(
+        '[data-testid="contact-permissions-select"]',
+      );
+      if (!(node instanceof HTMLSelectElement)) {
+        throw new Error("expected the permissions picker");
+      }
+      return node;
+    });
+    expect(document.body.textContent).toContain("Permissions");
+    expect(select.value).toBe("");
+
+    fireEvent.change(select, { target: { value: "fullAccess" } });
+    await waitFor(() => {
+      expect(lastUpsertBody).toEqual({
+        id: "c-alice",
+        displayName: "Alice",
+        autoApproveThreshold: "high",
+      });
+    });
+  });
+
+  test("a failed permissions save surfaces a toast and does not reject", async () => {
+    upsertShouldReject = true;
+
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    const select = await waitFor(() => {
+      const node = document.querySelector(
+        '[data-testid="contact-permissions-select"]',
+      );
+      if (!(node instanceof HTMLSelectElement)) {
+        throw new Error("expected the permissions picker");
+      }
+      return node;
+    });
+    fireEvent.change(select, { target: { value: "fullAccess" } });
+
+    await waitFor(() => {
+      expect(toastErrorCalls).toEqual(["Not found"]);
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unhandledRejections).toEqual([]);
   });

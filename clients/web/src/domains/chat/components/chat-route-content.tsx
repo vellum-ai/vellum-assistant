@@ -1365,6 +1365,9 @@ export function ChatMainPanel({
       // session should attach to the thread the user is looking at — draft
       // ids included (the runtime accepts client-generated conversation ids).
       conversationId={activeConversationId}
+      // Same value the empty state renders from, so "speak first" and "show
+      // the blank-thread greeting" can never disagree about what empty means.
+      conversationIsEmpty={isEmptyConversation}
       onRecallLastMessage={
         isIdle && isNativeConversation ? handleRecallLastMessage : undefined
       }

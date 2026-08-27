@@ -72,6 +72,7 @@ import {
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { voiceEntryGreetingSeed } from "@/domains/chat/voice/live-voice/voice-entry-greeting";
 import {
   firstRunCardIntercepts,
   publishConfigNotice,
@@ -184,6 +185,15 @@ export interface ChatComposerProps {
   // absent the session starts without a conversation and the server assigns
   // one. The app-editing variant, which has no voice, leaves this undefined.
   conversationId?: string | null;
+
+  // Whether that conversation has nothing in it yet. Drives the one decision
+  // in `voiceEntryGreetingSeed`: a voice session opened on a blank thread
+  // takes its first turn on the user's behalf so the assistant speaks first,
+  // and one opened on a thread already underway does not. Pass the same value
+  // the empty state renders from, so the two cannot disagree about what empty
+  // means. Optional, defaulting to false: a caller that says nothing opens a
+  // silent room.
+  conversationIsEmpty?: boolean;
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row
   // on desktop; on mobile both settings slots move to the row above the card)
@@ -337,6 +347,7 @@ export function ChatComposer({
   isAssistantBusy,
   assistantId,
   conversationId,
+  conversationIsEmpty = false,
   thresholdPickerSlot,
   modelPickerSlot,
   settingsSheetOpen = false,
@@ -487,10 +498,18 @@ export function ChatComposer({
   // a user who switches chats (or leaves) mid-flight would otherwise resume and
   // bind the room to the chat they left. Kept in a ref so the check sees the
   // current render's values rather than the closure's.
-  const liveVoiceChatIdentityRef = useRef({ assistantId, conversationId });
+  const liveVoiceChatIdentityRef = useRef({
+    assistantId,
+    conversationId,
+    conversationIsEmpty,
+  });
   useEffect(() => {
-    liveVoiceChatIdentityRef.current = { assistantId, conversationId };
-  }, [assistantId, conversationId]);
+    liveVoiceChatIdentityRef.current = {
+      assistantId,
+      conversationId,
+      conversationIsEmpty,
+    };
+  }, [assistantId, conversationId, conversationIsEmpty]);
   const startLiveVoiceSession = useCallback(async () => {
     if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
@@ -549,7 +568,15 @@ export function ChatComposer({
     // Publish the origin BEFORE starting; the controller carries it across its
     // start-time `reset()` (see the live-voice store's `entryOrigin`).
     setLiveVoiceEntryOrigin(origin);
-    starter?.start(assistantId, conversationId ?? null);
+    // Read off `latest`, not off the render that opened this callback: the
+    // preflight above is a network round trip, and a conversation that filled
+    // up across it must not be seeded as if it were still blank. Unlike the
+    // assistant/conversation mismatch this is not a reason to abandon the
+    // start, only a reason to open silent, so it is decided here rather than
+    // in the staleness guard.
+    starter?.start(assistantId, conversationId ?? null, {
+      seedText: voiceEntryGreetingSeed(latest.conversationIsEmpty),
+    });
   }, [assistantId, conversationId]);
   /**
    * In-flight reclaim, so unmounting cancels it. The start on the far side of

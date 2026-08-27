@@ -229,6 +229,20 @@ export interface LiveVoiceClientAttachImageFrame {
 export interface LiveVoiceClientTextTurnFrame {
   readonly type: "text";
   readonly text: string;
+  /**
+   * Marks the turn as an internal instruction rather than something the user
+   * typed. The row still persists and still drives the turn, so the model
+   * sees it, but it is suppressed from the transcript: no live echo, and
+   * `/messages` filters it after a reload.
+   *
+   * For machine signals the user never wrote, such as the greeting that opens
+   * a voice session. A turn the user actually typed leaves it unset.
+   *
+   * Optional, and a daemon that does not understand it simply persists the
+   * turn visibly, so a client cannot tell from the frame alone whether it was
+   * honored.
+   */
+  readonly hidden?: boolean;
 }
 
 export type LiveVoiceClientFrame =
@@ -690,7 +704,23 @@ function validateTextTurnFrame(
     );
   }
 
-  return { ok: true, frame: { type: "text", text } };
+  if ("hidden" in value && typeof value.hidden !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "text frame field hidden must be a boolean",
+      "hidden",
+      "text",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: {
+      type: "text",
+      text,
+      ...(value.hidden === true ? { hidden: true } : {}),
+    },
+  };
 }
 
 function validateAttachImageFrame(

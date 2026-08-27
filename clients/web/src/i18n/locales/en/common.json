@@ -121,8 +121,7 @@
     "noResults": "No results",
     "placeholder": "Search conversations, memories…",
     "searchAriaLabel": "Search",
-    "searching": "Searching…",
-    "shortcutHint": "⌘K"
+    "searching": "Searching…"
   },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",

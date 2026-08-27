@@ -420,16 +420,16 @@ export async function runForkBasedRetrospective(
   // advances to `cutoffMessageId`, causing the next retrospective to
   // reprocess (and potentially re-`remember`) those same turns.
   //
-  // The fork copies only the source's visible tail and carries the inherited
-  // compaction summary on its own row (with a fork-local compacted count of
-  // 0). Compacted source ⇒ summary + tail visible to the agent natively.
+  // The fork is referential: it carries the inherited compaction summary
+  // and the source's hidden-prefix count, and reads the source's rows
+  // through the fork point. Compacted source ⇒ summary + tail visible to
+  // the agent natively.
   let forkConversationRow: Awaited<
     ReturnType<typeof forkConversationForRetrospective>
   >;
   try {
-    // Async variant: the source message-row copy runs off the event loop in a
-    // sqlite3 subprocess so this background pass cannot freeze the daemon's
-    // event loop (health probes / gateway IPC) on a large database.
+    // Referential fork: one conversation row plus memory-state seeding.
+    // There is no source message-row copy.
     forkConversationRow = await forkConversationForRetrospective({
       conversationId: sourceConversationId,
       throughMessageId: cutoffMessageId,

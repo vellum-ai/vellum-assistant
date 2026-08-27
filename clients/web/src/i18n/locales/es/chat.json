@@ -94,7 +94,7 @@
     "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo.",
     "closeNavAria": "Cerrar navegación",
     "navAria": "Navegación del asistente",
-    "searchShortcut": "Buscar (⌘K)"
+    "searchShortcut": "Buscar ({shortcut})"
   },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
@@ -447,11 +447,11 @@
     "loadingProfiles": "Cargando perfiles…",
     "modelProfile": "Perfil del modelo",
     "modelProfileTitle": "Perfil del modelo",
-    "newProfile": "Nuevo perfil",
     "profileAria": "Perfil del modelo: {label}",
     "profileAriaFallback": "Perfil del modelo",
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
-    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo.",
+    "quickAdd": "Nuevo modelo"
   },
   "confirmationActions": {
     "submitFailed": "No se pudo enviar la confirmación. Inténtalo de nuevo.",
@@ -1561,6 +1561,9 @@
     "openVoiceRoom": "Abrir la sala de voz",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
+  },
+  "voiceEntryGreeting": {
+    "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."

@@ -381,21 +381,39 @@
     "providerLabel": "Provider",
     "unavailableOption": "{name} (unavailable)"
   },
+  "chatgptDeviceAuthFlow": {
+    "authorizationHint": "You or your team administrator may need to enable device code authorization <settingsLink>in ChatGPT settings</settingsLink>.",
+    "connected": "ChatGPT subscription connected successfully.",
+    "copiedButton": "Copied",
+    "copyButton": "Copy code",
+    "copyError": "Could not copy the code. Copy it by hand instead.",
+    "instructions": "Enter this code on the ChatGPT page. It expires in 15 minutes.",
+    "openButton": "Open ChatGPT",
+    "signInButton": "Sign in with ChatGPT",
+    "startOver": "Start over",
+    "starting": "Starting sign-in...",
+    "tryAgain": "Try again",
+    "waiting": "Waiting for you to enter the code..."
+  },
   "chatgptOauthSection": {
+    "hideOtherOptions": "Hide other sign-in options",
+    "intro": "Connect your ChatGPT subscription to use OpenAI models without an API key.",
+    "otherOptions": "Other sign-in options"
+  },
+  "chatgptPasteAuthFlow": {
     "completeFailed": "Failed to complete sign-in. Please try again.",
     "completeSignIn": "Complete Sign In",
     "completingSignIn": "Completing sign-in...",
     "connected": "ChatGPT subscription connected successfully.",
-    "intro": "Connect your ChatGPT subscription to use OpenAI models without an API key.",
     "invalidUrl": "Invalid URL. Please paste the full URL from the address bar.",
     "missingCode": "The URL is missing the authorization code. Make sure you copied the full URL.",
     "missingState": "The URL is missing the state parameter. Make sure you copied the full URL.",
     "pasteUrlError": "Please paste the URL from the error page.",
-    "signInButton": "Sign in with ChatGPT",
+    "signInButton": "Open ChatGPT sign-in",
     "startFailed": "Failed to start ChatGPT sign-in. Please try again.",
     "startingSignIn": "Starting sign-in...",
-    "step1Idle": "1. Click \"Sign in with ChatGPT\" below to open a popup",
-    "step1PasteUrl": "1. Click \"Sign in with ChatGPT\" to open a popup",
+    "step1Idle": "1. Click \"Open ChatGPT sign-in\" below to open a popup",
+    "step1PasteUrl": "1. Click \"Open ChatGPT sign-in\" to open a popup",
     "step2": "2. Sign in, then you'll land on an error page - that's expected",
     "step3": "3. Copy the full URL from that page's address bar and paste it below",
     "tryAgain": "Try Again",
@@ -1400,7 +1418,6 @@
     "enableExtendedThinkingLabel": "Enable extended thinking",
     "maxOutputTokensLabel": "Max Output Tokens",
     "reset": "Reset",
-    "snapshotsHint": "Fields left at their default are saved with the values shown and won't change if the assistant defaults change later.",
     "speedLabel": "Speed",
     "streamThinkingTokensLabel": "Stream thinking tokens",
     "temperatureLabel": "Temperature",
@@ -1418,12 +1435,12 @@
     "unknown": "Saved, but a test request through this profile failed: {detail}"
   },
   "profileDetailPanel": {
-    "createProfile": "Create Profile",
+    "create": "Create Model",
+    "createTitle": "New Model",
     "defaultTitle": "Profile",
     "delete": "Delete",
     "deleting": "Deleting…",
     "managedTag": "Managed by Vellum",
-    "newProfileTitle": "New Profile",
     "save": "Save",
     "saveAsNew": "Save As New",
     "saveChanges": "Save Changes",
@@ -1432,6 +1449,9 @@
   "profileEditor": {
     "maxTokensNoInputRoom": "Max tokens ({maxTokens}) reserves the entire {window}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).",
     "maxTokensOverCap": "Max tokens ({maxTokens}) exceeds the model's maximum output of {cap} tokens. Reduce it to {cap} or less.",
+    "nameRequired": "Name is required",
+    "nameTaken": "This name is already taken",
+    "providerRequired": "Select a provider",
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
   },
   "profileEditorFields": {
@@ -1442,9 +1462,7 @@
     "descriptionLabel": "Description <optional>(optional)</optional>",
     "descriptionPlaceholder": "Describe when to use this profile",
     "displayNameLabel": "Display Name",
-    "displayNamePlaceholder": "e.g. Fast & Cheap",
-    "keyLabel": "Key",
-    "keyPlaceholder": "e.g. fast-cheap",
+    "displayNamePlaceholder": "e.g. Claude Opus 4.8",
     "nameLabel": "Name",
     "newProviderNote": "New provider connection will show up in the Providers section.",
     "providerLabel": "Provider",
@@ -1454,8 +1472,8 @@
   "profileEditorModal": {
     "cancel": "Cancel",
     "close": "Close",
+    "createTitle": "New Model",
     "editProfileTitle": "Edit Profile",
-    "newProfileTitle": "New Profile",
     "platformTag": "Platform",
     "profileFallbackTitle": "Profile",
     "save": "Save",
@@ -1476,6 +1494,8 @@
     "modelEmptyUnknownHint": "No models are available for this provider in this app version. Update the app, or enter a custom model ID.",
     "modelEmptyUnknownPlaceholder": "No models available",
     "modelLabel": "Model",
+    "modelNoMatches": "No matching models",
+    "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
     "noProviderConnectionsHint": "No provider connections. Open Providers to add one.",
     "providerLabel": "Provider",
     "providerNotFoundSuffix": "(not found)",
@@ -2074,6 +2094,11 @@
     "cancelFailedToast": "Couldn't cancel your subscription. Please try again.",
     "canceledToast": "Pro plan canceled. You'll have access until {date}.",
     "endOfBillingPeriod": "the end of your billing period"
+  },
+  "useChatgptDeviceAuth": {
+    "expired": "This code expired. Start again to get a new one.",
+    "rejected": "ChatGPT could not confirm this code.",
+    "startFailed": "Could not start ChatGPT sign-in. Please try again."
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",

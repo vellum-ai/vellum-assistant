@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 import { SHARED_DESKTOP_INLINE_DEPS } from "../../packages/electron-desktop/src/inline-deps";
@@ -19,7 +21,14 @@ const DEPS_TO_INLINE = [
   "@vellumai/native-sidecar",
 ];
 
+// The installer shortcut and `app.setAppUserModelId` must agree, so the
+// builder config is the single source of the id.
+const { appId } = createRequire(import.meta.url)(
+  "./electron-builder.config.cjs",
+) as { appId: string };
+
 const BUILD_DEFINES = {
+  __VELLUM_APP_USER_MODEL_ID__: JSON.stringify(appId),
   __VELLUM_BUILD_SHA__: JSON.stringify(resolveShortBuildCommitSha()),
   __VELLUM_ENVIRONMENT__: JSON.stringify(
     process.env.VELLUM_ENVIRONMENT || "local",

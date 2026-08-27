@@ -29,15 +29,28 @@ mock.module("./ipc.client", () => ({
 }));
 
 type TrayRuntime = {
+  accelerator: (kind: string) => { accelerator?: string };
   featureEnabled: (flag: string) => boolean;
   getLockfile: () => Lockfile;
+  icon: (icon: string) => unknown;
 };
 let trayRuntime: TrayRuntime | null = null;
 mock.module("@vellumai/electron-desktop/status-icon", () => ({
   configureStatusIconFallback: () => undefined,
 }));
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  readOnboardingActive: () => false,
+}));
 mock.module("@vellumai/electron-desktop/about", () => ({
   openAboutWindow: () => undefined,
+}));
+mock.module("@vellumai/electron-desktop/commands", () => ({
+  acceleratorOption: (kind: string) =>
+    kind === "newConversation" ? { accelerator: "CmdOrCtrl+N" } : {},
+}));
+const themedIcon = { dark: false };
+mock.module("./menu-icon", () => ({
+  menuIcon: () => () => themedIcon,
 }));
 mock.module("@vellumai/electron-desktop/tray-model", () => ({
   configureTrayModel: (runtime: TrayRuntime) => {
@@ -80,4 +93,13 @@ test("reads feature gates from the synchronized flag state", () => {
   expect(trayRuntime?.featureEnabled("multi-platform-assistant")).toBe(false);
   flagHandler?.([{ "multi-platform-assistant": true }]);
   expect(trayRuntime?.featureEnabled("multi-platform-assistant")).toBe(true);
+});
+
+test("exposes menu accelerators and themed icons", () => {
+  installWindowsTray(() => false);
+
+  expect(trayRuntime?.accelerator("newConversation")).toEqual({
+    accelerator: "CmdOrCtrl+N",
+  });
+  expect(trayRuntime?.icon("settings")).toBe(themedIcon);
 });

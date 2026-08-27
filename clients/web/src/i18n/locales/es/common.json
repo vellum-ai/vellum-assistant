@@ -121,8 +121,7 @@
     "noResults": "Sin resultados",
     "placeholder": "Buscar conversaciones, recuerdos…",
     "searchAriaLabel": "Buscar",
-    "searching": "Buscando…",
-    "shortcutHint": "⌘K"
+    "searching": "Buscando…"
   },
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",

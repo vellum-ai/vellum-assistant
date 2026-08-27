@@ -369,21 +369,39 @@
     "providerLabel": "Провайдер",
     "unavailableOption": "{name} (недоступно)"
   },
+  "chatgptDeviceAuthFlow": {
+    "authorizationHint": "Вам или администратору команды может потребоваться включить авторизацию по коду устройства <settingsLink>в настройках ChatGPT</settingsLink>.",
+    "connected": "Подписка ChatGPT успешно подключена.",
+    "copiedButton": "Скопировано",
+    "copyButton": "Копировать код",
+    "copyError": "Не удалось скопировать код. Скопируйте его вручную.",
+    "instructions": "Ввод этого кода на странице ChatGPT. Срок действия кода: 15 минут.",
+    "openButton": "Открыть ChatGPT",
+    "signInButton": "Войти через ChatGPT",
+    "startOver": "Начать заново",
+    "starting": "Начинаем вход...",
+    "tryAgain": "Попробовать снова",
+    "waiting": "Ожидание ввода кода..."
+  },
   "chatgptOauthSection": {
+    "hideOtherOptions": "Скрыть другие способы входа",
+    "intro": "Подключение подписки ChatGPT для моделей OpenAI без API-ключа.",
+    "otherOptions": "Другие способы входа"
+  },
+  "chatgptPasteAuthFlow": {
     "completeFailed": "Не удалось завершить вход. Повторите попытку.",
     "completeSignIn": "Завершить вход",
     "completingSignIn": "Завершение входа...",
     "connected": "Подписка ChatGPT успешно подключена.",
-    "intro": "Подключение подписки ChatGPT для моделей OpenAI без API-ключа.",
     "invalidUrl": "Некорректный URL. Вставка полного URL из адресной строки.",
     "missingCode": "В URL нет кода авторизации. Копирование URL целиком.",
     "missingState": "В URL нет параметра state. Копирование URL целиком.",
     "pasteUrlError": "Вставка URL со страницы ошибки.",
-    "signInButton": "Войти через ChatGPT",
+    "signInButton": "Открыть вход в ChatGPT",
     "startFailed": "Не удалось начать вход через ChatGPT. Повторите попытку.",
     "startingSignIn": "Начинаем вход...",
-    "step1Idle": "1. Нажатие \"Войти через ChatGPT\" ниже открывает всплывающее окно",
-    "step1PasteUrl": "1. Нажатие \"Войти через ChatGPT\" открывает всплывающее окно",
+    "step1Idle": "1. Нажатие \"Открыть вход в ChatGPT\" ниже открывает всплывающее окно",
+    "step1PasteUrl": "1. Нажатие \"Открыть вход в ChatGPT\" открывает всплывающее окно",
     "step2": "2. Вход, затем страница ошибки: так и должно быть",
     "step3": "3. Копирование полного URL из адресной строки этой страницы и вставка ниже",
     "tryAgain": "Попробовать снова",
@@ -1387,7 +1405,6 @@
     "enableExtendedThinkingLabel": "Включить расширенное размышление",
     "maxOutputTokensLabel": "Макс. токенов на выход",
     "reset": "Сбросить",
-    "snapshotsHint": "Поля, оставленные по умолчанию, сохраняются с показанными значениями и не изменятся, если значения ассистента по умолчанию позже сменятся.",
     "speedLabel": "Скорость",
     "streamThinkingTokensLabel": "Стримить токены размышления",
     "temperatureLabel": "Температура",
@@ -1405,12 +1422,12 @@
     "unknown": "Сохранено, но тестовый запрос через этот профиль не прошёл: {detail}"
   },
   "profileDetailPanel": {
-    "createProfile": "Создать профиль",
+    "create": "Создать модель",
+    "createTitle": "Новая модель",
     "defaultTitle": "Профиль",
     "delete": "Удалить",
     "deleting": "Удаление…",
     "managedTag": "Управляет Vellum",
-    "newProfileTitle": "Новый профиль",
     "save": "Сохранить",
     "saveAsNew": "Сохранить как новый",
     "saveChanges": "Сохранить изменения",
@@ -1419,6 +1436,9 @@
   "profileEditor": {
     "maxTokensNoInputRoom": "Макс. токенов ({maxTokens}) занимает всё контекстное окно в {window} токенов под выход, и для сообщений места не остаётся. Уменьшение значения (например, 8000).",
     "maxTokensOverCap": "Макс. токенов ({maxTokens}) больше максимального выхода модели в {cap} токенов. Уменьшение до {cap} или меньше.",
+    "nameRequired": "Укажите имя",
+    "nameTaken": "Это имя уже занято",
+    "providerRequired": "Выбор провайдера",
     "subscriptionSteeringHint": "Подписка ChatGPT доступна как провайдер ChatGPT."
   },
   "profileEditorFields": {
@@ -1429,9 +1449,7 @@
     "descriptionLabel": "Описание <optional>(необязательно)</optional>",
     "descriptionPlaceholder": "Когда использовать этот профиль",
     "displayNameLabel": "Отображаемое имя",
-    "displayNamePlaceholder": "например, Быстрый и дешёвый",
-    "keyLabel": "Ключ",
-    "keyPlaceholder": "например, fast-cheap",
+    "displayNamePlaceholder": "например, Claude Opus 4.8",
     "nameLabel": "Имя",
     "newProviderNote": "Новое подключение провайдера появится в разделе «Провайдеры».",
     "providerLabel": "Провайдер",
@@ -1441,8 +1459,8 @@
   "profileEditorModal": {
     "cancel": "Отмена",
     "close": "Закрыть",
+    "createTitle": "Новая модель",
     "editProfileTitle": "Изменить профиль",
-    "newProfileTitle": "Новый профиль",
     "platformTag": "Платформа",
     "profileFallbackTitle": "Профиль",
     "save": "Сохранить",
@@ -2061,6 +2079,11 @@
     "cancelFailedToast": "Не удалось отменить подписку. Повторите попытку.",
     "canceledToast": "План Pro отменён. Доступ сохранится до {date}.",
     "endOfBillingPeriod": "конца расчётного периода"
+  },
+  "useChatgptDeviceAuth": {
+    "expired": "Срок действия кода истёк. Начните заново, чтобы получить новый.",
+    "rejected": "ChatGPT не смог подтвердить этот код.",
+    "startFailed": "Не удалось начать вход через ChatGPT. Повторите попытку."
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Ассистент не готов. Повторите попытку.",

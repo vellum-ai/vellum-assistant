@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 const isMobileRef = { value: false };

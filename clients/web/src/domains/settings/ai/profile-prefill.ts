@@ -52,15 +52,61 @@ export function deriveProviderDefaults(
 }
 
 /**
- * Derive default name and key for a new profile from a model's display name,
- * ensuring the key does not collide with existing profile names.
+ * Make a profile name unique. Returns `base` when it is free, otherwise the
+ * same name with a numeric suffix appended: "Claude Opus 4.8 (2)", "(3)", and
+ * so on.
+ *
+ * A profile is stored under a key derived from its name, so a candidate is
+ * rejected when either the name itself or the key it slugifies to is already
+ * taken. Two different names can slugify to the same key ("Fast & Cheap" and
+ * "fast cheap" both give `fast-cheap`), which is why both are checked.
+ * Comparison is case-insensitive.
+ *
+ * The suffix is the LOWEST free number, not one past the highest, so a
+ * sequence with a hole fills the hole: with "(2)" and "(4)" taken, the next
+ * name is "(3)". Numbering by "how many copies exist" would make the suffix
+ * depend on history, so deleting an early copy would shift what the next one
+ * is called; the lowest free number only depends on what is there now.
+ *
+ * `ownKey` is the key of the profile being edited. It is held out of the taken
+ * set so re-deriving a name for an existing profile does not collide with the
+ * profile itself.
+ */
+export function uniqueProfileName(
+  base: string,
+  existingProfileKeys: string[],
+  ownKey?: string,
+): string {
+  const taken = new Set(
+    existingProfileKeys
+      .filter((key) => key !== ownKey)
+      .map((key) => key.toLowerCase()),
+  );
+  const isFree = (candidate: string) =>
+    !taken.has(candidate.toLowerCase()) &&
+    !taken.has(slugify(candidate).toLowerCase());
+
+  if (isFree(base)) {
+    return base;
+  }
+  let suffix = 2;
+  while (!isFree(`${base} (${suffix})`)) {
+    suffix += 1;
+  }
+  return `${base} (${suffix})`;
+}
+
+/**
+ * Derive the display name and key a new profile opens with, from the display
+ * name of the model the user just picked. The key is never shown or edited:
+ * it is always the slug of the name, so making the name unique
+ * ({@link uniqueProfileName}) is what makes the key unique too.
  */
 export function deriveProfileDefaults(
   modelDisplayName: string,
-  existingProfileNames: string[],
+  existingProfileKeys: string[],
+  ownKey?: string,
 ): { name: string; key: string } {
-  return {
-    name: modelDisplayName,
-    key: dedupeKey(slugify(modelDisplayName), existingProfileNames),
-  };
+  const name = uniqueProfileName(modelDisplayName, existingProfileKeys, ownKey);
+  return { name, key: slugify(name) };
 }

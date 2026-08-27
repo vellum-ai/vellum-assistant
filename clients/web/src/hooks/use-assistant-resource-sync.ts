@@ -46,8 +46,13 @@ import {
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { suppressPlatformAvatarUrl } from "@/hooks/use-platform-avatar-urls";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { SYNC_TAGS } from "@/lib/sync/types";
+import {
+  resolvePlatformAssistantId,
+  useResolvedAssistantsStore,
+} from "@/stores/resolved-assistants-store";
 
 /**
  * A reconnect can flap: error, reopen, error, reopen. Collapse a burst into
@@ -111,7 +116,7 @@ export function useAssistantResourceSync(
         for (const tag of event.tags) {
           switch (tag) {
             case SYNC_TAGS.assistantAvatar:
-              invalidateAvatarQueries(queryClient, assistantId);
+              onAvatarChanged(queryClient, assistantId);
               break;
             case SYNC_TAGS.assistantIdentity:
               void queryClient.invalidateQueries({
@@ -215,7 +220,7 @@ export function useAssistantResourceSync(
         return;
 
       case "avatar_updated":
-        invalidateAvatarQueries(queryClient, assistantId);
+        onAvatarChanged(queryClient, assistantId);
         return;
     }
   });
@@ -235,6 +240,22 @@ export function useAssistantResourceSync(
       refreshAssistantResources(queryClient, assistantId);
     }, RECONNECT_SWEEP_DEBOUNCE_MS);
   });
+}
+
+/**
+ * An avatar change on the connected assistant. Beyond the query sweep, drops
+ * the row's synced `avatarUrl` and platform lookup entry: the platform copy
+ * lags the live change, and while set it keeps the chooser's live/cache paths
+ * disabled. The reconnect sweep does not do this, since nothing is known to
+ * have changed there.
+ */
+function onAvatarChanged(queryClient: QueryClient, assistantId: string): void {
+  useResolvedAssistantsStore.getState().clearAvatarUrl(assistantId);
+  suppressPlatformAvatarUrl(
+    queryClient,
+    resolvePlatformAssistantId(assistantId),
+  );
+  invalidateAvatarQueries(queryClient, assistantId);
 }
 
 /** The canonical avatar cache plus every chooser row variant for the same id. */

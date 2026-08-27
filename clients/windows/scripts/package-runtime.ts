@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { resolveBuildCommitSha } from "./build-metadata";
+import { installPinnedBun } from "./bun-release";
 import { findPackageDir } from "./package-runtime-packages";
 
 interface RuntimeTarget {
@@ -243,7 +244,14 @@ if (pluginApiShim.status !== 0) {
     `Failed to package the plugin API shim (exit ${pluginApiShim.status}).`,
   );
 }
-copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
+const bunSource = await installPinnedBun({
+  arch: targetArch,
+  cacheDir: path.join(windowsDir, "out", "bun-cache"),
+  destination: path.join(outputDir, "bun.exe"),
+  hostExecutable: process.execPath,
+  version: bunVersion,
+});
+console.log(`Bundled Bun ${bunVersion} (${targetArch}) from ${bunSource}.`);
 await Bun.write(
   path.join(outputDir, "runtime.json"),
   `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel, architecture: targetArch })}\n`,

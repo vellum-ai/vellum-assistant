@@ -33,6 +33,23 @@ mock.module("electron", () => ({
   shell: { openExternal: () => Promise.resolve() },
 }));
 
+let featureFlags: Record<string, boolean> = {};
+let onboardingActive = false;
+let chromeDevTools = false;
+mock.module("@vellumai/electron-desktop/settings", () => ({
+  readSetting: () => featureFlags,
+  onSettingChange: () => () => undefined,
+}));
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  readOnboardingActive: () => onboardingActive,
+}));
+mock.module("@vellumai/electron-desktop/devtools", () => ({
+  areChromeDevToolsEnabled: () => chromeDevTools,
+}));
+mock.module("./main-window", () => ({
+  onOnboardingChange: () => () => undefined,
+}));
+
 const { buildWindowsMenu, installWindowsMenu } = await import("./menu");
 
 type MenuOptions = Parameters<typeof buildWindowsMenu>[0];
@@ -53,7 +70,32 @@ describe("buildWindowsMenu", () => {
     expect(submenu("Window").some((item) => item.role === "close")).toBe(true);
     expect(enabled("Help", "Check for Updates...")).toBe(false);
     expect(enabled("File", "Install vellum Command...")).toBe(false);
-    expect(enabled("Window", "Pop Out Conversation")).toBe(false);
+    expect(enabled("Window", "Pop Out Conversation")).toBeUndefined();
+  });
+
+  test("gates Settings on onboarding and Developer on its flag", () => {
+    expect(enabled("File", "Settings...")).toBe(true);
+    expect(submenu("Developer")).toBeUndefined();
+    expect(submenu("View").some((item) => item.role === "toggleDevTools")).toBe(
+      false,
+    );
+
+    onboardingActive = true;
+    featureFlags = { "developer-menu-items": true };
+    chromeDevTools = true;
+    try {
+      expect(enabled("File", "Settings...")).toBe(false);
+      expect(
+        submenu("Developer").some((item) => item.label === "Replay Onboarding"),
+      ).toBe(true);
+      expect(
+        submenu("View").some((item) => item.role === "toggleDevTools"),
+      ).toBe(true);
+    } finally {
+      onboardingActive = false;
+      featureFlags = {};
+      chromeDevTools = false;
+    }
   });
 
   test("enables update and CLI items when handlers are provided", () => {

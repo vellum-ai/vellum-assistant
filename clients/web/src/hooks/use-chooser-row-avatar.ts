@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import { fetchAvatarState } from "@/assistant/avatar-api";
@@ -10,7 +11,12 @@ import {
   resolveAvatarFromState,
   useAssistantAvatar,
 } from "@/hooks/use-assistant-avatar";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import {
+  isLockfileDrivenStore,
+  usePlatformAvatarUrls,
+} from "@/hooks/use-platform-avatar-urls";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import {
   deleteLastSeenAvatar,
@@ -21,6 +27,7 @@ import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import { lastSeenAvatarGenerations } from "@/lib/avatar-last-seen-cache";
 import { createGenerationGuard } from "@/lib/generation-guard";
 import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
+import { resolvePairedAssistantPlatformId } from "@/lib/paired-platform-identity";
 import {
   chooserRowAvatarCacheQueryKey,
   persistLastSeenAvatar,
@@ -30,6 +37,7 @@ import {
   canReadAvatarFromLocalHost,
   readAssistantAvatarHost,
 } from "@/runtime/local-mode-host";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import {
   type ResolvedAssistant,
   useResolvedAssistantsStore,
@@ -37,6 +45,14 @@ import {
 import type { AvatarRead } from "@/types/avatar";
 
 const QUERY_KEY_PREFIX = "chooserRowAvatar";
+
+export interface ChooserRowAvatar extends AvatarRead {
+  /**
+   * Wire to the rendered image's `onError`. A platform thumbnail that fails
+   * to load (offline, expired signed URL) re-enables the row's other sources.
+   */
+  onImageError: () => void;
+}
 
 type RowManifestSupport = "supported" | "unsupported" | "unknown";
 
@@ -169,6 +185,57 @@ function canReadRowAvatarViaHost(row: ResolvedAssistant): boolean {
   return row.cloud === "local" && canReadAvatarFromLocalHost();
 }
 
+/**
+ * Whether `row` should consult {@link usePlatformAvatarUrls}: the store is
+ * lockfile-driven, so no row kind carries `avatarUrl` (platform-hosted rows
+ * included, since `reloadPlatformAssistants` skips the API write there) and
+ * the thumbnail is only reachable by platform id. A row that does carry one
+ * renders it directly. Pure cloud mode never gets here: the lookup query is
+ * disabled and the map stays empty.
+ */
+function canLookUpRowAvatarByPlatformId(row: ResolvedAssistant): boolean {
+  return !row.avatarUrl && isLockfileDrivenStore();
+}
+
+/** Under the row prefix so `forgetAssistantAvatar` drops it with the rest. */
+function pairedPlatformIdQueryKey(assistantId: string, runtimeUrl?: string) {
+  return [
+    ...chooserRowAvatarQueryKeyPrefix(assistantId),
+    "platformId",
+    runtimeUrl ?? null,
+  ] as const;
+}
+
+/**
+ * The id to look `row` up by in the platform list. A platform-hosted row's
+ * `id` is its UUID; a local row's is `platformAssistantId`; a paired row's
+ * lockfile entry starts without one, so it is resolved lazily from the paired
+ * daemon and persisted (see {@link resolvePairedAssistantPlatformId}). Until
+ * that lands the row falls through to its other sources.
+ */
+function usePlatformLookupId(
+  row: ResolvedAssistant,
+  canLookUp: boolean,
+): string | null {
+  const hasPlatformSession = useHasPlatformSession();
+  const needsPairedResolve =
+    row.isPaired && !row.platformAssistantId && canLookUp;
+  const pairedQuery = useQuery<string | null>({
+    queryKey: pairedPlatformIdQueryKey(row.id, row.runtimeUrl),
+    queryFn: () => resolvePairedAssistantPlatformId(row.id),
+    enabled: needsPairedResolve && hasPlatformSession,
+    // A miss goes stale so a later mount or resume probes again.
+    staleTime: (query) =>
+      query.state.data ? Infinity : EMPTY_AVATAR_STALE_TIME_MS,
+    refetchOnWindowFocus: (query) => !query.state.data,
+    retry: false,
+  });
+  if (row.platformAssistantId) {
+    return row.platformAssistantId;
+  }
+  return row.isPaired ? (pairedQuery.data ?? null) : row.id;
+}
+
 function conclusive(read: AvatarRead): LegacyAvatarRead {
   return { ...read, conclusive: true };
 }
@@ -277,24 +344,54 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  * Avatar data for one chooser row, resolved through a precedence chain:
  * 1. The connected row reuses `useAssistantAvatar`'s cache, correct in every
  *    transport mode and never fetched twice.
- * 2. Other platform rows fetch per id through the platform proxy, only when
+ * 2. The platform's synced thumbnail (`assistant.avatarUrl`): a plain image
+ *    URL, so it renders in every mode with no daemon round-trip. It ranks
+ *    below 1 because the live read keeps a character avatar's SVG fidelity.
+ * 3. Other platform rows fetch per id through the platform proxy, only when
  *    {@link canFetchRowAvatarViaPlatformProxy} says the id is honored and the
  *    org store can supply the `Vellum-Organization-Id` header.
- * 3. Local rows (the connected one when unreachable, siblings even asleep)
+ * 4. Local rows (the connected one when unreachable, siblings even asleep)
  *    read their workspace through the host when one can serve it.
- * 4. The last-seen cache: whatever a live source last resolved for this id,
+ * 5. Every row without `avatarUrl` in a lockfile-driven mode looks its
+ *    platform id up in the platform list (`usePlatformAvatarUrls`): lockfile
+ *    rows never carry `avatarUrl`, so this is how a logged-in desktop shows a
+ *    sibling's synced thumbnail. A paired row first resolves its platform
+ *    UUID from the paired daemon (`usePlatformLookupId`).
+ * 6. The last-seen cache: whatever a live source last resolved for this id,
  *    so a row keeps its avatar while the assistant is unreachable.
- * Only live sources (1 and 2) feed the cache, at fetch time (1 does so
+ * Only live sources (1 and 3) feed the cache, at fetch time (1 does so
  * inside `useAssistantAvatar`); a conclusive none from any source evicts it.
+ * Persisting live evidence also drops the row's `avatarUrl`, so 2 never
+ * outranks a fresher local read. A platform URL (2 or 5) that fails to load
+ * (`onImageError`) is set aside so the sources below it take over for that
+ * row, until the next `app.resume` (network back, window foregrounded)
+ * retries it.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
  */
-export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
+export function useChooserRowAvatar(
+  assistant: ResolvedAssistant,
+): ChooserRowAvatar {
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const isConnectedRow = assistant.id === activeAssistantId;
   const isOrgReady = useIsOrgReady();
 
   const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
+
+  // Keyed by URL so a reload that carries a new thumbnail retries it; a
+  // resume retries the same URL, since the failure may have been offline.
+  const [failedPlatformUrl, setFailedPlatformUrl] = useState<string | null>(
+    null,
+  );
+  useBusSubscription("app.resume", () => setFailedPlatformUrl(null));
+  const syncedUrl =
+    assistant.avatarUrl && assistant.avatarUrl !== failedPlatformUrl
+      ? assistant.avatarUrl
+      : null;
+  const syncedAvatar: AvatarRead | null = syncedUrl
+    ? { traits: null, imageUrl: syncedUrl }
+    : null;
+  const hasSyncedAvatar = syncedAvatar !== null;
 
   const manifestSupport = rowManifestSupport(assistant);
   const rowQuery = useQuery<LegacyAvatarRead>({
@@ -303,6 +400,7 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
       fetchRowAvatarGeneration(client, assistant, manifestSupport),
     enabled:
       !isConnectedRow &&
+      !hasSyncedAvatar &&
       isOrgReady &&
       canFetchRowAvatarViaPlatformProxy(assistant),
     staleTime: (query) =>
@@ -328,14 +426,17 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
   const showLive =
     liveConclusive || (live !== undefined && !isEmptyAvatar(live));
 
-  // The connected row only needs a host read once its live read has
-  // settled empty.
+  // The connected row only falls through once its live read has settled
+  // empty, so a loading row does not flash the thumbnail before the SVG.
   const liveSettledEmpty = !connected.isLoading && !showLive;
+  const showSynced = hasSyncedAvatar && (!isConnectedRow || liveSettledEmpty);
+
   const hostQuery = useQuery<LegacyAvatarRead>({
     queryKey: chooserRowAvatarHostQueryKey(assistant.id),
     queryFn: ({ client }) => readRowAvatarViaHost(client, assistant.id),
     enabled:
       canReadRowAvatarViaHost(assistant) &&
+      !hasSyncedAvatar &&
       (!isConnectedRow || liveSettledEmpty),
     staleTime: HOST_AVATAR_STALE_TIME_MS,
     // staleTime alone never refetches a chooser that stays mounted; the
@@ -350,20 +451,50 @@ export function useChooserRowAvatar(assistant: ResolvedAssistant): AvatarRead {
     hostQuery.data !== undefined &&
     (hostConclusive || !isEmptyAvatar(hostQuery.data));
 
+  const platformAvatarUrls = usePlatformAvatarUrls();
+  const canLookUp = canLookUpRowAvatarByPlatformId(assistant);
+  const lookupId = usePlatformLookupId(assistant, canLookUp);
+  const lookupCandidate =
+    canLookUp && lookupId !== null
+      ? (platformAvatarUrls.get(lookupId) ?? null)
+      : null;
+  const lookupUrl =
+    lookupCandidate !== failedPlatformUrl ? lookupCandidate : null;
+  // Waits out an in-flight host read so a row never flashes the thumbnail
+  // before the disk snapshot replaces it.
+  const showLookup =
+    lookupUrl !== null &&
+    !showLive &&
+    !showSynced &&
+    !showHost &&
+    !hostQuery.isLoading &&
+    (!isConnectedRow || liveSettledEmpty);
+
   const cacheQuery = useQuery<AvatarRead>({
     queryKey: chooserRowAvatarCacheQueryKey(assistant.id),
     queryFn: () => readCachedRowAvatar(assistant.id),
-    enabled: !showLive && !showHost,
+    enabled: !showLive && !hasSyncedAvatar && !showHost && !showLookup,
     staleTime: Infinity,
     structuralSharing: false,
     retry: false,
   });
 
-  if (showLive) {
-    return live ?? EMPTY_AVATAR;
-  }
-  if (showHost) {
-    return { traits: hostQuery.data.traits, imageUrl: hostQuery.data.imageUrl };
-  }
-  return cacheQuery.data ?? EMPTY_AVATAR;
+  const onImageError = useCallback(() => {
+    if (showSynced) {
+      setFailedPlatformUrl(syncedUrl);
+    } else if (showLookup) {
+      setFailedPlatformUrl(lookupUrl);
+    }
+  }, [showSynced, syncedUrl, showLookup, lookupUrl]);
+
+  const avatar: AvatarRead = showLive
+    ? (live ?? EMPTY_AVATAR)
+    : showSynced
+      ? (syncedAvatar ?? EMPTY_AVATAR)
+      : showHost
+        ? { traits: hostQuery.data.traits, imageUrl: hostQuery.data.imageUrl }
+        : showLookup
+          ? { traits: null, imageUrl: lookupUrl }
+          : (cacheQuery.data ?? EMPTY_AVATAR);
+  return { ...avatar, onImageError };
 }

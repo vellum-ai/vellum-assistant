@@ -410,21 +410,21 @@ afterEach(() => {
 });
 
 describe("Model Profile quick-add", () => {
-  test('"+" New Profile renders on desktop, including with profiles present', async () => {
+  test('"+" New Model renders on desktop, including with profiles present', async () => {
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     // Header is present alongside the existing profile.
     expect(document.body.textContent).toContain("Model Profile");
   });
 
-  test('"+" New Profile renders on mobile', async () => {
+  test('"+" New Model renders on mobile', async () => {
     isMobileRef.value = true;
     isTouchMobileRef.value = true;
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
   });
 
@@ -436,7 +436,7 @@ describe("Model Profile quick-add", () => {
     isTouchMobileRef.value = true;
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     expect(screen.queryByTestId("tooltip")).toBeNull();
   });
@@ -444,35 +444,35 @@ describe("Model Profile quick-add", () => {
   test("the mouse presentation keeps the quick-add tooltip", async () => {
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     const tooltip = screen.getByTestId("tooltip");
-    expect(tooltip.getAttribute("data-tooltip-content")).toBe("New Profile");
-    expect(tooltip.querySelector('[aria-label="New Profile"]')).toBeTruthy();
+    expect(tooltip.getAttribute("data-tooltip-content")).toBe("New Model");
+    expect(tooltip.querySelector('[aria-label="New Model"]')).toBeTruthy();
   });
 
-  test('"+" New Profile renders even with zero profiles', async () => {
+  test('"+" New Model renders even with zero profiles', async () => {
     configGetMock.mockImplementationOnce(async () => ({
       data: { llm: { profileOrder: [], profiles: {}, activeProfile: null } },
     }));
     renderMenu();
     await waitFor(() => {
-      expect(screen.getByLabelText("New Profile")).toBeTruthy();
+      expect(screen.getByLabelText("New Model")).toBeTruthy();
     });
     expect(document.body.textContent).toContain("Model Profile");
   });
 
   test("clicking + closes the popover and opens the quick-add controller", async () => {
     renderMenu();
-    await waitFor(() => screen.getByLabelText("New Profile"));
+    await waitFor(() => screen.getByLabelText("New Model"));
 
     // Wait for config to load so the "+" is enabled.
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
 
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
 
     // Delegates to the top-level controller with the current profile names.
     await waitFor(() => {
@@ -487,10 +487,10 @@ describe("Model Profile quick-add", () => {
     renderMenu();
     // Wait for the config to load and "+" to enable.
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
 
     await waitFor(() => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
@@ -547,8 +547,8 @@ describe("Model Profile quick-add", () => {
     configGetMock.mockImplementationOnce(() => new Promise(() => {}));
     renderMenu();
 
-    await waitFor(() => screen.getByLabelText("New Profile"));
-    const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+    await waitFor(() => screen.getByLabelText("New Model"));
+    const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
     expect(plus.disabled).toBe(true);
     expect(plus.getAttribute("aria-disabled")).toBe("true");
 
@@ -560,7 +560,7 @@ describe("Model Profile quick-add", () => {
   test('"+" enables once the config fetch settles', async () => {
     renderMenu();
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
   });
@@ -576,10 +576,10 @@ describe("Model Profile quick-add", () => {
     renderMenu();
     // Wait for config to load.
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
 
     await waitFor(() => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
@@ -1394,10 +1394,10 @@ describe("open-state reporting across the quick-add and unmount", () => {
     });
 
     await waitFor(() => {
-      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      const plus = screen.getByLabelText("New Model") as HTMLButtonElement;
       expect(plus.disabled).toBe(false);
     });
-    fireEvent.click(screen.getByLabelText("New Profile"));
+    fireEvent.click(screen.getByLabelText("New Model"));
     await waitFor(() => {
       expect(openProfileQuickAdd).toHaveBeenCalledTimes(1);
     });

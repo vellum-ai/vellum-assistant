@@ -309,6 +309,37 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
+  const thresholdMutation = useMutation({
+    mutationFn: ({
+      contactId,
+      displayName,
+      autoApproveThreshold,
+    }: {
+      contactId: string;
+      displayName: string;
+      autoApproveThreshold: ContactPayload["autoApproveThreshold"];
+    }) =>
+      upsertContact(assistantId, {
+        id: contactId,
+        displayName,
+        autoApproveThreshold,
+      }),
+    onSuccess: (updatedContact) => {
+      contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.map((c) =>
+                c.id === updatedContact.id ? updatedContact : c,
+              ),
+            }
+          : undefined,
+      );
+    },
+    onError: toastOnError(t("contactPermissions.saveFailed")),
+    onSettled: () => invalidateContacts(),
+  });
+
   const mergeMutation = useContactsMergePostMutation({
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
@@ -478,18 +509,34 @@ export function ContactsPage({
     if (!selectedContact) {
       return null;
     }
+    let next = selectedContact;
     if (
       updateMutation.isPending &&
       updateMutation.variables?.contactId === selectedContact.id
     ) {
-      return {
-        ...selectedContact,
+      next = {
+        ...next,
         displayName: updateMutation.variables.patch.displayName,
         notes: updateMutation.variables.patch.notes,
       };
     }
-    return selectedContact;
-  }, [selectedContact, updateMutation.isPending, updateMutation.variables]);
+    if (
+      thresholdMutation.isPending &&
+      thresholdMutation.variables?.contactId === selectedContact.id
+    ) {
+      next = {
+        ...next,
+        autoApproveThreshold: thresholdMutation.variables.autoApproveThreshold,
+      };
+    }
+    return next;
+  }, [
+    selectedContact,
+    updateMutation.isPending,
+    updateMutation.variables,
+    thresholdMutation.isPending,
+    thresholdMutation.variables,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -625,6 +672,14 @@ export function ContactsPage({
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onLinkAccount={slackReady ? handleLinkAccount : undefined}
+              pendingAutoApproveThreshold={thresholdMutation.isPending}
+              onAutoApproveThresholdChange={(autoApproveThreshold) => {
+                thresholdMutation.mutate({
+                  contactId: optimisticContact.id,
+                  displayName: optimisticContact.displayName,
+                  autoApproveThreshold,
+                });
+              }}
             />
           )
         ) : (

@@ -118,6 +118,12 @@ bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 `pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
 `build:preview-handler`) before `electron-builder`, so the Explorer preview
 handler DLL that `electron-builder.config.cjs` requires is always present.
+
+`build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
+is used when its sha256 matches `scripts/bun-release.ts`, otherwise the
+matching GitHub release is downloaded and verified. Bump the pins there when
+the Bun version changes.
+
 Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
 runs the same steps per architecture, then install-, launch-, and
 uninstall-tests the installer.
