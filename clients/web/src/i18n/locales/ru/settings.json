@@ -1424,6 +1424,25 @@
     "transient": "Сохранено, но тестовый запрос через этот профиль не завершился: {detail} Возможно, это временно.",
     "unknown": "Сохранено, но тестовый запрос через этот профиль не прошёл: {detail}"
   },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "Добавить API-ключ",
+    "chooseFromList": "Выбрать из списка",
+    "connectedTag": "Подключено",
+    "customModelAriaLabel": "Свой ID модели",
+    "customModelHint": "Точный идентификатор модели, который ждёт провайдер. Он уйдёт в подключение как есть.",
+    "customModelOption": "Ввести свой ID модели…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "Модель",
+    "modelLabel": "Модель",
+    "modelNoMatches": "Подходящих моделей нет",
+    "modelPlaceholder": "Поиск моделей…",
+    "modelResultsAnnouncement": "{count, plural, one {# модель доступна} few {# модели доступны} many {# моделей доступно} other {# модели доступно}}. Стрелки вверх и вниз для перехода, Enter для выбора.",
+    "providerCountMeta": "{count, plural, one {# провайдер} few {# провайдера} many {# провайдеров} other {# провайдера}}",
+    "providerLabel": "Провайдер",
+    "setUpTag": "Настроить",
+    "signInTag": "Войти",
+    "soleProviderHint": "Эту модель обслуживает только {name}."
+  },
   "profileDetailPanel": {
     "create": "Создать модель",
     "createTitle": "Новая модель",

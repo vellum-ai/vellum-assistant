@@ -9,6 +9,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
+import { ProfileCreateModelFirst } from "@/domains/settings/ai/profile-create-model-first";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
 import {
   entryPickerValue,
@@ -23,6 +24,7 @@ import {
 } from "@/domains/settings/ai/provider-picker-availability";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { connectionAuthTypeForProvider } from "@/domains/settings/ai/provider-editor-constants";
+import { useModelFirstProfileCreate } from "@/domains/settings/ai/use-model-first-profile-create-flag";
 import type { ProfileEditor } from "@/domains/settings/ai/use-profile-editor";
 import type {
   ConnectionProvider,
@@ -71,6 +73,7 @@ export function ProfileEditorFields({
 }: ProfileEditorFieldsProps) {
   const { t } = useTranslation("settings");
   const providerAvailability = useProviderPickerAvailability();
+  const modelFirstCreate = useModelFirstProfileCreate();
   const isCreate = editor.effectiveMode === "create";
   const flat = variant === "panel";
 
@@ -412,10 +415,16 @@ export function ProfileEditorFields({
         );
 
     // Create asks two questions: which provider, and which model. Everything
-    // else has an answer the model supplies, so it waits under Advanced.
+    // else has an answer the model supplies, so it waits under Advanced. The
+    // `model-first-profile-create` flag decides the order the two are asked
+    // in; both fill the same editor state.
     return (
       <div className="space-y-4">
-        {createProviderSection}
+        {modelFirstCreate ? (
+          <ProfileCreateModelFirst editor={editor} assistantId={assistantId} />
+        ) : (
+          createProviderSection
+        )}
         {createAdvanced}
         {saveErrorNode}
       </div>

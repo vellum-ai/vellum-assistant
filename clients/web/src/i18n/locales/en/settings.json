@@ -1437,6 +1437,25 @@
     "transient": "Saved, but a test request through this profile could not complete: {detail} This may be temporary.",
     "unknown": "Saved, but a test request through this profile failed: {detail}"
   },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "Add API key",
+    "chooseFromList": "Choose from list",
+    "connectedTag": "Connected",
+    "customModelAriaLabel": "Custom model ID",
+    "customModelHint": "Enter the exact model identifier your provider expects. It's sent to the connection as-is.",
+    "customModelOption": "Enter a custom model ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "Model",
+    "modelLabel": "Model",
+    "modelNoMatches": "No matching models",
+    "modelPlaceholder": "Search models…",
+    "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
+    "providerCountMeta": "{count, plural, one {# provider} other {# providers}}",
+    "providerLabel": "Provider",
+    "setUpTag": "Set up",
+    "signInTag": "Sign in",
+    "soleProviderHint": "Only {name} serves this model."
+  },
   "profileDetailPanel": {
     "create": "Create Model",
     "createTitle": "New Model",

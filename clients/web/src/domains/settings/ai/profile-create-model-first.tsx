@@ -1,0 +1,502 @@
+import { useEffect, useMemo, useState } from "react";
+
+import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
+import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
+import { SearchableSelect } from "@vellumai/design-library/components/searchable-select";
+import { Tag } from "@vellumai/design-library/components/tag";
+import { Typography } from "@vellumai/design-library/components/typography";
+
+import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
+import { CHATGPT_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
+import {
+  customModelProviderCandidates,
+  defaultProviderCandidate,
+  resolveModelFirstOptions,
+  type ModelFirstInput,
+  type ProviderCandidate,
+} from "@/domains/settings/ai/model-first-candidates";
+import { entryPickerValue } from "@/domains/settings/ai/provider-availability";
+import { PickerMeta } from "@/domains/settings/ai/provider-picker-availability";
+import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
+import type { ProfileEditor } from "@/domains/settings/ai/use-profile-editor";
+import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useTranslation } from "@/i18n";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+
+/**
+ * Sentinel for the Model list's sticky escape hatch. Namespaced so it can
+ * never collide with a model's display name.
+ */
+const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
+
+/**
+ * What the user has answered to the flow's first question. A catalog pick is
+ * held by display name because that is the identity a model keeps across the
+ * providers that host it; the per-provider id follows from the route chosen
+ * next.
+ */
+type ModelDraft =
+  | { readonly kind: "none" }
+  | { readonly kind: "catalog"; readonly displayName: string }
+  | { readonly kind: "custom"; readonly modelId: string };
+
+const NO_MODEL: ModelDraft = { kind: "none" };
+
+export interface ProfileCreateModelFirstProps {
+  editor: ProfileEditor;
+  /** Assistant whose connections the inline connect form writes to. */
+  assistantId: string;
+}
+
+/**
+ * The model-first create flow: pick the model, then the route that serves it.
+ *
+ * The provider question is asked only when there is something to decide. One
+ * candidate that is already connected answers itself and is shown as a fact;
+ * several candidates become radio cards with the connected ones first; a
+ * candidate with no connection yet expands into the connect form it needs, and
+ * nothing is bound to the profile until that form produces a connection.
+ *
+ * It drives the same `useProfileEditor` state the provider-first flow drives,
+ * so a profile saved through either is byte-identical on the wire.
+ */
+export function ProfileCreateModelFirst({
+  editor,
+  assistantId,
+}: ProfileCreateModelFirstProps) {
+  const { t } = useTranslation("settings");
+  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const developerMode = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
+
+  const resolverInput = useMemo<ModelFirstInput>(
+    () => ({
+      connections: editor.effectiveConnections,
+      developerMode,
+      activeAssistantIsSelfHosted,
+      labelFor: (provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider,
+      defaultEntryMetaLabel,
+    }),
+    [
+      editor.effectiveConnections,
+      developerMode,
+      activeAssistantIsSelfHosted,
+      defaultEntryMetaLabel,
+    ],
+  );
+
+  const options = useMemo(
+    () => resolveModelFirstOptions(resolverInput),
+    [resolverInput],
+  );
+
+  // "Save As New" opens create mode on a profile that already has a provider
+  // and a model, so the flow starts on whichever answer that model is: a
+  // catalog entry the list offers, or an id only free text can express.
+  const [draft, setDraft] = useState<ModelDraft>(() => {
+    if (editor.model === "") {
+      return NO_MODEL;
+    }
+    const seeded = options.find((option) =>
+      option.candidates.some(
+        (candidate) =>
+          candidate.provider === editor.provider &&
+          candidate.modelId === editor.model,
+      ),
+    );
+    return seeded
+      ? { kind: "catalog", displayName: seeded.displayName }
+      : { kind: "custom", modelId: editor.model };
+  });
+  const [selectedValue, setSelectedValue] = useState(() => {
+    if (editor.provider === "") {
+      return "";
+    }
+    return editor.providerConnection === ""
+      ? editor.provider
+      : entryPickerValue(editor.provider, editor.providerConnection);
+  });
+
+  const candidates = useMemo<readonly ProviderCandidate[]>(() => {
+    if (draft.kind === "catalog") {
+      return (
+        options.find((option) => option.displayName === draft.displayName)
+          ?.candidates ?? []
+      );
+    }
+    if (draft.kind === "custom") {
+      return customModelProviderCandidates(resolverInput, draft.modelId);
+    }
+    return [];
+  }, [draft, options, resolverInput]);
+
+  const selectedCandidate =
+    candidates.find((candidate) => candidate.value === selectedValue) ?? null;
+
+  // The model is written last, once the route that serves it is settled, so
+  // the editor derives the profile's Name from the model's display name under
+  // the provider that will dispatch it. Doing it here rather than in the click
+  // handler is what makes the ordering hold: the handler's view of the editor
+  // predates its own provider change, while this runs after it lands.
+  useEffect(() => {
+    if (!selectedCandidate?.connected) {
+      return;
+    }
+    if (editor.provider !== selectedCandidate.provider) {
+      return;
+    }
+    if (editor.model === selectedCandidate.modelId) {
+      return;
+    }
+    editor.handleModelChange(selectedCandidate.modelId);
+  }, [selectedCandidate, editor]);
+
+  function selectCandidate(candidate: ProviderCandidate): void {
+    setSelectedValue(candidate.value);
+    if (editor.provider !== candidate.provider) {
+      editor.handleProviderChange(candidate.provider);
+      // A named row carries its own binding; the provider change above has
+      // already resolved a lone connection for the bare row.
+      if (candidate.connectionName !== "") {
+        editor.setProviderConnection(candidate.connectionName);
+      }
+    } else {
+      // Re-picking the kind's bare row means "the default entry", so the
+      // explicit binding clears.
+      editor.setProviderConnection(candidate.connectionName);
+    }
+    if (!candidate.connected) {
+      // Nothing can dispatch this route yet. The model stays unset so Save
+      // is blocked until the connect form below produces a connection.
+      editor.setModel("");
+    }
+  }
+
+  function selectByValue(value: string): void {
+    const candidate = candidates.find((entry) => entry.value === value);
+    if (candidate) {
+      selectCandidate(candidate);
+    }
+  }
+
+  function openCandidatesFor(next: ModelDraft): void {
+    setDraft(next);
+    const nextCandidates =
+      next.kind === "catalog"
+        ? (options.find((option) => option.displayName === next.displayName)
+            ?.candidates ?? [])
+        : next.kind === "custom"
+          ? customModelProviderCandidates(resolverInput, next.modelId)
+          : [];
+    const candidate = defaultProviderCandidate(nextCandidates);
+    if (candidate) {
+      selectCandidate(candidate);
+      return;
+    }
+    setSelectedValue("");
+  }
+
+  function handleModelPick(value: string): void {
+    if (value === CUSTOM_MODEL_OPTION_VALUE) {
+      editor.setModel("");
+      openCandidatesFor({ kind: "custom", modelId: "" });
+      return;
+    }
+    openCandidatesFor({ kind: "catalog", displayName: value });
+  }
+
+  function handleCustomModelIdChange(value: string): void {
+    setDraft({ kind: "custom", modelId: value });
+  }
+
+  function handleConnectFormCancel(): void {
+    const fallback = candidates.find((candidate) => candidate.connected);
+    if (fallback) {
+      selectCandidate(fallback);
+      return;
+    }
+    setSelectedValue("");
+  }
+
+  const modelOptions = useMemo(
+    () => [
+      ...options.map((option) => ({
+        value: option.displayName,
+        label: option.displayName,
+        suffix: (
+          <PickerMeta
+            text={
+              option.soleProviderLabel ??
+              t("profileCreateModelFirst.providerCountMeta", {
+                count: option.providerCount,
+              })
+            }
+          />
+        ),
+      })),
+      {
+        value: CUSTOM_MODEL_OPTION_VALUE,
+        label: t("profileCreateModelFirst.customModelOption"),
+        // The catalog outgrows the menu's height, so the escape hatch is
+        // pinned rather than left at the end of a scroll.
+        sticky: true,
+      },
+    ],
+    [options, t],
+  );
+
+  const fieldLabelClass =
+    "block text-body-small-default text-[var(--content-tertiary)]";
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <label className={fieldLabelClass}>
+          {t("profileCreateModelFirst.modelLabel")}
+        </label>
+        {draft.kind === "custom" ? (
+          <>
+            <Input
+              value={draft.modelId}
+              onChange={(event) =>
+                handleCustomModelIdChange(event.target.value)
+              }
+              placeholder={t(
+                "profileCreateModelFirst.customModelPlaceholder",
+              )}
+              aria-label={t("profileCreateModelFirst.customModelAriaLabel")}
+              fullWidth
+              autoFocus
+            />
+            <Button
+              variant="link"
+              size="compact"
+              onClick={() => {
+                editor.setModel("");
+                openCandidatesFor(NO_MODEL);
+              }}
+            >
+              {t("profileCreateModelFirst.chooseFromList")}
+            </Button>
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("profileCreateModelFirst.customModelHint")}
+            </Typography>
+          </>
+        ) : (
+          <SearchableSelect
+            value={draft.kind === "catalog" ? draft.displayName : ""}
+            onChange={handleModelPick}
+            aria-label={t("profileCreateModelFirst.modelAriaLabel")}
+            placeholder={t("profileCreateModelFirst.modelPlaceholder")}
+            emptyText={t("profileCreateModelFirst.modelNoMatches")}
+            announceResults={(count) =>
+              t("profileCreateModelFirst.modelResultsAnnouncement", { count })
+            }
+            options={modelOptions}
+          />
+        )}
+      </div>
+
+      {draft.kind !== "none" && candidates.length > 0 ? (
+        <ProviderStep
+          assistantId={assistantId}
+          candidates={candidates}
+          editor={editor}
+          onCancelConnect={handleConnectFormCancel}
+          onSelect={selectByValue}
+          selectedCandidate={selectedCandidate}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+interface ProviderStepProps {
+  assistantId: string;
+  candidates: readonly ProviderCandidate[];
+  editor: ProfileEditor;
+  onCancelConnect: () => void;
+  onSelect: (value: string) => void;
+  selectedCandidate: ProviderCandidate | null;
+}
+
+/**
+ * The flow's second question, which is asked only as far as it needs to be:
+ * a lone connected route is stated rather than offered, and everything else
+ * becomes a card list whose selected card carries its own connect form when
+ * the route it names has no connection yet.
+ */
+function ProviderStep({
+  assistantId,
+  candidates,
+  editor,
+  onCancelConnect,
+  onSelect,
+  selectedCandidate,
+}: ProviderStepProps) {
+  const { t } = useTranslation("settings");
+  const soleCandidate = candidates.length === 1 ? candidates[0] : null;
+
+  const connectSection =
+    selectedCandidate && !selectedCandidate.connected ? (
+      <ConnectSection
+        assistantId={assistantId}
+        candidate={selectedCandidate}
+        editor={editor}
+        onCancel={onCancelConnect}
+      />
+    ) : null;
+
+  return (
+    <div className="space-y-1">
+      <span
+        id="profile-create-provider-label"
+        className="block text-body-small-default text-[var(--content-tertiary)]"
+      >
+        {t("profileCreateModelFirst.providerLabel")}
+      </span>
+
+      {soleCandidate ? (
+        <div className="space-y-2">
+          <div
+            data-testid="provider-candidate"
+            data-candidate={soleCandidate.value}
+            className="flex min-h-9 items-center justify-between gap-2 rounded-lg border border-[var(--border-element)] px-3 py-2"
+          >
+            <Typography variant="body-medium-lighter" as="span">
+              {soleCandidate.label}
+            </Typography>
+            <CandidateTag candidate={soleCandidate} />
+          </div>
+          {soleCandidate.connected ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-[var(--content-tertiary)]"
+            >
+              {t("profileCreateModelFirst.soleProviderHint", {
+                name: soleCandidate.label,
+              })}
+            </Typography>
+          ) : null}
+          {connectSection}
+        </div>
+      ) : (
+        <RadioGroup
+          value={selectedCandidate?.value ?? ""}
+          onValueChange={onSelect}
+          aria-labelledby="profile-create-provider-label"
+        >
+          {candidates.map((candidate) => {
+            const selected = candidate.value === selectedCandidate?.value;
+            return (
+              <div
+                key={candidate.value}
+                data-testid="provider-candidate"
+                data-candidate={candidate.value}
+                className={`space-y-3 rounded-lg border px-3 py-2 ${
+                  selected
+                    ? "border-[var(--border-active)]"
+                    : "border-[var(--border-element)]"
+                }`}
+              >
+                <div className="flex min-h-9 items-center justify-between gap-2">
+                  <Radio
+                    value={candidate.value}
+                    label={
+                      <span className="flex items-center gap-2">
+                        <span>{candidate.label}</span>
+                        {candidate.meta ? (
+                          <PickerMeta text={candidate.meta} />
+                        ) : null}
+                      </span>
+                    }
+                  />
+                  <CandidateTag candidate={candidate} />
+                </div>
+                {selected ? connectSection : null}
+              </div>
+            );
+          })}
+        </RadioGroup>
+      )}
+
+      {editor.newProviderNote ? (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="text-[var(--content-tertiary)]"
+        >
+          {t("profileEditorFields.newProviderNote")}
+        </Typography>
+      ) : null}
+    </div>
+  );
+}
+
+function CandidateTag({ candidate }: { candidate: ProviderCandidate }) {
+  const { t } = useTranslation("settings");
+  if (candidate.connected) {
+    return (
+      <Tag tone="positive">{t("profileCreateModelFirst.connectedTag")}</Tag>
+    );
+  }
+  const label =
+    candidate.setup === "sign-in"
+      ? t("profileCreateModelFirst.signInTag")
+      : candidate.setup === "set-up"
+        ? t("profileCreateModelFirst.setUpTag")
+        : t("profileCreateModelFirst.addApiKeyTag");
+  return <Tag tone="neutral">{label}</Tag>;
+}
+
+interface ConnectSectionProps {
+  assistantId: string;
+  candidate: ProviderCandidate;
+  editor: ProfileEditor;
+  onCancel: () => void;
+}
+
+/**
+ * The connect flow for a route with no connection yet, inline under the card
+ * that names it. Both branches report the stored connection through the
+ * editor's own `handleProviderCreated`, which is the same path the
+ * provider-first flow's inline create uses.
+ */
+function ConnectSection({
+  assistantId,
+  candidate,
+  editor,
+  onCancel,
+}: ConnectSectionProps) {
+  // The subscription is signed into, not created: it has no name, no key, and
+  // no endpoint for the create form to collect.
+  if (candidate.provider === CHATGPT_CONNECTION_PROVIDER) {
+    return (
+      <ChatgptOAuthSection
+        assistantId={assistantId}
+        onConnected={editor.handleProviderCreated}
+      />
+    );
+  }
+  return (
+    <ProviderCreateForm
+      variant="inline"
+      assistantId={assistantId}
+      existingNames={editor.effectiveConnections.map(
+        (connection) => connection.name,
+      )}
+      connections={editor.effectiveConnections}
+      defaultProviderType={candidate.provider}
+      hideProviderSelect
+      onCreated={editor.handleProviderCreated}
+      onCancel={onCancel}
+    />
+  );
+}
