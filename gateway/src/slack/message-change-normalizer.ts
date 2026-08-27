@@ -110,7 +110,7 @@ export function normalizeSlackMessageEdit(
  * content (including any `thread_ts`) lives in `event.previous_message`.
  * The daemon routes deletes on `eventKind: "delete"` and uses
  * `source.messageId` (= `deleted_ts`) to look up the stored row.
- * `message.content` is intentionally empty — the daemon just marks the row
+ * `message.content` is intentionally empty: the daemon just marks the row
  * deleted and does not re-process content.
  *
  * Each delete event gets a unique `externalMessageId` (= eventId) so the
