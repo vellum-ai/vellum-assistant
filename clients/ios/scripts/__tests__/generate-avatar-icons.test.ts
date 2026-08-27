@@ -79,8 +79,31 @@ const PILOT_GENERATION_TIMEOUT_MS = 300_000;
 /** Width and height of every generated icon, in px. */
 const ICON_PX = 1024;
 
-/** Half the icon width, the span every eye pair is fitted to. */
-const EYE_SPAN_PX = ICON_PX / 2;
+/** Fraction of the icon the library's largest eye pair is fitted to. */
+const EYE_CANVAS_FRACTION = 0.5;
+
+/**
+ * Each eye style's size relative to the largest pair in the library.
+ *
+ * Ground truth for the framing: the generator derives these from the library's
+ * own art, and the numbers below say what that derivation has to come out at,
+ * so a change to the scaling shows up as a diff here rather than silently in
+ * 54 PNGs. `clients/web/src/components/avatar/app-icon-preview.test.tsx` pins
+ * this same table against its own independent measurement of the same artwork,
+ * so the preview and the shipped icons cannot drift apart across the bundle
+ * boundary between them.
+ */
+const EXPECTED_EYE_SCALE: Record<string, number> = {
+  grumpy: 1.0,
+  angry: 0.7893,
+  curious: 0.6119,
+  goofy: 0.5738,
+  surprised: 0.7959,
+  bashful: 0.4215,
+  gentle: 0.555,
+  quirky: 0.4438,
+  dazed: 0.7243,
+};
 
 /**
  * Slack allowed on the measured eye span and center, in px. The generator sizes
@@ -157,6 +180,34 @@ function iconSetNames(iconsDir: string): string[] {
   return readdirSync(iconsDir)
     .filter((entry) => entry.endsWith(".appiconset"))
     .sort();
+}
+
+/** The eye style an `avatar-eyes-<eye>-<color>.appiconset` draws. */
+function eyeStyleOf(setName: string): string {
+  const eyeStyle = /^avatar-eyes-([a-z]+)-[a-z]+\.appiconset$/.exec(
+    setName,
+  )?.[1];
+  if (!eyeStyle) {
+    throw new Error(`Unexpected icon set name: "${setName}"`);
+  }
+  return eyeStyle;
+}
+
+/** Span the artwork of one eye style is expected to reach, in icon px. */
+function expectedSpanPx(eyeStyleId: string): number {
+  const scale = EXPECTED_EYE_SCALE[eyeStyleId];
+  if (scale === undefined) {
+    throw new Error(`No expected scale for eye style "${eyeStyleId}"`);
+  }
+  return ICON_PX * EYE_CANVAS_FRACTION * scale;
+}
+
+/** Longer edge of the artwork on one generated icon, in px. */
+function renderedSpanPx(iconsDir: string, setName: string): number {
+  const bounds = artworkBounds(
+    readFileSync(join(iconsDir, setName, "icon.png")),
+  );
+  return Math.max(bounds.width, bounds.height);
 }
 
 /**
@@ -307,8 +358,19 @@ describe("generateAvatarIcons", () => {
     GENERATION_TIMEOUT_MS,
   );
 
+  test("scales exactly the eye styles the library ships", () => {
+    const libraryIds = traitCombinations(COMMITTED_SCOPE).map(
+      (traits) => traits.eyeStyle,
+    );
+    expect(Object.keys(EXPECTED_EYE_SCALE).sort()).toEqual(
+      [...new Set(libraryIds)].sort(),
+    );
+    // The largest pair is the one that keeps the whole fraction.
+    expect(Math.max(...Object.values(EXPECTED_EYE_SCALE))).toBe(1);
+  });
+
   test(
-    "fits every eye pair to half the icon and centers it",
+    "sizes every eye pair to its share of the icon and centers it",
     () => {
       const { iconsDir } = catalog();
       for (const setName of iconSetNames(iconsDir)) {
@@ -318,7 +380,10 @@ describe("generateAvatarIcons", () => {
         // The longer edge is the fitted one: width for a pair wider than it is
         // tall, height for one that is not.
         expect(
-          Math.abs(Math.max(bounds.width, bounds.height) - EYE_SPAN_PX),
+          Math.abs(
+            Math.max(bounds.width, bounds.height) -
+              expectedSpanPx(eyeStyleOf(setName)),
+          ),
         ).toBeLessThanOrEqual(PLACEMENT_TOLERANCE_PX);
         expect(Math.abs(bounds.centerX - ICON_PX / 2)).toBeLessThanOrEqual(
           PLACEMENT_TOLERANCE_PX,
@@ -327,6 +392,27 @@ describe("generateAvatarIcons", () => {
           PLACEMENT_TOLERANCE_PX,
         );
       }
+    },
+    GENERATION_TIMEOUT_MS,
+  );
+
+  test(
+    "draws bashful well under surprised",
+    () => {
+      const { iconsDir } = catalog();
+      // The two styles are the same shape: `bashful` is small on its own source
+      // canvas where `surprised` is large, and that is the whole difference
+      // between them, so an icon set that ignored the source canvas would draw
+      // the two at the same size.
+      const bashful = renderedSpanPx(
+        iconsDir,
+        "avatar-eyes-bashful-green.appiconset",
+      );
+      const surprised = renderedSpanPx(
+        iconsDir,
+        "avatar-eyes-surprised-green.appiconset",
+      );
+      expect(bashful).toBeLessThan(surprised * 0.6);
     },
     GENERATION_TIMEOUT_MS,
   );

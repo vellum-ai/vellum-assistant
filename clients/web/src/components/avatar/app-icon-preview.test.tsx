@@ -3,9 +3,10 @@
  *
  * The preview stands in for a 1024px PNG nobody can load in the web app, so
  * what is worth asserting is the composition it claims to reproduce: the eye
- * pair centered on the field and fitted to half of it, the field painted in
- * the trait color, every bundled eye style drawing something, and an id the
- * catalog does not carry degrading to the bare field instead of throwing.
+ * pair centered on the field and fitted to this style's share of it, the field
+ * painted in the trait color, every bundled eye style drawing something, and an
+ * id the catalog does not carry degrading to the bare field instead of
+ * throwing.
  *
  * The yardstick is {@link SAMPLED_EYE_BOUNDS}: fixed numbers, arrived at by a
  * method the component shares no code with. The transform the component
@@ -23,8 +24,8 @@ import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents } from "@/types/avatar";
 
 const SIZE = 128;
-/** The eye pair spans half the icon, matching the bundled artwork. */
-const SPAN = SIZE / 2;
+/** Fraction of the icon the library's largest eye pair spans. */
+const EYE_CANVAS_FRACTION = 0.5;
 const GREEN_HEX = "#4C9B50";
 
 /** A wide pair and a rounder one, the two ends of what the framing must fit. */
@@ -51,6 +52,28 @@ const SAMPLED_EYE_BOUNDS: Record<string, BBox> = {
   gentle: { x: 176.504, y: 247.329, w: 253.453, h: 221.736 },
   quirky: { x: 218.6091, y: 266.3528, w: 231.3574, h: 171.1384 },
   dazed: { x: 153.352, y: 224.744, w: 382.872, h: 160.174 },
+};
+
+/**
+ * Each eye style's size relative to the largest pair in the library.
+ *
+ * {@link sampledEyeScale} derives these from the ground truth above and the
+ * catalog's own source canvases; the numbers here say what that derivation has
+ * to come out at. `clients/ios/scripts/__tests__/generate-avatar-icons.test.ts`
+ * pins the same table against a rasterized measurement of the same artwork, so
+ * the preview and the shipped PNGs cannot drift apart across the bundle
+ * boundary between them.
+ */
+const EXPECTED_EYE_SCALE: Record<string, number> = {
+  grumpy: 1.0,
+  angry: 0.7893,
+  curious: 0.6119,
+  goofy: 0.5738,
+  surprised: 0.7959,
+  bashful: 0.4215,
+  gentle: 0.555,
+  quirky: 0.4438,
+  dazed: 0.7243,
 };
 
 /**
@@ -84,6 +107,37 @@ function sampledBounds(eyeStyleId: string): BBox {
     throw new Error(`No sampled bounds for eye style "${eyeStyleId}"`);
   }
   return bounds;
+}
+
+/**
+ * Size of a style's artwork on its own source canvas, aspect-fit onto a square,
+ * from the ground truth. That is the size the pair reads at on an avatar, which
+ * is what the icon framing reproduces.
+ */
+function sampledEyeExtent(eyeStyleId: string): number {
+  const viewBox = BUNDLED_COMPONENTS.eyeStyles.find(
+    (eyeStyle) => eyeStyle.id === eyeStyleId,
+  )?.sourceViewBox;
+  if (!viewBox) {
+    throw new Error(`No source viewBox for eye style "${eyeStyleId}"`);
+  }
+  const bounds = sampledBounds(eyeStyleId);
+  return Math.max(bounds.w, bounds.h) / Math.max(viewBox.width, viewBox.height);
+}
+
+/** A style's size relative to the largest pair in the catalog. */
+function sampledEyeScale(eyeStyleId: string): number {
+  const largest = Math.max(
+    ...BUNDLED_COMPONENTS.eyeStyles.map((eyeStyle) =>
+      sampledEyeExtent(eyeStyle.id),
+    ),
+  );
+  return sampledEyeExtent(eyeStyleId) / largest;
+}
+
+/** Span a style's pair is expected to reach on a `size` icon, in px. */
+function sampledSpan(eyeStyleId: string, size: number): number {
+  return size * EYE_CANVAS_FRACTION * sampledEyeScale(eyeStyleId);
 }
 
 /** Parse the `matrix(a,b,c,d,e,f)` the eye group is placed with. */
@@ -147,7 +201,11 @@ function field(container: HTMLElement): Element {
 }
 
 describe("AppIconPreview", () => {
-  test("centers the eye pair and fits it to half the icon", () => {
+  test("centers the largest eye pair and fits it to half the icon", () => {
+    // The wide pair is also the library's largest, so it takes the whole
+    // fraction and the assertions below can name half the icon outright.
+    expect(sampledEyeScale(WIDE_EYE_STYLE)).toBe(1);
+    const span = SIZE * EYE_CANVAS_FRACTION;
     const { container } = render(
       <AppIconPreview
         components={BUNDLED_COMPONENTS}
@@ -164,8 +222,39 @@ describe("AppIconPreview", () => {
     expectWithinTolerance(centerX, SIZE / 2);
     expectWithinTolerance(centerY, SIZE / 2);
     // A pair wider than it is tall is fitted by its width.
-    expectWithinTolerance(box.w, SPAN);
-    expect(box.h).toBeLessThanOrEqual(SPAN + PLACEMENT_TOLERANCE_PX);
+    expectWithinTolerance(box.w, span);
+    expect(box.h).toBeLessThanOrEqual(span + PLACEMENT_TOLERANCE_PX);
+  });
+
+  test("scales each style to the size it is drawn at on an avatar", () => {
+    for (const [eyeStyleId, expected] of Object.entries(EXPECTED_EYE_SCALE)) {
+      expect(sampledEyeScale(eyeStyleId)).toBeCloseTo(expected, 3);
+    }
+    expect(Object.keys(EXPECTED_EYE_SCALE).sort()).toEqual(
+      BUNDLED_COMPONENTS.eyeStyles.map((eyeStyle) => eyeStyle.id).sort(),
+    );
+  });
+
+  test("draws bashful well under surprised", () => {
+    // The two styles are the same shape: `bashful` is small on its own source
+    // canvas where `surprised` is large, and that is the whole difference
+    // between them, so a framing that ignored the source canvas would draw the
+    // two at the same size.
+    const spanOf = (eyeStyleId: string) => {
+      const { container } = render(
+        <AppIconPreview
+          components={BUNDLED_COMPONENTS}
+          eyeStyle={eyeStyleId}
+          color="green"
+          size={SIZE}
+        />,
+      );
+      const { box } = placement(container, sampledBounds(eyeStyleId));
+      cleanup();
+      return Math.max(box.w, box.h);
+    };
+
+    expect(spanOf("bashful")).toBeLessThan(spanOf("surprised") * 0.6);
   });
 
   test("fits a rounder pair by whichever axis is longer", () => {
@@ -184,7 +273,10 @@ describe("AppIconPreview", () => {
     );
     expectWithinTolerance(centerX, SIZE / 2);
     expectWithinTolerance(centerY, SIZE / 2);
-    expectWithinTolerance(Math.max(box.w, box.h), SPAN);
+    expectWithinTolerance(
+      Math.max(box.w, box.h),
+      sampledSpan(ROUND_EYE_STYLE, SIZE),
+    );
   });
 
   test("scales the framing with the requested size", () => {
@@ -203,7 +295,7 @@ describe("AppIconPreview", () => {
     );
     expectWithinTolerance(centerX, 16);
     expectWithinTolerance(centerY, 16);
-    expectWithinTolerance(box.w, 16);
+    expectWithinTolerance(box.w, sampledSpan(WIDE_EYE_STYLE, 32));
   });
 
   test("paints the field in the trait color, with an app icon's corners", () => {
@@ -275,7 +367,10 @@ describe("AppIconPreview", () => {
       );
       expectWithinTolerance(centerX, SIZE / 2);
       expectWithinTolerance(centerY, SIZE / 2);
-      expectWithinTolerance(Math.max(box.w, box.h), SPAN);
+      expectWithinTolerance(
+        Math.max(box.w, box.h),
+        sampledSpan(eyeStyle.id, SIZE),
+      );
       expect(box.x).toBeGreaterThanOrEqual(-PLACEMENT_TOLERANCE_PX);
       expect(box.y).toBeGreaterThanOrEqual(-PLACEMENT_TOLERANCE_PX);
       expect(box.x + box.w).toBeLessThanOrEqual(SIZE + PLACEMENT_TOLERANCE_PX);
@@ -340,7 +435,7 @@ describe("AppIconPreview", () => {
     // The eyes still draw: one unknown id does not take the other down.
     expectWithinTolerance(
       placement(container, sampledBounds(WIDE_EYE_STYLE)).box.w,
-      SPAN,
+      sampledSpan(WIDE_EYE_STYLE, SIZE),
     );
   });
 

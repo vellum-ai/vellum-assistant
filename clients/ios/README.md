@@ -322,12 +322,16 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   `.appiconset` per eye style and color, named `avatar-eyes-<eye>-<color>`.
   Every combination ships: 9 eye styles × 6 colors, so 54 sets. Each set is a
   single opaque 1024×1024 `icon.png` covering every idiom: a solid field in the
-  trait color with that eye pair centered on top, spanning half the icon width,
-  the same framing `AppIcon.icon` uses. Body shape is deliberately not part of
-  the artwork or the name, so an avatar's icon follows its eyes and color
-  alone. App icons may not be transparent, so the background is baked into the
-  pixels and the file is encoded as PNG color type 2 (RGB, no alpha channel at
-  all). App Store validation rejects an app icon that carries an alpha channel
+  trait color with that eye pair centered on top. The pair is sized to the
+  share of the icon that style's art claims on an avatar, so the library's
+  largest pair spans half the icon width and every other one spans
+  proportionally less: eye styles differ a lot in how much of their own source
+  canvas they fill, and normalizing them all to one span would draw `bashful`
+  and `surprised`, which are the same shape at different sizes, as identical
+  icons. Body shape is deliberately not part of the artwork or the name, so an
+  avatar's icon follows its eyes and color alone. App icons may not be
+  transparent, so the background is baked into the pixels and the file is
+  encoded as PNG color type 2 (RGB, no alpha channel at all). App Store validation rejects an app icon that carries an alpha channel
   (ITMS-90717), and that only surfaces at TestFlight upload, so the generator
   asserts every pixel is opaque and drops the channel rather than shipping a
   fully opaque RGBA image.
