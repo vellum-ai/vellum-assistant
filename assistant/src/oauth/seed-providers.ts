@@ -183,46 +183,35 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
-    // Mirrors `oauth_config.scopes.bot` in
-    // `skills/slack-app-setup/scripts/build-manifest.ts` (and its copy in
-    // `clients/web/src/utils/slack-manifest.ts`): the OAuth flow and the
-    // manifest install target the same Slack app, so a scope one path grants
-    // and the other omits shows up as a `missing_scopes` credential-health
-    // fault on a connection that is actually fine.
+    // Deliberately NOT synced to the manifest's 28-scope bot list.
     //
-    // `search:read` is deliberately absent. Slack calls it a legacy scope and
-    // points new apps at the granular Real-time Search trio below, which is
-    // what the bot token carries. The legacy scope stays on the user side,
-    // where `search.messages` still requires it.
+    // This provider's flow persists the user token, not the bot token: Slack
+    // nests it under `authed_user`, `exchangeCodeForTokens` prefers it, and the
+    // bot token is used once for the welcome DM and then dropped. Because
+    // `grantedScopes` is stored from `authed_user.scope`, credential-health
+    // compares this list against a user-token grant. A bot scope can never
+    // appear there, and `missing_scopes` is a hard failure that disables the
+    // provider's tools, so a scope added here permanently breaks the
+    // connection rather than prompting anyone to re-consent.
+    //
+    // Socket Mode installs are the path that needs the wider set. They compare
+    // the live `x-oauth-scopes` header against SLACK_REQUIRED_BOT_SCOPES in
+    // channel-readiness-service.ts, which reads what the token actually has.
     defaultScopes: [
-      "app_mentions:read",
-      "assistant:write",
-      "bookmarks:read",
-      "channels:history",
       "channels:join",
       "channels:read",
-      "chat:write",
-      "emoji:read",
-      "files:read",
-      "files:write",
-      "groups:history",
+      "channels:history",
       "groups:read",
-      "im:history",
+      "groups:history",
       "im:read",
+      "im:history",
       "im:write",
-      "mpim:history",
       "mpim:read",
-      "mpim:write",
-      "pins:read",
-      "reactions:read",
-      "reactions:write",
-      "search:read.files",
-      "search:read.public",
-      "search:read.users",
-      "team:read",
-      "usergroups:read",
+      "mpim:history",
       "users:read",
-      "users:read.email",
+      "chat:write",
+      "search:read",
+      "reactions:write",
     ],
     availableScopes: "https://api.slack.com/scopes",
     // Do NOT narrow this to the manifest's read-only user list. On this
