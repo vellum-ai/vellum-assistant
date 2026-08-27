@@ -77,18 +77,7 @@ public sealed class PermissionService : IRpcModule, INativeCapability
         return "unknown";
     }
 
-    public static string MapGlobalConsent(object? value)
-    {
-        if (IsDenyConsent(value))
-        {
-            return "denied";
-        }
-        if (IsAllowConsent(value))
-        {
-            return "granted";
-        }
-        return "unknown";
-    }
+    public static string MapGlobalConsent(object? value) => MapConsent(value, null);
 
     public static string MapOnlineSpeech(object? hasAccepted) => hasAccepted switch
     {
