@@ -2,10 +2,9 @@
  * Zustand store for live-voice mode preferences.
  *
  * Owns whether the user- and assistant-side transcripts are shown in
- * the voice UI, the turn-taking and camera settings, plus the one-time
- * flags recording which introductions the user has already seen.
- * Voice-mode components read these via the generated selector hooks
- * (`useVoicePrefsStore.use.*`).
+ * the voice UI, plus a one-time flag recording that the user has seen
+ * the first-run voice experience. Voice-mode components read these via
+ * the generated selector hooks (`useVoicePrefsStore.use.*`).
  *
  * **Storage model:**
  *
@@ -81,13 +80,6 @@ export function clampPauseBeforeReplyMs(ms: number): number {
   );
 }
 
-/**
- * Camera flash for the voice room's viewfinder: never fired, fired on every
- * shot, or left to the camera to decide from the scene. Capture flash only,
- * not a torch.
- */
-export type FlashMode = "off" | "auto" | "on";
-
 export interface VoicePrefsState {
   /** Whether the user-side transcript is shown in the voice UI. */
   showUserTranscript: boolean;
@@ -114,15 +106,6 @@ export interface VoicePrefsState {
    * {@link DEFAULT_INTERRUPT_SENSITIVITY} as the resting value.
    */
   interruptSensitivity: InterruptSensitivity | null;
-  /**
-   * The flash mode the user chose for the camera, not the one the device
-   * settled on. A camera without a flash clamps the setting for its own
-   * session; storing the clamped value would let one flashless front camera
-   * silently erase a preference the rear camera can still honour.
-   */
-  flashMode: FlashMode;
-  /** True once the user has seen the Live-mode explainer. */
-  hasSeenLiveExplainer: boolean;
 }
 
 export interface VoicePrefsActions {
@@ -134,9 +117,6 @@ export interface VoicePrefsActions {
   setPauseBeforeReplyMs: (next: number | null) => void;
   /** `null` clears the preference, handing barge-in back to daemon config. */
   setInterruptSensitivity: (next: InterruptSensitivity | null) => void;
-  setFlashMode: (next: FlashMode) => void;
-  /** Flip `hasSeenLiveExplainer` to true on first observation. No-op afterwards. */
-  markLiveExplainerSeen: () => void;
 }
 
 export type VoicePrefsStore = VoicePrefsState & VoicePrefsActions;
@@ -153,8 +133,6 @@ const INITIAL_STATE: VoicePrefsState = {
   // override lets the daemon's configured VAD defaults stand.
   pauseBeforeReplyMs: null,
   interruptSensitivity: null,
-  flashMode: "off",
-  hasSeenLiveExplainer: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -184,12 +162,6 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         }),
       setInterruptSensitivity: (next: InterruptSensitivity | null) =>
         set({ interruptSensitivity: next }),
-      setFlashMode: (next: FlashMode) => set({ flashMode: next }),
-      markLiveExplainerSeen: () => {
-        if (!get().hasSeenLiveExplainer) {
-          set({ hasSeenLiveExplainer: true });
-        }
-      },
     }),
     {
       name: VOICE_PREFS_STORE_KEY,
@@ -200,8 +172,6 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         firstRunSeen: state.firstRunSeen,
         pauseBeforeReplyMs: state.pauseBeforeReplyMs,
         interruptSensitivity: state.interruptSensitivity,
-        flashMode: state.flashMode,
-        hasSeenLiveExplainer: state.hasSeenLiveExplainer,
       }),
     },
   ),

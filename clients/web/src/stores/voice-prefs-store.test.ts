@@ -18,8 +18,6 @@ beforeEach(() => {
     firstRunSeen: false,
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
-    flashMode: "off",
-    hasSeenLiveExplainer: false,
   });
 });
 
@@ -127,38 +125,5 @@ describe("useVoicePrefsStore — turn-taking settings (JARVIS-1284)", () => {
     expect(useVoicePrefsStore.getState().pauseBeforeReplyMs).toBe(
       DEFAULT_PAUSE_BEFORE_REPLY_MS,
     );
-  });
-});
-
-describe("useVoicePrefsStore: camera settings", () => {
-  test("flash defaults to off and records an explicit choice", () => {
-    expect(useVoicePrefsStore.getState().flashMode).toBe("off");
-
-    useVoicePrefsStore.getState().setFlashMode("auto");
-    expect(useVoicePrefsStore.getState().flashMode).toBe("auto");
-  });
-
-  test("markLiveExplainerSeen is idempotent and does not clobber later writes", () => {
-    expect(useVoicePrefsStore.getState().hasSeenLiveExplainer).toBe(false);
-
-    useVoicePrefsStore.getState().markLiveExplainerSeen();
-    expect(useVoicePrefsStore.getState().hasSeenLiveExplainer).toBe(true);
-
-    useVoicePrefsStore.getState().setFlashMode("on");
-    useVoicePrefsStore.getState().markLiveExplainerSeen();
-
-    expect(useVoicePrefsStore.getState().hasSeenLiveExplainer).toBe(true);
-    expect(useVoicePrefsStore.getState().flashMode).toBe("on");
-  });
-
-  test("both camera fields persist", () => {
-    useVoicePrefsStore.getState().setFlashMode("on");
-    useVoicePrefsStore.getState().markLiveExplainerSeen();
-
-    const persisted = JSON.parse(
-      localStorage.getItem(VOICE_PREFS_STORE_KEY) as string,
-    ).state;
-    expect(persisted.flashMode).toBe("on");
-    expect(persisted.hasSeenLiveExplainer).toBe(true);
   });
 });
