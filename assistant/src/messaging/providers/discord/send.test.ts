@@ -30,8 +30,12 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
-const { sendDiscordReply, sendDiscordAttachments, editDiscordMessage } =
-  await import("./send.js");
+const {
+  sendDiscordReply,
+  sendDiscordAttachments,
+  editDiscordMessage,
+  DiscordPartialSendError,
+} = await import("./send.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -187,6 +191,60 @@ describe("sendDiscordReply", () => {
     const row = JSON.parse(calls[0].body as string).components[0];
     expect(row.components[0].style).toBe(2);
     expect(row.components[1].style).toBe(2);
+  });
+
+  test("a failure after the first chunk names the undelivered remainder", async () => {
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
+    let posts = 0;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      posts += 1;
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        headers: {},
+        body: init?.body,
+      });
+      if (posts > 1) {
+        return new Response(JSON.stringify({ message: "rejected" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ id: "msg-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    let thrown: unknown;
+    try {
+      await sendDiscordReply({ channelId: "C1" }, long);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(DiscordPartialSendError);
+    const partial = thrown as InstanceType<typeof DiscordPartialSendError>;
+    expect(partial.chunksSent).toBe(1);
+    expect(partial.lastMessageId).toBe("msg-1");
+    // The delivered prefix plus the named remainder reassemble the text, so
+    // a caller completing the card sends no line twice and drops none.
+    const delivered = JSON.parse(calls[0].body as string).content;
+    expect(`${delivered}\n${partial.remainingText}`).toBe(long);
+  });
+
+  test("a failure on the first chunk propagates plainly, so full fallback is safe", async () => {
+    stubFetch(400, { message: "rejected" });
+
+    let thrown: unknown;
+    try {
+      await sendDiscordReply({ channelId: "C1" }, "short card");
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(DiscordPartialSendError);
   });
 
   test("a custom_id past Discord's cap throws instead of sending a dead button", async () => {

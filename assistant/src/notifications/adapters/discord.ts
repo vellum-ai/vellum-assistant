@@ -16,6 +16,7 @@
 
 import { openDiscordDmChannel } from "../../messaging/providers/discord/api.js";
 import {
+  DiscordPartialSendError,
   editDiscordMessage,
   sendDiscordReply,
 } from "../../messaging/providers/discord/send.js";
@@ -76,6 +77,26 @@ export class DiscordAdapter implements ChannelAdapter {
           // (reactions, button presses, in-place withdrawal).
           return { success: true, messageId: sent.lastMessageId };
         } catch (richErr) {
+          if (richErr instanceof DiscordPartialSendError) {
+            // The leading chunks are delivered and cannot be unsent, so a
+            // full plain-text fallback would duplicate them. Complete the
+            // card instead: the undelivered remainder plus the typed-command
+            // instructions, whose message becomes the card's address.
+            log.warn(
+              {
+                err: richErr,
+                sourceEventName: payload.sourceEventName,
+                guardianUserId,
+                chunksSent: richErr.chunksSent,
+              },
+              "Rich Discord delivery failed mid-card, completing in plain text",
+            );
+            const completion = await sendDiscordReply(
+              { channelId },
+              appendPlainTextFallback(richErr.remainingText, approval),
+            );
+            return { success: true, messageId: completion.lastMessageId };
+          }
           log.warn(
             {
               err: richErr,

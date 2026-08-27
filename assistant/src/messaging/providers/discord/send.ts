@@ -142,6 +142,38 @@ function messagesRoute(target: DiscordSendTarget): string {
   return `/channels/${encodeURIComponent(target.channelId)}/messages`;
 }
 
+/**
+ * A multi-chunk send that failed after at least one chunk was posted. The
+ * already-delivered chunks cannot be unsent, so a caller with a fallback
+ * must not replay the whole text; the undelivered remainder is what is
+ * still owed to the reader.
+ */
+export class DiscordPartialSendError extends Error {
+  readonly chunksSent: number;
+  readonly remainingText: string;
+  readonly lastMessageId?: string;
+
+  constructor(
+    cause: unknown,
+    chunksSent: number,
+    remainingText: string,
+    lastMessageId?: string,
+  ) {
+    super(
+      `Discord send failed after ${chunksSent} chunk(s): ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "DiscordPartialSendError";
+    this.chunksSent = chunksSent;
+    this.remainingText = remainingText;
+    if (lastMessageId !== undefined) {
+      this.lastMessageId = lastMessageId;
+    }
+  }
+}
+
 /** Outcome of a Discord reply send. */
 export interface DiscordSendResult {
   /**
@@ -227,18 +259,33 @@ export async function sendDiscordReply(
 
   let lastMessageId: string | undefined;
   for (const [index, chunk] of chunks.entries()) {
-    const sent = await callDiscordApi<DiscordMessage>(
-      "POST",
-      messagesRoute(target),
-      {
-        content: chunk,
-        allowed_mentions: DISCORD_ALLOWED_MENTIONS,
-        ...(components.length > 0 && index === chunks.length - 1
-          ? { components }
-          : {}),
-      },
-    );
-    lastMessageId = typeof sent?.id === "string" ? sent.id : undefined;
+    try {
+      const sent = await callDiscordApi<DiscordMessage>(
+        "POST",
+        messagesRoute(target),
+        {
+          content: chunk,
+          allowed_mentions: DISCORD_ALLOWED_MENTIONS,
+          ...(components.length > 0 && index === chunks.length - 1
+            ? { components }
+            : {}),
+        },
+      );
+      lastMessageId = typeof sent?.id === "string" ? sent.id : undefined;
+    } catch (err) {
+      // Nothing posted yet propagates plainly; a caller may retry or fall
+      // back with the full text. Past the first chunk the delivered prefix
+      // cannot be unsent, so the error names what is still owed.
+      if (index === 0) {
+        throw err;
+      }
+      throw new DiscordPartialSendError(
+        err,
+        index,
+        chunks.slice(index).join("\n"),
+        lastMessageId,
+      );
+    }
   }
 
   log.debug(

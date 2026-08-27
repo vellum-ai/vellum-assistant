@@ -25,14 +25,23 @@ mock.module("../messaging/providers/discord/api.js", () => ({
   },
 }));
 
+const actualSend = await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
+  DiscordPartialSendError: actualSend.DiscordPartialSendError,
   sendDiscordReply: async (
     target: { channelId: string },
     text: string,
     approval?: { requestId: string },
   ) => {
     if (approval && failRichSends) {
-      throw new Error("simulated component rejection");
+      throw failRichSends === "partial"
+        ? new actualSend.DiscordPartialSendError(
+            new Error("final chunk rejected"),
+            2,
+            "tail of the card",
+            "1500",
+          )
+        : new Error("simulated component rejection");
     }
     sendCalls.push({ channelId: target.channelId, text, approval });
     return { lastMessageId: String(2000 + sendCalls.length) };
@@ -79,7 +88,7 @@ function makeDestination(
   };
 }
 
-let failRichSends = false;
+let failRichSends: boolean | "partial" = false;
 
 beforeEach(() => {
   dmOpens.length = 0;
@@ -119,6 +128,29 @@ describe("DiscordAdapter.send", () => {
     expect(sendCalls[0].approval?.requestId).toBe("req-1");
     // The rich card carries no typed-command tail; buttons are the controls.
     expect(sendCalls[0].text).not.toContain("Reply");
+  });
+
+  test("a mid-card failure completes the card instead of replaying it", async () => {
+    failRichSends = "partial";
+    const adapter = new DiscordAdapter();
+    const result = await adapter.send(
+      makePayload({
+        approvalContext: {
+          requestId: "req-1",
+          actions: [{ id: "approve_once", label: "Approve once" }],
+          plainTextFallback: 'Reply "approve" or "reject" to decide.',
+        },
+      }),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(true);
+    expect(sendCalls).toHaveLength(1);
+    // Only the undelivered remainder goes out, with the typed instructions;
+    // the delivered chunks are never sent twice.
+    expect(sendCalls[0].approval).toBeUndefined();
+    expect(sendCalls[0].text).toContain("tail of the card");
+    expect(sendCalls[0].text).toContain('Reply "approve" or "reject"');
   });
 
   test("a failed rich delivery falls back to the typed-command card", async () => {
