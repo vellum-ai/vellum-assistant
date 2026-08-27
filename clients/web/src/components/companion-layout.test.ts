@@ -22,6 +22,7 @@ describe("companionLayoutFor", () => {
    */
   test("hands back the authored numbers when the two boxes agree", () => {
     const layout = companionLayoutFor(44, 44);
+    expect(layout.scale).toBe(1);
     expect(layout.avatarRel).toBe(1);
     expect(layout.avatarHalf).toBe(22);
     expect(layout.gap).toBe(12);
@@ -41,6 +42,7 @@ describe("companionLayoutFor", () => {
    */
   test("states a mixed pair in the pill's units", () => {
     const layout = companionLayoutFor(44, 110);
+    expect(layout.scale).toBe(2.5);
     expect(layout.avatarRel).toBe(0.4);
     expect(layout.avatarHalf).toBe(22);
     expect(layout.gap).toBe(12);
@@ -53,8 +55,14 @@ describe("companionLayoutFor", () => {
    * the smaller box's gap, and the canvas holds the creature's own half box
    * plus a pad sized by the larger of the two.
    */
+  /**
+   * The options box alone drives the surface's own scale, so a creature grown
+   * on its own leaves it at the identity and carries the whole difference in
+   * `avatarRel`.
+   */
   test("keeps the smaller box's gap when the creature is the larger", () => {
     const layout = companionLayoutFor(110, 44);
+    expect(layout.scale).toBe(1);
     expect(layout.avatarRel).toBe(2.5);
     expect(layout.avatarHalf).toBe(55);
     expect(layout.gap).toBe(12);

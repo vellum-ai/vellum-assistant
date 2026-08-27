@@ -346,10 +346,10 @@ export interface CompanionSurfaceProps {
    * The pill's box in points, which is the scale of everything that is not the
    * creature.
    *
-   * The page's wrapper is already scaled by this, so what it is for here is
-   * converting back: a distance the host and this side have to agree on is
-   * worked out in points from the contract's helpers and divided by this scale
-   * on its way into a style, so both ends are the same expression.
+   * The surface scales its own outermost box by this, so what it is for beyond
+   * that is converting back: a distance the host and this side have to agree on
+   * is worked out in points from the contract's helpers and divided by this
+   * scale on its way into a style, so both ends are the same expression.
    */
   optionsBox?: number;
   /**
@@ -707,10 +707,8 @@ export function CompanionSurface({
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
   // `CompanionIntro`, whose card hangs off the same creature.
-  const { avatarRel, avatarHalf, gap, lineAt, edgeAt } = companionLayoutFor(
-    avatarBox,
-    optionsBox,
-  );
+  const { scale, avatarRel, avatarHalf, gap, lineAt, edgeAt } =
+    companionLayoutFor(avatarBox, optionsBox);
 
   // **The avatar never moves.** It holds one spot in the canvas, which is the
   // spot the host positions this window around, and the pill hangs off one side
@@ -819,11 +817,23 @@ export function CompanionSurface({
   );
 
   return (
-    // A fragment, so the introduction's card is a sibling of the surface rather
-    // than a child of it. Inside, it would sit in the box whose width animates
-    // from state to state and be clipped by the pill's own rounding; beside it,
-    // both hang off the same fixed avatar position in the canvas.
-    <>
+    // The box the whole surface is drawn in: the canvas divided by the options
+    // scale, blown back up about its top-left corner, so every authored length
+    // inside resolves in base units and the host never holds a second set of
+    // dimensions.
+    //
+    // The pill, the creature and the introduction's card are siblings inside it,
+    // never nested: a card inside the pill would sit in the box whose width
+    // animates from state to state and be clipped by the pill's own rounding,
+    // and beside it they all hang off the same fixed avatar position.
+    <div
+      className="absolute top-0 left-0 origin-top-left"
+      style={{
+        width: `${100 / scale}%`,
+        height: `${100 / scale}%`,
+        transform: `scale(${scale})`,
+      }}
+    >
       {/* The pill is a drag handle, as the avatar is. Controls opt out by
         stopping the press, so everything on it that is not a button can be
         grabbed. */}
@@ -937,13 +947,13 @@ export function CompanionSurface({
         style={{
           left: "50%",
           top: lineAt(cardGrowth, 0),
-          // Centred on the point the host put the window around, then scaled
-          // about that centre by whatever the creature's own size asks for
-          // beyond the scale the page has already applied. Omitted where the
-          // two boxes agree, which is the surface every other length here is
-          // authored for. On this node rather than the one below it: the bob
-          // owns a `transform` of its own, and two transforms on one node
-          // silently leave one of them out.
+          // Centred on the point the host put the window around, then
+          // scaled about that centre by whatever the creature's own size
+          // asks for beyond the options scale the box above already carries.
+          // Omitted where the two boxes agree, which is the surface every
+          // other length here is authored for. On this node rather than the
+          // one below it: the bob owns a `transform` of its own, and two
+          // transforms on one node silently leave one of them out.
           transform: `translate(-50%, -50%)${
             avatarRel === 1 ? "" : ` scale(${avatarRel})`
           }`,
@@ -954,7 +964,7 @@ export function CompanionSurface({
         onClick={onAvatarClick}
       />
       {intro}
-    </>
+    </div>
   );
 }
 

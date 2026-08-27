@@ -299,23 +299,30 @@ describe("the pill while it is collapsing", () => {
 /**
  * The two sizes, which are one choice each.
  *
- * The wrapper is scaled by the options size and the creature carries the
- * difference between the two itself, which is what lets the pill's every length
- * stay stated once. The hit-test needs nothing new for it, since it reads rects
- * off the DOM after the transforms, and the case that proves it is the dead
- * corner beside a creature far taller than the pill beside it.
+ * The page holds no dimensions of its own: it hands the surface both boxes and
+ * the surface scales its own outermost element by the options one. What is
+ * worth holding here is that the surface is what fills the canvas and that the
+ * sizes main pushes reach it. The hit-test needs nothing new for either, since
+ * it reads rects off the DOM after the transforms, and the case that proves it
+ * is the dead corner beside a creature far taller than the pill beside it.
  */
 describe("the companion surface at two sizes", () => {
-  /** The wrapper the whole layout is drawn inside, scaled to the window. */
+  /**
+   * The surface's own outermost element, which the page draws straight into the
+   * canvas rather than inside a scaled box of its own.
+   */
   const wrapperOf = (container: HTMLElement): HTMLElement => {
-    const found = container.querySelector<HTMLElement>(".origin-top-left");
-    if (!found) {
-      throw new Error("Expected the scaled wrapper to render");
+    const found = canvasOf(container).firstElementChild;
+    if (!(found instanceof HTMLElement)) {
+      throw new Error("Expected the surface to render inside the canvas");
+    }
+    if (!found.className.includes("origin-top-left")) {
+      throw new Error("Expected the surface's scaled box to be that element");
     }
     return found;
   };
 
-  test("scales the canvas by the options size rather than the creature's", async () => {
+  test("draws the surface itself into the canvas at the pushed options size", async () => {
     STATE.avatarBox = 44;
     STATE.optionsBox = 110;
     const { container } = render(<CompanionSurfacePage />);
@@ -323,7 +330,8 @@ describe("the companion surface at two sizes", () => {
     await waitFor(() => {
       expect(wrapperOf(container).style.transform).toBe("scale(2.5)");
     });
-    expect(wrapperOf(container).style.width).toBe("40%");
+    // Nothing of the page's own between the canvas and the surface.
+    expect(canvasOf(container).children).toHaveLength(1);
   });
 
   /**
@@ -348,7 +356,7 @@ describe("the companion surface at two sizes", () => {
     });
   });
 
-  test("leaves that canvas alone when only the creature grows", async () => {
+  test("leaves that scale alone when only the creature grows", async () => {
     STATE.avatarBox = 220;
     STATE.optionsBox = 44;
     const { container } = render(<CompanionSurfacePage />);

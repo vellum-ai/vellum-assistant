@@ -565,14 +565,64 @@ describe("the companion surface's anchor in the canvas", () => {
 /**
  * The surface with the creature and the controls sized apart.
  *
- * The page's wrapper is scaled by the options size, so everything here is
- * stated in those units and the creature carries the difference between the two
- * boxes itself. What has to hold is that the pill still sits a gap off the
- * creature's *visual* edge and still shares its bottom line, whichever of the
- * two is the larger, because that edge and that line are what the host places
- * the window by.
+ * The surface's own outermost box is scaled by the options size, so everything
+ * inside it is stated in the units the layout is authored in and the creature
+ * carries the difference between the two boxes itself. What has to hold is that
+ * the pill still sits a gap off the creature's *visual* edge and still shares
+ * its bottom line, whichever of the two is the larger, because that edge and
+ * that line are what the host places the window by.
  */
 describe("the companion surface at two sizes", () => {
+  /** The outermost element, which is where the options scale is spent. */
+  const boxOf = (container: HTMLElement): HTMLElement => {
+    const found = container.firstElementChild;
+    if (!(found instanceof HTMLElement)) {
+      throw new Error("Expected the surface's scaled box to render");
+    }
+    return found;
+  };
+
+  /**
+   * The box is the canvas divided by the options scale and blown back up about
+   * its top-left corner, so it covers the canvas exactly and every length
+   * inside resolves in the units the layout is written in. The host is handed
+   * one surface rather than a scale it has to apply itself.
+   */
+  test("scales its own box by the options size rather than the creature's", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarBox={44} optionsBox={110} />,
+    );
+    const box = boxOf(container);
+    expect(box.style.transform).toBe("scale(2.5)");
+    expect(box.style.width).toBe("40%");
+    expect(box.style.height).toBe("40%");
+    expect(box.className).toContain("origin-top-left");
+  });
+
+  /**
+   * The identity, which is still drawn rather than skipped: one code path for
+   * both, and a host that never has to ask whether the box is there.
+   */
+  test("covers the canvas untransformed at the authored options size", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarBox={220} optionsBox={44} />,
+    );
+    const box = boxOf(container);
+    expect(box.style.transform).toBe("scale(1)");
+    expect(box.style.width).toBe("100%");
+    expect(box.style.height).toBe("100%");
+  });
+
+  /** The pill and the creature both hang inside that one box. */
+  test("draws the whole surface inside that box", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={110} optionsBox={44} />,
+    );
+    const box = boxOf(container);
+    expect(box.contains(surfaceOf(container))).toBe(true);
+    expect(box.contains(avatarOf(container))).toBe(true);
+  });
+
   /**
    * 55 to a huge creature's edge, then the gap the smaller of the two earns.
    * Bottom-flush with it as well: the near edge is 115 at this pair and the
@@ -670,7 +720,7 @@ describe("the companion surface at two sizes", () => {
     );
   });
 
-  /** With the two agreeing the wrapper has done all of it, at any size. */
+  /** With the two agreeing the surface's own box has done all of it. */
   test("leaves the creature unscaled when the two agree", () => {
     const { container } = render(
       <CompanionSurface phase="resting" avatarBox={110} optionsBox={110} />,

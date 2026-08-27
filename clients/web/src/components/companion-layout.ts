@@ -58,7 +58,7 @@ export const bridgeRect = (
   }: {
     /**
      * The composer row's height in screen pixels, which is the options box: the
-     * row is one base box tall and the page's wrapper is scaled by that box.
+     * row is one base box tall and the surface is drawn scaled by that box.
      */
     rowHeight: number;
     cardGrowth: CompanionCardGrowth;
@@ -132,7 +132,9 @@ export const onCompanionSurface = (
  * behind it.
  */
 export interface CompanionLayout {
-  /** The creature's own scale, the page's wrapper having spent the options box already. */
+  /** The scale the whole surface is drawn at, which is the options box over the authored one. */
+  scale: number;
+  /** The creature's own scale, on top of the options scale the surface already carries. */
   avatarRel: number;
   /** Half the creature's box, which is what everything beside it steps off from. */
   avatarHalf: number;
@@ -195,6 +197,7 @@ export function companionLayoutFor(
   const reachUp = Math.max(avatarHalf, optionsBox - avatarHalf);
   const reachDown = avatarHalf;
   return {
+    scale,
     avatarRel: avatarBox / optionsBox,
     avatarHalf,
     gap,

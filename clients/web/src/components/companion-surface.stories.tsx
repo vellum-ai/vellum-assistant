@@ -172,7 +172,9 @@ const meta: Meta<StoryArgs> = {
       }
       return (
         <div
-          className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
+          // Overflow is left visible so a surface drawn at one of the larger
+          // option sizes is reviewable whole rather than cut off at the stage.
+          className="relative h-[340px] w-[560px] overflow-visible rounded-xl"
           style={{
             background:
               BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
@@ -258,12 +260,11 @@ export const TypingWhileWorking: Story = {
  * A creature far larger than the controls beside it, which is the pair the two
  * size axes exist for.
  *
- * The pill keeps its authored size and the creature is scaled up around it, and
- * the two still share a bottom line and a gap: the pill's avatar-facing edge is
- * the creature's own visual edge plus that gap, which is the distance the host
- * sizes the window by. There is no page wrapper here, so what these stories
- * show is the *ratio* between the two rather than the points either would be
- * drawn at on a desktop.
+ * The pill, the card and the gap follow the options size and the creature
+ * follows the avatar size, so the controls here sit at the size the layout is
+ * authored at while the creature runs well past them. The two still share a
+ * bottom line and that gap: the pill's avatar-facing edge is the creature's own
+ * visual edge plus the gap, which is the distance the host sizes the window by.
  */
 export const BigAvatarSmallOptions: Story = {
   args: {
@@ -277,9 +278,11 @@ export const BigAvatarSmallOptions: Story = {
 /**
  * The reverse: a modest creature beside controls sized well past it.
  *
- * The gap is the smaller of the two objects' clearance rather than the larger
- * one's, so a small creature beside an enormous pill is not separated from it
- * by a chasm.
+ * The surface scales its own box by the options size and the creature carries
+ * the difference back down, so the pill and every control on it grow and the
+ * creature does not. The gap is the smaller of the two objects' clearance
+ * rather than the larger one's, so a small creature beside an enormous pill is
+ * not separated from it by a chasm.
  */
 export const SmallAvatarBigOptions: Story = {
   args: {
@@ -293,9 +296,9 @@ export const SmallAvatarBigOptions: Story = {
 /**
  * The same pair at rest, which is the state the surface spends its day in.
  *
- * The pill is gone and the creature holds the spot it holds in every other
- * state, so what these two show is that a mixed pair changes the creature's
- * size and nothing about where it sits.
+ * The pill is gone and the creature is all that is left, so what these two show
+ * is the creature at the avatar size against a canvas whose clearance the
+ * larger of the two boxes earns.
  */
 export const RestingBigAvatarSmallOptions: Story = {
   args: {
@@ -305,7 +308,7 @@ export const RestingBigAvatarSmallOptions: Story = {
   },
 };
 
-/** The reverse pair at rest, where only the glow's own scale changes. */
+/** The reverse pair at rest: a small creature on a canvas sized for the pill. */
 export const RestingSmallAvatarBigOptions: Story = {
   args: {
     phase: "resting",
@@ -679,9 +682,10 @@ function HoverDrivenSurface(args: StoryArgs) {
         {
           avatar: avatar.getBoundingClientRect(),
           pill: pillRect.width > 0 ? pillRect : null,
-          // One base box, since nothing here is scaled the way the page's
-          // wrapper scales the real canvas by the options size.
-          rowHeight: COMPANION_BASE_AVATAR_BOX,
+          // The composer row in stage pixels, which is the options box: the
+          // surface scales its own box by that size and these rects are read
+          // after the transform.
+          rowHeight: args.optionsBox ?? COMPANION_BASE_AVATAR_BOX,
           cardGrowth: args.cardGrowth ?? "up",
         },
       ),
