@@ -1,6 +1,6 @@
 /**
  * The readout floating at the top of the room while the camera is open: what
- * the camera is doing, and who is talking, in one mark.
+ * the camera is doing, and what the session is doing, in one mark.
  *
  * One pill rather than two indicators because the two answers are read
  * together. The room's usual state caption is suppressed while the viewfinder
@@ -10,20 +10,27 @@
  * the words carry the mode, which is why the mode word leads: it is the one
  * thing the camera chrome does not otherwise say.
  *
+ * The second word is the session's whole surface label, not a two-way
+ * Listening/Muted split. Because this pill is the only session readout on
+ * screen while the viewfinder is up, a fixed "Listening" would tell the user
+ * the mic is open through a connect, a reconnect, a teardown, and a failure,
+ * none of which can take speech. The one substitution is the assistant's name
+ * while it is audibly talking: it says everything "Speaking…" would, plus
+ * whose voice it is.
+ *
  * Photo is the only mode this ships (Live lands with the vision-mode
  * workstream), and the pill is not interactive yet, so it is a status region
  * rather than a button.
  *
- * Presentational: the room derives the voice state and owns the assistant
- * identity, so nothing here reaches for a store and the whole state matrix is
- * reachable from props.
+ * Presentational: the room derives the voice state, resolves the label, and
+ * owns the assistant identity, so nothing here reaches for a store and the
+ * whole state matrix is reachable from props.
  */
 
 import { cn } from "@vellumai/design-library";
 import { useReducedMotion } from "motion/react";
 
 import { useTranslation } from "@/i18n";
-import { assistantDisplayName } from "@/utils/assistant-display-name";
 
 import { cameraModeStyle } from "./camera-mode-paint";
 import type { CameraVoiceState } from "./use-camera-voice-state";
@@ -31,27 +38,30 @@ import type { CameraVoiceState } from "./use-camera-voice-state";
 export interface CameraStatusPillProps {
   /** Whose voice is active. See `use-camera-voice-state.ts`. */
   voiceState: CameraVoiceState;
-  /** The mic is off, which the voice word has to say however the dot reads. */
-  muted?: boolean;
+  /**
+   * What the session is doing, from `liveVoiceSurfaceLabel` in
+   * `live-voice-store.ts` (which is where mute already becomes "Muted" and a
+   * silent mid-turn `speaking` already becomes "Thinking…"). Handed down
+   * rather than derived here so this pill, the room's caption, and the iOS
+   * Live Activity cannot drift apart. Empty for the phases that carry no
+   * label, which drops the word rather than inventing one.
+   */
+  statusLabel: string;
   /** The session assistant's name, spoken when it is the one talking. */
   assistantName?: string | null;
 }
 
 export function CameraStatusPill({
   voiceState,
-  muted = false,
+  statusLabel,
   assistantName,
 }: CameraStatusPillProps) {
   const { t } = useTranslation("chat");
   const reduce = useReducedMotion();
 
-  const name = assistantDisplayName(assistantName);
+  const name = assistantName?.trim() || t("cameraStatusPill.yourAssistant");
   const speaking = voiceState === "assistant";
-  // Muted only reaches the word. The dot answers "is a voice active", which a
-  // muted mic does not change for the assistant's half of the conversation.
-  const voiceWord = speaking
-    ? name
-    : t(muted ? "cameraStatusPill.muted" : "cameraStatusPill.listening");
+  const voiceWord = speaking ? name : statusLabel;
 
   return (
     <div
@@ -60,7 +70,7 @@ export function CameraStatusPill({
       data-testid="camera-status-pill"
       style={cameraModeStyle()}
       className={cn(
-        // A floor width, so the word swapping between "Listening", "Muted" and
+        // A floor width, so the word swapping between the session's phases and
         // the assistant's name does not shuffle a centred pill sideways on
         // every turn of the conversation.
         "inline-flex min-w-[9rem] items-center justify-center rounded-full",
@@ -80,11 +90,9 @@ export function CameraStatusPill({
       <span className="sr-only">
         {speaking
           ? t("cameraStatusPill.announcePhotoSpeaking", { name })
-          : t(
-              muted
-                ? "cameraStatusPill.announcePhotoMuted"
-                : "cameraStatusPill.announcePhotoListening",
-            )}
+          : voiceWord
+            ? t("cameraStatusPill.announcePhotoStatus", { status: voiceWord })
+            : t("cameraStatusPill.photo")}
       </span>
 
       <span
@@ -105,8 +113,12 @@ export function CameraStatusPill({
           )}
         />
         <span>{t("cameraStatusPill.photo")}</span>
-        <span className="opacity-45">·</span>
-        <span className="opacity-80">{voiceWord}</span>
+        {voiceWord ? (
+          <>
+            <span className="opacity-45">·</span>
+            <span className="opacity-80">{voiceWord}</span>
+          </>
+        ) : null}
       </span>
     </div>
   );

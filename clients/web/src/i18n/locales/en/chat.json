@@ -241,12 +241,10 @@
     "title": "Take a photo"
   },
   "cameraStatusPill": {
-    "announcePhotoListening": "Photo. Listening",
-    "announcePhotoMuted": "Photo. Muted",
     "announcePhotoSpeaking": "Photo. {name} speaking",
-    "listening": "Listening",
-    "muted": "Muted",
-    "photo": "Photo"
+    "announcePhotoStatus": "Photo. {status}",
+    "photo": "Photo",
+    "yourAssistant": "Your assistant"
   },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"

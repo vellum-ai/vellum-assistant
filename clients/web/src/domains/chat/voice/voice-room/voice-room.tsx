@@ -820,10 +820,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         />
       ) : null}
 
-      {/* Camera mode's status readout: what the camera is doing, and who is
-          talking. Top-centre, on the same offset the corner chrome uses, so it
-          shares a line with the minimize control instead of floating on a
-          rhythm of its own; that offset already clears the sheet's grabber.
+      {/* Camera mode's status readout: what the camera is doing, and what the
+          session is doing. Top-centre, on the same offset the corner chrome
+          uses, so it shares a line with the minimize control instead of
+          floating on a rhythm of its own; that offset already clears the
+          sheet's grabber.
 
           Camera-only. With the viewfinder closed the room says all of this
           through the look itself (the avatar's visual, the state caption, the
@@ -840,7 +841,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         >
           <CameraStatusPill
             voiceState={cameraVoiceState}
-            muted={muted}
+            statusLabel={stateLabel}
             assistantName={assistantName}
           />
         </div>
@@ -1162,13 +1163,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
       {/* Screen readers get session-state changes here; the avatar is the
           visual channel, so this stays off-screen. */}
-      <div aria-live="polite" className="sr-only">
+      <div
+        aria-live="polite"
+        className="sr-only"
+        data-testid="voice-room-state-announcer"
+      >
         {/* The status pill is the announcer while the camera is open, and it
-            says the same thing with the mode attached, so this region stands
+            says the same label with the mode attached, so this region stands
             down rather than reading the state twice.
 
             A muted `listening` already reads as "Muted", so prefixing it again
-            would announce "Muted — Muted". The assistant's own phases still
+            would announce "Muted. Muted". The assistant's own phases still
             need the prefix: "Thinking…" alone would not say the mic is off. */}
         {cameraOpen
           ? ""

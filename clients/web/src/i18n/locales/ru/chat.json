@@ -140,12 +140,10 @@
     "unrecognizedCall": "Неизвестный вызов"
   },
   "cameraStatusPill": {
-    "announcePhotoListening": "Фото. Слушаю",
-    "announcePhotoMuted": "Фото. Звук выключен",
     "announcePhotoSpeaking": "Фото. {name} говорит",
-    "listening": "Слушаю",
-    "muted": "Без звука",
-    "photo": "Фото"
+    "announcePhotoStatus": "Фото. {status}",
+    "photo": "Фото",
+    "yourAssistant": "Ваш ассистент"
   },
   "channelReferenceChip": {
     "heading": "Ссылка на сообщение из {channel}",

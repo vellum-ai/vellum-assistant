@@ -5,6 +5,13 @@
  * it assumes media behind it rather than being handed one, so a gradient is a
  * complete substitute for the feed here (which is exactly how the design
  * reference fakes it). Swapping in a real viewfinder later costs nothing.
+ *
+ * The design draws two words in the second slot, "Listening" or the assistant's
+ * name. The stories below carry more than that on purpose: the pill is the only
+ * session readout on screen while the viewfinder is up, so it renders the
+ * session's whole surface label (`liveVoiceSurfaceLabel`), and Connecting,
+ * Reconnecting, Thinking and Ending are states a user can sit in while a fixed
+ * "Listening" would be telling them the mic is open.
  */
 
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
@@ -41,7 +48,11 @@ const meta: Meta<typeof CameraStatusPill> = {
   component: CameraStatusPill,
   parameters: { layout: "fullscreen" },
   decorators: [overFakeFeed],
-  args: { voiceState: "idle", muted: false, assistantName: "Luna" },
+  args: {
+    voiceState: "idle",
+    statusLabel: "Listening…",
+    assistantName: "Luna",
+  },
   argTypes: {
     voiceState: {
       options: ["idle", "user", "assistant"],
@@ -49,7 +60,21 @@ const meta: Meta<typeof CameraStatusPill> = {
       description:
         "Whose voice is live. The room derives this; the pill only paints it.",
     },
-    muted: { description: "The mic is off, which only the word reports." },
+    statusLabel: {
+      options: [
+        "Connecting…",
+        "Reconnecting…",
+        "Listening…",
+        "Muted",
+        "Thinking…",
+        "Speaking…",
+        "Ending…",
+        "",
+      ],
+      control: { type: "select" },
+      description:
+        "What the session is doing, from `liveVoiceSurfaceLabel`. Empty for the phases that carry no label.",
+    },
   },
 };
 
@@ -63,13 +88,39 @@ export const Idle: Story = {};
 export const UserSpeaking: Story = { args: { voiceState: "user" } };
 
 /** The assistant answering: the rose accent, and her name in place of the word. */
-export const AssistantSpeaking: Story = { args: { voiceState: "assistant" } };
+export const AssistantSpeaking: Story = {
+  args: { voiceState: "assistant", statusLabel: "Speaking…" },
+};
 
 /**
  * Mic off. The word says so; the dot is unchanged, because muting the mic
  * does not stop the assistant from talking.
  */
-export const Muted: Story = { args: { muted: true } };
+export const Muted: Story = { args: { statusLabel: "Muted" } };
+
+/**
+ * Opening the socket. The mic is not live yet, so the word must not claim it
+ * is: this is the case a fixed "Listening" gets wrong.
+ */
+export const Connecting: Story = { args: { statusLabel: "Connecting…" } };
+
+/** A dropped connection retrying, which the session labels apart from the first connect. */
+export const Reconnecting: Story = { args: { statusLabel: "Reconnecting…" } };
+
+/**
+ * The turn closed and the assistant is working. Nothing is audible, so the dot
+ * is static and the word is the session's, not "Listening".
+ */
+export const Thinking: Story = { args: { statusLabel: "Thinking…" } };
+
+/** Graceful teardown, before the room unmounts. */
+export const Ending: Story = { args: { statusLabel: "Ending…" } };
+
+/**
+ * A phase with no label at all (`idle`, `failed`). The mode word stands alone
+ * rather than trailing a separator with nothing after it.
+ */
+export const NoLabel: Story = { args: { statusLabel: "" } };
 
 /**
  * A name long enough to test the claim that the pill never wraps: the floor
@@ -77,7 +128,11 @@ export const Muted: Story = { args: { muted: true } };
  * ones from folding it into two lines.
  */
 export const LongAssistantName: Story = {
-  args: { voiceState: "assistant", assistantName: "Marguerite Vandersteen" },
+  args: {
+    voiceState: "assistant",
+    statusLabel: "Speaking…",
+    assistantName: "Marguerite Vandersteen",
+  },
 };
 
 /**
@@ -85,13 +140,23 @@ export const LongAssistantName: Story = {
  * ships here; Live lands with the vision-mode workstream.
  */
 export const StateMatrix: Story = {
-  argTypes: { voiceState: { table: { disable: true } } },
+  argTypes: {
+    voiceState: { table: { disable: true } },
+    statusLabel: { table: { disable: true } },
+  },
   render: (args) => (
     <>
-      <CameraStatusPill {...args} voiceState="idle" />
-      <CameraStatusPill {...args} voiceState="user" />
-      <CameraStatusPill {...args} voiceState="assistant" />
-      <CameraStatusPill {...args} voiceState="idle" muted />
+      <CameraStatusPill {...args} voiceState="idle" statusLabel="Connecting…" />
+      <CameraStatusPill {...args} voiceState="idle" statusLabel="Listening…" />
+      <CameraStatusPill {...args} voiceState="user" statusLabel="Listening…" />
+      <CameraStatusPill {...args} voiceState="idle" statusLabel="Thinking…" />
+      <CameraStatusPill
+        {...args}
+        voiceState="assistant"
+        statusLabel="Speaking…"
+      />
+      <CameraStatusPill {...args} voiceState="idle" statusLabel="Muted" />
+      <CameraStatusPill {...args} voiceState="idle" statusLabel="Ending…" />
     </>
   ),
 };

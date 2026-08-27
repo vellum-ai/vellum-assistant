@@ -434,7 +434,7 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
-/* Camera-mode status dot — the 5px mark in the voice room's status pill,
+/* Camera-mode status dot: the 5px mark in the voice room's status pill,
  * breathing while a voice is live (the user talking, or the assistant
  * answering). Long on, short dip: a hard on/off blink at this size reads as a
  * fault light over a camera feed. The component also holds it static via

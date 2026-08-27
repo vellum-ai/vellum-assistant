@@ -1756,7 +1756,8 @@ describe("VoiceRoom: camera", () => {
 
     // Closed: the room's own live region carries the label (the "…"-suffixed
     // one, distinct from the caption's un-suffixed text).
-    expect(screen.getByText("Listening…")).toBeTruthy();
+    const announcer = () => screen.getByTestId("voice-room-state-announcer");
+    expect(announcer().textContent).toBe("Listening…");
 
     await act(async () => {
       fireEvent.click(cameraToggle()!);
@@ -1764,10 +1765,37 @@ describe("VoiceRoom: camera", () => {
 
     // Open: the pill says it with the mode attached, and the old region stands
     // down, so a screen reader hears the state once rather than twice.
-    expect(screen.queryByText("Listening…")).toBeNull();
+    expect(announcer().textContent).toBe("");
     expect(screen.getByTestId("camera-status-pill").textContent).toContain(
-      "Photo. Listening",
+      "Photo. Listening…",
     );
+  });
+
+  test("the pill carries the session's own label, not a fixed listening word", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // A phase the mic cannot take speech in. Saying "Listening" here would tell
+    // the user to keep talking into a session that is tearing itself down.
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "ending" });
+    });
+
+    const pill = () => screen.getByTestId("camera-status-pill");
+    expect(pill().textContent).toContain("Ending…");
+    expect(pill().textContent).not.toContain("Listening");
+
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "connecting", reconnecting: true });
+    });
+
+    expect(pill().textContent).toContain("Reconnecting…");
   });
 
   test("the controls take a scrim once they sit over the feed", async () => {

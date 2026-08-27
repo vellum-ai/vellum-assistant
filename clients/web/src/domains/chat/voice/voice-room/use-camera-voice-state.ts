@@ -12,9 +12,7 @@
  * than per frame, and the boolean only moves when the thresholded value
  * crosses: a dot that blinks on a 1.5s CSS keyframe needs to know *whether* a
  * voice is active, not how loud it is, and driving a decorative loop through
- * React state is exactly what CONVENTIONS.md (LUM-2859) forbids. Publishing the
- * VAD bit into `live-voice-store` is the intended replacement, at which point
- * the interval here goes away and this reads one more store field.
+ * React state is exactly what CONVENTIONS.md (LUM-2859) forbids.
  */
 
 import { useEffect, useState } from "react";
@@ -27,8 +25,8 @@ import {
 /**
  * Whose voice the pill's dot is reporting. `assistant` outranks `user`, and
  * everything with no voice in it (connecting, transcribing, thinking) is
- * `idle`: the mic is still open through all of them, so a static dot beside
- * "Listening" stays true.
+ * `idle`: none of them has a voice in the room, so a static dot beside the
+ * session's own status word stays true.
  */
 export type CameraVoiceState = "idle" | "user" | "assistant";
 

@@ -3,17 +3,18 @@
  * camera is open.
  *
  * Load-bearing contracts: the dot's three voice states (which one blinks, and
- * that the assistant's takes the rose accent rather than white); the word the
- * mic's mute state replaces, and that it does NOT replace the assistant's name;
- * and the announcement, which is a written sentence rather than the visible
- * fragments, so a screen reader hears "Photo. Luna speaking" instead of the
- * pill's separator dot.
+ * that the assistant's takes the rose accent rather than white); that the word
+ * is the session's own surface label for every phase, with the assistant's name
+ * the only substitution; and the announcement, which is a written sentence
+ * rather than the visible fragments, so a screen reader hears "Photo. Luna
+ * speaking" instead of the pill's separator dot.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render, screen } from "@testing-library/react";
 
+import { liveVoiceSurfaceLabel } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { CameraStatusPill } from "@/domains/chat/voice/voice-room/camera-status-pill";
 
 afterEach(() => {
@@ -26,62 +27,176 @@ const dot = () => screen.getByTestId("camera-status-dot");
 const announcement = () => pill().querySelector(".sr-only")?.textContent ?? "";
 
 describe("CameraStatusPill", () => {
-  test("idle holds the dot still and says the session is still listening", () => {
-    render(<CameraStatusPill voiceState="idle" assistantName="Luna" />);
+  test("idle holds the dot still and repeats the session's own word", () => {
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Listening…"
+        assistantName="Luna"
+      />,
+    );
 
     expect(dot().className).toContain("bg-white/50");
     expect(dot().className).not.toContain("camera-status-blink");
-    expect(pill().textContent).toContain("Listening");
-    expect(announcement()).toBe("Photo. Listening");
+    expect(pill().textContent).toContain("Listening…");
+    expect(announcement()).toBe("Photo. Listening…");
   });
 
   test("a talking user blinks a white dot beside the same word", () => {
-    render(<CameraStatusPill voiceState="user" assistantName="Luna" />);
+    render(
+      <CameraStatusPill
+        voiceState="user"
+        statusLabel="Listening…"
+        assistantName="Luna"
+      />,
+    );
 
     expect(dot().className).toContain("bg-white");
     expect(dot().className).toContain("camera-status-blink");
     // The word answers "can she hear me", which is unchanged by the user
     // talking; the dot is what says a voice is live.
-    expect(announcement()).toBe("Photo. Listening");
+    expect(announcement()).toBe("Photo. Listening…");
   });
 
   test("the assistant takes the rose accent and its own name", () => {
-    render(<CameraStatusPill voiceState="assistant" assistantName="Luna" />);
+    render(
+      <CameraStatusPill
+        voiceState="assistant"
+        statusLabel="Speaking…"
+        assistantName="Luna"
+      />,
+    );
 
     expect(dot().className).toContain("bg-[var(--camera-accent-soft)]");
     expect(dot().className).toContain("camera-status-blink");
     expect(pill().textContent).toContain("Luna");
+    // The name is the whole substitution: it says what "Speaking…" would, plus
+    // whose voice it is.
+    expect(pill().textContent).not.toContain("Speaking…");
     expect(announcement()).toBe("Photo. Luna speaking");
   });
 
   test("an unresolved assistant falls back rather than naming nobody", () => {
-    render(<CameraStatusPill voiceState="assistant" assistantName={null} />);
+    render(
+      <CameraStatusPill
+        voiceState="assistant"
+        statusLabel="Speaking…"
+        assistantName={null}
+      />,
+    );
 
-    expect(pill().textContent).toContain("your assistant");
-    expect(announcement()).toBe("Photo. your assistant speaking");
+    // Translated copy, not the English fallback in `assistantDisplayName`: the
+    // name lands inside a sentence this catalog owns.
+    expect(pill().textContent).toContain("Your assistant");
+    expect(announcement()).toBe("Photo. Your assistant speaking");
+  });
+
+  test("a blank name falls back the same way a missing one does", () => {
+    render(
+      <CameraStatusPill
+        voiceState="assistant"
+        statusLabel="Speaking…"
+        assistantName="   "
+      />,
+    );
+
+    expect(pill().textContent).toContain("Your assistant");
   });
 
   test("a muted mic replaces the listening word, in both channels", () => {
-    render(<CameraStatusPill voiceState="idle" muted assistantName="Luna" />);
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Muted"
+        assistantName="Luna"
+      />,
+    );
 
     expect(pill().textContent).toContain("Muted");
     expect(pill().textContent).not.toContain("Listening");
     expect(announcement()).toBe("Photo. Muted");
   });
 
-  test("muting does not silence the assistant's half of the readout", () => {
-    // Muting the mic stops her hearing you; it does not stop her talking, so
-    // the word still has to be her name.
+  test("a connecting session says so instead of claiming to listen", () => {
     render(
-      <CameraStatusPill voiceState="assistant" muted assistantName="Luna" />,
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Connecting…"
+        assistantName="Luna"
+      />,
     );
 
-    expect(pill().textContent).toContain("Luna");
-    expect(announcement()).toBe("Photo. Luna speaking");
+    expect(pill().textContent).toContain("Connecting…");
+    expect(pill().textContent).not.toContain("Listening");
+    expect(dot().className).not.toContain("camera-status-blink");
+    expect(announcement()).toBe("Photo. Connecting…");
+  });
+
+  test("a thinking session says so instead of claiming to listen", () => {
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Thinking…"
+        assistantName="Luna"
+      />,
+    );
+
+    expect(pill().textContent).toContain("Thinking…");
+    expect(pill().textContent).not.toContain("Listening");
+    expect(announcement()).toBe("Photo. Thinking…");
+  });
+
+  test("an ending session says so instead of claiming to listen", () => {
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Ending…"
+        assistantName="Luna"
+      />,
+    );
+
+    expect(pill().textContent).toContain("Ending…");
+    expect(announcement()).toBe("Photo. Ending…");
+  });
+
+  test("the words are the session's surface label, not a second copy of it", () => {
+    // A reconnect is the case a locally-written word would miss entirely: the
+    // phase is still `connecting`, and only the shared helper relabels it.
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel={liveVoiceSurfaceLabel("connecting", true, false, false)}
+        assistantName="Luna"
+      />,
+    );
+
+    expect(pill().textContent).toContain("Reconnecting…");
+  });
+
+  test("a phase with no label drops the word rather than inventing one", () => {
+    // `idle` and `failed` carry an empty label. A dangling separator with
+    // nothing after it would read as a truncated sentence.
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel=""
+        assistantName="Luna"
+      />,
+    );
+
+    expect(pill().textContent).toBe("PhotoPhoto");
+    expect(pill().textContent).not.toContain("·");
+    expect(announcement()).toBe("Photo");
   });
 
   test("announces as a polite status, with the visible fragments hidden", () => {
-    render(<CameraStatusPill voiceState="idle" assistantName="Luna" />);
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Listening…"
+        assistantName="Luna"
+      />,
+    );
 
     expect(pill().getAttribute("role")).toBe("status");
     expect(pill().getAttribute("aria-live")).toBe("polite");
@@ -92,7 +207,13 @@ describe("CameraStatusPill", () => {
   });
 
   test("holds a floor width so the word swap does not shuffle the pill", () => {
-    render(<CameraStatusPill voiceState="idle" assistantName="Luna" />);
+    render(
+      <CameraStatusPill
+        voiceState="idle"
+        statusLabel="Listening…"
+        assistantName="Luna"
+      />,
+    );
 
     expect(pill().className).toContain("min-w-");
     expect(pill().querySelector("[aria-hidden]")?.className).toContain(
