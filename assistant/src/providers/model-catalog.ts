@@ -1375,6 +1375,32 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // false; the `cacheReadPer1mTokens` rates below only apply if OpenRouter
       // starts reporting cached tokens in usage.
       {
+        id: "x-ai/grok-4.6",
+        displayName: "Grok 4.6",
+        contextWindowTokens: 500000,
+        // xAI publishes no completion cap; 30K is the tracker-reported
+        // single-response limit used for sibling Grok 4.x catalog rows.
+        maxOutputTokens: 30000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        longContextPricingThresholdTokens: 200000,
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 6,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: 200000,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 12,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
         id: "x-ai/grok-4.5",
         displayName: "Grok 4.5",
         contextWindowTokens: 500000,
@@ -1697,6 +1723,36 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0.2, outputPer1mTokens: 1.1 },
       },
       // Z.ai
+      {
+        id: "z-ai/glm-5.3",
+        displayName: "GLM-5.3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
+        },
+      },
+      {
+        id: "z-ai/glm-5.3-flash",
+        displayName: "GLM-5.3 Flash",
+        contextWindowTokens: 1310720,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.075,
+          outputPer1mTokens: 0.25,
+          cacheReadPer1mTokens: 0.015,
+        },
+      },
       {
         id: "z-ai/glm-5.2",
         displayName: "GLM-5.2",
