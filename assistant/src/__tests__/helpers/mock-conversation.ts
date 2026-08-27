@@ -36,6 +36,8 @@ export function asConversation<TExtra extends object = object>(
     getTrustContext: () => merged.trustContext,
     getTurnOrRestingTrust: () =>
       merged.currentTurnTrustContext ?? merged.trustContext,
+    isStale: () => false,
+    hasInFlightWork: () => false,
     ...mock,
   };
   return merged as unknown as Conversation & TExtra;
