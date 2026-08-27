@@ -243,7 +243,7 @@ describe("PreferencesUsagePanel", () => {
 
     const panel = await findByTestId("preferences-usage");
     expect(getByText("Now using extra usage credits")).toBeTruthy();
-    expect(panel.textContent).not.toContain("100% used");
+    expect(panel.textContent).toContain("100% used");
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
   });
@@ -308,11 +308,11 @@ describe("PreferencesUsagePanel", () => {
     const panel = await findByTestId("preferences-usage");
     // Amber, not red: nothing has gone wrong yet, the wallet behind the
     // grants still has something to draw on, so the line names it while the
-    // percentage, the bar, and the strip all stay away.
+    // bar and the strip stay away and the percentage keeps its neutral color.
     expect(getByText("Now using extra usage credits").className).toContain(
       "--system-mid-strong",
     );
-    expect(panel.textContent).not.toContain("100% used");
+    expect(getByText("100% used").className).toContain("--content-secondary");
     expect(panel.querySelector('[data-slot="progress-bar-fill"]')).toBeNull();
     expect(queryByText("Add credits to continue.")).toBeNull();
     expect(queryByTestId("preferences-usage-add-credits")).toBeNull();
