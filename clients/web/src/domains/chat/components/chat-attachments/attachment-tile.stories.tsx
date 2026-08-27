@@ -59,11 +59,14 @@ const PHOTOS = [
 ];
 
 /**
- * The phone's page margin, which the fullscreen canvas does not supply. It
- * puts the 378px card in a 402px frame, the way it sits on a 390px device.
+ * The phone's page margin, which the fullscreen canvas does not supply. The
+ * card fills what is left, 366px on the 390px Mobile viewport and 378px on a
+ * 402px device, the same rule the real composer follows.
  */
 function PhonePage({ children }: { children: ReactNode }) {
-  return <div className="bg-[var(--surface-base)] p-3">{children}</div>;
+  return (
+    <div className="max-w-[402px] bg-[var(--surface-base)] p-3">{children}</div>
+  );
 }
 
 const meta: Meta<typeof AttachmentTile> = {
@@ -100,7 +103,7 @@ export const InCard: Story = {
   parameters: { layout: "fullscreen" },
   render: (args) => (
     <PhonePage>
-      <div className="flex w-[378px] flex-col gap-3 rounded-[26px] bg-[var(--surface-lift)] pb-1.5 pl-3 pr-1.5 pt-3">
+      <div className="flex w-full flex-col gap-3 rounded-[26px] bg-[var(--surface-lift)] pb-1.5 pl-3 pr-1.5 pt-3">
         <div className="flex gap-2">
           {PHOTOS.slice(0, 2).map((photo) => (
             <AttachmentTile key={photo.id} {...args} {...photo} />
@@ -117,7 +120,7 @@ export const Multiple: Story = {
   parameters: { layout: "fullscreen" },
   render: (args) => (
     <PhonePage>
-      <div className="flex w-[354px] gap-2 overflow-x-auto">
+      <div className="flex w-full gap-2 overflow-x-auto">
         {PHOTOS.map((photo) => (
           <AttachmentTile key={photo.id} {...args} {...photo} />
         ))}
