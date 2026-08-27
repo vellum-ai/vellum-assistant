@@ -7,8 +7,6 @@ const bucketEnv = env === "production" ? "prod" : env;
 const targetArch =
   process.env.ELECTRON_TARGET_ARCH ||
   (process.arch === "arm64" ? "arm64" : "x64");
-const msbuildPlatform = targetArch === "arm64" ? "ARM64" : "x64";
-
 const productName =
   env === "production"
     ? "Vellum"
@@ -135,9 +133,8 @@ module.exports = {
     output: "dist",
   },
   // Requires `bun run build:web` (resources/web-dist), `bun run build:runtime`
-  // (resources/cli-runtime), `bun run build:native-helper` (resources/
-  // native-helper/<arch>), and `bun run build:preview-handler` (native COM
-  // build output) to exist before packing.
+  // (resources/cli-runtime), and `bun run build:native-helper` (resources/
+  // native-helper/<arch>) to exist before packing.
   extraResources: [
     { from: "resources/web-dist", to: "web-dist" },
     {
@@ -147,11 +144,6 @@ module.exports = {
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: appIcon, to: "icon.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
-    {
-      from: `native/Vellum.PreviewHandler/build/${msbuildPlatform}/Release`,
-      to: "preview-handler",
-      filter: ["Vellum.PreviewHandler.dll", "registration.json"],
-    },
   ],
   win: {
     icon: appIcon,
@@ -161,8 +153,8 @@ module.exports = {
         arch: [targetArch],
       },
     ],
-    // electron-builder signs only `.exe` by default; the CLI runtime, helper,
-    // and preview-handler DLL must carry the same signature.
+    // electron-builder signs only `.exe` by default; the CLI runtime and
+    // helper must carry the same signature.
     signExts: [".exe", ".dll", ".node"],
     ...resolveSigning(),
   },

@@ -5,11 +5,9 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  resolveArchitectures,
-  runNativeCommand,
-} from "./build-preview-handler";
 import { argValue } from "./cli-args";
+
+type NativeArchitecture = "x64" | "arm64";
 
 const windowsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(windowsRoot, "native");
@@ -34,6 +32,36 @@ const dotnetDownloads = {
     url: "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-win-x64.zip",
   },
 } as const;
+
+const resolveArchitectures = (
+  requested?: string,
+  host: string = process.arch,
+): NativeArchitecture[] => {
+  if (requested === "all" || (requested === undefined && host === "all")) {
+    return ["x64", "arm64"];
+  }
+  if (requested === "x64" || requested === "arm64") {
+    return [requested];
+  }
+  if (requested !== undefined) {
+    throw new Error(`Unsupported architecture: ${requested}`);
+  }
+  return [host === "arm64" ? "arm64" : "x64"];
+};
+
+const runNativeCommand = async (
+  command: string[],
+  cwd = windowsRoot,
+): Promise<void> => {
+  const child = Bun.spawn(command, {
+    cwd,
+    stderr: "inherit",
+    stdout: "inherit",
+  });
+  if ((await child.exited) !== 0) {
+    throw new Error(`Command failed: ${command.join(" ")}`);
+  }
+};
 
 const dotnetArchitecture = (): keyof typeof dotnetDownloads =>
   process.arch === "arm64" ? "arm64" : "x64";

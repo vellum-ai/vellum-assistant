@@ -22,8 +22,6 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
 - `native/Vellum.WindowsHelper` is the same-user, non-elevated JSON-RPC helper
   behind UI Automation observation, verified input, dictation, toasts, and
   text insertion (security model in `native/README.md`).
-  `native/Vellum.PreviewHandler` is the Explorer preview and thumbnail handler
-  for `.vellum` bundles.
 - [`docs/parity-matrix.md`](docs/parity-matrix.md) maps every bridge key and
   main-process capability to its Windows module, its macOS counterpart, and the
   test or packaged smoke that covers it, and lists the macOS concepts with no
@@ -111,15 +109,14 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run pack        # runtime + native helper + preview handler + electron-builder --win (NSIS)
+bun run pack        # runtime + native helper + electron-builder --win (NSIS)
 bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 ```
 
-`pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
-`build:preview-handler`) before `electron-builder`, so the Explorer preview
-handler DLL that `electron-builder.config.cjs` requires is always present.
-The builder rebuilds the Electron main and preload entrypoints immediately
-before collecting app files, including when it is invoked directly.
+`pack` builds every bundled resource (`build:runtime` and
+`build:native-helper`) before `electron-builder`. The builder rebuilds the
+Electron main and preload entrypoints immediately before collecting app files,
+including when it is invoked directly.
 
 `build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
 is used when its sha256 matches `scripts/bun-release.ts`, otherwise the
@@ -137,9 +134,9 @@ uninstall-tests the installer.
 behind the `WINDOWS_{DEV,STAGING,PRODUCTION}_RELEASE_ENABLED` variables, so
 each channel stays off until its variable is set. Per
 architecture (x64 on `windows-2025`, arm64 on the `windows-11-vs2026-arm`
-preview runner) it stamps the version, builds the helper, preview handler,
-CLI runtime, and renderer, packages and signs through `electron-builder`,
-verifies every manifest binary and the installer with
+preview runner) it stamps the version, builds the helper, CLI runtime, and
+renderer, packages and signs through `electron-builder`, verifies every
+manifest binary and the installer with
 `Get-AuthenticodeSignature`, and publishes to the
 `vellum-ai-<env>-releases/win-electron/<arch>/` feed: installer and blockmap
 first, then the `<env>.yml` channel manifest.

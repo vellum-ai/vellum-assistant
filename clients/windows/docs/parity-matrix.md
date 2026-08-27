@@ -39,7 +39,6 @@ that exercises the Windows behavior.
 | Host proxy (gateway forwarding, host executors, computer use)       | `main/features/host-proxy.ts`, `main/host-proxy-adapter.ts`, `main/features/computer-use-actions.ts` | `main/host-proxy-feature.test.ts`, `main/host-proxy-adapter.test.ts`, `main/computer-use-actions-feature.test.ts` |
 | Packaged CLI provisioning and launcher                              | `main/cli-installer.ts`, `main/cli-path-flow.ts`                                                     | `main/cli-provisioning.test.ts`, `scripts/launch-cli.test.ts`, package smoke                                      |
 | `app://` gateway and paired-gateway forwarding, platform forwarding | `main/index.ts`, `main/paired-gateway-request-guard.ts`                                              | `main/paired-gateway-request-guard.test.ts`, `@vellumai/electron-desktop` `gateway-forward.test.ts`               |
-| Explorer preview and thumbnail handler                              | `native/Vellum.PreviewHandler`                                                                       | `native/Vellum.PreviewHandler.Tests`, package smoke                                                               |
 | NSIS install, protocol and file registration, uninstall             | `electron-builder.config.cjs`, `scripts/installer.nsh`                                               | package smoke                                                                                                     |
 
 ## Windows-only surface
@@ -57,6 +56,6 @@ that exercises the Windows behavior.
 | `helper.hotkey` (Fn push-to-talk)                       | A configurable global chord registered through `hotkeys`.                                   |
 | Dock badge and bounce                                   | Taskbar overlay icon and attention flash (`main/taskbar.ts`).                               |
 | Share sheet                                             | Native Save As dialog (`main/features/share.ts`).                                           |
-| Quick Look extension                                    | Explorer preview and thumbnail handler.                                                     |
+| Quick Look extension                                    | None.                                                                                       |
 | Accessibility, Input Monitoring, Automation permissions | No Windows permission concept; the rows are hidden on a Windows host.                       |
 | Notarization and stapling                               | Authenticode signatures, verified at release time.                                          |
