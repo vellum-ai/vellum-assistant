@@ -10,7 +10,7 @@ import type {
 import type { CSSProperties } from "react";
 
 /** As much of a rect as hit-testing a point against it needs. */
-export type SurfaceRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
+type SurfaceRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
 
 /**
  * Whether a point is on a rect, its edges included.

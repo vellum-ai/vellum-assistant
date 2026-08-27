@@ -4,7 +4,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 
 import { CompanionIntro } from "./companion-intro";
-import { companionLayoutFor } from "./companion-layout";
 import { CompanionSurface } from "./companion-surface";
 
 afterEach(cleanup);
@@ -89,9 +88,8 @@ describe("the companion introduction's clearance", () => {
       />,
     );
 
-    const layout = companionLayoutFor(44, 110);
-    expect(cardOf(container).style.transform).toBe(
-      `translateY(${layout.inUnits(layout.introStepOff("down"))}px)`,
-    );
+    // The step down for 44 under 110 is the creature's half box plus the gap,
+    // 22 + 12 points, over the 2.5 scale the options box leaves the canvas at.
+    expect(cardOf(container).style.transform).toBe("translateY(13.6px)");
   });
 });
