@@ -151,6 +151,7 @@ import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
+import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
 import { isVoiceCameraSupported } from "./voice-camera";
@@ -196,6 +197,18 @@ const AVATAR_SIZE = 220;
  * top-right exit and the bottom control row sit on the same rhythm.
  */
 const CORNER_GAP = "1.25rem";
+
+/**
+ * The flash button's accessible name, per state.
+ *
+ * It names the state and not the act, because the button has three states and
+ * one press: "Turn flash on" would be a lie two thirds of the time.
+ */
+const FLASH_LABEL_KEYS = {
+  off: "voiceRoom.flashOff",
+  auto: "voiceRoom.flashAuto",
+  on: "voiceRoom.flashOn",
+} as const;
 
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
@@ -502,6 +515,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const { camera, sending, photos, errorMessage, shutter, open, close } =
     useVoiceRoomCamera(assistantId, viewfinderRef);
   const cameraOpen = camera.open;
+
+  // The flash. A preference rather than a session setting, because the reason
+  // someone turns it on (a dark room, a phone that under-exposes) outlives the
+  // call it was turned on in. `useVoiceCamera` puts it on the camera; the room
+  // only cycles it. See `voice-camera.ts` for why it is offered on so few
+  // cameras.
+  const flashMode = useVoicePrefsStore.use.flashMode();
+  const setFlashMode = useVoicePrefsStore.use.setFlashMode();
 
   // Resolve the assistant's look. A character avatar hands over its palette
   // color and its eyes; an uploaded image hands over pixels, so the field color
@@ -980,6 +1001,28 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               reaches for without looking. */}
           {cameraOpen ? (
             <div className="relative flex w-full items-center justify-center">
+              {/* Flash on the left, flip on the right, shutter between them:
+                  the two things that change how the next photo comes out sit
+                  either side of the one that takes it, and neither can be hit
+                  by a thumb reaching for the middle.
+
+                  Present only where it does something. The browser fallback
+                  path cannot fire a flash at all, and a native camera with no
+                  flash unit reports none, so on both this is absent rather
+                  than a dead control the user has to discover is dead. */}
+              {camera.flashAvailable ? (
+                <Tooltip content={t(FLASH_LABEL_KEYS[flashMode])}>
+                  <CameraFlashControl
+                    mode={flashMode}
+                    ariaLabel={t(FLASH_LABEL_KEYS[flashMode])}
+                    autoBadge={t("voiceRoom.flashAutoBadge")}
+                    onClick={() => setFlashMode(nextFlashMode(flashMode))}
+                    className="absolute left-8"
+                    testId="voice-room-flash"
+                  />
+                </Tooltip>
+              ) : null}
+
               {/* The one control with no `overMedia` branch: the shutter
                   exists only while the viewfinder does, so it is never seen
                   against anything but video. */}
@@ -1014,7 +1057,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
         <VoiceRoomControl
-          label={muted ? t("voiceRoom.unmuteMicrophone") : t("voiceRoom.muteMicrophone")}
+          label={
+            muted
+              ? t("voiceRoom.unmuteMicrophone")
+              : t("voiceRoom.muteMicrophone")
+          }
           onClick={() => setLiveVoiceMuted(!muted)}
           pressed={muted}
           tone={muted ? "destructive" : "neutral"}
@@ -1025,7 +1072,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         </VoiceRoomControl>
 
         <VoiceRoomControl
-          label={outputMuted ? t("voiceRoom.unmuteAssistant") : t("voiceRoom.muteAssistant")}
+          label={
+            outputMuted
+              ? t("voiceRoom.unmuteAssistant")
+              : t("voiceRoom.muteAssistant")
+          }
           onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
           pressed={outputMuted}
           tone={outputMuted ? "destructive" : "neutral"}
@@ -1061,7 +1112,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             self-evident would be worse than nothing. */}
         {cameraSupported ? (
           <VoiceRoomControl
-            label={cameraOpen ? t("voiceRoom.closeCamera") : t("voiceRoom.showCamera")}
+            label={
+              cameraOpen
+                ? t("voiceRoom.closeCamera")
+                : t("voiceRoom.showCamera")
+            }
             onClick={() => (cameraOpen ? close() : void open())}
             pressed={cameraOpen}
             overMedia={cameraOpen}
@@ -1093,7 +1148,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         {/* A muted `listening` already reads as "Muted", so prefixing it again
             would announce "Muted — Muted". The assistant's own phases still
             need the prefix: "Thinking…" alone would not say the mic is off. */}
-        {muted && state !== "listening" ? t("voiceRoom.mutedState", { state: stateLabel }) : stateLabel}
+        {muted && state !== "listening"
+          ? t("voiceRoom.mutedState", { state: stateLabel })
+          : stateLabel}
       </div>
     </motion.div>
   );

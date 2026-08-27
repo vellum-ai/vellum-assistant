@@ -94,7 +94,9 @@ export function useVoiceRoomCamera(
   /** The room's own ref for the viewfinder `<video>`. See {@link useVoiceCamera}. */
   videoRef: React.RefObject<HTMLVideoElement | null>,
 ): VoiceRoomCamera {
-  const camera = useVoiceCamera(videoRef);
+  // The room is the surface that offers the flash control, so it is the one
+  // that drives the flash. See `voice-camera.ts` for why that is opt-in.
+  const camera = useVoiceCamera(videoRef, { flash: true });
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<readonly VoiceRoomPhoto[]>([]);

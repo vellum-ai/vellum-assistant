@@ -35,6 +35,28 @@
  * path, directly so the tap that opens the camera is the thing that raises the
  * OS alert. Nothing dismissible may sit between the two, so the room offers a
  * plain camera button rather than an explanatory sheet.
+ *
+ * ## Flash: ask first, always, and hand it back
+ *
+ * Flash is native-only (the web path has no way to fire one) and is governed by
+ * three rules the plugin's own implementation forces:
+ *
+ * 1. **Never touch the flash outside a running preview.** Both flash calls
+ *    reach for the capture device the preview owns, so they are made only
+ *    between a resolved `start()` and the matching `stop()`.
+ * 2. **Never set a mode that was not just probed.** The Android implementation
+ *    reads the supported-mode list without a null check, and that list is null
+ *    on a camera with no flash unit, so a speculative set throws out of the
+ *    bridge. Every camera is probed on arrival, and every flip lands on a
+ *    different camera, so every flip re-probes. The control is offered only on
+ *    a camera that reported the whole cycle, which is what makes every mode it
+ *    can then send one the probe already named.
+ * 3. **Leave the plugin as it was found.** The plugin instance is app-global
+ *    and shared with the composer's capture overlay
+ *    (`chat-attachments/camera-capture-overlay.tsx`), and neither platform
+ *    carries a flash mode across a flip, so the mode is cleared before the
+ *    camera it was set on goes away, and the user's preference is re-applied to
+ *    whatever camera arrives next.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -44,9 +66,12 @@ import { isNativeMobile } from "@/runtime/platform-detection";
 import {
   captureNativeVoiceCameraFrame,
   flipNativeVoiceCamera,
+  getNativeVoiceCameraFlashModes,
+  setNativeVoiceCameraFlashMode,
   startNativeVoiceCamera,
   stopNativeVoiceCamera,
 } from "@/runtime/native-voice-camera";
+import { useVoicePrefsStore, type FlashMode } from "@/stores/voice-prefs-store";
 
 /** Which way the camera points. `environment` is the rear/world-facing one. */
 export type VoiceCameraFacing = "environment" | "user";
@@ -75,6 +100,32 @@ const VIEWFINDER_IDEAL_WIDTH = 1920;
 const VIEWFINDER_IDEAL_HEIGHT = 1080;
 
 /**
+ * The modes the control cycles through, and so the modes a camera has to report
+ * before the control is offered on it at all.
+ *
+ * The whole set rather than any of it, for two reasons. A camera that reported
+ * only part of the cycle could not honor the cycle, and requiring all three is
+ * what makes every `setFlashMode` this module sends a mode the probe just
+ * reported, which is the rule the Android implementation punishes breaking.
+ * Both platforms report the three together for a camera with a flash unit and
+ * none of them for a camera without one, so in practice this reads as "does
+ * this camera have a flash".
+ *
+ * `torch` is never one of them: a camera with only a lamp answers `["torch"]`,
+ * and iOS models the lamp as a separate one-way state from the capture flash.
+ * `red-eye` sits in the plugin's type union with nothing behind it on iOS.
+ */
+const CYCLED_FLASH_MODES: FlashMode[] = ["off", "auto", "on"];
+
+/**
+ * The "this camera cannot flash" answer, as one shared value.
+ *
+ * Clearing the probe result happens on every acquire and every flip, and a
+ * fresh `[]` each time would be a new identity and so a re-render each time.
+ */
+const NO_FLASH_MODES: string[] = [];
+
+/**
  * Whether a viewfinder can run in this environment.
  *
  * Native mobile shells can provide the Capacitor preview even when the web
@@ -84,8 +135,7 @@ const VIEWFINDER_IDEAL_HEIGHT = 1080;
 export function isVoiceCameraSupported(): boolean {
   return (
     isNativeMobile() ||
-    (typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getUserMedia)
+    (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia)
   );
 }
 
@@ -159,6 +209,16 @@ export interface VoiceCamera {
   readonly native: boolean;
   /** Which way the camera currently points. */
   readonly facing: VoiceCameraFacing;
+  /**
+   * True while the camera that is running can fire a flash for a capture.
+   *
+   * False for a surface that did not ask for the flash, false on the browser
+   * fallback path, and false while a native camera with no flash unit is up, so
+   * the control is offered only where it does something. The mode itself is the
+   * persisted `flashMode` preference, applied to the camera by this hook
+   * whenever one that can take it arrives.
+   */
+  readonly flashAvailable: boolean;
   /** Why the last `openCamera()` failed, or null. Cleared on the next attempt. */
   readonly error: VoiceCameraError | null;
   /** Request camera access and start the viewfinder. Call directly from a tap. */
@@ -169,6 +229,19 @@ export interface VoiceCamera {
   flipCamera: () => Promise<void>;
   /** Encode the current frame, or null if there is nothing to capture. */
   captureFrame: () => Promise<File | null>;
+}
+
+export interface VoiceCameraOptions {
+  /**
+   * Whether this surface drives the flash. Off by default.
+   *
+   * Opt-in rather than automatic because the flash is a preference the user
+   * sets from a control, and a surface that shows no control would be firing a
+   * flash the person holding the phone can neither see coming nor turn off from
+   * where they are. The composer's capture overlay is that surface; the voice
+   * room, which offers the control, is the one that opts in.
+   */
+  flash?: boolean;
 }
 
 /**
@@ -186,6 +259,7 @@ export interface VoiceCamera {
  */
 export function useVoiceCamera(
   videoRef: React.RefObject<HTMLVideoElement | null>,
+  { flash = false }: VoiceCameraOptions = {},
 ): VoiceCamera {
   const streamRef = useRef<MediaStream | null>(null);
   const sourceRef = useRef<"native-pending" | "native" | "web" | null>(null);
@@ -193,18 +267,44 @@ export function useVoiceCamera(
   // Bumped by every acquire and every release, so a `getUserMedia` that
   // resolves after it was superseded can tell and stop its own stream.
   const acquireEpochRef = useRef(0);
+  // Which camera the flash probe is asking about. Versioned separately from
+  // the acquire epoch because a native flip swaps the camera WITHOUT releasing
+  // the capture, so the acquire epoch alone would let a probe of the outgoing
+  // camera answer for the one that replaced it.
+  const flashProbeEpochRef = useRef(0);
+  // True from the first line of a flip to the last. See `flipCamera`: two of
+  // them overlapping spin the hardware twice and agree on the wrong answer.
+  const flipInFlightRef = useRef(false);
+  // True while a flash-capable camera is running with a mode other than off,
+  // which is exactly when the plugin has state of ours to hand back. Cleared
+  // rather than re-derived, so a camera that turned out to have no flash is
+  // never sent a `setFlashMode` it would throw on.
+  const flashEngagedRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [native, setNative] = useState(false);
   const [facing, setFacing] = useState<VoiceCameraFacing>("environment");
   const [error, setError] = useState<VoiceCameraError | null>(null);
+  const [supportedFlashModes, setSupportedFlashModes] =
+    useState<string[]>(NO_FLASH_MODES);
+  const flashMode = useVoicePrefsStore.use.flashMode();
 
   const stopCapture = useCallback(() => {
     // Cancels any acquire still in flight, so its stream is stopped on arrival
-    // rather than installed behind this release.
+    // rather than installed behind this release, and any flash probe still in
+    // flight, whose camera is the one going away here.
     acquireEpochRef.current++;
+    flashProbeEpochRef.current++;
     const source = sourceRef.current;
     sourceRef.current = null;
     if (source === "native-pending" || source === "native") {
+      // Hand the flash back BEFORE the stop, never after: both flash calls
+      // reach for the capture device the stop releases. Neither call is
+      // awaited, and neither needs to be, because the bridge delivers messages
+      // in the order the same tick posted them.
+      if (flashEngagedRef.current) {
+        flashEngagedRef.current = false;
+        void setNativeVoiceCameraFlashMode("off");
+      }
       void stopNativeVoiceCamera();
     }
     const stream = streamRef.current;
@@ -218,6 +318,37 @@ export function useVoiceCamera(
       videoRef.current.srcObject = null;
     }
   }, [videoRef]);
+
+  /**
+   * Ask the camera that is running what it can do with its flash.
+   *
+   * Every path that changes which camera is running clears the answer first and
+   * calls this after, because the answer belongs to one camera and a flip
+   * changes which one that is. A late answer is dropped: the probe epoch moves
+   * on every release, every acquire and every flip, so a probe that resolves
+   * after the camera it asked about stopped being the active one cannot speak
+   * for the one that replaced it. A flip is the case that needs its own epoch:
+   * it swaps cameras without releasing the capture, so `sourceRef` still reads
+   * `native` and the acquire epoch still reads unchanged while the camera under
+   * the outstanding probe is already gone.
+   *
+   * A surface that did not opt into the flash never asks, which leaves the
+   * supported list empty and every other flash path in this hook inert.
+   */
+  const probeFlash = useCallback(async () => {
+    if (!flash) {
+      return;
+    }
+    const epoch = flashProbeEpochRef.current;
+    const modes = await getNativeVoiceCameraFlashModes();
+    if (
+      epoch !== flashProbeEpochRef.current ||
+      sourceRef.current !== "native"
+    ) {
+      return;
+    }
+    setSupportedFlashModes(modes.length > 0 ? modes : NO_FLASH_MODES);
+  }, [flash]);
 
   /**
    * Acquire one camera and attach it. Returns the failure rather than
@@ -234,6 +365,10 @@ export function useVoiceCamera(
   const acquire = useCallback(
     async (nextFacing: VoiceCameraFacing): Promise<VoiceCameraError | null> => {
       stopCapture();
+      // Whatever the outgoing camera could do says nothing about the incoming
+      // one, and a stale "yes" here is what would put a `setFlashMode` on a
+      // camera that has not been probed yet.
+      setSupportedFlashModes(NO_FLASH_MODES);
       // Snapshot the epoch across the await. Anything that releases the camera
       // while this request is in flight (unmount, close, a second tap, a flip)
       // bumps it, and the stream that eventually arrives belongs to nobody:
@@ -256,6 +391,10 @@ export function useVoiceCamera(
           sourceRef.current = "native";
           setNative(true);
           setFacing(nextFacing);
+          // Not awaited: the viewfinder is already live and the flash control
+          // is allowed to arrive a beat after it. Awaiting would hold the
+          // whole open behind a round trip that only decides one button.
+          void probeFlash();
           return null;
         }
         sourceRef.current = null;
@@ -284,6 +423,13 @@ export function useVoiceCamera(
           },
         });
       } catch (cause) {
+        // Superseded requests report as superseded whether they succeeded or
+        // failed. A rejection that lands after a close is not news the user
+        // needs, and reporting it as a real failure is what would send the web
+        // flip path into a fallback acquire of a camera nobody has open.
+        if (epoch !== acquireEpochRef.current) {
+          return "aborted";
+        }
         return classifyError(cause);
       }
 
@@ -318,7 +464,7 @@ export function useVoiceCamera(
       setFacing(nextFacing);
       return null;
     },
-    [stopCapture, videoRef],
+    [probeFlash, stopCapture, videoRef],
   );
 
   const start = useCallback(
@@ -357,6 +503,7 @@ export function useVoiceCamera(
     setOpen(false);
     setNative(false);
     setError(null);
+    setSupportedFlashModes(NO_FLASH_MODES);
   }, [stopCapture]);
 
   /**
@@ -366,33 +513,87 @@ export function useVoiceCamera(
    * convenience: a device that turns out to have only one usable camera
    * should leave the user aiming the one that works, not close the viewfinder
    * mid-conversation and make them find the button again.
+   *
+   * Every await here is a place the capture can be released and replaced under
+   * the flip, so the acquire epoch is snapshotted up front and rechecked after
+   * each one. A flip that resumes onto a preview it did not open would spin a
+   * viewfinder the user just raised and file the capabilities it then probes
+   * under a camera nobody asked about.
+   *
+   * One flip at a time, for a reason the epoch cannot cover: a native flip
+   * swaps cameras without releasing the capture, so a second flip entering
+   * while the first is mid-await shares its generation AND reads the same
+   * pre-flip `facing`. Both would compute the same `next`, spin the hardware
+   * twice back to where it started, and leave the hook reporting the far side,
+   * which is a viewfinder mirrored the wrong way and every later flip working
+   * from a facing the camera does not have. Dropping the second tap is also
+   * what the user meant by it.
    */
   const flipCamera = useCallback(async () => {
-    if (!sourceRef.current) {
+    if (!sourceRef.current || flipInFlightRef.current) {
       return;
     }
-    const previous = facing;
-    const next = previous === "environment" ? "user" : "environment";
+    flipInFlightRef.current = true;
+    try {
+      // Before anything else, and before the flip itself: from here on the
+      // camera any outstanding probe asked about is not the one that will be
+      // running, and a late "yes" from it is exactly the unprobed
+      // `setFlashMode` the Android implementation throws on.
+      flashProbeEpochRef.current++;
+      // Which capture this flip belongs to. Every release bumps it, so it is
+      // also the token for "the camera I started on is still the one running".
+      const generation = acquireEpochRef.current;
+      const previous = facing;
+      const next = previous === "environment" ? "user" : "environment";
 
-    if (sourceRef.current === "native") {
-      if (await flipNativeVoiceCamera()) {
-        setFacing(next);
+      if (sourceRef.current === "native") {
+        // Give the flash back while the camera that has one is still the
+        // active camera. Neither platform carries the mode across a flip, and
+        // iOS keeps its own copy of it, which the camera arriving may have no
+        // way to fire.
+        if (flashEngagedRef.current) {
+          flashEngagedRef.current = false;
+          await setNativeVoiceCameraFlashMode("off");
+          // A close and a reopen fit inside that round trip, and the preview
+          // on the other side of it is a different operation's.
+          if (generation !== acquireEpochRef.current) {
+            return;
+          }
+        }
+        setSupportedFlashModes(NO_FLASH_MODES);
+        const flipped = await flipNativeVoiceCamera();
+        // Whatever released the camera during the flip owns the state now,
+        // including the facing this would otherwise announce.
+        if (generation !== acquireEpochRef.current) {
+          return;
+        }
+        if (flipped) {
+          setFacing(next);
+        }
+        // Re-probed whether or not the flip took: on a failure the old camera
+        // is still running and its capabilities were just cleared.
+        await probeFlash();
+        return;
       }
-      return;
-    }
 
-    const failure = await acquire(next);
-    if (!failure || failure === "aborted") {
-      return;
+      const failure = await acquire(next);
+      if (!failure || failure === "aborted") {
+        return;
+      }
+      // The replacement failed and the old capture is already released, so the
+      // fallback is a fresh acquire of what was running a moment ago.
+      const fallbackFailure = await acquire(previous);
+      if (fallbackFailure && fallbackFailure !== "aborted") {
+        setError(fallbackFailure);
+        setOpen(false);
+      }
+    } finally {
+      // Unconditional, and the only place this is cleared: a release or a
+      // close landing mid-flip takes one of the bail-outs above, and a flip
+      // left marked in flight would be a flip button that never works again.
+      flipInFlightRef.current = false;
     }
-    // The replacement failed and the old capture is already released, so the
-    // fallback is a fresh acquire of what was running a moment ago.
-    const fallbackFailure = await acquire(previous);
-    if (fallbackFailure && fallbackFailure !== "aborted") {
-      setError(fallbackFailure);
-      setOpen(false);
-    }
-  }, [acquire, facing]);
+  }, [acquire, facing, probeFlash]);
 
   const captureFrame = useCallback(async () => {
     const filename = `photo-${captureCountRef.current + 1}.jpg`;
@@ -449,10 +650,33 @@ export function useVoiceCamera(
     }
   }, [open, videoRef]);
 
+  const flashAvailable =
+    native &&
+    CYCLED_FLASH_MODES.every((mode) => supportedFlashModes.includes(mode));
+
+  // Put the user's preference on whatever camera can take it, and take it back
+  // off the moment one cannot.
+  //
+  // Keyed on the capability rather than on the open, so it covers all three
+  // moments that need it with one rule: the camera opening, the user cycling
+  // the control, and a flip landing on a camera that answered the probe
+  // differently. `off` is stated as explicitly as the other two rather than
+  // assumed, because the hand-back on the way out is best effort and the mode
+  // it failed to clear is one this camera would otherwise open holding.
+  useEffect(() => {
+    if (!flashAvailable) {
+      flashEngagedRef.current = false;
+      return;
+    }
+    flashEngagedRef.current = flashMode !== "off";
+    void setNativeVoiceCameraFlashMode(flashMode);
+  }, [flashAvailable, flashMode]);
+
   return {
     open,
     native,
     facing,
+    flashAvailable,
     error,
     openCamera,
     closeCamera,
