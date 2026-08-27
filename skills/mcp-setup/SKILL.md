@@ -113,7 +113,7 @@ Transport types:
 - `sse` — legacy remote servers
 - `stdio` — local process: use `-c <command>` and `-a <args...>` instead of `-u`
 
-Risk level (`-r`) controls approval prompts per tool call — `low` auto-approves, `high` always prompts (default: `high`).
+Risk level (`-r`) controls approval prompts per tool call: `low` auto-approves, `high` always prompts. Omit it and the server starts at `medium`, and a tool's own MCP annotations move it one step from there (`destructiveHint` up, `readOnlyHint` down).
 
 Examples:
 

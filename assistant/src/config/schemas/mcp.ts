@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+/**
+ * Risk level an MCP server's tools start at when its config entry does not
+ * name one. Callers that write or display a server entry must reference this
+ * rather than repeating a literal, so the level stays code-owned: an entry
+ * that omits the field picks up whatever this constant says on every load.
+ */
+export const DEFAULT_MCP_RISK_LEVEL = "medium";
+
 const McpStdioTransportSchema = z
   .object({
     type: z.literal("stdio"),
@@ -66,7 +74,7 @@ export const McpServerConfigSchema = z
       .enum(["low", "medium", "high"], {
         error: "mcp server defaultRiskLevel must be one of: low, medium, high",
       })
-      .default("medium")
+      .default(DEFAULT_MCP_RISK_LEVEL)
       .describe(
         "Risk level tools from this server start at (affects approval requirements). A tool's own MCP annotations move it one step from here: destructiveHint up, readOnlyHint down.",
       ),
