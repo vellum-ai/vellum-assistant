@@ -2,7 +2,6 @@ import { BrowserWindow, screen, type Rectangle } from "electron";
 import Store from "electron-store";
 
 import {
-  COMPANION_SIZE_AXES,
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
   titleBarOverlayThemeSchema,
@@ -157,7 +156,8 @@ const storedSize = (axis: CompanionSizeAxis): CompanionSize | null =>
  * writes, then the default. That middle step is what keeps an install from
  * being resized under its user: someone who picked `huge` from a menu offering
  * one size meant the thing they were looking at, so they get `huge` on both
- * axes rather than the default on either.
+ * axes rather than the default on either. Nothing promotes that key onto the
+ * per-axis ones, so reading through it is the permanent compatibility path.
  */
 export const readCompanionSize = (axis: CompanionSizeAxis): CompanionSize =>
   storedSize(axis) ??
@@ -209,33 +209,6 @@ export const writeCompanionSize = (
     return;
   }
   store().set(COMPANION_SIZE_KEYS[axis], size);
-};
-
-/**
- * Copy the single size a build with one size axis records into whichever
- * per-axis keys are still empty. Called once, before anything reads the
- * geometry.
- *
- * `readCompanionSize` already falls back to that key, so nobody sees the
- * surface change. What this settles is the install stuck half way across:
- * someone carrying `huge` who resizes the avatar alone ends with one axis's own
- * key written and the other governed by the shared key for as long as they keep
- * it, which leaves half their surface sized from a key nothing writes.
- *
- * The shared key is left in place, and this writes only the per-axis ones. A
- * build with one size axis still reads it, so a user who goes back to one finds
- * the size they picked rather than the default.
- */
-export const promoteCompanionSizeToAxes = (): void => {
-  const shared = knownSize(store().get("companionSize"));
-  if (shared === null) {
-    return;
-  }
-  for (const axis of COMPANION_SIZE_AXES) {
-    if (storedSize(axis) === null) {
-      store().set(COMPANION_SIZE_KEYS[axis], shared);
-    }
-  }
 };
 
 /**

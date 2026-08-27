@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_SIZES,
   COMPANION_SIZE_BOXES,
   companionNearEdgeFor,
@@ -189,7 +190,6 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   // load-time failure for the file rather than a failing case.
   readCompanionIntroSeen: () => true,
   writeCompanionIntroSeen: () => {},
-  promoteCompanionSizeToAxes: () => {},
 }));
 
 // Dynamic, so the mocks above are installed before the module graph loads:
@@ -290,9 +290,9 @@ const BIG_OPTIONS = geometryFor("small", "huge");
 
 /**
  * The part of the base reach the geometry does not publish: the pill's widest.
- * Stated once here for the cases that are about it rather than the sum.
+ * Bound to the contract for the cases that are about it rather than the sum.
  */
-const MAX_PILL_WIDTH = 316;
+const MAX_PILL_WIDTH = COMPANION_BASE_MAX_PILL_WIDTH;
 
 /**
  * The growth direction is the only rule in the companion window worth testing
