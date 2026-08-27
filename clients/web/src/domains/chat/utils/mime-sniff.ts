@@ -213,11 +213,16 @@ export async function sniffBlobMimeType(blob: Blob): Promise<string | null> {
   return sniffMimeType(new Uint8Array(head));
 }
 
+/** A media type without its parameters, lowercased: `image/jpeg; q=0.8` reads as `image/jpeg`. */
+export function baseMimeType(raw: string): string {
+  return raw.split(";")[0]!.trim().toLowerCase();
+}
+
 function normalizeMimeType(raw: string | null): string | null {
   if (!raw) {
     return null;
   }
-  const mime = raw.split(";")[0]!.trim().toLowerCase();
+  const mime = baseMimeType(raw);
   return mime.length > 0 ? mime : null;
 }
 
@@ -234,7 +239,10 @@ export function extensionOf(filename: string): string {
   if (dot <= 0) {
     return "";
   }
-  return base.slice(dot + 1).toLowerCase();
+  return base
+    .slice(dot + 1)
+    .trim()
+    .toLowerCase();
 }
 
 function kindForMimeType(mime: string | null): LocalFileKind {
