@@ -488,13 +488,24 @@ async function listSessions({ queryParams }: RouteHandlerArgs) {
     return resolvedByAgent.get(agentId);
   };
 
-  const merged = listMergedSessions({ limit, conversationId });
+  const { sessions: merged, sawEveryHistoryRow } = listMergedSessions({
+    limit,
+    conversationId,
+  });
   // Judged before paging, never after. A stale marker that escaped the page
   // first would stay in the response as an ordinary row once its code was
   // struck, so the retained markers would pile up past the limit.
   const judged = await withCurrentMarkersOnly(merged, resolvedFor);
   const page = judged.slice(0, limit);
-  if (!conversationId || page.some((s) => s.authErrorCode !== undefined)) {
+  if (
+    !conversationId ||
+    // Every row this conversation has is already in hand, so a marker outside
+    // the page is not a thing that exists. Most conversations have never had a
+    // credential failure, and this is what keeps the lookup off their path
+    // rather than asking the database to confirm the absence every time.
+    sawEveryHistoryRow ||
+    page.some((s) => s.authErrorCode !== undefined)
+  ) {
     return { sessions: page };
   }
   // The page holds no live marker, so the row a client restores the card from
@@ -816,10 +827,16 @@ function parseLimit(raw: string | null | undefined): number {
   return Math.min(Math.floor(n), MAX_SESSION_LIMIT);
 }
 
-function listMergedSessions(opts: {
-  limit: number;
-  conversationId?: string;
-}): MergedSession[] {
+function listMergedSessions(opts: { limit: number; conversationId?: string }): {
+  sessions: MergedSession[];
+  /**
+   * Whether the history query reached the end of this conversation's rows.
+   *
+   * A short read means there is nothing beyond what was returned, which is the
+   * proof that no marker is hiding outside the page.
+   */
+  sawEveryHistoryRow: boolean;
+} {
   const manager = getAcpSessionManager();
   const inMemory = manager.getStatus() as AcpSessionState[];
 
@@ -865,9 +882,10 @@ function listMergedSessions(opts: {
   // guarantee we still surface `limit` distinct rows even when every
   // in-memory session shadows a DB row — without over-fetching when many
   // unrelated sessions are in memory.
+  const historyLimit = opts.limit + merged.size;
   const historyRows = filtered
     .orderBy(desc(acpSessionHistory.startedAt))
-    .limit(opts.limit + merged.size)
+    .limit(historyLimit)
     .all();
 
   for (const row of historyRows) {
@@ -877,7 +895,12 @@ function listMergedSessions(opts: {
     merged.set(row.id, toMergedSession(row));
   }
 
-  return Array.from(merged.values()).sort((a, b) => b.startedAt - a.startedAt);
+  return {
+    sessions: Array.from(merged.values()).sort(
+      (a, b) => b.startedAt - a.startedAt,
+    ),
+    sawEveryHistoryRow: historyRows.length < historyLimit,
+  };
 }
 
 /** Shape a history row for the response, parsing its stored event log. */
