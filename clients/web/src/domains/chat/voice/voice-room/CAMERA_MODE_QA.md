@@ -80,6 +80,11 @@ the deep-link capture overlay, which shares the shutter and the bottom scrim.
       speaker, camera, end. Every focus ring is a white outline legible over the
       feed, including over a white frame.
 - [ ] Escape minimizes the room from camera mode, and the camera releases.
+- [ ] Locale sweep. Switch the app to Spanish and then to Russian, open the
+      camera, and deny the permission in the browser. The pill, every control
+      name, and the failure message all read in that language. No key names
+      (`cameraError.permissionDenied` and the like) reach the screen, and no
+      English is left over.
 
 ## Design review
 
@@ -116,7 +121,9 @@ camera mode's to fix.
 
 - The Russian catalog lags English by roughly 630 keys across `chat.json`,
   including whole namespaces. The camera surface's own copy is complete in all
-  three locales; the rest is a catalog gap with no camera in it.
+  three locales, failure messages included (`cameraError.*`, `cameraDeepLink.*`,
+  `cameraStatusPill.*`, `liveVoiceStatus.*`, `voiceRoom.*`); the rest is a
+  catalog gap with no camera in it.
 - The shutter uses the native `disabled` attribute while a photo uploads, so a
   keyboard press drops focus to the document body until the round trip finishes.
   The attribute is part of the shared shutter's contract and the deep-link

@@ -147,6 +147,18 @@
     "shutter": "Сделать фото",
     "title": "Сделать фото"
   },
+  "cameraError": {
+    "captureFailed": "Не удалось сделать это фото.",
+    "deviceInUse": "Камеру использует другое приложение.",
+    "noDevice": "Камера не найдена.",
+    "notDelivered": "Переподключение. Сделайте это фото ещё раз.",
+    "permissionDenied": "Доступ к камере для Vellum отключён.",
+    "refused": "Ваш ассистент пока не может получать фото.",
+    "storeFailed": "Не удалось добавить это фото в разговор.",
+    "unknown": "Не удалось открыть камеру.",
+    "unsupported": "Это устройство не может открыть камеру.",
+    "uploadFailed": "Не удалось отправить это фото."
+  },
   "cameraStatusPill": {
     "announcePhotoMutedSpeaking": "Фото. Без звука. {name} говорит",
     "announcePhotoMutedStatus": "Фото. Без звука. {status}",

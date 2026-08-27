@@ -531,8 +531,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const cameraSupported =
     useSupportsVoiceCamera(assistantId) && isVoiceCameraSupported();
   const viewfinderRef = useRef<HTMLVideoElement | null>(null);
-  const { camera, sending, photos, errorMessage, shutter, open, close } =
+  const { camera, sending, photos, errorKey, shutter, open, close } =
     useVoiceRoomCamera(assistantId, viewfinderRef);
+  // The hook classifies the failure and names it; the room is where a
+  // translator's `t` already is, so the sentence is resolved here. Same split
+  // as the status pill's word below.
+  const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
   // What every control in the room is sitting on. One value passed down rather
   // than a boolean per control, so the row cannot end up half in camera mode.

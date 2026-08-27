@@ -2195,6 +2195,11 @@ describe("VoiceRoom: camera", () => {
     });
 
     expect(announcer().textContent).toMatch(/Camera access is off/);
+    // A sentence, not the key that names it. The hook classifies the failure
+    // and the room translates it, so a key with no catalog entry would reach
+    // the user as "cameraError.permissionDenied" in every language including
+    // this one.
+    expect(announcer().textContent).not.toContain("cameraError.");
     // The visible chip says the same words, so it is decoration by then:
     // announcing both would read the failure twice.
     expect(

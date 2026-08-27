@@ -240,6 +240,18 @@
     "shutter": "Tomar foto",
     "title": "Tomar una foto"
   },
+  "cameraError": {
+    "captureFailed": "No se pudo tomar esa foto.",
+    "deviceInUse": "Otra aplicación está usando la cámara.",
+    "noDevice": "No se encontró ninguna cámara.",
+    "notDelivered": "Reconectando. Toma esa foto de nuevo.",
+    "permissionDenied": "El acceso a la cámara está desactivado para Vellum.",
+    "refused": "Tu asistente todavía no puede recibir fotos.",
+    "storeFailed": "No se pudo añadir esa foto a la conversación.",
+    "unknown": "No se pudo abrir la cámara.",
+    "unsupported": "Este dispositivo no puede abrir una cámara.",
+    "uploadFailed": "No se pudo enviar esa foto."
+  },
   "cameraStatusPill": {
     "announcePhotoMutedSpeaking": "Foto. Silenciado. {name} está hablando",
     "announcePhotoMutedStatus": "Foto. Silenciado. {status}",
