@@ -44,10 +44,14 @@ describe("openRouterDisplayName", () => {
 
 describe("lookupOpenRouterModel", () => {
   test("maps a successful OpenRouter payload through the zod schema", async () => {
-    const fetchImpl = (async (input: RequestInfo | URL) => {
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
         "https://openrouter.ai/api/v1/model/x-ai/grok-4.6",
       );
+      expect(init?.headers).toEqual({
+        "HTTP-Referer": "https://www.vellum.ai",
+        "X-OpenRouter-Title": "Vellum Assistant",
+      });
       return new Response(
         JSON.stringify({
           data: {
@@ -65,6 +69,24 @@ describe("lookupOpenRouterModel", () => {
     ).resolves.toEqual({
       id: "x-ai/grok-4.6",
       displayName: "Grok 4.6",
+    });
+  });
+
+  test("accepts a bare model record without a data wrapper", async () => {
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "z-ai/glm-5.3",
+          name: "Z.ai: GLM-5.3",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    await expect(
+      lookupOpenRouterModel("z-ai/glm-5.3", fetchImpl),
+    ).resolves.toEqual({
+      id: "z-ai/glm-5.3",
+      displayName: "GLM-5.3",
     });
   });
 
