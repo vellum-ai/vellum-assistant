@@ -116,9 +116,9 @@ export interface AclEnforcementParams {
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
   /**
-   * True when the inbound event is an interaction callback (e.g. a Slack
-   * Block Kit button press or a message_deleted sentinel) rather than a
-   * message the sender composed. Callbacks are decision attempts / lifecycle
+   * True when the inbound event is an interaction callback (a button
+   * press, a reaction, a delete: any kind that is not a composed message
+   * or an edit of one). Callbacks are decision attempts / lifecycle
    * events, not access attempts: a denied callback must never mint a
    * verification challenge or create an access request — a stale button
    * press from an unrecognized sender would otherwise spawn a fresh

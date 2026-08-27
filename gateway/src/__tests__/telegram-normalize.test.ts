@@ -212,7 +212,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(normalizeTelegramUpdate(payload)).toBeNull();
   });
 
-  test("normalizes an edited_message update with isEdit flag", () => {
+  test("normalizes an edited_message update as an edit", () => {
     const payload = {
       update_id: 200,
       edited_message: {
@@ -260,7 +260,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(result!.message.content).toBe("Original");
   });
 
-  test("sets isEdit for edited_message with photo", () => {
+  test("classifies an edited_message with photo as an edit", () => {
     const payload = {
       update_id: 400,
       edited_message: {

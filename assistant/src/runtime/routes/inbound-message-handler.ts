@@ -88,6 +88,7 @@ import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversa
 import {
   clearPayload,
   findMessageBySourceId,
+  hasInboundEventForSource,
   recordInbound,
 } from "../../persistence/delivery-crud.js";
 import { markProcessed } from "../../persistence/delivery-status.js";
@@ -547,6 +548,20 @@ export async function handleChannelInbound({
         deletedMessageTs,
       );
       if (original) {
+        break;
+      }
+      // The retry window exists for one race: the original's inbound-event
+      // row is written before its message link lands. A source with no row
+      // at all was never ingested, so nothing can appear by waiting, and
+      // waiting would hold this conversation's serialized lane through the
+      // full miss window for every unrelated delete a busy room produces.
+      if (
+        !hasInboundEventForSource(
+          sourceChannel,
+          conversationExternalId,
+          deletedMessageTs,
+        )
+      ) {
         break;
       }
       if (attempt < deleteLookupRetries) {

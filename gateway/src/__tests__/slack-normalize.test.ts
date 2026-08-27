@@ -339,7 +339,7 @@ function makeMessageChangedEvent(
 }
 
 describe("normalizeSlackMessageEdit", () => {
-  test("normalizes message_changed event with isEdit: true", () => {
+  test("normalizes message_changed event as an edit", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent();
     const result = normalizeSlackMessageEdit(event, "evt-100", config);

@@ -1,8 +1,8 @@
 /**
- * Tests for Slack message_deleted propagation into stored messages.
+ * Tests for delete propagation into stored messages.
  *
- * The gateway forwards delete events with `callbackData = "message_deleted"`
- * and `sourceMetadata.messageId` set to the deleted message's ts. The daemon
+ * The gateway forwards delete events with `eventKind: "delete"` and
+ * `sourceMetadata.messageId` set to the deleted message's ts. The daemon
  * marks the corresponding stored row's `slackMeta.deletedAt` while leaving
  * the `content` column untouched (audit retention; the renderer elides based
  * on the deletedAt marker).
@@ -347,6 +347,26 @@ describe("Slack delete propagation", () => {
     const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
     const slackMeta = readSlackMetadata(parsed.slackMeta as string);
     expect(slackMeta!.deletedAt).toBeUndefined();
+  });
+
+  test("a never-ingested delete returns without paying the retry window", async () => {
+    // The retry loop exists for one race: an inbound-event row written
+    // before its message link lands. No row at all means nothing can appear
+    // by waiting, and the wait would hold the conversation's serialized
+    // forward lane for every unrelated delete a busy room produces.
+    _setDeleteLookupConfigForTests(2, 500);
+    const started = Date.now();
+    const req = buildSlackDeleteRequest({
+      externalChatId: "C0123CHANNEL",
+      deletedTs: "0000.0000",
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(false);
+    // Far under a single 500ms retry delay: the loop short-circuited.
+    expect(Date.now() - started).toBeLessThan(400);
   });
 
   test("delete for row without slackMeta stamps the neutral metadata", async () => {
