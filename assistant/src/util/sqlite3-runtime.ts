@@ -21,6 +21,10 @@
  */
 
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { isWindows } from "./platform.js";
 
 let cachedSqlite3Path: string | undefined | null;
 
@@ -37,11 +41,27 @@ export function findSqlite3(): string | undefined {
   // 1. Common install locations. We check these before `Bun.which` so we
   //    pick a deterministic, predictable binary even when PATH is
   //    unusual (e.g. a daemon launched with a stripped env).
-  for (const p of [
-    "/usr/bin/sqlite3",
-    "/usr/local/bin/sqlite3",
-    "/opt/homebrew/bin/sqlite3",
-  ]) {
+  const candidates = isWindows()
+    ? [
+        join(
+          process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
+          "Programs",
+          "sqlite",
+          "sqlite3.exe",
+        ),
+        join(
+          process.env.ProgramFiles ?? "C:\\Program Files",
+          "SQLite",
+          "sqlite3.exe",
+        ),
+        "C:\\sqlite\\sqlite3.exe",
+      ]
+    : [
+        "/usr/bin/sqlite3",
+        "/usr/local/bin/sqlite3",
+        "/opt/homebrew/bin/sqlite3",
+      ];
+  for (const p of candidates) {
     if (existsSync(p)) {
       cachedSqlite3Path = p;
       return p;

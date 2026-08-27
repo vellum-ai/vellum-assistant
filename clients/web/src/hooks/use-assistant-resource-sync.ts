@@ -46,13 +46,9 @@ import {
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { suppressPlatformAvatarUrl } from "@/hooks/use-platform-avatar-urls";
+import { supersedePlatformAvatar } from "@/hooks/use-platform-avatar-urls";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { SYNC_TAGS } from "@/lib/sync/types";
-import {
-  resolvePlatformAssistantId,
-  useResolvedAssistantsStore,
-} from "@/stores/resolved-assistants-store";
 
 /**
  * A reconnect can flap: error, reopen, error, reopen. Collapse a burst into
@@ -250,11 +246,7 @@ export function useAssistantResourceSync(
  * have changed there.
  */
 function onAvatarChanged(queryClient: QueryClient, assistantId: string): void {
-  useResolvedAssistantsStore.getState().clearAvatarUrl(assistantId);
-  suppressPlatformAvatarUrl(
-    queryClient,
-    resolvePlatformAssistantId(assistantId),
-  );
+  supersedePlatformAvatar(queryClient, assistantId);
   invalidateAvatarQueries(queryClient, assistantId);
 }
 

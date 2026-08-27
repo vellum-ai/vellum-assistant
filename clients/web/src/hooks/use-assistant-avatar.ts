@@ -233,6 +233,12 @@ export function useAssistantAvatar(
       // last it must neither overwrite the last-seen entry nor revoke the
       // URL the newer query renders, so it drops its own blob instead.
       const generation = fetchGenerations.claim(id);
+      // Decided at request time: the transport is pinned to whichever
+      // assistant is active when the request goes out, so a read that was
+      // issued for the active assistant is its avatar even if the user has
+      // switched away by the time it lands (a reconnect sweep, say).
+      const isActiveRead =
+        id === useResolvedAssistantsStore.getState().activeAssistantId;
       const [components, { state, traits, imageUrl }] = await Promise.all([
         fetchCharacterComponents(id),
         supportsManifest
@@ -260,7 +266,7 @@ export function useAssistantAvatar(
       // what the chooser falls back to once this assistant is unreachable.
       // Only the active assistant's read is trusted here: a sibling behind a
       // transport that ignores the id would cache the wrong avatar.
-      if (id === useResolvedAssistantsStore.getState().activeAssistantId) {
+      if (isActiveRead) {
         void persistLastSeenAvatar(client, id, { traits, imageUrl });
       }
 
