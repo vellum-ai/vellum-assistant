@@ -126,16 +126,18 @@ function CycleScene() {
  */
 export const InTheShutterRow: Story = {
   render: () => (
-    <div className="relative flex w-[340px] items-center justify-center">
+    <div className="relative flex w-[390px] items-center justify-center">
       <CameraFlashControl
         mode="auto"
         ariaLabel={LABELS.auto}
         autoBadge="A"
         onClick={() => {}}
-        className="absolute left-8"
+        className="absolute left-11"
       />
-      <span className="size-16 rounded-full border-4 border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]" />
-      <span className="absolute right-8 size-12 rounded-full border border-white/25 bg-black/45 backdrop-blur-sm" />
+      <span className="flex size-[84px] items-center justify-center rounded-full border-[2.5px] border-white">
+        <span className="size-16 rounded-full bg-white" />
+      </span>
+      <span className="absolute right-[30px] size-13 rounded-full bg-[rgba(90,74,64,0.75)]" />
     </div>
   ),
 };

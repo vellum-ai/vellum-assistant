@@ -185,7 +185,10 @@ import { useCustomAvatarFieldHex } from "./use-custom-avatar-field";
 // minimize, the two mutes, the camera toggle, flip camera and end session. See
 // that module for the toning, and for why the design library's `Button` is not
 // the element here.
-import { VoiceRoomControl } from "./voice-room-control";
+import {
+  VoiceRoomControl,
+  type VoiceRoomControlSurface,
+} from "./voice-room-control";
 import {
   VoiceRoomColorLook,
   VoiceRoomVoiceBands,
@@ -208,11 +211,11 @@ const CORNER_GAP = "1.25rem";
  * top-right minimize control and grows in both directions from there. A
  * configured assistant name is arbitrarily long, so without this the pill runs
  * under that control and off a phone-width room. Each side gives up the corner
- * chrome's own offset, the control's 3rem box, and a gap so the two never
+ * chrome's own offset, the control's 3.25rem box, and a gap so the two never
  * touch; a percentage resolves against the room, which is what the pill has to
  * fit inside.
  */
-const CAMERA_PILL_MAX_WIDTH = `calc(100% - 2 * (max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.5rem))`;
+const CAMERA_PILL_MAX_WIDTH = `calc(100% - 2 * (max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem))`;
 
 /**
  * The flash button's accessible name, per state.
@@ -531,6 +534,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const { camera, sending, photos, errorMessage, shutter, open, close } =
     useVoiceRoomCamera(assistantId, viewfinderRef);
   const cameraOpen = camera.open;
+  // What every control in the room is sitting on. One value passed down rather
+  // than a boolean per control, so the row cannot end up half in camera mode.
+  const controlSurface: VoiceRoomControlSurface = cameraOpen
+    ? "camera"
+    : "room";
 
   // Camera mode's own status readout. Gated on the camera so the user-speaking
   // poll inside the hook only runs while something renders its dot, and the
@@ -927,7 +935,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           tooltip={t("voiceRoom.minimizeTooltip")}
           onClick={minimizeVoiceRoom}
           bare
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           <ChevronDown className="size-5" />
         </VoiceRoomControl>
@@ -1023,8 +1031,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         <div
           data-testid="voice-room-camera-controls"
           className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
+          // The session row's own offset, plus its 52px height, plus the 46px
+          // the design leaves between the two. The shutter grew to 84px, so the
+          // clearance had to be recomputed from the row's top edge rather than
+          // left at a constant that happened to work at 64: the thing you press
+          // often has to stay off the thing that hangs up, and it is the GAP
+          // that guarantees that, not the number.
           style={{
-            bottom: `calc(5.5rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
+            bottom: `calc(6.125rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
           }}
         >
           {errorMessage ? (
@@ -1114,15 +1128,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                     ariaLabel={t(FLASH_LABEL_KEYS[flashMode])}
                     autoBadge={t("voiceRoom.flashAutoBadge")}
                     onClick={() => setFlashMode(nextFlashMode(flashMode))}
-                    className="absolute left-8"
+                    className="absolute left-11"
                     testId="voice-room-flash"
                   />
                 </Tooltip>
               ) : null}
 
-              {/* The one control with no `overMedia` branch: the shutter
-                  exists only while the viewfinder does, so it is never seen
-                  against anything but video. */}
+              {/* The one control with no surface branch: the shutter exists
+                  only while the viewfinder does, so it is never seen against
+                  anything but video. Photo is the only mode the capture path
+                  can reach; the shutter's live state waits on frame
+                  streaming. */}
               <Tooltip content={t("voiceRoom.takePhoto")}>
                 <CameraShutter
                   onClick={() => void shutter()}
@@ -1136,8 +1152,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               <VoiceRoomControl
                 label={t("voiceRoom.flipCamera")}
                 onClick={() => void camera.flipCamera()}
-                overMedia={cameraOpen}
-                className="absolute right-8"
+                surface={controlSurface}
+                className="absolute right-[30px]"
               >
                 <SwitchCamera className="size-5" />
               </VoiceRoomControl>
@@ -1161,9 +1177,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           }
           onClick={() => setLiveVoiceMuted(!muted)}
           pressed={muted}
-          tone={muted ? "destructive" : "neutral"}
+          // The one control the camera mode redesign exists to correct. With
+          // the viewfinder up, the room's face is gone and this button is the
+          // only thing left saying the session can still hear you, so while it
+          // is live it goes solid white rather than sitting on the same glass
+          // as the controls around it.
+          tone={muted ? "destructive" : "live"}
           isLight={tone?.isLight}
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
         </VoiceRoomControl>
@@ -1178,7 +1199,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           pressed={outputMuted}
           tone={outputMuted ? "destructive" : "neutral"}
           isLight={tone?.isLight}
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           {outputMuted ? (
             <VolumeX className="size-5" />
@@ -1216,7 +1237,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             }
             onClick={() => (cameraOpen ? close() : void open())}
             pressed={cameraOpen}
-            overMedia={cameraOpen}
+            surface={controlSurface}
             data-testid="voice-room-camera-toggle"
           >
             {cameraOpen ? (
@@ -1233,7 +1254,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           onClick={endLiveVoiceSession}
           tone="destructive"
           isLight={tone?.isLight}
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           <X className="size-5" strokeWidth={2.5} />
         </VoiceRoomControl>

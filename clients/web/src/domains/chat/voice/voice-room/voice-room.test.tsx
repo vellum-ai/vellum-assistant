@@ -435,6 +435,9 @@ const endButton = () =>
 /** The corner chevron: dismisses the room, leaves the call running. */
 const minimizeButton = () =>
   screen.queryByRole("button", { name: "Minimize voice room" });
+/** The row's mic, named for the act it offers, so this is the LIVE one. */
+const micButton = () =>
+  screen.queryByRole("button", { name: "Mute microphone" });
 
 describe("VoiceRoom — visibility", () => {
   test("renders nothing when no session is active", () => {
@@ -1828,7 +1831,7 @@ describe("VoiceRoom: camera", () => {
     expect(pill().textContent).toContain("Reconnecting…");
   });
 
-  test("the controls take a scrim once they sit over the feed", async () => {
+  test("the controls take camera mode's own fills once they sit over the feed", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
     startOwnedSession("listening");
@@ -1836,37 +1839,104 @@ describe("VoiceRoom: camera", () => {
 
     // Closed: the room's own flat color is behind them, and the controls wear
     // the tone-derived hairline treatment.
-    expect(cameraToggle()!.className).not.toContain("bg-black");
+    expect(cameraToggle()!.className).not.toContain("camera-warm");
+    expect(micButton()!.className).not.toContain("bg-white");
 
     await act(async () => {
       fireEvent.click(cameraToggle()!);
     });
 
-    // Open: the background is now arbitrary camera video, where a border-only
-    // control disappears against dark clothing. Every control on the surface
-    // has to carry its own fill, the end button included.
-    const scrimmed = [
-      "Close camera",
-      "Mute microphone",
-      "Mute assistant",
-      "Flip camera",
-      "Minimize voice room",
-    ];
-    for (const name of scrimmed) {
+    // Open: the background is arbitrary camera video, where a border-only
+    // control disappears against dark clothing and five translucent circles
+    // read as one smear. Every control is filled, and color carries the only
+    // distinction that matters at arm's length: what happens if you hit the
+    // wrong one.
+    //
+    // The mic is the correction the redesign exists for. With the room's face
+    // replaced by a viewfinder, this button is the only thing left saying the
+    // session can still hear you, so a live mic goes solid white with a dark
+    // glyph rather than sitting on the same glass as its neighbours. It used
+    // to wear the same `bg-black/45` scrim as everything else.
+    const mic = micButton()!;
+    expect(mic.className).toContain("bg-white");
+    expect(mic.className).toContain("text-neutral-900");
+
+    // The camera's own controls take the warm fill: a third hue, because the
+    // row already spends white on "the session is live" and red on "this
+    // changes the call", and these do neither. The engaged toggle (the camera
+    // control, held down for as long as the viewfinder is up) sits a shade
+    // heavier than the resting controls beside it.
+    expect(cameraToggle()!.className).toContain(
+      "bg-[var(--camera-warm-strong)]",
+    );
+    for (const name of ["Mute assistant", "Flip camera"]) {
       expect(screen.getByRole("button", { name }).className).toContain(
-        "bg-black/45",
+        "bg-[var(--camera-warm)]",
       );
     }
-    const end = screen.getByRole("button", { name: "End voice session" });
-    expect(end.className).toContain("bg-red-600/55");
+    // The vars the fills name are published by the control itself, so a
+    // renamed constant surfaces here rather than as a transparent button.
+    expect(cameraToggle()!.getAttribute("style")).toContain("--camera-warm");
 
-    // The shutter is white so it reads on a dark frame, which leaves it
-    // invisible on a bright one unless it carries a dark backing of its own.
-    // It is the only control on the surface with no neutral scrim to fall
-    // back on, so it is asserted separately rather than in the loop above.
+    // Solid red, not the translucent red the room's other surfaces use: a
+    // 55%-opacity red over a red jumper is a button with no edges.
+    const end = screen.getByRole("button", { name: "End voice session" });
+    expect(end.className).toContain("bg-[var(--camera-destructive)]");
+
+    // Corner chrome keeps the glass treatment. The warm fills are how the
+    // bottom row reads as one set of related acts, and a filled circle in the
+    // corner would join a set it is not in.
+    expect(minimizeButton()!.className).toContain("bg-black/45");
+
+    // The shutter carries no fill at all any more. Legibility over a bright
+    // frame is the bottom scrim's job now, and a dark backing here was a
+    // second answer to that question that dulled the one control meant to be
+    // the brightest thing on the screen.
     const shutter = screen.getByTestId("voice-room-shutter");
-    expect(shutter.className).toContain("bg-black/30");
-    expect(shutter.className).toContain("shadow-");
+    expect(shutter.className).toContain("border-white");
+    expect(shutter.className).toContain("size-[84px]");
+    expect(shutter.className).not.toContain("bg-black");
+  });
+
+  test("a muted mic drops the white fill for the destructive red", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await act(async () => {
+      useLiveVoiceStore.setState({ muted: true });
+    });
+
+    // The white fill says "the session can hear you", so it cannot survive the
+    // mic being switched off. Muted is the one state where the red slashed
+    // treatment is honest.
+    const mic = screen.getByRole("button", { name: "Unmute microphone" });
+    expect(mic.className).toContain("bg-[var(--camera-destructive)]");
+    expect(mic.className).not.toContain("bg-white");
+  });
+
+  test("the row is one size whether or not the viewfinder is up", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // 52px in both states. A control that resized as the camera opened would
+    // move out from under a thumb already on its way to it.
+    expect(micButton()!.className).toContain("size-13");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(micButton()!.className).toContain("size-13");
+    expect(
+      screen.getByRole("button", { name: "Flip camera" }).className,
+    ).toContain("size-13");
   });
 
   test("offers no flash control on the browser fallback path", async () => {

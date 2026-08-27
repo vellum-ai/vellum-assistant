@@ -1,6 +1,7 @@
 /**
- * The paint camera mode wears: the accent pair its chrome is toned with, and
- * the two scrims that keep that chrome legible over the feed.
+ * The paint camera mode wears: the accents its chrome is toned with, the fills
+ * its control row is told apart by, and the two scrims that keep both legible
+ * over the feed.
  *
  * Fixed values rather than theme tokens, deliberately. What sits behind this
  * chrome is an arbitrary live camera image, not a surface the app painted, so
@@ -34,6 +35,33 @@ export const CAMERA_ACCENT = "#cf4370";
 export const CAMERA_ACCENT_SOFT = "#ffd9e4";
 
 /**
+ * The warm brown the camera's own controls are filled with: flip beside the
+ * shutter, and the toggle that closes the viewfinder.
+ *
+ * A third hue in a row that otherwise has only two, and that is the point. The
+ * row already spends white on "the session is live" and red on "this changes
+ * the call", so a control that does neither cannot borrow either without
+ * saying something untrue. Warm rather than more glass because over a feed a
+ * translucent black button is the one that vanishes into a dark frame.
+ *
+ * The stronger of the pair goes to a toggle that is engaged: the camera control
+ * is held down for as long as the viewfinder is up, and sits a shade heavier
+ * than the resting controls beside it.
+ */
+export const CAMERA_WARM = "rgba(90,74,64,.75)";
+export const CAMERA_WARM_STRONG = "rgba(90,74,64,.8)";
+
+/**
+ * The red a control acting on the call wears over the feed: the mutes while
+ * engaged, and end-session always.
+ *
+ * Solid, not the translucent red the room's other surfaces use. The chrome here
+ * sits on arbitrary video, and a 55%-opacity red over a red jumper is a button
+ * with no edges; the whole row is filled for the same reason.
+ */
+export const CAMERA_DESTRUCTIVE = "#e8453f";
+
+/**
  * Legibility scrims for the top and bottom bands of the feed, where all the
  * camera chrome lives. Only those two bands: the design explicitly dropped the
  * screen-edge tint, so the middle of the frame (the part the user is actually
@@ -51,5 +79,8 @@ export function cameraModeStyle(): CSSProperties {
   return {
     "--camera-accent": CAMERA_ACCENT,
     "--camera-accent-soft": CAMERA_ACCENT_SOFT,
+    "--camera-warm": CAMERA_WARM,
+    "--camera-warm-strong": CAMERA_WARM_STRONG,
+    "--camera-destructive": CAMERA_DESTRUCTIVE,
   } as CSSProperties;
 }

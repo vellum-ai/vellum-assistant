@@ -253,6 +253,17 @@ describe("CameraCaptureOverlay", () => {
     expect(shutter().hasAttribute("disabled")).toBe(true);
   });
 
+  test("the shutter's band is darkened, since the shutter carries no fill", () => {
+    renderOverlay();
+
+    // A white ring around a white core is invisible against a bright wall
+    // unless something behind it gives way. Inert, because it lies over the
+    // controls it exists to make readable.
+    const scrim = screen.getByTestId("camera-deep-link-scrim");
+    expect(scrim.className).toContain("pointer-events-none");
+    expect(scrim.getAttribute("style")).toContain("gradient");
+  });
+
   test("an acquisition failure closes the surface rather than stranding it", () => {
     cameraError = "permission-denied";
 
