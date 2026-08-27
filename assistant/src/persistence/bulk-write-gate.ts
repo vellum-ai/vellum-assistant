@@ -2,16 +2,15 @@
 // Bulk-write gate — process-wide FIFO serialization of bulk main-DB writers.
 // ---------------------------------------------------------------------------
 //
-// The batched bulk writers (fork message-copy, conversation-row batch delete)
-// each hold the main database's write lock only briefly per batch — but SQLite
-// has a single writer, so two bulk streams running concurrently gain no
-// throughput. They only convoy: every batch of each stream contends with the
-// other's (waiting up to `busy_timeout`), and the inter-batch yield each
-// stream inserts for foreground fairness is consumed by the sibling stream
-// instead of the live user turn it was meant for. Concurrent streams are
-// reachable because the memory jobs worker groups jobs by
-// `(type, conversationId)` — retrospectives for two different conversations
-// run in parallel.
+// The batched bulk writer (conversation-row batch delete) holds the main
+// database's write lock only briefly per batch — but SQLite has a single
+// writer, so two bulk streams running concurrently gain no throughput. They
+// only convoy: every batch of each stream contends with the other's (waiting
+// up to `busy_timeout`), and the inter-batch yield each stream inserts for
+// foreground fairness is consumed by the sibling stream instead of the live
+// user turn it was meant for. Concurrent streams are reachable because the
+// memory jobs worker groups jobs by `(type, conversationId)` — work for two
+// different conversations can run in parallel.
 //
 // This gate serializes those streams within the process: one bulk writer runs
 // at a time, the rest queue FIFO, and the write lock (plus the yields) go back
