@@ -20,6 +20,7 @@ import type {
 // into the mock so the tests exercise the shipped behavior rather than a
 // stand-in.
 import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+import { RiskLevel } from "../../../../tools/tool-types.js";
 import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -35,20 +36,23 @@ let sendMessageResponse = {
 };
 let providerResolves = true;
 
+let visionCallCount = 0;
+
 const fakeProvider = {
   name: "mock-vision-provider",
   async sendMessage() {
+    visionCallCount++;
     return sendMessageResponse;
   },
 };
 
 // The plugin resolves an image block's bytes via `resolveMediaSourceData`.
-// Media in these tests is inline base64, so mirror the real helper's base64
-// branch; a workspace reference would return null (not exercised here).
+// Mirror the real helper: inline base64 passes through, and a workspace
+// reference reads back the bytes the attachment store holds.
 const mockResolveMediaSourceData = (source: ImageContent["source"]) =>
   source.type === "base64"
     ? { data: source.data, media_type: source.media_type }
-    : null;
+    : { data: "cmVmLWJ5dGVz", media_type: source.media_type };
 
 // System cards the plugin posts, captured instead of persisted.
 let persistedCards: Array<{
@@ -79,6 +83,7 @@ function installPluginApiMock(overrides: Record<string, unknown> = {}): void {
     getWorkspaceDir: () => "/workspace",
     lastToolResultUserMessageIndex,
     isVisionNotSupportedError,
+    RiskLevel,
     persistSystemCard: async (opts: {
       conversationId: string;
       text: string;
@@ -99,6 +104,14 @@ installPluginApiMock();
 // Canonical on-disk paths for `workspace_ref` sources, keyed by attachment id.
 const mockAttachmentPaths = new Map<string, string>();
 
+// The sweep reads `imageFallback.captionMode` from the workspace config;
+// drive it from the test rather than from whatever the developer's own config
+// file happens to hold.
+let captionMode = "caption";
+mock.module("../src/caption-mode.js", () => ({
+  getCaptionMode: () => captionMode,
+}));
+
 // Mock the image-persist module to avoid filesystem side effects in tests.
 let mockPersistPath: string | null =
   "/workspace/data/attachments/mock-hash.png";
@@ -118,11 +131,14 @@ const { findVisionProfile } = await import("../src/vision-caption.js");
 const { flattenTextOnlyBlocks } = await import("../src/caption-blocks.js");
 const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
   await import("../src/caption-cache.js");
+const { initImageIndex, listConversationImages, resetImageIndexForTests } =
+  await import("../src/image-index.js");
 
 // Back the caption cache's durable layer with a per-file temp store, the way
 // the plugin's `init` hook opens it in production.
 const STORAGE_DIR = mkdtempSync(join(tmpdir(), "image-fallback-test-"));
 initCaptionStore(STORAGE_DIR);
+initImageIndex();
 
 afterAll(() => {
   closeCaptionStore();
@@ -247,10 +263,14 @@ beforeEach(() => {
   };
   providerResolves = true;
   mockPersistPath = "/workspace/data/attachments/mock-hash.png";
+  mockAttachmentPaths.clear();
+  captionMode = "caption";
+  visionCallCount = 0;
   persistedCards = [];
   cardPersistenceFails = false;
   installPluginApiMock();
   resetCaptionCacheForTests();
+  resetImageIndexForTests();
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -314,6 +334,81 @@ describe("image-fallback user-prompt-submit hook", () => {
     const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
     expect(text).toContain("text-only model");
     expect(text).toContain("auto-described");
+  });
+
+  test("names a workspace_ref image by the attachment's stored filename", async () => {
+    mockAttachmentPaths.set(
+      "att-1",
+      "/workspace/conversations/c1/attachments/receipt.png",
+    );
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "workspace_ref",
+              media_type: "image/png",
+              attachmentId: "att-1",
+              sizeBytes: 12,
+            },
+          } as ImageContent,
+        ],
+      },
+    ];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+      '[Image "receipt.png" auto-described for text-only model: A red chart showing Q3 revenue.]',
+    );
+  });
+
+  test("handle-only mode names the image and spends no vision call", async () => {
+    captionMode = "handle-only";
+    const messages = [imageMsg("img1")];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+      '[Image "mock-hash.png" available via image_ask]',
+    );
+    expect(visionCallCount).toBe(0);
+  });
+
+  test("handle-only mode says so when the image has no stored copy", async () => {
+    captionMode = "handle-only";
+    mockPersistPath = null;
+    const messages = [imageMsg("img1")];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+      "[Image: no stored copy available to examine]",
+    );
+  });
+
+  test("handle-only mode still reports a missing vision model", async () => {
+    captionMode = "handle-only";
+    mockProfiles = [
+      profile("text-only", { label: "Text Only", isActive: true }),
+    ];
+    const messages = [imageMsg("img1")];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("no vision-capable model configured");
+  });
+
+  test("indexes the image it captioned so image_ask can resolve it", async () => {
+    const messages = [imageMsg("img1")];
+    const ctx = makeCtx({ latestMessages: messages, conversationId: "c-idx" });
+    await userPromptSubmit(ctx);
+    const images = listConversationImages("c-idx");
+    expect(images).toHaveLength(1);
+    expect(images[0].filePath).toBe(
+      "/workspace/data/attachments/mock-hash.png",
+    );
+    expect(images[0].mediaType).toBe("image/png");
   });
 
   test("does not embed the saved image path in the caption text", async () => {

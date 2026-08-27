@@ -12,7 +12,9 @@ A plugin owns its state end-to-end. Everything a plugin persists lives in its ow
 - **Purge in `conversation-deleted`**: remove per-conversation rows so derived data (captions, caches, logs) does not outlive the conversation that produced it.
 - **Fail open**: a plugin whose storage cannot be opened should degrade (e.g. to in-memory behavior), not block boot or the turn.
 
-Canonical example: `defaults/image-fallback` — `hooks/init.ts` opens `caption-cache.sqlite` in the storage dir and ensures its schema, `hooks/shutdown.ts` closes it, `hooks/conversation-deleted.ts` purges the conversation's rows (`src/caption-cache.ts`).
+Canonical example: `defaults/image-fallback` — `hooks/init.ts` opens `caption-cache.sqlite` in the storage dir and ensures the schema for both of its tables (the caption cache in `src/caption-cache.ts` and the per-conversation image index in `src/image-index.ts`), `hooks/shutdown.ts` closes the handle, and `hooks/conversation-deleted.ts` purges both tables' rows for the deleted conversation. Sibling tables share the one handle rather than opening files of their own.
+
+It is also the canonical example of a turn-scoped tool: `tools/image_ask.ts` declares an `isActive` predicate so a plugin tool that only matters to some models costs the rest of them nothing. See `src/tools/AGENTS.md`.
 
 **Grandfathered exception**: `defaults/memory` predates this rule and uses main-database tables via `persistence/schema` / `db-connection`. Do not extend that pattern to other plugins or grow memory's main-DB surface. Enforced by `__tests__/plugin-state-boundary-guard.test.ts`.
 
