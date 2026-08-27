@@ -133,28 +133,14 @@ export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> =
   ) as Record<LiveVoiceSessionState, string>;
 
 /**
- * User-facing activity label for a session, factoring in the orthogonal
- * `reconnecting` signal. Drives the room's aria-live label. During a retry of a
- * dropped connection the base `connecting` phase relabels to "Reconnecting…" so
- * surfaces distinguish it from the initial connect (the JARVIS-1255 gap);
- * `reconnecting` is ignored for every other phase.
- *
- * The lower layer for callers with no audio or mute signal to consult: an
- * audible assistant and an open mic leave the other two remaps in
- * {@link liveVoiceSurfaceLabelKey} unfired, so what comes back is the phase's
- * own word.
- */
-export function liveVoiceStateLabel(
-  state: LiveVoiceSessionState,
-  reconnecting: boolean,
-): string {
-  return liveVoiceSurfaceLabel(state, reconnecting, true, false);
-}
-
-/**
  * The catalog key a *surface* shows for a session: the phase's own key plus the
  * remaps that keep the word true of what is actually happening. Keys exist so
  * surfaces can localize without forking the decision table.
+ *
+ * `connecting` relabels to "Reconnecting…" while the controller is retrying a
+ * dropped connection, so a surface distinguishes a retry from the initial
+ * connect (the JARVIS-1255 gap). `reconnecting` is ignored for every other
+ * phase.
  *
  * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
@@ -425,6 +411,15 @@ export interface LiveVoiceState {
    * make, however it was made.
    */
   pendingApprovalRequestId: string | null;
+  /**
+   * Whether the server VAD is holding an utterance open: set on
+   * `speech_started`, cleared on `utterance_end` / `utterance_discarded`. The
+   * session's own answer to "is the user talking right now", published because
+   * a surface renders that boundary directly (the camera-mode status pill's
+   * dot). Only hands-free sessions have one; a manual session leaves it false.
+   * Session-scoped, so `reset()` clears it with everything else.
+   */
+  utteranceOpen: boolean;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -567,6 +562,8 @@ export interface LiveVoiceActions {
   setFirstRunCardOpen: (open: boolean) => void;
   /** Publish or clear the pre-open "configure voice" notice. */
   setConfigNotice: (notice: string | null) => void;
+  /** Record whether the server VAD is holding an utterance open. */
+  setUtteranceOpen: (utteranceOpen: boolean) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -714,6 +711,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   photoRejectedSeq: 0,
   photoRejectedReason: null,
   controls: null,
+  utteranceOpen: false,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -761,6 +759,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
+  setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>

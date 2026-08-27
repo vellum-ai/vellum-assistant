@@ -544,9 +544,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     ? "camera"
     : "room";
 
-  // Camera mode's own status readout. Gated on the camera so the user-speaking
-  // poll inside the hook only runs while something renders its dot, and the
-  // name is resolved the way the first-run card resolves it.
+  // Camera mode's own status readout. Gated on the camera so the user half is
+  // only reported while something renders its dot, and the name is resolved the
+  // way the first-run card resolves it.
   const cameraVoiceState = useCameraVoiceState(
     state,
     assistantAudioActive,

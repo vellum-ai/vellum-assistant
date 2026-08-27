@@ -272,9 +272,12 @@ export function useVoiceCamera(
   // the capture, so the acquire epoch alone would let a probe of the outgoing
   // camera answer for the one that replaced it.
   const flashProbeEpochRef = useRef(0);
-  // True from the first line of a flip to the last. See `flipCamera`: two of
-  // them overlapping spin the hardware twice and agree on the wrong answer.
-  const flipInFlightRef = useRef(false);
+  // The flip that is running, as its own identity, or null for none. See
+  // `flipCamera`: two of them overlapping spin the hardware twice and agree on
+  // the wrong answer. An identity rather than a flag because releasing the
+  // camera drops the claim (see `stopCapture`), and a flip that resumes after
+  // that must not drop the claim of the flip that replaced it.
+  const flipInFlightRef = useRef<object | null>(null);
   // True while a flash-capable camera is running with a mode other than off,
   // which is exactly when the plugin has state of ours to hand back. Cleared
   // rather than re-derived, so a camera that turned out to have no flash is
@@ -294,6 +297,11 @@ export function useVoiceCamera(
     // flight, whose camera is the one going away here.
     acquireEpochRef.current++;
     flashProbeEpochRef.current++;
+    // A flip still running belongs to the camera this releases, so its claim
+    // goes with it. Nothing else clears the claim of a bridge call that never
+    // comes back, and a flip left marked in flight is a flip button that never
+    // works again, across a close and a reopen included.
+    flipInFlightRef.current = null;
     const source = sourceRef.current;
     sourceRef.current = null;
     if (source === "native-pending" || source === "native") {
@@ -533,7 +541,8 @@ export function useVoiceCamera(
     if (!sourceRef.current || flipInFlightRef.current) {
       return;
     }
-    flipInFlightRef.current = true;
+    const claim = {};
+    flipInFlightRef.current = claim;
     try {
       // Before anything else, and before the flip itself: from here on the
       // camera any outstanding probe asked about is not the one that will be
@@ -571,8 +580,11 @@ export function useVoiceCamera(
           setFacing(next);
         }
         // Re-probed whether or not the flip took: on a failure the old camera
-        // is still running and its capabilities were just cleared.
-        await probeFlash();
+        // is still running and its capabilities were just cleared. Not awaited,
+        // so the flip is available again the moment the flip itself settles;
+        // the probe epoch is what makes a late answer safe, and the next flip
+        // bumps it before anything else.
+        void probeFlash();
         return;
       }
 
@@ -588,10 +600,11 @@ export function useVoiceCamera(
         setOpen(false);
       }
     } finally {
-      // Unconditional, and the only place this is cleared: a release or a
-      // close landing mid-flip takes one of the bail-outs above, and a flip
-      // left marked in flight would be a flip button that never works again.
-      flipInFlightRef.current = false;
+      // This flip's own claim only. A release landing mid-flip already dropped
+      // it, and the claim standing now may belong to the flip that came after.
+      if (flipInFlightRef.current === claim) {
+        flipInFlightRef.current = null;
+      }
     }
   }, [acquire, facing, probeFlash]);
 

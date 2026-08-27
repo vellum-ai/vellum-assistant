@@ -1529,6 +1529,72 @@ describe("utterance_discarded", () => {
   });
 });
 
+/**
+ * The VAD boundary the controller publishes. Session-local until a surface
+ * needed it: the camera-mode status pill renders it as "the user is talking",
+ * so the boundary the session acts on and the one the dot draws are one fact.
+ */
+describe("published utterance boundary", () => {
+  test("opens on speech_started and closes on utterance_end", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("closes on an utterance the server discarded", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 3,
+      });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("stays closed for a manual session, which has no server VAD", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("does not survive the session that opened it", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Turn latency (server metrics frame + client-heard measurement)
 // ---------------------------------------------------------------------------
