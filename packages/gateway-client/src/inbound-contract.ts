@@ -139,6 +139,11 @@ export const SourceMetadataSchema = z
      * "not provided", never as a decision.
      */
     trustVerdict: TrustVerdictSchema.optional(),
+    /**
+     * The platform named no actor for this event; the actor id is the
+     * channel's synthetic system identity, never an identity claim.
+     */
+    actorUnattributed: z.boolean().optional(),
 
     // Email-specific fields
     /**

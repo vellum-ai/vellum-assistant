@@ -229,7 +229,7 @@ describe("normalizeTelegramUpdate", () => {
     };
     const result = normalizeTelegramUpdate(payload);
     expect(result).not.toBeNull();
-    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.eventKind).toBe("edit");
     expect(result!.message.content).toBe("Hello bot (edited)");
     expect(result!.message.conversationExternalId).toBe("99001");
     expect(result!.message.externalMessageId).toBe("200");
@@ -280,7 +280,7 @@ describe("normalizeTelegramUpdate", () => {
     };
     const result = normalizeTelegramUpdate(payload);
     expect(result).not.toBeNull();
-    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.eventKind).toBe("edit");
     expect(result!.message.content).toBe("Updated caption");
     expect(result!.message.attachments).toHaveLength(1);
   });

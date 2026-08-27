@@ -127,6 +127,15 @@ export interface AclEnforcementParams {
    * caller makes the classification explicitly.
    */
   isCallbackInteraction: boolean;
+  /**
+   * The platform named no actor for this event (the id is a channel's
+   * synthetic system identity). There is no identity claim to enforce, so
+   * the ACL neither resolves a member nor denies: the family stage that
+   * consumes such an event applies it only to rows whose author cleared
+   * this ACL when the original message arrived. Callers set this ONLY for
+   * event kinds that cannot start an agent turn.
+   */
+  actorUnattributed?: boolean;
 }
 
 /**
@@ -205,6 +214,10 @@ export async function enforceIngressAcl(
     effectiveAdmissionPolicy,
     isCallbackInteraction,
   } = params;
+
+  if (params.actorUnattributed) {
+    return { resolvedMember: null };
+  }
 
   let validatedBootstrapSession: VerificationSessionWire | undefined;
 

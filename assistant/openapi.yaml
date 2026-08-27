@@ -4366,6 +4366,8 @@ paths:
                       required:
                         - trustClass
                         - canonicalSenderId
+                    actorUnattributed:
+                      type: boolean
                     emailProvider:
                       type: string
                     emailSubject:

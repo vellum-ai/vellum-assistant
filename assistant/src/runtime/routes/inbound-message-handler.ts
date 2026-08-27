@@ -372,11 +372,13 @@ export async function handleChannelInbound({
   const hasCallbackData =
     typeof body.callbackData === "string" && body.callbackData.length > 0;
 
+  // Only a plain message must carry a body: every other family refers to
+  // another message and legitimately arrives empty (a delete has no
+  // content at all).
   if (
     trimmedContent.length === 0 &&
     !hasAttachments &&
-    !isEdit &&
-    !hasCallbackData
+    eventKind === "message"
   ) {
     throw new BadRequestError("content or attachmentIds is required");
   }
@@ -476,7 +478,10 @@ export async function handleChannelInbound({
   // respond to one by minting a verification challenge or creating an access
   // request (LUM-2673). Reaction callbacks never reach this point — the
   // intercept above returns for them.
-  const isCallbackInteraction = hasCallbackData;
+  const isCallbackInteraction =
+    eventKind === "button" ||
+    eventKind === "reaction" ||
+    eventKind === "delete";
 
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
@@ -493,26 +498,25 @@ export async function handleChannelInbound({
     assistantId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
     isCallbackInteraction,
+    // Scoped to deletes: the one family whose wire can name no actor. Any
+    // other kind carrying the flag still faces the full ACL.
+    actorUnattributed:
+      eventKind === "delete" && sourceMetadata?.actorUnattributed === true,
   });
   if (aclResult.earlyResponse) {
     return aclResult.earlyResponse;
   }
   const { resolvedMember } = aclResult;
 
-  // ── Slack delete propagation ──
-  // Slack message_deleted events are forwarded by the gateway with the
-  // sentinel `callbackData = "message_deleted"` and `sourceMetadata.messageId`
-  // set to the original (deleted) message's ts. Short-circuit the rest of
-  // the pipeline: the agent loop should not run for delete notifications,
-  // and routing the event through approval / agent paths would be incorrect.
-  // We mark the stored row as deleted in slackMeta but leave `content`
-  // untouched for audit purposes — rendering elides based on the deletedAt
-  // marker. Gated behind ingress ACL so non-members cannot drive deletes
-  // (matches the edit-intercept policy).
-  // The Slack gate mirrors the reaction intercept's: deletes are ingested
-  // from Slack alone today, and each further channel arrives as its own
-  // decision with its own wire shape.
-  if (sourceChannel === "slack" && eventKind === "delete") {
+  // ── Delete propagation ──
+  // A delete names the original via `sourceMetadata.messageId` and
+  // short-circuits the rest of the pipeline: no agent loop, no approval
+  // routing. The stored row keeps its content for audit; rendering elides on
+  // the deletedAt marker. An attributed delete (the wire names the deleted
+  // message's author, as Slack's does) passed the ingress ACL above; an
+  // unattributed one bypassed it under the ACL's stated contract and applies
+  // only to a row this daemon ingested.
+  if (eventKind === "delete") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
@@ -521,7 +525,7 @@ export async function handleChannelInbound({
     if (!deletedMessageTs) {
       log.debug(
         { conversationExternalId },
-        "Slack message_deleted event missing sourceMetadata.messageId; ignoring",
+        "Delete event missing sourceMetadata.messageId; ignoring",
       );
       return { accepted: true, deleted: false };
     }
@@ -564,7 +568,7 @@ export async function handleChannelInbound({
     if (!original) {
       log.debug(
         { conversationExternalId, deletedMessageTs },
-        "No stored message found for Slack delete after retries; ignoring",
+        "No stored message found for delete after retries; ignoring",
       );
       return { accepted: true, deleted: false };
     }

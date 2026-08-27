@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import { admitDiscordMessage } from "./admit.js";
-import { DiscordMessageCreateSchema } from "./message-schemas.js";
-import { normalizeDiscordMessage, toAdmissionCandidate } from "./normalize.js";
+import {
+  DiscordMessageCreateSchema,
+  DiscordMessageDeleteSchema,
+} from "./message-schemas.js";
+import {
+  normalizeDiscordMessage,
+  normalizeDiscordMessageDelete,
+  toAdmissionCandidate,
+} from "./normalize.js";
 import "../__tests__/test-preload.js";
 
 /** A well-formed guild MESSAGE_CREATE payload, as Discord sends it. */
@@ -406,5 +413,72 @@ describe("normalizeDiscordMessage", () => {
     expect(normalizeDiscordMessage(noChannel, { raw: {} })).toBeNull();
     const noAuthor = parse(messagePayload({ author: undefined }));
     expect(normalizeDiscordMessage(noAuthor, { raw: {} })).toBeNull();
+  });
+});
+
+describe("normalizeDiscordMessage: edits", () => {
+  test("an edit names its family and revision without carrying media", () => {
+    const message = parse(
+      messagePayload({
+        edited_timestamp: "2026-08-27T10:00:00.000000+00:00",
+        attachments: [{ id: "att-1", filename: "photo.png" }],
+      }),
+    );
+    const event = normalizeDiscordMessage(message, {
+      raw: {},
+      edit: { revision: message.edited_timestamp! },
+    });
+
+    expect(event).not.toBeNull();
+    expect(event!.message.eventKind).toBe("edit");
+    // The dedup id is unique per revision so successive edits of one message
+    // never swallow each other; the source id keeps naming the message the
+    // edit rewrites.
+    expect(event!.message.externalMessageId).toBe(
+      "msg-1:edit:2026-08-27T10:00:00.000000+00:00",
+    );
+    expect(event!.source.messageId).toBe("msg-1");
+    // An edit refers to another message and ingests no media of its own.
+    expect(event!.message.attachments).toBeUndefined();
+  });
+});
+
+describe("normalizeDiscordMessageDelete", () => {
+  test("a delete states its family and its unattributed actor", () => {
+    const parsed = DiscordMessageDeleteSchema.safeParse({
+      id: "msg-9",
+      channel_id: "channel-1",
+      guild_id: "guild-1",
+    });
+    expect(parsed.success).toBe(true);
+    const event = normalizeDiscordMessageDelete(
+      parsed.success ? parsed.data : (undefined as never),
+      { raw: {} },
+    );
+
+    expect(event).not.toBeNull();
+    expect(event!.message.eventKind).toBe("delete");
+    expect(event!.message.externalMessageId).toBe("msg-9:delete");
+    expect(event!.source.messageId).toBe("msg-9");
+    // The wire names no actor: the synthetic id is not an identity claim,
+    // and the flag is what lets the daemon treat it that way.
+    expect(event!.actor.actorExternalId).toBe("discord-system");
+    expect(event!.source.actorUnattributed).toBe(true);
+    expect(event!.source.isDirectMessage).toBe(false);
+  });
+
+  test("a DM delete proves its lane by guild absence", () => {
+    const parsed = DiscordMessageDeleteSchema.safeParse({
+      id: "msg-10",
+      channel_id: "dm-channel-1",
+    });
+    expect(parsed.success).toBe(true);
+    const event = normalizeDiscordMessageDelete(
+      parsed.success ? parsed.data : (undefined as never),
+      { raw: {} },
+    );
+
+    expect(event!.source.isDirectMessage).toBe(true);
+    expect(event!.source.conversationType).toBe("dm");
   });
 });

@@ -4,6 +4,7 @@ import {
   makeUnauthenticatedSenderVerdict,
   type SourceMetadata,
   type TrustVerdict,
+  resolveInboundEventKind,
 } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { ContactStore } from "../db/contact-store.js";
@@ -181,20 +182,29 @@ export async function admitInbound(
 
   const displayName = event.actor.displayName || event.actor.username;
 
+  // Only user-authored text can carry a verification code or an invite:
+  // reactions, button presses and deletes are not utterances, and running
+  // the text intercepts over their payloads reads sentinel strings as
+  // messages.
+  const eventKind = resolveInboundEventKind(event.message);
+  const carriesUserText = eventKind === "message" || eventKind === "edit";
+
   // ── Text verification intercept ──
   // Must run before forwardToRuntime so the assistant never sees
   // verification code messages. Both success and failure short-circuit.
-  const verificationResult = await tryTextVerificationIntercept({
-    sourceChannel: event.sourceChannel,
-    messageContent: event.message.content,
-    actorExternalUserId: event.actor.actorExternalId,
-    actorChatId: event.message.conversationExternalId,
-    isDirectMessage: event.source.isDirectMessage,
-    actorDisplayName: event.actor.displayName,
-    actorUsername: event.actor.username,
-    replyCallbackUrl: options?.replyCallbackUrl,
-    assistantId: routing.assistantId,
-  });
+  const verificationResult = carriesUserText
+    ? await tryTextVerificationIntercept({
+        sourceChannel: event.sourceChannel,
+        messageContent: event.message.content,
+        actorExternalUserId: event.actor.actorExternalId,
+        actorChatId: event.message.conversationExternalId,
+        isDirectMessage: event.source.isDirectMessage,
+        actorDisplayName: event.actor.displayName,
+        actorUsername: event.actor.username,
+        replyCallbackUrl: options?.replyCallbackUrl,
+        assistantId: routing.assistantId,
+      })
+    : ({ intercepted: false } as const);
 
   if (verificationResult.intercepted) {
     log.info(
@@ -272,7 +282,7 @@ export async function admitInbound(
   // them. A code that matches no invite falls through as a normal message.
   // Unauthenticated senders never redeem: a spoofable address must not mint
   // a membership binding it may not own.
-  if (options?.senderAuthenticated !== false) {
+  if (carriesUserText && options?.senderAuthenticated !== false) {
     const inviteResult = await tryInviteRedemptionIntercept({
       sourceChannel: event.sourceChannel,
       messageContent: event.message.content,
@@ -356,6 +366,9 @@ export async function handleInbound(
         sourceMetadata: {
           updateId: event.source.updateId,
           messageId: event.source.messageId,
+          ...(event.source.actorUnattributed
+            ? { actorUnattributed: true }
+            : {}),
           chatType: event.source.chatType,
           conversationType: event.source.conversationType,
           ...(event.source.threadId ? { threadId: event.source.threadId } : {}),
@@ -415,7 +428,14 @@ export async function handleInbound(
     // Fire-and-forget so write failures here cannot leak as unhandled
     // rejections.
     if (!response.denied) {
-      void touchContactChannelStats(event, response.duplicate).catch(() => {});
+      // A delete is not an interaction by the person: its actor may be a
+      // synthetic system id, and bumping presence stats for one would
+      // record activity nobody performed.
+      if (resolveInboundEventKind(event.message) !== "delete") {
+        void touchContactChannelStats(event, response.duplicate).catch(
+          () => {},
+        );
+      }
     }
 
     return { forwarded: true, rejected: false, runtimeResponse: response };

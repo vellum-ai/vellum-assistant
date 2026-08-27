@@ -72,7 +72,6 @@ export function normalizeSlackMessageEdit(
         content,
         conversationExternalId: channel,
         externalMessageId,
-        isEdit: true,
       },
       actor: {
         actorExternalId: edited.user,
@@ -155,8 +154,6 @@ export function normalizeSlackMessageDelete(
         conversationExternalId: channel,
         // Unique per delete event to avoid dedup collisions
         externalMessageId: eventId,
-        // Sentinel value that classifies unstamped replayed retry payloads
-        callbackData: "message_deleted",
       },
       actor: {
         actorExternalId: actorId,

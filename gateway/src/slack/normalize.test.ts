@@ -1407,7 +1407,7 @@ describe("normalizeSlackMessageEdit", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.eventKind).toBe("edit");
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.chatType).toBe("channel");
@@ -1568,7 +1568,7 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result).not.toBeNull();
     expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.sourceChannel).toBe("slack");
-    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.message.content).toBe("");
     expect(result!.event.message.externalMessageId).toBe("evt-del-dm");
     expect(result!.event.message.conversationExternalId).toBe("D789");
@@ -1588,7 +1588,7 @@ describe("normalizeSlackMessageDelete", () => {
     const result = normalizeSlackMessageDelete(event, "evt-del-ch", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.message.content).toBe("");
     expect(result!.event.message.externalMessageId).toBe("evt-del-ch");
     // source.messageId carries the original deleted message's ts
@@ -1787,7 +1787,7 @@ describe("message edit/delete tolerant validation", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("");
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
   });
 
   it("preserves unknown extra keys verbatim in an edit's raw", () => {
