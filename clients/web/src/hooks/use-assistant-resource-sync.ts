@@ -46,9 +46,13 @@ import {
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { suppressPlatformAvatarUrl } from "@/hooks/use-platform-avatar-urls";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { SYNC_TAGS } from "@/lib/sync/types";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  resolvePlatformAssistantId,
+  useResolvedAssistantsStore,
+} from "@/stores/resolved-assistants-store";
 
 /**
  * A reconnect can flap: error, reopen, error, reopen. Collapse a burst into
@@ -240,12 +244,17 @@ export function useAssistantResourceSync(
 
 /**
  * An avatar change on the connected assistant. Beyond the query sweep, drops
- * the row's synced `avatarUrl`: the platform copy lags the live change, and
- * while set it keeps the chooser's live/cache paths disabled. The reconnect
- * sweep does not do this, since nothing is known to have changed there.
+ * the row's synced `avatarUrl` and platform lookup entry: the platform copy
+ * lags the live change, and while set it keeps the chooser's live/cache paths
+ * disabled. The reconnect sweep does not do this, since nothing is known to
+ * have changed there.
  */
 function onAvatarChanged(queryClient: QueryClient, assistantId: string): void {
   useResolvedAssistantsStore.getState().clearAvatarUrl(assistantId);
+  suppressPlatformAvatarUrl(
+    queryClient,
+    resolvePlatformAssistantId(assistantId),
+  );
   invalidateAvatarQueries(queryClient, assistantId);
 }
 

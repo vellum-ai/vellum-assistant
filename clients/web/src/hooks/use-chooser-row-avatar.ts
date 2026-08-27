@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { usePlatformAvatarUrls } from "@/hooks/use-platform-avatar-urls";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
 import {
   deleteLastSeenAvatar,
@@ -34,6 +35,7 @@ import {
 } from "@/runtime/local-mode-host";
 import {
   type ResolvedAssistant,
+  platformIdFor,
   useResolvedAssistantsStore,
 } from "@/stores/resolved-assistants-store";
 import type { AvatarRead } from "@/types/avatar";
@@ -42,8 +44,8 @@ const QUERY_KEY_PREFIX = "chooserRowAvatar";
 
 export interface ChooserRowAvatar extends AvatarRead {
   /**
-   * Wire to the rendered image's `onError`. A synced thumbnail that fails to
-   * load (offline, expired signed URL) re-enables the row's other sources.
+   * Wire to the rendered image's `onError`. A platform thumbnail that fails
+   * to load (offline, expired signed URL) re-enables the row's other sources.
    */
   onImageError: () => void;
 }
@@ -179,6 +181,16 @@ function canReadRowAvatarViaHost(row: ResolvedAssistant): boolean {
   return row.cloud === "local" && canReadAvatarFromLocalHost();
 }
 
+/**
+ * Whether `row` comes from the lockfile, where `avatarUrl` is never set and
+ * the platform's thumbnail is only reachable by id through
+ * {@link usePlatformAvatarUrls}. Paired rows share one id on both sides; a
+ * local row's platform UUID is `platformAssistantId` (see {@link platformIdFor}).
+ */
+function canLookUpRowAvatarByPlatformId(row: ResolvedAssistant): boolean {
+  return row.isPaired || row.cloud === "local";
+}
+
 function conclusive(read: AvatarRead): LegacyAvatarRead {
   return { ...read, conclusive: true };
 }
@@ -295,14 +307,18 @@ async function readCachedRowAvatar(assistantId: string): Promise<AvatarRead> {
  *    org store can supply the `Vellum-Organization-Id` header.
  * 4. Local rows (the connected one when unreachable, siblings even asleep)
  *    read their workspace through the host when one can serve it.
- * 5. The last-seen cache: whatever a live source last resolved for this id,
+ * 5. Paired and local rows look their id up in the platform list
+ *    (`usePlatformAvatarUrls`): lockfile rows never carry `avatarUrl`, so
+ *    this is how a logged-in desktop shows a sibling's synced thumbnail.
+ * 6. The last-seen cache: whatever a live source last resolved for this id,
  *    so a row keeps its avatar while the assistant is unreachable.
  * Only live sources (1 and 3) feed the cache, at fetch time (1 does so
  * inside `useAssistantAvatar`); a conclusive none from any source evicts it.
  * Persisting live evidence also drops the row's `avatarUrl`, so 2 never
- * outranks a fresher local read. A synced URL that fails to load
- * (`onImageError`) is set aside so 3 to 5 take over for that row, until
- * the next `app.resume` (network back, window foregrounded) retries it.
+ * outranks a fresher local read. A platform URL (2 or 5) that fails to load
+ * (`onImageError`) is set aside so the sources below it take over for that
+ * row, until the next `app.resume` (network back, window foregrounded)
+ * retries it.
  * Anything else, including every failure, resolves to nulls: the row's glyph
  * fallback is the error state, a chooser row never surfaces an error.
  */
@@ -317,10 +333,12 @@ export function useChooserRowAvatar(
 
   // Keyed by URL so a reload that carries a new thumbnail retries it; a
   // resume retries the same URL, since the failure may have been offline.
-  const [failedSyncedUrl, setFailedSyncedUrl] = useState<string | null>(null);
-  useBusSubscription("app.resume", () => setFailedSyncedUrl(null));
+  const [failedPlatformUrl, setFailedPlatformUrl] = useState<string | null>(
+    null,
+  );
+  useBusSubscription("app.resume", () => setFailedPlatformUrl(null));
   const syncedUrl =
-    assistant.avatarUrl && assistant.avatarUrl !== failedSyncedUrl
+    assistant.avatarUrl && assistant.avatarUrl !== failedPlatformUrl
       ? assistant.avatarUrl
       : null;
   const syncedAvatar: AvatarRead | null = syncedUrl
@@ -386,10 +404,26 @@ export function useChooserRowAvatar(
     hostQuery.data !== undefined &&
     (hostConclusive || !isEmptyAvatar(hostQuery.data));
 
+  const platformAvatarUrls = usePlatformAvatarUrls();
+  const lookupCandidate = canLookUpRowAvatarByPlatformId(assistant)
+    ? (platformAvatarUrls.get(platformIdFor(assistant)) ?? null)
+    : null;
+  const lookupUrl =
+    lookupCandidate !== failedPlatformUrl ? lookupCandidate : null;
+  // Waits out an in-flight host read so a row never flashes the thumbnail
+  // before the disk snapshot replaces it.
+  const showLookup =
+    lookupUrl !== null &&
+    !showLive &&
+    !showSynced &&
+    !showHost &&
+    !hostQuery.isLoading &&
+    (!isConnectedRow || liveSettledEmpty);
+
   const cacheQuery = useQuery<AvatarRead>({
     queryKey: chooserRowAvatarCacheQueryKey(assistant.id),
     queryFn: () => readCachedRowAvatar(assistant.id),
-    enabled: !showLive && !hasSyncedAvatar && !showHost,
+    enabled: !showLive && !hasSyncedAvatar && !showHost && !showLookup,
     staleTime: Infinity,
     structuralSharing: false,
     retry: false,
@@ -397,9 +431,11 @@ export function useChooserRowAvatar(
 
   const onImageError = useCallback(() => {
     if (showSynced) {
-      setFailedSyncedUrl(syncedUrl);
+      setFailedPlatformUrl(syncedUrl);
+    } else if (showLookup) {
+      setFailedPlatformUrl(lookupUrl);
     }
-  }, [showSynced, syncedUrl]);
+  }, [showSynced, syncedUrl, showLookup, lookupUrl]);
 
   const avatar: AvatarRead = showLive
     ? (live ?? EMPTY_AVATAR)
@@ -407,6 +443,8 @@ export function useChooserRowAvatar(
       ? (syncedAvatar ?? EMPTY_AVATAR)
       : showHost
         ? { traits: hostQuery.data.traits, imageUrl: hostQuery.data.imageUrl }
-        : (cacheQuery.data ?? EMPTY_AVATAR);
+        : showLookup
+          ? { traits: null, imageUrl: lookupUrl }
+          : (cacheQuery.data ?? EMPTY_AVATAR);
   return { ...avatar, onImageError };
 }

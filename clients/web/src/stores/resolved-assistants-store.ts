@@ -66,6 +66,22 @@ export interface ResolvedAssistant {
   /** Owning org for platform entries; only the lockfile carries it, so
    *  API-sourced entries leave this undefined. */
   organizationId?: string;
+  /** Platform UUID for a locally hatched entry whose `id` is the instance
+   *  name; only the lockfile carries it. API rows are already keyed by UUID. */
+  platformAssistantId?: string;
+}
+
+/** The id the platform knows `a` by: the lockfile's registration for a local instance, else `a.id`. */
+export function platformIdFor(a: ResolvedAssistant): string {
+  return a.platformAssistantId ?? a.id;
+}
+
+/** {@link platformIdFor} by row id; an id not in the store is its own platform id. */
+export function resolvePlatformAssistantId(assistantId: string): string {
+  const row = useResolvedAssistantsStoreBase
+    .getState()
+    .assistants.find((a) => a.id === assistantId);
+  return row ? platformIdFor(row) : assistantId;
 }
 
 /**
@@ -168,6 +184,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         isPaired: isPairedAssistant(a),
         runtimeUrl: a.runtimeUrl,
         organizationId: a.organizationId,
+        platformAssistantId: a.platformAssistantId,
       }));
       set({ assistants, assistantsHydrated: true });
       // The lockfile carries every org's entries, so an id absent from it is
@@ -197,6 +214,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               cloud: lockfileFields.cloud,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
+              platformAssistantId: lockfileFields.platformAssistantId,
               ingressUrl: a.ingress_url,
               avatarUrl: a.avatar_url,
               currentReleaseVersion: a.current_release_version,
@@ -241,6 +259,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             runtimeVersion:
               lockfileFields.runtimeVersion ?? prior.runtimeVersion,
             runtimeUrl: lockfileFields.runtimeUrl ?? prior.runtimeUrl,
+            platformAssistantId:
+              lockfileFields.platformAssistantId ?? prior.platformAssistantId,
             isActiveLockfileAssistant:
               lockfileFields.isActiveLockfileAssistant ??
               prior.isActiveLockfileAssistant,
@@ -258,6 +278,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               organizationId: lockfileFields.organizationId,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
+              platformAssistantId: lockfileFields.platformAssistantId,
               isActiveLockfileAssistant:
                 lockfileFields.isActiveLockfileAssistant,
             },
@@ -351,6 +372,7 @@ function getLockfileFields(assistantId: string): {
   organizationId?: string;
   runtimeVersion?: string;
   runtimeUrl?: string;
+  platformAssistantId?: string;
   isPaired?: boolean;
   isActiveLockfileAssistant?: boolean;
 } {
@@ -364,6 +386,7 @@ function getLockfileFields(assistantId: string): {
     organizationId: entry?.organizationId,
     runtimeVersion: entry?.resources?.runtimeVersion,
     runtimeUrl: entry?.runtimeUrl,
+    platformAssistantId: entry?.platformAssistantId,
     isPaired: entry ? isPairedAssistant(entry) : undefined,
     isActiveLockfileAssistant: lockfile
       ? activeLockfileAssistantId === assistantId
