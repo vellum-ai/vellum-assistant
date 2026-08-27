@@ -238,12 +238,58 @@ describe("the gap between the avatar and the pill", () => {
     }
   });
 
-  /** At rest there is no pill, and so nothing to bridge to. */
+  /** At rest the pill's box is nothing, so there is nothing to bridge to. */
   test("is not part of the surface while the pill is closed", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    await pinSurface(container);
+    // The collapsed pill as the surface draws it: across the gap from the
+    // creature at no width at all.
+    await pinSurface(container, {
+      avatar: { left: 100, right: 144, top: 100, bottom: 144 },
+      pill: { left: 156, right: 156, top: 100, bottom: 144 },
+    });
 
     fireEvent.mouseMove(canvasOf(container), { clientX: 150, clientY: 122 });
+
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(true);
+    expect(closed(container)).toBe(true);
+  });
+});
+
+/**
+ * The pill outlives the phase that opened it.
+ *
+ * The pointer leaving puts the phase back to resting at once, and the pill
+ * spends the next 300ms giving its width back. A window that stopped
+ * hit-testing it there would be click-through over controls that are still on
+ * screen, and a press aimed at one of them would land in whatever application
+ * is behind the surface. So the measured width is what decides, and a pointer
+ * that comes back finds the pill and re-opens it.
+ */
+describe("the pill while it is collapsing", () => {
+  test("is still part of the surface under a returning pointer", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    // Resting, with the pill still drawn at a width it has not finished giving
+    // back: the state the surface holds for the length of the transition.
+    await pinSurface(container);
+
+    fireEvent.mouseMove(canvasOf(container), { clientX: 200, clientY: 122 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+    await waitFor(() => {
+      if (closed(container)) {
+        throw new Error("Expected the pill to open again");
+      }
+    });
+  });
+
+  test("gives the desktop back once that width is gone", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container, {
+      avatar: { left: 100, right: 144, top: 100, bottom: 144 },
+      pill: { left: 156, right: 156, top: 100, bottom: 144 },
+    });
+
+    fireEvent.mouseMove(canvasOf(container), { clientX: 200, clientY: 122 });
 
     expect(setInteractiveMock).not.toHaveBeenCalledWith(true);
     expect(closed(container)).toBe(true);

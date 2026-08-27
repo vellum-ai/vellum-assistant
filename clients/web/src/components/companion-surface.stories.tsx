@@ -661,7 +661,6 @@ function HoverDrivenSurface(args: StoryArgs) {
 
   const phase: CompanionSurfacePhase =
     args.phase === "call" ? "call" : hovered ? "hover" : "resting";
-  const expanded = phase !== "resting";
 
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     const avatar = avatarRef.current;
@@ -669,12 +668,17 @@ function HoverDrivenSurface(args: StoryArgs) {
     if (!avatar || !pill) {
       return;
     }
+    // The same rule the page hit-tests by: the pill is part of the surface for
+    // as long as it is drawn, which outlasts the expanded phase by the width
+    // transition it collapses through. At rest its width is zero and it is no
+    // part of the surface.
+    const pillRect = pill.getBoundingClientRect();
     setHovered(
       onCompanionSurface(
         { x: event.clientX, y: event.clientY },
         {
           avatar: avatar.getBoundingClientRect(),
-          pill: expanded ? pill.getBoundingClientRect() : null,
+          pill: pillRect.width > 0 ? pillRect : null,
           // One base box, since nothing here is scaled the way the page's
           // wrapper scales the real canvas by the options size.
           rowHeight: COMPANION_BASE_AVATAR_BOX,

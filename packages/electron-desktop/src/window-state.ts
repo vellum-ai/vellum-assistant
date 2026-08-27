@@ -2,6 +2,7 @@ import { BrowserWindow, screen, type Rectangle } from "electron";
 import Store from "electron-store";
 
 import {
+  COMPANION_SIZE_AXES,
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
   titleBarOverlayThemeSchema,
@@ -49,10 +50,10 @@ interface StoreSchema {
   companionAvatarSize?: CompanionSize;
   companionOptionsSize?: CompanionSize;
   // The single size a build with one size axis records for the whole surface.
-  // Read only: `readCompanionSize` falls back to it for an axis with nothing of
-  // its own, so an install carrying only this comes up at the size it chose on
-  // both axes. Nothing writes it, and it stays in the schema so a build that
-  // reads it still finds what it left.
+  // `readCompanionSize` falls back to it for an axis with nothing of its own,
+  // so an install carrying only this comes up at the size it chose on both
+  // axes, and `writeCompanionSize` keeps it current for the one state it can
+  // say: both axes on the same size.
   companionSize?: CompanionSize;
   // Whether the companion's one-time introduction has run. Held here rather
   // than in the surface's renderer because that renderer reloads, and a run
@@ -157,7 +158,8 @@ const storedSize = (axis: CompanionSizeAxis): CompanionSize | null =>
  * being resized under its user: someone who picked `huge` from a menu offering
  * one size meant the thing they were looking at, so they get `huge` on both
  * axes rather than the default on either. Nothing promotes that key onto the
- * per-axis ones, so reading through it is the permanent compatibility path.
+ * per-axis ones, so reading through it is the permanent compatibility path, and
+ * the shared key a converged pick leaves behind never outranks an axis's own.
  */
 export const readCompanionSize = (axis: CompanionSizeAxis): CompanionSize =>
   storedSize(axis) ??
@@ -197,9 +199,12 @@ export const writeCompanionIntroSeen = (): void => {
  * axis's own answer, and comparing against the fallback would leave the
  * per-axis key empty for as long as they keep agreeing with it.
  *
- * Only ever the axis's own key. Writing the shared one as well would hand a
- * build that reads only that key one axis's answer for both, and turn a user
- * sizing the pill alone into one whose avatar changed too.
+ * The shared key follows the pick only where both axes land on the same size,
+ * which is the whole of what a build with one size axis can say. Someone who
+ * put both at `small` and then opened an older build should find it small,
+ * rather than a stale value or the shipped default. Axes that differ leave that
+ * key exactly as it was: handing that build one axis's answer for both would
+ * turn a user sizing the pill alone into one whose creature changed too.
  */
 export const writeCompanionSize = (
   axis: CompanionSizeAxis,
@@ -209,6 +214,17 @@ export const writeCompanionSize = (
     return;
   }
   store().set(COMPANION_SIZE_KEYS[axis], size);
+  // The written axis is its own key's answer, so `size` is its effective value
+  // without reading the store back for it. Every other axis is read through the
+  // same fallback the window is built from, so two axes agreeing by way of the
+  // shared key itself counts as agreement.
+  const converged = COMPANION_SIZE_AXES.filter((other) => other !== axis).every(
+    (other) => readCompanionSize(other) === size,
+  );
+  if (!converged || knownSize(store().get("companionSize")) === size) {
+    return;
+  }
+  store().set("companionSize", size);
 };
 
 /**

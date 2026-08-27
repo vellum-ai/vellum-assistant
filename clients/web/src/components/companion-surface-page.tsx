@@ -317,7 +317,6 @@ export function CompanionSurfacePage() {
         : watchRetro !== undefined
           ? "summary"
           : (introHeld ?? (hovered ? "hover" : "resting"));
-  const expanded = phase !== "resting";
 
   /**
    * Hit-test the pointer against the surface on every move.
@@ -379,15 +378,23 @@ export function CompanionSurfacePage() {
     if (!avatar) {
       return;
     }
+    // **The pill is part of the surface for as long as it is drawn**, and that
+    // outlasts the expanded phase by the width transition: the moment the
+    // pointer leaves, the phase is resting while the pill is still on screen
+    // collapsing through 300ms of width. So the measured width decides, not the
+    // phase, and a pointer coming back over what is still drawn arms the window
+    // and re-opens the pill rather than clicking into the application behind
+    // it. At rest the width is zero, and a rect of nothing beside the creature
+    // is not somewhere a pointer can be.
+    //
     // Reading a box forces layout, and this runs on every pixel of every
-    // mouse-move the host forwards, so each is read once and the pill's is not
-    // read at all until there is a pill.
-    const pill = expanded ? pillRef.current : null;
+    // mouse-move the host forwards, so each is read exactly once.
+    const pillRect = pillRef.current?.getBoundingClientRect() ?? null;
     const onSurface = onCompanionSurface(
       { x: event.clientX, y: event.clientY },
       {
         avatar: avatar.getBoundingClientRect(),
-        pill: pill === null ? null : pill.getBoundingClientRect(),
+        pill: pillRect !== null && pillRect.width > 0 ? pillRect : null,
         // The composer row in screen pixels: one base box at the options
         // scale, which is the options box itself.
         rowHeight: optionsBox,

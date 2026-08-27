@@ -399,8 +399,9 @@ describe("companion surface visibility flag", () => {
  *
  * The file is JSON a user can edit and another build can have written, and the
  * values index a table of geometry, so what is worth stating is that only a
- * step this build knows ever reaches the window, and that an install carrying
- * only the single size a one-axis build writes is not resized under its user.
+ * step this build knows ever reaches the window, that an install carrying only
+ * the single size a one-axis build writes is not resized under its user, and
+ * that a downgrade finds that shared key holding whatever both axes agree on.
  */
 describe("companion surface sizes", () => {
   test("absent keys default to the shipped size on both axes", () => {
@@ -480,14 +481,56 @@ describe("companion surface sizes", () => {
   });
 
   /**
-   * The shared key is read and never written. Writing it would hand a build
-   * that reads only that key one axis's answer for both, and turn a user sizing
-   * the pill alone into one whose creature changed too.
+   * Both axes on one size is the whole of what a build with one size axis can
+   * say, so it is said: someone who put the pair at `small` and then opened an
+   * older build should find it small rather than a stale value or the default.
    */
-  test("never writes the key the single-axis build reads", () => {
+  test("axes landing on the same size update the key a single-axis build reads", () => {
+    savedCompanionAvatarSize = "small";
+    writeCompanionSize("options", "small");
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "small");
+    expect(storeSetMock).toHaveBeenCalledWith("companionSize", "small");
+  });
+
+  /**
+   * Two different sizes are not representable there, and the shared key is not
+   * asked to pick one: handing that build one axis's answer for both would turn
+   * a user sizing the pill alone into one whose creature changed too.
+   */
+  test("axes that disagree leave that key alone", () => {
     savedCompanionSize = "small";
-    writeCompanionSize("avatar", "ridiculous");
+    savedCompanionAvatarSize = "ridiculous";
     writeCompanionSize("options", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
+    ).toBe(false);
+  });
+
+  /**
+   * Agreement reached through the fallback counts, and there is nothing to
+   * write: the key already holds the size both axes answer with.
+   */
+  test("a pick that agrees with the shared fallback does not rewrite it", () => {
+    savedCompanionSize = "huge";
+    writeCompanionSize("avatar", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
+    ).toBe(false);
+  });
+
+  /**
+   * The key keeps the last size the two agreed on rather than being cleared or
+   * dragged after the axis that moved. A build with one size axis then still
+   * opens at a size its user chose.
+   */
+  test("a later disagreement leaves the key where the axes last agreed", () => {
+    savedCompanionSize = "small";
+    savedCompanionAvatarSize = "small";
+    savedCompanionOptionsSize = "small";
+    writeCompanionSize("avatar", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
     expect(
       storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
     ).toBe(false);
