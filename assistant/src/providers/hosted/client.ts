@@ -21,7 +21,6 @@ export class HostedProvider extends OpenAIChatCompletionsProvider {
       providerName: "hosted",
       providerLabel: "Vellum Hosted",
       streamTimeoutMs: options.streamTimeoutMs,
-      backfillEmptyAssistantContent: true,
       omitToolChoiceWhenReasoning: true,
       ...(options.baseURL ? { baseURL: options.baseURL } : {}),
     });
