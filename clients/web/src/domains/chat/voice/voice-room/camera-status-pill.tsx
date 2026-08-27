@@ -140,8 +140,9 @@ function useAssistantWord(assistantName: string | null | undefined): string {
  *
  * One message per state rather than a sentence assembled here: the mode, the
  * mute and the speaker pick the key, and the sentence behind it is whole. What
- * still interpolates is the one part no catalog can hold, the session's own
- * status word or the assistant's name.
+ * still interpolates is what this sentence does not decide: the session's
+ * status word, which the room resolves from this same catalog, or the
+ * assistant's name.
  *
  * Saying the mute is what the visible row does not do. The session relabels
  * only `listening` for a muted mic, so "Thinking…" on its own tells a

@@ -59,7 +59,7 @@ import {
   useLiveVoiceStore,
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { useTranslation, type TFunction } from "@/i18n";
+import { currentLocale, useTranslation, type TFunction } from "@/i18n";
 import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
@@ -258,7 +258,7 @@ export function useLiveActivityMirror(): void {
     let pushToken: string | null = null;
     /**
      * What was last registered with the platform, as `token:assistant:
-     * conversation:accent:muted`.
+     * conversation:accent:muted:locale`.
      *
      * Every part matters and none is stable: the token rotates; a session
      * started from a draft has no conversation id until the server's `ready`
@@ -266,6 +266,10 @@ export function useLiveActivityMirror(): void {
      * leave the activity addressable by nothing; and the accent and mute state
      * are content the platform composes its pushes from, so a stale
      * registration would push the island back to whatever they were at start.
+     * The locale is in the key for that last reason too: the registration
+     * carries a phase to label table, so a language switch (which moves nothing
+     * in the session) has to re-upsert one built in the new language, or every
+     * background push after it reads in the language the user just left.
      * Comparing the whole tuple re-registers when any part moves and stays
      * quiet when none does.
      */
@@ -291,7 +295,10 @@ export function useLiveActivityMirror(): void {
         return;
       }
       const { accentHex, muted } = content;
-      const key = `${pushToken}:${assistantId}:${conversationId}:${accentHex}:${String(muted)}`;
+      // Read here rather than closed over: the resync a language switch fires
+      // runs through this same path, and reading fresh is what lets it see the
+      // locale that switch landed on.
+      const key = `${pushToken}:${assistantId}:${conversationId}:${accentHex}:${String(muted)}:${currentLocale()}`;
       if (key === registeredKey) {
         return;
       }
@@ -404,7 +411,9 @@ export function useLiveActivityMirror(): void {
   // The phase label is catalog copy, so switching language mid-call changes
   // what both surfaces should read while nothing in the session moves. Nothing
   // would push it otherwise, and the island a user is looking at would stay in
-  // the language they just left.
+  // the language they just left. The same resync re-upserts the push
+  // registration, which carries the table every server-composed push is worded
+  // from.
   useEffect(() => {
     translate.current = t;
     resync.current?.();
