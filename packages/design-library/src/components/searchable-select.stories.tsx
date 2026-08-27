@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
 
 import { SearchableSelect, type SearchableSelectOption } from "./searchable-select";
@@ -49,44 +50,67 @@ const meta: Meta<typeof SearchableSelect> = {
       </div>
     ),
   ],
+  // Shared by every presentational story: `SearchableSelect` is controlled,
+  // so the value is driven from the arg and written back, keeping the canvas
+  // and the Controls panel in sync.
+  render: function RenderSearchableSelect(args) {
+    const [{ value }, updateArgs] = useArgs();
+    return (
+      <SearchableSelect
+        {...args}
+        value={value}
+        onChange={(next) => updateArgs({ value: next })}
+      />
+    );
+  },
 };
 
 export default meta;
 
 type Story = StoryObj<typeof SearchableSelect>;
 
-function Controlled(args: React.ComponentProps<typeof SearchableSelect>) {
-  const [value, setValue] = useState(args.value);
-  return <SearchableSelect {...args} value={value} onChange={setValue} />;
+/** What the combobox's live region currently says. */
+function status(canvasElement: HTMLElement): string {
+  return (
+    canvasElement.querySelector<HTMLElement>('[data-slot="combobox-status"]')
+      ?.textContent ?? ""
+  );
 }
 
 export const Empty: Story = {
   args: { value: "" },
-  render: (args) => <Controlled {...args} />,
 };
 
 export const WithSelection: Story = {
   args: { value: "claude-opus-4-8" },
-  render: (args) => <Controlled {...args} />,
 };
 
 export const Disabled: Story = {
   args: { value: "claude-opus-4-8", disabled: true },
-  render: (args) => <Controlled {...args} />,
 };
 
 export const WithError: Story = {
   args: { value: "", errorText: "Select a model" },
-  render: (args) => <Controlled {...args} />,
 };
 
 /**
  * Typing narrows the list to the matches, and the sticky escape hatch stays
  * on screen even when nothing matches.
+ *
+ * NOTE ON STATE: this story holds its value in `useState` rather than
+ * `useArgs`, unlike the presentational stories above. `updateArgs`
+ * round-trips through Storybook's manager channel, which the test runner does
+ * not turn, so the arg never changes and the play function cannot observe the
+ * selection it just made. `useArgs` is right for stories whose job is to
+ * drive Controls; this one asserts its own state transition, so it owns the
+ * state.
  */
 export const TypeToFilter: Story = {
   args: { value: "" },
-  render: (args) => <Controlled {...args} />,
+  render: function TypeToFilterSelect(args) {
+    const [value, setValue] = useState(args.value);
+    return <SearchableSelect {...args} value={value} onChange={setValue} />;
+  },
   play: async ({ canvasElement }) => {
     const field = canvasElement.querySelector<HTMLInputElement>(
       'input[role="combobox"]',
@@ -109,6 +133,13 @@ export const TypeToFilter: Story = {
       ]);
     });
 
+    // Three rows are walkable but only two are matches, and the count is
+    // what a screen reader hears: the pinned escape hatch must not be
+    // counted as a result.
+    await waitFor(() =>
+      expect(status(canvasElement)).toContain("2 results are available"),
+    );
+
     await userEvent.click(screen.getByText("Gemini 3 Flash"));
     await waitFor(() => expect(field.value).toBe("Gemini 3 Flash"));
   },
@@ -120,7 +151,6 @@ export const TypeToFilter: Story = {
  */
 export const NoMatches: Story = {
   args: { value: "" },
-  render: (args) => <Controlled {...args} />,
   play: async ({ canvasElement }) => {
     const field = canvasElement.querySelector<HTMLInputElement>(
       'input[role="combobox"]',
@@ -136,5 +166,11 @@ export const NoMatches: Story = {
         screen.getAllByRole("option").map((option) => option.textContent),
       ).toEqual(["Enter a custom model ID…"]);
     });
+
+    // The pinned row is still walkable, so the list is not empty, but nothing
+    // matched and that is what is announced.
+    await waitFor(() =>
+      expect(status(canvasElement)).toContain("0 results are available"),
+    );
   },
 };

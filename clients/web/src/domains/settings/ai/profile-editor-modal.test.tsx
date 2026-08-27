@@ -1901,14 +1901,48 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
 
     fireEvent.click(getButton("Save As New"));
 
-    // Clearing the generated key does not surface a validation error before
-    // the user interacts with the collapsed identity fields.
+    // The duplicate opens on a Name and key it can be saved under, so nothing
+    // is wrong yet and the collapsed identity fields stay collapsed.
     expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
     expect(document.body.textContent).not.toContain("Name is required");
     fireEvent.click(getButton("Advanced"));
 
     // The duplicate drops the invariant lock: the Name is editable again.
     expect(getInputByPlaceholder("e.g. Claude Opus 4.8").disabled).toBe(false);
+  });
+
+  test("Save As New arms Save on a deduped name and the key it slugifies to", async () => {
+    // The Key field is gone and the retained Name emits neither change nor
+    // blur, so a duplicate that opened with an empty key would sit behind a
+    // disabled Save with nothing on screen saying why. The source profile's
+    // own key is taken, so the copy gains "(2)".
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderView(invariantProfile, onSave);
+
+    fireEvent.click(getButton("Save As New"));
+
+    // Armed with no further input, and no blocking error to hide.
+    expect(getSaveBtn().disabled).toBe(false);
+    expect(document.querySelectorAll('[role="alert"]').length).toBe(0);
+
+    fireEvent.click(getButton("Advanced"));
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
+      "Default A (2)",
+    );
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // Saved under the slug of the deduped Name, not the source profile's key.
+    expect(saveCalls[0].name).toBe("default-a-2");
+    expect(saveCalls[0].entry.label).toBe("Default A (2)");
   });
 });
 

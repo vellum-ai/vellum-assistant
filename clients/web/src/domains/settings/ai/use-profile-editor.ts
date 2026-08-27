@@ -661,8 +661,13 @@ export function useProfileEditor({
   // picked). Provider and Name are the blocking states with no copy anywhere.
   // Read-only (managed) profiles get no field errors: every control is
   // disabled, so naming a problem the user cannot act on here is just noise.
+  // A "Save As New" duplicate (`effectiveMode` has moved off the mode the
+  // host opened) is not a blank form either: every field arrives seeded, so a
+  // seeded value that cannot be saved has to say so rather than leave Save
+  // disarmed for a reason nothing on screen gives.
   const showFieldErrors =
-    !isReadOnly && (effectiveMode === "edit" || getDirty());
+    !isReadOnly &&
+    (effectiveMode === "edit" || effectiveMode !== mode || getDirty());
   const providerError =
     showFieldErrors && providerMissing
       ? t("settings:profileEditor.providerRequired")
@@ -885,8 +890,22 @@ export function useProfileEditor({
 
   function switchToSaveAsNew() {
     setEffectiveMode("create");
-    setKey("");
     resetDirty();
+    // The duplicate keeps the source profile's Name, which is by definition
+    // already taken, so it opens on the lowest free "(N)" and on the key that
+    // Name slugifies to. Leaving the key empty instead would disarm Save with
+    // no error to explain it: the Key field is gone, and a Name nobody has
+    // touched reports nothing.
+    const base = label.trim() || (profileName ?? "").trim();
+    const { name, key: derivedKey } = deriveProfileDefaults(
+      base,
+      existingNames,
+    );
+    // The editor derived this Name, not the user, so a later model pick may
+    // still replace it.
+    autoFilledLabelRef.current = name;
+    setLabel(name);
+    setKey(derivedKey);
   }
 
   return {

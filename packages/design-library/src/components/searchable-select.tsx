@@ -126,7 +126,10 @@ export function SearchableSelect({
     return { visibleOptions: matches, stickyOptions: sticky };
   }, [options, trimmedQuery]);
 
-  // What the arrow keys walk, in the order the rows render.
+  // What the arrow keys walk, in the order the rows render. The pinned rows
+  // are walkable but they are not matches, so the announced count is the
+  // matches alone: otherwise every count is one too high, and a query that
+  // matched nothing announces the escape hatch as a result.
   const walkableValues = useMemo(
     () => [...visibleOptions, ...stickyOptions].map((option) => option.value),
     [visibleOptions, stickyOptions],
@@ -221,6 +224,7 @@ export function SearchableSelect({
         // A query narrows the list to what the typing meant, so Enter commits
         // the top match; with no query it must pick nothing.
         autoActivateFirst={trimmedQuery.length > 0}
+        announceCount={visibleOptions.length}
         {...(announceResults ? { announceResults } : {})}
       >
         <Popover.Root open={open} onOpenChange={handleOpenChange}>
