@@ -683,10 +683,16 @@ export class DiscordGatewayClient {
     const message = parsed.data;
     // Embed resolution and other non-user revisions dispatch MESSAGE_UPDATE
     // with no edited_timestamp; nothing the user said changed, so there is
-    // nothing to rewrite. Without MESSAGE_CONTENT the content of a
-    // non-exempt guild edit also arrives empty; rewriting a stored row to
-    // empty would destroy text over an intent gap, so those drop too.
-    if (message.edited_timestamp == null || message.content.length === 0) {
+    // nothing to rewrite. Guild content is additionally ambiguous when
+    // empty: without MESSAGE_CONTENT a non-exempt guild edit arrives with
+    // its text hidden, and rewriting a stored row to empty would destroy
+    // text over an intent gap. A DM is inside the content exemption, so an
+    // empty DM revision is a real clearing (an attachment message whose
+    // caption was removed) and propagates.
+    if (
+      message.edited_timestamp == null ||
+      (message.guild_id !== undefined && message.content.length === 0)
+    ) {
       log.debug(
         { messageId: message.id },
         "Dropping MESSAGE_UPDATE with no user revision",
