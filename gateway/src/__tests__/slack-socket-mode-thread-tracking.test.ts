@@ -2112,7 +2112,8 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0].event.message.reaction?.op).toBe("added");
     } finally {
       rawDb.close();
     }
@@ -2229,7 +2230,8 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0].event.message.reaction?.op).toBe("added");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();

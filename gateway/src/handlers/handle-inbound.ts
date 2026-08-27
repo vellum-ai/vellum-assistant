@@ -353,6 +353,7 @@ export async function handleInbound(
         ...(event.message.eventKind
           ? { eventKind: event.message.eventKind }
           : {}),
+        ...(event.message.reaction ? { reaction: event.message.reaction } : {}),
         ...(event.message.isEdit ? { isEdit: true } : {}),
         ...(event.message.callbackQueryId
           ? { callbackQueryId: event.message.callbackQueryId }

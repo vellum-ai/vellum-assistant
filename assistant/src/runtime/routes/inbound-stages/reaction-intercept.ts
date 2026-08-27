@@ -20,11 +20,16 @@
  * `unknown` (drop). Reactions never drive an agent turn.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
-import { resolveInboundEventKind } from "@vellumai/gateway-client";
+import {
+  type InboundReactionPayload,
+  resolveInboundEventKind,
+  resolveInboundReactionPayload,
+} from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
+import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -57,17 +62,16 @@ const log = getLogger("runtime-http");
  * so the daemon can route reactions to this dedicated stage instead of the
  * agent-response pipeline.
  */
-export function isSlackReactionEvent(body: {
+export function isReactionEvent(body: {
   sourceChannel?: string;
   eventKind?: string;
+  reaction?: InboundReactionPayload;
   callbackData?: string;
+  sourceMetadata?: { messageId?: string };
 }): boolean {
-  // The Slack gate is deliberate, not residue: Slack is the only channel
-  // whose reactions are ingested today, and widening this is a per-channel
-  // decision made with that channel's reaction wire shape, not a fallthrough.
   return (
-    body.sourceChannel === "slack" &&
-    resolveInboundEventKind(body) === "reaction"
+    resolveInboundEventKind(body) === "reaction" &&
+    resolveInboundReactionPayload(body) !== null
   );
 }
 
@@ -98,7 +102,7 @@ export function parseSlackReactionCallbackData(
 
 export interface ReactionInterceptParams {
   /** The reaction callbackData (`reaction:<emoji>` / `reaction_removed:<emoji>`). */
-  callbackData: string;
+  reaction: InboundReactionPayload;
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId | undefined;
   conversationExternalId: string;
@@ -113,15 +117,15 @@ export interface ReactionInterceptParams {
 }
 
 /**
- * Handle a Slack reaction event end to end. Always consumes the event (the
- * caller dispatches here only for `isSlackReactionEvent`), returning the
+ * Handle a reaction event end to end, on any channel. Always consumes the event (the
+ * caller dispatches here only for `isReactionEvent`), returning the
  * response the top-level handler should short-circuit with.
  */
-export async function handleSlackReactionIntercept(
+export async function handleReactionIntercept(
   params: ReactionInterceptParams,
 ): Promise<Record<string, unknown>> {
   const {
-    callbackData,
+    reaction,
     sourceChannel,
     sourceInterface,
     conversationExternalId,
@@ -162,10 +166,7 @@ export async function handleSlackReactionIntercept(
     return { accepted: true, reaction: "dropped_unknown_actor" };
   }
 
-  const reactedMessageTs =
-    typeof sourceMetadata?.messageId === "string"
-      ? sourceMetadata.messageId
-      : undefined;
+  const reactedMessageTs = reaction.targetMessageId;
   // Respect disk-pressure cleanup so reactions don't bypass storage
   // protection. Guardians resolve to `allow-cleanup-mode` (not `block`), so a
   // guardian's approval-by-reaction still flows. Blocked silently and before
@@ -210,12 +211,13 @@ export async function handleSlackReactionIntercept(
   // `reaction_removed:` never does. `handleGuardianReplyIntercept` self-gates
   // on `trustClass === "guardian"`, so a contact's reaction returns no
   // response and falls through to persistence.
-  if (callbackData.startsWith("reaction:") && replyCallbackUrl) {
+  if (reaction.op === "added" && replyCallbackUrl) {
     const reactionIntercept = await handleGuardianReplyIntercept({
       isDuplicate: false,
       trimmedContent: "",
       hasCallbackData: true,
-      callbackData,
+      callbackData: undefined,
+      reaction,
       reactedMessageTs,
       rawSenderId,
       canonicalSenderId,
@@ -272,11 +274,12 @@ export async function handleSlackReactionIntercept(
 
   // Record the reaction as an inline transcript signal.
   try {
-    await persistSlackReactionAsMessage({
+    await persistReactionAsMessage({
       conversationId: result.conversationId,
       conversationExternalId,
       eventId: result.eventId,
-      callbackData,
+      sourceChannel,
+      reaction,
       actorDisplayName,
       reactedMessageTs,
       duplicate: result.duplicate,
@@ -305,11 +308,12 @@ export async function handleSlackReactionIntercept(
  * deduplication and conversation resolution have happened. Duplicate inbound
  * events are skipped here to keep persistence idempotent.
  */
-async function persistSlackReactionAsMessage(params: {
+async function persistReactionAsMessage(params: {
   conversationId: string;
   conversationExternalId: string;
   eventId: string;
-  callbackData: string;
+  sourceChannel: ChannelId;
+  reaction: InboundReactionPayload;
   actorDisplayName?: string;
   reactedMessageTs: string;
   duplicate: boolean;
@@ -317,16 +321,39 @@ async function persistSlackReactionAsMessage(params: {
   if (params.duplicate) {
     return;
   }
+  const parsed = { op: params.reaction.op, emoji: params.reaction.emoji };
 
-  const parsed = parseSlackReactionCallbackData(params.callbackData);
-  if (!parsed) {
-    log.debug(
-      {
-        conversationId: params.conversationId,
-        callbackData: params.callbackData,
+  if (params.sourceChannel !== "slack") {
+    // Slack keeps its own envelope for its renderer; every other channel
+    // writes the neutral shape readProviderMetadata serves to
+    // channel-agnostic readers.
+    const providerMeta: ProviderMessageMetadata = {
+      source: params.sourceChannel,
+      conversationExternalId: params.conversationExternalId,
+      eventKind: "reaction",
+      ...(params.actorDisplayName
+        ? { displayName: params.actorDisplayName }
+        : {}),
+      reaction: {
+        targetMessageId: params.reactedMessageTs,
+        emoji: parsed.emoji,
+        op: parsed.op,
+        ...(params.actorDisplayName
+          ? { actorDisplayName: params.actorDisplayName }
+          : {}),
       },
-      "Skipping reaction persistence: unparseable callbackData",
+    };
+    const persisted = await addMessage(
+      params.conversationId,
+      "user",
+      "[reaction]",
+      {
+        metadata: { providerMeta: JSON.stringify(providerMeta) },
+        skipIndexing: true,
+      },
     );
+    linkMessage(params.eventId, persisted.id);
+    markProcessed(params.eventId);
     return;
   }
 

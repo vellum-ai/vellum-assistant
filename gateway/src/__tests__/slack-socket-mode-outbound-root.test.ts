@@ -957,7 +957,8 @@ describe("LUM-2941: filters widened by an armed root", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0]?.event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0]?.event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0]?.event.message.reaction?.op).toBe("added");
 
       // Same channel, a message the assistant never posted: still dropped.
       deliver(client, ws, "Ev-reaction-other", {

@@ -73,3 +73,56 @@ export function inboundEventRefersToAnotherMessage(
 ): boolean {
   return kind !== "message";
 }
+
+/** The structured payload of a reaction event. */
+export interface InboundReactionPayload {
+  op: "added" | "removed";
+  /**
+   * The emoji as the channel names it: Slack a colon-name ("+1"), Telegram
+   * and Discord the unicode character, a Discord custom emoji its name.
+   * Decision vocabulary is product policy resolved in the daemon, never
+   * normalized here.
+   */
+  emoji: string;
+  /**
+   * Provider id of the message reacted to, in the same namespace as
+   * `source.messageId`.
+   */
+  targetMessageId: string;
+}
+
+/**
+ * The one reader of a reaction event's payload. A structured `reaction`
+ * field wins; a replayed retry payload persisted before the field carries
+ * the `"reaction:<emoji>"` / `"reaction_removed:<emoji>"` string in
+ * `callbackData` with the target on `sourceMetadata.messageId`, and is
+ * parsed here alone. Returns null when the event is not a reaction or
+ * names no emoji or target.
+ */
+export function resolveInboundReactionPayload(fields: {
+  eventKind?: string;
+  reaction?: InboundReactionPayload;
+  callbackData?: string;
+  sourceMetadata?: { messageId?: string };
+}): InboundReactionPayload | null {
+  if (fields.reaction) {
+    const { op, emoji, targetMessageId } = fields.reaction;
+    return emoji.length > 0 && targetMessageId.length > 0
+      ? { op, emoji, targetMessageId }
+      : null;
+  }
+  const cb = fields.callbackData;
+  const target = fields.sourceMetadata?.messageId;
+  if (cb === undefined || target === undefined || target.length === 0) {
+    return null;
+  }
+  const removed = cb.startsWith("reaction_removed:");
+  const added = !removed && cb.startsWith("reaction:");
+  if (!added && !removed) {
+    return null;
+  }
+  const emoji = cb.slice(cb.indexOf(":") + 1);
+  return emoji.length > 0
+    ? { op: removed ? "removed" : "added", emoji, targetMessageId: target }
+    : null;
+}

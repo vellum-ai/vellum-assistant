@@ -57,7 +57,8 @@ describe("normalizeSlackReactionAdded", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
-    expect(result!.event.message.callbackData).toBe("reaction:+1");
+    expect(result!.event.message.reaction?.emoji).toBe("+1");
+    expect(result!.event.message.reaction?.op).toBe("added");
     expect(result!.event.actor.actorExternalId).toBe("U001");
     expect(result!.event.message.conversationExternalId).toBe("C123");
     expect(result!.channel).toBe("C123");
@@ -74,9 +75,8 @@ describe("normalizeSlackReactionAdded", () => {
     const result = normalizeSlackReactionAdded(event, "ev-2", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe(
-      "reaction:white_check_mark",
-    );
+    expect(result!.event.message.reaction?.emoji).toBe("white_check_mark");
+    expect(result!.event.message.reaction?.op).toBe("added");
   });
 
   // Self-authored reactions are now filtered upstream in processEventPayload,

@@ -1,6 +1,7 @@
 import {
   inboundEventRefersToAnotherMessage,
   type InboundEventKind,
+  type InboundReactionPayload,
   resolveInboundEventKind,
 } from "@vellumai/gateway-client";
 import type { ChannelConversationType } from "@vellumai/gateway-client";
@@ -39,6 +40,8 @@ interface InboundEventBase<C extends InboundChannelId> {
      *  flag and sentinel fields below carry each family's payload and
      *  classify replayed retry payloads that arrive unstamped. */
     eventKind?: InboundEventKind;
+    /** Structured payload when eventKind is "reaction". */
+    reaction?: InboundReactionPayload;
     isEdit?: boolean;
     callbackQueryId?: string;
     callbackData?: string;

@@ -80,7 +80,7 @@ import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
 import { messages } from "../persistence/schema/conversations.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
-  isSlackReactionEvent,
+  isReactionEvent,
   parseSlackReactionCallbackData,
 } from "../runtime/routes/inbound-stages/reaction-intercept.js";
 import {
@@ -202,10 +202,10 @@ function readPersistedMessages(): Array<{
 // Helper unit tests
 // ---------------------------------------------------------------------------
 
-describe("isSlackReactionEvent", () => {
+describe("isReactionEvent", () => {
   test("returns true for reaction added", () => {
     expect(
-      isSlackReactionEvent({
+      isReactionEvent({
         sourceChannel: "slack",
         callbackData: "reaction:thumbsup",
       }),
@@ -214,7 +214,7 @@ describe("isSlackReactionEvent", () => {
 
   test("returns true for reaction removed", () => {
     expect(
-      isSlackReactionEvent({
+      isReactionEvent({
         sourceChannel: "slack",
         callbackData: "reaction_removed:eyes",
       }),
@@ -223,7 +223,7 @@ describe("isSlackReactionEvent", () => {
 
   test("returns false for non-Slack source", () => {
     expect(
-      isSlackReactionEvent({
+      isReactionEvent({
         sourceChannel: "telegram",
         callbackData: "reaction:thumbsup",
       }),
@@ -232,7 +232,7 @@ describe("isSlackReactionEvent", () => {
 
   test("returns false for non-reaction callback data", () => {
     expect(
-      isSlackReactionEvent({
+      isReactionEvent({
         sourceChannel: "slack",
         callbackData: "apr:req-1:approve_once",
       }),
@@ -240,7 +240,7 @@ describe("isSlackReactionEvent", () => {
   });
 
   test("returns false when callbackData missing", () => {
-    expect(isSlackReactionEvent({ sourceChannel: "slack" })).toBe(false);
+    expect(isReactionEvent({ sourceChannel: "slack" })).toBe(false);
   });
 });
 
