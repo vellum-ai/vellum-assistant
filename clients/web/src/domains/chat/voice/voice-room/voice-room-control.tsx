@@ -24,7 +24,7 @@
 import { Tooltip, cn } from "@vellumai/design-library";
 import type { ReactNode } from "react";
 
-import { cameraModeStyle } from "./camera-mode-paint";
+import { CAMERA_MEDIA_GLASS_CLASS, cameraModeStyle } from "./camera-mode-paint";
 
 /**
  * The treatment for a control sitting over video: the deep-link capture
@@ -38,11 +38,14 @@ import { cameraModeStyle } from "./camera-mode-paint";
  *
  * Fixed colors rather than tone-derived ones, deliberately. What sits behind
  * these is arbitrary camera video, not a color the room picked, so there is
- * nothing to derive from. The blur is what keeps the scrim honest over a busy
- * frame without having to push the fill toward opaque.
+ * nothing to derive from. The scrim itself is `camera-mode-paint.ts`'s, shared
+ * with the camera's failure message; only the hairline and the hover belong to
+ * a control.
  */
-const OVER_MEDIA_NEUTRAL_CLASS =
-  "border-white/25 bg-black/45 text-white backdrop-blur-sm hover:bg-black/60 hover:text-white focus-visible:outline-white";
+const OVER_MEDIA_NEUTRAL_CLASS = cn(
+  CAMERA_MEDIA_GLASS_CLASS,
+  "border-white/25 hover:bg-black/60 hover:text-white focus-visible:outline-white",
+);
 
 /**
  * Camera mode's palette for the room's own row: every control filled, and told
@@ -59,7 +62,7 @@ const OVER_MEDIA_NEUTRAL_CLASS =
  * would be a color no table names.
  */
 const CAMERA_LIVE_CLASS =
-  "border-transparent bg-white text-neutral-900 hover:opacity-90 focus-visible:outline-white";
+  "border-transparent bg-white text-[var(--camera-ink)] hover:opacity-90 focus-visible:outline-white";
 const CAMERA_NEUTRAL_CLASS =
   "border-transparent bg-[var(--camera-warm)] text-white hover:opacity-90 focus-visible:outline-white";
 const CAMERA_ENGAGED_CLASS =

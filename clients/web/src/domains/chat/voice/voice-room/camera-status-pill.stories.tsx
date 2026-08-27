@@ -12,6 +12,10 @@
  * session's whole surface label (`liveVoiceSurfaceLabelKey`), and Connecting,
  * Reconnecting, Thinking and Ending are states a user can sit in while a fixed
  * "Listening" would be telling them the mic is open.
+ *
+ * Both modes are here even though the app only ever opens the photo one: Live
+ * is the design's second treatment, and a variant with no story is a treatment
+ * nobody can look at.
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -41,11 +45,18 @@ const meta: Meta<typeof CameraStatusPill> = {
     }),
   ],
   args: {
+    mode: "photo",
     voiceState: "idle",
     statusLabel: "Listening…",
     assistantName: "Luna",
   },
   argTypes: {
+    mode: {
+      options: ["photo", "live"],
+      control: { type: "inline-radio" },
+      description:
+        "What the camera is doing. Photo is glass; Live fills with the capture accent.",
+    },
     voiceState: {
       options: ["idle", "user", "assistant"],
       control: { type: "inline-radio" },
@@ -129,9 +140,18 @@ export const LongAssistantName: Story = {
   },
 };
 
-/** Every combination the pill can be in, stacked. */
+/**
+ * Streaming rather than sampling. Filled with the capture accent, because "this
+ * is going out continuously" is the one thing about the surface that has to be
+ * legible without reading. Not reachable from the app yet: the room opens the
+ * photo mode only.
+ */
+export const Live: Story = { args: { mode: "live" } };
+
+/** Every combination the pill can be in, stacked, in both modes. */
 export const StateMatrix: Story = {
   argTypes: {
+    mode: { table: { disable: true } },
     voiceState: { table: { disable: true } },
     statusLabel: { table: { disable: true } },
   },
@@ -148,6 +168,27 @@ export const StateMatrix: Story = {
       />
       <CameraStatusPill {...args} voiceState="idle" statusLabel="Muted" />
       <CameraStatusPill {...args} voiceState="idle" statusLabel="Ending…" />
+      {/* The live fill against the same frame, at the three states the mode is
+          worth comparing in: nobody talking, the user talking, and the
+          assistant answering. */}
+      <CameraStatusPill
+        {...args}
+        mode="live"
+        voiceState="idle"
+        statusLabel="Listening…"
+      />
+      <CameraStatusPill
+        {...args}
+        mode="live"
+        voiceState="user"
+        statusLabel="Listening…"
+      />
+      <CameraStatusPill
+        {...args}
+        mode="live"
+        voiceState="assistant"
+        statusLabel="Speaking…"
+      />
     </>
   ),
 };

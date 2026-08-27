@@ -160,11 +160,11 @@
     "uploadFailed": "Не удалось отправить это фото."
   },
   "cameraStatusPill": {
-    "announcePhotoMutedSpeaking": "Фото. Без звука. {name} говорит",
-    "announcePhotoMutedStatus": "Фото. Без звука. {status}",
-    "announcePhotoSpeaking": "Фото. {name} говорит",
-    "announcePhotoStatus": "Фото. {status}",
+    "announceLive": "Прямой эфир. {status}",
+    "announcePhoto": "Фото. {status}",
+    "live": "Прямой эфир",
     "photo": "Фото",
+    "speakingState": "{name} говорит",
     "yourAssistant": "Ваш ассистент"
   },
   "channelReferenceChip": {

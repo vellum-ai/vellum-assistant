@@ -3,10 +3,12 @@
 What the suite cannot reach. Every check here needs a real camera, a real screen
 reader, or a real OS setting, so it runs by hand.
 
-Surface under test: the voice room with the viewfinder up (the camera paths of
-`voice-room.tsx`, `camera-status-pill.tsx`, `camera-flash-control.tsx`,
-`camera-shutter.tsx`, and `voice-room-control.tsx` at `surface="camera"`), plus
-the deep-link capture overlay, which shares the shutter and the bottom scrim.
+Surface under test: the voice room with the viewfinder up, under
+`src/domains/chat/voice/voice-room/` (the camera paths of `voice-room.tsx`,
+`camera-status-pill.tsx`, `camera-flash-control.tsx`, `camera-shutter.tsx`, and
+`voice-room-control.tsx` at `surface="camera"`), plus the deep-link capture
+overlay in `src/domains/chat/components/chat-attachments/`, which shares the
+shutter and the bottom scrim.
 
 ## iPhone
 
@@ -113,6 +115,22 @@ the redesign is called shipped.
 - [ ] Minimize in camera mode. The design gives the camera view only the grabber
       and end session as exits. The build keeps the top-right minimize control,
       which is the only discoverable exit on desktop. Confirm.
+- [ ] Capture feedback reaches the deep-link overlay too. The shutter is shared,
+      so dimming the core while a frame uploads restyles the overlay's shutter
+      as well as the room's, and it is an opacity dip rather than the core
+      shrinking. Take a photo from the overlay and confirm the dip reads as
+      "working" there, or ask for a treatment that is the room's alone.
+- [ ] Flash glyph and blur. The bolt is bespoke (lucide has no slashed one and
+      none that carries a badge) and snapped to lucide in three ways: the
+      24-unit viewBox, the 2-unit stroke, and the 20px it renders at. Its
+      resting state also carries `backdrop-blur-sm`, which the handoff draws as
+      a flat fill. Confirm the glyph sits as a sibling of the icons beside it,
+      and that the blur is wanted over a busy frame.
+- [ ] Localized session words on the minimized surfaces. The composer's voice
+      bar and the title-bar session pill read the session's state through the
+      catalog rather than the store's English map, so they follow the app
+      language the way the room already did. Sweep them in Spanish and Russian
+      alongside the room.
 
 ## Known adjacent issues
 

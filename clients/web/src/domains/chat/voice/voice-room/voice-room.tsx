@@ -135,7 +135,6 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
-  liveVoiceSurfaceLabel,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
@@ -154,8 +153,15 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
-import { CAMERA_SCRIM_BOTTOM, CAMERA_SCRIM_TOP } from "./camera-mode-paint";
-import { CameraStatusPill } from "./camera-status-pill";
+import {
+  CAMERA_MEDIA_GLASS_CLASS,
+  CAMERA_SCRIM_BOTTOM,
+  CAMERA_SCRIM_TOP,
+} from "./camera-mode-paint";
+import {
+  CameraStatusPill,
+  useCameraStatusAnnouncement,
+} from "./camera-status-pill";
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
@@ -496,12 +502,18 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // muted `listening` reads as "Muted", so they are not told it is hearing them
   // while the mic is off. Shared with the iOS Live Activity mirror and the
   // macOS companion, which show this exact string.
-  const stateLabel = liveVoiceSurfaceLabel(
+  //
+  // Taken as a catalog key and resolved here, once, for every surface in the
+  // room that shows it: the connect caption, the state announcer, and the
+  // camera's status pill. Deriving it twice (a key for one, English for the
+  // other) is what lets the two drift.
+  const stateLabelKey = liveVoiceSurfaceLabelKey(
     state,
     reconnecting,
     assistantAudioActive,
     muted,
   );
+  const stateLabel = stateLabelKey ? t(stateLabelKey) : "";
 
   // The state caption (e.g. "Listening…") shows only while the assistant
   // transcript is hidden. Nothing in the room toggles that any more: the
@@ -552,17 +564,24 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     assistantAudioActive,
     cameraOpen,
   );
-  // The same decision as `stateLabel`, taken as a catalog key so the pill's
-  // word reaches a Spanish or Russian reader in their own language.
-  const cameraStatusKey = liveVoiceSurfaceLabelKey(
-    state,
-    reconnecting,
-    assistantAudioActive,
-    muted,
-  );
   const assistantName = useResolvedAssistantsStore.use
     .assistants()
     .find((a) => a.id === assistantId)?.name;
+  // The one sentence camera mode says. Composed here rather than inside the
+  // pill so the room's own always-mounted region speaks it: a live region that
+  // arrives with its first sentence already in it is announced by nothing
+  // reliable. Null while the camera is closed, where the region below carries
+  // the session's plain label instead.
+  const cameraAnnouncement = useCameraStatusAnnouncement(
+    cameraOpen
+      ? {
+          voiceState: cameraVoiceState,
+          statusLabel: stateLabel,
+          assistantName,
+          muted,
+        }
+      : null,
+  );
 
   // The flash. A preference rather than a session setting, because the reason
   // someone turns it on (a dark room, a phone that under-exposes) outlives the
@@ -813,10 +832,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             className="pointer-events-none absolute inset-x-0 top-0 z-[3] h-[22%]"
             style={{ background: CAMERA_SCRIM_TOP }}
           />
+          {/* The floor is what carries the scrim past the shutter in a short
+              room: 38% of a 500px panel stops above it, leaving the one control
+              meant to be the brightest thing on screen sitting on bare frame.
+              15rem clears the shutter's own row and the control row under it. */}
           <div
             aria-hidden
             data-testid="voice-room-scrim-bottom"
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[38%]"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[max(38%,15rem)]"
             style={{ background: CAMERA_SCRIM_BOTTOM }}
           />
         </>
@@ -896,9 +919,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         >
           <CameraStatusPill
             voiceState={cameraVoiceState}
-            statusLabel={cameraStatusKey ? t(cameraStatusKey) : ""}
+            statusLabel={stateLabel}
             assistantName={assistantName}
-            muted={muted}
           />
         </div>
       ) : null}
@@ -1060,7 +1082,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                 // read. Camera-closed (a denied permission, the case where the
                 // viewfinder never came up) keeps the room's own treatment.
                 cameraOpen
-                  ? "bg-black/45 text-white backdrop-blur-sm"
+                  ? CAMERA_MEDIA_GLASS_CLASS
                   : "bg-[var(--room-wash)] text-[var(--room-fg)]",
               )}
             >
@@ -1137,7 +1159,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                     ariaLabel={t(FLASH_LABEL_KEYS[flashMode])}
                     autoBadge={t("voiceRoom.flashAutoBadge")}
                     onClick={() => setFlashMode(nextFlashMode(flashMode))}
-                    className="absolute left-11"
+                    // Centred 56px from its edge, the same distance flip sits
+                    // from the other: the two flank the shutter symmetrically,
+                    // and the 46px control needs the smaller offset to get
+                    // there than flip's 52px one does.
+                    className="absolute left-[33px]"
                     testId="voice-room-flash"
                   />
                 </Tooltip>
@@ -1269,22 +1295,28 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       </div>
 
       {/* Screen readers get session-state changes here; the avatar is the
-          visual channel, so this stays off-screen. */}
+          visual channel, so this stays off-screen.
+
+          One region across both looks, rather than a second one appearing with
+          the viewfinder. Assistive tech announces a change made INSIDE a region
+          it was already watching, not the arrival of a region that comes with
+          its words already in it, so the camera's sentence is written into this
+          one and the pill above stays a drawing. */}
       <div
         aria-live="polite"
         className="sr-only"
         data-testid="voice-room-state-announcer"
       >
-        {/* The status pill is the announcer while the camera is open, and it
-            says the same label with the mode attached, so this region stands
-            down rather than reading the state twice. It takes the mute prefix
-            below with it, on the same rule.
+        {/* With the camera open the sentence leads with the mode word and
+            carries the mute prefix itself (see `useCameraStatusAnnouncement`),
+            so the room says the state once rather than twice.
 
-            A muted `listening` already reads as "Muted", so prefixing it again
-            would announce "Muted. Muted". The assistant's own phases still
-            need the prefix: "Thinking…" alone would not say the mic is off. */}
+            Closed, a muted `listening` already reads as "Muted", so prefixing
+            it again would announce "Muted. Muted". The assistant's own phases
+            still need the prefix: "Thinking…" alone would not say the mic is
+            off. */}
         {cameraOpen
-          ? ""
+          ? cameraAnnouncement
           : muted && state !== "listening"
             ? t("voiceRoom.mutedState", { state: stateLabel })
             : stateLabel}
