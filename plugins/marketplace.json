@@ -540,15 +540,15 @@
       "license": "MIT"
     },
     {
-      "name": "vellum-outcome-gate",
+      "name": "spoolis-outcome-gate",
       "source": {
         "source": "github",
-        "repo": "jsfranklin221/vellum-outcome-gate",
-        "ref": "ed5104d8bed5636e56990aee4ec830378f93b9da"
+        "repo": "jsfranklin221/spoolis-outcome-gate",
+        "ref": "64d088f48fbaea925c9930dccf1b7a823b71e994"
       },
       "description": "Check delivered work against explicit acceptance criteria before payment or another consequential action. Returns what passed, what failed, what was earned, and a signed Outcome Receipt through the Spoolis API, with a keyless sandbox for demos.",
       "category": "finance",
-      "homepage": "https://github.com/jsfranklin221/vellum-outcome-gate",
+      "homepage": "https://github.com/jsfranklin221/spoolis-outcome-gate",
       "license": "MIT",
       "icon": "🚦"
     }
