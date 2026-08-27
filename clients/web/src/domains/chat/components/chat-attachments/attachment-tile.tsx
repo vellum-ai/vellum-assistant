@@ -5,27 +5,22 @@ import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
-/**
- * The remove control's 12px glyph. `Button` reads a glyph size override on its
- * icon wrapper, not from a `[&_svg]:size-*` on the button box.
- */
-const REMOVE_GLYPH_CLASS = "size-3 [&_svg]:size-3";
-
 interface AttachmentTileProps {
   id: string;
   filename: string;
-  /** Decoded image URL. `null` while the upload is still in flight. */
+  /** Decoded image URL. `null` while the upload is still in flight, which is
+   *  what puts the tile on its spinner face. */
   previewUrl: string | null;
-  /** Spinner face, and the control reads "cancel" instead of "remove". */
-  uploading?: boolean;
   onRemove: (id: string) => void;
-  /** Opens the full-screen preview. Only honoured once `previewUrl` is set. */
-  onPreview?: () => void;
+  /** Opens the full-screen preview. */
+  onPreview: () => void;
   /** Called when the browser cannot decode the preview. Lets the owner drop
    *  the tile for a chip, which still names the file. */
-  onPreviewError?: () => void;
-  /** The composer's press guard for the remove control. */
-  onRemoveMouseDown?: MouseEventHandler<HTMLElement>;
+  onPreviewError: () => void;
+  /** The composer's press guard. It rides both controls: a press anywhere on
+   *  the tile would otherwise blur the textarea, collapsing the row before the
+   *  click lands. */
+  pressGuard?: MouseEventHandler<HTMLElement>;
 }
 
 /**
@@ -37,11 +32,10 @@ export function AttachmentTile({
   id,
   filename,
   previewUrl,
-  uploading = false,
   onRemove,
   onPreview,
   onPreviewError,
-  onRemoveMouseDown,
+  pressGuard,
 }: AttachmentTileProps) {
   const { t } = useTranslation("chat");
 
@@ -49,15 +43,17 @@ export function AttachmentTile({
     <div
       data-slot="attachment-tile"
       title={filename}
-      className="relative size-[100px] shrink-0 overflow-hidden rounded-[14px] bg-[var(--surface-base)]"
+      className="relative size-[100px] shrink-0 rounded-[14px] bg-[var(--surface-base)]"
     >
       {previewUrl !== null ? (
+        // The picture is the only thing the tile clips, so the remove control
+        // keeps its full press target past the tile's corner.
         <button
           type="button"
-          className="block size-full cursor-pointer"
+          className="block size-full cursor-pointer overflow-hidden rounded-[14px] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0"
           aria-label={t("attachmentTile.preview", { filename })}
+          onMouseDown={pressGuard}
           onClick={onPreview}
-          disabled={onPreview == null}
         >
           <img
             src={previewUrl}
@@ -84,12 +80,14 @@ export function AttachmentTile({
         // The `before:` pseudo-element widens the press target past the 24px
         // visual without moving it.
         className="absolute right-1.5 top-1.5 rounded-full bg-[var(--surface-lift)] [--vbtn-fg:var(--content-default)] before:absolute before:-inset-2 before:content-['']"
-        iconOnlyGlyphClassName={REMOVE_GLYPH_CLASS}
+        iconOnlyGlyphClassName="size-3 [&_svg]:size-3"
         aria-label={t(
-          uploading ? "attachmentTile.cancelUpload" : "attachmentTile.remove",
+          previewUrl === null
+            ? "attachmentTile.cancelUpload"
+            : "attachmentTile.remove",
           { filename },
         )}
-        onMouseDown={onRemoveMouseDown}
+        onMouseDown={pressGuard}
         onClick={(event) => {
           event.stopPropagation();
           onRemove(id);

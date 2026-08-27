@@ -21,6 +21,7 @@ const PREVIEW_URL = "blob:http://localhost:3000/photo";
 function renderTile(props: Partial<Parameters<typeof AttachmentTile>[0]> = {}) {
   const onRemove = mock((_id: string) => {});
   const onPreview = mock(() => {});
+  const onPreviewError = mock(() => {});
   render(
     <AttachmentTile
       id="att-1"
@@ -28,10 +29,11 @@ function renderTile(props: Partial<Parameters<typeof AttachmentTile>[0]> = {}) {
       previewUrl={PREVIEW_URL}
       onRemove={onRemove}
       onPreview={onPreview}
+      onPreviewError={onPreviewError}
       {...props}
     />,
   );
-  return { onRemove, onPreview };
+  return { onRemove, onPreview, onPreviewError };
 }
 
 describe("AttachmentTile", () => {
@@ -55,7 +57,7 @@ describe("AttachmentTile", () => {
   });
 
   test("shows a spinner face while the upload is in flight", () => {
-    const { onRemove } = renderTile({ previewUrl: null, uploading: true });
+    const { onRemove } = renderTile({ previewUrl: null });
 
     expect(document.querySelector("img")).toBeNull();
     expect(
@@ -71,8 +73,7 @@ describe("AttachmentTile", () => {
   });
 
   test("reports a preview the browser cannot decode", () => {
-    const onPreviewError = mock(() => {});
-    renderTile({ onPreviewError });
+    const { onPreviewError } = renderTile();
 
     const image = screen
       .getByRole("button", { name: "Preview photo.jpg" })
@@ -83,27 +84,20 @@ describe("AttachmentTile", () => {
     expect(onPreviewError).toHaveBeenCalledTimes(1);
   });
 
-  test("disables the image when there is nothing to open", () => {
-    renderTile({ onPreview: undefined });
+  test("routes the composer's press guard to both controls", () => {
+    const pressGuard = mock(() => {});
+    renderTile({ pressGuard });
 
-    const preview = screen.getByRole("button", { name: "Preview photo.jpg" });
-    expect(preview.hasAttribute("disabled")).toBe(true);
-  });
-
-  test("routes the composer's press guard to the remove control only", () => {
-    const onRemoveMouseDown = mock(() => {});
-    renderTile({ onRemoveMouseDown });
-
-    // The guard cancels the mousedown so a tap on the X does not blur the
-    // textarea and collapse the mobile row.
+    // The guard cancels the mousedown so a tap on the tile does not blur the
+    // textarea and collapse the mobile row out from under the finger.
     fireEvent.mouseDown(
       screen.getByRole("button", { name: "Remove photo.jpg" }),
     );
-    expect(onRemoveMouseDown).toHaveBeenCalledTimes(1);
+    expect(pressGuard).toHaveBeenCalledTimes(1);
 
     fireEvent.mouseDown(
       screen.getByRole("button", { name: "Preview photo.jpg" }),
     );
-    expect(onRemoveMouseDown).toHaveBeenCalledTimes(1);
+    expect(pressGuard).toHaveBeenCalledTimes(2);
   });
 });

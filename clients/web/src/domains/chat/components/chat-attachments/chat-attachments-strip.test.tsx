@@ -17,6 +17,7 @@ import { ChatAttachmentsStrip } from "@/domains/chat/components/chat-attachments
 import type {
   ChatAttachment,
   FailedAttachmentUpload,
+  PathReferenceAttachment,
   PendingAttachmentUpload,
   UploadedAttachment,
 } from "@/domains/chat/composer-store";
@@ -26,6 +27,7 @@ afterEach(() => {
 });
 
 const PREVIEW_URL = "data:image/png;base64,AAAA";
+const SECOND_PREVIEW_URL = "data:image/png;base64,BBBB";
 
 function uploaded(
   overrides: Partial<UploadedAttachment> = {},
@@ -65,6 +67,18 @@ function failed(
     mimeType: "image/jpeg",
     sizeBytes: 512,
     error: "Upload failed",
+    ...overrides,
+  };
+}
+
+function pathReference(
+  overrides: Partial<PathReferenceAttachment> = {},
+): PathReferenceAttachment {
+  return {
+    kind: "path-reference",
+    localId: "local-4",
+    filename: "project",
+    path: "/Users/example/project",
     ...overrides,
   };
 }
@@ -173,6 +187,15 @@ describe("ChatAttachmentsStrip tiles", () => {
     expect(screen.getByText("photo.jpg")).toBeTruthy();
   });
 
+  test("keeps the folder row for a path reference", () => {
+    const { container } = renderStrip([pathReference()], { tileImages: true });
+
+    expect(tiles()).toHaveLength(0);
+    expect(screen.getByText("project")).toBeTruthy();
+    expect(screen.getByText("/Users/example/project")).toBeTruthy();
+    expect(stripRow(container).className).toContain("items-start");
+  });
+
   test("keeps the error chip for a failed image upload", () => {
     renderStrip([failed()], { tileImages: true });
 
@@ -199,6 +222,25 @@ describe("ChatAttachmentsStrip tiles", () => {
     expect(pressGuard).toHaveBeenCalledTimes(1);
   });
 
+  test("routes the composer's press guard to a chip's control", () => {
+    const pressGuard = mock(() => {});
+    renderStrip(
+      [
+        uploaded({
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          previewUrl: null,
+        }),
+      ],
+      { tileImages: true, pressGuard },
+    );
+
+    fireEvent.mouseDown(
+      screen.getByRole("button", { name: "Remove report.pdf" }),
+    );
+    expect(pressGuard).toHaveBeenCalledTimes(1);
+  });
+
   test("opens the preview modal from the tile image", () => {
     renderStrip([uploaded()], { tileImages: true });
 
@@ -211,6 +253,29 @@ describe("ChatAttachmentsStrip tiles", () => {
       PREVIEW_URL,
     );
   });
+
+  test("moves between the attached photos inside the lightbox", () => {
+    renderStrip(
+      [
+        uploaded(),
+        uploaded({
+          localId: "local-5",
+          id: "att-2",
+          filename: "second.jpg",
+          previewUrl: SECOND_PREVIEW_URL,
+        }),
+      ],
+      { tileImages: true },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview photo.jpg" }));
+    expect(screen.getByAltText("photo.jpg")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next attachment" }));
+    expect(screen.getByAltText("second.jpg").getAttribute("src")).toBe(
+      SECOND_PREVIEW_URL,
+    );
+  });
 });
 
 describe("ChatAttachmentsStrip chips", () => {
@@ -221,11 +286,15 @@ describe("ChatAttachmentsStrip chips", () => {
     expect(screen.getByText("photo.jpg")).toBeTruthy();
     expect(screen.getByText("shot.png")).toBeTruthy();
     expect(stripRow(container).className).toContain("pt-2");
+    // Desktop rows are all one height, so nothing overrides the stretch.
+    expect(stripRow(container).className).not.toContain("items-start");
   });
 
   test("opens the row's top inset for a tile row", () => {
     const { container } = renderStrip([uploaded()], { tileImages: true });
 
     expect(stripRow(container).className).toContain("pt-3");
+    // A chip beside a 100px tile keeps its own height.
+    expect(stripRow(container).className).toContain("items-start");
   });
 });

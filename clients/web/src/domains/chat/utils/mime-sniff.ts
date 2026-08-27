@@ -43,8 +43,12 @@ const OOXML_MIME_TYPES: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
-/** Server types that name no format and must not shadow the extension map. */
-const GENERIC_MIME_TYPES = new Set([
+/**
+ * Types that name no format, so they must not shadow what the filename or the
+ * bytes say. An empty type is the same claim made by saying nothing.
+ */
+export const GENERIC_MIME_TYPES = new Set([
+  "",
   "application/octet-stream",
   "binary/octet-stream",
 ]);

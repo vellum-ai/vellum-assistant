@@ -1,5 +1,5 @@
 import { Loader2, X } from "lucide-react";
-import type { FC } from "react";
+import type { FC, MouseEventHandler } from "react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -10,12 +10,15 @@ interface AttachmentLoadingChipProps {
   localId: string;
   filename: string;
   onCancel: (localId: string) => void;
+  /** The composer's press guard for the cancel control. */
+  onRemoveMouseDown?: MouseEventHandler<HTMLElement>;
 }
 
 export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
   localId,
   filename,
   onCancel,
+  onRemoveMouseDown,
 }) => {
   const { t } = useTranslation("chat");
   const displayName = middleTruncate(filename);
@@ -37,6 +40,7 @@ export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
         size="compact"
         expandOnMobile={false}
         iconOnly={<X />}
+        onMouseDown={onRemoveMouseDown}
         onClick={() => onCancel(localId)}
         aria-label={t("attachmentLoadingChip.cancelUploadAria", { filename })}
       />

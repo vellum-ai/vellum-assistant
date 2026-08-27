@@ -13,35 +13,19 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { fn } from "storybook/test";
 
-import { SAMPLE_PREVIEWS } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
-import { AttachmentTile } from "@/domains/chat/components/chat-attachments/attachment-tile";
+import { cn } from "@vellumai/design-library";
 
-/**
- * A non-square preview: three bands along the long edge with a dot centred on
- * the middle one. Dropped into the square tile, `object-cover` eats most of
- * the outer two bands, which is the crop these stories are here to show.
- */
-function bandedPreview(width: number, height: number, hue: number): string {
-  const landscape = width > height;
-  const band = (landscape ? width : height) / 3;
-  const bands = [0, 1, 2]
-    .map((index) => {
-      const fill = `hsl(${hue + index * 18} 58% ${34 + index * 16}%)`;
-      const offset = index * band;
-      return landscape
-        ? `<rect x="${offset}" y="0" width="${band}" height="${height}" fill="${fill}"/>`
-        : `<rect x="0" y="${offset}" width="${width}" height="${band}" fill="${fill}"/>`;
-    })
-    .join("");
-  const dot = `<circle cx="${width / 2}" cy="${height / 2}" r="${Math.min(width, height) / 5}" fill="#ffffff" fill-opacity="0.85"/>`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${bands}${dot}</svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
+import {
+  makeSamplePreview,
+  SAMPLE_PREVIEWS,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { AttachmentTile } from "@/domains/chat/components/chat-attachments/attachment-tile";
+import { COMPOSER_MOBILE_RADIUS_CLASS } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 
 /** 160x96, so the square crop drops a slice off each end. */
-const LANDSCAPE_PREVIEW = bandedPreview(160, 96, 196);
+const LANDSCAPE_PREVIEW = makeSamplePreview(160, 96);
 /** 96x160, so the square crop drops a slice off the top and the bottom. */
-const PORTRAIT_PREVIEW = bandedPreview(96, 160, 24);
+const PORTRAIT_PREVIEW = makeSamplePreview(96, 160);
 
 /**
  * Four attached photos, enough to overflow the card's tile row. The first two
@@ -73,7 +57,12 @@ const meta: Meta<typeof AttachmentTile> = {
   title: "Chat/AttachmentTile",
   component: AttachmentTile,
   parameters: { layout: "centered" },
-  args: { ...PHOTOS[0]!, onRemove: fn(), onPreview: fn() },
+  args: {
+    ...PHOTOS[0]!,
+    onRemove: fn(),
+    onPreview: fn(),
+    onPreviewError: fn(),
+  },
 };
 export default meta;
 
@@ -90,7 +79,7 @@ export const Image: Story = {};
  * the strip does not jump when the image lands.
  */
 export const Uploading: Story = {
-  args: { uploading: true, previewUrl: null },
+  args: { previewUrl: null },
 };
 
 /**
@@ -103,7 +92,12 @@ export const InCard: Story = {
   parameters: { layout: "fullscreen" },
   render: (args) => (
     <PhonePage>
-      <div className="flex w-full flex-col gap-3 rounded-[26px] bg-[var(--surface-lift)] pb-1.5 pl-3 pr-1.5 pt-3">
+      <div
+        className={cn(
+          "flex w-full flex-col gap-3 bg-[var(--surface-lift)] pb-1.5 pl-3 pr-1.5 pt-3",
+          COMPOSER_MOBILE_RADIUS_CLASS,
+        )}
+      >
         <div className="flex gap-2">
           {PHOTOS.slice(0, 2).map((photo) => (
             <AttachmentTile key={photo.id} {...args} {...photo} />
