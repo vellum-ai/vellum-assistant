@@ -7,9 +7,9 @@
  * browser screenshot) as they arrive, and `post-compact` re-sweeps the rebuilt
  * history after a mid-turn compaction. This module holds what they share —
  * deciding whether a profile needs the fallback ({@link needsImageFallback}),
- * the per-block substitution ({@link captionImageBlocks}): persist the
- * original image to a known location, caption it via a vision-capable
- * profile, and swap in a `[Image …]` text block — and the message-level deep
+ * the per-block substitution ({@link captionImageBlocks}): locate the original
+ * image on disk, index it for `image_ask`, caption it via a vision-capable
+ * profile, and swap in a `[Image "<filename>" …]` text block — and the message-level deep
  * sweep ({@link captionImagesInMessages}) that reaches images nested inside
  * `tool_result` blocks as well as top-level ones. The message-level sweeps
  * close by merging text-only user content into a single text block
@@ -25,16 +25,25 @@
  *
  * The caption text states up front that the model can't view images and the
  * image was auto-described to text, so the model treats the block as a derived
- * description rather than a verbatim transcript.
+ * description rather than a verbatim transcript. It names the image by its
+ * filename, which is the handle the `image_ask` tool resolves back to bytes
+ * when the model needs a detail the caption left out.
+ *
+ * `imageFallback.captionMode` chooses between the two. `caption` (the default)
+ * describes every image up front. `handle-only` substitutes the name alone and
+ * makes no vision call, leaving every look to `image_ask`.
  *
  * Fail-open is the dominant error mode: a captioning failure leaves a
  * placeholder text block rather than the raw image (which a text-only provider
  * would reject) or nothing (which would lose information).
  */
 
+import { basename } from "node:path";
+
 import {
   type ContentBlock,
   doesSupportVision,
+  getAttachmentFilePath,
   getModelProfiles,
   type ImageContent,
   lastToolResultUserMessageIndex,
@@ -43,6 +52,9 @@ import {
   resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
+import { imageHash } from "./caption-cache.js";
+import { getCaptionMode } from "./caption-mode.js";
+import { recordConversationImage } from "./image-index.js";
 import { persistImage } from "./image-persist.js";
 import { captionImage } from "./vision-caption.js";
 
@@ -61,6 +73,45 @@ export function needsImageFallback(modelProfileKey: string): boolean {
     return !doesSupportVision(modelProfileKey);
   }
   return !doesSupportVision(profile);
+}
+
+/**
+ * On-disk location of an image block, or `null` when it has none.
+ *
+ * A `workspace_ref` block already names a file the host's attachment store
+ * owns, so that path is the canonical one and no second copy is written.
+ * Inline base64 (mid-turn screenshots, legacy rows) has no file yet, so it
+ * lands in the plugin's content-hash-deduped attachments copy.
+ */
+function resolveImageFilePath(
+  image: ImageContent,
+  resolved: { data: string; media_type: string } | null,
+): string | null {
+  if (image.source.type === "workspace_ref") {
+    try {
+      const stored = getAttachmentFilePath(image.source.attachmentId);
+      if (stored != null && stored !== "") {
+        return stored;
+      }
+    } catch {
+      // Attachment store unavailable: fall through to a persisted copy.
+    }
+  }
+  if (resolved != null) {
+    return persistImage(resolved.data, resolved.media_type);
+  }
+  return null;
+}
+
+/**
+ * Opening of the `[Image …]` text that replaces an image block, naming the
+ * image by filename when one is known.
+ *
+ * The filename is the model's only way to point at a specific image, so it is
+ * also what `image_ask` matches its `image` argument against.
+ */
+function imageHandlePrefix(handle: string | null): string {
+  return handle != null ? `[Image "${handle}"` : "[Image";
 }
 
 /**
@@ -83,6 +134,9 @@ export async function captionImageBlocks(
   logger: PluginLogger,
 ): Promise<number> {
   let replaced = 0;
+  // Read once per block array rather than per image: the setting cannot
+  // change mid-sweep, and the config accessor is a cached read either way.
+  const mode = getCaptionMode();
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -93,15 +147,37 @@ export async function captionImageBlocks(
     replaced++;
     const image = block as ImageContent;
 
-    // Persist the original to a known, content-hash-deduped location so it
-    // survives the text substitution and stays findable on disk. Resolve a
-    // reference source to its bytes first (a no-op for inline base64).
-    const resolvedForPersist = resolveMediaSourceData(image.source);
-    if (resolvedForPersist) {
-      persistImage(resolvedForPersist.data, resolvedForPersist.media_type);
+    // Locate the original on disk so it survives the text substitution, stays
+    // findable for the user, and gives the caption a filename to name it by.
+    // Resolve a reference source to its bytes first (a no-op for inline
+    // base64).
+    const resolved = resolveMediaSourceData(image.source);
+    const filePath = resolveImageFilePath(image, resolved);
+    if (filePath != null && resolved != null) {
+      recordConversationImage(
+        conversationId,
+        filePath,
+        resolved.media_type,
+        imageHash(resolved.data),
+      );
     }
+    const prefix = imageHandlePrefix(
+      filePath != null ? basename(filePath) : null,
+    );
 
-    if (visionProfileKey != null) {
+    if (visionProfileKey != null && mode === "handle-only") {
+      // The image is named but not described: nothing is spent on it unless
+      // the model calls `image_ask`. An image with no file behind it cannot be
+      // asked about, so say that rather than offering a handle that resolves
+      // to nothing.
+      blocks[i] = {
+        type: "text",
+        text:
+          filePath != null
+            ? `${prefix} available via image_ask]`
+            : `${prefix}: no stored copy available to examine]`,
+      };
+    } else if (visionProfileKey != null) {
       const caption = await captionImage(
         image,
         conversationId,
@@ -112,14 +188,14 @@ export async function captionImageBlocks(
         type: "text",
         text:
           caption != null
-            ? `[Image auto-described for text-only model: ${caption}]`
-            : `[Image: auto-description failed (text-only model)]`,
+            ? `${prefix} auto-described for text-only model: ${caption}]`
+            : `${prefix}: auto-description failed (text-only model)]`,
       };
     } else {
       // No vision profile configured at all: fail-open placeholder.
       blocks[i] = {
         type: "text",
-        text: `[Image: no vision-capable model configured to describe it]`,
+        text: `${prefix}: no vision-capable model configured to describe it]`,
       };
     }
   }

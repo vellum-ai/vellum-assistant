@@ -6,15 +6,27 @@
  * content-hash-deduped location means the original survives the text
  * substitution and stays findable on disk for the user (or a subagent with a
  * vision-capable model that reads it via file_read).
+ *
+ * The path is also the handle the caption names, so the model can point
+ * `image_ask` back at a specific image.
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getWorkspaceDir } from "@vellumai/plugin-api";
+
 import { imageHash } from "./caption-cache.js";
 
-/** The workspace attachments directory. */
-const ATTACHMENTS_DIR = "/workspace/data/attachments";
+/**
+ * The workspace attachments directory — the same directory the host's
+ * attachment store writes uploads to. Resolved per call: the workspace root
+ * is a runtime value, so a module-level constant would freeze whatever it
+ * happened to be at import time.
+ */
+function attachmentsDir(): string {
+  return join(getWorkspaceDir(), "data", "attachments");
+}
 
 /** File extension for a given media type, falling back to `.bin`. */
 function extensionForMediaType(mediaType: string): string {
@@ -38,12 +50,13 @@ function extensionForMediaType(mediaType: string): string {
  */
 export function persistImage(data: string, mediaType: string): string | null {
   try {
-    mkdirSync(ATTACHMENTS_DIR, { recursive: true });
+    const dir = attachmentsDir();
+    mkdirSync(dir, { recursive: true });
 
     const hash = imageHash(data);
     const ext = extensionForMediaType(mediaType);
     const filename = `${hash}${ext}`;
-    const filepath = join(ATTACHMENTS_DIR, filename);
+    const filepath = join(dir, filename);
 
     // Skip if already saved (content-hash dedup).
     if (existsSync(filepath)) {

@@ -76,6 +76,15 @@ export function initCaptionStore(storageDir: string): void {
   }
 }
 
+/**
+ * The plugin's single SQLite handle, for sibling modules that keep their own
+ * tables in the same file (see `image-index.ts`). `null` before `init` runs
+ * or after a failed open, which every caller treats as "store unavailable".
+ */
+export function getPluginDatabase(): Database | null {
+  return db;
+}
+
 /** Close the caption database. Called by the plugin's `shutdown` hook. */
 export function closeCaptionStore(): void {
   try {

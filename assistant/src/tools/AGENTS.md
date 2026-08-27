@@ -28,6 +28,8 @@ A plugin tool can declare `isActive({ model })` on its `ToolDefinition`. The too
 
 The predicate must be cheap and synchronous: it runs once per tool per provider call. Throwing counts as inactive; omitting the field means always active. It can only subtract from the surface: the host's own gates (subagent allowlist, disabled tools, disk pressure) run alongside it and still apply. Honored for plugin-owned tools only; core, skill, MCP, and workspace tools are gated by the host rules in `isToolActiveForContext` (`daemon/conversation-tool-setup.ts`).
 
+The shipped example is `image_ask` (`plugins/defaults/image-fallback/tools/image_ask.ts`): it lets a text-only model put one question about an image to a vision profile, and its predicate (`({ model }) => !doesSupportVision(model)`) keeps it out of every turn whose model can see the image itself.
+
 ## If You Have Approval
 
 If the core team has approved your new tool:

@@ -1,7 +1,7 @@
 {
   "name": "default-image-fallback",
   "version": "1.0.0",
-  "description": "First-party default plugin that captions image attachments via a vision-capable profile when the active model is text-only, substituting the caption as a text block so the model can still reason about the image's content.",
+  "description": "First-party default plugin that stands in for images the active model cannot see: it names each image by filename and (by default) substitutes a vision-generated caption as a text block, and contributes the `image_ask` tool so the model can put a specific question about one image to a vision-capable profile.",
   "private": true,
   "license": "MIT",
   "type": "module",

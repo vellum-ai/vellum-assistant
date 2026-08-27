@@ -26,6 +26,7 @@ import type {
 // tests exercise the shipped behavior (broad rejection patterns, media scope)
 // rather than a stand-in.
 import { lastToolResultUserMessageIndex } from "../../../../context/outbound-sanitize.js";
+import { RiskLevel } from "../../../../tools/tool-types.js";
 import { isVisionNotSupportedError } from "../../../../util/provider-error-patterns.js";
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -51,12 +52,17 @@ mock.module("@vellumai/plugin-api", () => ({
   getModelProfiles: () => mockProfiles,
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => fakeProvider,
+  // Media in these tests is inline base64, so the sweep falls through to the
+  // persisted copy rather than an attachment row.
+  getAttachmentFilePath: () => null,
+  getWorkspaceDir: () => "/workspace",
   isVisionNotSupportedError,
   lastToolResultUserMessageIndex,
   // The module registry is process-wide, so this surface covers every
   // plugin-api export the plugin's hooks import, including the transcript
   // notice only the sibling test file exercises.
   persistSystemCard: async () => "card-1",
+  RiskLevel,
 }));
 
 mock.module("../src/image-persist.js", () => ({
@@ -161,7 +167,9 @@ describe("image-fallback post-model-call vision recovery", () => {
     const blocks = ctx.messages[0].content;
     expect(blocks.some((b) => b.type === "image")).toBe(false);
     const captioned = blocks.find(
-      (b) => b.type === "text" && b.text.includes("[Image auto-described"),
+      (b) =>
+        b.type === "text" &&
+        b.text.includes('[Image "mock-hash.png" auto-described'),
     );
     expect(captioned).toBeDefined();
     expect(isVisionRecoveryAttempted("conv-vision")).toBe(true);

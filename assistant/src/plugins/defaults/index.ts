@@ -24,6 +24,7 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
+import { finalizeTool } from "../../tools/tool-defaults.js";
 import {
   clearInjectorRegistry,
   registerPluginInjectors,
@@ -54,6 +55,7 @@ import imageFallbackStop from "./image-fallback/hooks/stop.js";
 import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
 import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
+import imageFallbackImageAsk from "./image-fallback/tools/image_ask.js";
 import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.js";
 import imageRecoveryStop from "./image-recovery/hooks/stop.js";
 import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
@@ -114,6 +116,11 @@ import workspacePkg from "./workspace/package.json" with { type: "json" };
  * `shutdown`) avoids re-captioning the same image across turns, compactions,
  * and restarts; `conversation-deleted` removes the deleted conversation's
  * cache rows.
+ *
+ * The plugin also contributes the `image_ask` tool, which a text-only model
+ * calls to put one question to a vision profile about an image the sweep
+ * captioned. Its `isActive` predicate keeps it off the wire on every turn
+ * whose model can see images itself.
  */
 export const defaultImageFallbackPlugin: Plugin = {
   manifest: {
@@ -130,6 +137,7 @@ export const defaultImageFallbackPlugin: Plugin = {
     stop: imageFallbackStop,
     "conversation-deleted": imageFallbackConversationDeleted,
   },
+  tools: [finalizeTool(imageFallbackImageAsk, "image_ask")],
 };
 
 /**
