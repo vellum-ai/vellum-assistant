@@ -111,13 +111,15 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run pack        # runtime + native helper + preview handler + electron-vite build + electron-builder --win (NSIS)
+bun run pack        # runtime + native helper + preview handler + electron-builder --win (NSIS)
 bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 ```
 
 `pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
 `build:preview-handler`) before `electron-builder`, so the Explorer preview
 handler DLL that `electron-builder.config.cjs` requires is always present.
+The builder rebuilds the Electron main and preload entrypoints immediately
+before collecting app files, including when it is invoked directly.
 
 `build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
 is used when its sha256 matches `scripts/bun-release.ts`, otherwise the

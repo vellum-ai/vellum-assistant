@@ -105,17 +105,23 @@ const resolveSigning = () => {
   }
 };
 
-// Enumerates every packaged executable and DLL (and later the installer)
-// into dist/signing-manifest-<arch>.json for signature verification.
-const enumerateSignableFiles = (args) => {
-  const result = spawnSync("bun", ["scripts/after-pack.ts", ...args], {
+const runBun = (args, label) => {
+  const result = spawnSync("bun", args, {
     cwd: __dirname,
     stdio: "inherit",
   });
   if (result.status !== 0) {
-    throw new Error(`after-pack enumeration failed (exit ${result.status})`);
+    throw new Error(`${label} failed (exit ${result.status})`);
   }
 };
+
+// Enumerates every packaged executable and DLL (and later the installer)
+// into dist/signing-manifest-<arch>.json for signature verification.
+const enumerateSignableFiles = (args) =>
+  runBun(["scripts/after-pack.ts", ...args], "after-pack enumeration");
+
+const buildElectronEntrypoints = () =>
+  runBun(["run", "build"], "Electron build");
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
@@ -187,6 +193,7 @@ module.exports = {
       name: "Vellum Bundle",
     },
   ],
+  beforePack: buildElectronEntrypoints,
   afterPack: async (context) => {
     enumerateSignableFiles([
       "--app-out-dir",
