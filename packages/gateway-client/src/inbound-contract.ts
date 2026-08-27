@@ -139,6 +139,11 @@ export const SourceMetadataSchema = z
      * "not provided", never as a decision.
      */
     trustVerdict: TrustVerdictSchema.optional(),
+    /**
+     * The platform named no actor for this event; the actor id is the
+     * channel's synthetic system identity, never an identity claim.
+     */
+    actorUnattributed: z.boolean().optional(),
 
     // Email-specific fields
     /**
@@ -172,6 +177,15 @@ export const RuntimeInboundPayloadSchema = z.object({
   /** The named event family; absent only on replayed retry payloads,
    *  where resolveInboundEventKind derives it from the legacy fields. */
   eventKind: z.enum(INBOUND_EVENT_KINDS).optional(),
+  /** Structured reaction payload; replayed retry payloads carry the
+   *  callbackData string form resolveInboundReactionPayload reads. */
+  reaction: z
+    .object({
+      op: z.enum(["added", "removed"]),
+      emoji: z.string(),
+      targetMessageId: z.string(),
+    })
+    .optional(),
   isEdit: z.boolean().optional(),
   callbackQueryId: z.string().optional(),
   callbackData: z.string().optional(),

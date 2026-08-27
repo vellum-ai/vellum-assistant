@@ -60,6 +60,7 @@ export type {
   CredentialListResult,
   DeleteResult,
 } from "./credential-backend.js";
+import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp/acp-credentials.js";
 
 /**
  * Re-export shared-package secure-key abstractions so downstream consumers
@@ -156,6 +157,21 @@ export function setCesClient(client: CesClient | undefined): void {
     "CES client updated; resetting resolved credential backend cache",
   );
   _cesClientListener?.(client);
+  void attachCredentialRecordBackend(client);
+}
+
+async function attachCredentialRecordBackend(
+  client: CesClient | undefined,
+): Promise<void> {
+  const { CesRpcRecordBackend } = await import("./ces-rpc-record-backend.js");
+  const { setCredentialRecordBackend } = await import(
+    "../tools/credentials/metadata-store.js"
+  );
+  if (!client) {
+    setCredentialRecordBackend(undefined);
+    return;
+  }
+  setCredentialRecordBackend(new CesRpcRecordBackend(client));
 }
 
 /**
@@ -658,8 +674,40 @@ export async function getSecureKeyAsync(
 }
 
 /**
- * Store a secret in secure storage. Writes to exactly one backend —
- * no dual-writing. Forces a CES reconnection when the backend is dead —
+ * Post-write side effects keyed on which credential was actually stored.
+ *
+ * Every path that lands a credential runs through this, single writes and bulk
+ * restores alike, so a behaviour that has to follow a credential does not
+ * depend on a list of call sites that drifts as write paths are added.
+ *
+ * Deliberately not where a Connect card is retired. A card is retired by the
+ * marker it came from no longer matching the credential a spawn would resolve,
+ * which is a comparison made when the marker is read. Nothing here has to fire
+ * at the right moment for that to happen, so this is a notification rather
+ * than a mechanism, and a failure costs freshness rather than correctness.
+ *
+ * Imported on demand and only on a match, so the ACP module graph stays out of
+ * this module's load path.
+ */
+async function onCredentialsWritten(accounts: string[]): Promise<void> {
+  if (!accounts.includes(credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD))) {
+    return;
+  }
+  try {
+    // The Connect flow repairs the spawn policy *after* this write, so a token
+    // whose read is still denied here is retried by `storeAcpClaudeToken` once
+    // that repair lands. This pass covers every other writer.
+    const { notifyAcpConnectRetired } =
+      await import("../acp/acp-claude-oauth.js");
+    await notifyAcpConnectRetired();
+  } catch (err) {
+    log.warn({ err }, "ACP Connect card notification failed after a write");
+  }
+}
+
+/**
+ * Store a secret in secure storage. Writes to exactly one backend, with no
+ * dual-writing. Forces a CES reconnection when the backend is dead, because
  * callers (e.g. the post-login platform credential push) do not retry a
  * failed write.
  */
@@ -667,10 +715,10 @@ export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  return withCredentialTimeout(async () => {
+  const ok = await withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync({ forceReconnect: true });
-    const ok = await backend.set(account, value);
-    if (!ok) {
+    const stored = await backend.set(account, value);
+    if (!stored) {
       log.warn(
         { account, backend: backend.name },
         "Credential backend set failed",
@@ -678,9 +726,19 @@ export async function setSecureKeyAsync(
     } else {
       log.info({ account, backend: backend.name }, "Credential stored");
     }
-    updateCesHttpReachability(backend, !ok);
-    return ok;
+    updateCesHttpReachability(backend, !stored);
+    return stored;
   }, false);
+  // Detached, because it neither decides the result nor gates it. Under the
+  // deadline its cost could turn a stored credential into a reported failure;
+  // awaited after it, the cost merely held the caller at "signing in" while a
+  // scan and a broadcast finished. Nothing downstream depends on it having
+  // run: a card is retired by the marker comparison at read time, and the
+  // credential prompt re-checks the registry entry before honouring it.
+  if (ok) {
+    void onCredentialsWritten([account]);
+  }
+  return ok;
 }
 
 /**
@@ -711,7 +769,7 @@ export async function deleteSecureKeyAsync(
 export async function bulkSetSecureKeysAsync(
   credentials: Array<{ account: string; value: string }>,
 ): Promise<Array<{ account: string; ok: boolean }>> {
-  return withCredentialTimeout(
+  const results = await withCredentialTimeout(
     async () => {
       const backend = await resolveBackendAsync({ forceReconnect: true });
       let results: Array<{ account: string; ok: boolean }>;
@@ -745,6 +803,10 @@ export async function bulkSetSecureKeysAsync(
     },
     credentials.map((c) => ({ account: c.account, ok: false })),
   );
+  // Same as the single-write path: detached, so a bundle's notifications
+  // neither decide nor delay its result.
+  void onCredentialsWritten(results.filter((r) => r.ok).map((r) => r.account));
+  return results;
 }
 
 // ---------------------------------------------------------------------------

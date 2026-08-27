@@ -1,6 +1,7 @@
 import {
   inboundEventRefersToAnotherMessage,
   type InboundEventKind,
+  type InboundReactionPayload,
   resolveInboundEventKind,
 } from "@vellumai/gateway-client";
 import type { ChannelConversationType } from "@vellumai/gateway-client";
@@ -39,6 +40,8 @@ interface InboundEventBase<C extends InboundChannelId> {
      *  flag and sentinel fields below carry each family's payload and
      *  classify replayed retry payloads that arrive unstamped. */
     eventKind?: InboundEventKind;
+    /** Structured payload when eventKind is "reaction". */
+    reaction?: InboundReactionPayload;
     isEdit?: boolean;
     callbackQueryId?: string;
     callbackData?: string;
@@ -90,6 +93,15 @@ interface InboundEventBase<C extends InboundChannelId> {
      * absent means "not established".
      */
     isDirectMessage?: boolean;
+    /**
+     * True when the platform names no actor for this event: the synthetic
+     * actorExternalId identifies the channel's system, not a person, so
+     * nothing downstream may treat it as an identity claim. A delete on a
+     * platform whose dispatch carries no author is the canonical case; the
+     * daemon then applies the event only to rows it ingested, whose author
+     * cleared the ACL on arrival.
+     */
+    actorUnattributed?: boolean;
     /**
      * Thread/conversation-group identifier, when the source channel carries one
      * (e.g. Slack `thread_ts`). Channel-agnostic name so other channels (email

@@ -134,7 +134,7 @@ mock.module("./guardian-reply-intercept.js", () => ({
   },
 }));
 
-import { handleSlackReactionIntercept } from "./reaction-intercept.js";
+import { handleReactionIntercept } from "./reaction-intercept.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -178,7 +178,11 @@ function buildParams(overrides: {
 }) {
   msgCounter++;
   return {
-    callbackData: "reaction:white_check_mark",
+    reaction: {
+      op: "added" as const,
+      emoji: "white_check_mark",
+      targetMessageId: "1700000000.1",
+    },
     sourceChannel: "slack" as const,
     sourceInterface: "slack" as const,
     conversationExternalId: SLACK_CHANNEL_ID,
@@ -226,7 +230,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   test("guardian verdict routes the reaction into the approval decision pipeline", async () => {
     guardianReplyResponse = { accepted: true, canonicalRouter: "applied" };
 
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: GUARDIAN_VERDICT,
@@ -242,7 +246,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   });
 
   test("contact verdict records the reaction; the decision pipeline self-gate ignores it", async () => {
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: MEMBER_USER_ID,
         trustVerdict: MEMBER_VERDICT,
@@ -266,7 +270,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     storedTarget = null;
     outboundTargetConversationId = "conv-assistant-post";
 
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: MEMBER_USER_ID,
         trustVerdict: MEMBER_VERDICT,
@@ -283,7 +287,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   test("a reaction on a message that is not stored is dropped without minting", async () => {
     storedTarget = null;
 
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: MEMBER_USER_ID,
         trustVerdict: MEMBER_VERDICT,
@@ -298,7 +302,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   test("a redelivered reaction never reaches the guardian rail twice", async () => {
     recordedEvent = { eventId: "evt-1", conversationId: "conv-target" };
 
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: GUARDIAN_VERDICT,
@@ -319,7 +323,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     storedTarget = null;
     guardianReplyResponse = { accepted: true, canonicalRouter: "applied" };
 
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: GUARDIAN_VERDICT,
@@ -331,21 +335,21 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   });
 
   test("unknown verdict is dropped before any write", async () => {
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({ rawSenderId: "U_STRANGER", trustVerdict: UNKNOWN_VERDICT }),
     );
     expectDropped(result);
   });
 
   test("missing verdict is dropped fail-closed", async () => {
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({ rawSenderId: MEMBER_USER_ID }),
     );
     expectDropped(result);
   });
 
   test("resolutionFailed verdict is dropped fail-closed even with a guardian shape", async () => {
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: { ...GUARDIAN_VERDICT, resolutionFailed: true },
@@ -355,7 +359,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
   });
 
   test("memberless guardian verdict is contradictory and dropped fail-closed", async () => {
-    const result = await handleSlackReactionIntercept(
+    const result = await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: {
@@ -370,13 +374,13 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
 
   test("classification is verdict-only: no IPC, cache, or local-store reads", async () => {
     guardianReplyResponse = { accepted: true, canonicalRouter: "applied" };
-    await handleSlackReactionIntercept(
+    await handleReactionIntercept(
       buildParams({
         rawSenderId: GUARDIAN_USER_ID,
         trustVerdict: GUARDIAN_VERDICT,
       }),
     );
-    await handleSlackReactionIntercept(
+    await handleReactionIntercept(
       buildParams({
         rawSenderId: MEMBER_USER_ID,
         trustVerdict: MEMBER_VERDICT,

@@ -274,9 +274,8 @@ describe("LUM-2935: group DM (MPIM) admission", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
-      expect(emitted[0]?.event.message.callbackData).toBe(
-        "reaction:raised_hands",
-      );
+      expect(emitted[0]?.event.message.reaction?.emoji).toBe("raised_hands");
+      expect(emitted[0]?.event.message.reaction?.op).toBe("added");
       expect(emitted[0]?.event.message.conversationExternalId).toBe(MPIM);
     } finally {
       rawDb.close();
@@ -314,7 +313,8 @@ describe("LUM-2935: group DM (MPIM) admission", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(2);
-      expect(emitted[1]?.event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[1]?.event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[1]?.event.message.reaction?.op).toBe("added");
     } finally {
       rawDb.close();
     }

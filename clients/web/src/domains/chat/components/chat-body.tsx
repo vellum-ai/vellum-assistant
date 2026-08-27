@@ -5,6 +5,7 @@ import { Paperclip } from "lucide-react";
 import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { ChatColumn } from "@/domains/chat/components/chat-column";
+import { AcpConnectSlot } from "@/domains/chat/components/acp-connect-slot";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { ChannelReferenceChip } from "@/domains/chat/channel-sidecar/channel-reference-chip";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
@@ -382,6 +383,7 @@ export function ChatBody({
           </div>
         )}
         {queuedDrawerSlot}
+        <AcpConnectSlot />
         <QuestionPromptSlot />
         {channelFooterSlot}
         <ChannelReferenceChip />

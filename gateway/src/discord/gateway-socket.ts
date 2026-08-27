@@ -53,9 +53,14 @@ import {
   DiscordMessageCreateSchema,
   DiscordReadySchema,
   DiscordThreadListSchema,
+  DiscordMessageDeleteSchema,
   DiscordThreadSchema,
 } from "./message-schemas.js";
-import { normalizeDiscordMessage, toAdmissionCandidate } from "./normalize.js";
+import {
+  normalizeDiscordMessage,
+  normalizeDiscordMessageDelete,
+  toAdmissionCandidate,
+} from "./normalize.js";
 import { DiscordSessionState } from "./session-state.js";
 import { ThreadParentCache } from "./thread-parents.js";
 
@@ -654,9 +659,120 @@ export class DiscordGatewayClient {
       case "MESSAGE_CREATE":
         this.handleMessageCreate(data);
         return;
+      case "MESSAGE_UPDATE":
+        this.handleMessageUpdate(data);
+        return;
+      case "MESSAGE_DELETE":
+        this.handleMessageDelete(data);
+        return;
       default:
         return;
     }
+  }
+
+  private handleMessageUpdate(data: unknown): void {
+    if (!this.botUserId) {
+      log.warn("Dropping MESSAGE_UPDATE: bot identity not yet resolved");
+      return;
+    }
+    const parsed = DiscordMessageCreateSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed MESSAGE_UPDATE");
+      return;
+    }
+    const message = parsed.data;
+    // Embed resolution and other non-user revisions dispatch MESSAGE_UPDATE
+    // with no edited_timestamp; nothing the user said changed, so there is
+    // nothing to rewrite. Guild content is additionally ambiguous when
+    // empty: without MESSAGE_CONTENT a non-exempt guild edit arrives with
+    // its text hidden, and rewriting a stored row to empty would destroy
+    // text over an intent gap. A DM is inside the content exemption, so an
+    // empty DM revision is a real clearing (an attachment message whose
+    // caption was removed) and propagates.
+    if (
+      message.edited_timestamp == null ||
+      (message.guild_id !== undefined && message.content.length === 0)
+    ) {
+      log.debug(
+        { messageId: message.id },
+        "Dropping MESSAGE_UPDATE with no user revision",
+      );
+      return;
+    }
+    const parentChannelId = this.threadParents.parentOf(message.channel_id);
+    const candidate = toAdmissionCandidate(message, parentChannelId);
+    if (!candidate) {
+      log.warn("Dropping MESSAGE_UPDATE with no author identity");
+      return;
+    }
+    const legacyAllowedChannelIds = this.readLegacyAllowedChannelIds?.();
+    const verdict = admitDiscordMessage(candidate, {
+      botUserId: this.botUserId,
+      ...(legacyAllowedChannelIds !== undefined
+        ? { legacyAllowedChannelIds }
+        : {}),
+    });
+    if (!verdict.admitted) {
+      log.debug(
+        { reason: verdict.reason, channelId: message.channel_id },
+        "Discord edit dropped by admission gate",
+      );
+      return;
+    }
+    const normalized = normalizeDiscordMessage(message, {
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+      edit: { revision: message.edited_timestamp },
+    });
+    if (!normalized) {
+      log.warn(
+        { messageId: message.id },
+        "Discord edit dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        messageId: message.id,
+        conversationExternalId: normalized.message.conversationExternalId,
+      },
+      "Discord edit admitted",
+    );
+    this.onEvent(normalized, new Map());
+  }
+
+  private handleMessageDelete(data: unknown): void {
+    const parsed = DiscordMessageDeleteSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed MESSAGE_DELETE");
+      return;
+    }
+    const del = parsed.data;
+    // No admission gate: the dispatch names no author to gate on, and the
+    // daemon applies an unattributed delete only to a row it ingested, so a
+    // delete for anything the admission gate kept out is a no-op there. The
+    // event still rides the full forward path, where the kill switch and
+    // per-family stages apply.
+    const parentChannelId = this.threadParents.parentOf(del.channel_id);
+    const normalized = normalizeDiscordMessageDelete(del, {
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+    });
+    if (!normalized) {
+      log.warn(
+        { messageId: del.id },
+        "Discord delete dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        messageId: del.id,
+        conversationExternalId: normalized.message.conversationExternalId,
+      },
+      "Discord delete forwarded",
+    );
+    this.onEvent(normalized, new Map());
   }
 
   private handleMessageCreate(data: unknown): void {

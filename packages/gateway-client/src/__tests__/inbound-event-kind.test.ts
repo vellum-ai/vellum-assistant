@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   inboundEventRefersToAnotherMessage,
   resolveInboundEventKind,
+  resolveInboundReactionPayload,
 } from "../inbound-event-kind.js";
 
 describe("resolveInboundEventKind", () => {
@@ -78,5 +79,50 @@ describe("inboundEventRefersToAnotherMessage", () => {
     expect(inboundEventRefersToAnotherMessage("delete")).toBe(true);
     expect(inboundEventRefersToAnotherMessage("reaction")).toBe(true);
     expect(inboundEventRefersToAnotherMessage("button")).toBe(true);
+  });
+});
+
+describe("resolveInboundReactionPayload", () => {
+  test("a structured payload wins outright", () => {
+    expect(
+      resolveInboundReactionPayload({
+        eventKind: "reaction",
+        reaction: { op: "removed", emoji: "+1", targetMessageId: "11.22" },
+        callbackData: "reaction:eyes",
+      }),
+    ).toEqual({ op: "removed", emoji: "+1", targetMessageId: "11.22" });
+  });
+
+  test("a replayed payload parses its sentinel and wire target", () => {
+    expect(
+      resolveInboundReactionPayload({
+        callbackData: "reaction:thumbsup",
+        sourceMetadata: { messageId: "33.44" },
+      }),
+    ).toEqual({ op: "added", emoji: "thumbsup", targetMessageId: "33.44" });
+    expect(
+      resolveInboundReactionPayload({
+        callbackData: "reaction_removed:thumbsup",
+        sourceMetadata: { messageId: "33.44" },
+      }),
+    ).toEqual({ op: "removed", emoji: "thumbsup", targetMessageId: "33.44" });
+  });
+
+  test("no emoji or no target is not a reaction payload", () => {
+    expect(
+      resolveInboundReactionPayload({
+        callbackData: "reaction:",
+        sourceMetadata: { messageId: "33.44" },
+      }),
+    ).toBeNull();
+    expect(
+      resolveInboundReactionPayload({ callbackData: "reaction:thumbsup" }),
+    ).toBeNull();
+    expect(
+      resolveInboundReactionPayload({
+        callbackData: "apr:req-1:approve_once",
+        sourceMetadata: { messageId: "33.44" },
+      }),
+    ).toBeNull();
   });
 });

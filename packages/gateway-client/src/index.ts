@@ -88,8 +88,12 @@ export {
   inboundEventRefersToAnotherMessage,
   isInboundEventKind,
   resolveInboundEventKind,
+  resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";
-export type { InboundEventKind } from "./inbound-event-kind.js";
+export type {
+  InboundEventKind,
+  InboundReactionPayload,
+} from "./inbound-event-kind.js";
 
 // Plugin admission-denied notice (gateway → plugin) — canned deny copy + envelope
 export {

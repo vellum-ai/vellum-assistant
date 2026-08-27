@@ -76,10 +76,13 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // `idle`), so a fresh in-card connect keeps showing its "connected"
   // confirmation instead of unmounting out from under the user.
   //
-  // Skipped for an `auth_required` prompt: that check asks "is a token
-  // stored", the wrong question when the stored token itself was rejected. A
-  // "yes" would retire the card over the failure it exists to repair; those
-  // prompts clear only by completing the connect flow.
+  // Skipped for an `auth_required` prompt, restored or live. The check asks
+  // "is a token stored", and `hasAcpClaudeToken` answers on presence, shape and
+  // broker readability without ever putting the token to Claude, so a rejected
+  // one still reports connected. Retiring on that would dismiss the card over
+  // the failure it exists to repair, and the dismissal set would keep it from
+  // coming back for the rest of the session. A stale marker is retired at the
+  // daemon instead, when a new token is actually written.
   useEffect(() => {
     if (reason === "auth_required") {
       return;
@@ -122,6 +125,27 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
   // auto-continue the failed task (via a hidden "retry" send) so the user
   // doesn't have to re-ask. One-shot — the continuation's own send clears the
   // card, but guard so a re-render can't re-trigger it.
+  // Publish that this tab owns a live flow, so the invalidation its own token
+  // write triggers does not dismiss the card before it can auto-continue.
+  // Cleared on unmount so a tab that navigates away stops claiming it.
+  // Only phases that can still produce this tab's own successful write. A
+  // terminal `error` cannot, so leaving it "active" would let a failed attempt
+  // pin a stale card in place after another client repaired the token, with
+  // nothing to clear it: `auth_required` prompts skip the connected-state
+  // self-heal.
+  const flowActive =
+    connection.phase === "starting" ||
+    connection.phase === "awaiting_capture" ||
+    connection.phase === "awaiting_paste" ||
+    connection.phase === "exchanging" ||
+    connection.phase === "connected";
+  useEffect(() => {
+    useInteractionStore.getState().setAcpConnectFlowActive(flowActive);
+    return () => {
+      useInteractionStore.getState().setAcpConnectFlowActive(false);
+    };
+  }, [flowActive]);
+
   const continuedRef = useRef(false);
   useEffect(() => {
     if (connection.phase === "connected" && !continuedRef.current) {

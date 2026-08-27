@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_SIZES,
+  COMPANION_SIZE_BOXES,
+  companionNearEdgeFor,
+  companionScaleFor,
+  type CompanionSize,
+  type CompanionSizeAxis,
   type CompanionSurfaceState,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
+import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 
 // The module under test reaches `main-window.ts` to hand Talk to the renderer
 // that owns the live-voice session, and that chain loads `electron-store`, a
@@ -38,6 +46,12 @@ let windowsRaised = 0;
 /** Whether the app's window exists, which is what decides between those two. */
 let mainWindowOpen = true;
 
+/** Where the canvas's origin is, which is what the window reports and moves. */
+let origin = { x: 0, y: 0 };
+
+/** Every bounds main has asked the window server for, most recent last. */
+const boundsSet: { x: number; y: number; width: number; height: number }[] = [];
+
 const surface = {
   webContents: {
     send: (_channel: string, state: CompanionSurfaceState) => {
@@ -49,6 +63,20 @@ const surface = {
   // only has to be callable.
   close: () => {},
   on: () => {},
+  isDestroyed: () => false,
+  getPosition: () => [origin.x, origin.y],
+  setPosition: (x: number, y: number) => {
+    origin = { x, y };
+  },
+  setBounds: (bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => {
+    boundsSet.push(bounds);
+    origin = { x: bounds.x, y: bounds.y };
+  },
 };
 
 type Invoker = (args: unknown[]) => unknown;
@@ -138,10 +166,24 @@ mock.module("@vellumai/electron-desktop/settings", () => ({
   },
 }));
 
+/**
+ * The size the store holds for each axis.
+ *
+ * A record rather than one answer for both, because the two axes are read and
+ * written separately and a mock that ignored the axis would let a resize apply
+ * a pick to the wrong half of the surface without failing anything.
+ */
+const sizes: Record<CompanionSizeAxis, CompanionSize> = {
+  avatar: "small",
+  options: "small",
+};
+
 mock.module("@vellumai/electron-desktop/window-state", () => ({
-  readCompanionSize: () => "small",
+  readCompanionSize: (axis: CompanionSizeAxis) => sizes[axis],
   readCompanionHidden: () => false,
-  writeCompanionSize: () => {},
+  writeCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => {
+    sizes[axis] = size;
+  },
   writeCompanionHidden: () => {},
   // Stubbed rather than omitted, like every other export here: the module
   // under test imports these, and one missing from a whole-module mock is a
@@ -156,15 +198,29 @@ const {
   growthFor,
   cardGrowthFor,
   avatarOffsetFor,
+  companionContextMenuTemplate,
   geometryFor,
   placeCanvas,
   callOnUpdate,
   introOnAdvance,
+  setCompanionSurfaceSize,
   shouldShowCompanionSurface,
   installCompanionWindow,
 } = await import("./companion-window");
 
 installCompanionWindow();
+
+/**
+ * The module holds the canvas it was last asked for, so a case that picks a
+ * size leaves it there. Put both axes back and forget the window's position.
+ */
+beforeEach(() => {
+  sizes.avatar = "small";
+  sizes.options = "small";
+  setCompanionSurfaceSize("avatar", "small");
+  origin = { x: 0, y: 0 };
+  boundsSet.length = 0;
+});
 
 /** Put a set of evaluated flags in settings and tell main they changed. */
 const setFlags = (next: Record<string, boolean>): void => {
@@ -220,6 +276,25 @@ const START = {
 } as const;
 
 /**
+ * The size the placement cases are written against, which is the one the
+ * renderer's layout is authored at. Every other size is the same arithmetic
+ * scaled, which `geometryFor` has its own cases for.
+ */
+const GEOMETRY = geometryFor("small", "small");
+const RISE_ABOVE = GEOMETRY.riseAbove;
+const DROP_BELOW = GEOMETRY.dropBelow;
+
+/** A creature far larger than the controls beside it, and the reverse. */
+const BIG_CREATURE = geometryFor("huge", "small");
+const BIG_OPTIONS = geometryFor("small", "huge");
+
+/**
+ * The part of the base reach the geometry does not publish: the pill's widest.
+ * Bound to the contract for the cases that are about it rather than the sum.
+ */
+const MAX_PILL_WIDTH = COMPANION_BASE_MAX_PILL_WIDTH;
+
+/**
  * The growth direction is the only rule in the companion window worth testing
  * without a window server: everything else is Electron plumbing. It decides
  * which way the pill unfurls out of the avatar, and getting it wrong runs the
@@ -230,8 +305,10 @@ const START = {
 // cases readable.
 const DISPLAY = { x: 0, width: 1440 };
 
-// 360 - 44: the clearance the body needs on the side it grows into.
-const NEEDED = 316;
+// The clearance the pill needs on the side it grows into, measured from the
+// avatar's centre the way the room on each side is: the avatar's half box, the
+// gap, then the widest body.
+const NEEDED = GEOMETRY.maxReach;
 
 describe("growthFor", () => {
   test("grows rightward with room to the right", () => {
@@ -255,6 +332,27 @@ describe("growthFor", () => {
     expect(growthFor(DISPLAY.width - NEEDED + 1, DISPLAY, GEOMETRY)).toBe(
       "left",
     );
+  });
+
+  /**
+   * The gap and the avatar's half box are part of the clearance, not slack the
+   * pill can be squeezed into. A test measured against the body alone would
+   * pass with the pill's leading edge already off the display.
+   */
+  test("counts the gap and the half box as room the pill needs", () => {
+    expect(growthFor(DISPLAY.width - MAX_PILL_WIDTH, DISPLAY, GEOMETRY)).toBe(
+      "left",
+    );
+  });
+
+  /**
+   * The room is measured from the avatar's centre while the pill starts at the
+   * avatar's edge, so the half box is the difference between fitting and
+   * clipping. 340pt on the right clears the gap and the widest body and still
+   * cuts the controls off.
+   */
+  test("flips when only the avatar's half box is missing on the right", () => {
+    expect(growthFor(DISPLAY.width - 340, DISPLAY, GEOMETRY)).toBe("left");
   });
 
   test("measures against the display's own origin, not the screen's", () => {
@@ -284,16 +382,6 @@ describe("growthFor", () => {
  * somewhere the user can reach. A surface pushed off the display cannot be
  * dragged back, because there is nothing left on screen to grab.
  */
-
-/**
- * The size the placement cases are written against, which is the one the
- * renderer's layout is authored at. Every other size is the same arithmetic
- * scaled, which `geometryFor` has its own cases for.
- */
-const GEOMETRY = geometryFor("small");
-const CANVAS_WIDTH = GEOMETRY.canvasWidth;
-const RISE_ABOVE = GEOMETRY.riseAbove;
-const DROP_BELOW = GEOMETRY.dropBelow;
 
 /** A 1440x900 display with the menu bar taken off the top. */
 const WORK_AREA = { x: 0, y: 25, width: 1440, height: 875 };
@@ -546,32 +634,83 @@ describe("shouldShowCompanionSurface", () => {
  * nobody ever looked at.
  */
 describe("geometryFor", () => {
-  test("draws `small` at the size the renderer's layout is authored at", () => {
-    const small = geometryFor("small");
-    expect(small.avatarBox).toBe(44);
-    expect(small.canvasWidth).toBe(724);
-    expect(small.canvasHeight).toBe(338);
+  /**
+   * What the width is actually for: the avatar's half box, the gap the pill
+   * hangs off it by, and the widest the pill draws, on both sides so main can
+   * flip the direction without resizing the window, plus the shadow's room.
+   *
+   * Stated as the numbers each step comes to rather than as the sum again. Each
+   * one is a canvas that was looked at, and a formula repeated here would pass
+   * against any change to the formula it repeats.
+   */
+  test("holds the pill's whole reach on both sides of the avatar", () => {
+    const canvases: Record<
+      CompanionSize,
+      { maxReach: number; canvasWidth: number; canvasHeight: number }
+    > = {
+      small: { maxReach: 350, canvasWidth: 748, canvasHeight: 338 },
+      medium: { maxReach: 525, canvasWidth: 1122, canvasHeight: 507 },
+      large: { maxReach: 700, canvasWidth: 1496, canvasHeight: 676 },
+      huge: { maxReach: 875, canvasWidth: 1870, canvasHeight: 845 },
+      ridiculous: { maxReach: 1750, canvasWidth: 3740, canvasHeight: 1690 },
+    };
+    for (const size of COMPANION_SIZES) {
+      const { maxReach, canvasWidth, canvasHeight } = geometryFor(size, size);
+      expect({ maxReach, canvasWidth, canvasHeight }).toEqual(canvases[size]);
+    }
   });
 
   /**
-   * The whole surface is one layout multiplied, so every length has to move
-   * together. A canvas that scaled while the pill's reach did not would clip
-   * the controls; the reverse would swallow clicks over empty desktop.
+   * The creature's box is the avatar axis's answer and nothing else's. It is
+   * what main clamps by, so a pill size leaking into it would move where the
+   * mascot is allowed to sit.
    */
-  test("scales every length by the same factor", () => {
-    const small = geometryFor("small");
-    const large = geometryFor("large");
-    const scale = large.avatarBox / small.avatarBox;
-    expect(scale).toBe(2);
-    expect(large.canvasWidth).toBe(small.canvasWidth * scale);
-    expect(large.canvasHeight).toBe(small.canvasHeight * scale);
-    expect(large.riseAbove).toBe(small.riseAbove * scale);
-    expect(large.dropBelow).toBe(small.dropBelow * scale);
-    expect(large.maxPillWidth).toBe(small.maxPillWidth * scale);
+  test("takes the creature's box from the avatar axis alone", () => {
+    for (const options of COMPANION_SIZES) {
+      expect(geometryFor("large", options).avatarBox).toBe(
+        COMPANION_SIZE_BOXES.large,
+      );
+    }
+  });
+
+  /**
+   * Everything beside the creature is the options axis's answer, starting with
+   * the pill's own box.
+   */
+  test("takes the pill's box from the options axis alone", () => {
+    for (const avatar of COMPANION_SIZES) {
+      expect(geometryFor(avatar, "large").optionsBox).toBe(
+        COMPANION_SIZE_BOXES.large,
+      );
+    }
+  });
+
+  /**
+   * The two-box distances are the one-box ones wherever there is only one size,
+   * which is what makes the second axis a widening rather than a second
+   * geometry to keep in step.
+   */
+  test("reduces to the single-scale canvas when the axes agree", () => {
+    // The two sides at the base size, which the whole layout is authored
+    // around: the creature and its shadow below, the card's height above.
+    expect(
+      companionNearEdgeFor(
+        COMPANION_BASE_AVATAR_BOX,
+        COMPANION_BASE_AVATAR_BOX,
+      ),
+    ).toBe(46);
+    for (const size of COMPANION_SIZES) {
+      const geometry = geometryFor(size, size);
+      const scale = companionScaleFor(geometry.avatarBox);
+      expect(geometry.dropBelow).toBe(46 * scale);
+      expect(geometry.riseAbove).toBe(292 * scale);
+    }
   });
 
   test("grows monotonically through the named steps", () => {
-    const boxes = COMPANION_SIZES.map((size) => geometryFor(size).avatarBox);
+    const boxes = COMPANION_SIZES.map(
+      (size) => geometryFor(size, size).avatarBox,
+    );
     expect(boxes).toEqual([...boxes].sort((a, b) => a - b));
     expect(new Set(boxes).size).toBe(boxes.length);
   });
@@ -583,7 +722,7 @@ describe("geometryFor", () => {
    */
   test("gives every size a whole-point canvas", () => {
     for (const size of COMPANION_SIZES) {
-      const geometry = geometryFor(size);
+      const geometry = geometryFor(size, size);
       expect(Number.isInteger(geometry.canvasWidth)).toBe(true);
       expect(Number.isInteger(geometry.canvasHeight)).toBe(true);
     }
@@ -596,12 +735,156 @@ describe("geometryFor", () => {
    */
   test("keeps the canvas asymmetric about the avatar at every size", () => {
     for (const size of COMPANION_SIZES) {
-      const geometry = geometryFor(size);
+      const geometry = geometryFor(size, size);
       expect(geometry.dropBelow).toBeLessThan(geometry.riseAbove);
       expect(geometry.riseAbove + geometry.dropBelow).toBe(
         geometry.canvasHeight,
       );
     }
+  });
+});
+
+/**
+ * The canvas when the creature and the controls are sized apart, which is the
+ * shape the two axes exist for.
+ *
+ * Both sides of the avatar are sized for whichever card direction needs more,
+ * so main can still flip the direction by moving the window rather than
+ * rebuilding it. The cost is a few transparent points of slack in the direction
+ * that needed less, which is what the stated canvases carry: a side short by a
+ * point clips the pill or the card.
+ */
+describe("geometryFor with the two axes apart", () => {
+  const MIXED = [BIG_CREATURE, BIG_OPTIONS];
+
+  test("spends the whole canvas on the two sides of the avatar", () => {
+    for (const geometry of MIXED) {
+      expect(geometry.riseAbove + geometry.dropBelow).toBe(
+        geometry.canvasHeight,
+      );
+      expect(geometry.dropBelow).toBeLessThan(geometry.riseAbove);
+      expect(Number.isInteger(geometry.canvasHeight)).toBe(true);
+    }
+  });
+
+  /**
+   * Each mix as the canvas it comes to rather than as the formula repeated,
+   * since a formula restated here would pass against any change to the formula
+   * it restates.
+   *
+   * The width is where the gap rule shows: the gap is breathing room, so the
+   * smaller of the two boxes decides how much of it there is, and the creature
+   * below takes the base gap rather than the chasm its own scale would ask for,
+   * which would put its reach at 401. The two heights are the two sides of the
+   * avatar: the near edge clears the creature's bottom and the pill's top
+   * alike, and the far edge clears the card growing either way.
+   */
+  test("holds the pill, the card and the creature at each mix", () => {
+    // An enormous creature's half box, the base gap, and a base-width pill.
+    expect(BIG_CREATURE).toEqual({
+      avatarBox: 110,
+      optionsBox: 44,
+      maxReach: 383,
+      canvasWidth: 886,
+      riseAbove: 361,
+      dropBelow: 115,
+      canvasHeight: 476,
+    });
+    // A base half box, the same gap, and a pill two and a half times as wide.
+    expect(BIG_OPTIONS).toEqual({
+      avatarBox: 44,
+      optionsBox: 110,
+      maxReach: 824,
+      canvasWidth: 1768,
+      riseAbove: 763,
+      dropBelow: 148,
+      canvasHeight: 911,
+    });
+  });
+
+  test("flips the pill at the reach the options size asks for", () => {
+    expect(
+      growthFor(DISPLAY.width - BIG_CREATURE.maxReach, DISPLAY, BIG_CREATURE),
+    ).toBe("right");
+    expect(
+      growthFor(
+        DISPLAY.width - BIG_CREATURE.maxReach + 1,
+        DISPLAY,
+        BIG_CREATURE,
+      ),
+    ).toBe("left");
+  });
+
+  /**
+   * A display too narrow for the pill either way still grows the designed way,
+   * and an enormous options size beside a small creature is how a 1440pt
+   * display gets there.
+   */
+  test("still grows the designed way where neither side can hold the pill", () => {
+    expect(
+      growthFor(DISPLAY.width - BIG_OPTIONS.maxReach + 1, DISPLAY, BIG_OPTIONS),
+    ).toBe("right");
+  });
+});
+
+/**
+ * The menu a right-click on the surface pops, which is where a user actually
+ * reaches for the two things a floating avatar offers: a different size, and
+ * making it go away.
+ *
+ * The template rather than the menu: a menu is a native window, and what is
+ * worth stating is what this menu adds to the size pickers it shares with the
+ * tray, which is where they sit and the item that takes the surface away. The
+ * pickers themselves have their own suite in `companion-menu.test.ts`.
+ */
+describe("companionContextMenuTemplate", () => {
+  /** Only what a menu item is read for here. */
+  type MenuItem = {
+    label?: string;
+    type?: string;
+    click?: () => void;
+  };
+
+  const build = (
+    current: Record<CompanionSizeAxis, CompanionSize> = {
+      avatar: "small",
+      options: "small",
+    },
+  ) => {
+    let hidden = false;
+    const items = companionContextMenuTemplate(current, {
+      setSize: () => {},
+      hide: () => {
+        hidden = true;
+      },
+    }) as MenuItem[];
+    return { items, wasHidden: () => hidden };
+  };
+
+  test("closes with a separator and the way out, past the headings", () => {
+    expect(
+      build()
+        .items.map((item) => item.label ?? item.type)
+        .slice(2),
+    ).toEqual(["separator", "Hide Companion"]);
+  });
+
+  /**
+   * The headings are the shared builder's output rather than a second set of
+   * items, so the surface's menu and the tray's cannot describe the same choice
+   * differently. Compared as data, since the clicks are closures.
+   */
+  test("draws its two headings from the builder the tray reads", () => {
+    const current = { avatar: "ridiculous", options: "medium" } as const;
+    expect(JSON.stringify(build(current).items.slice(0, 2))).toBe(
+      JSON.stringify(companionSizeSubmenus(current, () => {})),
+    );
+  });
+
+  test("the last item takes the surface away", () => {
+    const menu = build();
+    menu.items[3]?.click?.();
+    expect(menu.wasHidden()).toBe(true);
   });
 });
 
@@ -614,18 +897,32 @@ describe("geometryFor", () => {
  * the canvas, at whatever size.
  */
 describe("placing a larger companion", () => {
-  const LARGE = geometryFor("large");
+  const LARGE = geometryFor("large", "large");
+
+  /**
+   * One size on both axes, then the two mixes. The clamp binds on the creature,
+   * which is the avatar axis's answer, so an enormous pill beside a small
+   * creature must not hold that creature away from the edge, and an enormous
+   * creature beside a small pill must be held by its own whole box.
+   */
+  const SIZED = [LARGE, BIG_CREATURE, BIG_OPTIONS];
 
   test("holds the avatar at the edges by its own box, not the canvas", () => {
-    const placed = placeCanvas({ x: 9000, y: 500 }, WORK_AREA, LARGE);
-    expect(centreOf(placed, LARGE).x).toBe(1440 - LARGE.avatarBox / 2);
+    for (const geometry of SIZED) {
+      const placed = placeCanvas({ x: 9000, y: 500 }, WORK_AREA, geometry);
+      expect(centreOf(placed, geometry).x).toBe(
+        WORK_AREA.x + WORK_AREA.width - geometry.avatarBox / 2,
+      );
+    }
   });
 
   test("still never asks for an origin above the work area", () => {
-    for (const y of [-9000, 0, 25, 100, 400]) {
-      expect(
-        placeCanvas({ x: 700, y }, WORK_AREA, LARGE).origin.y,
-      ).toBeGreaterThanOrEqual(WORK_AREA.y);
+    for (const geometry of SIZED) {
+      for (const y of [-9000, 0, 25, 100, 400]) {
+        expect(
+          placeCanvas({ x: 700, y }, WORK_AREA, geometry).origin.y,
+        ).toBeGreaterThanOrEqual(WORK_AREA.y);
+      }
     }
   });
 
@@ -634,13 +931,15 @@ describe("placing a larger companion", () => {
    * else. Bigger is a worse ceiling than `small` and still nothing like the
    * canvas half-height the bug was.
    */
-  test("reaches the top, short by its own scaled shadow", () => {
-    const centre = centreOf(
-      placeCanvas({ x: 700, y: -9000 }, WORK_AREA, LARGE),
-      LARGE,
-    );
-    expect(centre.y).toBe(WORK_AREA.y + LARGE.dropBelow);
-    expect(centre.y).toBeLessThan(WORK_AREA.y + LARGE.riseAbove);
+  test("reaches the top, short by the near edge its own canvas asks for", () => {
+    for (const geometry of SIZED) {
+      const centre = centreOf(
+        placeCanvas({ x: 700, y: -9000 }, WORK_AREA, geometry),
+        geometry,
+      );
+      expect(centre.y).toBe(WORK_AREA.y + geometry.dropBelow);
+      expect(centre.y).toBeLessThan(WORK_AREA.y + geometry.riseAbove);
+    }
   });
 
   test("flips the card at its own threshold, not the small one", () => {
@@ -650,6 +949,58 @@ describe("placing a larger companion", () => {
     expect(
       cardGrowthFor(WORK_AREA.y + LARGE.riseAbove - 1, WORK_AREA, LARGE),
     ).toBe("down");
+  });
+});
+
+/**
+ * A size pick, which is the one moment the canvas is rebuilt.
+ *
+ * What has to survive it is the avatar, not the window. They are not the same
+ * point and the difference is most of the canvas, so a rebuild that kept the
+ * origin would slide the creature by the change in its offset and walk the
+ * thing the user was enlarging off across the desktop.
+ */
+describe("setCompanionSurfaceSize", () => {
+  /**
+   * Where the avatar is parked for the pick: low enough on the display that the
+   * card grows upward at both sizes, and far enough from either side that
+   * nothing is clamped. So the only thing that can move the creature is the
+   * resize itself.
+   */
+  const CENTRE = { x: 722, y: 800 };
+
+  test("rebuilds the canvas around the avatar rather than the origin", () => {
+    // Parked by the path a drag takes. The first delta runs past every edge, so
+    // it lands on a clamp whatever the window was doing beforehand; the second
+    // puts the avatar on `CENTRE`.
+    send("vellum:companion:moveBy", -100000, -100000);
+    send("vellum:companion:moveBy", 700, 754);
+    expect({
+      x: origin.x + GEOMETRY.canvasWidth / 2,
+      y: origin.y + RISE_ABOVE,
+    }).toEqual(CENTRE);
+
+    setCompanionSurfaceSize("options", "huge");
+
+    // One call rather than a size and then a position: two would put the window
+    // at the new size in the old place for a frame.
+    expect(boundsSet).toHaveLength(1);
+    const bounds = boundsSet[0];
+    expect({ width: bounds?.width, height: bounds?.height }).toEqual({
+      width: BIG_OPTIONS.canvasWidth,
+      height: BIG_OPTIONS.canvasHeight,
+    });
+    // The avatar read back out of the new canvas the way main reads it: half
+    // the width across, and the offset the card's direction asks for down.
+    expect({
+      x: (bounds?.x ?? 0) + BIG_OPTIONS.canvasWidth / 2,
+      y: (bounds?.y ?? 0) + BIG_OPTIONS.riseAbove,
+    }).toEqual(CENTRE);
+  });
+
+  test("leaves the other axis where it was", () => {
+    setCompanionSurfaceSize("options", "huge");
+    expect(sizes).toEqual({ avatar: "small", options: "huge" });
   });
 });
 

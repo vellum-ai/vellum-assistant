@@ -26,6 +26,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
+import { isAvatarSuperseded } from "@/lib/avatar-supersede";
 import {
   isLocalClient,
   isLocalAssistant,
@@ -69,6 +70,15 @@ export interface ResolvedAssistant {
   /** Platform UUID for a locally hatched entry whose `id` is the instance
    *  name; only the lockfile carries it. API rows are already keyed by UUID. */
   platformAssistantId?: string;
+}
+
+/**
+ * A list that lands inside the supersede window may still carry the URL a
+ * local read just outranked; keep the row on its live/cache sources until
+ * the platform copy can have caught up.
+ */
+function apiAvatarUrl(a: Assistant): string | null | undefined {
+  return isAvatarSuperseded(a.id) ? null : a.avatar_url;
 }
 
 /** The id the platform knows `a` by: the lockfile's registration for a local instance, else `a.id`. */
@@ -216,7 +226,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               runtimeUrl: lockfileFields.runtimeUrl,
               platformAssistantId: lockfileFields.platformAssistantId,
               ingressUrl: a.ingress_url,
-              avatarUrl: a.avatar_url,
+              avatarUrl: apiAvatarUrl(a),
               currentReleaseVersion: a.current_release_version,
               releaseChannel: a.release_channel,
               isActiveLockfileAssistant:
@@ -241,7 +251,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           name: assistant.name,
           hatchedAt: assistant.created,
           ingressUrl: assistant.ingress_url,
-          avatarUrl: assistant.avatar_url,
+          avatarUrl: apiAvatarUrl(assistant),
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
           ...classifyApiEntry(

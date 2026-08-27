@@ -326,7 +326,6 @@ export function normalizeTelegramUpdate(
       conversationExternalId: String(message.chat.id),
       externalMessageId: String(updateId),
       ...(attachments.length > 0 ? { attachments } : {}),
-      ...(isEdit ? { isEdit: true } : {}),
     },
     actor: {
       actorExternalId,

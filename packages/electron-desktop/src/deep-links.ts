@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { BrowserWindow, app, type WebContents } from "electron";
 import { z } from "zod";
 
@@ -355,7 +357,13 @@ export const installDeepLinks = (): void => {
   // (e.g. `vellum-assistant-dev`) to avoid hijacking production
   // callbacks when both apps coexist.
   for (const scheme of REGISTERED_SCHEMES) {
-    app.setAsDefaultProtocolClient(scheme);
+    if (process.platform === "win32" && !app.isPackaged && process.argv[1]) {
+      app.setAsDefaultProtocolClient(scheme, process.execPath, [
+        resolve(process.argv[1]),
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient(scheme);
+    }
   }
 
   app.on("will-finish-launching", () => {

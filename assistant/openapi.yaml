@@ -467,6 +467,8 @@ paths:
                           type: string
                         parentToolUseId:
                           type: string
+                        authErrorCode:
+                          type: string
                         usedTokens:
                           type: number
                         contextSize:
@@ -4198,6 +4200,22 @@ paths:
                     - delete
                     - reaction
                     - button
+                reaction:
+                  type: object
+                  properties:
+                    op:
+                      type: string
+                      enum:
+                        - added
+                        - removed
+                    emoji:
+                      type: string
+                    targetMessageId:
+                      type: string
+                  required:
+                    - op
+                    - emoji
+                    - targetMessageId
                 isEdit:
                   type: boolean
                 callbackQueryId:
@@ -4366,6 +4384,8 @@ paths:
                       required:
                         - trustClass
                         - canonicalSenderId
+                    actorUnattributed:
+                      type: boolean
                     emailProvider:
                       type: string
                     emailSubject:

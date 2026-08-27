@@ -124,6 +124,7 @@
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
     "nextAttachmentAria": "Next attachment",
+    "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",
     "previousAttachmentAria": "Previous attachment"
   },
@@ -1117,6 +1118,12 @@
   "pageTabs": {
     "formStepsAria": "Form steps"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Loading PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Showing the first page} other {Showing the first # pages}}"
+  },
   "phaseGroupedStepList": {
     "startedAt": "Started at {time}"
   },
@@ -1153,6 +1160,9 @@
     "settingsAriaLabel": "Usage and billing settings",
     "title": "Usage"
   },
+  "previewError": {
+    "cannotPreview": "Can't preview this file"
+  },
   "previewMessageCard": {
     "download": "Download",
     "downloadAria": "Download {filename}"
@@ -1160,9 +1170,14 @@
   "previewSkeleton": {
     "loadingPreview": "Loading preview"
   },
+  "previewTruncationNotice": {
+    "markdown": "Showing the first 512 KB",
+    "text": "Showing the first 2 MB"
+  },
   "previewUnsupported": {
     "downloadFile": "Download file",
-    "goToFile": "Go to file"
+    "goToFile": "Go to file",
+    "noPreviewForType": "No preview for this file type"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."

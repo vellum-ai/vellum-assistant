@@ -3,8 +3,7 @@ import type { ReactNode } from "react";
 import { FileWarning } from "lucide-react";
 import { Typography } from "@vellumai/design-library";
 
-/** Shown for any file a preview cannot read, whatever the reason. */
-const PREVIEW_ERROR_MESSAGE = "Can't preview this file";
+import { useTranslation } from "@/i18n";
 
 interface PreviewErrorProps {
   filename: string;
@@ -16,6 +15,7 @@ interface PreviewErrorProps {
  * its real application from the surrounding drawer.
  */
 export function PreviewError({ filename }: PreviewErrorProps): ReactNode {
+  const { t } = useTranslation("chat");
   return (
     <div
       role="status"
@@ -31,7 +31,7 @@ export function PreviewError({ filename }: PreviewErrorProps): ReactNode {
           variant="body-small-default"
           className="text-[var(--content-default)]"
         >
-          {PREVIEW_ERROR_MESSAGE}
+          {t("previewError.cannotPreview")}
         </Typography>
         <Typography
           as="span"

@@ -7,6 +7,8 @@ import type {
 
 import {
   getChannelActionState,
+  hasVerifiableAddress,
+  isPluginChannel,
   offersManualVerify,
 } from "./contact-channels-section";
 
@@ -65,6 +67,36 @@ describe("offersManualVerify", () => {
   });
 });
 
+describe("isPluginChannel", () => {
+  test("is true when source is plugin-namespaced", () => {
+    expect(isPluginChannel(channel())).toBe(true);
+  });
+
+  test("is false for a built-in channel", () => {
+    expect(
+      isPluginChannel(
+        channel({
+          id: "phone",
+          source: "default",
+          supportsVerification: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("hasVerifiableAddress", () => {
+  test("is false for a missing or blank address", () => {
+    expect(hasVerifiableAddress(undefined)).toBe(false);
+    expect(hasVerifiableAddress(row({ address: "" }))).toBe(false);
+    expect(hasVerifiableAddress(row({ address: "   " }))).toBe(false);
+  });
+
+  test("is true for a non-empty address", () => {
+    expect(hasVerifiableAddress(row({ address: "+15551234567" }))).toBe(true);
+  });
+});
+
 describe("getChannelActionState", () => {
   test("shows Verify me for an unverified plugin row", () => {
     expect(getChannelActionState(channel(), row())).toEqual({
@@ -72,9 +104,28 @@ describe("getChannelActionState", () => {
     });
   });
 
-  test("keeps a plugin channel on setup when there is no row yet", () => {
+  test("shows Verify for a plugin channel with no row yet", () => {
     expect(getChannelActionState(channel(), undefined)).toEqual({
-      kind: "setup",
+      kind: "unverified",
     });
+  });
+
+  test("keeps a built-in challenge channel on setup when there is no row yet", () => {
+    expect(
+      getChannelActionState(
+        channel({
+          id: "phone",
+          source: "default",
+          supportsVerification: true,
+        }),
+        undefined,
+      ),
+    ).toEqual({ kind: "setup" });
+  });
+
+  test("does not offer verify for a blocked plugin row", () => {
+    expect(
+      getChannelActionState(channel(), row({ status: "blocked" })),
+    ).toEqual({ kind: "none" });
   });
 });

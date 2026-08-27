@@ -1,8 +1,8 @@
 /**
- * Tests for Slack message_deleted propagation into stored messages.
+ * Tests for delete propagation into stored messages.
  *
- * The gateway forwards delete events with `callbackData = "message_deleted"`
- * and `sourceMetadata.messageId` set to the deleted message's ts. The daemon
+ * The gateway forwards delete events with `eventKind: "delete"` and
+ * `sourceMetadata.messageId` set to the deleted message's ts. The daemon
  * marks the corresponding stored row's `slackMeta.deletedAt` while leaving
  * the `content` column untouched (audit retention; the renderer elides based
  * on the deletedAt marker).
@@ -154,6 +154,104 @@ function buildSlackDeleteRequest(opts: {
   });
 }
 
+describe("Discord delete propagation (unattributed)", () => {
+  beforeEach(() => {
+    resetState();
+    _setDeleteLookupConfigForTests(2, 20);
+  });
+
+  test("an unattributed delete applies only to an ingested row, without ACL identity", async () => {
+    // Discord's MESSAGE_DELETE names no actor, so the gateway forwards the
+    // synthetic discord-system id with actorUnattributed stated. No member
+    // exists for that id and no trust verdict rides the event; the delete
+    // still applies, because the original's author cleared the ACL when the
+    // message arrived and the stamp touches only that ingested row.
+    const chatId = "999888777666555444";
+    const originalId = "111222333444555001";
+    const inbound = recordInbound("discord", chatId, originalId, {
+      sourceMessageId: originalId,
+    });
+    const messageId = `msg-${originalId}`;
+    getDb()
+      .insert(messages)
+      .values({
+        id: messageId,
+        conversationId: inbound.conversationId,
+        role: "user",
+        content: "A message someone later deleted",
+        metadata: JSON.stringify({ userMessageChannel: "discord" }),
+        createdAt: Date.now(),
+      })
+      .run();
+    linkMessage(inbound.eventId, messageId);
+
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: "discord",
+        interface: "discord",
+        conversationExternalId: chatId,
+        externalMessageId: `${originalId}:delete`,
+        eventKind: "delete",
+        content: "",
+        actorExternalId: "discord-system",
+        sourceMetadata: {
+          messageId: originalId,
+          actorUnattributed: true,
+        },
+      }),
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(true);
+
+    const row = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    expect(row!.content).toBe("A message someone later deleted");
+    const neutral = readProviderMetadata(row!.metadata);
+    expect(neutral).not.toBeNull();
+    expect(neutral!.source).toBe("discord");
+    expect(neutral!.deletedAt).toBeDefined();
+  });
+
+  test("an unattributed delete for a never-ingested message is a no-op", async () => {
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: "discord",
+        interface: "discord",
+        conversationExternalId: "999888777666555444",
+        externalMessageId: "111222333444555002:delete",
+        eventKind: "delete",
+        content: "",
+        actorExternalId: "discord-system",
+        sourceMetadata: {
+          messageId: "111222333444555002",
+          actorUnattributed: true,
+        },
+      }),
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(false);
+  });
+});
+
 describe("Slack delete propagation", () => {
   beforeEach(() => {
     resetState();
@@ -249,6 +347,26 @@ describe("Slack delete propagation", () => {
     const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
     const slackMeta = readSlackMetadata(parsed.slackMeta as string);
     expect(slackMeta!.deletedAt).toBeUndefined();
+  });
+
+  test("a never-ingested delete returns without paying the retry window", async () => {
+    // The retry loop exists for one race: an inbound-event row written
+    // before its message link lands. No row at all means nothing can appear
+    // by waiting, and the wait would hold the conversation's serialized
+    // forward lane for every unrelated delete a busy room produces.
+    _setDeleteLookupConfigForTests(2, 500);
+    const started = Date.now();
+    const req = buildSlackDeleteRequest({
+      externalChatId: "C0123CHANNEL",
+      deletedTs: "0000.0000",
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(false);
+    // Far under a single 500ms retry delay: the loop short-circuited.
+    expect(Date.now() - started).toBeLessThan(400);
   });
 
   test("delete for row without slackMeta stamps the neutral metadata", async () => {

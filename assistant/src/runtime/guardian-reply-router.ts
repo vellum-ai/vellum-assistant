@@ -23,6 +23,7 @@
  * to allow for incremental migration and independent testability.
  */
 
+import type { InboundReactionPayload } from "@vellumai/gateway-client";
 import { isGuardianRequestExpired } from "@vellumai/gateway-client";
 
 import {
@@ -61,7 +62,7 @@ import type {
   ApprovalConversationGenerator,
 } from "./http-types.js";
 import * as pendingInteractions from "./pending-interactions.js";
-import { parseReactionCallbackData } from "./routes/channel-route-shared.js";
+import { reactionDecisionForEmoji } from "./routes/channel-route-shared.js";
 
 const log = getLogger("guardian-reply-router");
 
@@ -106,7 +107,12 @@ export interface GuardianReplyContext {
   /** Callback data from button presses (e.g. `apr:<requestId>:<action>`). */
   callbackData?: string;
   /**
-   * For emoji-reaction decisions (`callbackData` of `reaction:<emoji>`): the
+   * Structured reaction payload when the inbound event is a reaction; the
+   * reaction branch keys on it and reads nothing off callbackData.
+   */
+  reaction?: InboundReactionPayload;
+  /**
+   * For emoji-reaction decisions: the
    * channel-native id (e.g. Slack `ts`) of the message the reaction was
    * attached to. Used to recover the target request from its delivery record.
    */
@@ -368,13 +374,10 @@ export async function routeGuardianReply(
   // even when several cards are pending in the same chat, so — unlike the
   // text/NL paths — no clarification prompt is ever needed. `reaction_removed`
   // never expresses intent and is filtered out before reaching the router.
-  if (
-    callbackData?.startsWith("reaction:") &&
-    !callbackData.startsWith("reaction_removed:")
-  ) {
-    const reaction = parseReactionCallbackData(callbackData);
+  if (ctx.reaction?.op === "added") {
+    const decision = reactionDecisionForEmoji(ctx.reaction.emoji);
     const guardianChatId = channelDeliveryContext?.guardianChatId;
-    if (!reaction || !reactedMessageTs || !guardianChatId) {
+    if (!decision || !reactedMessageTs || !guardianChatId) {
       // Unknown emoji, or missing addressing context — not an actionable
       // approval reaction. Leave it for the caller to persist as a transcript
       // signal (it must not trigger an agent turn).
@@ -393,7 +396,7 @@ export async function routeGuardianReply(
     }
     return applyDecision(
       request.id,
-      reaction.action,
+      decision.action,
       actor,
       undefined,
       channelDeliveryContext,

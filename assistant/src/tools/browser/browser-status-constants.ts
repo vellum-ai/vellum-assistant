@@ -26,6 +26,13 @@ export const EXTENSION_STATUS_ERROR_MARKER = {
   HTTP_401: "401",
 } as const;
 
+/** Chrome Web Store listing for the Vellum Assistant browser extension. */
+export const CHROME_WEB_STORE_INSTALL_URL =
+  "https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne";
+
+/** User-facing install step for status userActions and command-failure hints. */
+export const CHROME_EXTENSION_INSTALL_HINT = `Install the Vellum Assistant Chrome extension from the Chrome Web Store: ${CHROME_WEB_STORE_INSTALL_URL}`;
+
 export const CDP_INSPECT_STATUS_DISCOVERY_CODE = {
   NO_TARGETS: DEVTOOLS_DISCOVERY_CODE.NO_TARGETS,
   INVALID_RESPONSE: DEVTOOLS_DISCOVERY_CODE.INVALID_RESPONSE,

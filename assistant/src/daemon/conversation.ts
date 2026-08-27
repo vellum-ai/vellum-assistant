@@ -1878,6 +1878,18 @@ export class Conversation {
     return !this.queue.isEmpty;
   }
 
+  /**
+   * True when dropping this instance would lose work that is still in flight:
+   * a live turn, a queued successor, or a child subagent.
+   */
+  hasInFlightWork(): boolean {
+    return (
+      this.isProcessing() ||
+      this.hasQueuedMessages() ||
+      getSubagentManager().hasActiveChildren(this.conversationId)
+    );
+  }
+
   /** FIFO snapshot of the messages currently waiting in the in-memory queue.
    * Read-only — used to surface queued user messages in history responses. */
   snapshotQueuedMessages(): QueuedMessage[] {

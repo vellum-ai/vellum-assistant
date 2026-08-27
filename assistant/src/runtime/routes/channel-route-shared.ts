@@ -84,13 +84,9 @@ const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
  * Parse a `reaction:<emoji_name>` callback data string into an approval
  * decision. Returns null if the emoji is not mapped to any action.
  */
-export function parseReactionCallbackData(
-  data: string,
+export function reactionDecisionForEmoji(
+  emoji: string,
 ): ApprovalDecisionResult | null {
-  if (!data.startsWith("reaction:")) {
-    return null;
-  }
-  const emoji = data.slice("reaction:".length);
   const action = REACTION_EMOJI_MAP.get(emoji);
   if (!action) {
     return null;

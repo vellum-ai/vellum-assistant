@@ -81,6 +81,18 @@ export interface PendingAcpConnectState {
    * completing or dismissing the flow clears the card.
    */
   reason?: "missing" | "auth_required";
+  /**
+   * Conversation the failure happened in.
+   *
+   * The prompt deliberately outlives a conversation switch (`resetAll` carries
+   * it over), so without this a transcript that does not hold the anchor is
+   * ambiguous: it could be a different conversation, or the right one with the
+   * anchor paged out of the loaded window. History opens at the latest 50
+   * messages, so a long background run's spawn call is genuinely often outside
+   * it. Naming the owner separates the two, which is what lets the paged-out
+   * case dock without the card leaking into an unrelated chat.
+   */
+  conversationId?: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -6,12 +6,19 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  acpAuthMarkerStillCurrent,
+  MARKER_SCAN_LIMIT,
+} from "../../acp/acp-auth-marker-store.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
-import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
+import {
+  prepareAgentEnv,
+  resolvedClaudeCredentialDigest,
+} from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import {
   AcpResumeError,
@@ -58,6 +65,9 @@ const sessionEntrySchema = z.object({
   stopReason: z.string().nullable().optional(),
   task: z.string().optional(),
   parentToolUseId: z.string().optional(),
+  /** Credential failure that ended the run, when one did. Drives the inline
+   *  Connect card on reopen; cleared when a replacement token is stored. */
+  authErrorCode: z.string().optional(),
   usedTokens: z.number().optional(),
   contextSize: z.number().optional(),
   costAmount: z.number().optional(),
@@ -68,6 +78,24 @@ const sessionEntrySchema = z.object({
 });
 
 type SessionEntry = z.infer<typeof sessionEntrySchema>;
+
+/**
+ * A merged session before its marker has been judged.
+ *
+ * `authErrorCredential` names the credential the failure was refused on. It is
+ * what the comparison needs and is dropped before the response goes out: a
+ * client has no use for it and no way to resolve the other side of the
+ * comparison, so serving it would only widen what leaves the daemon.
+ */
+type MergedSession = SessionEntry & { authErrorCredential?: string };
+
+/** Drop the comparison's own input before the session goes out on the wire. */
+function stripMarkerCredential({
+  authErrorCredential: _dropped,
+  ...session
+}: MergedSession): SessionEntry {
+  return session;
+}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -424,11 +452,102 @@ function closeSession({ pathParams }: RouteHandlerArgs) {
   return { acpSessionId: id, closed: true };
 }
 
-function listSessions({ queryParams }: RouteHandlerArgs) {
+async function listSessions({ queryParams }: RouteHandlerArgs) {
   const limit = parseLimit(queryParams?.limit);
   const conversationId = queryParams?.conversationId;
-  const sessions = listMergedSessions({ limit, conversationId });
-  return { sessions };
+  // Resolved per agent, because precedence is per agent: one alias can carry a
+  // configured token while another falls through to the vault. Memoised across
+  // the request, since each resolution costs a vault read and a conversation's
+  // marked runs are nearly always one agent.
+  const resolvedByAgent = new Map<string, string | undefined>();
+  const resolvedFor = async (agentId: string) => {
+    if (!resolvedByAgent.has(agentId)) {
+      resolvedByAgent.set(
+        agentId,
+        await resolvedClaudeCredentialDigest(agentId),
+      );
+    }
+    return resolvedByAgent.get(agentId);
+  };
+
+  const { sessions: merged, sawEveryHistoryRow } = listMergedSessions({
+    limit,
+    conversationId,
+  });
+  // Judged before paging, never after. A stale marker that escaped the page
+  // first would stay in the response as an ordinary row once its code was
+  // struck, so the retained markers would pile up past the limit.
+  const judged = await withCurrentMarkersOnly(merged, resolvedFor);
+  const page = judged.slice(0, limit);
+  if (!conversationId || page.some((s) => s.authErrorCode !== undefined)) {
+    return { sessions: page };
+  }
+  // Rows the page cut that are already in hand. In-memory sessions merge in on
+  // top of the history read, so the merged list can overflow the page even
+  // when the query reached the end of the table, and the marker the client
+  // needs can be sitting in that overflow. Newest-first, so the first match is
+  // the one to surface.
+  const overflowMarker = judged
+    .slice(limit)
+    .find((s) => s.authErrorCode !== undefined);
+  if (overflowMarker) {
+    return { sessions: [...page, overflowMarker] };
+  }
+  if (sawEveryHistoryRow) {
+    // Every row this conversation has has now been looked at, page and
+    // overflow alike, so a marker elsewhere is not a thing that exists. Most
+    // conversations have never had a credential failure, and this is what
+    // keeps the lookup off their path rather than asking the database to
+    // confirm the absence every time.
+    return { sessions: page };
+  }
+  // The page holds no live marker, so the row a client restores the card from
+  // is either outside it or absent. One row, fetched only now, rather than
+  // every marked row loaded on the chance one of them is needed.
+  const marker = await findRecoveryMarker(conversationId, resolvedFor);
+  if (!marker || page.some((s) => s.id === marker.id)) {
+    return { sessions: page };
+  }
+  return { sessions: [...page, stripMarkerCredential(marker)] };
+}
+
+/**
+ * Blank the failure code on any session whose marker no longer describes the
+ * credential its agent would resolve.
+ *
+ * This comparison is what retires a Connect card: not a sweep that has to run
+ * at the right moment, but the marker no longer describing the credential in
+ * use. Applied after merging rather than inside the query, so live sessions
+ * and history rows are judged by exactly the same rule.
+ *
+ * Resolved per agent, because precedence is per agent: one alias can carry a
+ * configured token while another falls through to the vault. Memoised across
+ * the request, since a conversation's marked runs are nearly always one agent
+ * and each resolution costs a vault read.
+ */
+async function withCurrentMarkersOnly(
+  sessions: MergedSession[],
+  resolvedFor: (agentId: string) => Promise<string | undefined>,
+): Promise<SessionEntry[]> {
+  const strip = stripMarkerCredential;
+  if (!sessions.some((s) => s.authErrorCode !== undefined)) {
+    return sessions.map(strip);
+  }
+  const judged: SessionEntry[] = [];
+  for (const session of sessions) {
+    if (session.authErrorCode === undefined) {
+      judged.push(strip(session));
+      continue;
+    }
+    const current = acpAuthMarkerStillCurrent(
+      session.authErrorCredential,
+      await resolvedFor(session.agentId),
+    );
+    judged.push(
+      strip(current ? session : { ...session, authErrorCode: undefined }),
+    );
+  }
+  return judged;
 }
 
 function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
@@ -701,14 +820,20 @@ function parseLimit(raw: string | null | undefined): number {
   return Math.min(Math.floor(n), MAX_SESSION_LIMIT);
 }
 
-function listMergedSessions(opts: {
-  limit: number;
-  conversationId?: string;
-}): SessionEntry[] {
+function listMergedSessions(opts: { limit: number; conversationId?: string }): {
+  sessions: MergedSession[];
+  /**
+   * Whether the history query reached the end of this conversation's rows.
+   *
+   * A short read means there is nothing beyond what was returned, which is the
+   * proof that no marker is hiding outside the page.
+   */
+  sawEveryHistoryRow: boolean;
+} {
   const manager = getAcpSessionManager();
   const inMemory = manager.getStatus() as AcpSessionState[];
 
-  const merged = new Map<string, SessionEntry>();
+  const merged = new Map<string, MergedSession>();
   for (const s of inMemory) {
     if (opts.conversationId && s.parentConversationId !== opts.conversationId) {
       continue;
@@ -725,6 +850,8 @@ function listMergedSessions(opts: {
       stopReason: s.stopReason ?? null,
       task: s.task,
       parentToolUseId: s.parentToolUseId,
+      authErrorCode: s.authErrorCode,
+      authErrorCredential: s.authErrorCredential,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,
@@ -748,52 +875,131 @@ function listMergedSessions(opts: {
   // guarantee we still surface `limit` distinct rows even when every
   // in-memory session shadows a DB row — without over-fetching when many
   // unrelated sessions are in memory.
+  const historyLimit = opts.limit + merged.size;
   const historyRows = filtered
     .orderBy(desc(acpSessionHistory.startedAt))
-    .limit(opts.limit + merged.size)
+    .limit(historyLimit)
     .all();
 
   for (const row of historyRows) {
     if (merged.has(row.id)) {
       continue;
     }
-    let eventLog: unknown[] = [];
-    try {
-      const parsed = JSON.parse(row.eventLogJson) as unknown;
-      if (Array.isArray(parsed)) {
-        eventLog = parsed;
-      }
-    } catch (err) {
-      log.warn(
-        { id: row.id, err },
-        "Failed to parse event_log_json for ACP session history row",
-      );
-    }
-    // Rows predating the usage migration carry NULLs for these columns and
-    // degrade to undefined.
-    merged.set(row.id, {
-      id: row.id,
-      agentId: row.agentId,
-      acpSessionId: row.acpSessionId,
-      parentConversationId: row.parentConversationId,
-      status: row.status,
-      startedAt: row.startedAt,
-      completedAt: row.completedAt,
-      error: row.error,
-      stopReason: row.stopReason,
-      task: row.task ?? undefined,
-      parentToolUseId: row.parentToolUseId ?? undefined,
-      usedTokens: row.usedTokens ?? undefined,
-      contextSize: row.contextSize ?? undefined,
-      costAmount: row.costAmount ?? undefined,
-      costCurrency: row.costCurrency ?? undefined,
-      inputTokens: row.inputTokens ?? undefined,
-      outputTokens: row.outputTokens ?? undefined,
-      eventLog,
-    });
+    merged.set(row.id, toMergedSession(row));
   }
 
-  return Array.from(merged.values())
-    .sort((a, b) => b.startedAt - a.startedAt)
-    .slice(0, opts.limit);
+  return {
+    sessions: Array.from(merged.values()).sort(
+      (a, b) => b.startedAt - a.startedAt,
+    ),
+    sawEveryHistoryRow: historyRows.length < historyLimit,
+  };
+}
+
+/** Shape a history row for the response, parsing its stored event log. */
+function toMergedSession(
+  row: typeof acpSessionHistory.$inferSelect,
+): MergedSession {
+  let eventLog: unknown[] = [];
+  try {
+    const parsed = JSON.parse(row.eventLogJson) as unknown;
+    if (Array.isArray(parsed)) {
+      eventLog = parsed;
+    }
+  } catch (err) {
+    log.warn(
+      { id: row.id, err },
+      "Failed to parse event_log_json for ACP session history row",
+    );
+  }
+  // Rows predating the usage migration carry NULLs for these columns and
+  // degrade to undefined.
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    acpSessionId: row.acpSessionId,
+    parentConversationId: row.parentConversationId,
+    status: row.status,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    error: row.error,
+    stopReason: row.stopReason,
+    task: row.task ?? undefined,
+    parentToolUseId: row.parentToolUseId ?? undefined,
+    authErrorCode: row.authErrorCode ?? undefined,
+    authErrorCredential: row.authErrorCredential ?? undefined,
+    usedTokens: row.usedTokens ?? undefined,
+    contextSize: row.contextSize ?? undefined,
+    costAmount: row.costAmount ?? undefined,
+    costCurrency: row.costCurrency ?? undefined,
+    inputTokens: row.inputTokens ?? undefined,
+    outputTokens: row.outputTokens ?? undefined,
+    eventLog,
+  };
+}
+
+/**
+ * Reach past the page for the one marked run a client would restore the card
+ * from, when the page itself holds none.
+ *
+ * Paging it out is the difference between a user having a way back to auth and
+ * not: a conversation with more recent runs than the page holds would
+ * otherwise hide the one row that matters.
+ *
+ * Asks the database for that row rather than filtering one that was loaded.
+ * Nothing clears a marker, so repeated failures against a credential that is
+ * still current accumulate them, and loading every marked row would pull a
+ * full event log apiece into memory to parse and then discard. This reads the
+ * credential of each marked row (a column, no event log), resolves what its
+ * agent would use now, and only then loads the single row that wins.
+ *
+ * Bounded by the number of distinct agents a conversation has failed under,
+ * which is one in practice, rather than by how often it has failed.
+ */
+async function findRecoveryMarker(
+  conversationId: string,
+  resolvedFor: (agentId: string) => Promise<string | undefined>,
+): Promise<MergedSession | undefined> {
+  const db = getDb();
+  // One ordered read of the newest markers, then the answer is decided in
+  // memory. Filtering by agent and credential in SQL meant the planner could
+  // only seek to the conversation and then walk its marked history looking for
+  // a match, so a run of failures against a replaced credential put that walk
+  // back on every snapshot. This shape is the one the index serves: seek,
+  // read in order, stop.
+  const markers = db
+    .select({
+      id: acpSessionHistory.id,
+      agentId: acpSessionHistory.agentId,
+      credential: acpSessionHistory.authErrorCredential,
+    })
+    .from(acpSessionHistory)
+    .where(
+      and(
+        eq(acpSessionHistory.parentConversationId, conversationId),
+        isNotNull(acpSessionHistory.authErrorCode),
+      ),
+    )
+    .orderBy(desc(acpSessionHistory.startedAt))
+    .limit(MARKER_SCAN_LIMIT)
+    .all();
+
+  for (const marker of markers) {
+    if (
+      acpAuthMarkerStillCurrent(
+        marker.credential,
+        await resolvedFor(marker.agentId),
+      )
+    ) {
+      // Newest-first, so the first match is the one a client would restore
+      // from. Only now is the full row worth loading, by primary key.
+      const row = db
+        .select()
+        .from(acpSessionHistory)
+        .where(eq(acpSessionHistory.id, marker.id))
+        .get();
+      return row ? toMergedSession(row) : undefined;
+    }
+  }
+  return undefined;
 }

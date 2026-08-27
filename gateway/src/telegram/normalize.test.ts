@@ -107,7 +107,7 @@ describe("normalizeTelegramUpdate: event kinds", () => {
 
     expect(result).not.toBeNull();
     expect(result!.message.eventKind).toBe("edit");
-    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.eventKind).toBe("edit");
   });
 
   it("classifies a plain message as a message", () => {

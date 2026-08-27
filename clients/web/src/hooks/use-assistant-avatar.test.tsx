@@ -208,6 +208,36 @@ describe("useAssistantAvatar", () => {
       expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
     });
 
+    test("a read issued for the active assistant persists even if the user switched before it landed", async () => {
+      let resolveState: (state: AvatarState) => void = () => {};
+      fetchAvatarState.mockImplementationOnce(
+        () =>
+          new Promise<AvatarState>((resolve) => {
+            resolveState = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+      });
+
+      useResolvedAssistantsStore.getState().setActiveAssistantId("asst-2");
+      resolveState(characterState);
+
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "asst-1",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+    });
+
     test("a superseded legacy read that finishes last persists nothing and drops its blob", async () => {
       let resolveOld: (result: AvatarFileResult<string>) => void = () => {};
       const oldImage = new Promise<AvatarFileResult<string>>((resolve) => {

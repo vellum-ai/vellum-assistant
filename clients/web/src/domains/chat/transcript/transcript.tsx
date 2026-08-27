@@ -19,6 +19,7 @@ import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner";
 import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
+import { useAcpConnectInlineToolUseId } from "@/domains/chat/hooks/use-acp-connect-placement";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useContentAboveViewport } from "@/domains/chat/transcript/use-content-above-viewport";
@@ -298,8 +299,12 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       [rest.scrollCoordinatorState],
     );
 
+    // One read for the whole transcript; rows take the answer as a prop.
+    const acpConnectInlineToolUseId = useAcpConnectInlineToolUseId();
+
     const rowProps = {
       conversationId,
+      acpConnectInlineToolUseId,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
       onSummarizeUpToHere: rest.onSummarizeUpToHere,

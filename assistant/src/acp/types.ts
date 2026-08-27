@@ -12,6 +12,13 @@ export interface AcpAgentConfig {
   args: string[];
   description?: string;
   env?: Record<string, string>;
+  /**
+   * Identity of the Claude token `prepareAgentEnv` resolved into `env`,
+   * whichever source it came from. Recorded on the history row when Claude
+   * refuses it, so the marker can later be compared against the credential a
+   * spawn would resolve now. Absent for agents that use no Claude credential.
+   */
+  credentialDigest?: string;
 }
 
 /**
@@ -32,6 +39,16 @@ export interface AcpSessionState {
   task?: string;
   /** Tool-use id of the `acp_spawn` call that spawned this session, if any. */
   parentToolUseId?: string;
+  /**
+   * Credential failure that ended the run, when one did. Persisted on the
+   * history row so a client that reopens the conversation can re-raise the
+   * inline Connect card, and cleared there when a replacement token lands.
+   */
+  authErrorCode?: string;
+  /** Digest of the Claude token that failure was refused on, carried to the
+   *  history row so the marker can be compared against the credential a later
+   *  spawn resolves. */
+  authErrorCredential?: string;
   /** Latest context-window usage gauge, from the most recent `usage_update`. */
   latestUsage?: AcpUsageSnapshot;
 }

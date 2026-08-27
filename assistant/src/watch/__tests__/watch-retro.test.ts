@@ -247,6 +247,51 @@ describe("watch retrospective", () => {
     );
   });
 
+  test("puts the report last in the turn, after the skill it hands off to", async () => {
+    const summary = recordSession(["renaming the export"]);
+    const { calls, dispatch } = recordingDispatch();
+
+    await runWatchRetro(summary, { dispatch });
+
+    const { prompt } = calls[0]!;
+    // The report is what the user is shown when a session ends, so it has to
+    // be the turn's last prose. A client renders the final text block as the
+    // response and folds everything before it into collapsed intermediate
+    // work, so a `skill_load` issued after the report demotes the report to
+    // an "Earlier activity" row the user has to unfold to read.
+    expect(prompt).toContain("Load the `skill-management` skill first");
+    expect(
+      prompt.indexOf("Load the `skill-management` skill first"),
+    ).toBeLessThan(prompt.indexOf("What I need from you"));
+    expect(prompt).toContain("That report is the last thing you do this turn");
+    // A sign-off is another text block after the report, which puts the report
+    // back on the wrong side of the same rule, so it is refused by name.
+    expect(prompt).toContain("no sign-off");
+    expect(prompt).toContain("no further tool call");
+  });
+
+  test("writes the report even when the skill it hands off to will not load", async () => {
+    const summary = recordSession(["filing the receipt"]);
+    const { calls, dispatch } = recordingDispatch();
+
+    await runWatchRetro(summary, { dispatch });
+
+    const { prompt } = calls[0]!;
+    // `skill-management` is a selector, and a managed or workspace skill of the
+    // same id replaces the bundled one in the catalog. Putting the load ahead
+    // of the report is what lets a shadow, or the refusal a clientless wake
+    // gives an inline-command load, land before the user has been told
+    // anything. Neither may become the retro: the session is recorded and the
+    // account of it is what the user is owed.
+    expect(prompt).toContain(
+      "Write the report below whether or not that load succeeds",
+    );
+    expect(prompt).toContain("do not report on the load and do not retry it");
+    // The failure is still named, so a missing handoff does not read as a
+    // report that simply chose not to ask about authoring.
+    expect(prompt).toContain("could not open the skill-authoring flow");
+  });
+
   test("authors nothing until the user has confirmed", async () => {
     const summary = recordSession(["exporting the sheet"]);
     const { calls, dispatch } = recordingDispatch();
@@ -605,7 +650,9 @@ describe("watch retrospective", () => {
     expect(payload).toBeGreaterThan(opened);
     expect(payload).toBeLessThan(closed);
     // The retrospective's own instructions sit outside it.
-    expect(prompt.indexOf("Write back to the user")).toBeGreaterThan(closed);
+    expect(
+      prompt.indexOf("Load the `skill-management` skill first"),
+    ).toBeGreaterThan(closed);
 
     // One real envelope, so nothing in the recording can pass for a second.
     expect(prompt.match(/<external_content/g)).toHaveLength(1);

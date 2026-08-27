@@ -13,6 +13,8 @@ const capturedNotifications: {
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => ({
+    isStale: () => false,
+    hasInFlightWork: () => false,
     enqueueMessage: (options: { content: string }) => {
       capturedNotifications.push({
         parentConversationId: id,

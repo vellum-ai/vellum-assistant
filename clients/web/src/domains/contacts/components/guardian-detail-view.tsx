@@ -22,7 +22,7 @@ interface GuardianDetailViewProps {
   onSave: (patch: { displayName: string; notes: string }) => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
-  onVerifyChannel?: (type: string) => void;
+  onVerifyChannel?: (type: string, address?: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
   onGenerateInviteLink?: () => void;
 }

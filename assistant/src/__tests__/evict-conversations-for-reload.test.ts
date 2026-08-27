@@ -7,8 +7,9 @@
  * releasing and its queued successor being dispatched.
  *
  * In-flight subagents are the other non-idle case: an async spawn leaves the
- * parent idle between its own tool calls while children are still running, and
- * reload must not abort those children.
+ * parent idle between its own tool calls while children are still running.
+ * Reload marks that parent stale without aborting the children, then
+ * `getOrCreateConversation` rebuilds it once every child is terminal.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -32,7 +33,10 @@ import {
   findConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import { evictConversationsForReload } from "../daemon/conversation-store.js";
+import {
+  evictConversationsForReload,
+  getOrCreateConversation,
+} from "../daemon/conversation-store.js";
 
 interface FakeConversation {
   disposed: boolean;
@@ -41,7 +45,7 @@ interface FakeConversation {
 
 function register(
   id: string,
-  state: { processing: boolean; queued: boolean },
+  state: { processing: boolean; queued: boolean; stale?: boolean },
 ): FakeConversation {
   const fake: FakeConversation & Record<string, unknown> = {
     disposed: false,
@@ -49,6 +53,9 @@ function register(
     conversationId: id,
     isProcessing: () => state.processing,
     hasQueuedMessages: () => state.queued,
+    isStale: () => state.stale === true || fake.markedStale,
+    hasInFlightWork: () =>
+      state.processing || state.queued || activeParents.has(id),
     dispose() {
       fake.disposed = true;
     },
@@ -103,7 +110,7 @@ describe("evictConversationsForReload", () => {
     expect(abortedParents).toEqual([]);
   });
 
-  test("skips an idle parent with in-flight subagents", () => {
+  test("marks an idle parent with in-flight subagents stale", () => {
     const parent = register("reload-with-children", {
       processing: false,
       queued: false,
@@ -113,7 +120,7 @@ describe("evictConversationsForReload", () => {
     evictConversationsForReload();
 
     expect(parent.disposed).toBe(false);
-    expect(parent.markedStale).toBe(false);
+    expect(parent.markedStale).toBe(true);
     expect(findConversation("reload-with-children")).toBeDefined();
     expect(abortedParents).toEqual([]);
   });
@@ -132,9 +139,42 @@ describe("evictConversationsForReload", () => {
     evictConversationsForReload();
 
     expect(protectedParent.disposed).toBe(false);
+    expect(protectedParent.markedStale).toBe(true);
     expect(findConversation("reload-protected")).toBeDefined();
     expect(idle.disposed).toBe(true);
     expect(findConversation("reload-unprotected")).toBeUndefined();
     expect(abortedParents).toEqual(["reload-unprotected"]);
+  });
+
+  test("defers stale rebuild while subagents are in flight", async () => {
+    const parent = register("stale-parent", {
+      processing: false,
+      queued: false,
+      stale: true,
+    });
+    activeParents.add("stale-parent");
+
+    const result = await getOrCreateConversation("stale-parent");
+
+    expect(result as unknown).toBe(parent);
+    expect(parent.disposed).toBe(false);
+    expect(abortedParents).toEqual([]);
+  });
+
+  test("rebuilds a stale parent once every child is terminal", async () => {
+    const parent = register("stale-parent", {
+      processing: false,
+      queued: false,
+      stale: true,
+    });
+
+    try {
+      await getOrCreateConversation("stale-parent");
+    } catch {
+      // Isolated test has no provider wiring; rebuild intent is abort + dispose.
+    }
+
+    expect(parent.disposed).toBe(true);
+    expect(abortedParents).toEqual(["stale-parent"]);
   });
 });

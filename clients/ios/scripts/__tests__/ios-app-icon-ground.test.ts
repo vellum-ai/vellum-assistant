@@ -26,15 +26,38 @@ function readGround(xcconfig: string): string | undefined {
   return /^APP_ICON_GROUND\s*=\s*(.+)$/m.exec(contents)?.[1]?.trim();
 }
 
-function readIconFill(icon: string): string {
+interface FillSpecialization {
+  appearance?: string;
+  value: { solid: string };
+}
+
+function readFillSpecializations(icon: string): FillSpecialization[] {
   const contents = readFileSync(join(APP_DIR, icon, "icon.json"), "utf8");
-  return JSON.parse(contents).fill.solid;
+  return JSON.parse(contents)["fill-specializations"];
+}
+
+/** The bundle pins every appearance to one color, so any specialization does. */
+function readIconFill(icon: string): string {
+  const solids = new Set(
+    readFillSpecializations(icon).map(({ value }) => value.solid),
+  );
+  expect(solids.size).toBe(1);
+  return [...solids][0] as string;
 }
 
 describe("ios app icon ground", () => {
   for (const { xcconfig, icon } of TARGETS) {
     test(`${xcconfig} carries ${icon}'s own fill`, () => {
       expect(readGround(xcconfig)).toBe(readIconFill(icon));
+    });
+  }
+
+  for (const { icon } of TARGETS) {
+    test(`${icon} pins its dark appearance to the same fill`, () => {
+      const appearances = readFillSpecializations(icon).map(
+        ({ appearance }) => appearance,
+      );
+      expect(appearances).toContain("dark");
     });
   }
 

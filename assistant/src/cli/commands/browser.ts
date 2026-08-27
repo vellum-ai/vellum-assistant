@@ -262,6 +262,7 @@ interface StatusModeEntry {
   available: boolean;
   autoCandidate: boolean;
   summary: string;
+  userActions?: string[];
 }
 
 interface StatusPayload {
@@ -271,31 +272,50 @@ interface StatusPayload {
   modes: StatusModeEntry[];
 }
 
-function formatBrowserStatus(content: string): void {
+/** Render `assistant browser status` JSON as human-readable lines. */
+export function formatBrowserStatusLines(content: string): string[] | null {
   let data: StatusPayload;
   try {
     data = JSON.parse(content);
   } catch {
-    log.info(content);
-    return;
+    return null;
   }
 
-  log.info(`Requested mode: ${data.requestedMode}`);
+  const lines: string[] = [];
+  lines.push(`Requested mode: ${data.requestedMode}`);
   if (data.recommendedMode) {
-    log.info(`Recommended:    ${data.recommendedMode}`);
+    lines.push(`Recommended:    ${data.recommendedMode}`);
   }
   if (data.stickyConversationMode) {
-    log.info(`Sticky mode:    ${data.stickyConversationMode}`);
+    lines.push(`Sticky mode:    ${data.stickyConversationMode}`);
   }
-  log.info("");
+  lines.push("");
 
   const modes = data.modes ?? [];
   for (const mode of modes) {
     const icon = mode.available ? "✓" : "✗";
     const auto = mode.autoCandidate ? " (auto-candidate)" : "";
-    log.info(`  ${icon} ${mode.mode}${auto}`);
-    log.info(`    ${mode.summary}`);
-    log.info("");
+    lines.push(`  ${icon} ${mode.mode}${auto}`);
+    lines.push(`    ${mode.summary}`);
+    for (const action of mode.userActions ?? []) {
+      if (!action) {
+        continue;
+      }
+      lines.push(`    - ${action}`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+
+function formatBrowserStatus(content: string): void {
+  const lines = formatBrowserStatusLines(content);
+  if (lines == null) {
+    log.info(content);
+    return;
+  }
+  for (const line of lines) {
+    log.info(line);
   }
 }
 

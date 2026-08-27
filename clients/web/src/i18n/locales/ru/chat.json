@@ -45,6 +45,9 @@
     "switchTo": "Переключиться на {name}",
     "unnamedAssistant": "Безымянный ассистент"
   },
+  "attachmentPreviewModal": {
+    "pdfLoadFailed": "Не удалось показать этот PDF"
+  },
   "attachmentTile": {
     "cancelUpload": "Отменить загрузку {filename}",
     "preview": "Предпросмотр {filename}",
@@ -584,6 +587,12 @@
     "usageSubtitle": "Счётчики токенов и вызовов, нормализованные маршрутом ассистента.",
     "usageTitle": "Использование"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Загрузка PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Показана первая страница} few {Показаны первые # страницы} many {Показаны первые # страниц} other {Показаны первые # страницы}}"
+  },
   "pinnedAppColorSwatches": {
     "colors": {
       "green": "Зелёный",
@@ -602,6 +611,16 @@
     "pctUsed": "использовано {pct}%",
     "settingsAriaLabel": "Настройки использования и оплаты",
     "title": "Использование"
+  },
+  "previewError": {
+    "cannotPreview": "Не удаётся показать этот файл"
+  },
+  "previewTruncationNotice": {
+    "markdown": "Показаны первые 512 КБ",
+    "text": "Показаны первые 2 МБ"
+  },
+  "previewUnsupported": {
+    "noPreviewForType": "Нет предпросмотра для этого типа файла"
   },
   "promptTab": {
     "availableTools": "Доступные инструменты",

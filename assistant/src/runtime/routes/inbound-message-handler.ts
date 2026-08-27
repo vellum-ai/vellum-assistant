@@ -6,7 +6,10 @@
  * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
-import { resolveInboundEventKind } from "@vellumai/gateway-client";
+import {
+  resolveInboundEventKind,
+  resolveInboundReactionPayload,
+} from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
@@ -88,6 +91,7 @@ import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversa
 import {
   clearPayload,
   findMessageBySourceId,
+  hasInboundEventForSource,
   recordInbound,
 } from "../../persistence/delivery-crud.js";
 import { markProcessed } from "../../persistence/delivery-status.js";
@@ -120,8 +124,8 @@ import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-act
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
 import {
-  handleSlackReactionIntercept,
-  isSlackReactionEvent,
+  handleReactionIntercept,
+  isReactionEvent,
 } from "./inbound-stages/reaction-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
@@ -372,11 +376,13 @@ export async function handleChannelInbound({
   const hasCallbackData =
     typeof body.callbackData === "string" && body.callbackData.length > 0;
 
+  // Only a plain message must carry a body: every other family refers to
+  // another message and legitimately arrives empty (a delete has no
+  // content at all).
   if (
     trimmedContent.length === 0 &&
     !hasAttachments &&
-    !isEdit &&
-    !hasCallbackData
+    eventKind === "message"
   ) {
     throw new BadRequestError("content or attachmentIds is required");
   }
@@ -421,7 +427,7 @@ export async function handleChannelInbound({
     return guardianActivationResponse;
   }
 
-  // ── Slack reaction handling ──
+  // ── Reaction handling ──
   // Reactions are passive channel signals — not messages, and not access
   // attempts. Dispatch them to a dedicated interceptor BEFORE the message
   // pipeline (ACL, admission floor, disk-pressure, conversation binding) so a
@@ -431,10 +437,20 @@ export async function handleChannelInbound({
   // transcript signals in the conversation of the reacted message, and routes
   // a guardian's reaction on an approval card through the guardian decision
   // pipeline. Reactions never mint a conversation and never drive an agent
-  // turn.
-  if (isSlackReactionEvent(body)) {
-    return handleSlackReactionIntercept({
-      callbackData: body.callbackData!,
+  // turn. A family member whose payload does not resolve (no emoji or no
+  // target message id) is dropped as noise here: the kind names the family,
+  // so it must never fall through and be read as a message.
+  if (isReactionEvent(body)) {
+    const reaction = resolveInboundReactionPayload(body);
+    if (!reaction) {
+      log.debug(
+        { sourceChannel, conversationExternalId },
+        "Dropping reaction with unresolvable payload",
+      );
+      return { accepted: true, reaction: "dropped_unresolvable_payload" };
+    }
+    return handleReactionIntercept({
+      reaction,
       sourceChannel,
       sourceInterface,
       conversationExternalId,
@@ -476,7 +492,10 @@ export async function handleChannelInbound({
   // respond to one by minting a verification challenge or creating an access
   // request (LUM-2673). Reaction callbacks never reach this point — the
   // intercept above returns for them.
-  const isCallbackInteraction = hasCallbackData;
+  const isCallbackInteraction =
+    eventKind === "button" ||
+    eventKind === "reaction" ||
+    eventKind === "delete";
 
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
@@ -493,26 +512,25 @@ export async function handleChannelInbound({
     assistantId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
     isCallbackInteraction,
+    // Scoped to deletes: the one family whose wire can name no actor. Any
+    // other kind carrying the flag still faces the full ACL.
+    actorUnattributed:
+      eventKind === "delete" && sourceMetadata?.actorUnattributed === true,
   });
   if (aclResult.earlyResponse) {
     return aclResult.earlyResponse;
   }
   const { resolvedMember } = aclResult;
 
-  // ── Slack delete propagation ──
-  // Slack message_deleted events are forwarded by the gateway with the
-  // sentinel `callbackData = "message_deleted"` and `sourceMetadata.messageId`
-  // set to the original (deleted) message's ts. Short-circuit the rest of
-  // the pipeline: the agent loop should not run for delete notifications,
-  // and routing the event through approval / agent paths would be incorrect.
-  // We mark the stored row as deleted in slackMeta but leave `content`
-  // untouched for audit purposes — rendering elides based on the deletedAt
-  // marker. Gated behind ingress ACL so non-members cannot drive deletes
-  // (matches the edit-intercept policy).
-  // The Slack gate mirrors the reaction intercept's: deletes are ingested
-  // from Slack alone today, and each further channel arrives as its own
-  // decision with its own wire shape.
-  if (sourceChannel === "slack" && eventKind === "delete") {
+  // ── Delete propagation ──
+  // A delete names the original via `sourceMetadata.messageId` and
+  // short-circuits the rest of the pipeline: no agent loop, no approval
+  // routing. The stored row keeps its content for audit; rendering elides on
+  // the deletedAt marker. An attributed delete (the wire names the deleted
+  // message's author, as Slack's does) passed the ingress ACL above; an
+  // unattributed one bypassed it under the ACL's stated contract and applies
+  // only to a row this daemon ingested.
+  if (eventKind === "delete") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId
@@ -521,7 +539,7 @@ export async function handleChannelInbound({
     if (!deletedMessageTs) {
       log.debug(
         { conversationExternalId },
-        "Slack message_deleted event missing sourceMetadata.messageId; ignoring",
+        "Delete event missing sourceMetadata.messageId; ignoring",
       );
       return { accepted: true, deleted: false };
     }
@@ -545,6 +563,20 @@ export async function handleChannelInbound({
       if (original) {
         break;
       }
+      // The retry window exists for one race: the original's inbound-event
+      // row is written before its message link lands. A source with no row
+      // at all was never ingested, so nothing can appear by waiting, and
+      // waiting would hold this conversation's serialized lane through the
+      // full miss window for every unrelated delete a busy room produces.
+      if (
+        !hasInboundEventForSource(
+          sourceChannel,
+          conversationExternalId,
+          deletedMessageTs,
+        )
+      ) {
+        break;
+      }
       if (attempt < deleteLookupRetries) {
         log.info(
           {
@@ -564,7 +596,7 @@ export async function handleChannelInbound({
     if (!original) {
       log.debug(
         { conversationExternalId, deletedMessageTs },
-        "No stored message found for Slack delete after retries; ignoring",
+        "No stored message found for delete after retries; ignoring",
       );
       return { accepted: true, deleted: false };
     }
@@ -1168,11 +1200,11 @@ export async function handleChannelInbound({
     // so checking for empty content alone would miss stale callbacks.
     //
     // Reaction events (`reaction:` / `reaction_removed:`) are persisted by
-    // the earlier `isSlackReactionEvent` branch and never reach here; guard
+    // the earlier `isReactionEvent` branch and never reach here; guard
     // explicitly so a future refactor can't let a reaction ts drive a
     // "This approval request has been resolved." edit that would clobber
     // the user's reacted-to message.
-    if (hasCallbackData && !isSlackReactionEvent(body)) {
+    if (hasCallbackData && !isReactionEvent(body)) {
       // Record seen signal even for stale callbacks — the user still interacted
       if (sourceChannel === "telegram" || sourceChannel === "slack") {
         try {

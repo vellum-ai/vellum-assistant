@@ -124,6 +124,7 @@
     "downloadAria": "Descargar {filename}",
     "downloadLabel": "Descargar",
     "nextAttachmentAria": "Adjunto siguiente",
+    "pdfLoadFailed": "No se pudo mostrar este PDF",
     "previewAria": "Vista previa de {filename}",
     "previousAttachmentAria": "Adjunto anterior"
   },
@@ -1117,6 +1118,12 @@
   "pageTabs": {
     "formStepsAria": "Pasos del formulario"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Cargando PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Mostrando la primera página} other {Mostrando las primeras # páginas}}"
+  },
   "phaseGroupedStepList": {
     "startedAt": "Comenzó a las {time}"
   },
@@ -1153,6 +1160,9 @@
     "settingsAriaLabel": "Ajustes de uso y facturación",
     "title": "Uso"
   },
+  "previewError": {
+    "cannotPreview": "No se puede previsualizar este archivo"
+  },
   "previewMessageCard": {
     "download": "Descargar",
     "downloadAria": "Descargar {filename}"
@@ -1160,9 +1170,14 @@
   "previewSkeleton": {
     "loadingPreview": "Cargando vista previa"
   },
+  "previewTruncationNotice": {
+    "markdown": "Mostrando los primeros 512 KB",
+    "text": "Mostrando los primeros 2 MB"
+  },
   "previewUnsupported": {
     "downloadFile": "Descargar archivo",
-    "goToFile": "Ir al archivo"
+    "goToFile": "Ir al archivo",
+    "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
