@@ -74,6 +74,9 @@ public static class TextInsertionTests
         Assert(PermissionService.MapConsent("Allow", "Deny") == "denied");
         Assert(PermissionService.MapConsent("Deny", "Allow") == "denied");
         Assert(PermissionService.MapConsent(null, null) == "unknown");
+        Assert(PermissionService.MapGlobalConsent("Allow") == "granted");
+        Assert(PermissionService.MapGlobalConsent("Deny") == "denied");
+        Assert(PermissionService.MapGlobalConsent(null) == "unknown");
         Assert(PermissionService.MapOnlineSpeech(1) == "granted");
         Assert(PermissionService.MapOnlineSpeech(0) == "denied");
         Assert(PermissionService.MapOnlineSpeech(null) == "not-determined");

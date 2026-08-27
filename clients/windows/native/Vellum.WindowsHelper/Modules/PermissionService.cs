@@ -48,7 +48,7 @@ public sealed class PermissionService : IRpcModule, INativeCapability
     public object QueryState() => new
     {
         microphone = ReadConsent(MicrophoneConsentPath),
-        screen = ReadConsent(ScreenConsentPath),
+        screen = ReadGlobalConsent(ScreenConsentPath),
         speechRecognition = MapOnlineSpeech(
             _readCurrentUserValue(OnlineSpeechPath, "HasAccepted")),
         notifications = MapToastEnabled(
@@ -59,6 +59,9 @@ public sealed class PermissionService : IRpcModule, INativeCapability
         _readCurrentUserValue(path, "Value"),
         _readCurrentUserValue($@"{path}\NonPackaged", "Value"));
 
+    private string ReadGlobalConsent(string path) =>
+        MapGlobalConsent(_readCurrentUserValue(path, "Value"));
+
     // Desktop apps are gated by the global capability consent plus the
     // non-packaged app consent; a deny on either wins.
     public static string MapConsent(object? global, object? nonPackaged)
@@ -68,6 +71,19 @@ public sealed class PermissionService : IRpcModule, INativeCapability
             return "denied";
         }
         if (IsAllowConsent(global) && (nonPackaged is null || IsAllowConsent(nonPackaged)))
+        {
+            return "granted";
+        }
+        return "unknown";
+    }
+
+    public static string MapGlobalConsent(object? value)
+    {
+        if (IsDenyConsent(value))
+        {
+            return "denied";
+        }
+        if (IsAllowConsent(value))
         {
             return "granted";
         }
