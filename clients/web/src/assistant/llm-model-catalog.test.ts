@@ -26,6 +26,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
+  getVisibleModelsForProvider,
   getManagedUpstreamForModel,
   VELLUM_SERVED_PROVIDERS,
   type LlmProviderId,
@@ -118,6 +119,7 @@ describe("parity with meta/llm-provider-catalog.json", () => {
   const webProviderIds = (
     Object.keys(MODELS_BY_PROVIDER) as LlmProviderId[]
   ).filter((id) => id !== "openai-compatible");
+  const pickerProviderIds = webProviderIds.filter((id) => id !== "hosted");
 
   test("vellum is a picker-only entry: absent from the catalogs by design", () => {
     // The Vellum entry is the managed routing identity, not a provider with
@@ -155,7 +157,24 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     expect(
       getManagedUpstreamForModel("accounts/fireworks/models/glm-5p2"),
     ).toBe("fireworks");
+    expect(getManagedUpstreamForModel("qwen/qwen3-8b")).toBe("hosted");
     expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();
+  });
+
+  test("hosted models stay out of pickers and hide without developer mode", () => {
+    expect(Object.keys(MODELS_BY_PROVIDER)).toContain("hosted");
+    expect(INFERENCE_PROVIDERS).not.toContain("hosted");
+    expect(CONNECTION_PROVIDERS).not.toContain("hosted");
+    expect(
+      getVisibleModelsForProvider("vellum", false).some(
+        (model) => model.id === "qwen/qwen3-8b",
+      ),
+    ).toBe(false);
+    expect(
+      getVisibleModelsForProvider("vellum", true).some(
+        (model) => model.id === "qwen/qwen3-8b",
+      ),
+    ).toBe(true);
   });
 
   test("every meta provider exists in the web mirror", () => {
@@ -201,10 +220,12 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     // unselectable there. Order is not asserted: the list's order is the
     // picker's display order (a UI choice, with index 0 as the default
     // fallback), not the catalog's.
-    expect([...INFERENCE_PROVIDERS].sort()).toEqual([...webProviderIds].sort());
+    expect([...INFERENCE_PROVIDERS].sort()).toEqual(
+      [...pickerProviderIds].sort(),
+    );
   });
 
-  test("CONNECTION_PROVIDERS covers every meta catalog provider", () => {
+  test("CONNECTION_PROVIDERS covers every meta catalog provider except hosted", () => {
     // The connection-creation picker is driven by CONNECTION_PROVIDERS in
     // provider-editor-constants.ts. Unlike INFERENCE_PROVIDERS, it
     // intentionally includes daemon-only providers (ollama) and the
@@ -214,7 +235,10 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     // Order is not asserted: the list's order is the picker's display order.
     const connectionProviderIds: string[] = [...CONNECTION_PROVIDERS];
     expect(connectionProviderIds.sort()).toEqual(
-      metaCatalog.providers.map((provider) => provider.id).sort(),
+      metaCatalog.providers
+        .map((provider) => provider.id)
+        .filter((id) => id !== "hosted")
+        .sort(),
     );
   });
 

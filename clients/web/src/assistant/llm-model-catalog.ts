@@ -18,6 +18,8 @@ export interface LlmCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   longContextPricingThresholdTokens?: number;
+  /** When set, the model is hidden unless that assistant flag is on. */
+  featureFlag?: string;
 }
 
 export const MODELS_BY_PROVIDER = {
@@ -892,6 +894,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  hosted: [
+    {
+      id: "qwen/qwen3-8b",
+      displayName: "Qwen3 8B",
+      contextWindowTokens: 32_768,
+      defaultContextWindowTokens: 32_768,
+      maxOutputTokens: 32_768,
+      featureFlag: "settings-developer-nav",
+    },
+  ],
   "openai-compatible": [],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
 
@@ -912,6 +924,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
+  hosted: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
 
@@ -941,6 +954,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
+  hosted: "Vellum Hosted",
 };
 
 /**
@@ -966,6 +980,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
+  hosted: true,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
@@ -982,6 +997,7 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
+  "hosted",
 ] as const;
 
 /**
@@ -1062,6 +1078,27 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
   "gpt-5.4",
   "gpt-5.4-mini",
 ]);
+
+export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
+
+export function isCatalogModelVisible(
+  model: Pick<LlmCatalogModel, "featureFlag">,
+  developerMode: boolean,
+): boolean {
+  if (!model.featureFlag) {
+    return true;
+  }
+  return model.featureFlag === DEVELOPER_MODE_CATALOG_FLAG && developerMode;
+}
+
+export function getVisibleModelsForProvider(
+  provider: string,
+  developerMode: boolean,
+): readonly LlmCatalogModel[] {
+  return getModelsForProvider(provider).filter((model) =>
+    isCatalogModelVisible(model, developerMode),
+  );
+}
 
 export function getModelsForProvider(
   provider: string,

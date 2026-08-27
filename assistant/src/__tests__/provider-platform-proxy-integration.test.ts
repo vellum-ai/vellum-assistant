@@ -665,13 +665,14 @@ describe("config mode flip → provider reinit", () => {
 });
 
 describe("managed proxy integration — constants integrity", () => {
-  test("anthropic, openai, gemini, fireworks, and together have metadata with managed=true and a proxyPath", () => {
+  test("anthropic, openai, gemini, fireworks, together, and hosted have metadata with managed=true and a proxyPath", () => {
     for (const provider of [
       "anthropic",
       "openai",
       "gemini",
       "fireworks",
       "together",
+      "hosted",
     ]) {
       const meta = PLATFORM_PROVIDER_META[provider];
       expect(meta).toBeDefined();
@@ -708,6 +709,12 @@ describe("managed proxy integration — constants integrity", () => {
   test("together routes through together proxy path", () => {
     expect(PLATFORM_PROVIDER_META.together.proxyPath).toBe(
       "/v1/runtime-proxy/together",
+    );
+  });
+
+  test("hosted routes through the vellum runtime-proxy path", () => {
+    expect(PLATFORM_PROVIDER_META.hosted.proxyPath).toBe(
+      "/v1/runtime-proxy/vellum",
     );
   });
 
