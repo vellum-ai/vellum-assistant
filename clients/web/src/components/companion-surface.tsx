@@ -65,11 +65,12 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * its edge (the gap, the near edge, its own half box) are worked out from the
  * contract's helpers and divided back into these units.
  *
- * **Growth needs clearance on the side it runs into**: the gap, and then a body
- * that reaches 316px at its widest. A circle parked against the right edge does
- * not have it, and unclamped the pill would run straight off the display with
- * the controls the user was reaching for. So the surface flips and grows the
- * other way instead, the way a menu does, through {@link growth}.
+ * **Growth needs clearance on the side it runs into**: the gap, and then a pill
+ * as wide as {@link COMPANION_BASE_MAX_PILL_WIDTH}, which is what the card
+ * draws. A circle parked against the right edge does not have it, and unclamped
+ * the pill would run straight off the display with the controls the user was
+ * reaching for. So the surface flips and grows the other way instead, the way a
+ * menu does, through {@link growth}.
  *
  * **Presentational only.** Phase comes from the caller, so this renders
  * identically in Storybook and in the Electron panel. Hover is a phase rather
@@ -187,10 +188,6 @@ const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
  */
 const WATCHING_RING_ACCENT = "#ff9f45";
 
-// The box every length on this surface is stated in: the pill's own height, and
-// the creature's at the size the two agree on.
-const BASE_BOX = COMPANION_BASE_AVATAR_BOX;
-
 /**
  * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
  * every side. Both the still and the composed creature draw at this size, so
@@ -235,10 +232,15 @@ export const INNER_GAP = 8;
  * a state that wanted more would be clipped by the window, and buying the room
  * back means resizing the canvas, which is the thing a fixed canvas exists to
  * avoid.
+ *
+ * The two phases that never reach this are absent from it: `resting` has no
+ * pill to measure, and `typing` states {@link CARD_WIDTH} rather than measuring
+ * anything.
  */
-export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
-  // Nothing at all: at rest there is no pill, and its box goes with it.
-  resting: 0,
+export const FALLBACK_WIDTHS: Record<
+  Exclude<CompanionSurfacePhase, "resting" | "typing">,
+  number
+> = {
   // Three icon-only controls, which is the row as it is first drawn: the labels
   // are revealed one at a time under the pointer, and on the first frame there
   // is no pointer on any of them yet.
@@ -254,8 +256,6 @@ export const FALLBACK_WIDTHS: Record<CompanionSurfacePhase, number> = {
   // The row with the stop control on it, which is the widest a call draws: a
   // watch session adds a fifth control to the four the call already has.
   call: 288,
-  // The card's body, which is {@link CARD_WIDTH} rather than anything measured.
-  typing: 316,
 };
 
 /**
@@ -274,8 +274,8 @@ const CARD_WIDTH = COMPANION_BASE_MAX_PILL_WIDTH;
  * The card is still a card, not a chat window: it holds a readable stretch of
  * the exchange and the rest is scrolled to, so a long reply can be read in
  * place without the surface growing until it runs off the top of the display.
- * Whatever this is, `MAX_CARD_HEIGHT` in `companion-window.ts` has to be sized
- * to hold it plus the composer row.
+ * Whatever this is, `COMPANION_BASE_CARD_HEIGHT` in the contract has to be
+ * sized to hold it plus the composer row.
  */
 const TURNS_MAX_HEIGHT = 220;
 
@@ -297,8 +297,6 @@ export interface CompanionSurfaceProps {
   turns?: CompanionTurn[];
   /** The assistant's name, for the composer's placeholder. */
   assistantName?: string;
-  /** The resting circle's ambient halo, in the avatar's own colour. */
-  glow?: boolean;
   /** The assistant's avatar colour. Fills shapes; never carries text. */
   accentHex?: string;
   /**
@@ -332,21 +330,6 @@ export interface CompanionSurfaceProps {
    * still notice a hand arriving over it either way.
    */
   hovered?: boolean;
-  /**
-   * Expand. Wired to the avatar alone, never to the surface: at rest the two
-   * are the same box, but arming from anything larger than what is drawn would
-   * expand the surface from empty space the user cannot see.
-   */
-  onHoverStart?: () => void;
-  /**
-   * Collapse. Wired to the group holding the avatar, the gap and the pill
-   * rather than to the avatar, because once expanded the pointer has to be able
-   * to travel across the gap to the controls. Leaving on the avatar would
-   * collapse the pill out from under the hand reaching for it, and while
-   * resting the avatar is all the group has drawn in it, so the two agree
-   * exactly when it matters.
-   */
-  onHoverEnd?: () => void;
   /** Which way the pill grows. See {@link CompanionSurfaceGrowth}. */
   growth?: CompanionSurfaceGrowth;
   /**
@@ -636,13 +619,10 @@ export function CompanionSurface({
   phase,
   turns = [],
   assistantName = "your assistant",
-  glow = true,
   accentHex = DEFAULT_ACCENT,
   avatarSrc,
   character,
   hovered = false,
-  onHoverStart,
-  onHoverEnd,
   growth = "right",
   avatarBox = COMPANION_BASE_AVATAR_BOX,
   optionsBox = COMPANION_BASE_AVATAR_BOX,
@@ -726,25 +706,11 @@ export function CompanionSurface({
 
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
-  // `CompanionIntro`, whose card hangs off the same edge by the same amount.
-  const { inUnits, avatarRel, avatarHalf, gap, nearEdge } = companionLayoutFor(
+  // `CompanionIntro`, whose card hangs off the same creature.
+  const { avatarRel, avatarHalf, gap, lineAt, edgeAt } = companionLayoutFor(
     avatarBox,
     optionsBox,
   );
-
-  /**
-   * A line in the canvas, given how far in points it sits from the avatar's
-   * centre.
-   *
-   * The canvas is *not* symmetric about the avatar: the card's height is
-   * reserved on whichever side it grows into, so the avatar sits the near edge
-   * from the other one, and that edge is the one worth anchoring to. `100%`
-   * names the canvas without this side having to know how tall main made it.
-   */
-  const lineAt = (offset: number): string =>
-    cardGrowth === "up"
-      ? `calc(100% - ${inUnits(nearEdge - offset)}px)`
-      : `${inUnits(nearEdge + offset)}px`;
 
   // **The avatar never moves.** It holds one spot in the canvas, which is the
   // spot the host positions this window around, and the pill hangs off one side
@@ -757,10 +723,7 @@ export function CompanionSurface({
   // centre and lets the body run the rest of the way: the pill is what moves
   // when `growth` flips, and the creature the host measures every drag, clamp
   // and direction check against is not.
-  const placement: CSSProperties =
-    growth === "left"
-      ? { right: `calc(50% + ${inUnits(avatarHalf + gap)}px)` }
-      : { left: `calc(50% + ${inUnits(avatarHalf + gap)}px)` };
+  const placement = edgeAt(growth, avatarHalf + gap);
 
   // The card growing downward draws its composer row first, so the row starts
   // on the avatar's top line and the card falls away from it; everything else
@@ -774,27 +737,33 @@ export function CompanionSurface({
     // avatar's, and the card keeps that line: its composer row is the column's
     // last child growing up and its first growing down, so the row's bottom is
     // the avatar's bottom either way and the mascot does not move when Type is
-    // pressed. Which way the card stacks is the host's call: parked by the Dock
-    // a card growing down would grow off the bottom of the screen, and at the
-    // top of the display a card growing up has nowhere to be (see
+    // pressed. The line is the avatar's *box*, not the artwork inside it, which
+    // is inset by an `INNER_GAP` on every side and so stops short of it. Which
+    // way the card stacks is the host's call: parked by the Dock a card growing
+    // down would grow off the bottom of the screen, and at the top of the
+    // display a card growing up has nowhere to be (see
     // `CompanionSurfaceCardGrowth`). The row is one options box tall, so a card
     // growing downward starts exactly that far above the line.
-    top: lineAt(dropsFromTheRow ? avatarHalf - optionsBox : avatarHalf),
+    top: lineAt(
+      cardGrowth,
+      dropsFromTheRow ? avatarHalf - optionsBox : avatarHalf,
+    ),
     transform: dropsFromTheRow ? "none" : "translateY(-100%)",
     // Settles rather than overshoots. A surface on screen all day should not
     // bounce every time the pointer crosses it.
     transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
-    ["--accent" as string]: accentHex,
   };
 
   /**
-   * The surface's edge, lit for something running and flared for each capture.
+   * The creature's edge, lit for something running and flared for each capture.
    *
-   * Drawn around the avatar at rest and around the pill once there is one. The
-   * pill is nothing at rest, so the avatar is the only edge there is to light,
-   * and it is the state the ring most has to be legible in: the whole point is
-   * being readable from the corner of an eye while the user works elsewhere.
-   * Expanded, the pill is the surface's outline and takes it back.
+   * **On the avatar in every phase.** The creature is the one thing drawn in
+   * all of them and it holds one spot in the canvas, so the light stays where
+   * the eye already looks for this surface's state, and a working creature
+   * reads perfectly well beside an open pill. Handing it to the pill while
+   * expanded would move it to a different parent every time the pointer
+   * crossed, which unmounts the one-shot flare below and replays it for a
+   * capture that never happened.
    */
   const edge = (
     <>
@@ -810,9 +779,7 @@ export function CompanionSurface({
           failures. */}
       {(assistantWorking || watching || summarizing) && (
         <span
-          className={`companion-working-ring pointer-events-none absolute -inset-0.5 ${
-            typing ? "rounded-[24px]" : "rounded-full"
-          }`}
+          className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full"
           style={{
             ["--companion-ring-accent" as string]: watching
               ? WATCHING_RING_ACCENT
@@ -841,9 +808,7 @@ export function CompanionSurface({
       {watching && observedCaptures > 0 && (
         <span
           key={observedCaptures}
-          className={`companion-capture-pulse pointer-events-none absolute -inset-0.5 ${
-            typing ? "rounded-[24px]" : "rounded-full"
-          }`}
+          className="companion-capture-pulse pointer-events-none absolute -inset-0.5 rounded-full"
           style={{
             ["--companion-ring-accent" as string]: WATCHING_RING_ACCENT,
           }}
@@ -859,170 +824,129 @@ export function CompanionSurface({
     // from state to state and be clipped by the pill's own rounding; beside it,
     // both hang off the same fixed avatar position in the canvas.
     <>
-      {/* The avatar, the pill, and the gap between them, as one group.
-
-        Its box is the whole canvas so the `50%` and `100%` its children anchor
-        by still name the canvas, and it takes no pointer of its own, so the
-        pointer is inside it exactly when it is on the avatar, the pill or the
-        bridge across the gap. Leaving the group is therefore leaving the whole
-        surface, which is what lets a hand travel from the creature to the
-        controls without the pill collapsing out from under it. */}
+      {/* The pill is a drag handle, as the avatar is. Controls opt out by
+        stopping the press, so everything on it that is not a button can be
+        grabbed. */}
       <div
-        className="pointer-events-none absolute inset-0"
-        onMouseLeave={onHoverEnd}
+        className={`absolute cursor-grab transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${
+          typing
+            ? // The composer row is the column's last child, so a card growing
+              // downward reverses the column: the row that holds the avatar's
+              // line has to stay on that line, and the turns stack away from
+              // it.
+              `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
+            : "flex h-11 items-center rounded-full"
+        }`}
+        style={style}
+        onMouseDown={onSurfaceMouseDown}
+        onContextMenu={onSurfaceContextMenu}
+        ref={rootRef}
       >
-        {/* The pill is a drag handle, as the avatar is. Controls opt out by
-          stopping the press, so everything on it that is not a button can be
-          grabbed. */}
-        <div
-          className={`pointer-events-auto absolute cursor-grab transition-[width] duration-300 select-none will-change-[width] active:cursor-grabbing ${
-            typing
-              ? // The composer row is the column's last child, so a card growing
-                // downward reverses the column: the row that holds the avatar's
-                // line has to stay on that line, and the turns stack away from
-                // it.
-                `flex rounded-[22px] ${cardGrowth === "up" ? "flex-col" : "flex-col-reverse"}`
-              : "flex h-11 items-center rounded-full"
+        {/* The pill's body, which exists only once there is a pill. At rest
+          there is nothing beside the avatar to draw, and fading the body in
+          as the width grows is what makes the pill unfurl out of the gap
+          rather than appear in it. */}
+        <span
+          className={`absolute inset-0 border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200 ${
+            // Radius follows the same rule as the gap: the controls are 28pt
+            // so their radius is 14, and 8pt of clearance puts the outer
+            // radius at 22. A pill happens to reach that by being 44 tall;
+            // the card has to say it.
+            typing ? "rounded-[22px]" : "rounded-full"
           }`}
-          style={style}
-          onMouseDown={onSurfaceMouseDown}
-          onContextMenu={onSurfaceContextMenu}
-          ref={rootRef}
-        >
-          {/* The pill's body, which exists only once there is a pill. At rest
-            there is nothing beside the avatar to draw, and fading the body in
-            as the width grows is what makes the pill unfurl out of the gap
-            rather than appear in it. */}
-          <span
-            className={`absolute inset-0 border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200 ${
-              // Radius follows the same rule as the gap: the controls are 28pt
-              // so their radius is 14, and 8pt of clearance puts the outer
-              // radius at 22. A pill happens to reach that by being 44 tall;
-              // the card has to say it.
-              typing ? "rounded-[22px]" : "rounded-full"
-            }`}
-            style={{ opacity: expanded ? 1 : 0 }}
-            aria-hidden
-          />
-          {expanded && edge}
-          {typing && turns.length > 0 && <RecentTurns turns={turns} />}
-          {/* The pill's one in-flow row, and where the clearance at either end
-            lives. On the row rather than on the pill, so the pill's own box
-            goes to nothing at rest while the body inside it keeps being
-            measured. */}
-          <div
-            className="relative flex h-11 shrink-0 items-center"
-            style={{ paddingInline: INNER_GAP }}
-          >
-            {typing ? (
-              <Composer
-                assistantName={assistantName}
-                watching={watching}
-                onSubmit={onSubmit}
-                onCancel={onCancelTyping}
-                onWatch={onWatch}
-              />
-            ) : (
-              <div
-                className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
-                ref={contentRef}
-                // Faded out is not gone: the body stays mounted while collapsed
-                // so it can be measured, which would otherwise leave its
-                // controls focusable and announced while nothing is drawn.
-                // `inert` takes them out of the tab order and the accessibility
-                // tree without taking them out of the DOM, so the measurement
-                // still works.
-                inert={!expanded}
-                style={{
-                  opacity: expanded ? 1 : 0,
-                  // Contents fade after the body has somewhere to put them, so
-                  // nothing is ever drawn wider than the pill carrying it.
-                  transitionDelay: expanded ? "120ms" : "0ms",
-                }}
-              >
-                {phase === "call" ? (
-                  <CallBody
-                    call={call}
-                    watching={watching}
-                    onControl={onControl}
-                    onWatch={onWatch}
-                  />
-                ) : phase === "summary" && watchRetro !== undefined ? (
-                  <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
-                ) : (
-                  <IdleBody
-                    spotlight={spotlight}
-                    watching={watching}
-                    watchEnabled={watchEnabled}
-                    onTalk={onTalk}
-                    onType={onType}
-                    onWatch={onWatch}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        {/* The gap, as an element rather than empty canvas. Nothing is drawn in
-          it and nothing can be grabbed by it: it is here so a pointer crossing
-          from the creature to the controls stays inside the group and the pill
-          is not pulled out from under the hand halfway. The host hit-tests the
-          same span from the two rects (`bridgeRect` in
-          `companion-surface-page.tsx`), since a click-through window is told
-          about the pointer in coordinates rather than in elements. */}
-        {expanded && (
-          <span
-            className="pointer-events-auto absolute"
-            style={{
-              width: inUnits(gap),
-              // The pill's own row, on the pill's own line: the strip is what
-              // the pointer crosses between the two, so it is as tall as what
-              // it leads to rather than as tall as the creature it leaves.
-              height: BASE_BOX,
-              ...(growth === "left"
-                ? { right: `calc(50% + ${inUnits(avatarHalf)}px)` }
-                : { left: `calc(50% + ${inUnits(avatarHalf)}px)` }),
-              top: lineAt(avatarHalf),
-              transform: "translateY(-100%)",
-            }}
-            aria-hidden
-          />
-        )}
-        {/* Drawn last so the glow, which falls off well past the creature,
-          lands over the pill's leading edge rather than under it. */}
-        <Avatar
-          glow={glow}
-          accentHex={accentHex}
-          avatarSrc={avatarSrc}
-          character={character}
-          attentive={hovered}
-          // The assistant's own turn. The creature stops blinking and holds a
-          // focused, morphing pose, which is the same treatment the chat avatar
-          // uses while a reply is streaming: one vocabulary for "it is working"
-          // wherever the user meets it.
-          busy={assistantWorking}
-          edge={expanded ? null : edge}
-          style={{
-            left: "50%",
-            top: lineAt(0),
-            // Centred on the point the host put the window around, then scaled
-            // about that centre by whatever the creature's own size asks for
-            // beyond the scale the page has already applied. Omitted where the
-            // two boxes agree, which is the surface every other length here is
-            // authored for. On this node rather than the one below it: the bob
-            // owns a `transform` of its own, and two transforms on one node
-            // silently leave one of them out.
-            transform: `translate(-50%, -50%)${
-              avatarRel === 1 ? "" : ` scale(${avatarRel})`
-            }`,
-          }}
-          elementRef={avatarRef}
-          onMouseEnter={onHoverStart}
-          onMouseDown={onSurfaceMouseDown}
-          onContextMenu={onSurfaceContextMenu}
-          onClick={onAvatarClick}
+          style={{ opacity: expanded ? 1 : 0 }}
+          aria-hidden
         />
+        {typing && turns.length > 0 && <RecentTurns turns={turns} />}
+        {/* The pill's one in-flow row, and where the clearance at either end
+          lives. On the row rather than on the pill, so the pill's own box
+          goes to nothing at rest while the body inside it keeps being
+          measured. */}
+        <div
+          className="relative flex h-11 shrink-0 items-center"
+          style={{ paddingInline: INNER_GAP }}
+        >
+          {typing ? (
+            <Composer
+              assistantName={assistantName}
+              watching={watching}
+              onSubmit={onSubmit}
+              onCancel={onCancelTyping}
+              onWatch={onWatch}
+            />
+          ) : (
+            <div
+              className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+              ref={contentRef}
+              // Faded out is not gone: the body stays mounted while collapsed
+              // so it can be measured, which would otherwise leave its
+              // controls focusable and announced while nothing is drawn.
+              // `inert` takes them out of the tab order and the accessibility
+              // tree without taking them out of the DOM, so the measurement
+              // still works.
+              inert={!expanded}
+              style={{
+                opacity: expanded ? 1 : 0,
+                // Contents fade after the body has somewhere to put them, so
+                // nothing is ever drawn wider than the pill carrying it.
+                transitionDelay: expanded ? "120ms" : "0ms",
+              }}
+            >
+              {phase === "call" ? (
+                <CallBody
+                  call={call}
+                  watching={watching}
+                  onControl={onControl}
+                  onWatch={onWatch}
+                />
+              ) : phase === "summary" && watchRetro !== undefined ? (
+                <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
+              ) : (
+                <IdleBody
+                  spotlight={spotlight}
+                  watching={watching}
+                  watchEnabled={watchEnabled}
+                  onTalk={onTalk}
+                  onType={onType}
+                  onWatch={onWatch}
+                />
+              )}
+            </div>
+          )}
+        </div>
       </div>
+      {/* Drawn after the pill so the glow, which falls off well past the
+        creature, lands over the pill's leading edge rather than under it. */}
+      <Avatar
+        accentHex={accentHex}
+        avatarSrc={avatarSrc}
+        character={character}
+        attentive={hovered}
+        // The assistant's own turn. The creature stops blinking and holds a
+        // focused, morphing pose, which is the same treatment the chat avatar
+        // uses while a reply is streaming: one vocabulary for "it is working"
+        // wherever the user meets it.
+        busy={assistantWorking}
+        edge={edge}
+        style={{
+          left: "50%",
+          top: lineAt(cardGrowth, 0),
+          // Centred on the point the host put the window around, then scaled
+          // about that centre by whatever the creature's own size asks for
+          // beyond the scale the page has already applied. Omitted where the
+          // two boxes agree, which is the surface every other length here is
+          // authored for. On this node rather than the one below it: the bob
+          // owns a `transform` of its own, and two transforms on one node
+          // silently leave one of them out.
+          transform: `translate(-50%, -50%)${
+            avatarRel === 1 ? "" : ` scale(${avatarRel})`
+          }`,
+        }}
+        elementRef={avatarRef}
+        onMouseDown={onSurfaceMouseDown}
+        onContextMenu={onSurfaceContextMenu}
+        onClick={onAvatarClick}
+      />
       {intro}
     </>
   );
@@ -1288,7 +1212,7 @@ function Composer({
 }
 
 /**
- * The avatar, and the only part of the surface that arms the expansion.
+ * The avatar, which is the point the whole surface is arranged around.
  *
  * Positioned on the point the host put the window around rather than laid out
  * in the pill, which is what lets the pill change width and shape underneath
@@ -1303,12 +1227,11 @@ function Composer({
  * `transform` on its own `<svg>` for the breathe and the morph, and a second
  * animation on that node would silently replace one of them. Everything that
  * belongs to the creature rides inside the wrapper, glow included, so the light
- * travels with what is casting it. The edge is outside it, because a ring
- * saying the assistant is working belongs to the surface rather than to the
- * creature's own idle motion.
+ * travels with what is casting it. The edge sits outside the wrapper: it is
+ * drawn on the box rather than on the artwork, so a ring saying something is
+ * running holds still while the creature breathes under it.
  */
 function Avatar({
-  glow,
   accentHex,
   avatarSrc,
   character,
@@ -1317,25 +1240,19 @@ function Avatar({
   edge,
   style,
   elementRef,
-  onMouseEnter,
   onMouseDown,
   onContextMenu,
   onClick,
 }: {
-  glow: boolean;
   accentHex: string;
   avatarSrc?: string;
   character?: CompanionCharacter;
   busy?: boolean;
   attentive?: boolean;
-  /**
-   * What the surface's edge is drawing, while the avatar is that edge. Null
-   * once there is a pill, which takes it back.
-   */
+  /** What the creature's edge is drawing. See `edge` in `CompanionSurface`. */
   edge?: ReactNode;
   style?: CSSProperties;
   elementRef?: Ref<HTMLDivElement>;
-  onMouseEnter?: () => void;
   onMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onClick?: () => void;
@@ -1351,10 +1268,9 @@ function Avatar({
     // read as activating a control. `onClick` fires only for presses the caller
     // decided were not drags.
     <div
-      className="pointer-events-auto absolute grid size-11 cursor-grab place-items-center active:cursor-grabbing"
+      className="absolute grid size-11 cursor-grab place-items-center active:cursor-grabbing"
       style={style}
       ref={elementRef}
-      onMouseEnter={onMouseEnter}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
       onClick={onClick}
@@ -1364,16 +1280,14 @@ function Avatar({
         className="companion-avatar-bob relative grid place-items-center"
         style={{ animation: reduce ? "none" : undefined }}
       >
-        {glow && (
-          <span
-            className="companion-glow absolute size-10 rounded-full blur-lg"
-            style={{
-              background: accentHex,
-              animation: reduce ? "none" : undefined,
-            }}
-            aria-hidden
-          />
-        )}
+        <span
+          className="companion-glow absolute size-10 rounded-full blur-lg"
+          style={{
+            background: accentHex,
+            animation: reduce ? "none" : undefined,
+          }}
+          aria-hidden
+        />
         {character !== undefined ? (
           // The live creature, composed here rather than shipped as pixels. It
           // blinks, twitches and breathes on its own, which is the whole reason

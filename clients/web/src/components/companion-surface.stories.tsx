@@ -1,5 +1,12 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent,
+} from "react";
 
 import {
   CompanionIntro,
@@ -7,12 +14,19 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import {
+  bridgeRect,
+  COMPANION_BOB_LIFT,
+  containsPoint,
+  type SurfaceRect,
+} from "@/components/companion-layout";
+import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import {
+  COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
   COMPANION_SIZE_BOXES,
   COMPANION_SIZES,
@@ -134,7 +148,6 @@ const meta: Meta<StoryArgs> = {
       options: SIZE_OPTIONS,
     },
     accentHex: { control: "color" },
-    glow: { control: "boolean" },
     watching: { control: "boolean" },
     watchEnabled: { control: "boolean" },
     introBeat: {
@@ -144,7 +157,6 @@ const meta: Meta<StoryArgs> = {
   },
   args: {
     phase: "resting",
-    glow: true,
     // On here, off everywhere a real user meets it until the flag says
     // otherwise. Design stories are for looking at what the surface can draw,
     // and a control the stories hid would be one nobody could review. Turn it
@@ -270,6 +282,30 @@ export const SmallAvatarBigOptions: Story = {
   args: {
     phase: "hover",
     hovered: true,
+    avatarBox: COMPANION_SIZE_BOXES.small,
+    optionsBox: COMPANION_SIZE_BOXES.huge,
+  },
+};
+
+/**
+ * The same pair at rest, which is the state the surface spends its day in.
+ *
+ * The pill is gone and the creature holds the spot it holds in every other
+ * state, so what these two show is that a mixed pair changes the creature's
+ * size and nothing about where it sits.
+ */
+export const RestingBigAvatarSmallOptions: Story = {
+  args: {
+    phase: "resting",
+    avatarBox: COMPANION_SIZE_BOXES.huge,
+    optionsBox: COMPANION_SIZE_BOXES.small,
+  },
+};
+
+/** The reverse pair at rest, where only the glow's own scale changes. */
+export const RestingSmallAvatarBigOptions: Story = {
+  args: {
+    phase: "resting",
     avatarBox: COMPANION_SIZE_BOXES.small,
     optionsBox: COMPANION_SIZE_BOXES.huge,
   },
@@ -536,6 +572,13 @@ export const AgainstTheLeftEdge: Story = {
   ],
 };
 
+/** A 44px column at the stage's right edge, with the screen ending beside it. */
+const againstTheRightEdge: Decorator = (Story) => (
+  <div className="absolute top-0 right-0 h-full w-11">
+    <Story />
+  </div>
+);
+
 /**
  * The case that needs the flip: the circle parked against the right edge, where
  * the body has nowhere to run.
@@ -547,19 +590,37 @@ export const AgainstTheLeftEdge: Story = {
  */
 export const AgainstTheRightEdge: Story = {
   args: { phase: "call", growth: "left" },
-  decorators: [
-    (Story) => (
-      <div className="absolute top-0 right-0 h-full w-11">
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [againstTheRightEdge],
+};
+
+/**
+ * The flip with the two sizes pulling against each other, which is where a
+ * mirrored anchor is easiest to get wrong.
+ *
+ * The pill is pinned by its right edge a gap off a creature more than twice its
+ * height, and the two still share a bottom line. The creature holds the same
+ * spot it holds growing rightward: what a flip moves is the pill.
+ */
+export const BigAvatarAgainstTheRightEdge: Story = {
+  args: {
+    phase: "hover",
+    hovered: true,
+    growth: "left",
+    avatarBox: COMPANION_SIZE_BOXES.huge,
+    optionsBox: COMPANION_SIZE_BOXES.small,
+  },
+  decorators: [againstTheRightEdge],
 };
 
 /**
  * The move itself, which is the thing being designed and the one thing a
- * static story cannot show. Expansion arms on the avatar alone, so the rest of
- * the desktop is dead space exactly as it is in the real window.
+ * static story cannot show.
+ *
+ * Hover is hit-tested against the avatar, the pill and the strip between them,
+ * which is how the Electron host derives it: that window is click-through and
+ * receives forwarded mouse-move rather than `mouseenter`, so it works in
+ * coordinates. Doing the same here keeps the story honest about where the
+ * surface actually arms and where the desktop is left alone.
  *
  * Drop in an image to see the surface wearing a particular assistant. It never
  * leaves the browser: the file is read to a data URL and handed straight to the
@@ -578,6 +639,8 @@ export const Interactive: Story = {
 function HoverDrivenSurface(args: StoryArgs) {
   const [hovered, setHovered] = useState(false);
   const [uploaded, setUploaded] = useState<string | undefined>();
+  const avatarRef = useRef<HTMLDivElement | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
 
   const onFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -595,21 +658,70 @@ function HoverDrivenSurface(args: StoryArgs) {
 
   const phase: CompanionSurfacePhase =
     args.phase === "call" ? "call" : hovered ? "hover" : "resting";
+  const expanded = phase !== "resting";
+  // The pair the surface is drawn at, defaulted the way the component defaults
+  // them, since the hit-test has to measure the creature the story is showing.
+  const avatarBox = args.avatarBox ?? COMPANION_BASE_AVATAR_BOX;
+  const optionsBox = args.optionsBox ?? COMPANION_BASE_AVATAR_BOX;
+
+  const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    const avatar = avatarRef.current;
+    const pill = pillRef.current;
+    if (!avatar || !pill) {
+      return;
+    }
+    const inside = (rect: SurfaceRect): boolean =>
+      containsPoint(rect, event.clientX, event.clientY);
+    const drawn = avatar.getBoundingClientRect();
+    const avatarRect: SurfaceRect = {
+      left: drawn.left,
+      right: drawn.right,
+      // The bob raises the artwork off its own box, on a wrapper inside the
+      // creature's own scale, so the lift grows with the creature. Nothing
+      // scales the stage itself, which is what the page's wrapper does.
+      top: drawn.top - (COMPANION_BOB_LIFT * avatarBox) / optionsBox,
+      bottom: drawn.bottom,
+    };
+    if (!expanded) {
+      setHovered(inside(avatarRect));
+      return;
+    }
+    const pillRect = pill.getBoundingClientRect();
+    setHovered(
+      inside(avatarRect) ||
+        inside(pillRect) ||
+        inside(
+          bridgeRect(avatarRect, pillRect, {
+            // One base box, since nothing here is scaled the way the page's
+            // wrapper scales the real canvas by the options size.
+            rowHeight: COMPANION_BASE_AVATAR_BOX,
+            cardGrowth: args.cardGrowth ?? "up",
+          }),
+        ),
+    );
+  };
 
   return (
     <>
-      <CompanionSurface
-        {...args}
-        phase={phase}
-        hovered={hovered}
-        avatarSrc={uploaded ?? args.avatarSrc}
-        onHoverStart={() => {
-          setHovered(true);
-        }}
-        onHoverEnd={() => {
+      {/* The canvas, which is where the pointer is tracked. The surface's own
+          elements are all that arm it: everywhere else in here is desktop, the
+          way it is in the real window. */}
+      <div
+        className="absolute inset-0"
+        onMouseMove={onMouseMove}
+        onMouseLeave={() => {
           setHovered(false);
         }}
-      />
+      >
+        <CompanionSurface
+          {...args}
+          phase={phase}
+          hovered={hovered}
+          avatarSrc={uploaded ?? args.avatarSrc}
+          avatarRef={avatarRef}
+          rootRef={pillRef}
+        />
+      </div>
       <label className="absolute bottom-2 left-2 cursor-pointer rounded-md bg-black/50 px-2 py-1 text-[11px] text-white/80 backdrop-blur-sm">
         Use my own avatar
         <input
@@ -875,6 +987,10 @@ function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
             beat={beat}
             growth={args.growth}
             cardGrowth={args.cardGrowth}
+            // The same pair the surface is drawn at, so a mixed one shows the
+            // card clearing the pill rather than landing inside it.
+            avatarBox={args.avatarBox}
+            optionsBox={args.optionsBox}
             accentHex={args.accentHex}
             onAdvance={(action) => {
               const next =
@@ -902,7 +1018,7 @@ export const Introduction: Story = {
 /**
  * The card with a reply that uses the formatting an assistant actually writes:
  * emphasis, inline code, and a short list. What the card does with markdown is
- * worth looking at rather than reasoning about, since it is 360pt wide and set
+ * worth looking at rather than reasoning about, since it is a pill's width set
  * at 12px, and the primitive is authored for a full-width transcript.
  */
 export const TypingWithMarkdown: Story = {
