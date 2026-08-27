@@ -735,9 +735,9 @@ describe("validateAttachmentUpload", () => {
   test("accepts shell scripts as text attachments", () => {
     expect(validateAttachmentUpload("script.sh", "text/plain").ok).toBe(true);
     expect(validateAttachmentUpload("script.SH", "text/plain").ok).toBe(true);
-    expect(validateAttachmentUpload("setup.sh", "application/x-sh").ok).toBe(
-      true,
-    );
+    expect(
+      validateAttachmentUpload("setup.sh", "application/x-sh").ok,
+    ).toBe(true);
     expect(
       validateAttachmentUpload("run.sh", "application/x-shellscript").ok,
     ).toBe(true);
@@ -760,9 +760,9 @@ describe("validateAttachmentUpload", () => {
     expect(
       validateAttachmentUpload("PROGRAM.EXE", "application/octet-stream").ok,
     ).toBe(false);
-    expect(
-      validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok,
-    ).toBe(false);
+    expect(validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok).toBe(
+      false,
+    );
   });
 
   test("rejects unsupported MIME types", () => {
