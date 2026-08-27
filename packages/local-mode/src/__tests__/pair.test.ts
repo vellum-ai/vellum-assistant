@@ -656,6 +656,36 @@ describe("pairAssistant", () => {
     expect(readGuardianToken("desk").accessToken).toBe("t2");
   });
 
+  test("re-pairing to a new gateway drops a cached platformAssistantId", () => {
+    const first = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({ deviceId: "dev-re", token: "t1" }),
+      name: "desk",
+    });
+    expect(first.ok).toBe(true);
+    const cached = readLockfileFromDisk();
+    (
+      cached.assistants as Array<Record<string, unknown>>
+    )[0]!.platformAssistantId = "11111111-1111-4111-8111-111111111111";
+    fs.writeFileSync(lockfilePath, JSON.stringify(cached, null, 2));
+
+    const second = pairAssistant([lockfilePath], configDir, {
+      credentials: credentials({
+        deviceId: "dev-re",
+        token: "t2",
+        gatewayUrl: "https://new.example.com",
+      }),
+      name: "desk",
+    });
+
+    expect(second.ok).toBe(true);
+    const assistants = readLockfileFromDisk().assistants as Array<
+      Record<string, unknown>
+    >;
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]!.runtimeUrl).toBe("https://new.example.com");
+    expect(assistants[0]!).not.toHaveProperty("platformAssistantId");
+  });
+
   test("deletes the just-written token when the lockfile write fails", () => {
     // A lockfile path whose parent is a regular file makes the write fail
     // deterministically (unlike chmod, which root ignores) after the token
