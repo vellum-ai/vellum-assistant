@@ -61,7 +61,6 @@ export type {
   DeleteResult,
 } from "./credential-backend.js";
 import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp/acp-credentials.js";
-import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 
 /**
  * Re-export shared-package secure-key abstractions so downstream consumers
@@ -680,28 +679,12 @@ async function onCredentialsWritten(accounts: string[]): Promise<void> {
     return;
   }
   try {
-    // Only a value a spawn could actually use retires anything. A bulk restore
-    // can land an api-key-shaped token, or one whose policy blocks the
-    // `acp_spawn` read, and the marker comparison keeps serving the card for
-    // exactly that reason. Forgetting the registry anyway would stop the
-    // credential prompt redirecting at a card that is still up, and open the
-    // second prompt this registry exists to suppress.
-    const { hasAcpClaudeToken } = await import("../acp/acp-claude-oauth.js");
-    if (!(await hasAcpClaudeToken())) {
-      return;
-    }
-    const { takeConversationsWithAcpConnectCard } =
-      await import("../acp/acp-connect-card-state.js");
-    // In-memory and about a card on screen rather than about the credential,
-    // so it has no marker to answer for it. Left standing, the credential
-    // prompt keeps redirecting at a card the new token just made stale.
-    takeConversationsWithAcpConnectCard();
-    const { publishSyncInvalidation } =
-      await import("../runtime/sync/sync-publisher.js");
-    // Other clients hold a card already rendered and refetch nothing on their
-    // own, so they need telling to look again. Only they can act on this; the
-    // marker itself has already stopped matching.
-    await publishSyncInvalidation([SYNC_TAGS.acpAuthRecovery]);
+    // The Connect flow repairs the spawn policy *after* this write, so a token
+    // whose read is still denied here is retried by `storeAcpClaudeToken` once
+    // that repair lands. This pass covers every other writer.
+    const { notifyAcpConnectRetired } =
+      await import("../acp/acp-claude-oauth.js");
+    await notifyAcpConnectRetired();
   } catch (err) {
     log.warn({ err }, "ACP Connect card notification failed after a write");
   }

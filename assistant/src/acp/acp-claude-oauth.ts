@@ -159,6 +159,57 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
     ACP_OAUTH_TOKEN_FIELD,
     ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
   );
+  // Again, because the write above already ran this and the policy it repairs
+  // is what decides the answer. A token whose `acp_spawn` read was denied is
+  // not usable at the moment `setSecureKeyAsync` asks, so that pass declines
+  // to retire anything, and the repair on the line above is what makes it
+  // usable. Running it a second time is safe: taking the registry is
+  // idempotent, and the invalidation is a refetch trigger.
+  //
+  // Never allowed to fail the store. The token is written either way, and
+  // these are notifications: losing one costs a client a stale card until its
+  // next snapshot, while throwing here would tell the user their sign-in
+  // failed when it did not.
+  try {
+    await notifyAcpConnectRetired();
+  } catch (err) {
+    log.warn(
+      { err },
+      "ACP Connect card notification failed after a token store",
+    );
+  }
+}
+
+/**
+ * Tell the rest of the system that a usable Claude token now exists.
+ *
+ * Two things only clients and the credential prompt can act on. The card
+ * registry is in-memory and about a card on screen rather than about the
+ * credential, so no marker answers for it, and left standing the prompt keeps
+ * redirecting at a card the new token just made stale. The invalidation tells
+ * other clients to re-read the snapshot, which they otherwise would not until
+ * navigation or reconnect.
+ *
+ * Neither retires anything by itself. A card is retired by its marker no
+ * longer matching the credential a spawn would resolve, which is decided when
+ * the marker is read, so a failure here costs freshness rather than
+ * correctness.
+ *
+ * Does nothing for a value a spawn could not use. A bulk restore can land an
+ * api-key-shaped token, or one the policy blocks, and the marker comparison
+ * keeps the card up for exactly that reason.
+ */
+export async function notifyAcpConnectRetired(): Promise<void> {
+  if (!(await hasAcpClaudeToken())) {
+    return;
+  }
+  const { takeConversationsWithAcpConnectCard } =
+    await import("./acp-connect-card-state.js");
+  takeConversationsWithAcpConnectCard();
+  const { publishSyncInvalidation } =
+    await import("../runtime/sync/sync-publisher.js");
+  const { SYNC_TAGS } = await import("../daemon/message-types/sync.js");
+  await publishSyncInvalidation([SYNC_TAGS.acpAuthRecovery]);
 }
 
 /**

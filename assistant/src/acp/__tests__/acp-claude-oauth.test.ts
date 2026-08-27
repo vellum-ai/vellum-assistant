@@ -39,6 +39,9 @@ const { _setMetadataPath, getCredentialMetadata, upsertCredentialMetadata } =
 const { acpSpawnCredentialDenialReason } =
   await import("../prepare-agent-env.js");
 
+const { hasAcpConnectCardRaised, markAcpConnectCardRaised } =
+  await import("../acp-connect-card-state.js");
+
 const {
   CLAUDE_OAUTH_CONFIG,
   CLAUDE_MANUAL_REDIRECT_URI,
@@ -278,5 +281,38 @@ describe("hasAcpClaudeToken", () => {
     await hasAcpClaudeToken();
 
     expect(oauthMetadata()).toBeUndefined();
+  });
+});
+
+describe("storeAcpClaudeToken: retiring the card registry", () => {
+  test("clears the registry after the policy repair, not before it", () => {
+    // The write happens first and the policy repair second, so at the moment
+    // the credential seam asks, a token whose `acp_spawn` read is denied is
+    // not usable and nothing is retired. The repair on the next line is what
+    // makes it usable, so the notification has to run again after it.
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: ["some_other_tool"],
+      allowedDomains: [],
+    });
+    expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeDefined();
+    markAcpConnectCardRaised("conv-with-card");
+    getReturn = "sk-ant-oat-token";
+
+    return storeAcpClaudeToken("sk-ant-oat-token").then(() => {
+      expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeUndefined();
+      expect(hasAcpConnectCardRaised("conv-with-card")).toBe(false);
+    });
+  });
+
+  test("leaves the registry alone when the stored value is unusable", () => {
+    // A bulk restore can land an api-key-shaped value. The marker comparison
+    // keeps the card up for that reason, so forgetting the registry would open
+    // the second prompt it exists to suppress.
+    markAcpConnectCardRaised("conv-keeps-card");
+    getReturn = "sk-ant-api-key-shaped";
+
+    return storeAcpClaudeToken("sk-ant-api-key-shaped").then(() => {
+      expect(hasAcpConnectCardRaised("conv-keeps-card")).toBe(true);
+    });
   });
 });
