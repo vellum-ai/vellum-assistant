@@ -100,8 +100,7 @@ mock.module("@/runtime/desktop-voice-activity", () => ({
   sendVoiceActivityControl: () => undefined,
 }));
 
-const { CompanionSurfacePage, bridgeRect } =
-  await import("./companion-surface-page");
+const { CompanionSurfacePage } = await import("./companion-surface-page");
 
 afterEach(() => {
   cleanup();
@@ -256,54 +255,29 @@ describe("the gap between the avatar and the pill", () => {
 });
 
 /**
- * The strip itself, as arithmetic. The rects it is handed come from the DOM, so
- * these are about the shape it makes of them: between the facing edges, and no
- * taller than the pill.
+ * The creature is drawn where the bob has lifted it to, and the box it belongs
+ * to holds still underneath. A hit-test against the box alone leaves the
+ * creature's own head outside the surface for most of the cycle, so the pointer
+ * falls through the thing it is plainly on.
  */
-describe("bridgeRect", () => {
-  const AVATAR = { left: 100, right: 144, top: 100, bottom: 144 };
+describe("the avatar's rect and the bob", () => {
+  test("takes in the strip the lift raises the creature into", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
 
-  test("spans the facing edges when the pill grows rightward", () => {
-    const pill = { left: 156, right: 356, top: 100, bottom: 144 };
-    expect(bridgeRect(AVATAR, pill)).toEqual({
-      left: 144,
-      right: 156,
-      top: 100,
-      bottom: 144,
-    });
+    // Two points above the box's top edge, inside the three the bob lifts.
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 98 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
   });
 
-  test("spans them the other way when it grows leftward", () => {
-    const pill = { left: -100, right: 88, top: 100, bottom: 144 };
-    expect(bridgeRect(AVATAR, pill)).toEqual({
-      left: 88,
-      right: 100,
-      top: 100,
-      bottom: 144,
-    });
-  });
+  test("gives the desktop back above the lift", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
 
-  /**
-   * The pill's height, never the avatar's. A strip as tall as a larger creature
-   * would claim the dead corners beside it, which is the bounding box this
-   * exists instead of.
-   */
-  test("takes the pill's height rather than a taller avatar's", () => {
-    const tall = { left: 100, right: 200, top: 40, bottom: 200 };
-    const pill = { left: 212, right: 412, top: 156, bottom: 200 };
-    expect(bridgeRect(tall, pill)).toEqual({
-      left: 200,
-      right: 212,
-      top: 156,
-      bottom: 200,
-    });
-  });
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 96 });
 
-  /** Overlapping rects have no gap between them, and an empty strip says so. */
-  test("is empty when the two overlap", () => {
-    const overlapping = { left: 120, right: 320, top: 100, bottom: 144 };
-    const bridge = bridgeRect(AVATAR, overlapping);
-    expect(bridge.left).toBeGreaterThan(bridge.right);
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(true);
   });
 });
 
@@ -338,6 +312,28 @@ describe("the companion surface at two sizes", () => {
       expect(wrapperOf(container).style.transform).toBe("scale(2.5)");
     });
     expect(wrapperOf(container).style.width).toBe("40%");
+  });
+
+  /**
+   * A shell that predates the second axis publishes one box for the surface.
+   * Falling back to the authored size instead would draw a 44pt pill beside a
+   * creature the user had sized well past it.
+   */
+  test("sizes the pill by the creature when the state carries one box", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(wrapperOf(container).style.transform).toBe("scale(1)");
+    });
+
+    pushState({
+      ...STATE,
+      avatarBox: 110,
+      optionsBox: undefined as unknown as number,
+    });
+
+    await waitFor(() => {
+      expect(wrapperOf(container).style.transform).toBe("scale(2.5)");
+    });
   });
 
   test("leaves that canvas alone when only the creature grows", async () => {
@@ -1053,28 +1049,12 @@ describe("the companion's accent colour", () => {
   });
 
   /**
-   * The pill carries `--accent` in every phase; the glow only draws at rest.
+   * The glow is the only thing on the surface painted in the accent, so it is
+   * where the resolved colour is read back from.
    *
    * Awaited, because the state the colour comes from arrives after mount, so
    * the first render is always the default.
    */
-  const expectAccent = async (
-    container: HTMLElement,
-    hex: string,
-  ): Promise<void> => {
-    await waitFor(() => {
-      const pill = container.querySelector<HTMLElement>(
-        ".transition-\\[width\\]",
-      );
-      if (!pill) {
-        throw new Error("Expected the pill to render");
-      }
-      expect(pill.style.getPropertyValue("--accent").trim().toLowerCase()).toBe(
-        hex,
-      );
-    });
-  };
-
   const expectGlow = async (
     container: HTMLElement,
     hex: string,
@@ -1092,7 +1072,6 @@ describe("the companion's accent colour", () => {
     STATE.character = { ...CHARACTER };
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectAccent(container, "#e9642f");
     await expectGlow(container, "#e9642f");
   });
 
@@ -1101,7 +1080,7 @@ describe("the companion's accent colour", () => {
     STATE.call = listening("#123456");
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectAccent(container, "#123456");
+    await expectGlow(container, "#123456");
   });
 
   /**
@@ -1114,7 +1093,7 @@ describe("the companion's accent colour", () => {
     STATE.call = listening("");
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectAccent(container, "#e9642f");
+    await expectGlow(container, "#e9642f");
   });
 
   /**
@@ -1124,6 +1103,6 @@ describe("the companion's accent colour", () => {
   test("falls back to the component default without a character", async () => {
     const { container } = render(<CompanionSurfacePage />);
 
-    await expectAccent(container, "#5eead4");
+    await expectGlow(container, "#5eead4");
   });
 });

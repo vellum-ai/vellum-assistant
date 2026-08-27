@@ -1,16 +1,30 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import * as motionReact from "motion/react";
 
 import { COMPANION_BASE_MAX_PILL_WIDTH } from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 
-import {
-  CompanionSurface,
-  FALLBACK_WIDTHS,
-  INNER_GAP,
-} from "./companion-surface";
+/**
+ * The reduced-motion answer, so one case can render the surface as a reader who
+ * has asked for stillness sees it. Spread over the real module rather than
+ * standing in for it, since the creature's own artwork animates through the
+ * same package.
+ */
+let reducedMotion = false;
 
-afterEach(cleanup);
+mock.module("motion/react", () => ({
+  ...motionReact,
+  useReducedMotion: () => reducedMotion,
+}));
+
+const { CompanionSurface, FALLBACK_WIDTHS, INNER_GAP } =
+  await import("./companion-surface");
+
+afterEach(() => {
+  cleanup();
+  reducedMotion = false;
+});
 
 /** The ordinary middle of a call: unmuted, listening, nothing to decide. */
 const LISTENING_CALL: VoiceActivityState = {
@@ -43,17 +57,40 @@ describe("the companion surface's working ring", () => {
     expect(ringOf(container)).not.toBeNull();
   });
 
-  test("is drawn on the expanded pill too", () => {
+  test("is drawn with the pill open too", () => {
     const { container } = render(<CompanionSurface phase="hover" working />);
     expect(ringOf(container)).not.toBeNull();
   });
 
-  test("follows the card's corner radius while typing", () => {
-    const { container } = render(<CompanionSurface phase="typing" working />);
-    expect(ringOf(container)?.className).toContain("rounded-[24px]");
+  /**
+   * **The ring belongs to the creature.** The avatar is drawn in every phase
+   * and holds one spot in the canvas, so the light stays where the eye already
+   * looks for this surface's state. Handing it to the pill while expanded would
+   * move it to a different parent every time the pointer crossed, which
+   * remounts everything hanging off it.
+   */
+  test("hangs off the avatar in every phase", () => {
+    for (const phase of [
+      "resting",
+      "hover",
+      "watching",
+      "summary",
+      "call",
+      "typing",
+    ] as const) {
+      const { container } = render(<CompanionSurface phase={phase} working />);
+      expect(ringOf(container)?.closest(".size-11")).not.toBeNull();
+      cleanup();
+    }
   });
 
-  test("is round in every state that is not the card", () => {
+  /** Around the creature's own box, so it is a circle whatever the pill is. */
+  test("stays round while the card is open", () => {
+    const { container } = render(<CompanionSurface phase="typing" working />);
+    expect(ringOf(container)?.className).toContain("rounded-full");
+  });
+
+  test("is round in every other state too", () => {
     const { container } = render(<CompanionSurface phase="hover" working />);
     expect(ringOf(container)?.className).toContain("rounded-full");
   });
@@ -299,14 +336,34 @@ describe("the companion surface's capture pulse", () => {
     ).toBe("#ff9f45");
   });
 
-  test("follows the card's corner radius while typing", () => {
+  test("stays round while the card is open", () => {
     const { container, rerender } = render(
       <CompanionSurface phase="typing" watching captureCount={0} />,
     );
 
     rerender(<CompanionSurface phase="typing" watching captureCount={1} />);
 
-    expect(pulseOf(container)?.className).toContain("rounded-[24px]");
+    expect(pulseOf(container)?.className).toContain("rounded-full");
+  });
+
+  /**
+   * The flare is one-shot, so a node unmounted and put back plays it again. The
+   * pointer crosses this surface constantly while a session runs, and none of
+   * those crossings is a screen being read: a flare drawn for one would be the
+   * indicator claiming a capture that did not happen.
+   */
+  test("does not replay when the phase changes under a running session", () => {
+    const { container, rerender } = render(
+      <CompanionSurface phase="resting" watching captureCount={0} />,
+    );
+    rerender(<CompanionSurface phase="resting" watching captureCount={1} />);
+    const flare = pulseOf(container);
+    expect(flare).not.toBeNull();
+
+    rerender(<CompanionSurface phase="hover" watching captureCount={1} />);
+    rerender(<CompanionSurface phase="resting" watching captureCount={1} />);
+
+    expect(pulseOf(container)).toBe(flare);
   });
 });
 
@@ -1171,20 +1228,11 @@ describe("the companion surface's width ceiling", () => {
 
   /**
    * The ceiling is on the pill, not on the body inside it, so a body that fits
-   * with the clearance at either end left off is not one that fits. `typing` is
-   * the card's own outer width rather than a measured body, and the case below
-   * holds it exactly at the ceiling.
+   * with the clearance at either end left off is not one that fits.
    */
   test("holds for every measured body once the pill's own clearance is on it", () => {
-    const over = Object.entries(FALLBACK_WIDTHS)
-      .filter(([phase]) => phase !== "typing")
-      .filter(([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING);
-    expect(over).toEqual([]);
-  });
-
-  test("holds for every phase", () => {
     const over = Object.entries(FALLBACK_WIDTHS).filter(
-      ([, width]) => width > CANVAS_CEILING,
+      ([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
   });
@@ -1204,8 +1252,14 @@ describe("the companion surface's width ceiling", () => {
     expect(FALLBACK_WIDTHS.call).toBeGreaterThan(FALLBACK_WIDTHS.hover);
   });
 
-  test("leaves the card exactly at the ceiling it was already at", () => {
-    expect(FALLBACK_WIDTHS.typing).toBe(CANVAS_CEILING);
+  /**
+   * The card is the widest state the surface has and it states its width rather
+   * than measuring one, so it is drawn at the ceiling itself: the canvas is
+   * sized for exactly this and a card any wider would be a clipped one.
+   */
+  test("draws the card at the ceiling", () => {
+    const { container } = render(<CompanionSurface phase="typing" />);
+    expect(surfaceOf(container).style.width).toBe(`${CANVAS_CEILING}px`);
   });
 });
 
@@ -1231,9 +1285,9 @@ describe("the companion surface's capture indicator across phases", () => {
     expect(ringOf(container)).not.toBeNull();
   });
 
-  test("follows the card's corner radius while the user types", () => {
+  test("stays on the creature while the user types", () => {
     const { container } = render(<CompanionSurface phase="typing" watching />);
-    expect(ringOf(container)?.className).toContain("rounded-[24px]");
+    expect(ringOf(container)?.closest(".size-11")).not.toBeNull();
   });
 
   test("is absent in the composer with no session running", () => {
@@ -1467,5 +1521,35 @@ describe("the resting avatar's idle motion", () => {
       expect(container.querySelector(".companion-glow")).not.toBeNull();
       cleanup();
     }
+  });
+
+  /**
+   * A reader who has asked for stillness gets it from two places: the
+   * `prefers-reduced-motion` block beside the keyframes, and the inline
+   * `animation: none` here. The doubling is deliberate, since a stylesheet that
+   * failed to load is a surface that moves anyway, and this is the half a
+   * reader of the component can see.
+   *
+   * Held still rather than dropped: the glow is the creature's own light and
+   * the bob's baseline is where the creature belongs, so both stay drawn.
+   */
+  test("holds the bob and the glow still under reduced motion", () => {
+    reducedMotion = true;
+
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    const bob = container.querySelector<HTMLElement>(".companion-avatar-bob");
+    const glow = container.querySelector<HTMLElement>(".companion-glow");
+    expect(bob?.style.animation).toBe("none");
+    expect(glow?.style.animation).toBe("none");
+  });
+
+  test("leaves both running for a reader who asked for nothing", () => {
+    const { container } = render(<CompanionSurface phase="resting" />);
+
+    const bob = container.querySelector<HTMLElement>(".companion-avatar-bob");
+    const glow = container.querySelector<HTMLElement>(".companion-glow");
+    expect(bob?.style.animation).toBe("");
+    expect(glow?.style.animation).toBe("");
   });
 });

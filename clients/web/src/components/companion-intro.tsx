@@ -49,9 +49,8 @@ import type {
  * Prose has no natural width, so measuring would size the card to whichever
  * beat happened to say the most and change its shape as the run advanced. This
  * is the same bargain the typing card makes, and it fits the canvas at every
- * size: the window reaches `avatarBox / 2 + gap + maxBodyWidth` past the avatar
- * in both directions (`geometryFor` in `companion-window.ts`), which is 350 at
- * the size this layout is authored at.
+ * size, which main sizes by its own `maxReach` (`geometryFor` in
+ * `companion-window.ts`).
  */
 const CARD_WIDTH = 244;
 
@@ -141,8 +140,8 @@ export interface CompanionIntroProps {
    * The creature's box and the pill's, in points, as `CompanionSurface` takes
    * them.
    *
-   * The card hangs off the creature's edge and steps off it by the same gap the
-   * pill does, so it needs the same two numbers the surface does. Defaulted to
+   * The card hangs off the creature and has to clear whatever the pill draws
+   * beside it, so it needs the same two numbers the surface does. Defaulted to
    * the size the layout is authored at, which is what Storybook draws.
    */
   avatarBox?: number;
@@ -189,41 +188,30 @@ export function CompanionIntro({
   const copy = INTRO_COPY_KEYS[beat];
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
-  // the pill hang off the creature by exactly the same amount.
-  const { inUnits, avatarHalf, gap, nearEdge } = companionLayoutFor(
-    avatarBox,
-    optionsBox,
-  );
-  const avatarHalfUnits = inUnits(avatarHalf);
-  // The creature's half box and then the same room the surface leaves between
-  // the avatar and its pill, so everything hanging off the creature sits the
-  // same distance from it.
-  const stepOff = inUnits(avatarHalf + gap);
-  const nearEdgeUnits = inUnits(nearEdge);
+  // the pill are arranged around one creature rather than two readings of it.
+  const { inUnits, avatarHalf, lineAt, edgeAt, introStepOff } =
+    companionLayoutFor(avatarBox, optionsBox);
+  // Clears whichever of the creature and the pill reaches further on this side,
+  // and then the gap. Stepping off the creature alone would put the card inside
+  // a pill taller than it, since the pill is bottom-flush with the avatar
+  // rather than centred on it and every beat but `meet` holds it open.
+  const stepOff = inUnits(introStepOff(cardGrowth));
 
   // Hung off the avatar's own edge, which is the point the host positioned this
   // window around and the point the pill is measured from too. Not off the
   // pill: that box changes width from beat to beat as controls are spotlighted,
   // and a card pinned to it would slide about while being read.
-  const placement: CSSProperties =
-    growth === "left"
-      ? { right: "50%", marginRight: -avatarHalfUnits }
-      : { left: "50%", marginLeft: -avatarHalfUnits };
+  const placement: CSSProperties = edgeAt(growth, -avatarHalf);
 
-  // The vertical half: sit against the canvas edge the avatar is near, then
-  // step off the avatar by its own half box plus the gap. `100%` names the
-  // canvas without this side having to know how tall the host made it, which is
-  // the same trick the surface's own anchor uses.
-  const anchor: CSSProperties =
-    cardGrowth === "up"
-      ? {
-          top: `calc(100% - ${nearEdgeUnits}px)`,
-          transform: `translateY(calc(-100% - ${stepOff}px))`,
-        }
-      : {
-          top: nearEdgeUnits,
-          transform: `translateY(${stepOff}px)`,
-        };
+  // The vertical half: sit on the avatar's own line, then step off it far
+  // enough to clear what is drawn there.
+  const anchor: CSSProperties = {
+    top: lineAt(cardGrowth, 0),
+    transform:
+      cardGrowth === "up"
+        ? `translateY(calc(-100% - ${stepOff}px))`
+        : `translateY(${stepOff}px)`,
+  };
 
   return (
     <div

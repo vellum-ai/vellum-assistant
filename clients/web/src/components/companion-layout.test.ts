@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { companionLayoutFor } from "./companion-layout";
+import { bridgeRect, companionLayoutFor } from "./companion-layout";
 
 /**
  * The one derivation the pill and the introduction card are both placed by.
@@ -13,13 +13,11 @@ import { companionLayoutFor } from "./companion-layout";
 describe("companionLayoutFor", () => {
   /**
    * The authored pair. Every length on the surface is stated at this size, so
-   * the layout has to reduce to itself here: the scale is one, the creature
-   * carries no difference of its own, and the distances are the points they
-   * were written as.
+   * the layout has to reduce to itself here: the creature carries no difference
+   * of its own, and the distances are the points they were written as.
    */
   test("hands back the authored numbers when the two boxes agree", () => {
     const layout = companionLayoutFor(44, 44);
-    expect(layout.scale).toBe(1);
     expect(layout.avatarRel).toBe(1);
     expect(layout.avatarHalf).toBe(22);
     expect(layout.gap).toBe(12);
@@ -32,26 +30,18 @@ describe("companionLayoutFor", () => {
    * the smaller box's, the creature is drawn at the ratio between the two, and
    * every point distance is divided by the scale the wrapper has already
    * applied.
+   *
+   * The conversion divides by that scale rather than multiplying by the base
+   * box over the pill's, because these numbers are written straight into CSS.
+   * The other order comes out a float's width away, and `calc(50% +
+   * 13.600000000000001px)` is what the user would read in the inspector.
    */
   test("states a mixed pair in the pill's units", () => {
     const layout = companionLayoutFor(44, 110);
-    expect(layout.scale).toBe(2.5);
     expect(layout.avatarRel).toBe(0.4);
     expect(layout.avatarHalf).toBe(22);
     expect(layout.gap).toBe(12);
     expect(layout.nearEdge).toBe(148);
-    expect(layout.inUnits(34)).toBe(13.6);
-    expect(layout.inUnits(148)).toBe(59.2);
-  });
-
-  /**
-   * The conversion divides by the scale rather than multiplying by the base box
-   * over the pill's, because the numbers here are written straight into CSS.
-   * The other order comes out a float's width away, and `calc(50% +
-   * 13.600000000000001px)` is what the user would read in the inspector.
-   */
-  test("converts to the exact numbers CSS is handed", () => {
-    const layout = companionLayoutFor(44, 110);
     expect(`${layout.inUnits(34)}`).toBe("13.6");
     expect(`${layout.inUnits(148)}`).toBe("59.2");
   });
@@ -63,11 +53,154 @@ describe("companionLayoutFor", () => {
    */
   test("keeps the smaller box's gap when the creature is the larger", () => {
     const layout = companionLayoutFor(110, 44);
-    expect(layout.scale).toBe(1);
     expect(layout.avatarRel).toBe(2.5);
     expect(layout.avatarHalf).toBe(55);
     expect(layout.gap).toBe(12);
     expect(layout.nearEdge).toBe(115);
     expect(layout.inUnits(67)).toBe(67);
+  });
+
+  /**
+   * The canvas is anchored to whichever edge the card does not grow into, so a
+   * line is named from that edge and `100%` covers the other without this side
+   * knowing how tall main made the window.
+   */
+  test("names a line from the canvas edge the avatar is near", () => {
+    const layout = companionLayoutFor(44, 44);
+    expect(layout.lineAt("up", 0)).toBe("calc(100% - 46px)");
+    expect(layout.lineAt("up", 22)).toBe("calc(100% - 24px)");
+    expect(layout.lineAt("down", 0)).toBe("46px");
+    expect(layout.lineAt("down", 22)).toBe("68px");
+  });
+
+  /** A flip anchors the other edge and moves nothing else. */
+  test("anchors the edge the surface grows from", () => {
+    const layout = companionLayoutFor(44, 44);
+    expect(layout.edgeAt("right", 34)).toEqual({ left: "calc(50% + 34px)" });
+    expect(layout.edgeAt("left", 34)).toEqual({ right: "calc(50% + 34px)" });
+  });
+
+  /** Back towards the avatar's own edge, which the introduction's card hangs on. */
+  test("states a step back across the centre as a subtraction", () => {
+    const layout = companionLayoutFor(44, 44);
+    expect(layout.edgeAt("right", -22)).toEqual({ left: "calc(50% - 22px)" });
+  });
+});
+
+/**
+ * How far the introduction's card starts from the avatar's centre.
+ *
+ * Its own distance rather than the pill's, because the pill is bottom-flush
+ * with the creature rather than centred on it. Every beat but the first holds
+ * the pill open, so a card that only cleared the creature would be drawn over
+ * the thing it is describing.
+ */
+describe("the introduction's step off the creature", () => {
+  test("clears the creature itself when the two boxes agree", () => {
+    const layout = companionLayoutFor(44, 44);
+    expect(layout.introStepOff("up")).toBe(34);
+    expect(layout.introStepOff("down")).toBe(34);
+  });
+
+  /**
+   * A small creature under a large pill: bottom-flush puts the pill's top 88
+   * points above the avatar's centre where the creature reaches only 22, so
+   * the card has to start past the pill.
+   */
+  test("clears a pill that stands taller than the creature", () => {
+    const layout = companionLayoutFor(44, 110);
+    const pillTop = 110 - 22;
+    expect(layout.introStepOff("up")).toBe(pillTop + 12);
+    expect(layout.introStepOff("up")).toBeGreaterThan(pillTop);
+  });
+
+  /**
+   * Downward there is nothing to clear but the creature: the pill's bottom
+   * edge *is* the creature's bottom edge, whichever of the two is larger.
+   */
+  test("takes the creature's own bottom growing downward", () => {
+    expect(companionLayoutFor(44, 110).introStepOff("down")).toBe(34);
+    expect(companionLayoutFor(110, 44).introStepOff("down")).toBe(67);
+  });
+});
+
+/**
+ * The strip between the avatar and the pill, as arithmetic. The rects it is
+ * handed come from the DOM, so these are about the shape it makes of them:
+ * between the facing edges, and no taller than the composer row.
+ */
+describe("bridgeRect", () => {
+  const AVATAR = { left: 100, right: 144, top: 100, bottom: 144 };
+  const ROW = { rowHeight: 44, cardGrowth: "up" } as const;
+
+  test("spans the facing edges when the pill grows rightward", () => {
+    const pill = { left: 156, right: 356, top: 100, bottom: 144 };
+    expect(bridgeRect(AVATAR, pill, ROW)).toEqual({
+      left: 144,
+      right: 156,
+      top: 100,
+      bottom: 144,
+    });
+  });
+
+  test("spans them the other way when it grows leftward", () => {
+    const pill = { left: -100, right: 88, top: 100, bottom: 144 };
+    expect(bridgeRect(AVATAR, pill, ROW)).toEqual({
+      left: 88,
+      right: 100,
+      top: 100,
+      bottom: 144,
+    });
+  });
+
+  /**
+   * The pill's height, never the avatar's. A strip as tall as a larger creature
+   * would claim the dead corners beside it, which is the bounding box this
+   * exists instead of.
+   */
+  test("takes the pill's height rather than a taller avatar's", () => {
+    const tall = { left: 100, right: 200, top: 40, bottom: 200 };
+    const pill = { left: 212, right: 412, top: 156, bottom: 200 };
+    expect(bridgeRect(tall, pill, ROW)).toEqual({
+      left: 200,
+      right: 212,
+      top: 156,
+      bottom: 200,
+    });
+  });
+
+  /**
+   * The card is the one state that is not its own row. A strip drawn to its
+   * full height would hand the window a column of empty canvas beside the card
+   * to swallow desktop presses in, so it stops at the composer row: the card's
+   * last child growing up, and its first growing down.
+   */
+  test("covers only the composer row of a card growing up", () => {
+    const card = { left: 156, right: 472, top: -146, bottom: 144 };
+    expect(bridgeRect(AVATAR, card, ROW)).toEqual({
+      left: 144,
+      right: 156,
+      top: 100,
+      bottom: 144,
+    });
+  });
+
+  test("covers only the composer row of a card growing down", () => {
+    const card = { left: 156, right: 472, top: 100, bottom: 390 };
+    expect(
+      bridgeRect(AVATAR, card, { rowHeight: 44, cardGrowth: "down" }),
+    ).toEqual({
+      left: 144,
+      right: 156,
+      top: 100,
+      bottom: 144,
+    });
+  });
+
+  /** Overlapping rects have no gap between them, and an empty strip says so. */
+  test("is empty when the two overlap", () => {
+    const overlapping = { left: 120, right: 320, top: 100, bottom: 144 };
+    const bridge = bridgeRect(AVATAR, overlapping, ROW);
+    expect(bridge.left).toBeGreaterThan(bridge.right);
   });
 });

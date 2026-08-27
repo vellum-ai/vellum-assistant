@@ -6,6 +6,12 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import {
+  bridgeRect,
+  COMPANION_BOB_LIFT,
+  containsPoint,
+  type SurfaceRect,
+} from "@/components/companion-layout";
+import {
   CompanionSurface,
   type CompanionSurfacePhase,
 } from "@/components/companion-surface";
@@ -48,45 +54,6 @@ import type {
  * turn "take me back to Vellum" into a one-pixel nudge that does nothing.
  */
 const DRAG_SLOP = 3;
-
-/** As much of a rect as hit-testing a point against it needs. */
-type SurfaceRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
-
-/**
- * The gap between the avatar and the pill, as a rect of its own.
- *
- * **The surface is a union of rects, never the box around them.** The avatar
- * and the pill are separate elements, and a bounding box over the pair would
- * claim the empty canvas above and below the gap as well: a click-through
- * window told it is interactive there swallows the presses meant for whatever
- * is behind it, which is the failure every note in this file is about. So the
- * gap is tested as exactly what it is, a strip between the two facing edges,
- * running the pill's own height.
- *
- * It has to be part of the surface at all because the pointer crosses it on the
- * way from the creature to the controls. A window that went click-through
- * halfway would drop the press the user was travelling to make.
- *
- * Degenerate when the two overlap, which reads as no bridge at all: the strip's
- * left edge lands past its right, and no point is inside it.
- */
-export const bridgeRect = (
-  avatar: SurfaceRect,
-  pill: SurfaceRect,
-): SurfaceRect =>
-  pill.left >= avatar.right
-    ? {
-        left: avatar.right,
-        right: pill.left,
-        top: pill.top,
-        bottom: pill.bottom,
-      }
-    : {
-        left: pill.right,
-        right: avatar.left,
-        top: pill.top,
-        bottom: pill.bottom,
-      };
 
 /**
  * The companion surface inside its Electron canvas
@@ -193,7 +160,10 @@ export function CompanionSurfacePage() {
       setGrowth(state.growth);
       setCardGrowth(state.cardGrowth);
       setAvatarBox(state.avatarBox);
-      setOptionsBox(state.optionsBox);
+      // The creature's box unless the pill has one of its own, which covers a
+      // shell that predates the second axis: one box for both is the surface
+      // that side is drawing.
+      setOptionsBox(state.optionsBox ?? state.avatarBox);
       setAvatarSrc(
         state.avatarBase64 === undefined
           ? undefined
@@ -263,7 +233,7 @@ export function CompanionSurfacePage() {
    *
    * **Hover has to be dropped with it.** Hover is derived from hit-testing the
    * pointer against the surface's own box on every move, and the box the last
-   * move tested was the card: a 360pt panel standing well above the pill. The
+   * move tested was the card: a panel standing well above the pill. The
    * moment the card is gone that answer describes a shape that no longer
    * exists, and nothing corrects it, because the correction is a mouse-move and
    * the hand that just pressed "go back" is holding still. Left alone the
@@ -407,26 +377,46 @@ export function CompanionSurfacePage() {
       }
       return;
     }
-    const pill = pillRef.current;
     const avatar = avatarRef.current;
-    if (!pill || !avatar) {
+    if (!avatar) {
       return;
     }
     const inside = (rect: SurfaceRect): boolean =>
-      event.clientX >= rect.left &&
-      event.clientX <= rect.right &&
-      event.clientY >= rect.top &&
-      event.clientY <= rect.bottom;
-    // Each box read once. Reading one forces layout, and this runs on every
-    // pixel of every mouse-move the host forwards.
-    const avatarRect = avatar.getBoundingClientRect();
-    const pillRect = pill.getBoundingClientRect();
+      containsPoint(rect, event.clientX, event.clientY);
+    // Reading a box forces layout, and this runs on every pixel of every
+    // mouse-move the host forwards, so each is read once and the pill's is not
+    // read at all until there is a pill.
+    const drawn = avatar.getBoundingClientRect();
+    // The creature's box, plus the strip above it the bob lifts the artwork
+    // into. The element holds still and the drawing rises off it, so a pointer
+    // on the creature's own head is outside the box it belongs to.
+    const avatarRect: SurfaceRect = {
+      left: drawn.left,
+      right: drawn.right,
+      top:
+        drawn.top -
+        (COMPANION_BOB_LIFT * avatarBox) / COMPANION_BASE_AVATAR_BOX,
+      bottom: drawn.bottom,
+    };
     const onAvatar = inside(avatarRect);
     // The pill and the gap only count once there is a pill: at rest its box is
     // nothing, and a rect of nothing beside the avatar is not somewhere a
     // pointer can be.
-    const onPill = expanded && inside(pillRect);
-    const onBridge = expanded && inside(bridgeRect(avatarRect, pillRect));
+    const pill = expanded ? pillRef.current : null;
+    let onPill = false;
+    let onBridge = false;
+    if (pill !== null) {
+      const pillRect = pill.getBoundingClientRect();
+      onPill = inside(pillRect);
+      onBridge = inside(
+        bridgeRect(avatarRect, pillRect, {
+          // The composer row in screen pixels: one base box at the options
+          // scale, which is the options box itself.
+          rowHeight: optionsBox,
+          cardGrowth,
+        }),
+      );
+    }
     // The introduction's card is part of the surface for as long as it is
     // drawn. Testing only the surface would leave the window click-through over
     // Next and Skip, so the presses meant to end the run would land on whatever
@@ -585,8 +575,8 @@ export function CompanionSurfacePage() {
                 beat={intro}
                 growth={growth}
                 cardGrowth={cardGrowth}
-                // The card steps off the creature by the same gap the pill
-                // does, so it is given the same two boxes.
+                // The card clears whatever the pill draws beside the creature,
+                // so it is given the same two boxes.
                 avatarBox={avatarBox}
                 optionsBox={optionsBox}
                 accentHex={accentHex}
