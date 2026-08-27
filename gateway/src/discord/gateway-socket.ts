@@ -53,11 +53,16 @@ import {
   DiscordMessageCreateSchema,
   DiscordReadySchema,
   DiscordThreadListSchema,
+  DISCORD_COMPONENT_TYPE_BUTTON,
+  DISCORD_INTERACTION_CALLBACK_DEFERRED_UPDATE,
+  DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT,
+  DiscordInteractionSchema,
   DiscordMessageDeleteSchema,
   DiscordMessageReactionSchema,
   DiscordThreadSchema,
 } from "./message-schemas.js";
 import {
+  normalizeDiscordInteraction,
   normalizeDiscordMessage,
   normalizeDiscordMessageDelete,
   normalizeDiscordMessageReaction,
@@ -673,6 +678,9 @@ export class DiscordGatewayClient {
       case "MESSAGE_REACTION_REMOVE":
         this.handleMessageReaction(data, "removed");
         return;
+      case "INTERACTION_CREATE":
+        this.handleInteractionCreate(data);
+        return;
       default:
         return;
     }
@@ -781,6 +789,87 @@ export class DiscordGatewayClient {
       "Discord delete forwarded",
     );
     this.onEvent(normalized, new Map());
+  }
+
+  private handleInteractionCreate(data: unknown): void {
+    const parsed = DiscordInteractionSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed INTERACTION_CREATE");
+      return;
+    }
+    const interaction = parsed.data;
+    // Only component button presses are consumed; commands, selects and
+    // modals have no consumer, and an unhandled interaction type must not be
+    // acked into a state the user reads as accepted.
+    if (
+      interaction.type !== DISCORD_INTERACTION_TYPE_MESSAGE_COMPONENT ||
+      interaction.data?.component_type !== DISCORD_COMPONENT_TYPE_BUTTON
+    ) {
+      return;
+    }
+    if (!interaction.id || !interaction.token) {
+      log.warn("Dropping INTERACTION_CREATE without id or token");
+      return;
+    }
+    // ACK inside Discord's 3-second deadline, before any forwarding work.
+    // DeferredMessageUpdate leaves the card untouched; the daemon's decision
+    // flow rewrites it through the notification adapter's update path, the
+    // same shape as Telegram's answerCallbackQuery-then-edit.
+    void this.acknowledgeInteraction(interaction.id, interaction.token);
+    const parentChannelId = interaction.channel_id
+      ? this.threadParents.parentOf(interaction.channel_id)
+      : undefined;
+    const normalized = normalizeDiscordInteraction(interaction, {
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+    });
+    if (!normalized) {
+      log.debug(
+        { interactionId: interaction.id },
+        "Discord interaction dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        interactionId: interaction.id,
+        conversationExternalId: normalized.message.conversationExternalId,
+      },
+      "Discord button press forwarded",
+    );
+    this.onEvent(normalized, new Map());
+  }
+
+  /**
+   * POST the deferred-update ack for a component press. The interaction
+   * token in the URL authorizes the call; no bot header is needed. Failure
+   * is logged and swallowed: the press still forwards, and the only cost is
+   * Discord showing the guardian an interaction-failed notice.
+   */
+  private async acknowledgeInteraction(
+    interactionId: string,
+    token: string,
+  ): Promise<void> {
+    try {
+      const response = await this.fetchFn(
+        `${DISCORD_API_BASE_URL}/interactions/${interactionId}/${token}/callback`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            type: DISCORD_INTERACTION_CALLBACK_DEFERRED_UPDATE,
+          }),
+        },
+      );
+      if (!response.ok) {
+        log.warn(
+          { interactionId, status: response.status },
+          "Discord interaction ack failed",
+        );
+      }
+    } catch (err) {
+      log.warn({ err, interactionId }, "Discord interaction ack failed");
+    }
   }
 
   private handleMessageReaction(data: unknown, op: "added" | "removed"): void {

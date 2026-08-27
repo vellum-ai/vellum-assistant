@@ -529,6 +529,101 @@ describe("reaction dispatch", () => {
   });
 });
 
+describe("interaction dispatch", () => {
+  const buttonPress = (overrides: Record<string, unknown> = {}) => ({
+    op: 0,
+    t: "INTERACTION_CREATE",
+    s: 4,
+    d: {
+      id: "inter-1",
+      token: "inter-token-1",
+      type: 3,
+      channel_id: "dm-channel-1",
+      data: { custom_id: "apr:req-1:approve_once", component_type: 2 },
+      message: { id: "card-msg-1" },
+      user: { id: "user-1", username: "alice", global_name: "Alice" },
+      ...overrides,
+    },
+  });
+
+  test("a button press acks deferred-update and forwards a button event", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(buttonPress());
+    await Promise.resolve();
+
+    const ack = h.fetchCalls.find((c) => c.url.includes("/interactions/"));
+    expect(ack?.url).toBe(
+      "https://discord.com/api/v10/interactions/inter-1/inter-token-1/callback",
+    );
+
+    expect(h.events).toHaveLength(1);
+    const event = h.events[0];
+    expect(event.message.eventKind).toBe("button");
+    expect(event.message.callbackData).toBe("apr:req-1:approve_once");
+    expect(event.message.content).toBe("apr:req-1:approve_once");
+    expect(event.message.conversationExternalId).toBe("dm-channel-1");
+    expect(event.source.messageId).toBe("card-msg-1");
+    expect(event.actor.actorExternalId).toBe("user-1");
+    expect(event.source.isDirectMessage).toBe(true);
+  });
+
+  test("a guild press names its actor from member.user", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(
+      buttonPress({
+        guild_id: "guild-1",
+        user: undefined,
+        member: { user: { id: "user-2", username: "bob" } },
+      }),
+    );
+
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0].actor.actorExternalId).toBe("user-2");
+    expect(h.events[0].source.isDirectMessage).toBe(false);
+  });
+
+  test("non-component interaction types are neither acked nor forwarded", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    // An application command (type 2) has no consumer here.
+    ws.message(buttonPress({ type: 2 }));
+    await Promise.resolve();
+
+    expect(h.events).toHaveLength(0);
+    expect(
+      h.fetchCalls.filter((c) => c.url.includes("/interactions/")),
+    ).toHaveLength(0);
+  });
+
+  test("a select-menu press is not consumed", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(
+      buttonPress({
+        data: { custom_id: "pick", component_type: 3, values: ["a"] },
+      }),
+    );
+
+    expect(h.events).toHaveLength(0);
+  });
+
+  test("a bot actor drops at normalization but the ack still lands", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(
+      buttonPress({ user: { id: "other-bot", username: "x", bot: true } }),
+    );
+    await Promise.resolve();
+
+    expect(h.events).toHaveLength(0);
+    expect(
+      h.fetchCalls.filter((c) => c.url.includes("/interactions/")),
+    ).toHaveLength(1);
+  });
+});
+
 describe("shutdown", () => {
   test("stop closes with 1000 and schedules nothing", async () => {
     const h = harness();

@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import { admitDiscordMessage } from "./admit.js";
 import {
+  DiscordInteractionSchema,
   DiscordMessageCreateSchema,
   DiscordMessageDeleteSchema,
   DiscordMessageReactionSchema,
 } from "./message-schemas.js";
 import {
+  normalizeDiscordInteraction,
   normalizeDiscordMessage,
   normalizeDiscordMessageDelete,
   normalizeDiscordMessageReaction,
@@ -613,6 +615,90 @@ describe("normalizeDiscordMessageReaction", () => {
         emoji: { id: null, name: "\u{1F44D}" },
       }),
       { op: "added", parentChannelId: "channel-1", raw: {} },
+    );
+
+    expect(event!.message.conversationExternalId).toBe("channel-1");
+    expect(event!.source.threadId).toBe("thread-1");
+  });
+});
+describe("normalizeDiscordInteraction", () => {
+  function parseInteraction(payload: Record<string, unknown>) {
+    const parsed = DiscordInteractionSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new Error("schema unexpectedly rejected payload");
+    }
+    return parsed.data;
+  }
+
+  const base = (overrides: Record<string, unknown> = {}) => ({
+    id: "inter-1",
+    token: "inter-token-1",
+    type: 3,
+    channel_id: "dm-channel-1",
+    data: { custom_id: "apr:req-1:approve_once", component_type: 2 },
+    message: { id: "card-msg-1" },
+    user: { id: "user-1", username: "alice", global_name: "Alice" },
+    ...overrides,
+  });
+
+  test("a DM button press takes the button family with the card's id", () => {
+    const event = normalizeDiscordInteraction(parseInteraction(base()), {
+      raw: {},
+    });
+
+    expect(event).not.toBeNull();
+    expect(event!.message.eventKind).toBe("button");
+    expect(event!.message.callbackData).toBe("apr:req-1:approve_once");
+    expect(event!.message.content).toBe("apr:req-1:approve_once");
+    expect(event!.message.externalMessageId).toBe("inter-1");
+    expect(event!.source.messageId).toBe("card-msg-1");
+    expect(event!.actor.actorExternalId).toBe("user-1");
+    expect(event!.actor.displayName).toBe("Alice");
+    expect(event!.source.isDirectMessage).toBe(true);
+    expect(event!.source.conversationType).toBe("dm");
+  });
+
+  test("a guild press names its actor from member.user and proves no DM", () => {
+    const event = normalizeDiscordInteraction(
+      parseInteraction(
+        base({
+          guild_id: "guild-1",
+          user: undefined,
+          member: { user: { id: "user-2", username: "bob" } },
+        }),
+      ),
+      { raw: {} },
+    );
+
+    expect(event!.actor.actorExternalId).toBe("user-2");
+    expect(event!.source.isDirectMessage).toBe(false);
+    expect(event!.source.conversationType).toBeUndefined();
+  });
+
+  test("a bot actor cannot press a real button and drops", () => {
+    const event = normalizeDiscordInteraction(
+      parseInteraction(
+        base({ user: { id: "bot-x", username: "x", bot: true } }),
+      ),
+      { raw: {} },
+    );
+
+    expect(event).toBeNull();
+  });
+
+  test("an interaction naming no actor drops", () => {
+    const event = normalizeDiscordInteraction(
+      parseInteraction(base({ user: undefined })),
+      { raw: {} },
+    );
+
+    expect(event).toBeNull();
+  });
+
+  test("a thread press addresses the parent conversation", () => {
+    const event = normalizeDiscordInteraction(
+      parseInteraction(base({ channel_id: "thread-1", guild_id: "guild-1" })),
+      { parentChannelId: "channel-1", raw: {} },
     );
 
     expect(event!.message.conversationExternalId).toBe("channel-1");

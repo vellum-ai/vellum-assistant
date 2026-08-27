@@ -17,6 +17,7 @@ import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import type { AdmissionCandidate } from "./admit.js";
 import { extractDiscordAttachments } from "./attachments.js";
 import type {
+  DiscordInteraction,
   DiscordMessageCreate,
   DiscordMessageDelete,
   DiscordMessageReaction,
@@ -129,6 +130,66 @@ export function normalizeDiscordMessage(
  * author cleared the ACL when the message arrived; nothing here asserts who
  * deleted it.
  */
+/**
+ * Normalize a component-button INTERACTION_CREATE into the button event
+ * family, the same shape a Telegram callback query takes: `callbackData`
+ * carries the component's `custom_id` (`apr:<requestId>:<action>` on an
+ * approval card) and `source.messageId` names the card the press landed on.
+ * The actor is `user` in a DM and `member.user` in a guild; an interaction
+ * whose actor cannot be named, or whose actor is a bot, cannot be routed
+ * and drops.
+ */
+export function normalizeDiscordInteraction(
+  interaction: DiscordInteraction,
+  options: {
+    parentChannelId?: string;
+    raw: Record<string, unknown>;
+  },
+): DiscordInboundEvent | null {
+  const actor = interaction.user ?? interaction.member?.user;
+  const customId = interaction.data?.custom_id;
+  if (
+    !interaction.id ||
+    !interaction.channel_id ||
+    !customId ||
+    !actor?.id ||
+    actor.bot === true
+  ) {
+    return null;
+  }
+  const inThread = options.parentChannelId !== undefined;
+  const isDirectMessage = interaction.guild_id === undefined;
+  return {
+    version: "v1",
+    sourceChannel: "discord",
+    receivedAt: new Date().toISOString(),
+    message: {
+      eventKind: "button",
+      content: customId,
+      conversationExternalId: options.parentChannelId ?? interaction.channel_id,
+      externalMessageId: interaction.id,
+      callbackData: customId,
+    },
+    actor: {
+      actorExternalId: actor.id,
+      ...(actor.username !== undefined ? { username: actor.username } : {}),
+      ...(typeof actor.global_name === "string"
+        ? { displayName: actor.global_name }
+        : {}),
+      ...(actor.bot !== undefined ? { isBot: actor.bot } : {}),
+    },
+    source: {
+      updateId: interaction.id,
+      messageId: interaction.message?.id,
+      chatType: isDirectMessage ? "dm" : "channel",
+      isDirectMessage,
+      ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
+      ...(inThread ? { threadId: interaction.channel_id } : {}),
+    },
+    raw: options.raw,
+  };
+}
+
 export function normalizeDiscordMessageReaction(
   reaction: DiscordMessageReaction,
   options: {

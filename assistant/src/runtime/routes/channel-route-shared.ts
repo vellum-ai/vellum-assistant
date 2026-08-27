@@ -52,13 +52,9 @@ export function parseCallbackData(
     return null;
   }
   const source =
-    sourceChannel === "whatsapp"
-      ? ("whatsapp_button" as const)
-      : sourceChannel === "slack"
-        ? ("slack_button" as const)
-        : sourceChannel === "vellum"
-          ? ("vellum_surface" as const)
-          : ("telegram_button" as const);
+    sourceChannel === "vellum"
+      ? ("vellum_surface" as const)
+      : ("button" as const);
   return { action, source, requestId };
 }
 
