@@ -602,7 +602,7 @@ function gatewayUrl(baseUrl: string, path: string): string {
   return url.toString();
 }
 
-function isUuid(value: string): boolean {
+export function isUuid(value: string): boolean {
   return UUID_RE.test(value);
 }
 

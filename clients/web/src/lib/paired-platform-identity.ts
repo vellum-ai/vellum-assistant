@@ -1,12 +1,9 @@
-import { fetchPlatformStatus } from "@/lib/local-platform-identity";
+import { fetchPlatformStatus, isUuid } from "@/lib/local-platform-identity";
 import {
   getLockfileAssistant,
   getPairedGatewayUrl,
   updateLockfileAssistant,
 } from "@/lib/local-mode";
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** One attempt per paired id per session; a miss (unreachable, unregistered) is cached too. */
 const pairedPlatformIdCache = new Map<string, Promise<string | null>>();
@@ -57,11 +54,16 @@ async function fetchAndPersistPairedPlatformId(
     assistantId,
   );
   const platformAssistantId = status?.assistantId ?? null;
-  if (!platformAssistantId || !UUID_RE.test(platformAssistantId)) {
+  if (!platformAssistantId || !isUuid(platformAssistantId)) {
+    return null;
+  }
+  // Re-read: a rename or re-pair may have landed while the request was in flight.
+  const current = getLockfileAssistant(assistantId);
+  if (!current || current.cloud !== "paired") {
     return null;
   }
   try {
-    await updateLockfileAssistant({ ...entry, platformAssistantId });
+    await updateLockfileAssistant({ ...current, platformAssistantId });
   } catch (error) {
     console.warn("paired assistant platform lockfile update failed", error);
   }
