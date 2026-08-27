@@ -22,4 +22,7 @@ export const reactFlavor: SentryFlavor = {
     const client = Sentry.getClient();
     return client !== undefined && client.getOptions().enabled !== false;
   },
+  setUser(user) {
+    Sentry.setUser(user);
+  },
 };

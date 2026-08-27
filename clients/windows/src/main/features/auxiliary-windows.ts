@@ -28,12 +28,13 @@ import {
   repositionQuickInputWindow,
   toggleQuickInput,
 } from "@vellumai/electron-desktop/quick-input-window";
+import {
+  restoreBounds,
+  track as trackWindowState,
+} from "@vellumai/electron-desktop/window-state";
 
 import { getRendererBase } from "../app-config";
-import {
-  installEscapeMonitor,
-  setDictationRecording,
-} from "../escape-monitor";
+import { installEscapeMonitor, setDictationRecording } from "../escape-monitor";
 import { handle, on } from "../ipc.client";
 import log from "../logger";
 import { current, dispatchToMain, ensureVisible } from "../main-window";
@@ -75,7 +76,13 @@ const module: CapabilityModule<DesktopCapabilityRegistry> = {
       handle,
       on,
     });
-    configurePopoutWindows({ createWindow, handle, resolveRoute });
+    configurePopoutWindows({
+      createWindow,
+      handle,
+      resolveRoute,
+      restoreBounds,
+      trackWindowState,
+    });
 
     installEscapeMonitor();
     installCommandPaletteWindow();

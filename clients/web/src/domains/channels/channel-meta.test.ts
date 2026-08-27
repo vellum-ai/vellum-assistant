@@ -21,9 +21,7 @@ describe("channel capabilities are declared, not inferred", () => {
     expect(CHANNEL_META.slack.credentialForm).toBe("slack-wizard");
     expect(CHANNEL_META.telegram.credentialForm).toBe("telegram-token");
     expect(CHANNEL_META.phone.credentialForm).toBe("twilio-credentials");
-    // Discord's in-product form arrives with its config API; until then the
-    // declared absence is what routes its setup to the guided flow.
-    expect(CHANNEL_META.discord.credentialForm).toBeUndefined();
+    expect(CHANNEL_META.discord.credentialForm).toBe("discord-token");
   });
 
   test("only the phone channel can reach the Twilio form", () => {

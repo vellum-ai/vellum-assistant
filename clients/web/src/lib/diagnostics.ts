@@ -240,6 +240,26 @@ export function bucketMessagesAdded(count: number): string {
   return "6+";
 }
 
+/** Bucket a turn's age at rescue time into a low-cardinality tag band. */
+export function bucketTurnAge(ageMs: number | null): string {
+  if (ageMs === null || !Number.isFinite(ageMs) || ageMs < 0) {
+    return "unknown";
+  }
+  if (ageMs < 2_000) {
+    return "<2s";
+  }
+  if (ageMs < 5_000) {
+    return "2-5s";
+  }
+  if (ageMs < 15_000) {
+    return "5-15s";
+  }
+  if (ageMs < 60_000) {
+    return "15-60s";
+  }
+  return "60s+";
+}
+
 /** Count messages per role. */
 export function roleCounts(
   messages: Array<{ role: string }>,

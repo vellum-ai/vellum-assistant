@@ -1,4 +1,7 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import { setSelectedAssistant } from "@/assistant/selection";
+import { forgetAssistantAvatar } from "@/hooks/use-chooser-row-avatar";
 import {
   getLockfileAssistant,
   getSelectedAssistant,
@@ -96,6 +99,7 @@ export type RemovePairedOutcome =
  * should route to the chooser (`nextRoute`); otherwise stay put (`null`).
  */
 export async function removePairedAssistant(
+  queryClient: QueryClient,
   assistantId: string,
 ): Promise<RemovePairedOutcome> {
   const wasSelected = getSelectedAssistant()?.assistantId === assistantId;
@@ -109,6 +113,7 @@ export async function removePairedAssistant(
   if (!result.ok) {
     return { ok: false, error: result.error ?? "Failed to remove assistant." };
   }
+  forgetAssistantAvatar(queryClient, assistantId);
   const resolvedStore = useResolvedAssistantsStore.getState();
   if (resolvedStore.activeAssistantId === assistantId) {
     resolvedStore.setActiveAssistantId(null);

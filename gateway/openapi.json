@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.11.5",
+    "version": "0.11.6",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -1822,8 +1822,9 @@
                   },
                   "description": { "type": "string", "minLength": 1 },
                   "scope": {
-                    "description": "Directory scope selected in the rule editor. Accepted on the wire but not yet persisted by the gateway.",
-                    "type": "string"
+                    "description": "Compatibility field. Trust rules apply workspace-wide: the engine matches on (tool, pattern) only, so a narrower scope cannot be honored and any value other than \"everywhere\" is rejected rather than stored broader than the consent it records.",
+                    "type": "string",
+                    "const": "everywhere"
                   }
                 },
                 "required": ["tool", "pattern", "risk", "description"]

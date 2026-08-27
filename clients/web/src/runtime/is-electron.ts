@@ -33,6 +33,7 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationTranscribeResult,
+  DownloadDoneEvent,
   ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
@@ -41,8 +42,10 @@ import type {
   HotkeyEventState,
   HotkeyScope,
   LocalAssistantStatusResult,
-  LocalConnectImportResult,
   LocalListDevicesResult,
+  LocalPairingPollResult,
+  LocalPairingStartResult,
+  LocalReadAssistantAvatarResult,
   LocalRevokeDeviceResult,
   LocalUpgradeOptions,
   LocalWakeOptions,
@@ -84,6 +87,7 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -167,9 +171,7 @@ declare global {
           onFinalized?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
-          transcribe?(
-            audio: ArrayBuffer,
-          ): Promise<DictationTranscribeResult>;
+          transcribe?(audio: ArrayBuffer): Promise<DictationTranscribeResult>;
           onTranscribed?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
@@ -202,6 +204,10 @@ declare global {
       };
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+      };
+      downloads?: {
+        onDone(callback: (event: DownloadDoneEvent) => void): () => void;
+        reveal(id: string): Promise<void>;
       };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
@@ -237,10 +243,12 @@ declare global {
           hashedDeviceId: string,
         ): Promise<LocalRevokeDeviceResult>;
         unpair?(assistantId: string): Promise<LockfileWriteResult>;
-        connectImport?(
-          bundle: string,
+        pairingStart?(address: string): Promise<LocalPairingStartResult>;
+        pairingPoll?(
+          handle: string,
           name?: string,
-        ): Promise<LocalConnectImportResult>;
+        ): Promise<LocalPairingPollResult>;
+        pairingCancel?(handle: string): Promise<{ ok: boolean }>;
         sleep?(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,
@@ -251,6 +259,9 @@ declare global {
           options?: LocalUpgradeOptions,
         ): Promise<{ ok: boolean; version?: string; error?: string }>;
         status?(assistantId: string): Promise<LocalAssistantStatusResult>;
+        readAssistantAvatar?(
+          assistantId: string,
+        ): Promise<LocalReadAssistantAvatarResult>;
         guardianToken(
           assistantId: string,
         ): Promise<

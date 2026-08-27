@@ -11,6 +11,7 @@ import {
   installTray,
   type TrayMenuIcon,
 } from "@vellumai/electron-desktop/tray-model";
+import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
 import {
   DEFAULT_COMPANION_SIZE,
   type VellumCommand,
@@ -83,7 +84,7 @@ export const installWindowsTray = (
     featureEnabled,
     getLockfile: getWatchedLockfile,
     icon: (icon) => ICONS[icon](),
-    onboardingActive: () => false,
+    onboardingActive: readOnboardingActive,
     openComponentGallery: () => {
       void shell.openExternal("http://localhost:6007");
     },

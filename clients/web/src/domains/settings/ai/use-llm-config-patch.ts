@@ -16,10 +16,16 @@ import {
  * bulk swap) therefore converges on the same state regardless of which one
  * issued the write.
  */
-export function useLlmConfigPatch(assistantId: string) {
+export function useLlmConfigPatch() {
   const queryClient = useQueryClient();
   return useConfigPatchMutation({
-    onSuccess: (data) => {
+    // The assistant id comes from the mutation VARIABLES, not from a
+    // render-time prop: TanStack re-binds a pending mutation's options on
+    // rerender, so if the active assistant switches while a PATCH is in
+    // flight, a captured render-time id would file the old assistant's
+    // response under the new assistant's query key.
+    onSuccess: (data, variables) => {
+      const assistantId = variables.path.assistant_id;
       configGetSetQueryData(
         queryClient,
         { path: { assistant_id: assistantId } },

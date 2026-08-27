@@ -13,7 +13,9 @@
     "test": "bun test src/"
   },
   "dependencies": {
-    "@vellumai/environments": "file:../environments",
+    "@vellumai/avatar-manifest": "workspace:*",
+    "@vellumai/environments": "workspace:*",
+    "@vellumai/service-contracts": "workspace:*",
     "nanoid": "5.1.7",
     "zod": "4.3.6"
   },

@@ -548,44 +548,6 @@ const slackProbe: ChannelProbe = {
   },
 };
 
-/**
- * Whether Discord admits anything in the guilds it has joined.
- *
- * A configuration check rather than an operational one, and the distinction
- * carries the meaning. An empty allow-list is a setup step nobody finished,
- * not a channel that broke: direct messages reach the assistant either way,
- * because a message with no guild never meets this gate. Reporting it as
- * failing health would send an operator to look for an outage that is not
- * there, and reporting it as ready would claim delivery while every guild
- * message is dropped.
- *
- * An unreachable gateway is indeterminate, matching the socket check beside
- * it: nobody looked, so nothing is claimed either way.
- */
-async function checkDiscordGuildAdmission(): Promise<ReadinessCheckResult> {
-  const { readDiscordAdmission } =
-    await import("../channels/gateway-discord-admission.js");
-
-  let admitted;
-  try {
-    admitted = (await readDiscordAdmission()).admittedChannelCount;
-  } catch {
-    return {
-      name: "guild_admission",
-      passed: true,
-      message: "Could not reach the gateway to read Discord's allow-list",
-      indeterminate: true,
-    };
-  }
-
-  return check(
-    "guild_admission",
-    admitted > 0,
-    `Discord may act in ${admitted} channel${admitted === 1 ? "" : "s"}`,
-    "Discord is in no channel's allow-list, so every guild message is dropped. Add channel ids to `discord.allowedChannelIds`",
-  );
-}
-
 // ── Discord Probe ───────────────────────────────────────────────────────────
 
 /**
@@ -614,7 +576,6 @@ const discordProbe: ChannelProbe = {
         "Discord bot token",
       ),
       await checkSocketInboundDelivery("discord"),
-      await checkDiscordGuildAdmission(),
     ];
   },
 };

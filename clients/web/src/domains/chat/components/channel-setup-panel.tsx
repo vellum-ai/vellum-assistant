@@ -7,10 +7,12 @@ import { Trans, useTranslation } from "@/i18n";
 import { Button, Input, Typography } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
+import { DiscordSetupWizard } from "@/components/discord-setup-wizard";
 import { TelegramSetupWizard } from "@/components/telegram-setup-wizard";
 import { DetailShell } from "@/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSaveDiscordConfig } from "@/hooks/use-save-discord-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 import type {
@@ -32,16 +34,19 @@ const CONNECTED_MESSAGE_KEY: Record<
   ChannelSetupType,
   | "channelSetupPanel.slackConnected"
   | "channelSetupPanel.telegramConnected"
+  | "channelSetupPanel.discordConnected"
   | "channelSetupPanel.phoneConnected"
 > = {
   slack: "channelSetupPanel.slackConnected",
   telegram: "channelSetupPanel.telegramConnected",
+  discord: "channelSetupPanel.discordConnected",
   phone: "channelSetupPanel.phoneConnected",
 };
 
 const CHANNEL_BRAND_LABEL: Record<ChannelSetupType, string | null> = {
   slack: "Slack",
   telegram: "Telegram",
+  discord: "Discord",
   phone: null,
 };
 
@@ -66,6 +71,13 @@ export function ChannelSetupPanel({
     assistantId: payload.assistantId,
     onSuccess: onClose,
   });
+  // Discord does NOT close on save: its wizard has a third step after the
+  // token, adding the bot to a server, and closing here would unmount the
+  // only surface that shows the invite link. The user closes when done,
+  // which still emits the wizard-closed notification the skill waits on.
+  const saveDiscord = useSaveDiscordConfig({
+    assistantId: payload.assistantId,
+  });
   const saveTwilio = useSaveTwilioCredentials({
     assistantId: payload.assistantId,
   });
@@ -80,7 +92,12 @@ export function ChannelSetupPanel({
       data.snapshots?.some((s) => s.channel === payload.channel && s.ready) ??
       false,
   });
-  const isConnected = readinessQuery.data === true;
+  // Discord flips ready the moment its token stores, which would swap this
+  // panel to the connected view mid-flow and hide the invite step. A save
+  // performed in this mount keeps the wizard until the user closes.
+  const discordFlowActive =
+    payload.channel === "discord" && saveDiscord.isSuccess;
+  const isConnected = readinessQuery.data === true && !discordFlowActive;
 
   const channelIcon =
     payload.channel === "slack" ? (
@@ -144,6 +161,15 @@ export function ChannelSetupPanel({
           saveStatus={saveTelegram.status}
           saveError={saveTelegram.error?.message ?? null}
           onSave={(botToken) => saveTelegram.mutate(botToken)}
+        />
+      ) : payload.channel === "discord" ? (
+        <DiscordSetupWizard
+          saveStatus={saveDiscord.status}
+          saveError={saveDiscord.error?.message ?? null}
+          onSave={(botToken) => saveDiscord.mutate(botToken)}
+          {...(saveDiscord.data?.data?.inviteUrl
+            ? { inviteUrl: saveDiscord.data.data.inviteUrl }
+            : {})}
         />
       ) : payload.channel === "phone" ? (
         <TwilioCredentialForm

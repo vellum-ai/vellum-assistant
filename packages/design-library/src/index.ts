@@ -270,6 +270,8 @@ export {
 export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
+  detectShortcutPlatform,
+  formatAcceleratorHint,
   parseAccelerator,
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";

@@ -16,6 +16,7 @@ const CHANNELS: AssistantChannelState[] = [
     status: "ready",
     configured: true,
     canDisconnect: true,
+    canManualEntry: true,
     address: "@vex",
   },
   {
@@ -23,12 +24,14 @@ const CHANNELS: AssistantChannelState[] = [
     status: "not_configured",
     configured: false,
     canDisconnect: true,
+    canManualEntry: true,
   },
   {
     key: "phone",
     status: "not_configured",
     configured: false,
     canDisconnect: true,
+    canManualEntry: true,
   },
 ];
 
@@ -165,6 +168,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "@vex",
         },
         {
@@ -172,6 +176,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "@vex_bot",
         },
         {
@@ -179,6 +184,7 @@ describe("assistant channels list", () => {
           status: "not_configured",
           configured: false,
           canDisconnect: true,
+          canManualEntry: true,
         },
       ],
       channelPolicies: { telegram: "trusted_contacts" },
@@ -202,6 +208,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "@vex",
         },
         {
@@ -209,6 +216,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "@vex_bot",
         },
         {
@@ -216,6 +224,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "+15550100",
         },
       ],
@@ -277,6 +286,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "@vex",
         },
         {
@@ -284,12 +294,14 @@ describe("assistant channels list", () => {
           status: "incomplete",
           configured: false,
           canDisconnect: true,
+          canManualEntry: true,
         },
         {
           key: "phone",
           status: "not_configured",
           configured: false,
           canDisconnect: true,
+          canManualEntry: true,
         },
       ],
       onSetup: (key, incomplete) =>
@@ -323,6 +335,7 @@ describe("assistant channels list", () => {
           status: "ready",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           address: "@vex",
         },
         {
@@ -330,6 +343,7 @@ describe("assistant channels list", () => {
           status: "incomplete",
           configured: true,
           canDisconnect: true,
+          canManualEntry: true,
           health: "failing",
           address: "@vex_bot",
         },
@@ -338,6 +352,7 @@ describe("assistant channels list", () => {
           status: "not_configured",
           configured: false,
           canDisconnect: true,
+          canManualEntry: true,
         },
       ],
     });

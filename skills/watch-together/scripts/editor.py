@@ -256,6 +256,13 @@ def extract_frame(chunk_path, t, out_path):
     )
 
 
+def rewind_command_note(source):
+    return (
+        "Run scripts/rewind.py with the host's Python 3 launcher: "
+        f"{source} <out_dir> <start_s> <end_s>. It pulls dense 720p frames."
+    )
+
+
 def build_wake_content(session_dir, state, window_start, window_end, frames, reason):
     pending = state["pending"]
     minutes_away = max(1, int(round((window_end - window_start) / 60)))
@@ -277,9 +284,8 @@ def build_wake_content(session_dir, state, window_start, window_end, frames, rea
 
     time_label = state.get("time_label", "session time")
     rewind_note = state.get("rewind_note") or (
-        f"Raw chunks are in {session_dir}/chunks if you want a closer look "
-        "(scripts/rewind.sh <chunk.mp4> <out_dir> <start_s> <end_s> pulls "
-        "dense 720p frames)."
+        f"Raw chunks are in {session_dir}/chunks if you want a closer look. "
+        + rewind_command_note("<chunk.mp4>")
     )
 
     content = f"""[WATCH] {mmss(window_start)}–{mmss(window_end)} {time_label} \
@@ -398,9 +404,8 @@ def process_chunk(
     if from_source:
         state["time_label"] = "media time"
         state["rewind_note"] = (
-            f'Timestamps are media time. For a closer look: scripts/rewind.sh '
-            f'"{chunk_path}" <out_dir> <start_s> <end_s> pulls dense 720p '
-            f"frames straight from the source."
+            "Timestamps are media time. "
+            + rewind_command_note(f'"{chunk_path}"')
         )
     else:
         state["time_label"] = "session time"

@@ -14,6 +14,11 @@ mock.module("../messaging/providers/slack/withdraw.js", () => ({
   withdrawSlackApprovalCard,
 }));
 
+const withdrawDiscordApprovalCard = mock(async (_params: unknown) => undefined);
+mock.module("../messaging/providers/discord/withdraw.js", () => ({
+  withdrawDiscordApprovalCard,
+}));
+
 const withdrawTelegramApprovalCard = mock(
   async (_params: Record<string, unknown>) => {},
 );
@@ -68,6 +73,7 @@ describe("withdrawGuardianRequestCards", () => {
     markSurfaceCompleted.mockClear();
     withdrawSlackApprovalCard.mockClear();
     withdrawTelegramApprovalCard.mockClear();
+    withdrawDiscordApprovalCard.mockClear();
   });
 
   test("withdraws + broadcasts the in-app card when the decision came from another surface", async () => {
@@ -229,6 +235,30 @@ describe("withdrawGuardianRequestCards", () => {
       messageId: "9",
       status: "approved",
       postStatusReply: true,
+    });
+  });
+
+  test("withdraws the Discord card by rewriting it to the outcome", async () => {
+    const req = makeRequest({ sourceChannel: "discord" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "discord",
+      destinationChatId: "111222333444555666",
+      destinationMessageId: "2001",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "vellum",
+    });
+
+    expect(withdrawTelegramApprovalCard).not.toHaveBeenCalled();
+    expect(withdrawDiscordApprovalCard).toHaveBeenCalledTimes(1);
+    expect(withdrawDiscordApprovalCard).toHaveBeenCalledWith({
+      guardianUserId: "111222333444555666",
+      messageId: "2001",
+      status: "approved",
     });
   });
 

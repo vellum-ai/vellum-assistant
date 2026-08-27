@@ -35,6 +35,7 @@ interface ContactWithChannels {
   createdAt: string | number;
   updatedAt: string | number;
   interactionCount: number | null;
+  autoApproveThreshold?: string | null;
   channels: ContactChannel[];
 }
 
@@ -131,6 +132,7 @@ function formatContactDetail(
     lines.push(`Role:         ${c.role}`);
   }
   lines.push(`Type:         ${c.contactType}`);
+  lines.push(`Access:       ${c.autoApproveThreshold ?? "inherit"}`);
   if (c.notes) {
     lines.push(`Notes:        ${c.notes}`);
   }
@@ -262,6 +264,7 @@ export function registerContactsCommand(program: Command): void {
             label?: string;
             description?: string;
             timeout?: string;
+            verify?: boolean;
           },
           cmd: Command,
         ) => {
@@ -276,6 +279,7 @@ export function registerContactsCommand(program: Command): void {
                 role: opts.role ?? "unknown",
                 label: opts.label,
                 description: opts.description,
+                verify: opts.verify === true,
               },
             },
             { timeoutMs },
@@ -302,7 +306,7 @@ export function registerContactsCommand(program: Command): void {
               `Registered ${result.channelType} channel: ${result.address}\n` +
                 `  Channel ID: ${result.channelId}\n` +
                 `  Contact ID: ${result.contactId}\n` +
-                `  Status:     unverified\n`,
+                `  Status:     ${opts.verify ? "verified" : "unverified"}\n`,
             );
           }
         },

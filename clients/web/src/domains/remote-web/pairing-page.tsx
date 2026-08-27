@@ -70,7 +70,7 @@ function statusCopy(state: PairingState): { title: string; body: string } {
     case "expired":
       return {
         title: "Pairing expired",
-        body: "This pairing code is invalid or expired. Run vellum pair --qr (or vellum pair --web) on the machine running your assistant to get a new one.",
+        body: "This pairing code is invalid or expired. Run vellum pair on the machine running your assistant to get a new one.",
       };
     case "error":
       return {

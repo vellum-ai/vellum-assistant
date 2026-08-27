@@ -23,7 +23,7 @@ import type {
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
-import { resolveMessageText } from "./shared.js";
+import { appendPlainTextFallback, resolveMessageText } from "./shared.js";
 
 const log = getLogger("notif-adapter-telegram");
 
@@ -74,13 +74,10 @@ export class TelegramAdapter implements ChannelAdapter {
 
       // When falling back from rich delivery, append the plain-text
       // instructions so the guardian still knows how to approve/reject.
-      const fallbackText =
-        approval?.plainTextFallback &&
-        !messageText.includes(approval.plainTextFallback)
-          ? `${messageText}\n\n${approval.plainTextFallback}`
-          : messageText;
-
-      const sent = await sendTelegramReply(chatId, fallbackText);
+      const sent = await sendTelegramReply(
+        chatId,
+        appendPlainTextFallback(messageText, approval),
+      );
 
       log.info(
         { sourceEventName: payload.sourceEventName, chatId },

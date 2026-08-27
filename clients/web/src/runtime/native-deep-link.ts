@@ -385,8 +385,12 @@ const CAMERA_DEEP_LINK_HOST = "camera";
 /** Host segment shared with `NewChatDeepLink.swift` on the native side. */
 const NEW_CHAT_DEEP_LINK_HOST = "new-chat";
 
+/** Host segment shared with `ConversationsDeepLink.swift` on the native side. */
+const CONVERSATIONS_DEEP_LINK_HOST = "conversations";
+
 /**
- * What a `<scheme>://camera` or `<scheme>://new-chat` deep link asks for.
+ * What a `<scheme>://camera`, `<scheme>://new-chat` or
+ * `<scheme>://conversations` deep link asks for.
  *
  * The host is the whole request, so there is nothing on the payload but where
  * the link came from. `provenance` is carried for parity with the sibling
@@ -463,6 +467,18 @@ export function parseNewChatDeepLink(
   options?: DeepLinkParseOptions,
 ): CommandDeepLinkPayload | null {
   return parseCommandDeepLink(rawUrl, NEW_CHAT_DEEP_LINK_HOST, options);
+}
+
+/**
+ * Parse a `vellum-assistant://conversations` deep link, produced by the Home
+ * Screen widgets' unread affordances (`ConversationsDeepLink.swift`). The
+ * consumer brings up the conversation list.
+ */
+export function parseOpenConversationsDeepLink(
+  rawUrl: string,
+  options?: DeepLinkParseOptions,
+): CommandDeepLinkPayload | null {
+  return parseCommandDeepLink(rawUrl, CONVERSATIONS_DEEP_LINK_HOST, options);
 }
 
 export function buildOAuthCompleteDeepLink(

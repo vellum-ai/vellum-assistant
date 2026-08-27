@@ -31,6 +31,7 @@ import {
   completeSurfaceAndNotify,
   markSurfaceCompleted,
 } from "../daemon/conversation-surfaces.js";
+import { withdrawDiscordApprovalCard } from "../messaging/providers/discord/withdraw.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { withdrawTelegramApprovalCard } from "../messaging/providers/telegram-bot/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
@@ -131,6 +132,8 @@ export async function withdrawGuardianRequestCards(
           decidedAction,
           hasOriginGuardianReply ?? false,
         );
+      } else if (delivery.destinationChannel === "discord") {
+        await withdrawDiscordCard(delivery, status, decidedAction);
       }
       // WhatsApp direct delivery can't edit a message in place (it would
       // post a new one), so its stale clicks are left to the existing
@@ -231,6 +234,25 @@ async function withdrawSlackCard(
  * outcome. No-ops when the channel-native message id was not captured at
  * delivery time.
  */
+async function withdrawDiscordCard(
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
+  decidedAction: ApprovalAction | undefined,
+): Promise<void> {
+  if (!delivery.destinationChatId || !delivery.destinationMessageId) {
+    return;
+  }
+  // The Discord edit rewrites the card's actionable tail to the outcome, so
+  // it serves both halves of withdrawal in one call and needs no separate
+  // status reply regardless of where the decision originated.
+  await withdrawDiscordApprovalCard({
+    guardianUserId: delivery.destinationChatId,
+    messageId: delivery.destinationMessageId,
+    status,
+    ...(decidedAction ? { decidedAction } : {}),
+  });
+}
+
 async function withdrawTelegramCard(
   delivery: GuardianRequestDeliveryWire,
   status: GuardianRequestStatus,

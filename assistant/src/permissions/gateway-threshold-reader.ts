@@ -54,6 +54,18 @@ const conversationThresholdCache = new Map<
 >();
 const CONVERSATION_CACHE_TTL_MS = 5_000;
 
+// ── Contact threshold cache (5s TTL) ─────────────────────────────────────────
+// Same short TTL as the conversation override: the owner can change a
+// contact's ceiling mid-conversation, but a burst of tool calls in one
+// turn should not pay an IPC round-trip each time. Negative entries (no
+// ceiling) are cached too. Transport failures are not.
+
+const contactThresholdCache = new Map<
+  string,
+  { threshold: string | null; timestamp: number }
+>();
+const CONTACT_CACHE_TTL_MS = 5_000;
+
 // ── Channel-permission cell cache (5s TTL) ───────────────────────────────────
 // The permission-matrix cell for (adapter × channel-type × channel-ID ×
 // contact-type). Same short TTL as the conversation cache: a guardian can
@@ -188,7 +200,23 @@ export function _clearGlobalCacheForTesting(): void {
   cachedGlobalThresholds = null;
   cachedGlobalTimestamp = 0;
   conversationThresholdCache.clear();
+  contactThresholdCache.clear();
   channelPermissionCellCache.clear();
+}
+
+/**
+ * Drop the cached ceiling for one contact.
+ */
+export function invalidateContactThresholdCache(contactId: string): void {
+  contactThresholdCache.delete(contactId);
+}
+
+/**
+ * Drop every cached contact ceiling. `contacts_changed` calls this so the
+ * next approval re-reads after any contact ACL write.
+ */
+export function invalidateAllContactThresholdCaches(): void {
+  contactThresholdCache.clear();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -212,6 +240,78 @@ function isValidThreshold(value: string): value is AutoApproveThreshold {
     value === "medium" ||
     value === "high"
   );
+}
+
+type ContactThresholdLookup =
+  | { status: "hit"; threshold: AutoApproveThreshold }
+  | { status: "miss" }
+  | { status: "failure" };
+
+/**
+ * Read the contact-level auto-approve ceiling from the gateway.
+ *
+ * A hit is a usable `none | low | medium | high`. A miss is an unknown
+ * contact, an unset or corrupt column, or an unexpected response shape.
+ * A failure is a transport error and is never cached, so a later call
+ * can still see a real ceiling.
+ */
+async function lookupContactThreshold(
+  contactId: string,
+  options?: { bypassCache?: boolean },
+): Promise<ContactThresholdLookup> {
+  if (!options?.bypassCache) {
+    const cached = contactThresholdCache.get(contactId);
+    if (cached && Date.now() - cached.timestamp < CONTACT_CACHE_TTL_MS) {
+      if (cached.threshold !== null && isValidThreshold(cached.threshold)) {
+        return { status: "hit", threshold: cached.threshold };
+      }
+      return { status: "miss" };
+    }
+  }
+
+  const result = (await ipcCall("get_contact_threshold", {
+    contactId,
+  })) as ConversationThreshold | null | undefined;
+
+  if (result === undefined) {
+    noteFailure(
+      "contact_threshold",
+      { contactId },
+      "IPC call failed for contact threshold",
+    );
+    return { status: "failure" };
+  }
+
+  noteSuccess("contact_threshold");
+  if (result && isValidThreshold(result.threshold)) {
+    contactThresholdCache.set(contactId, {
+      threshold: result.threshold,
+      timestamp: Date.now(),
+    });
+    return { status: "hit", threshold: result.threshold };
+  }
+
+  contactThresholdCache.set(contactId, {
+    threshold: null,
+    timestamp: Date.now(),
+  });
+  return { status: "miss" };
+}
+
+/**
+ * The contact-level auto-approve ceiling for `contactId`, or `null` when
+ * the contact has none (unset, unknown, corrupt) or the lookup failed.
+ * Approval-time lift uses this so a live `contacts` row is the source of
+ * truth.
+ */
+export async function getContactAutoApproveThreshold(
+  contactId: string | undefined,
+): Promise<AutoApproveThreshold | null> {
+  if (!contactId) {
+    return null;
+  }
+  const result = await lookupContactThreshold(contactId);
+  return result.status === "hit" ? result.threshold : null;
 }
 
 /**
@@ -322,9 +422,16 @@ export async function channelNoCellDefault(
 /**
  * Read the auto-approve threshold from the gateway via IPC.
  *
- * For `"conversation"` context with a `conversationId`, checks for a
- * per-conversation override first. Falls through to global defaults when
- * the conversation override is absent.
+ * Cascade, most specific first:
+ * 1. Per-conversation override (when `"conversation"` context has an id)
+ * 2. Contact-level ceiling (when `contactId` looks up a usable threshold)
+ * 3. Channel-permission matrix cell (collapsed for contacts)
+ * 4. Global defaults for the execution context
+ *
+ * The contact ceiling is the owner's override for that person, read live
+ * from the gateway `contacts` row. It is not collapsed to the channel's
+ * two levels, so `medium` and `high` can authorize sandbox bash. A miss
+ * (unset, unknown, transport failure) inherits the cell / global cascade.
  *
  * Caches global thresholds for 30 seconds to avoid hammering the gateway.
  * On any IPC error or unexpected response, returns `"none"` (Strict) so
@@ -334,6 +441,7 @@ export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
   cellQuery?: ResolveChannelPermissionRequest,
+  contactId?: string,
 ): Promise<AutoApproveThreshold> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
@@ -383,6 +491,17 @@ export async function getAutoApproveThreshold(
           timestamp: Date.now(),
         });
       }
+    }
+  }
+
+  // Contact-level ceiling: the owner's override for this person, looked up
+  // by contact id. Beats the collapsed room / trust-class cascade.
+  // Conversation override above is more specific (this chat) and still
+  // wins when set. A miss or transport failure falls through.
+  if (contactId) {
+    const contact = await lookupContactThreshold(contactId);
+    if (contact.status === "hit") {
+      return contact.threshold;
     }
   }
 
@@ -467,13 +586,15 @@ async function fetchGlobalThresholds(options?: {
  * Used by the permission checker immediately before surfacing an
  * interactive prompt: the cached snapshot (5s conversation TTL with
  * negative caching, 30s global TTL) may predate a threshold change the
- * user just made — e.g. switching to Full access — because no threshold
- * write path invalidates these in-process caches (the web picker writes
- * through the gateway HTTP route, the desktop picker through the
- * `set_conversation_threshold` IPC). Prompting from a stale threshold
- * directly contradicts the user's visible setting. A prompt is already a
- * rare, user-visible interruption, so the extra IPC round-trip is cheap
- * relative to a wrong prompt.
+ * user just made (for example switching to Full access) because no
+ * conversation or global write path invalidates those caches (the web
+ * picker writes through the gateway HTTP route, the desktop picker
+ * through the `set_conversation_threshold` IPC). A `contacts_changed`
+ * event clears every cached contact ceiling after a contact ACL write.
+ * Prompting from a stale threshold directly contradicts the user's
+ * visible setting. A prompt is already a rare, user-visible
+ * interruption, so the extra IPC round-trip is cheap relative to a
+ * wrong prompt.
  *
  * Returns the freshly-resolved threshold, or `null` when the gateway
  * could not be reached. Callers must keep their original decision on
@@ -496,6 +617,7 @@ export async function refreshAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
   cellQuery?: ResolveChannelPermissionRequest,
+  contactId?: string,
 ): Promise<AutoApproveThreshold | null> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
@@ -526,6 +648,18 @@ export async function refreshAutoApproveThreshold(
       threshold: null,
       timestamp: Date.now(),
     });
+  }
+
+  if (contactId) {
+    const contact = await lookupContactThreshold(contactId, {
+      bypassCache: true,
+    });
+    if (contact.status === "failure") {
+      return null;
+    }
+    if (contact.status === "hit") {
+      return contact.threshold;
+    }
   }
 
   // Fresh cell read (cache bypassed, then primed). A transport failure here

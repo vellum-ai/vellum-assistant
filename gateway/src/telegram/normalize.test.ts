@@ -103,6 +103,17 @@ describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
     expect(result!.message.callbackData).toBe("apr:run1:approve");
   });
 
+  it("forwards the button message's id so the card can be edited later", () => {
+    // The approval-card edit after a decision addresses exactly the message
+    // holding the inline keyboard. Dropping this id would leave stale
+    // buttons on every decided card, silently: the daemon's interception
+    // reads it off sourceMetadata.messageId.
+    const result = normalizeTelegramUpdate(makeCallbackQueryPayload());
+
+    expect(result).not.toBeNull();
+    expect(result!.source.messageId).toBe("10");
+  });
+
   it("rejects callback_query from group chat", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: "group" }),

@@ -49,7 +49,6 @@ import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   pinnedListeningLanguage,
-  resolveSttCatalogKey,
   supportsBoundary,
   supportsProviderTurnDetection,
 } from "../providers/speech-to-text/provider-catalog.js";
@@ -60,6 +59,7 @@ import {
   dominantLanguageTag,
   voteDominantLanguage,
 } from "../stt/language-metadata.js";
+import { sttCatalogKeyForRole } from "../stt/roles.js";
 import {
   DEFAULT_SPEECH_ENERGY_THRESHOLD,
   pcm16MaxNormalizedCorrelation,
@@ -362,7 +362,8 @@ export interface LiveVoiceSessionOptions {
   /**
    * Deepgram Flux turn-detection tuning. The production factory seeds this
    * from `liveVoice.flux` config when unset; absent fields fall back to the
-   * schema defaults, which leave `turnEnd.enabled` false.
+   * schema defaults, which leave `turnEnd.enabled` on. A test that needs the
+   * local silence boundary has to say so.
    */
   fluxConfig?: Partial<LiveVoiceFluxConfig>;
   /**
@@ -1742,9 +1743,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // outside: the session looks like a turn-detecting session while its
       // opening turn is not one. The resolved provider reconciles this guess
       // below.
+      //
+      // The guess reads the live-voice role, which is what the dial below
+      // resolves. Reading the global provider instead makes the guess wrong
+      // in exactly the configuration roles exist for (live voice on flux,
+      // global on base deepgram), which reinstates the race this seed
+      // prevents.
       this.setProviderTurnEndActive(
         this.fluxConfig.turnEnd.enabled &&
-          supportsProviderTurnDetection(resolveSttCatalogKey(stt)) &&
+          supportsProviderTurnDetection(
+            sttCatalogKeyForRole(stt, "liveVoice"),
+          ) &&
           this.turnDetector !== null,
       );
       const transcriber = await this.resolveTranscriber({
@@ -6791,7 +6800,9 @@ async function defaultResolveStreamingTranscriber(
     await import("../config/managed-speech-defaults.js");
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
-  const { stt } = await resolveEffectiveSpeechProviders();
+  const { stt } = await resolveEffectiveSpeechProviders(undefined, {
+    role: "liveVoice",
+  });
   return resolveStreamingTranscriber({ ...options, providerId: stt });
 }
 

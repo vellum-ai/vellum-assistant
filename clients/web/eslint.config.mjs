@@ -208,6 +208,7 @@ const i18nEnforcedPaths = [
 const emDashEnforcedPaths = [
   "src/i18n/**/*.{ts,tsx}",
   "src/domains/terminal/**/*.{ts,tsx}",
+  "src/domains/chat/channel-sidecar/**/*.{ts,tsx}",
 ];
 
 const eslintConfig = defineConfig([

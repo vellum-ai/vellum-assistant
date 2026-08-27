@@ -4,6 +4,7 @@ import type { SetupChannelId } from "@/types/channel-types";
 export type ChannelCredentialForm =
   | "slack-wizard"
   | "telegram-token"
+  | "discord-token"
   | "twilio-credentials";
 
 /**
@@ -25,6 +26,7 @@ interface ChannelMeta {
     | "channelMeta.slack.label"
     | "channelMeta.telegram.label"
     | "channelMeta.discord.label"
+    | "channelMeta.email.label"
     | "channelMeta.phone.label";
   /**
    * Catalog key for the disconnect dialog's body.
@@ -38,6 +40,7 @@ interface ChannelMeta {
   disconnectMessageKey:
     | "channelMeta.slack.disconnectMessage"
     | "channelMeta.telegram.disconnectMessage"
+    | "channelMeta.discord.disconnectMessage"
     | "channelMeta.phone.disconnectMessage"
     | undefined;
   /**
@@ -95,13 +98,21 @@ export const CHANNEL_META = {
   },
   discord: {
     labelKey: "channelMeta.discord.label",
-    // No route clears Discord's credentials yet, so no disconnect copy: the
-    // absence is what keeps the button unoffered. The in-product credential
-    // form arrives with the config API; until then setup is the guided flow.
+    disconnectMessageKey: "channelMeta.discord.disconnectMessage",
+    hasTrustFloorControl: true,
+    credentialForm: "discord-token",
+    disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
+  },
+  email: {
+    labelKey: "channelMeta.email.label",
+    // Email's setup is address and domain management rather than a
+    // credential form, rendered by the panel's own email branch, so every
+    // generic affordance is declared off: no form, no disconnect route, no
+    // pitch. The trust floor is the one generic control it shares.
     disconnectMessageKey: undefined,
     hasTrustFloorControl: true,
     credentialForm: undefined,
-    disconnectedPitchKey: "channelMeta.discord.disconnectedPitch",
+    disconnectedPitchKey: undefined,
   },
   phone: {
     labelKey: "channelMeta.phone.label",

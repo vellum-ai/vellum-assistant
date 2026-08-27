@@ -412,6 +412,7 @@ export function createToolExecutor(
       sourceThreadId: turnTrust.sourceThreadId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
+      requesterContactId: turnTrust.requesterContactId,
       channelConversationType: turnTrust.conversationType,
       // The binding's external chat id is the canonical conversation address
       // for every channel adapter (Slack channel, Telegram chat, …); it keys

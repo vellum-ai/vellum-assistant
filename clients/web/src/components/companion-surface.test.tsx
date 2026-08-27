@@ -449,6 +449,103 @@ describe("the companion surface's anchor in the canvas", () => {
 });
 
 /**
+ * The idle row's verbs, which are drawn one at a time under the pointer.
+ *
+ * **The behaviour is a stylesheet, so these hold its contract rather than its
+ * effect.** The reveal is `:hover` and not React state, because the host's
+ * window is click-through and the page derives its own hover from forwarded
+ * mouse-move rather than from `mouseenter`; CSS is the one hover mechanism
+ * known to work there, since the held-down background on these same buttons
+ * runs on it. Nothing here renders Tailwind, so a case that fired a
+ * synthetic hover and read the text back passes with the stylesheet missing
+ * entirely. What is worth holding instead is the coupling: the word is
+ * marked hidden-until-hovered, the button is the `group` that variant resolves
+ * against, and the two cases that pin it open still pin it open.
+ */
+describe("the companion surface's revealed labels", () => {
+  const labelOf = (container: HTMLElement, name: string): HTMLElement | null =>
+    container.querySelector<HTMLElement>(
+      `button[aria-label="${name}"] span[data-label]`,
+    );
+
+  test("rests as icons, with no verb spelled out", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" watchEnabled />,
+    );
+    for (const name of ["Talk", "Type", "Teach"]) {
+      const label = labelOf(container, name);
+      expect(label?.getAttribute("data-label")).toBe("hover");
+      expect(label?.className).toContain("hidden");
+    }
+  });
+
+  /**
+   * The variant and the thing it resolves against, together. `group-hover:` on
+   * a button that is not a `group` is a word that never appears, and that is
+   * exactly the failure no rendered assertion in this file would catch.
+   */
+  test("reveals the verb under the pointer, from the button's own group", () => {
+    const { container } = render(<CompanionSurface phase="hover" />);
+    const talk = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Talk"]',
+    );
+    expect(talk?.className).toContain("group");
+    expect(labelOf(container, "Talk")?.className).toContain(
+      "group-hover:inline",
+    );
+  });
+
+  /**
+   * The reel has no pointer in the room, and the whole point of a spotlit frame
+   * is which control it is pointing at.
+   */
+  test("spells out the control the reel is pointing at", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" spotlight="talk" />,
+    );
+    expect(labelOf(container, "Talk")?.getAttribute("data-label")).toBe(
+      "pinned",
+    );
+    expect(labelOf(container, "Talk")?.className).not.toContain("hidden");
+    // And only that one: a frame pointing at both is pointing at neither.
+    expect(labelOf(container, "Type")?.getAttribute("data-label")).toBe(
+      "hover",
+    );
+  });
+
+  /**
+   * A running session is the one thing on this row the user has to be able to
+   * find without hunting, so its name stays on the surface rather than under
+   * the pointer.
+   */
+  test("keeps the running session's name drawn", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching watchEnabled />,
+    );
+    expect(labelOf(container, "Teach")?.getAttribute("data-label")).toBe(
+      "pinned",
+    );
+    expect(labelOf(container, "Teach")?.className).not.toContain("hidden");
+  });
+
+  /**
+   * The summary is a question waiting on an answer rather than a set of ways
+   * in, so its two answers are not the pointer's to reveal.
+   */
+  test("leaves the summary's answers spelled out", () => {
+    const { container } = render(
+      <CompanionSurface phase="summary" watchRetro="ready" />,
+    );
+    expect(labelOf(container, "Show summary")).toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Show summary"]',
+      )?.textContent,
+    ).toBe("Show summary");
+  });
+});
+
+/**
  * Watch, the third way in, and the session it toggles.
  *
  * One control for both edges: the surface draws a single button and the side
@@ -470,7 +567,13 @@ describe("the companion surface's Watch action", () => {
     const { container } = render(
       <CompanionSurface phase="hover" watchEnabled />,
     );
-    expect(watchOf(container).textContent).toBe("Teach");
+    // Third of the three, since this is the row's own ordering and the one a
+    // hand travelling out from the mascot crosses last.
+    expect(
+      [...container.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Talk", "Type", "Teach"]);
   });
 
   test("reports the press", () => {

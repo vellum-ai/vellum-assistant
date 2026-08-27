@@ -165,7 +165,7 @@ export function DomainStep({
                 }
                 disabled={busy || isLocked}
                 readOnly={isLocked}
-                placeholder={t("emailManagedContent.emailUsernamePlaceholder")}
+                placeholder={t("domainStep.emailUsernamePlaceholder")}
                 className={`${FIELD_CLASSES} w-24`}
               />
             </div>
@@ -191,7 +191,7 @@ export function DomainStep({
                 disabled={busy || isLocked}
                 readOnly={isLocked}
                 autoFocus
-                placeholder={t("emailManagedContent.subdomainExamplePlaceholder")}
+                placeholder={t("domainStep.subdomainExamplePlaceholder")}
                 aria-invalid={!!errorMsg}
                 className={`${FIELD_CLASSES} w-full min-w-0`}
               />

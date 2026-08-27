@@ -32,6 +32,7 @@ import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import { watchDeviceSetting } from "@/utils/device-settings";
 import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { disableNativeFailureReportForwarding } from "@/runtime/native-failure-reports";
+import { reapplySentryUser } from "@/lib/sentry/user-sync";
 import { useAuthStore } from "@/stores/auth-store";
 
 function tryInit(options: BrowserOptions): void {
@@ -40,6 +41,11 @@ function tryInit(options: BrowserOptions): void {
     return;
   }
   flavor.init(options);
+  // A late init (consent granted after boot) must re-stamp the identity:
+  // Capacitor forwards scope users to the native SDK only for setUser
+  // calls made after init, so the boot-time stamp never reaches native
+  // crash envelopes on its own. See `reapplySentryUser`.
+  reapplySentryUser();
 }
 
 function tryClose(): void {

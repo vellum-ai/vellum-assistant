@@ -74,7 +74,7 @@ See [`clients/web/src/domains/chat/hooks/use-electron-dock-sync.ts`](../src/doma
 
 When extending `window.vellum.*`, three files change together because the three TypeScript projects (main, preload, renderer) don't share a workspace symbol table:
 
-1. **[`clients/macos/src/preload/index.ts`](../../../clients/macos/src/preload/index.ts)** — adds the IPC plumbing + the typed `VellumBridge` field.
+1. **[`clients/macos/src/preload/index.ts`](../../../clients/macos/src/preload/index.ts)**: adds the IPC plumbing + the typed `VellumBridge` field. Write the plumbing once as a `create<Surface>Bridge` factory in [`packages/electron-desktop/src/preload.ts`](../../../packages/electron-desktop/src/preload.ts) and consume it here and in the Windows shell's `preload/features/` module, so the bridge-parity test verifies one implementation instead of two hand-copies (see `createDownloadsBridge` for the shape).
 2. **[`clients/web/src/runtime/is-electron.ts`](../src/runtime/is-electron.ts)** — mirrors the new field on the renderer-side ambient `Window.vellum?` declaration.
 3. **`clients/web/src/runtime/<capability>.ts`** — per-capability wrapper module exposing the no-op-off-Electron functions feature code calls.
 

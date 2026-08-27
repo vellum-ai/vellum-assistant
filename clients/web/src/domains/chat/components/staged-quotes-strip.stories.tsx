@@ -12,12 +12,12 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Button } from "@vellumai/design-library";
 
 import { StagedQuotesStrip } from "./staged-quotes-strip";
 import { ChatColumn } from "@/domains/chat/components/chat-column";
-import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
+import { StoryComposer } from "@/domains/chat/components/story-composer";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 const SAMPLE_QUOTES = [
@@ -63,28 +63,6 @@ function SeededStrip({ count }: { count: number }) {
   return <StagedQuotesStrip />;
 }
 
-/**
- * The composer the strip actually sits on. Every required prop is an input the
- * orchestrator hands down, so the real component mounts on story-supplied
- * callbacks; nothing here stands in for a value the app derives.
- */
-function StoryComposer() {
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  return (
-    <ChatComposer
-      placeholder="What would you like to do?"
-      onSubmit={(event) => event.preventDefault()}
-      inputRef={inputRef}
-      typingDisabled={false}
-      sendDisabled={false}
-      onAddAttachmentFiles={() => {}}
-      onStopGenerating={() => {}}
-      isAssistantBusy={false}
-      assistantId={null}
-    />
-  );
-}
-
 const meta: Meta<typeof StagedQuotesStrip> = {
   title: "Chat/StagedQuotesStrip",
   parameters: { layout: "fullscreen", controls: { disable: true } },
@@ -97,7 +75,7 @@ const meta: Meta<typeof StagedQuotesStrip> = {
       <div className="flex h-screen flex-col justify-end">
         <ChatColumn className="pt-1 pb-2 sm:pb-0">
           <Story />
-          <StoryComposer />
+          <StoryComposer placeholder="What would you like to do?" />
         </ChatColumn>
         {/* Harness control, deliberately outside the app column. */}
         <div className="px-3 py-3 sm:px-6">

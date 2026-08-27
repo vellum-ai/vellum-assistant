@@ -140,6 +140,32 @@ export interface BusEventMap {
   "power.unlock": Record<string, never>;
   "power.active": Record<string, never>;
   /**
+   * A `saveFile` download was handed to the browser's own download UI
+   * (plain-browser host only). The browser owns everything after the
+   * handoff, so this is the one signal that host can give: Electron
+   * reports real outcomes via `download.done` instead, and Capacitor's
+   * share sheet is its own feedback, so neither publishes this.
+   * `use-download-feedback` is the consumer and owns the toast.
+   */
+  "download.started": { filename: string };
+  /**
+   * Terminal report for an Electron-host download: pushed by the main
+   * process once it saved (or failed to save) a download this window
+   * started, and published by `saveFile` itself when a URL source fails to
+   * fetch before any download could start (the shell denies the anchor
+   * fallback, so that failure has no other signal). The Capacitor save path
+   * publishes the failure case too, when the source cannot be fetched or
+   * staged before the share sheet presents; a presented sheet remains its
+   * own feedback. `id` accompanies `state: "completed"` and keys the
+   * file-manager reveal (`revealDownload`). The plain-browser host
+   * publishes `download.started` at handoff instead.
+   */
+  "download.done": {
+    id?: string;
+    filename: string;
+    state: "completed" | "interrupted";
+  };
+  /**
    * Inbound deep links — `vellum://` / `vellum-assistant://` URLs
    * the OS routed to us, plus notification taps that resolve to a
    * conversation. Domain consumers (chat composer, conversation
@@ -240,17 +266,33 @@ export interface BusEventMap {
     provenance: CommandUrlProvenance;
   };
   /**
-   * Electron host only: inbound `<scheme>://connect` URL from the pair
-   * page's "Open in the Vellum app" button or a `vellum pair --qr --app`
-   * QR code. `bundle` is a pairing bundle that prefills the connect
-   * dialog's paste field; it is secret material, so consumers must never
-   * log or breadcrumb it. `url` is the https server base a url+code link
-   * carried (the device-code exchange cannot produce a durable desktop
-   * pairing, so those links get guidance naming the host instead).
-   * `useGlobalDeepLinkConsumer` parks the request in the connect-dialog
-   * store and navigates to the assistant chooser.
+   * A Home Screen widget's unread affordance was tapped:
+   * `<scheme>://conversations`. `useGlobalDeepLinkConsumer` parks the request
+   * in `usePendingDeepLinkStore` and lands on the chat; `ChatLayout` drains it
+   * and brings up the conversation list, which on mobile is the drawer and on
+   * a wider window is the sidebar.
    */
-  "deeplink.connect": { url: string | null; bundle: string | null };
+  "deeplink.openConversations": {
+    /** As on `deeplink.startVoice`; no consumer gates on it today. */
+    provenance: CommandUrlProvenance;
+  };
+  /**
+   * Electron host only: inbound `<scheme>://connect` URL from the pair
+   * page's "Open in the Vellum app" button or a `vellum pair --app`
+   * QR code. `url` is the validated https server base and `code` the
+   * device code the link carried; together they are the pairing link the
+   * connect dialog hands to the local-mode host. `code` is credential
+   * material, so consumers must never log or breadcrumb it. `legacy`
+   * marks a link that carried an older version's pairing bundle, whose
+   * payload the main-process parser drops. `useGlobalDeepLinkConsumer`
+   * parks the request in the connect-dialog store and navigates to the
+   * assistant chooser.
+   */
+  "deeplink.connect": {
+    url: string | null;
+    code: string | null;
+    legacy: boolean;
+  };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses

@@ -44,10 +44,7 @@ import { useTranslation } from "@/i18n";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
-import {
-  includedMonthlyCreditsUsd,
-  usePlanUsageBalance,
-} from "@/hooks/use-plan-usage-balance";
+import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
 import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
@@ -387,11 +384,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   );
   const usage = usePlanUsageBalance({
     subscription: subscriptionQuery.data,
-    includedCreditsUsd: includedMonthlyCreditsUsd(
-      subscriptionQuery.data,
-      currentPackage,
-      findProPlan(plansQuery.data?.plans),
-    ),
     availableUsageBalance,
     totalUsageBalance,
   });
@@ -532,17 +524,17 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const usagePanel = usage ? (
     <UsageBalancePanel
       ratio={usage.ratio}
-      resetsAt={usage.resetsAt}
       exhausted={creditsExhausted}
       onAddCredits={() => setAddCreditsOpen(true)}
     />
   ) : null;
   // A tile under the flag trades its price for the usage balance, so the two
-  // never state the same allowance twice. A free account that was never granted
-  // any usage has no bar to trade for, so "Free Forever" stays as its footer
-  // rather than leaving the tile with an empty bottom slot.
+  // never state the same allowance twice. With no bar to trade for (a free
+  // account that was never granted usage, or a platform whose summary reports
+  // no grant figures), the price row stays as the footer rather than leaving
+  // the tile with an empty bottom slot.
   let currentFooter: ReactNode = priceRow;
-  if (obscureCredits && (!isFreePlan || usagePanel != null)) {
+  if (obscureCredits && usagePanel != null) {
     currentFooter = usagePanel;
   }
 

@@ -1,6 +1,12 @@
 import { z } from "zod";
 
 import { listProviderModelFamilies } from "../../providers/speech-to-text/provider-catalog.js";
+import {
+  STT_ROLE_REQUIREMENTS,
+  STT_ROLES,
+  type SttRole,
+  sttRoleCapabilityGap,
+} from "../../stt/roles.js";
 import type { SttProviderId } from "../../stt/types.js";
 
 /**
@@ -69,6 +75,98 @@ export const SttProvidersSchema = z
 export type SttProviders = z.infer<typeof SttProvidersSchema>;
 
 /**
+ * Per-consumer provider overrides: `services.stt.roles.<role>`.
+ *
+ * Sparse: an unset role falls back to `services.stt.provider`. Capability is
+ * per boundary while the base setting is global, so a provider that is right
+ * for live voice can be incapable of batch transcription. A role is how one
+ * consumer says which provider and model family it needs without moving the
+ * others onto it.
+ *
+ * Validation is fail-closed: a pair the provider cannot serve is rejected
+ * here rather than at dial time. Accepting it and falling back at resolve
+ * time is the silent substitution this config exists to make visible.
+ */
+export const SttRolesSchema = z
+  .partialRecord(
+    z.enum(STT_ROLES),
+    z.object({
+      provider: z
+        .preprocess(
+          (v) => {
+            if (typeof v !== "string") {
+              return v;
+            }
+            const k = v.trim().toLowerCase();
+            return STT_PROVIDER_ALIASES[k] ?? k;
+          },
+          z.enum(VALID_STT_PROVIDERS, {
+            error: `a services.stt.roles provider must be one of: ${VALID_STT_PROVIDERS.join(", ")}`,
+          }),
+        )
+        .describe("Provider this consumer uses"),
+      model: z
+        .string({ error: "a services.stt.roles model must be a string" })
+        .optional()
+        .describe(
+          "Model family this consumer uses. Omitted runs the provider's default family",
+        ),
+    }),
+  )
+  .check((ctx) => {
+    for (const [role, selection] of Object.entries(ctx.value)) {
+      if (selection === undefined) {
+        continue;
+      }
+      const families = listProviderModelFamilies(
+        selection.provider as SttProviderId,
+      );
+      if (
+        selection.model !== undefined &&
+        !families.includes(selection.model as never)
+      ) {
+        ctx.issues.push({
+          code: "custom",
+          path: [role, "model"],
+          message:
+            families.length === 0
+              ? `services.stt.roles.${role}: ${selection.provider} offers a single model, so model cannot be set`
+              : `services.stt.roles.${role}.model must be one of: ${families.join(", ")}`,
+          input: selection.model,
+        });
+        continue;
+      }
+      const gap = sttRoleCapabilityGap(role as SttRole, selection);
+      if (gap !== null) {
+        ctx.issues.push({
+          code: "custom",
+          path: [role],
+          message: `services.stt.roles.${role} cannot be ${describeSelection(selection)}: ${gap}`,
+          input: selection,
+        });
+      }
+    }
+  })
+  .describe(
+    `Per-consumer STT provider overrides (${STT_ROLES.join(", ")}). An unset role uses services.stt.provider`,
+  );
+
+export type SttRoles = z.infer<typeof SttRolesSchema>;
+
+/** How a role's selection reads in an error: "deepgram" or "deepgram/flux". */
+function describeSelection(selection: {
+  provider: string;
+  model?: string | undefined;
+}): string {
+  return selection.model === undefined
+    ? `"${selection.provider}"`
+    : `"${selection.provider}" running ${selection.model}`;
+}
+
+/** Re-exported so config consumers need not reach into the stt module. */
+export { STT_ROLE_REQUIREMENTS, STT_ROLES, type SttRole };
+
+/**
  * Canonical STT service configuration.
  *
  * `provider` is the only axis: `"vellum"` transcribes through the platform,
@@ -122,6 +220,7 @@ export const SttServiceSchema = z
         "BCP-47 language code (e.g. 'en-US', 'hi') or 'multi' for code-switching across languages. Defaults to 'multi'; providers that detect natively ignore it",
       ),
     providers: SttProvidersSchema.default({}),
+    roles: SttRolesSchema.default({}),
   })
   .describe(
     "Speech-to-text service configuration -- provider selection, spoken language, and per-provider settings",

@@ -1,5 +1,5 @@
 /**
- * Browser side of the `vellum pair --qr` flow. In desktop/local mode the SPA
+ * Browser side of the `vellum pair` flow. In desktop/local mode the SPA
  * reaches the same-machine gateway over its loopback proxy
  * (`/assistant/__gateway/<port>`) and drives the two loopback-only routes the
  * CLI uses:
@@ -34,6 +34,7 @@ import type {
 import { t } from "@/i18n";
 import { getLocalGatewayUrl, getSelectedAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
+import { isCancellationError } from "@/utils/is-cancellation-error";
 
 import { buildRemoteWebPairingUrl } from "./pair-device-url";
 
@@ -145,7 +146,7 @@ async function pairingRouteRequest<T>(
   try {
     response = await fetch(url, { ...init, signal });
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
+    if (isCancellationError(err)) {
       throw err;
     }
     throw new PairDeviceError(t("settings:pairDeviceClient.networkError"));
@@ -226,7 +227,7 @@ export async function mintDevicePairing(args: {
     // The minted challenge would otherwise stay pending for its TTL and show
     // up in the sibling approval list as a foreign request.
     const cleanupTimeout = AbortSignal.timeout(ORPHAN_CLEANUP_TIMEOUT_MS);
-    if (err instanceof DOMException && err.name === "AbortError") {
+    if (isCancellationError(err)) {
       // The caller's signal is dead; run cleanup fire-and-forget on its own
       // timeout so the orphan still gets denied.
       void denyOrphanedChallenge(base, challenge.userCode, cleanupTimeout);
@@ -263,7 +264,7 @@ async function denyOrphanedChallenge(
       await denyPairingRequest({ base, requestId: orphan.requestId, signal });
     }
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
+    if (isCancellationError(err)) {
       return;
     }
     captureError(err, {

@@ -38,9 +38,7 @@ describe("channel policy registry", () => {
 
   test("getDeliverableChannels returns exactly the channels with deliveryEnabled: true", () => {
     const deliverable = getDeliverableChannels();
-    const expected = CHANNEL_IDS.filter(
-      (id) => getChannelPolicy(id).notification.deliveryEnabled,
-    );
+    const expected = CHANNEL_IDS.filter(isNotificationDeliverable);
 
     expect(deliverable).toHaveLength(expected.length);
     for (const id of expected) {

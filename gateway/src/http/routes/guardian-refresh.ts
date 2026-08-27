@@ -1,4 +1,4 @@
-import { hashToken } from "../../auth/guardian-bootstrap.js";
+import { hashDeviceId } from "../../auth/guardian-bootstrap.js";
 import {
   rotateCredentials,
   rotateBrowserCredentialsByRefreshToken,
@@ -122,7 +122,8 @@ export async function handleGuardianRefresh(req: Request): Promise<Response> {
     const body = (await req.json()) as Record<string, unknown>;
     const refreshToken =
       typeof body.refreshToken === "string" ? body.refreshToken : "";
-    const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
+    const deviceId =
+      typeof body.deviceId === "string" ? body.deviceId.trim() : "";
 
     if (!refreshToken) {
       return Response.json(
@@ -153,7 +154,7 @@ export async function handleGuardianRefresh(req: Request): Promise<Response> {
 
     const result = rotateCredentials({
       refreshToken,
-      hashedDeviceId: hashToken(deviceId),
+      hashedDeviceId: hashDeviceId(deviceId),
     });
 
     if (!result.ok) {

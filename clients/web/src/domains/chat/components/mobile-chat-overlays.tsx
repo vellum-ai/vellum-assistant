@@ -1,9 +1,9 @@
 /**
  * Portal-based mobile overlay container for the app, document,
  * subagent-detail, workflow-detail, acp-run-detail, background-task-detail,
- * tool-detail, activity-steps, and message-files viewers. Reads from Zustand
- * stores directly so the parent (ActiveChatView) doesn't need to assemble
- * inline handlers.
+ * tool-detail, activity-steps, message-files, and channel-transcript viewers.
+ * Reads from Zustand stores directly so the parent (ActiveChatView) doesn't
+ * need to assemble inline handlers.
  *
  * Renders nothing on desktop viewports (useMobileOverlayTarget returns null).
  */
@@ -22,6 +22,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
+import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
 import { MobileActivityStepsOverlay } from "@/domains/chat/components/mobile-activity-steps-overlay";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
@@ -50,6 +51,8 @@ export function MobileChatOverlays() {
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeAcpRunId = useViewerStore.use.activeAcpRunId();
   const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
+  const activeChannelTranscript =
+    useViewerStore.use.activeChannelTranscript();
   const subagentById = useSubagentStore.use.byId();
   const workflowById = useWorkflowStore.use.byId();
   const acpRunById = useAcpRunStore.use.byId();
@@ -156,6 +159,10 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeMessageFiles();
   }, []);
 
+  const handleCloseChannelTranscript = useCallback(() => {
+    useViewerStore.getState().closeChannelTranscript();
+  }, []);
+
   if (!overlayTarget) {
     return null;
   }
@@ -235,6 +242,12 @@ export function MobileChatOverlays() {
       <MobileMessageFilesOverlay
         payload={mainView === "message-files" ? activeMessageFiles : null}
         onClose={handleCloseMessageFiles}
+      />
+      <MobileChannelTranscriptOverlay
+        sidecarRef={
+          mainView === "channel-transcript" ? activeChannelTranscript : null
+        }
+        onClose={handleCloseChannelTranscript}
       />
     </>,
     overlayTarget,

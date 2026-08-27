@@ -12,8 +12,12 @@
  */
 import { useAssistantSupports } from "./utils";
 
-/** First daemon that registers a Discord readiness probe. */
-export const MIN_VERSION = "0.11.6";
+/**
+ * First build that registers a Discord readiness probe: the dev build of the
+ * enabling commit. Dev builds of main after it, and every stable release
+ * from 0.11.6, compare at or above; stable 0.11.5 stays below.
+ */
+export const MIN_VERSION = "0.11.5-dev.202608242314.38e0513";
 
 /** Whether this assistant can answer for Discord at all. */
 export function useSupportsDiscordChannel(): boolean {

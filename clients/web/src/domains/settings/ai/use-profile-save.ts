@@ -33,7 +33,7 @@ function toWritableEntry(entry: ProfileEntry): ProfilePatchEntryWritable {
  * transport error must not disturb the save flow, and a null check means the
  * daemon had no verdict to give.
  */
-async function probeSavedProfile(
+export async function probeSavedProfile(
   assistantId: string,
   name: string,
 ): Promise<void> {
@@ -91,7 +91,7 @@ export function useProfileSave(
   assistantId: string,
   { onSaved }: { onSaved?: () => void } = {},
 ): ProfileSave {
-  const configMutation = useLlmConfigPatch(assistantId);
+  const configMutation = useLlmConfigPatch();
 
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),

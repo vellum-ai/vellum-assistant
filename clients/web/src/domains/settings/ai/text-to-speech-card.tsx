@@ -4,7 +4,7 @@
  * first-run card, which renders it bare inside its own modal.
  */
 
-import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ByoServiceCard } from "@/components/byo-service-card";
 import { TtsProviderForm } from "@/components/speech/tts-provider-form";
 import { useTranslation } from "@/i18n";
 

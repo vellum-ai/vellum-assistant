@@ -136,7 +136,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(false);
     const { result, invalidateSpy } = renderReconciliation();
 
-    const outcome = await result.current.reconcileActiveConversation();
+    const outcome = await result.current.reconcileActiveConversation("reopen");
 
     expect(outcome.changed).toBe(false);
     // No content diff, but the server's `processing: false` must still trigger
@@ -149,7 +149,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(true);
     const { result, invalidateSpy } = renderReconciliation();
 
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
@@ -164,7 +164,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(false);
     const { result, invalidateSpy } = renderReconciliation();
 
-    const outcome = await result.current.reconcileActiveConversation();
+    const outcome = await result.current.reconcileActiveConversation("reopen");
 
     expect(outcome.changed).toBe(false);
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
@@ -176,7 +176,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(false);
     const { result, invalidateSpy } = renderReconciliation();
 
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
@@ -186,7 +186,7 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     seedServerFetch(undefined);
     const { result, invalidateSpy } = renderReconciliation();
 
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
@@ -203,7 +203,7 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
     });
 
     // WHEN the active conversation reconciles
-    await result.current.reconcileActiveConversation();
+    await result.current.reconcileActiveConversation("reopen");
 
     // THEN the tail was fetched from the snapshot's anchor ...
     const ingest = reconcileTrace.find((t) => t.step === "ingest-tail");

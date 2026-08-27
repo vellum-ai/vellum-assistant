@@ -107,6 +107,9 @@
     "alt": "Avatar del asistente",
     "fallbackLetter": "V"
   },
+  "chooserAvatarChip": {
+    "alt": "Avatar del asistente"
+  },
   "collapsibleNavSection": {
     "actionsTitle": "Acciones de {title}"
   },
@@ -118,8 +121,7 @@
     "noResults": "Sin resultados",
     "placeholder": "Buscar conversaciones, recuerdos…",
     "searchAriaLabel": "Buscar",
-    "searching": "Buscando…",
-    "shortcutHint": "⌘K"
+    "searching": "Buscando…"
   },
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",
@@ -220,6 +222,31 @@
     "subtitleShort": "Comparte comentarios, solicita funciones y obtén respuestas más rápido",
     "title": "¡Únete a nuestra comunidad!"
   },
+  "discordSetupConnectStep": {
+    "instructions": "Pega el token del bot que copiaste de la pagina Bot.",
+    "botTokenLabel": "Token del bot",
+    "save": "Conectar",
+    "saving": "Conectando...",
+    "saved": "Conectado. Ahora anade el bot a un servidor.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Abre el portal de desarrolladores de Discord y crea una aplicacion. En su pagina <resetLine>Bot</resetLine>, pulsa Reset Token y copia el token de inmediato: Discord lo muestra una sola vez y no se puede volver a consultar.",
+    "intentsNote": "Deja desactivados los tres Privileged Gateway Intents. Tu asistente solo lee mensajes directos y mensajes que lo mencionan, que Discord exime del intent de contenido.",
+    "openPortal": "Abrir el portal de Discord",
+    "continue": "Ya tengo mi token"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Tu bot no puede ver nada hasta que entre en un servidor. Este enlace usa la configuracion de instalacion de tu aplicacion.",
+    "openInvite": "Anadir a un servidor",
+    "noAppId": "Conecta primero un token del bot y vuelve para anadirlo a un servidor."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Crear app",
+    "stepConnect": "Conectar",
+    "stepInvite": "Anadir al servidor"
+  },
   "diskPressureBanner": {
     "acknowledge": "Reconocer",
     "acknowledging": "Reconociendo...",
@@ -235,6 +262,14 @@
     "warningBody": "Libera espacio para evitar interrupciones.",
     "warningBodyWithUpgrade": "Libera espacio o añade más almacenamiento para evitar interrupciones.",
     "warningTitle": "Tu almacenamiento está casi lleno"
+  },
+  "downloadFeedback": {
+    "failed": "No se pudo descargar el archivo",
+    "revealMac": "Mostrar en Finder",
+    "revealWindows": "Mostrar en el Explorador de archivos",
+    "saved": "Guardado en Descargas",
+    "started": "Descarga iniciada",
+    "startedDescription": "Busca {filename} en las descargas de tu navegador."
   },
   "editFooter": {
     "discard": "Descartar",
@@ -269,10 +304,13 @@
   },
   "nativeAppBanner": {
     "bannerAria": "Descargar la app de {appName}",
+    "bannerAriaGeneric": "Descargar la app móvil de Vellum",
     "download": "Descargar",
     "downloadAppAria": "Descargar la app de {appName}",
+    "downloadAppAriaGeneric": "Descargar la app móvil de Vellum",
     "subtitle": "Notificaciones push · inicio biométrico · háptica",
-    "title": "Obtén la app de {appName}"
+    "title": "Obtén la app de {appName}",
+    "titleGeneric": "Obtén la app de Vellum"
   },
   "nativeSplash": {
     "logoAlt": "Vellum"
@@ -657,6 +695,22 @@
     "linkCopied": "Enlace copiado",
     "open": "Abrir"
   },
+  "useAssistantChannels": {
+    "setupPrompt": {
+      "slack": "Quiero comunicarme contigo por Slack. Vamos a configurarlo.",
+      "telegram": "Quiero comunicarme contigo por Telegram. Vamos a configurarlo.",
+      "discord": "Quiero comunicarme contigo por Discord. Vamos a configurarlo.",
+      "email": "Quiero enviarte correos. Vamos a configurar tu dirección de correo.",
+      "phone": "Quiero poder llamarte. Vamos a conseguirte un número de teléfono."
+    },
+    "finishPrompt": {
+      "slack": "Slack está configurado pero no funciona. ¿Puedes terminarlo?",
+      "telegram": "Telegram está configurado pero no funciona. ¿Puedes terminarlo?",
+      "discord": "Discord está configurado pero no funciona. ¿Puedes terminarlo?",
+      "email": "Mi dirección de correo está configurada pero no funciona. ¿Puedes terminarla?",
+      "phone": "Mi número de teléfono está configurado pero no funciona. ¿Puedes terminarlo?"
+    }
+  },
   "useBookmarks": {
     "addFailed": "No se pudo marcar el mensaje.",
     "removeFailed": "No se pudo quitar el marcador."
@@ -726,5 +780,24 @@
     "file": "Archivo",
     "help": "Ayuda",
     "view": "Ver"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "Comprobando dominio…",
+    "domainVerified": "Dominio verificado",
+    "failedTitle": "La verificación del dominio falló. Es posible que los registros DNS no se hayan propagado correctamente. Puedes intentar liberar y volver a registrar el dominio.",
+    "unknownStatus": "Estado desconocido",
+    "unknownStatusTitle": "No se pudo obtener el estado de verificación del dominio.",
+    "verificationFailed": "Verificación fallida",
+    "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
+    "verifyingDomain": "Verificando dominio…",
+    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos."
+  },
+  "managedServicesBanner": {
+    "body": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>"
+  },
+  "serviceCard": {
+    "managedLabel": "Administrado",
+    "modeToggleAriaLabel": "Modo de servicio",
+    "yourOwnLabel": "Propio"
   }
 }

@@ -94,7 +94,7 @@
     "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo.",
     "closeNavAria": "Cerrar navegación",
     "navAria": "Navegación del asistente",
-    "searchShortcut": "Buscar (⌘K)"
+    "searchShortcut": "Buscar ({shortcut})"
   },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
@@ -242,6 +242,11 @@
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },
+  "channelReferenceChip": {
+    "heading": "Haciendo referencia a un mensaje de {channel}",
+    "headingWithSender": "Haciendo referencia a {sender} en {channel}",
+    "removeAria": "Quitar el mensaje referenciado"
+  },
   "channelSetupPanel": {
     "accountSid": "SID de la cuenta",
     "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -259,7 +264,33 @@
     "setupTitle": "Configuración de {channel}",
     "slackConnected": "Tu asistente ya puede recibir mensajes en Slack.",
     "telegramConnected": "Tu asistente ya puede recibir mensajes en Telegram.",
-    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks."
+    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks.",
+    "discordConnected": "Discord esta conectado. Anade el bot a un servidor y empezara a responder alli."
+  },
+  "channelThreadControl": {
+    "closeAria": "Cerrar el hilo de {channel}",
+    "label": "Hilo de {channel}",
+    "openAria": "Abrir el hilo de {channel}"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "Asistente",
+    "closeAria": "Cerrar el hilo del canal",
+    "closeTooltip": "Cerrar",
+    "emptyNoMessageDetail": "{channel} no envía a Vellum los detalles por mensaje que necesita esta vista, así que no hay nada que mostrar aquí. Abre la conversación en {channel} para leerla completa.",
+    "emptyThread": "Todavía no hay mensajes de {channel} en esta conversación.",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "Sin contenido de texto",
+    "openInChannel": "Abrir en {channel}",
+    "reactionAdded": "Reaccionó con {emoji}",
+    "reactionRemoved": "Quitó la reacción {emoji}",
+    "readOnly": "Solo lectura",
+    "readOnlyNote": "Esta es la conversación tal como está en {channel}. El campo de escritura de Vellum es el único lugar donde puedes escribir.",
+    "reference": "Referenciar en Vellum",
+    "referenceAria": "Referenciar este mensaje de {channel} en Vellum",
+    "referenced": "Referenciado",
+    "removeReferenceAria": "Quitar esta referencia del campo de escritura de Vellum",
+    "title": "Hilo de {channel}",
+    "unknownSender": "Remitente desconocido"
   },
   "chatAttachments": {
     "attachFileAria": "Adjuntar archivo",
@@ -326,7 +357,6 @@
     "createTitle": "Crear regla de confianza",
     "description": "Las llamadas a herramientas que coincidan usan el nivel de riesgo de esta regla, para que tu tolerancia de aprobación pueda autoaprobarlas.",
     "editTitle": "Editar regla de confianza",
-    "everywhere": "En todas partes",
     "narrowerScopeAria": "Alcance más estrecho",
     "orNarrowScope": "O reduce el alcance:",
     "save": "Guardar",
@@ -334,8 +364,7 @@
     "saveRule": "Guardar regla",
     "saving": "Guardando…",
     "suggested": "Sugerido: {risk}",
-    "treatAs": "Tratar como",
-    "where": "Dónde"
+    "treatAs": "Tratar como"
   },
   "choiceSurface": {
     "continue": "Continuar",
@@ -605,6 +634,7 @@
     "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
   },
   "documentViewerPage": {
+    "exportFailed": "No se pudo exportar el PDF",
     "notFound": "Documento no encontrado."
   },
   "dynamicPageSurface": {
@@ -1112,8 +1142,8 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
     "exhausted": "Añade créditos para continuar.",
+    "extraCredits": "Usando créditos de uso adicional",
     "pctUsed": "{pct}% usado",
-    "resets": "Se restablece el {date}",
     "settingsAriaLabel": "Ajustes de uso y facturación",
     "title": "Uso"
   },
@@ -1159,13 +1189,12 @@
   },
   "questionPromptCard": {
     "closeQuestionAria": "Cerrar pregunta",
-    "expandAria": "Reabrir pregunta",
     "minimizeAria": "Minimizar pregunta",
     "minimizedSummary": "{count, plural, one {# opción} other {# opciones}} · Toca para reabrir",
     "nextQuestionAria": "Pregunta siguiente",
     "optionAria": "Opción {number}: {label}",
-    "position": "{current} de {total}",
     "previousQuestionAria": "Pregunta anterior",
+    "position": "{current} de {total}",
     "sendResponseAria": "Enviar respuesta",
     "skip": "Omitir",
     "skipAria": "Omitir esta pregunta",

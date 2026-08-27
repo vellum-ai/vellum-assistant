@@ -863,6 +863,7 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   litellm: [],
+  opencode: [],
   baseten: [
     {
       id: "thinkingmachines/inkling",
@@ -908,6 +909,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
   litellm: "",
+  opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
   "openai-compatible": "",
@@ -936,6 +938,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   litellm: "LiteLLM",
+  opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
 };
@@ -960,6 +963,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   minimax: false,
   atlascloud: false,
   litellm: false,
+  opencode: false,
   baseten: false,
   poolside: false,
 };

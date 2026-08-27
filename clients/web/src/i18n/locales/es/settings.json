@@ -73,6 +73,18 @@
     "unsupportedDescription": "Los ajustes de notificaciones no están disponibles en esta versión de la app.",
     "unsupportedLabel": "No disponible"
   },
+  "appIcon": {
+    "apply": "Establecer icono",
+    "change": "Cambiar",
+    "color": "Color",
+    "description": "Elige el icono que Vellum muestra en tu pantalla de inicio.",
+    "error": "iOS no cambió el icono de tu pantalla de inicio. Puedes intentarlo de nuevo.",
+    "eyes": "Ojos",
+    "matchAvatar": "Usar el avatar",
+    "note": "Los iconos alternativos vienen incluidos en la app, e iOS confirma cada cambio con su propio aviso.",
+    "reset": "Volver al predeterminado",
+    "title": "Icono de la app"
+  },
   "assistantBackups": {
     "columnCreated": "Creada",
     "columnReady": "Lista",
@@ -240,6 +252,7 @@
     "loadError": "No se pudo cargar la configuración de la recarga automática.",
     "loading": "Cargando…",
     "summary": "Añadir {amount} cuando el saldo baje de {threshold}",
+    "toggleHelper": "Las recargas automáticas solo ocurren cuando se agota el uso incluido en tu plan",
     "toggleLabel": "Activar recarga automática",
     "updateError": "No se pudo guardar la configuración de la recarga automática. Inténtalo de nuevo."
   },
@@ -293,8 +306,8 @@
     "loading": "Cargando resumen de facturación...",
     "lowBalanceToggle": "Alerta personalizada de saldo bajo",
     "noInfo": "No hay información de facturación disponible.",
-    "subtitle": "Resumen rápido de tus saldos y otros datos",
-    "title": "Créditos"
+    "subtitle": "Créditos que se usan al alcanzar el límite de uso",
+    "title": "Créditos de uso adicional"
   },
   "billingPortalReturnHandler": {
     "endOfBillingPeriod": "el final de tu período de facturación",
@@ -582,7 +595,8 @@
     "save": "Guardar",
     "saveError": "No se pudo guardar el límite diario de créditos. Inténtalo de nuevo.",
     "skippedNotice": "Omitido por hoy. Este límite se reanuda a las {time}.",
-    "toggleLabel": "Límite diario de créditos"
+    "toggleLabel": "Límite diario de créditos",
+    "toggleSubtitle": "El límite diario solo se aplica a los créditos de uso adicional"
   },
   "debugControlsPanel": {
     "backups": "Copias de seguridad",
@@ -689,69 +703,15 @@
     "registerSubdomainFailed": "No se pudo registrar ese subdominio. Prueba con otro.",
     "skip": "Omitir",
     "subtitle": "Configura un correo para tu asistente.",
-    "title": "Correo del asistente"
+    "title": "Correo del asistente",
+    "emailUsernamePlaceholder": "hola",
+    "subdomainExamplePlaceholder": "mi-asistente"
   },
   "downgradeReconfirmModal": {
     "body": "Al bajar de plan se eliminan las siguientes funciones Pro:",
     "confirm": "Confirmar bajada de plan",
     "keepPro": "Mantener Pro",
     "title": "¿Bajar a Base?"
-  },
-  "emailManagedContent": {
-    "addressLabel": "Dirección",
-    "checkingSubscription": "Comprobando suscripción…",
-    "confirm": "Confirmar",
-    "create": "Crear",
-    "createEmailFailedFallback": "No se pudo crear la dirección de correo.",
-    "creating": "Creando…",
-    "domainLabel": "Dominio",
-    "domainRegisteredToast": "Dominio {domain} registrado.",
-    "domainReleaseFailedToast": "No se pudo liberar el dominio.",
-    "domainReleasedToast": "Dominio liberado.",
-    "emailAddressLabel": "Dirección de correo",
-    "emailCreatedToast": "Dirección de correo creada.",
-    "emailRemoveFailedToast": "No se pudo eliminar la dirección de correo.",
-    "emailRemovedToast": "Dirección de correo eliminada.",
-    "emailUsernameAriaLabel": "Nombre de usuario del correo",
-    "emailUsernamePlaceholder": "hola",
-    "enterSubdomainError": "Introduce un subdominio.",
-    "enterUsernameError": "Introduce un nombre de usuario de correo.",
-    "register": "Registrar",
-    "registerDomainFailedFallback": "No se pudo registrar el dominio.",
-    "registering": "Registrando…",
-    "releaseConfirm": "Liberar",
-    "releaseDomainAriaLabel": "Liberar dominio",
-    "releaseDomainConfirmMessage": "¿Seguro que quieres liberar <code>{domain}</code>? El subdominio quedará disponible para que otros lo reclamen.",
-    "releaseDomainTitle": "Liberar dominio",
-    "removeAddressFirstToast": "Elimina primero la dirección de correo.",
-    "removeConfirm": "Eliminar",
-    "removeEmailAriaLabel": "Eliminar dirección de correo",
-    "removeEmailConfirmMessage": "¿Seguro que quieres eliminar <code>{address}</code>? Tu asistente ya no podrá enviar ni recibir correo en esta dirección.",
-    "removeEmailTitle": "Eliminar dirección de correo",
-    "retry": "Reintentar",
-    "setSubdomainConfirmMessage": "<code>{subdomain}</code> también será el identificador público de tu asistente. No podrás cambiarlo una vez establecido.",
-    "setSubdomainTitle": "Establecer subdominio",
-    "subdomainExamplePlaceholder": "mi-asistente",
-    "subdomainFallback": "subdominio",
-    "subdomainHint": "Cada asistente tiene su propio subdominio. Solo letras minúsculas, números y guiones.",
-    "subdomainLabel": "Subdominio",
-    "subscriptionWarningBody": "No pudimos contactar con el servicio de facturación. El formulario siguiente asume que el correo gestionado está habilitado para tu organización. Si no lo está, registrar un dominio fallará.",
-    "subscriptionWarningTitle": "No se pudo verificar el estado de la suscripción",
-    "upgradeButton": "Mejorar plan",
-    "upgradeNoticeBody": "Mejora a un plan que incluya una dirección de correo para tu asistente. No hace falta configurar un proveedor.",
-    "upgradeNoticeTitle": "Dale a tu asistente su propia dirección de correo",
-    "usageSummary": "{sent} / {limit} enviados hoy · {received} recibidos"
-  },
-  "emailServiceCard": {
-    "apiKeyConfigured": "Clave API de {providerName} configurada. Para reconfigurar, ejecuta la habilidad <code>{setupSkill}</code>.",
-    "connecting": "Conectando con la plataforma Vellum…",
-    "openProvider": "Abrir {providerName}",
-    "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la configuración de correo.",
-    "providerLabel": "Proveedor",
-    "saveSuccessToast": "Configuración de correo guardada.",
-    "setupInstructions": "Configura {providerName} mediante la CLI del asistente: pídele al asistente que ejecute la habilidad <code>{setupSkill}</code>. Te guiará para guardar la clave API, detectar el dominio y (opcionalmente) configurar un webhook entrante.",
-    "subtitle": "Configura cómo tu asistente envía y recibe correo",
-    "title": "Correo"
   },
   "enrollTotpModal": {
     "cancel": "Cancelar",
@@ -1170,7 +1130,9 @@
     "benefitPush": "Notificaciones push",
     "download": "Descargar",
     "subtitle": "La app de Vellum para {appName} te ofrece una experiencia nativa.",
-    "title": "Obtén la app de {appName}"
+    "subtitleGeneric": "La app móvil de Vellum te ofrece una experiencia nativa.",
+    "title": "Obtén la app de {appName}",
+    "titleGeneric": "Obtén la app móvil de Vellum"
   },
   "notificationsPage": {
     "description": "Administra cómo Vellum te notifica en este dispositivo Android.",
@@ -1219,12 +1181,12 @@
     "publicUrlHelperTunnel": "Esta dirección proviene de `vellum tunnel` en este equipo. Edítala si tus dispositivos alcanzan este asistente en otra URL.",
     "publicUrlLabel": "URL pública",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Escanéalo con la cámara de otro dispositivo, o abre el enlace en él, para usar {name} allí.",
+    "subtitle": "Escanéalo con la cámara de un teléfono, o pega el enlace en otro ordenador, para usar {name} allí.",
     "subtitleFallbackName": "este asistente",
     "title": "Vincular un dispositivo"
   },
   "pairDeviceClient": {
-    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel`) y de que la URL pública apunte a él; después genera un nuevo código.",
+    "connectivityHint": "Si un escaneo no puede conectar, asegúrate de que haya un túnel en ejecución en el host (`vellum tunnel --help` lista los proveedores) y de que la URL pública apunte a él; después genera un nuevo código.",
     "httpError": "La vinculación falló (HTTP {status}).",
     "networkError": "No se pudo conectar con el asistente. Asegúrate de que esté en ejecución e inténtalo de nuevo.",
     "unexpectedResponse": "El asistente devolvió una respuesta inesperada."
@@ -1241,12 +1203,14 @@
   "pairDeviceUrl": {
     "loopback": "Esta es una dirección de loopback que otros dispositivos no pueden alcanzar. Introduce la URL https pública del asistente.",
     "nonHttps": "La URL debe usar https para que tus dispositivos se conecten de forma segura.",
+    "privateAddress": "Esta dirección apunta a una dirección de red privada. Introduce la URL https pública del asistente para que tus dispositivos puedan alcanzarlo.",
     "serviceFallbackName": "el proveedor del túnel",
-    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Ejecuta `vellum tunnel` en el host para obtener una.",
+    "serviceWebsite": "Este es el sitio web de {service}, no la dirección de tu asistente. Inicia un túnel en el host para obtener una; `vellum tunnel --help` lista los proveedores.",
     "unparseable": "Introduce una URL válida, p. ej. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
-    "confirmMessage": "El dispositivo {platform} {hash} pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
+    "browserOnOs": "{browser} en {os}",
+    "confirmMessageNamed": "{name} ({hash}) pierde el acceso a este asistente. Sus tokens de acceso se invalidan de inmediato; ese dispositivo tendrá que vincularse de nuevo desde este equipo para reconectarse.",
     "confirmTitle": "¿Revocar este dispositivo?",
     "dateUnknown": "desconocido",
     "hostRevokeDisabledTitle": "Esta es la credencial de este mismo equipo; revocarla dejaría al host sin acceso al asistente.",
@@ -1295,7 +1259,6 @@
     "usageBalanceAddCredits": "Añadir",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
-    "usageBalanceResets": "Se restablece el {date}",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes",
     "usageIncludedChip": "{label} incluido",
@@ -1552,9 +1515,11 @@
     "advanced": "Avanzado",
     "apiKeyPlaceholder": "Introduce tu clave API",
     "baseUrlHintOllama": "Déjalo en blanco para usar el Ollama local predeterminado, o introduce un host remoto o no predeterminado.",
+    "baseUrlHintOpencode": "Déjalo en blanco para usar OpenCode Zen, o pon el endpoint de OpenCode Go.",
     "baseUrlLabel": "URL base",
     "baseUrlPlaceholder": "https://api.x.ai/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Cancelar",
     "customProviderHint": "Los proveedores personalizados se conectan a cualquier endpoint que ofrezca la API compatible con OpenAI: xAI, Groq, LM Studio, vLLM y similares.",
     "customProviderOption": "Proveedor personalizado",
@@ -1595,9 +1560,11 @@
   "providerEditorContent": {
     "apiKeyPlaceholder": "Introduce tu clave API",
     "baseUrlHintOllama": "Déjalo en blanco para usar el Ollama local predeterminado, o introduce un host remoto o no predeterminado.",
+    "baseUrlHintOpencode": "Déjalo en blanco para usar OpenCode Zen, o pon el endpoint de OpenCode Go.",
     "baseUrlLabel": "URL base",
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Cancelar",
     "displayNameLabel": "Nombre para mostrar <optional>(opcional)</optional>",
     "displayNamePlaceholder": "p. ej., Mi clave de Anthropic",
@@ -1692,12 +1659,11 @@
     "copySuccess": "¡Copiado al portapapeles!",
     "creditsEarned": "Créditos ganados",
     "friendsReferred": "Amigos referidos",
-    "gatedNotice": "Ahora mismo no estás ganando créditos por referidos. Compra créditos o mejora a Pro para empezar a ganar - tu enlace de invitación sigue funcionando mientras tanto.",
+    "gatedTooltip": "¡Suscríbete o compra créditos para empezar a ganar!",
     "loadError": "No se pudo cargar la información de referidos.",
     "loading": "Cargando...",
     "shareLink": "Compartir enlace",
     "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
-    "subtitleGated": "Invita amigos a Vellum. Empezarás a ganar créditos por referidos cuando hayas comprado créditos o mejorado a Pro.",
     "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
   },
   "referralModal": {
@@ -1799,21 +1765,6 @@
     "warningLabel": "Evento de advertencia",
     "warningSentToast": "Evento de advertencia de Sentry enviado."
   },
-  "sharedUi": {
-    "checkingDomain": "Comprobando dominio…",
-    "domainVerified": "Dominio verificado",
-    "failedTitle": "La verificación del dominio falló. Es posible que los registros DNS no se hayan propagado correctamente. Puedes intentar liberar y volver a registrar el dominio.",
-    "managedLabel": "Administrado",
-    "managedServicesBanner": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>",
-    "modeToggleAriaLabel": "Modo de servicio",
-    "unknownStatus": "Estado desconocido",
-    "unknownStatusTitle": "No se pudo obtener el estado de verificación del dominio.",
-    "verificationFailed": "Verificación fallida",
-    "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
-    "verifyingDomain": "Verificando dominio…",
-    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
-    "yourOwnLabel": "Propio"
-  },
   "shortcutsSections": {
     "alreadyUsedBy": "Ya está en uso por {label}",
     "appDescription": "Funcionan mientras una ventana de Vellum está enfocada.",
@@ -1864,6 +1815,19 @@
   "speechToTextCard": {
     "subtitle": "Configura cómo tu asistente transcribe el habla",
     "title": "Voz a texto"
+  },
+  "sttRoleOverrides": {
+    "clear": "Restablecer",
+    "clearAria": "Restablecer {feature}",
+    "clearFailed": "No se pudo restablecer",
+    "role": {
+      "batch": "Transcripción de archivos",
+      "dictation": "Dictado",
+      "liveVoice": "Voz en vivo",
+      "telephony": "Llamadas",
+      "watch": "Observación"
+    },
+    "title": "Por función"
   },
   "systemTasksSection": {
     "consolidationName": "Consolidación",
@@ -2188,6 +2152,10 @@
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",
+    "turnDetectionDescription": "El modelo de voz decide cuándo has terminado, en lugar del temporizador de pausa de arriba.",
+    "turnDetectionFailed": "No se pudo cambiar el modo de turnos",
+    "turnDetectionLabel": "Turnos detectados por el modelo",
+    "turnDetectionLanguageUnsupported": "No disponible en el idioma hablado seleccionado.",
     "turnTakingSubtitle": "Dónde termina tu turno y comienza el del asistente. Se aplica a conversaciones manos libres. Con pulsar para hablar, lo decide la tecla.",
     "turnTakingTitle": "Turnos de conversación",
     "voiceShortcutSubtitle": "Pulsa el atajo para iniciar o terminar una conversación de voz, desde cualquier parte de la aplicación.",

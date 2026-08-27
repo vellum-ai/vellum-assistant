@@ -83,6 +83,15 @@ export {
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";
 
+// Plugin admission-denied notice (gateway → plugin) — canned deny copy + envelope
+export {
+  ACCESS_DENIED_NOT_APPROVED_REPLY,
+  PLUGIN_ADMISSION_DENIED_NOTICE_PATH,
+  PluginAdmissionDeniedNoticeSchema,
+} from "./plugin-admission-denied-contract.js";
+
+export type { PluginAdmissionDeniedNotice } from "./plugin-admission-denied-contract.js";
+
 // Trust verdict contract (gateway → daemon) — Zod schemas + derived types
 export {
   isTrustClass,
