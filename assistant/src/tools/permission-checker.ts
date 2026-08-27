@@ -25,7 +25,10 @@ import type {
 import { RiskLevel } from "../permissions/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import {
+  type PermissionPromptOutcome,
+  type PermissionPromptTelemetry,
   recordToolDenied,
+  recordToolPermissionDecided,
   recordToolPermissionPrompted,
 } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
@@ -213,7 +216,6 @@ export class PermissionChecker {
           reason: result.reason,
           riskLevel,
           durationMs: Date.now() - startTime,
-          wasPrompted: false,
         });
         const provenance = mapApprovalProvenance("denied", {});
         return {
@@ -252,7 +254,6 @@ export class PermissionChecker {
             "Inline-command skill load requires human approval; no interactive client connected",
           riskLevel,
           durationMs: Date.now() - startTime,
-          wasPrompted: false,
         });
         return {
           allowed: false,
@@ -365,7 +366,6 @@ export class PermissionChecker {
             reason: "Non-interactive session: no client to approve prompt",
             riskLevel,
             durationMs: Date.now() - startTime,
-            wasPrompted: false,
           });
           return {
             allowed: false,
@@ -389,26 +389,75 @@ export class PermissionChecker {
           persistentDecisionsAllowed: !context.requireFreshApproval,
         };
 
-        recordToolPermissionPrompted(name);
-
-        const response = await this.prompter.prompt(
-          name,
-          input,
+        // Grouping dimensions shared by this prompt and its decision, so the
+        // two series can be diffed by risk and by access preset without
+        // parsing anything out of the event name.
+        const promptTelemetry: PermissionPromptTelemetry = {
+          toolName: name,
           riskLevel,
-          promptOptions.allowlistOptions,
-          promptOptions.scopeOptions,
-          previewDiff,
-          context.conversationId,
-          executionTarget,
-          promptOptions.persistentDecisionsAllowed,
-          context.signal,
-          context.toolUseId,
-          riskReason,
-          getIsContainerized(),
-          classification.directoryScopeOptions,
-        );
+          riskThreshold,
+          surface: context.executionChannel,
+          conversationId: context.conversationId,
+        };
+        // An already-aborted signal makes the prompter return without
+        // registering or sending a confirmation request, so nothing reaches
+        // the user and neither half of the pair is recorded. `prompt()` reads
+        // the same signal synchronously on entry, with no await in between, so
+        // this check and its check always agree.
+        const promptIsSurfaced = context.signal?.aborted !== true;
+        if (promptIsSurfaced) {
+          recordToolPermissionPrompted(promptTelemetry);
+        }
+
+        let response: Awaited<ReturnType<PermissionPrompter["prompt"]>>;
+        try {
+          response = await this.prompter.prompt(
+            name,
+            input,
+            riskLevel,
+            promptOptions.allowlistOptions,
+            promptOptions.scopeOptions,
+            previewDiff,
+            context.conversationId,
+            executionTarget,
+            promptOptions.persistentDecisionsAllowed,
+            context.signal,
+            context.toolUseId,
+            riskReason,
+            getIsContainerized(),
+            classification.directoryScopeOptions,
+          );
+        } catch (err) {
+          // The prompter rejected rather than resolved: it was disposed while
+          // this prompt was outstanding (client disconnect, conversation
+          // teardown). Nobody answered, so the prompt is abandoned.
+          if (promptIsSurfaced) {
+            recordToolPermissionDecided(promptTelemetry, "abandoned");
+          }
+          throw err;
+        }
 
         const decision = response.decision;
+
+        // A prompt that ends without a human answer is abandoned, not denied.
+        // The daemon resolves a timeout, a superseding user message, and a
+        // turn abort to `deny` so the agent loop stops, but none of the three
+        // is a decision the user made.
+        let outcome: PermissionPromptOutcome;
+        if (
+          response.wasTimeout === true ||
+          response.wasSystemCancel === true ||
+          response.wasAbort === true
+        ) {
+          outcome = "abandoned";
+        } else if (decision === "deny") {
+          outcome = "deny";
+        } else {
+          outcome = "allow";
+        }
+        if (promptIsSurfaced) {
+          recordToolPermissionDecided(promptTelemetry, outcome);
+        }
 
         if (decision === "deny") {
           const contextualDenial =
@@ -430,7 +479,6 @@ export class PermissionChecker {
             reason: denialReason,
             riskLevel,
             durationMs: Date.now() - startTime,
-            wasPrompted: true,
           });
           return {
             allowed: false,

@@ -76,19 +76,25 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
 }
 
-/** Strip per-row identity so two forks of the same source compare equal. */
-function normalize(message: {
-  role: string;
-  content: unknown;
-  createdAt: number;
-  metadata: string | null;
-}) {
-  return {
-    role: message.role,
-    content: message.content,
-    createdAt: message.createdAt,
-    metadata: message.metadata,
-  };
+/** Rows physically stored on a conversation, ignoring anything inherited. */
+function ownedRowCount(conversationId: string): number {
+  return getDb()
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .all().length;
+}
+
+function contentOf(m: { role: string; content: unknown; createdAt: number }) {
+  return { role: m.role, content: m.content, createdAt: m.createdAt };
+}
+
+function renderWindow(
+  summary: string | null,
+  rows: Array<{ role: string; content: unknown; createdAt: number }>,
+  count: number,
+) {
+  return [summary, ...rows.slice(Math.min(count, rows.length)).map(contentOf)];
 }
 
 async function seedSource(title: string): Promise<{ id: string }> {
@@ -113,7 +119,7 @@ describe("forkConversationForRetrospective", () => {
     resetTables();
   });
 
-  test("full fork is row-identical to the synchronous fork", async () => {
+  test("full fork presents the source window without copying rows", async () => {
     const source = await seedSource("Planning thread");
 
     const syncFork = forkConversation({
@@ -127,21 +133,20 @@ describe("forkConversationForRetrospective", () => {
       source: "memory-retrospective-fork",
     });
 
-    // The forkSourceMessageId stamp points at the SOURCE message id (shared by
-    // both forks), so the normalized rows must be byte-identical.
-    expect(getMessages(asyncFork.id).map(normalize)).toEqual(
-      getMessages(syncFork.id).map(normalize),
+    expect(asyncFork.forkStrategy).toBe("reference");
+    expect(ownedRowCount(asyncFork.id)).toBe(0);
+    expect(getMessages(asyncFork.id).map(contentOf)).toEqual(
+      getMessages(source.id).map(contentOf),
     );
     expect(asyncFork.forkParentConversationId).toBe(source.id);
     expect(asyncFork.forkParentMessageId).toBe(syncFork.forkParentMessageId);
-    // Fresh ids — not the source's.
     const sourceIds = new Set(getMessages(source.id).map((m) => m.id));
-    expect(getMessages(asyncFork.id).every((m) => !sourceIds.has(m.id))).toBe(
+    expect(getMessages(asyncFork.id).every((m) => sourceIds.has(m.id))).toBe(
       true,
     );
   });
 
-  test("through-cutoff (truncated) fork matches the synchronous fork", async () => {
+  test("through-cutoff (truncated) fork bounds the inherited window", async () => {
     const source = await seedSource("Truncated thread");
     const sourceMessages = getMessages(source.id);
     const cutoff = sourceMessages[1]!.id;
@@ -159,8 +164,10 @@ describe("forkConversationForRetrospective", () => {
       source: "memory-retrospective-fork",
     });
 
-    expect(getMessages(asyncFork.id).map(normalize)).toEqual(
-      getMessages(syncFork.id).map(normalize),
+    expect(asyncFork.forkStrategy).toBe("reference");
+    expect(ownedRowCount(asyncFork.id)).toBe(0);
+    expect(getMessages(asyncFork.id).map(contentOf)).toEqual(
+      sourceMessages.slice(0, 2).map(contentOf),
     );
     expect(asyncFork.forkParentMessageId).toBe(syncFork.forkParentMessageId);
   });
@@ -193,7 +200,7 @@ describe("forkConversationForRetrospective", () => {
     ).toBe(false);
   });
 
-  test("relinks attachments per-conversation, like the synchronous fork", async () => {
+  test("resolves attachments through source message ids", async () => {
     const source = createConversation("Attachment thread");
     const assistant = await addMessage(source.id, "assistant", "see mockup", {
       skipIndexing: true,
@@ -212,10 +219,11 @@ describe("forkConversationForRetrospective", () => {
       (m) => m.role === "assistant",
     );
     expect(forkAssistant).toBeDefined();
+    expect(forkAssistant!.id).toBe(assistant.id);
+    expect(ownedRowCount(asyncFork.id)).toBe(0);
     const forkAttachments = getAttachmentsForMessage(forkAssistant!.id);
     expect(forkAttachments).toHaveLength(1);
-    // Scoped to the fork — a distinct attachment row from the source's.
-    expect(forkAttachments[0]?.id).not.toBe(
+    expect(forkAttachments[0]?.id).toBe(
       getAttachmentsForMessage(assistant.id)[0]?.id,
     );
   });
@@ -321,11 +329,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
     return { id: source.id, summary, compactedAt, compactedCount: 4, base };
   }
 
-  function contentOf(m: { role: string; content: unknown; createdAt: number }) {
-    return { role: m.role, content: m.content, createdAt: m.createdAt };
-  }
-
-  test("copies only the visible tail and renders identically to the source", async () => {
+  test("copies no rows and renders identically to the source", async () => {
     const source = await seedCompactedSource();
     const sourceRows = getMessages(source.id);
     const tip = sourceRows.at(-1)!;
@@ -337,33 +341,25 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    // Physical rows: the visible tail only, each stamped with its source id.
+    expect(fork.forkStrategy).toBe("reference");
+    expect(ownedRowCount(fork.id)).toBe(0);
     const forkRows = getMessages(fork.id);
-    expect(forkRows.map(contentOf)).toEqual(sourceRows.slice(4).map(contentOf));
-    expect(
-      forkRows.map(
-        (m) =>
-          (JSON.parse(m.metadata!) as { forkSourceMessageId: string })
-            .forkSourceMessageId,
-      ),
-    ).toEqual(sourceRows.slice(4).map((m) => m.id));
+    expect(forkRows.map((m) => m.id)).toEqual(sourceRows.map((m) => m.id));
 
-    // Fork row: inherited summary + timestamp, fork-local count of 0.
     expect(fork.contextSummary).toBe(source.summary);
-    expect(fork.contextCompactedMessageCount).toBe(0);
+    expect(fork.contextCompactedMessageCount).toBe(4);
     expect(fork.contextCompactedAt).toBe(source.compactedAt);
     expect(fork.forkParentMessageId).toBe(tip.id);
 
-    // Rendered history — summary + post-slice rows, assembled the way
-    // `loadFromDb` does — is identical to the source's.
-    const render = (
-      summary: string | null,
-      rows: Array<{ role: string; content: unknown; createdAt: number }>,
-      count: number,
-    ) => [summary, ...rows.slice(Math.min(count, rows.length)).map(contentOf)];
     expect(
-      render(fork.contextSummary, forkRows, fork.contextCompactedMessageCount),
-    ).toEqual(render(source.summary, sourceRows, source.compactedCount));
+      renderWindow(
+        fork.contextSummary,
+        forkRows,
+        fork.contextCompactedMessageCount,
+      ),
+    ).toEqual(
+      renderWindow(source.summary, sourceRows, source.compactedCount),
+    );
 
     // The synchronous user fork keeps the full physical history.
     const syncFork = forkConversation({
@@ -455,9 +451,21 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    // The compaction slice composes with the cutoff: source row 5 only.
+    // Lineage includes the cutoff window; the inherited count hides the
+    // compacted prefix so the rendered tail is source row 5 only.
     const forkRows = getMessages(fork.id);
-    expect(forkRows.map((m) => m.content)).toEqual([sourceRows[4]!.content]);
+    expect(ownedRowCount(fork.id)).toBe(0);
+    expect(fork.contextCompactedMessageCount).toBe(4);
+    expect(forkRows.map((m) => m.id)).toEqual(
+      sourceRows.slice(0, 5).map((m) => m.id),
+    );
+    expect(
+      renderWindow(
+        fork.contextSummary,
+        forkRows,
+        fork.contextCompactedMessageCount,
+      ).slice(1),
+    ).toEqual([contentOf(sourceRows[4]!)]);
     expect(fork.forkParentMessageId).toBe(sourceRows[4]!.id);
 
     // Derived seeding sees only the copied tail's slug; the wholesale graph
@@ -499,24 +507,24 @@ describe("forkConversationForRetrospective — compacted source", () => {
     expect(forkEvents[0]).toMatchObject({
       compactedAt: source.compactedAt,
       summary: source.summary,
-      compactedMessageCount: 0,
+      compactedMessageCount: 4,
     });
 
-    // A fork of the fork at its tip inherits the summary with the fork-local
-    // count — no rows are hidden behind it.
+    // A user fork of the retrospective fork at its tip inherits the same
+    // summary and hidden-prefix count.
     const forkTip = getMessages(fork.id).at(-1)!;
     const grandchild = forkConversation({
       conversationId: fork.id,
       throughMessageId: forkTip.id,
     });
     expect(grandchild.contextSummary).toBe(source.summary);
-    expect(grandchild.contextCompactedMessageCount).toBe(0);
+    expect(grandchild.contextCompactedMessageCount).toBe(4);
     expect(getMessages(grandchild.id)).toHaveLength(
       getMessages(fork.id).length,
     );
   });
 
-  test("post-fork tail extraction still detects the copied boundary", async () => {
+  test("post-fork tail extraction attributes only owned rows", async () => {
     const source = await seedCompactedSource();
     const tip = getMessages(source.id).at(-1)!;
     const fork = await forkConversationForRetrospective({
@@ -526,11 +534,10 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    const boundary = findForkBoundaryCreatedAt(getMessages(fork.id));
-    expect(boundary).toBe(tip.createdAt);
+    // Referential forks stamp no copied-row metadata. The boundary helper
+    // returns null; ownership is what scopes the run.
+    expect(findForkBoundaryCreatedAt(getMessages(fork.id))).toBeNull();
 
-    // A run-authored message lands after the boundary and is the only row
-    // attributed to the run.
     const runMessage = await addMessage(fork.id, "user", "retro instruction", {
       skipIndexing: true,
     });
@@ -544,6 +551,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
       MEMORY_RETROSPECTIVE_FORK_SOURCE,
     );
     expect(runRows?.map((m) => m.id)).toEqual([runMessage.id]);
+    expect(runRows?.every((m) => m.conversationId === fork.id)).toBe(true);
   });
 
   test("succeeds with an empty tail when the compaction covers the whole cutoff range", async () => {
@@ -573,18 +581,25 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    expect(getMessages(fork.id)).toHaveLength(0);
+    expect(ownedRowCount(fork.id)).toBe(0);
+    expect(getMessages(fork.id)).toHaveLength(sourceRows.length);
     expect(fork.contextSummary).toBe("Everything summarized");
-    expect(fork.contextCompactedMessageCount).toBe(0);
+    expect(fork.contextCompactedMessageCount).toBe(sourceRows.length);
     expect(fork.contextCompactedAt).toBe(tip.createdAt);
     expect(fork.forkParentMessageId).toBe(tip.id);
+    expect(
+      renderWindow(
+        fork.contextSummary,
+        getMessages(fork.id),
+        fork.contextCompactedMessageCount,
+      ),
+    ).toEqual(["Everything summarized"]);
     // Ageable despite copying no rows, so the startup orphan sweep (which
     // skips null `lastMessageAt` rows) can reclaim it after a crash.
     expect(fork.lastMessageAt).toBe(tip.createdAt);
 
-    // With no stamped copied rows and the run's instruction opening the
-    // conversation, every message is the run's own output — it still feeds
-    // the success bookkeeping (dedup baseline, skill cards).
+    // The run's instruction is the first owned row. Lineage still presents
+    // the compacted source prefix, so attribution is by ownership.
     const runMessage = await addMessage(fork.id, "user", "retro instruction", {
       metadata: {
         kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
@@ -653,8 +668,14 @@ describe("forkConversationForRetrospective — compacted source", () => {
     });
 
     // The source renders ["still visible", "fresh tail"] after its slice;
-    // the fork must carry exactly those rows.
-    expect(getMessages(fork.id).map((m) => m.content)).toEqual([
+    // the fork must render the same window.
+    expect(ownedRowCount(fork.id)).toBe(0);
+    expect(fork.contextCompactedMessageCount).toBe(1);
+    expect(
+      getMessages(fork.id)
+        .slice(fork.contextCompactedMessageCount)
+        .map((m) => m.content),
+    ).toEqual([
       [{ type: "text", text: "still visible" }],
       [{ type: "text", text: "fresh tail" }],
     ]);
@@ -705,9 +726,12 @@ describe("forkConversationForRetrospective — compacted source", () => {
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
     });
 
-    expect(getMessages(fork.id).map((m) => m.content)).toEqual([
-      [{ type: "text", text: "visible" }],
-    ]);
+    expect(ownedRowCount(fork.id)).toBe(0);
+    expect(
+      getMessages(fork.id)
+        .slice(fork.contextCompactedMessageCount)
+        .map((m) => m.content),
+    ).toEqual([[{ type: "text", text: "visible" }]]);
     expect(fork.contextSummary).toBe("Tie summary");
     expect(fork.contextCompactedMessageCount).toBe(0);
     const forkEvents = getDb()
@@ -740,8 +764,9 @@ describe("forkConversationForRetrospective with unfinalized rows", () => {
     });
     const forkMessages = getMessages(fork.id);
 
-    // Invariant: only finalized rows are copied, and the lineage anchor is a
-    // row the fork actually holds.
+    // Lineage excludes the ancestor's in-flight row; the anchor is a
+    // finalized row the inherited window actually holds.
+    expect(ownedRowCount(fork.id)).toBe(0);
     expect(forkMessages).toHaveLength(3);
     expect(forkMessages.every((row) => row.finalized === 1)).toBe(true);
     expect(fork.forkParentMessageId).not.toBe(tail.id);

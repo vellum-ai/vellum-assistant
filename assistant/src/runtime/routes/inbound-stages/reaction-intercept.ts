@@ -20,6 +20,7 @@
  * `unknown` (drop). Reactions never drive an agent turn.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
+import { resolveInboundEventKind } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
@@ -58,16 +59,16 @@ const log = getLogger("runtime-http");
  */
 export function isSlackReactionEvent(body: {
   sourceChannel?: string;
+  eventKind?: string;
   callbackData?: string;
 }): boolean {
-  if (body.sourceChannel !== "slack") {
-    return false;
-  }
-  const cb = body.callbackData;
-  if (typeof cb !== "string") {
-    return false;
-  }
-  return cb.startsWith("reaction:") || cb.startsWith("reaction_removed:");
+  // The Slack gate is deliberate, not residue: Slack is the only channel
+  // whose reactions are ingested today, and widening this is a per-channel
+  // decision made with that channel's reaction wire shape, not a fallthrough.
+  return (
+    body.sourceChannel === "slack" &&
+    resolveInboundEventKind(body) === "reaction"
+  );
 }
 
 /**

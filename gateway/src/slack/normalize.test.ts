@@ -111,6 +111,7 @@ describe("normalizeSlackBlockActions", () => {
     const result = normalizeSlackBlockActions(payload, "env-1", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("button");
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.message.callbackData).toBe("apr:run1:approve");
     expect(result!.event.message.callbackQueryId).toBe("trigger-123");
@@ -379,6 +380,7 @@ describe("normalizeSlackReactionAdded", () => {
     const result = normalizeSlackReactionAdded(event, "evt-1", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("reaction");
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.message.callbackData).toBe("reaction:thumbsup");
     expect(result!.event.message.content).toBe("reaction:thumbsup");
@@ -1404,6 +1406,7 @@ describe("normalizeSlackMessageEdit", () => {
     const result = normalizeSlackMessageEdit(event, eventId, config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("edit");
     expect(result!.event.message.isEdit).toBe(true);
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.actor.actorExternalId).toBe("U123");
@@ -1563,6 +1566,7 @@ describe("normalizeSlackMessageDelete", () => {
     const result = normalizeSlackMessageDelete(event, "evt-del-dm", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.message.callbackData).toBe("message_deleted");
     expect(result!.event.message.content).toBe("");

@@ -163,6 +163,43 @@ describe("typed live-voice turns", () => {
     await session.close("websocket_close");
   });
 
+  test("a hidden text frame runs the turn as an internal instruction", async () => {
+    // The greeting that opens a voice session is a machine signal, not
+    // something the user typed. It must still drive the turn and still reach
+    // the model, so it persists, but `hiddenSyntheticPrompt` is what keeps it
+    // out of the transcript (no echo, filtered from `/messages`).
+    const { session, turnOptions } = createHarness();
+    await session.start();
+
+    await session.handleClientFrame({
+      type: "text",
+      text: "this message is sent automatically",
+      hidden: true,
+    });
+
+    await waitFor(() => turnOptions.length > 0);
+    expect(turnOptions[0]?.hiddenSyntheticPrompt).toBe(true);
+    expect(turnOptions[0]?.content).toContain(
+      "this message is sent automatically",
+    );
+
+    await session.close("websocket_close");
+  });
+
+  test("an ordinary typed turn stays visible", async () => {
+    // A turn the user actually typed is a real message and must render like
+    // one, so the flag is never set by default.
+    const { session, turnOptions } = createHarness();
+    await session.start();
+
+    await session.handleClientFrame({ type: "text", text: "typed by hand" });
+
+    await waitFor(() => turnOptions.length > 0);
+    expect(turnOptions[0]?.hiddenSyntheticPrompt).toBeUndefined();
+
+    await session.close("websocket_close");
+  });
+
   test("a typed turn emits the same thinking frame a spoken one does", async () => {
     // The client draws its working state off `thinking`. A typed turn that
     // skipped it would leave the room idle while the assistant worked.

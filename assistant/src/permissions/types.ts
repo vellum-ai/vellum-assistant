@@ -36,10 +36,6 @@ export const THRESHOLD_ORDINAL: Record<string, number> = {
 
 export type UserDecision = "allow" | "deny";
 
-export function isAllowDecision(decision: UserDecision): boolean {
-  return decision === "allow";
-}
-
 export interface PermissionCheckResult {
   decision: "allow" | "deny" | "prompt";
   reason: string;

@@ -112,7 +112,11 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 const liveStarterSpy = mock(
-  (_assistantId: string, _conversationId: string | null) => {},
+  (
+    _assistantId: string,
+    _conversationId: string | null,
+    _options?: { seedText?: string },
+  ) => {},
 );
 const livePrewarmSpy = mock(() => {});
 const liveCancelPrewarmSpy = mock(() => {});
@@ -2367,8 +2371,53 @@ describe("ChatComposer — live-voice integration", () => {
     // THEN the layout-owned controller starts with the bound context after the
     // ready verdict (the composer holds no controller of its own).
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
-    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      // No greeting: this composer is bound to a conversation already
+      // underway (JARVIS-1649).
+      seedText: undefined,
+    });
     expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
+  });
+
+  test("on a blank conversation the start carries a seed so the assistant speaks first", async () => {
+    // GIVEN a composer bound to a conversation with nothing in it (JARVIS-1649)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = { status: "ready" };
+
+    // WHEN the user enters voice mode
+    const { getByLabelText } = renderVoiceComposer({
+      conversationIsEmpty: true,
+    });
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+
+    // THEN the session is started with a first turn to take on the user's
+    // behalf, so the room does not open in silence waiting for them.
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    const [, , options] = liveStarterSpy.mock.calls[0] ?? [];
+    expect(options?.seedText).toBeString();
+    expect((options?.seedText ?? "").length).toBeGreaterThan(0);
+  });
+
+  test("a conversation that fills up during the preflight is not seeded", async () => {
+    // GIVEN a blank conversation at click time
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockPreflightVerdict = { status: "ready" };
+    const { getByLabelText, rerenderWith } = renderVoiceComposer({
+      conversationIsEmpty: true,
+    });
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN a message lands while the readiness round trip is still in flight
+    rerenderWith({ conversationIsEmpty: false });
+    await flushPreflight();
+
+    // THEN the start goes ahead (an emptiness change is not a reason to
+    // abandon the press) but opens silent: the thread is underway now, so a
+    // seed would be a line the user never wrote.
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    const [, , options] = liveStarterSpy.mock.calls[0] ?? [];
+    expect(options?.seedText).toBeUndefined();
   });
 
   test("entering voice mode drops the composer's focus, and only that", async () => {
@@ -2497,7 +2546,11 @@ describe("ChatComposer — live-voice integration", () => {
     // THEN a preflight outage does not block voice — the session starts and
     // the WS-level handshake surfaces any real credential problem
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
-    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      // No greeting: this composer is bound to a conversation already
+      // underway (JARVIS-1649).
+      seedText: undefined,
+    });
     expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
     expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
   });
@@ -2564,7 +2617,11 @@ describe("ChatComposer — live-voice integration", () => {
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
-    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      // No greeting: this composer is bound to a conversation already
+      // underway (JARVIS-1649).
+      seedText: undefined,
+    });
     expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -2624,7 +2681,11 @@ describe("ChatComposer — live-voice integration", () => {
     // THEN it behaves exactly like the returning-user path on any platform
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
-    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test", {
+      // No greeting: this composer is bound to a conversation already
+      // underway (JARVIS-1649).
+      seedText: undefined,
+    });
     expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
   });
 

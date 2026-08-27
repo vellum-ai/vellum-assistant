@@ -94,7 +94,7 @@
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
     "navAria": "Assistant navigation",
-    "searchShortcut": "Search (⌘K)"
+    "searchShortcut": "Search ({shortcut})"
   },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
@@ -447,11 +447,11 @@
     "loadingProfiles": "Loading profiles…",
     "modelProfile": "Model Profile",
     "modelProfileTitle": "Model profile",
-    "newProfile": "New Profile",
     "profileAria": "Model profile: {label}",
     "profileAriaFallback": "Model profile",
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
-    "profileSwitchFallback": "Failed to switch profile. Please try again."
+    "profileSwitchFallback": "Failed to switch profile. Please try again.",
+    "quickAdd": "New Model"
   },
   "confirmationActions": {
     "submitFailed": "Failed to submit confirmation. Please try again.",
@@ -1561,6 +1561,9 @@
     "openVoiceRoom": "Open voice room",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
+  },
+  "voiceEntryGreeting": {
+    "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."

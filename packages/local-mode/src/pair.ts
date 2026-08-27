@@ -394,6 +394,10 @@ export function pairAssistant(
       // guard above).
       paired: true,
       species: "vellum",
+      // A re-pair may point at a different gateway, so the platform id the
+      // web resolver cached for the old target is dropped; the upsert merge
+      // would otherwise keep it and the resolver would never re-probe.
+      platformAssistantId: undefined,
     },
     undefined,
   );
@@ -694,8 +698,7 @@ type PairingPost =
   | { ok: false; failure: PairingFailure };
 
 type PairingBody =
-  | { ok: true; value: unknown }
-  | { ok: false; failure: PairingFailure };
+  { ok: true; value: unknown } | { ok: false; failure: PairingFailure };
 
 /**
  * The reply body as JSON, read under {@link MAX_PAIRING_RESPONSE_BYTES}. An

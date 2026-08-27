@@ -68,6 +68,7 @@ export function normalizeSlackMessageEdit(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "edit",
         content,
         conversationExternalId: channel,
         externalMessageId,
@@ -149,11 +150,12 @@ export function normalizeSlackMessageDelete(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "delete",
         content: "",
         conversationExternalId: channel,
         // Unique per delete event to avoid dedup collisions
         externalMessageId: eventId,
-        // Sentinel value the daemon uses to detect deletions
+        // Sentinel value that classifies unstamped replayed retry payloads
         callbackData: "message_deleted",
       },
       actor: {

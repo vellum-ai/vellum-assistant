@@ -1,3 +1,8 @@
+import {
+  inboundEventRefersToAnotherMessage,
+  type InboundEventKind,
+  resolveInboundEventKind,
+} from "@vellumai/gateway-client";
 import type { ChannelConversationType } from "@vellumai/gateway-client";
 import type { ChannelId } from "./types.js";
 
@@ -30,6 +35,10 @@ interface InboundEventBase<C extends InboundChannelId> {
     content: string;
     conversationExternalId: string;
     externalMessageId: string;
+    /** The named event family. Producers stamp it on every event; the
+     *  flag and sentinel fields below carry each family's payload and
+     *  classify replayed retry payloads that arrive unstamped. */
+    eventKind?: InboundEventKind;
     isEdit?: boolean;
     callbackQueryId?: string;
     callbackData?: string;
@@ -137,3 +146,17 @@ export type GatewayInboundEvent =
   | A2aInboundEvent
   | DiscordInboundEvent
   | PluginInboundEvent;
+
+/**
+ * Whether the event acts on a message rather than being one: an edit, a
+ * delete, a reaction, or a button press.
+ *
+ * Two things follow from it. Such an event carries no media of its own, and it
+ * names no thread: it replies where the message it refers to lives, without
+ * creating a thread there.
+ */
+export function eventRefersToAnotherMessage(
+  message: GatewayInboundEvent["message"],
+): boolean {
+  return inboundEventRefersToAnotherMessage(resolveInboundEventKind(message));
+}

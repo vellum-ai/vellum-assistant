@@ -381,21 +381,39 @@
     "providerLabel": "Proveedor",
     "unavailableOption": "{name} (no disponible)"
   },
+  "chatgptDeviceAuthFlow": {
+    "authorizationHint": "Puede que tú o el administrador de tu equipo tengáis que activar la autorización por código de dispositivo <settingsLink>en los ajustes de ChatGPT</settingsLink>.",
+    "connected": "Suscripción a ChatGPT conectada correctamente.",
+    "copiedButton": "Copiado",
+    "copyButton": "Copiar código",
+    "copyError": "No se pudo copiar el código. Cópialo a mano.",
+    "instructions": "Introduce este código en la página de ChatGPT. Caduca en 15 minutos.",
+    "openButton": "Abrir ChatGPT",
+    "signInButton": "Iniciar sesión con ChatGPT",
+    "startOver": "Empezar de nuevo",
+    "starting": "Iniciando sesión...",
+    "tryAgain": "Intentar de nuevo",
+    "waiting": "Esperando a que introduzcas el código..."
+  },
   "chatgptOauthSection": {
+    "hideOtherOptions": "Ocultar otras opciones de inicio de sesión",
+    "intro": "Conecta tu suscripción a ChatGPT para usar modelos de OpenAI sin una clave de API.",
+    "otherOptions": "Otras opciones de inicio de sesión"
+  },
+  "chatgptPasteAuthFlow": {
     "completeFailed": "No se pudo completar el inicio de sesión. Inténtalo de nuevo.",
     "completeSignIn": "Completar inicio de sesión",
     "completingSignIn": "Completando inicio de sesión...",
     "connected": "Suscripción a ChatGPT conectada correctamente.",
-    "intro": "Conecta tu suscripción a ChatGPT para usar modelos de OpenAI sin una clave de API.",
     "invalidUrl": "URL no válida. Pega la URL completa de la barra de direcciones.",
     "missingCode": "A la URL le falta el código de autorización. Asegúrate de haber copiado la URL completa.",
     "missingState": "A la URL le falta el parámetro state. Asegúrate de haber copiado la URL completa.",
     "pasteUrlError": "Pega la URL de la página de error.",
-    "signInButton": "Iniciar sesión con ChatGPT",
+    "signInButton": "Abrir el inicio de sesión de ChatGPT",
     "startFailed": "No se pudo iniciar el inicio de sesión con ChatGPT. Inténtalo de nuevo.",
     "startingSignIn": "Iniciando sesión...",
-    "step1Idle": "1. Haz clic en \"Iniciar sesión con ChatGPT\" abajo para abrir una ventana emergente",
-    "step1PasteUrl": "1. Haz clic en \"Iniciar sesión con ChatGPT\" para abrir una ventana emergente",
+    "step1Idle": "1. Haz clic en \"Abrir el inicio de sesión de ChatGPT\" abajo para abrir una ventana emergente",
+    "step1PasteUrl": "1. Haz clic en \"Abrir el inicio de sesión de ChatGPT\" para abrir una ventana emergente",
     "step2": "2. Inicia sesión; llegarás a una página de error, y eso es normal",
     "step3": "3. Copia la URL completa de la barra de direcciones de esa página y pégala abajo",
     "tryAgain": "Intentar de nuevo",
@@ -1400,7 +1418,6 @@
     "enableExtendedThinkingLabel": "Habilitar pensamiento extendido",
     "maxOutputTokensLabel": "Máximo de tokens de salida",
     "reset": "Restablecer",
-    "snapshotsHint": "Los campos que dejes en su valor predeterminado se guardan con los valores mostrados y no cambiarán si los valores predeterminados del asistente cambian más adelante.",
     "speedLabel": "Velocidad",
     "streamThinkingTokensLabel": "Transmitir tokens de pensamiento",
     "temperatureLabel": "Temperatura",
@@ -1418,12 +1435,12 @@
     "unknown": "Guardado, pero una solicitud de prueba con este perfil falló: {detail}"
   },
   "profileDetailPanel": {
-    "createProfile": "Crear perfil",
+    "create": "Crear modelo",
+    "createTitle": "Nuevo modelo",
     "defaultTitle": "Perfil",
     "delete": "Eliminar",
     "deleting": "Eliminando…",
     "managedTag": "Administrado por Vellum",
-    "newProfileTitle": "Perfil nuevo",
     "save": "Guardar",
     "saveAsNew": "Guardar como nuevo",
     "saveChanges": "Guardar cambios",
@@ -1432,6 +1449,9 @@
   "profileEditor": {
     "maxTokensNoInputRoom": "El máximo de tokens ({maxTokens}) reserva toda la ventana de contexto de {window} tokens para la salida, sin dejar espacio para tus mensajes. Redúcelo (p. ej., 8000).",
     "maxTokensOverCap": "El máximo de tokens ({maxTokens}) supera la salida máxima del modelo de {cap} tokens. Redúcelo a {cap} o menos.",
+    "nameRequired": "El nombre es obligatorio",
+    "nameTaken": "Este nombre ya está en uso",
+    "providerRequired": "Selecciona un proveedor",
     "subscriptionSteeringHint": "Tu suscripción a ChatGPT está disponible como el proveedor ChatGPT."
   },
   "profileEditorFields": {
@@ -1442,9 +1462,7 @@
     "descriptionLabel": "Descripción <optional>(opcional)</optional>",
     "descriptionPlaceholder": "Describe cuándo usar este perfil",
     "displayNameLabel": "Nombre para mostrar",
-    "displayNamePlaceholder": "p. ej., Rápido y económico",
-    "keyLabel": "Clave",
-    "keyPlaceholder": "p. ej., rapido-economico",
+    "displayNamePlaceholder": "p. ej., Claude Opus 4.8",
     "nameLabel": "Nombre",
     "newProviderNote": "La nueva conexión de proveedor aparecerá en la sección Proveedores.",
     "providerLabel": "Proveedor",
@@ -1454,8 +1472,8 @@
   "profileEditorModal": {
     "cancel": "Cancelar",
     "close": "Cerrar",
+    "createTitle": "Nuevo modelo",
     "editProfileTitle": "Editar perfil",
-    "newProfileTitle": "Nuevo perfil",
     "platformTag": "Plataforma",
     "profileFallbackTitle": "Perfil",
     "save": "Guardar",
@@ -1476,6 +1494,8 @@
     "modelEmptyUnknownHint": "No hay modelos disponibles para este proveedor en esta versión de la app. Actualiza la app o introduce un ID de modelo personalizado.",
     "modelEmptyUnknownPlaceholder": "No hay modelos disponibles",
     "modelLabel": "Modelo",
+    "modelNoMatches": "No hay modelos coincidentes",
+    "modelResultsAnnouncement": "{count, plural, one {# modelo disponible} other {# modelos disponibles}}. Usa las flechas arriba y abajo para recorrerlos y Intro para elegir uno.",
     "noProviderConnectionsHint": "No hay conexiones de proveedor. Abre Proveedores para añadir una.",
     "providerLabel": "Proveedor",
     "providerNotFoundSuffix": "(no encontrado)",
@@ -2074,6 +2094,11 @@
     "cancelFailedToast": "No se pudo cancelar tu suscripción. Inténtalo de nuevo.",
     "canceledToast": "Plan Pro cancelado. Tendrás acceso hasta {date}.",
     "endOfBillingPeriod": "el final de tu período de facturación"
+  },
+  "useChatgptDeviceAuth": {
+    "expired": "Este código caducó. Empieza de nuevo para obtener otro.",
+    "rejected": "ChatGPT no pudo confirmar este código.",
+    "startFailed": "No se pudo iniciar el inicio de sesión con ChatGPT. Inténtalo de nuevo."
   },
   "useDaemonConfig": {
     "assistantNotReadyToast": "El asistente no está listo. Inténtalo de nuevo.",

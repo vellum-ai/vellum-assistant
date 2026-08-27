@@ -6,6 +6,7 @@
  * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
+import { resolveInboundEventKind } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
@@ -281,6 +282,7 @@ export async function handleChannelInbound({
     conversationExternalId?: string;
     externalMessageId?: string;
     content?: string;
+    eventKind?: string;
     isEdit?: boolean;
     actorDisplayName?: string;
     attachmentIds?: string[];
@@ -297,10 +299,15 @@ export async function handleChannelInbound({
     conversationExternalId,
     externalMessageId,
     content,
-    isEdit,
     attachmentIds,
     sourceMetadata,
   } = body;
+
+  // The named event family. Stamped by every gateway producer; replayed
+  // retry payloads arrive unstamped and classify by their flag and sentinel
+  // fields instead.
+  const eventKind = resolveInboundEventKind(body);
+  const isEdit = eventKind === "edit";
 
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
     throw new BadRequestError("sourceChannel is required");
@@ -500,7 +507,10 @@ export async function handleChannelInbound({
   // untouched for audit purposes — rendering elides based on the deletedAt
   // marker. Gated behind ingress ACL so non-members cannot drive deletes
   // (matches the edit-intercept policy).
-  if (sourceChannel === "slack" && body.callbackData === "message_deleted") {
+  // The Slack gate mirrors the reaction intercept's: deletes are ingested
+  // from Slack alone today, and each further channel arrives as its own
+  // decision with its own wire shape.
+  if (sourceChannel === "slack" && eventKind === "delete") {
     const deletedMessageTs =
       typeof sourceMetadata?.messageId === "string"
         ? sourceMetadata.messageId

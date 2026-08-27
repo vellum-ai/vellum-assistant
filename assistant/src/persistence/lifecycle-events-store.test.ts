@@ -58,6 +58,56 @@ describe("lifecycle-events-store", () => {
     });
   });
 
+  test("carries the optional attributes onto the wire payload", () => {
+    const event = recordLifecycleEvent("permission_prompt:bash", {
+      toolName: "bash",
+      riskLevel: "high",
+      riskThreshold: "low",
+      surface: "slack",
+      conversationId: "conv-xyz",
+    });
+    expect(event).not.toBeNull();
+
+    const rows = outboxRows();
+    expect(rows).toHaveLength(1);
+    // The conversation is stamped on the row too, so deleting the conversation
+    // deletes the pending event with it.
+    expect(rows[0]!.conversation_id).toBe("conv-xyz");
+    expect(JSON.parse(rows[0]!.payload)).toEqual({
+      type: "lifecycle",
+      daemon_event_id: event!.id,
+      event_name: "permission_prompt:bash",
+      recorded_at: event!.createdAt,
+      assistant_version: APP_VERSION,
+      tool_name: "bash",
+      risk_level: "high",
+      risk_threshold: "low",
+      surface: "slack",
+      conversation_id: "conv-xyz",
+    });
+  });
+
+  test("omits attributes that are unset or empty", () => {
+    // The wire schema requires at least one character, and one failing field
+    // makes the server drop the whole event.
+    const event = recordLifecycleEvent("permission_prompt:bash", {
+      toolName: "bash",
+      riskLevel: "high",
+      surface: "",
+    });
+
+    expect(JSON.parse(outboxRows()[0]!.payload)).toEqual({
+      type: "lifecycle",
+      daemon_event_id: event!.id,
+      event_name: "permission_prompt:bash",
+      recorded_at: event!.createdAt,
+      assistant_version: APP_VERSION,
+      tool_name: "bash",
+      risk_level: "high",
+    });
+    expect(outboxRows()[0]!.conversation_id).toBeNull();
+  });
+
   test("buildLifecycleTelemetryEvent stamps the record-time binary version", () => {
     expect(buildLifecycleTelemetryEvent("id-1", "hatch", 1234)).toEqual({
       type: "lifecycle",

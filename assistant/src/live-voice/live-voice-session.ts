@@ -708,6 +708,10 @@ interface ActiveAssistantTurn {
   // no user utterance behind it — `content` is CONTINUATION_DELIVERY_CONTENT and
   // the answer rides the control prompt (buildLiveDeliveryNote).
   continuationDelivery: ContinuationDelivery | null;
+  // The turn's content is an internal instruction rather than user speech (the
+  // greeting that opens a session, say). The row still persists and the model
+  // still sees it; `hiddenSyntheticPrompt` keeps it out of the transcript.
+  hiddenPrompt: boolean;
   // Set when a barge-in handed the interrupted work to a background subagent:
   // that request's transcript, so the model can tell the user the work is
   // still running instead of appearing to have dropped it.
@@ -1577,7 +1581,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Before the launch, so the anchor is the moment the text arrived rather
     // than whatever the dispatch costs.
     this.markTypedTurnSubmitted(utterance);
-    await this.launchAssistantTurn(utterance, frame.text);
+    await this.launchAssistantTurn(utterance, frame.text, {
+      ...(frame.hidden === true ? { hiddenPrompt: true } : {}),
+    });
   }
 
   /**
@@ -4712,6 +4718,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // leading verdict commits the turn (see commitSpeculativeTurn); a hold
       // verdict rolls everything back instead.
       speculative?: boolean;
+      // Marks `content` as an internal instruction rather than user speech, so
+      // the row persists and drives the turn but never renders: no echo, and
+      // `/messages` filters it after a reload.
+      hiddenPrompt?: boolean;
     },
   ): Promise<boolean> {
     utterance.assistantTurnStarted = true;
@@ -4772,6 +4782,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       consumedAnnouncement: pending?.announcement ?? null,
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
+      hiddenPrompt: opts?.hiddenPrompt === true,
       deltaEpoch: 0,
       escalationHandedOff: false,
       ttsBuffer: "",
@@ -4946,6 +4957,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,
+        ...(activeTurn.hiddenPrompt ? { hiddenSyntheticPrompt: true } : {}),
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
         // Fixed, and NOT the originating client: this pair resolves the turn's

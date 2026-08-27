@@ -97,8 +97,8 @@ Examples:
         },
         {
           flags: "-r, --risk <level>",
-          description: "Default risk level: low, medium, or high",
-          defaultValue: "high",
+          description:
+            "Risk level tools from this server start at: low, medium, or high",
         },
       ],
       helpText: `
@@ -110,9 +110,10 @@ Transport-specific requirements:
   sse               Requires --url pointing to the SSE endpoint
   streamable-http   Requires --url pointing to the HTTP endpoint
 
-The --risk flag sets the default risk level for all tools from this server
-(defaults to "high" if not specified). The server starts enabled unless
---disabled is passed.
+The --risk flag sets the risk level tools from this server start at. Omit it
+and the server tracks the shipped default, "medium". A tool's own MCP
+annotations move it one step from there: destructiveHint up, readOnlyHint
+down. The server starts enabled unless --disabled is passed.
 
 The --header (-H) flag adds custom HTTP headers to sse/streamable-http
 transports. Use it for Bearer Token or API Key authentication. The flag

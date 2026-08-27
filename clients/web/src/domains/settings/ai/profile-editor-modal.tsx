@@ -117,7 +117,7 @@ function ProfileEditorModalInner({
 
   const modalTitle =
     editor.effectiveMode === "create"
-      ? t("profileEditorModal.newProfileTitle")
+      ? t("profileEditorModal.createTitle")
       : editor.effectiveMode === "edit"
         ? t("profileEditorModal.editProfileTitle")
         : (initialValues?.label ??

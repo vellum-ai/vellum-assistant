@@ -97,6 +97,29 @@ describe("setFromLockfile", () => {
     expect(entry.releaseChannel).toBe("preview");
   });
 
+  it("preserves an API-seeded avatarUrl across a lockfile refresh", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-platform",
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+          avatarUrl: "https://cdn.example/a.png",
+        },
+      ],
+    });
+
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [platformAssistant],
+      activeAssistant: "asst-platform",
+    });
+
+    expect(useResolvedAssistantsStore.getState().assistants[0].avatarUrl).toBe(
+      "https://cdn.example/a.png",
+    );
+  });
+
   it("copies Bun-local fields for local entries", () => {
     const lockfile: Lockfile = {
       assistants: [localAssistant],
@@ -111,6 +134,20 @@ describe("setFromLockfile", () => {
     expect(entry.organizationId).toBeUndefined();
     expect(entry.runtimeVersion).toBe("v0.8.13");
     expect(entry.isActiveLockfileAssistant).toBe(true);
+  });
+
+  it("copies platformAssistantId for local entries", () => {
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [
+        { ...localAssistant, platformAssistantId: "uuid-local" },
+        platformAssistant,
+      ],
+      activeAssistant: "asst-local",
+    });
+
+    const [local, platform] = useResolvedAssistantsStore.getState().assistants;
+    expect(local.platformAssistantId).toBe("uuid-local");
+    expect(platform.platformAssistantId).toBeUndefined();
   });
 
   it("marks local entries inactive when the lockfile active pointer differs", () => {
@@ -333,16 +370,66 @@ describe("setFromApi connectability", () => {
       created: "2026-01-01T00:00:00Z",
       is_local: false,
       ingress_url: null,
+      avatar_url: null,
       current_release_version: null,
       release_channel: "stable",
       ...overrides,
     }) as ApiAssistant;
 
+  it("carries the platform avatar_url and leaves lockfile entries without one", () => {
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-cloud", avatar_url: "https://cdn.example/a.png" }),
+        apiEntry({ id: "asst-bare", avatar_url: null }),
+      ]);
+    const byId = new Map(
+      useResolvedAssistantsStore.getState().assistants.map((a) => [a.id, a]),
+    );
+    expect(byId.get("asst-cloud")?.avatarUrl).toBe("https://cdn.example/a.png");
+    expect(byId.get("asst-bare")?.avatarUrl).toBeNull();
+
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [localAssistant],
+      activeAssistant: "asst-local",
+    });
+    expect(
+      useResolvedAssistantsStore.getState().assistants[0].avatarUrl,
+    ).toBeUndefined();
+  });
+
+  it("clearAvatarUrl nulls one row's avatarUrl and leaves the rest", () => {
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-a", avatar_url: "https://cdn.example/a.png" }),
+        apiEntry({ id: "asst-b", avatar_url: "https://cdn.example/b.png" }),
+      ]);
+    const before = useResolvedAssistantsStore.getState().assistants;
+
+    useResolvedAssistantsStore.getState().clearAvatarUrl("asst-a");
+
+    const byId = new Map(
+      useResolvedAssistantsStore.getState().assistants.map((a) => [a.id, a]),
+    );
+    expect(byId.get("asst-a")?.avatarUrl).toBeNull();
+    expect(byId.get("asst-b")?.avatarUrl).toBe("https://cdn.example/b.png");
+
+    useResolvedAssistantsStore.getState().clearAvatarUrl("asst-a");
+    useResolvedAssistantsStore.getState().clearAvatarUrl("asst-missing");
+    expect(useResolvedAssistantsStore.getState().assistants).not.toBe(before);
+    expect(byId.get("asst-b")).toBe(
+      useResolvedAssistantsStore.getState().assistants[1],
+    );
+  });
+
   it("drops a local registration with no ingress and no lockfile entry", () => {
-    useResolvedAssistantsStore.getState().setFromApi([
-      apiEntry({ id: "asst-cloud" }),
-      apiEntry({ id: "asst-dead-local", is_local: true, ingress_url: null }),
-    ]);
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-cloud" }),
+        apiEntry({ id: "asst-dead-local", is_local: true, ingress_url: null }),
+      ]);
 
     const assistants = useResolvedAssistantsStore.getState().assistants;
     expect(assistants.map((a) => a.id)).toEqual(["asst-cloud"]);
@@ -370,9 +457,11 @@ describe("setFromApi connectability", () => {
       activeAssistant: "asst-local",
     });
 
-    useResolvedAssistantsStore.getState().setFromApi([
-      apiEntry({ id: "asst-local", is_local: true, ingress_url: null }),
-    ]);
+    useResolvedAssistantsStore
+      .getState()
+      .setFromApi([
+        apiEntry({ id: "asst-local", is_local: true, ingress_url: null }),
+      ]);
 
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-local");

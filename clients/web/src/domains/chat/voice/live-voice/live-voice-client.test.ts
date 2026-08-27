@@ -564,6 +564,27 @@ describe("server frame dispatch", () => {
     });
   });
 
+  test("sendText marks a turn hidden only when asked", async () => {
+    const { client, ws } = await ready({ textInput: true });
+
+    expect(client.sendText("an automatic greeting", { hidden: true })).toBe(
+      true,
+    );
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "text",
+      text: "an automatic greeting",
+      hidden: true,
+    });
+
+    // Omitted rather than `hidden: false`, so a turn the user typed is
+    // byte-identical on the wire to one from a client predating the field.
+    expect(client.sendText("typed by hand", { hidden: false })).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "text",
+      text: "typed by hand",
+    });
+  });
+
   test("sendText trims and refuses an empty turn", async () => {
     const { client, ws } = await ready({ textInput: true });
 

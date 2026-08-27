@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/i18n";
 import { openUrlInNewTab } from "@/runtime/browser";
+import { pollUntilSettled } from "@/utils/poll-until-settled";
 import {
   exchangeConnectClaude,
   pollConnectClaudeStatus,
@@ -94,33 +95,27 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
     [],
   );
 
-  const pollUntilSettled = useCallback(
+  const pollCapture = useCallback(
     async (flowId: number, state: string) => {
-      for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        if (isStale(flowId)) {
-          return;
-        }
-        let result;
-        try {
-          result = await pollConnectClaudeStatus(assistantId, state);
-        } catch {
-          continue; // Transient poll error — keep trying within the budget.
-        }
-        if (isStale(flowId)) {
-          return;
-        }
-        if (result.status === "connected") {
-          setPhase("connected");
-          return;
-        }
-        if (result.status === "error") {
-          setErrorState(
-            result.error ? { message: result.error } : { key: "failed" },
-          );
-          setPhase("error");
-          return;
-        }
+      const outcome = await pollUntilSettled({
+        poll: () => pollConnectClaudeStatus(assistantId, state),
+        intervalMs: POLL_INTERVAL_MS,
+        maxAttempts: MAX_POLL_ATTEMPTS,
+        isStale: () => isStale(flowId),
+      });
+      if (outcome.kind === "abandoned") {
+        return;
+      }
+      if (outcome.kind === "connected") {
+        setPhase("connected");
+        return;
+      }
+      if (outcome.kind === "error") {
+        setErrorState(
+          outcome.message ? { message: outcome.message } : { key: "failed" },
+        );
+        setPhase("error");
+        return;
       }
       setErrorState({ key: "timedOut" });
       setPhase("error");
@@ -172,12 +167,12 @@ export function useConnectClaude(assistantId: string): UseConnectClaudeResult {
       // Loopback/desktop: the daemon captures the token on its own callback; this
       // tab polls for the connected state.
       setPhase("awaiting_capture");
-      void pollUntilSettled(flowId, start.state);
+      void pollCapture(flowId, start.state);
     } else {
       // Manual/cloud: the user pastes the `code#state` back into this surface.
       setPhase("awaiting_paste");
     }
-  }, [assistantId, isStale, pollUntilSettled]);
+  }, [assistantId, isStale, pollCapture]);
 
   const submitPastedCode = useCallback(
     async (pasted: string) => {

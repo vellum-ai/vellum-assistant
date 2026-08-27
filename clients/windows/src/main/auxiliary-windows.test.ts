@@ -80,7 +80,8 @@ const logWarn = mock(() => undefined);
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
-    on: (event: string, listener: Listener) => appListeners.set(event, listener),
+    on: (event: string, listener: Listener) =>
+      appListeners.set(event, listener),
     off: (event: string) => appListeners.delete(event),
   },
   BrowserWindow: class {
@@ -138,6 +139,8 @@ mock.module("./logger", () => ({
 
 const { default: auxiliaryWindowsModule } =
   await import("./features/auxiliary-windows");
+const { toggleQuickInput } =
+  await import("@vellumai/electron-desktop/quick-input-window");
 beforeAll(() => {
   auxiliaryWindowsModule.install({} as never);
 });
@@ -172,7 +175,7 @@ describe("Windows auxiliary windows", () => {
 
   test("opens Quick Input from the Windows shortcut and closes on blur", () => {
     workArea = { x: 1600, y: 40, width: 1200, height: 800 };
-    shortcutListeners.get("Control+Shift+/")?.();
+    toggleQuickInput();
     const { options, window } = created[0]!;
     window.emit("ready-to-show");
     expect(options.browserWindow).toMatchObject({
@@ -272,7 +275,7 @@ describe("Windows auxiliary windows", () => {
 
   test("repositions transient windows after a display change", () => {
     handleListeners.get("vellum:commandPalette:open")?.([]);
-    shortcutListeners.get("Control+Shift+/")?.();
+    toggleQuickInput();
     onListeners.get("vellum:dictationOverlay:setState")?.([
       { kind: "recording", transcription: "" },
     ]);

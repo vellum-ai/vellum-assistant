@@ -204,8 +204,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/registry.ts", // provider registry API key lookup for initialization
       "providers/inference/resolve-auth.ts", // provider_connection auth resolver (api_key path reads vault, mirrors registry.ts)
       "providers/inference/codex-token-refresh.ts", // Codex OAuth token refresh (reads/writes access_token, refresh_token, expires_at)
-      "cli/commands/inference-providers.ts", // ChatGPT subscription OAuth token storage
-      "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription daemon OAuth flow (stores tokens in CES)
+      "providers/inference/chatgpt-subscription-credentials.ts", // ChatGPT subscription sign-in token storage, shared by the daemon routes and the CLI (setSecureKeyAsync only; no reads)
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "persistence/embeddings/embedding-backend.ts", // embedding backend API key lookup
@@ -232,7 +231,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
-      "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)

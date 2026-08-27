@@ -116,6 +116,7 @@ function buildNormalizedSlackMessage(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "message",
         content,
         conversationExternalId: channel,
         externalMessageId,

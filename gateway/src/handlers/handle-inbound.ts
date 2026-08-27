@@ -340,6 +340,9 @@ export async function handleInbound(
         conversationExternalId: event.message.conversationExternalId,
         externalMessageId: event.message.externalMessageId,
         content: event.message.content,
+        ...(event.message.eventKind
+          ? { eventKind: event.message.eventKind }
+          : {}),
         ...(event.message.isEdit ? { isEdit: true } : {}),
         ...(event.message.callbackQueryId
           ? { callbackQueryId: event.message.callbackQueryId }

@@ -51,6 +51,15 @@ describe("eventToAccelerator", () => {
     );
   });
 
+  it("maps Ctrl to CmdOrCtrl and the Windows key to Super on Windows", () => {
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", ctrlKey: true }), "windows"),
+    ).toBe("CmdOrCtrl+K");
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", metaKey: true }), "windows"),
+    ).toBe("Super+K");
+  });
+
   it("resolves arrows, digits, and punctuation from the physical code", () => {
     expect(
       eventToAccelerator(keydown({ code: "ArrowUp", metaKey: true })),
@@ -111,5 +120,13 @@ describe("findConflict", () => {
     const clash = findConflict(withReserved, "home", "CmdOrCtrl+F");
     expect(clash?.key).toBe("find");
     expect(clash?.rebindable).toBe(false);
+  });
+
+  it("treats a legacy Windows Control override as CmdOrCtrl", () => {
+    const catalog = [hotkey("newConversation", "Control+Shift+N")];
+    expect(
+      findConflict(catalog, "home", "CmdOrCtrl+Shift+N", "windows")?.key,
+    ).toBe("newConversation");
+    expect(findConflict(catalog, "home", "CmdOrCtrl+Shift+N")).toBeNull();
   });
 });

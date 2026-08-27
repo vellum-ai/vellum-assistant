@@ -274,8 +274,10 @@ mock.module("@/domains/onboarding/components/add-remote-origin-dialog", () => ({
 
 const forgetAssistantAvatarMock = mock((_qc: unknown, _id: string) => {});
 const useChooserRowAvatarMock: Partial<typeof UseChooserRowAvatarModule> = {
-  useChooserRowAvatar: (assistant) =>
-    rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null },
+  useChooserRowAvatar: (assistant) => ({
+    onImageError: () => {},
+    ...(rowAvatars.get(assistant.id) ?? { traits: null, imageUrl: null }),
+  }),
   forgetAssistantAvatar: forgetAssistantAvatarMock,
 };
 mock.module("@/hooks/use-chooser-row-avatar", () => useChooserRowAvatarMock);
@@ -295,7 +297,10 @@ const chooserAvatarChipMock: Partial<typeof ChooserAvatarChipModule> = {
       fallback
     ),
 };
-mock.module("@/components/avatar/chooser-avatar-chip", () => chooserAvatarChipMock);
+mock.module(
+  "@/components/avatar/chooser-avatar-chip",
+  () => chooserAvatarChipMock,
+);
 
 mock.module("@/components/onboarding-layout", () => ({
   OnboardingLayout: ({ children }: { children: ReactNode }) => children,
@@ -1693,8 +1698,12 @@ describe("SelectAssistantScreen assistant avatars", () => {
     });
     render(<SelectAssistantScreen />);
     expect(screen.getByRole("radio", { name: /^Office Mac/ })).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: /Assistant avatar/ })).toBeNull();
-    expect(screen.getByTestId("chooser-avatar-chip").getAttribute("alt")).toBe("");
+    expect(
+      screen.queryByRole("radio", { name: /Assistant avatar/ }),
+    ).toBeNull();
+    expect(screen.getByTestId("chooser-avatar-chip").getAttribute("alt")).toBe(
+      "",
+    );
   });
 
   test("a row with no avatar keeps its glyph", () => {

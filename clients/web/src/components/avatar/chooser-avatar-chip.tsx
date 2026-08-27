@@ -25,6 +25,8 @@ export interface ChooserAvatarChipProps {
   className?: string;
   /** Hide from assistive tech when a sibling already names the row. */
   decorative?: boolean;
+  /** Fires when `imageUrl` fails to load. */
+  onImageError?: () => void;
 }
 
 export function ChooserAvatarChip({
@@ -34,6 +36,7 @@ export function ChooserAvatarChip({
   fallback,
   className,
   decorative = false,
+  onImageError,
 }: ChooserAvatarChipProps) {
   const { t } = useTranslation();
   const components = useBundledAvatarComponents();
@@ -72,6 +75,7 @@ export function ChooserAvatarChip({
         height={size}
         className={`rounded-full object-cover ${className ?? ""}`.trim()}
         style={{ width: size, height: size, flexShrink: 0 }}
+        onError={onImageError}
       />
     );
   }

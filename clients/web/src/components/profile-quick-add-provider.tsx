@@ -1,5 +1,5 @@
 /**
- * App-level controller for the profile quick-add ("+ New Profile") flow.
+ * App-level controller for the profile quick-add ("New Model") flow.
  *
  * Chat's `ComposerSettingsMenu` must not import from `@/domains/settings/...`
  * (enforced by `local/no-cross-domain-imports`). This provider lifts the

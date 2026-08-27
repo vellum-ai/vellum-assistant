@@ -263,6 +263,11 @@ export {
   type ComboboxOptionProps,
 } from "./components/combobox";
 export {
+  SearchableSelect,
+  type SearchableSelectProps,
+  type SearchableSelectOption,
+} from "./components/searchable-select";
+export {
   StatSquare,
   type StatSquareProps,
   type StatSquareTone,
@@ -270,6 +275,8 @@ export {
 export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
+  detectShortcutPlatform,
+  formatAcceleratorHint,
   parseAccelerator,
   type ShortcutKeysProps,
 } from "./components/shortcut-keys";

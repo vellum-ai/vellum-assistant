@@ -10,6 +10,7 @@
  * it in `handleChannelInbound()`.
  */
 
+import { INBOUND_EVENT_KINDS } from "./inbound-event-kind.js";
 import { z } from "zod";
 
 import { ChannelConversationTypeSchema } from "./channel-permission-contract.js";
@@ -168,6 +169,9 @@ export const RuntimeInboundPayloadSchema = z.object({
   conversationExternalId: z.string(),
   externalMessageId: z.string(),
   content: z.string(),
+  /** The named event family; absent only on replayed retry payloads,
+   *  where resolveInboundEventKind derives it from the legacy fields. */
+  eventKind: z.enum(INBOUND_EVENT_KINDS).optional(),
   isEdit: z.boolean().optional(),
   callbackQueryId: z.string().optional(),
   callbackData: z.string().optional(),
