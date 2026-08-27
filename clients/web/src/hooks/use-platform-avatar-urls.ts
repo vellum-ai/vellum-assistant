@@ -100,23 +100,23 @@ export function isLockfileDrivenStore(): boolean {
   return (isLocalClient() || isRemoteGatewayMode()) && !isGatewayAuthEnabled();
 }
 
-/** Never throws: a chooser row falls back to its other sources, not an error. */
+/**
+ * Throws on failure so React Query keeps the last good map through a failed
+ * poll; with no prior data the hook reads that as an empty map, and a
+ * chooser row falls back to its other sources, never an error.
+ */
 async function fetchPlatformAvatarUrls(): Promise<PlatformAvatarUrls> {
-  try {
-    const result = await listAssistants();
-    if (!result.ok) {
-      return EMPTY_AVATAR_URLS;
-    }
-    const urls = new Map<string, string>();
-    for (const assistant of result.data) {
-      if (assistant.avatar_url && !isAvatarSuperseded(assistant.id)) {
-        urls.set(assistant.id, assistant.avatar_url);
-      }
-    }
-    return urls;
-  } catch {
-    return EMPTY_AVATAR_URLS;
+  const result = await listAssistants();
+  if (!result.ok) {
+    throw new Error(`Failed to list assistants (${result.status})`);
   }
+  const urls = new Map<string, string>();
+  for (const assistant of result.data) {
+    if (assistant.avatar_url && !isAvatarSuperseded(assistant.id)) {
+      urls.set(assistant.id, assistant.avatar_url);
+    }
+  }
+  return urls;
 }
 
 /**

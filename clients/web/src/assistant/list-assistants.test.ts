@@ -88,6 +88,15 @@ describe("listAssistants", () => {
     expect(assistantsList).toHaveBeenCalledTimes(2);
   });
 
+  test("a chain still open at the page cap fails rather than truncating", async () => {
+    for (let i = 0; i < 20; i++) {
+      pages.push(ok([`a${i}`], "…?more"));
+    }
+    const result = await listAssistants();
+    expect(result.ok).toBe(false);
+    expect(assistantsList).toHaveBeenCalledTimes(20);
+  });
+
   test("a failed later page fails the whole list", async () => {
     pages.push(ok(["a"], "…?offset=1"), {
       error: { detail: "nope" },

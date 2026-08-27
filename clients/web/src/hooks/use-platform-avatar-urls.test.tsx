@@ -206,6 +206,26 @@ describe("usePlatformAvatarUrls", () => {
     expect(result.current.size).toBe(0);
   });
 
+  test("a failed poll keeps the last good map", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { result } = renderHook(() => usePlatformAvatarUrls(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => {
+      expect(result.current.get("a")).toBe(WITH_AVATAR);
+    });
+
+    listAssistants.mockRejectedValueOnce(new Error("offline"));
+    await act(() =>
+      queryClient.refetchQueries({ queryKey: ["platformAvatarUrls"] }),
+    );
+    expect(listAssistants).toHaveBeenCalledTimes(2);
+    await settle();
+    expect(result.current.get("a")).toBe(WITH_AVATAR);
+  });
+
   test("one list call serves every consumer in a stale window", async () => {
     const wrapper = createWrapper();
     const { result } = renderHook(

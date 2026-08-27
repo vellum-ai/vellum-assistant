@@ -673,10 +673,16 @@ export async function listAssistants(): Promise<ListAssistantsResult> {
     const pageResults = data?.results ?? [];
     results.push(...pageResults);
     if (!data?.next || pageResults.length === 0) {
-      break;
+      return { ok: true, status, data: results };
     }
   }
-  return { ok: true, status, data: results };
+  // A partial list must not read as authoritative: local mode mirrors it
+  // into the lockfile, dropping whatever it omits.
+  return {
+    ok: false,
+    status,
+    error: { detail: "Assistant list exceeded the page cap." },
+  };
 }
 
 export type ActivateResult =
