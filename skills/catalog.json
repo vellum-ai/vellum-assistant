@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-26T15:06:39.000Z"
+      "updatedAt": "2026-08-26T16:13:57.000Z"
     },
     {
       "id": "doordash",
@@ -578,7 +578,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-08-27T04:08:20.000Z"
     },
     {
       "id": "meme-generator",
@@ -1356,7 +1356,7 @@
           ]
         }
       },
-      "updatedAt": "2026-08-26T00:47:45.000Z"
+      "updatedAt": "2026-08-26T23:11:05.000Z"
     },
     {
       "id": "watcher",
