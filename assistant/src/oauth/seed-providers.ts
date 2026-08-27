@@ -807,6 +807,7 @@ export const PROVIDER_SEED_DATA: Record<
     identityHeaders: { "Content-Type": "application/json" },
     identityBody: { query: "{ me { id name email } }" },
     identityResponsePaths: ["data.me.name", "data.me.email"],
+    featureFlag: "monday-oauth",
   },
 
   eventbrite: {
