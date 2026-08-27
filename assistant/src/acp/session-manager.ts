@@ -1207,6 +1207,19 @@ export class AcpSessionManager {
                 // withholding the user's only route back to auth.
                 .catch(() => current.credentialDigest),
             );
+          // The credential read above suspends this handler, and a cancel
+          // landing in that window runs to completion first: `cancel()`
+          // persists the cancelled row, drops the event buffer and tears the
+          // session down. Carrying on would emit a card for a run the user
+          // stopped and, worse, persist a second time over a buffer that is
+          // already gone, replacing the stored event log with an empty one.
+          // The map is the evidence: `teardownSession` removes the entry, so an
+          // entry that is no longer the registered one means someone else has
+          // already finished this session and there is nothing left here to
+          // do.
+          if (this.sessions.get(acpSessionId) !== current) {
+            return;
+          }
           if (
             errorCode !== undefined &&
             recoveryAnchor !== undefined &&

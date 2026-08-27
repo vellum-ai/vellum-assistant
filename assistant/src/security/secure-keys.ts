@@ -700,10 +700,10 @@ export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  return withCredentialTimeout(async () => {
+  const ok = await withCredentialTimeout(async () => {
     const backend = await resolveBackendAsync({ forceReconnect: true });
-    const ok = await backend.set(account, value);
-    if (!ok) {
+    const stored = await backend.set(account, value);
+    if (!stored) {
       log.warn(
         { account, backend: backend.name },
         "Credential backend set failed",
@@ -711,12 +711,18 @@ export async function setSecureKeyAsync(
     } else {
       log.info({ account, backend: backend.name }, "Credential stored");
     }
-    updateCesHttpReachability(backend, !ok);
-    if (ok) {
-      await onCredentialsWritten([account]);
-    }
-    return ok;
+    updateCesHttpReachability(backend, !stored);
+    return stored;
   }, false);
+  // Outside the timed section, because it does not decide the result. The
+  // deadline exists to bound the write, and running the notifications under it
+  // let their cost turn a stored credential into a reported failure: the
+  // caller would tell the user their sign-in failed, and skip the policy
+  // repair that follows, with the token already in the vault.
+  if (ok) {
+    await onCredentialsWritten([account]);
+  }
+  return ok;
 }
 
 /**
@@ -747,7 +753,7 @@ export async function deleteSecureKeyAsync(
 export async function bulkSetSecureKeysAsync(
   credentials: Array<{ account: string; value: string }>,
 ): Promise<Array<{ account: string; ok: boolean }>> {
-  return withCredentialTimeout(
+  const results = await withCredentialTimeout(
     async () => {
       const backend = await resolveBackendAsync({ forceReconnect: true });
       let results: Array<{ account: string; ok: boolean }>;
@@ -768,8 +774,6 @@ export async function bulkSetSecureKeysAsync(
         }
         updateCesHttpReachability(backend, anyFailed);
       }
-      const written = results.filter((r) => r.ok).map((r) => r.account);
-      await onCredentialsWritten(written);
       const succeeded = results.filter((r) => r.ok).length;
       const failed = results.filter((r) => !r.ok).length;
       if (succeeded > 0 || failed > 0) {
@@ -783,6 +787,10 @@ export async function bulkSetSecureKeysAsync(
     },
     credentials.map((c) => ({ account: c.account, ok: false })),
   );
+  // Same reason as the single-write path: notification cost must not be able
+  // to report every credential in the bundle as failed.
+  await onCredentialsWritten(results.filter((r) => r.ok).map((r) => r.account));
+  return results;
 }
 
 // ---------------------------------------------------------------------------

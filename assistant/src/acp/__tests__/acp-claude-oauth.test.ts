@@ -59,6 +59,7 @@ const { clearHistory, insertHistoryRow } =
   await import("./helpers/acp-history-db.js");
 
 const {
+  acpConnectCardStillWarranted,
   CLAUDE_OAUTH_CONFIG,
   CLAUDE_MANUAL_REDIRECT_URI,
   buildClaudeAuthorizeUrl,
@@ -370,6 +371,67 @@ describe("storeAcpClaudeToken: a re-written rejected token retires nothing", () 
 
     return storeAcpClaudeToken("sk-ant-oat-replacement").then(() => {
       expect(hasAcpConnectCardRaised("conv-repaired")).toBe(false);
+    });
+  });
+});
+
+describe("acpConnectCardStillWarranted", () => {
+  test("a mid-run card stands while its marker names the credential in use", () => {
+    clearHistory();
+    const token = "sk-ant-oat-in-use";
+    getReturn = token;
+    insertHistoryRow({
+      id: "run-warranted",
+      parentConversationId: "conv-warranted",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest(token),
+    });
+
+    return acpConnectCardStillWarranted("conv-warranted").then((warranted) => {
+      expect(warranted).toBe(true);
+    });
+  });
+
+  test("a mid-run card falls once a different token is stored", () => {
+    // The repair need not be a credential write: editing the agent's
+    // configured token moves this answer too, which is why it is asked rather
+    // than remembered.
+    clearHistory();
+    getReturn = "sk-ant-oat-replacement";
+    insertHistoryRow({
+      id: "run-repaired",
+      parentConversationId: "conv-repaired-warrant",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest("sk-ant-oat-old"),
+    });
+
+    return acpConnectCardStillWarranted("conv-repaired-warrant").then(
+      (warranted) => {
+        expect(warranted).toBe(false);
+      },
+    );
+  });
+
+  test("a pre-spawn card stands while there is no usable token", () => {
+    // The missing-token path has no session to record a marker on, so the
+    // absence of one says nothing; what keeps its card meaningful is that a
+    // spawn still has nothing to authenticate with.
+    clearHistory();
+    getReturn = undefined;
+
+    return acpConnectCardStillWarranted("conv-no-token").then((warranted) => {
+      expect(warranted).toBe(true);
+    });
+  });
+
+  test("a pre-spawn card falls once a usable token exists", () => {
+    clearHistory();
+    getReturn = "sk-ant-oat-now-present";
+
+    return acpConnectCardStillWarranted("conv-no-marker").then((warranted) => {
+      expect(warranted).toBe(false);
     });
   });
 });

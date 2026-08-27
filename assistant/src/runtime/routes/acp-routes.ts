@@ -497,15 +497,26 @@ async function listSessions({ queryParams }: RouteHandlerArgs) {
   // struck, so the retained markers would pile up past the limit.
   const judged = await withCurrentMarkersOnly(merged, resolvedFor);
   const page = judged.slice(0, limit);
-  if (
-    !conversationId ||
-    // Every row this conversation has is already in hand, so a marker outside
-    // the page is not a thing that exists. Most conversations have never had a
-    // credential failure, and this is what keeps the lookup off their path
-    // rather than asking the database to confirm the absence every time.
-    sawEveryHistoryRow ||
-    page.some((s) => s.authErrorCode !== undefined)
-  ) {
+  if (!conversationId || page.some((s) => s.authErrorCode !== undefined)) {
+    return { sessions: page };
+  }
+  // Rows the page cut that are already in hand. In-memory sessions merge in on
+  // top of the history read, so the merged list can overflow the page even
+  // when the query reached the end of the table, and the marker the client
+  // needs can be sitting in that overflow. Newest-first, so the first match is
+  // the one to surface.
+  const overflowMarker = judged
+    .slice(limit)
+    .find((s) => s.authErrorCode !== undefined);
+  if (overflowMarker) {
+    return { sessions: [...page, overflowMarker] };
+  }
+  if (sawEveryHistoryRow) {
+    // Every row this conversation has has now been looked at, page and
+    // overflow alike, so a marker elsewhere is not a thing that exists. Most
+    // conversations have never had a credential failure, and this is what
+    // keeps the lookup off their path rather than asking the database to
+    // confirm the absence every time.
     return { sessions: page };
   }
   // The page holds no live marker, so the row a client restores the card from

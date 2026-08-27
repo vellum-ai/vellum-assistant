@@ -1318,3 +1318,90 @@ describe("GET /v1/acp/sessions: the marker past the page is looked up, not filte
     expect(body.sessions.map((s) => s.id)).toEqual(["hist-newer"]);
   });
 });
+
+describe("GET /v1/acp/sessions: a marker in the merged overflow", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+
+  test("surfaces a marker the page cut, even when history was read to the end", async () => {
+    // In-memory sessions merge on top of the history read, so the merged list
+    // can overflow the page while the query still reached the end of the
+    // table. The marker the client needs can be sitting in that overflow, and
+    // the short read is no proof it does not exist.
+    fakeInMemorySessions = [
+      {
+        id: "live-a",
+        agentId: "claude",
+        acpSessionId: "proto-live-a",
+        parentConversationId: "conv-overflow",
+        status: "running",
+        startedAt: 9000,
+      },
+      {
+        id: "live-b",
+        agentId: "claude",
+        acpSessionId: "proto-live-b",
+        parentConversationId: "conv-overflow",
+        status: "running",
+        startedAt: 9001,
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-marked",
+      agentId: "claude",
+      acpSessionId: "proto-marked",
+      parentConversationId: "conv-overflow",
+      startedAt: 1000,
+      completedAt: 1001,
+      status: "failed",
+      eventLogJson: "[]",
+      parentToolUseId: "tool-marked",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-overflow", limit: "2" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(3);
+    expect(body.sessions[2].id).toBe("hist-marked");
+    expect(body.sessions[2].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("a stale marker in the overflow is not surfaced", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-c",
+        agentId: "claude",
+        acpSessionId: "proto-live-c",
+        parentConversationId: "conv-overflow-stale",
+        status: "running",
+        startedAt: 9000,
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-stale",
+      agentId: "claude",
+      acpSessionId: "proto-stale",
+      parentConversationId: "conv-overflow-stale",
+      startedAt: 1000,
+      completedAt: 1001,
+      status: "failed",
+      eventLogJson: "[]",
+      parentToolUseId: "tool-stale",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    fakeStoredCredential = realMarkerStore.claudeTokenDigest("sk-ant-oat-new");
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-overflow-stale", limit: "1" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(1);
+    expect(body.sessions[0].id).toBe("live-c");
+  });
+});

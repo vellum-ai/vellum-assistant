@@ -212,10 +212,8 @@ export async function notifyAcpConnectRetired(): Promise<void> {
   // snapshot answers, rather than a proxy for it.
   const { conversationsWithRaisedAcpConnectCard, dropAcpConnectCardRaised } =
     await import("./acp-connect-card-state.js");
-  const { conversationHasCurrentAcpMarker } =
-    await import("./acp-auth-marker-store.js");
   for (const conversationId of conversationsWithRaisedAcpConnectCard()) {
-    if (!(await conversationHasCurrentAcpMarker(conversationId))) {
+    if (!(await acpConnectCardStillWarranted(conversationId))) {
       dropAcpConnectCardRaised(conversationId);
     }
   }
@@ -279,4 +277,30 @@ async function usableStoredClaudeToken(): Promise<string | undefined> {
     return undefined;
   }
   return token;
+}
+
+/**
+ * Whether a conversation's raised Connect card is still something to point at.
+ *
+ * Two ways a card earns its place, matching the two ways one is raised. A
+ * mid-run rejection leaves a marker, and the card stands while that marker
+ * still names the credential a spawn would resolve. A pre-spawn failure leaves
+ * no marker at all, because there was no session to record one, and its card
+ * stands while there is still no usable token to spawn with.
+ *
+ * Asked rather than remembered, so it does not matter what made the situation
+ * change. A vault write, a `config.json` edit to
+ * `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN`, or a policy repair all move
+ * the answer, and only one of those runs through a credential write. Hanging
+ * this off the write would leave the other two stale.
+ */
+export async function acpConnectCardStillWarranted(
+  conversationId: string,
+): Promise<boolean> {
+  const { conversationHasCurrentAcpMarker } =
+    await import("./acp-auth-marker-store.js");
+  if (await conversationHasCurrentAcpMarker(conversationId)) {
+    return true;
+  }
+  return !(await hasAcpClaudeToken());
 }

@@ -13,10 +13,18 @@ import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
 // a card is not raised into connected clients for auth that was already
 // repaired. Spreading the real module keeps every other export intact.
 let fakeResolvedCredential: string | undefined;
+// Held open by a test that needs to land a teardown inside the window this
+// read suspends the failure handler for.
+let resolveGate: Promise<void> | undefined;
 const realPrepareAgentEnv = await import("./prepare-agent-env.js");
 mock.module("./prepare-agent-env.js", () => ({
   ...realPrepareAgentEnv,
-  resolvedClaudeCredentialDigest: async () => fakeResolvedCredential,
+  resolvedClaudeCredentialDigest: async () => {
+    if (resolveGate) {
+      await resolveGate;
+    }
+    return fakeResolvedCredential;
+  },
 }));
 
 import { VellumAcpClientHandler } from "./client-handler.js";
@@ -501,5 +509,56 @@ describe("AcpSessionManager auth-required recovery surface", () => {
 
     expect(r.authEvent).toBeUndefined();
     expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+  });
+});
+
+describe("AcpSessionManager: teardown during the credential read", () => {
+  test("a session torn down mid-read is left alone", async () => {
+    // The credential read suspends the failure handler. A cancel landing in
+    // that window runs to completion first: it persists the cancelled row,
+    // drops the event buffer and removes the session. Carrying on would emit a
+    // card for a run the user stopped, and persist a second time over a buffer
+    // that is already gone, replacing the stored event log with an empty one.
+    const revoked = () =>
+      Promise.reject(
+        new Error(
+          "Internal error: Failed to authenticate. API Error: 401 OAuth access token has been revoked.",
+        ),
+      );
+    const manager = new AcpSessionManager(1);
+    const parentId = "parent-torn-down";
+    const { conversation } = mockConversation();
+    setConversation(parentId, conversation);
+    registered.push(parentId);
+
+    const entry = injectSession(
+      manager,
+      "sess-torn-down",
+      parentId,
+      fakeProcess(revoked),
+    );
+    entry.command = "claude-agent-acp";
+    (entry as { parentToolUseId?: string }).parentToolUseId = "tool-torn";
+
+    let openGate = () => {};
+    resolveGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+
+    const running = fire(manager, "sess-torn-down", entry).catch(() => {});
+    // Let the handler reach the suspended read, then take the session out from
+    // under it exactly as a cancel would.
+    await new Promise((r) => setTimeout(r, 5));
+    (manager as unknown as { sessions: Map<string, unknown> }).sessions.delete(
+      "sess-torn-down",
+    );
+    openGate();
+    await running;
+    resolveGate = undefined;
+
+    const events = (
+      entry.sendToVellum as ReturnType<typeof mock>
+    ).mock.calls.map((c) => c[0] as { type: string });
+    expect(events.find((e) => e.type === "acp_auth_required")).toBeUndefined();
   });
 });
