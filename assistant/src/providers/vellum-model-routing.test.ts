@@ -71,9 +71,9 @@ describe("vellum-model-routing", () => {
       "anthropic",
       "fireworks",
       "gemini",
-      "vellum",
       "openai",
       "together",
+      "vellum",
     ]);
   });
 });
