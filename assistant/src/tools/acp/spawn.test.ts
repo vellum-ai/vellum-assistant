@@ -137,17 +137,6 @@ const spawnMock = mock(
 // without the spread, any module evaluated after this test file errors at
 // load with "Export named '<X>' not found".
 const realAcpModule = await import("../../acp/index.js");
-// Spy on the refusal record without changing it: spread the real module so
-// every other export still resolves for the graph spawn.ts pulls in.
-const refusedDigests: Array<string | undefined> = [];
-const realMarkerStore = await import("../../acp/acp-auth-marker-store.js");
-mock.module("../../acp/acp-auth-marker-store.js", () => ({
-  ...realMarkerStore,
-  noteClaudeTokenRefused: (digest: string | undefined) => {
-    refusedDigests.push(digest);
-  },
-}));
-
 mock.module("../../acp/index.js", () => ({
   ...realAcpModule,
   getAcpSessionManager: () => ({ spawn: spawnMock }),
@@ -653,30 +642,5 @@ describe("pre-spawn Claude auth rejection", () => {
     expect(result.errorCode).toBeUndefined();
     expect(result.content).toContain("adapter exploded");
     expect(hasAcpConnectCardRaised("conv-prespawn-boom")).toBe(false);
-  });
-});
-
-describe("pre-spawn Claude auth rejection: recording the refusal", () => {
-  test("records the credential the run held so the next spawn stops resolving it", async () => {
-    // The same record the mid-run failure path writes. Without it a configured
-    // CLAUDE_CODE_OAUTH_TOKEN keeps winning over whatever Connect stores, so
-    // the auto-continue spawns straight back into this failure, and
-    // `acpConnectCardStillWarranted` can read that value as a working repair
-    // and drop the card that is the way out.
-    refusedDigests.length = 0;
-    spawnMock.mockImplementationOnce(async () => {
-      throw new AcpAuthRequiredError("claude", "Authentication required");
-    });
-
-    const context = { ...makeContext(), conversationId: "conv-prespawn-note" };
-    const result = await executeAcpSpawn(
-      { agent: "claude", task: "do something" },
-      context,
-    );
-
-    expect(result.errorCode).toBe(ACP_CLAUDE_AUTH_REQUIRED_CODE);
-    // The vault token the preflight injected is what this run held.
-    expect(refusedDigests).toHaveLength(1);
-    expect(refusedDigests[0]).toBeDefined();
   });
 });

@@ -286,6 +286,14 @@ export class AcpSessionManager {
       );
     } catch (err) {
       log.error({ acpSessionId, agentId, err }, "ACP spawn failed");
+      // Here rather than at the tool boundary, because the HTTP spawn route
+      // reaches this method directly and would otherwise never record it. A
+      // configured CLAUDE_CODE_OAUTH_TOKEN that Claude refused keeps winning
+      // over whatever Connect stores until this is written down, so every
+      // later spawn repeats the same failure.
+      if (isAcpAuthRequired(err)) {
+        noteClaudeTokenRefused(agentConfig.credentialDigest, Date.now());
+      }
       // No prompt has fired yet, so no permissions can be pending.
       this.teardownSession(acpSessionId, entry);
       throw err;

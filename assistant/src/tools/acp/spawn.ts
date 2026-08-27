@@ -2,7 +2,6 @@ import { basename } from "node:path";
 
 import { z } from "zod";
 
-import { noteClaudeTokenRefused } from "../../acp/acp-auth-marker-store.js";
 import { markAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
 import {
   ACP_AUTH_RECOVERY_GUIDANCE,
@@ -175,13 +174,6 @@ export async function executeAcpSpawn(
         err instanceof Error
           ? err.message
           : String((err as { message?: unknown }).message ?? err);
-      // The same record the mid-run path writes. Claude refused this exact
-      // credential, and without saying so a configured
-      // `CLAUDE_CODE_OAUTH_TOKEN` keeps winning over whatever Connect stores,
-      // so the auto-continue spawns straight back into this failure. It would
-      // also let `acpConnectCardStillWarranted` read that configured value as
-      // a working repair and drop the card that is the way out.
-      noteClaudeTokenRefused(agentConfig.credentialDigest, Date.now());
       markAcpConnectCardRaised(context.conversationId, agent);
       return {
         content: `${message}\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`,

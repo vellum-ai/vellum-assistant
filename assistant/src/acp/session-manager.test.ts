@@ -12,6 +12,17 @@ import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
 // asks the same question the read path does before emitting a live event, so
 // a card is not raised into connected clients for auth that was already
 // repaired. Spreading the real module keeps every other export intact.
+// Spy on the refusal record. Spread the real module so every other export
+// still resolves for the graph session-manager pulls in.
+const refusedDigests: Array<string | undefined> = [];
+const realMarkerStoreModule = await import("./acp-auth-marker-store.js");
+mock.module("./acp-auth-marker-store.js", () => ({
+  ...realMarkerStoreModule,
+  noteClaudeTokenRefused: (digest: string | undefined) => {
+    refusedDigests.push(digest);
+  },
+}));
+
 let fakeResolvedCredential: string | undefined;
 // Held open by a test that needs to land a teardown inside the window this
 // read suspends the failure handler for.
@@ -560,5 +571,44 @@ describe("AcpSessionManager: teardown during the credential read", () => {
       entry.sendToVellum as ReturnType<typeof mock>
     ).mock.calls.map((c) => c[0] as { type: string });
     expect(events.find((e) => e.type === "acp_auth_required")).toBeUndefined();
+  });
+});
+
+describe("AcpSessionManager.spawn: a credential Claude refused at startup", () => {
+  test("records the refusal, so the HTTP route gets it too", async () => {
+    // The record lives here rather than at the tool boundary because
+    // `POST /v1/acp/spawn` reaches this method directly. Without it a
+    // configured CLAUDE_CODE_OAUTH_TOKEN that Claude refused keeps winning
+    // over whatever Connect stores, and every later spawn repeats the failure.
+    const { AcpAgentProcess: Process } = await import("./agent-process.js");
+    const { AcpAuthRequiredError: AuthError } =
+      await import("./auth-required.js");
+    const originalInitialize = Process.prototype.initialize;
+    Process.prototype.initialize = async () => {
+      throw new AuthError("claude", "Authentication required");
+    };
+    refusedDigests.length = 0;
+
+    try {
+      const manager = new AcpSessionManager(5);
+      await manager
+        .spawn(
+          "claude",
+          {
+            command: "echo",
+            args: ["hi"],
+            credentialDigest: "digest-refused-at-startup",
+          },
+          "do something",
+          "/tmp",
+          "conv-startup-auth",
+          () => {},
+        )
+        .catch(() => {});
+    } finally {
+      Process.prototype.initialize = originalInitialize;
+    }
+
+    expect(refusedDigests).toContain("digest-refused-at-startup");
   });
 });
