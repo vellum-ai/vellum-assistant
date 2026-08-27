@@ -1,7 +1,7 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
-mock.module("@/generated/daemon/client.gen", () => ({
-  client: { post: mock(async () => ({ response: { ok: true } })) },
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  recordingsStatusPost: mock(async () => ({ response: { ok: true } })),
 }));
 mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: {
@@ -13,11 +13,8 @@ const { ScreenRecordingController } = await import("./screen-recording");
 
 class FakeTrack {
   stopped = false;
-  private ended: (() => void) | null = null;
 
-  addEventListener(_type: string, listener: () => void): void {
-    this.ended = listener;
-  }
+  addEventListener(): void {}
 
   stop(): void {
     this.stopped = true;

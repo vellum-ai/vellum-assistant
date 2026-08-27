@@ -54,7 +54,6 @@ import type {
   PowerEvent,
   PowerEventKind,
   ResolvedHotkey,
-  ScreenRecordingSourceOptions,
   ShowNotificationPayload,
   SystemPermissionKind,
   SystemPermissionStateItem,
@@ -71,6 +70,7 @@ import type {
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  VellumBridge,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -99,7 +99,6 @@ export type {
   PowerEvent,
   PowerEventKind,
   ResolvedHotkey,
-  ScreenRecordingSourceOptions,
   SystemPermissionKind,
   SystemPermissionStateItem,
   SystemPermissionStatus,
@@ -207,15 +206,7 @@ declare global {
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
       };
-      screenRecording?: {
-        begin(recordingId: string): Promise<void>;
-        append(recordingId: string, chunk: Uint8Array): Promise<void>;
-        finish(recordingId: string): Promise<{ filePath: string }>;
-        abort(recordingId: string): Promise<void>;
-        resolveSource(
-          options: ScreenRecordingSourceOptions,
-        ): Promise<string | null>;
-      };
+      screenRecording?: VellumBridge["screenRecording"];
       downloads?: {
         onDone(callback: (event: DownloadDoneEvent) => void): () => void;
         reveal(id: string): Promise<void>;

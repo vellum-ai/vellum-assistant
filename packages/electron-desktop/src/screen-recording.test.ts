@@ -3,6 +3,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  SCREEN_RECORDING_ABORT,
+  SCREEN_RECORDING_APPEND,
+  SCREEN_RECORDING_BEGIN,
+  SCREEN_RECORDING_FINISH,
+  SCREEN_RECORDING_RESOLVE_SOURCE,
+} from "@vellumai/ipc-contract";
 import type { IpcHandle } from "./ipc";
 
 const displayHandler = mock(() => undefined);
@@ -10,13 +17,6 @@ const getSources = mock(async () => [
   { id: "screen:1:0", display_id: "display-1" },
   { id: "window:42:0", display_id: "" },
 ]);
-mock.module("@vellumai/ipc-contract", () => ({
-  SCREEN_RECORDING_ABORT: "vellum:screenRecording:abort",
-  SCREEN_RECORDING_APPEND: "vellum:screenRecording:append",
-  SCREEN_RECORDING_BEGIN: "vellum:screenRecording:begin",
-  SCREEN_RECORDING_FINISH: "vellum:screenRecording:finish",
-  SCREEN_RECORDING_RESOLVE_SOURCE: "vellum:screenRecording:resolveSource",
-}));
 mock.module("electron", () => ({
   desktopCapturer: { getSources },
   session: {
@@ -60,21 +60,21 @@ test("writes ordered chunks and returns a file in the shared recordings director
   const { appDataDir, invoke } = installHarness();
   const recordingId = "00000000-0000-4000-8000-000000000001";
 
-  await invoke("vellum:screenRecording:begin", recordingId);
+  await invoke(SCREEN_RECORDING_BEGIN, recordingId);
   await Promise.all([
     invoke(
-      "vellum:screenRecording:append",
+      SCREEN_RECORDING_APPEND,
       recordingId,
       new Uint8Array([1, 2]),
     ),
     invoke(
-      "vellum:screenRecording:append",
+      SCREEN_RECORDING_APPEND,
       recordingId,
       new Uint8Array([3, 4]),
     ),
   ]);
   const result = await invoke<{ filePath: string }>(
-    "vellum:screenRecording:finish",
+    SCREEN_RECORDING_FINISH,
     recordingId,
   );
 
@@ -89,18 +89,18 @@ test("aborts partial files and releases the single-recording guard", async () =>
   const firstId = "00000000-0000-4000-8000-000000000001";
   const secondId = "00000000-0000-4000-8000-000000000002";
 
-  await invoke("vellum:screenRecording:begin", firstId);
+  await invoke(SCREEN_RECORDING_BEGIN, firstId);
   await expect(
-    invoke("vellum:screenRecording:begin", secondId),
+    invoke(SCREEN_RECORDING_BEGIN, secondId),
   ).rejects.toThrow("already active");
   const firstPath = path.join(
     resolveScreenRecordingDirectory(appDataDir),
     `screen-recording-${firstId}.webm`,
   );
-  await invoke("vellum:screenRecording:abort", firstId);
-  await invoke("vellum:screenRecording:begin", secondId);
+  await invoke(SCREEN_RECORDING_ABORT, firstId);
+  await invoke(SCREEN_RECORDING_BEGIN, secondId);
   const second = await invoke<{ filePath: string }>(
-    "vellum:screenRecording:finish",
+    SCREEN_RECORDING_FINISH,
     secondId,
   );
 
@@ -112,13 +112,13 @@ test("resolves requested display and window sources", async () => {
   const { invoke } = installHarness();
 
   await expect(
-    invoke("vellum:screenRecording:resolveSource", {
+    invoke(SCREEN_RECORDING_RESOLVE_SOURCE, {
       captureScope: "display",
       displayId: "display-1",
     }),
   ).resolves.toBe("screen:1:0");
   await expect(
-    invoke("vellum:screenRecording:resolveSource", {
+    invoke(SCREEN_RECORDING_RESOLVE_SOURCE, {
       captureScope: "window",
       windowId: 42,
     }),

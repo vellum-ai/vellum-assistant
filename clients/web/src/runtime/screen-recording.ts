@@ -5,9 +5,8 @@ import type {
   RecordingStopEvent,
 } from "@vellumai/assistant-api";
 
-import { client } from "@/generated/daemon/client.gen";
+import { recordingsStatusPost } from "@/generated/daemon/sdk.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { isElectron } from "@/runtime/is-electron";
 
 type RecordingLifecycleEvent =
   | RecordingStartEvent
@@ -28,7 +27,6 @@ interface ActiveRecording {
   recorder: MediaRecorder;
   startedAt: number;
   stopped: Promise<void>;
-  stopping: boolean;
   closeCapture: () => void;
 }
 
@@ -36,8 +34,6 @@ interface CapturedMedia {
   stream: MediaStream;
   close: () => void;
 }
-
-type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
 
 const postStatus = async (
   event: RecordingStartEvent,
@@ -48,8 +44,7 @@ const postStatus = async (
   if (!assistantId) {
     throw new Error("No active assistant for screen recording status");
   }
-  const { response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/recordings/status" as KnownDaemonUrl,
+  const { response } = await recordingsStatusPost({
     path: { assistant_id: assistantId },
     body: {
       conversationId: event.recordingId,
@@ -57,7 +52,7 @@ const postStatus = async (
       attachToConversationId: event.attachToConversationId,
       operationToken: event.operationToken,
       ...details,
-    } as Record<string, unknown>,
+    },
   });
   if (!response?.ok) {
     throw new Error(
@@ -78,10 +73,6 @@ const recorderMimeType = (): string | null => {
 const captureSelectedSource = async (
   event: RecordingStartEvent,
 ): Promise<MediaStream> => {
-  const bridge = window.vellum?.screenRecording;
-  if (!bridge) {
-    throw new Error("Screen recording bridge is unavailable");
-  }
   const options = event.options ?? {};
   const hasSelectedSource =
     options.displayId !== undefined || options.windowId !== undefined;
@@ -94,7 +85,7 @@ const captureSelectedSource = async (
     });
   }
 
-  const sourceId = await bridge.resolveSource({
+  const sourceId = await window.vellum!.screenRecording!.resolveSource({
     captureScope: options.captureScope,
     displayId: options.displayId,
     windowId: options.windowId,
@@ -149,7 +140,7 @@ const captureStream = async (
         for (const track of [
           ...displayStream.getTracks(),
           ...microphone.getTracks(),
-          ...stream.getTracks(),
+          ...destination.stream.getTracks(),
         ]) {
           track.stop();
         }
@@ -189,7 +180,7 @@ export class ScreenRecordingController {
   ) {}
 
   async handle(event: RecordingLifecycleEvent): Promise<void> {
-    if (!isElectron() || !window.vellum?.screenRecording) {
+    if (!window.vellum?.screenRecording) {
       return;
     }
     switch (event.type) {
@@ -252,7 +243,6 @@ export class ScreenRecordingController {
         recorder,
         startedAt: this.dependencies.now(),
         stopped,
-        stopping: false,
         closeCapture: capture.close,
       };
       recorder.onstop = () => {
@@ -318,11 +308,6 @@ export class ScreenRecordingController {
     if (!active || active.event.recordingId !== recordingId) {
       return;
     }
-    if (active.stopping) {
-      await active.stopped;
-      return;
-    }
-    active.stopping = true;
     if (active.recorder.state !== "inactive") {
       active.recorder.stop();
     }

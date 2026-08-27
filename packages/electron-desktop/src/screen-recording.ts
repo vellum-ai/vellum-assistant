@@ -22,6 +22,7 @@ const RecordingSourceOptionsSchema = z.object({
 });
 
 interface RecordingFileSession {
+  recordingId: string;
   filePath: string;
   file: FileHandle;
   write: Promise<void>;
@@ -39,7 +40,7 @@ export const installScreenRecording = ({
   appDataDir,
   handle,
 }: InstallScreenRecordingOptions): void => {
-  const sessions = new Map<string, RecordingFileSession>();
+  let active: RecordingFileSession | null = null;
   const recordingsDir = resolveScreenRecordingDirectory(appDataDir);
 
   session.defaultSession.setDisplayMediaRequestHandler(
@@ -67,7 +68,7 @@ export const installScreenRecording = ({
     SCREEN_RECORDING_BEGIN,
     z.tuple([RecordingIdSchema]),
     async ([recordingId]) => {
-      if (sessions.size > 0) {
+      if (active) {
         throw new Error("A screen recording is already active");
       }
       await mkdir(recordingsDir, { recursive: true });
@@ -76,7 +77,12 @@ export const installScreenRecording = ({
         `screen-recording-${recordingId}.webm`,
       );
       const file = await open(filePath, "w");
-      sessions.set(recordingId, { filePath, file, write: Promise.resolve() });
+      active = {
+        recordingId,
+        filePath,
+        file,
+        write: Promise.resolve(),
+      };
     },
   );
 
@@ -84,14 +90,14 @@ export const installScreenRecording = ({
     SCREEN_RECORDING_APPEND,
     z.tuple([RecordingIdSchema, RecordingChunkSchema]),
     async ([recordingId, chunk]) => {
-      const session = sessions.get(recordingId);
-      if (!session) {
+      if (!active || active.recordingId !== recordingId) {
         throw new Error("Screen recording session not found");
       }
-      session.write = session.write.then(async () => {
-        await session.file.write(chunk);
+      const recording = active;
+      recording.write = recording.write.then(async () => {
+        await recording.file.write(chunk);
       });
-      await session.write;
+      await recording.write;
     },
   );
 
@@ -99,14 +105,14 @@ export const installScreenRecording = ({
     SCREEN_RECORDING_FINISH,
     z.tuple([RecordingIdSchema]),
     async ([recordingId]) => {
-      const session = sessions.get(recordingId);
-      if (!session) {
+      if (!active || active.recordingId !== recordingId) {
         throw new Error("Screen recording session not found");
       }
-      await session.write;
-      await session.file.close();
-      sessions.delete(recordingId);
-      return { filePath: session.filePath };
+      await active.write;
+      await active.file.close();
+      const { filePath } = active;
+      active = null;
+      return { filePath };
     },
   );
 
@@ -114,14 +120,14 @@ export const installScreenRecording = ({
     SCREEN_RECORDING_ABORT,
     z.tuple([RecordingIdSchema]),
     async ([recordingId]) => {
-      const session = sessions.get(recordingId);
-      if (!session) {
+      if (!active || active.recordingId !== recordingId) {
         return;
       }
-      sessions.delete(recordingId);
-      await session.write.catch(() => undefined);
-      await session.file.close();
-      await rm(session.filePath, { force: true });
+      const aborted = active;
+      active = null;
+      await aborted.write.catch(() => undefined);
+      await aborted.file.close();
+      await rm(aborted.filePath, { force: true });
     },
   );
 

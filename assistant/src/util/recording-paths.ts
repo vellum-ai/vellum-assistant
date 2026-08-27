@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
 
-export const getRecordingDirectories = (
+export const getCanonicalRecordingDirectories = (
   env: NodeJS.ProcessEnv = process.env,
 ): string[] => {
   const directories: string[] = [];
@@ -16,19 +16,14 @@ export const getRecordingDirectories = (
   if (env.APPDATA) {
     directories.push(path.join(env.APPDATA, "vellum-assistant", "recordings"));
   }
-  return directories;
-};
-
-export const getCanonicalRecordingDirectories = (
-  env: NodeJS.ProcessEnv = process.env,
-): string[] =>
-  getRecordingDirectories(env).map((directory) => {
+  return directories.map((directory) => {
     try {
       return realpathSync(directory);
     } catch {
       return path.resolve(directory);
     }
   });
+};
 
 export const isPathWithinDirectory = (
   filePath: string,
