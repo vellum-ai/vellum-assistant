@@ -1,7 +1,17 @@
 {
-  "fill": {
-    "solid": "display-p3:0.91373,0.78824,0.10196,1.00000"
-  },
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "display-p3:0.91373,0.78824,0.10196,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "display-p3:0.91373,0.78824,0.10196,1.00000"
+      }
+    }
+  ],
   "groups": [
     {
       "blend-mode": "normal",
