@@ -16,6 +16,7 @@ import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
+import { isBunVirtualPath } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
@@ -67,7 +68,7 @@ export interface CatalogSkill {
 export function getRepoSkillsDir(): string | undefined {
   const importDir = import.meta.dir;
 
-  if (importDir.startsWith("/$bunfs/")) {
+  if (isBunVirtualPath(importDir)) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(

@@ -1,4 +1,14 @@
-import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  copyFileSync,
+  cpSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+} from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -12,6 +22,7 @@ interface RuntimeTarget {
   readonly entry: string;
   readonly externals?: readonly string[];
   readonly defines?: Readonly<Record<string, string>>;
+  readonly hideConsole?: boolean;
 }
 
 const windowsDir = path.resolve(import.meta.dir, "..");
@@ -26,6 +37,36 @@ if (targetArch !== process.arch) {
   throw new Error(`${targetArch} runtime packaging requires a native runner.`);
 }
 const compileTarget = `bun-windows-${targetArch}`;
+const calculateRuntimeBuildId = (runtimeDir: string): string => {
+  const hash = createHash("sha256");
+  const visit = (dir: string): void => {
+    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    for (const entry of entries) {
+      const absolute = path.join(dir, entry.name);
+      const relative = path.relative(runtimeDir, absolute).replaceAll("\\", "/");
+      const stat = lstatSync(absolute);
+      if (stat.isSymbolicLink()) {
+        hash.update(relative);
+        hash.update("\0link\0");
+        hash.update(readlinkSync(absolute));
+        hash.update("\0");
+        continue;
+      }
+      if (stat.isDirectory()) {
+        visit(absolute);
+        continue;
+      }
+      hash.update(relative);
+      hash.update("\0");
+      hash.update(readFileSync(absolute));
+      hash.update("\0");
+    }
+  };
+  visit(runtimeDir);
+  return hash.digest("hex");
+};
 const readPackageVersion = async (packageDir: string): Promise<string> => {
   const manifest = (await Bun.file(
     path.join(repoRoot, packageDir, "package.json"),
@@ -36,6 +77,7 @@ const readPackageVersion = async (packageDir: string): Promise<string> => {
   return manifest.version;
 };
 const appVersion = await readPackageVersion("clients/windows");
+const cliVersion = await readPackageVersion("cli");
 const assistantVersion = await readPackageVersion("assistant");
 const gatewayVersion = await readPackageVersion("gateway");
 const commitSha = resolveBuildCommitSha();
@@ -74,7 +116,6 @@ const targets: readonly RuntimeTarget[] = [
   {
     name: "vellum.exe",
     entry: "cli/src/index.ts",
-    externals: ["react-devtools-core"],
   },
   {
     name: "assistant.exe",
@@ -87,36 +128,28 @@ const targets: readonly RuntimeTarget[] = [
     entry: "assistant/src/daemon/windows-compiled-entry.ts",
     externals: assistantExternals,
     defines: assistantDefines,
+    hideConsole: true,
   },
   {
     name: "vellum-gateway.exe",
     entry: "gateway/src/index.ts",
-    externals: [
-      "@electric-sql/*",
-      "@aws-sdk/client-rds-data",
-      "@libsql/*",
-      "@neondatabase/*",
-      "@planetscale/*",
-      "@vercel/*",
-      "better-sqlite3",
-      "mysql2/*",
-      "mysql2",
-      "pg",
-      "postgres",
-    ],
+    externals: ["drizzle-kit", "drizzle-kit/*"],
     defines: {
       "process.env.APP_VERSION": JSON.stringify(gatewayVersion),
     },
+    hideConsole: true,
   },
   {
     name: "vellum-worker.exe",
     entry: "assistant/src/windows-compiled-worker-entry.ts",
     externals: assistantExternals,
     defines: assistantDefines,
+    hideConsole: true,
   },
   {
     name: "credential-executor.exe",
     entry: "credential-executor/src/main.ts",
+    hideConsole: true,
   },
   {
     name: "cli-launcher.exe",
@@ -127,8 +160,11 @@ const targets: readonly RuntimeTarget[] = [
     entry: "clients/windows/scripts/uninstall-cli.ts",
   },
 ];
-for (const { name, entry, externals, defines } of targets) {
+for (const { name, entry, externals, defines, hideConsole } of targets) {
   const args = ["build", "--compile", `--target=${compileTarget}`];
+  if (hideConsole) {
+    args.push("--windows-hide-console");
+  }
   for (const external of externals ?? []) {
     args.push("--external", external);
   }
@@ -152,6 +188,7 @@ for (const { name, entry, externals, defines } of targets) {
 
 const nativeSharpPackage = `@img/sharp-win32-${targetArch}`;
 const assistantPackageDir = path.join(repoRoot, "assistant");
+const gatewayPackageDir = path.join(repoRoot, "gateway");
 const sharpPackageDir = findPackageDir("sharp", assistantPackageDir);
 const runtimePackages = [
   {
@@ -179,6 +216,16 @@ const runtimePackages = [
     resolveSpecifier: "semver",
     basedir: sharpPackageDir,
   },
+  {
+    packageName: "drizzle-kit",
+    resolveSpecifier: "drizzle-kit/api",
+    basedir: gatewayPackageDir,
+  },
+  {
+    packageName: "drizzle-orm",
+    resolveSpecifier: "drizzle-orm",
+    basedir: gatewayPackageDir,
+  },
 ] as const;
 const runtimeNodeModules = path.join(outputDir, "node_modules");
 mkdirSync(runtimeNodeModules, { recursive: true });
@@ -189,7 +236,6 @@ for (const { packageName, resolveSpecifier, basedir } of runtimePackages) {
     { recursive: true },
   );
 }
-
 const packagedAssistant = path.join(outputDir, "assistant.exe");
 const versionCheck = spawnSync(packagedAssistant, ["--version"], {
   encoding: "utf8",
@@ -208,6 +254,28 @@ if (versionCheck.status !== 0 || versionOutput !== assistantVersion) {
     .join("; ");
   throw new Error(
     `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionOutput || "no output"} (${diagnostics}).`,
+  );
+}
+const packagedCli = path.join(outputDir, "vellum.exe");
+const cliVersionCheck = spawnSync(packagedCli, ["--version"], {
+  encoding: "utf8",
+  windowsHide: true,
+});
+const expectedCliVersion = `@vellumai/cli v${cliVersion}`;
+const cliVersionOutput = cliVersionCheck.stdout?.trim() ?? "";
+const cliVersionErrorOutput = cliVersionCheck.stderr?.trim() ?? "";
+if (cliVersionCheck.status !== 0 || cliVersionOutput !== expectedCliVersion) {
+  const diagnostics = [
+    `exit ${cliVersionCheck.status ?? "not started"}`,
+    cliVersionCheck.error
+      ? `spawn error: ${cliVersionCheck.error.message}`
+      : null,
+    cliVersionErrorOutput ? `stderr: ${cliVersionErrorOutput}` : null,
+  ]
+    .filter((detail): detail is string => detail !== null)
+    .join("; ");
+  throw new Error(
+    `Packaged CLI version check failed: expected ${expectedCliVersion}, got ${cliVersionOutput || "no output"} (${diagnostics}).`,
   );
 }
 for (const [source, name] of [
@@ -260,7 +328,8 @@ const bunSource = await installPinnedBun({
   version: bunVersion,
 });
 console.log(`Bundled Bun ${bunVersion} (${targetArch}) from ${bunSource}.`);
+const runtimeBuildId = calculateRuntimeBuildId(outputDir);
 await Bun.write(
   path.join(outputDir, "runtime.json"),
-  `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel, architecture: targetArch })}\n`,
+  `${JSON.stringify({ version: appVersion, bunVersion, runtimeBuildId, releaseChannel, architecture: targetArch })}\n`,
 );

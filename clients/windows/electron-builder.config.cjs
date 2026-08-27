@@ -147,6 +147,13 @@ module.exports = {
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: appIcon, to: "icon.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
+    // electron-builder excludes a node_modules directory encountered below a
+    // broader file matcher. Use it as the matcher root so the CLI runtime's
+    // native packages are included in the installed app.
+    {
+      from: "resources/cli-runtime/node_modules",
+      to: "cli-runtime/node_modules",
+    },
     {
       from: `native/Vellum.PreviewHandler/build/${msbuildPlatform}/Release`,
       to: "preview-handler",

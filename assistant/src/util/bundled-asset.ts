@@ -1,6 +1,14 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+export function isBunVirtualPath(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/");
+  return (
+    normalized.startsWith("/$bunfs/") ||
+    /^[a-z]:\/~bun(?:\/|$)/i.test(normalized)
+  );
+}
+
 /**
  * Resolve the path to a bundled asset directory, handling compiled Bun binaries
  * where `import.meta.dirname` points to the `/$bunfs/` virtual filesystem and
@@ -22,7 +30,7 @@ export function resolveBundledDir(
   relativePath: string,
   bundleName: string,
 ): string {
-  if (callerDir.startsWith("/$bunfs/")) {
+  if (isBunVirtualPath(callerDir)) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, "..", "Resources", bundleName);

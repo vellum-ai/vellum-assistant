@@ -227,7 +227,11 @@ export async function hatchLocal(
         }
       }
 
-      if (!apiKeyCheck.hasKey && !pickedProvider) {
+      if (
+        !apiKeyCheck.hasKey &&
+        !pickedProvider &&
+        !process.env.VELLUM_DESKTOP_APP
+      ) {
         reporter.warn(
           "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
         );

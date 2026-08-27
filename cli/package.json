@@ -22,7 +22,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
-    "compile:check": "bun build --compile --external react-devtools-core src/index.ts --outfile /dev/null",
+    "compile:check": "bun build --compile src/index.ts --outfile /dev/null",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
@@ -38,7 +38,8 @@
     "ink": "6.8.0",
     "nanoid": "5.1.7",
     "qrcode-terminal": "0.12.0",
-    "react": "19.2.6"
+    "react": "19.2.6",
+    "react-devtools-core": "7.0.1"
   },
   "bundledDependencies": [
     "@vellumai/avatar-manifest",

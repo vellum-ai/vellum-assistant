@@ -14,6 +14,7 @@ const loadBuilderConfig = (environment: string) => {
   delete requireCjs.cache[configPath];
   try {
     return requireCjs(configPath) as {
+      extraResources: Array<{ from: string; to: string }>;
       win: { icon: string };
       nsis: { installerIcon: string; uninstallerIcon: string };
     };
@@ -69,4 +70,11 @@ test("unknown environments use the production identity", () => {
   expect(loadBuilderConfig("preview").win.icon).toBe(
     "build-resources/icons/production/icon.ico",
   );
+});
+
+test("packages CLI runtime dependencies with a dedicated file matcher", () => {
+  expect(loadBuilderConfig("local").extraResources).toContainEqual({
+    from: "resources/cli-runtime/node_modules",
+    to: "cli-runtime/node_modules",
+  });
 });
