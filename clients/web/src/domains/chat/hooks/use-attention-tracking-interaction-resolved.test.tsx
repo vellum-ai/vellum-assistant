@@ -56,8 +56,9 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
-const { useAttentionTracking } =
-  await import("@/domains/chat/hooks/use-attention-tracking");
+const { useAttentionTracking } = await import(
+  "@/domains/chat/hooks/use-attention-tracking"
+);
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -77,7 +78,6 @@ function publishInteractionResolved(payload: {
       id: `evt-${payload.requestId}`,
       conversationId: payload.conversationId,
       emittedAt: new Date().toISOString(),
-      sourceAssistantId: "asst-1",
       message: {
         type: "interaction_resolved",
         requestId: payload.requestId,

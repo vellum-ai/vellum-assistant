@@ -3,11 +3,7 @@ import * as path from "node:path";
 
 import { v4 as uuid } from "uuid";
 
-import {
-  attachFileBackedAttachmentToMessage,
-  getAttachmentById,
-  linkAttachmentToMessage,
-} from "../../persistence/attachments-store.js";
+import { attachFileBackedAttachmentToMessage } from "../../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,
@@ -45,16 +41,6 @@ const standaloneRecordingConversationId = new Map<string, string>();
 /** Maps conversationId -> recordingId (active recording). */
 const recordingOwnerByConversation = new Map<string, string>();
 
-const RECORDING_CLAIM_LEASE_MS = 30_000;
-
-interface RecordingClientClaim {
-  clientId: string;
-  expiresAt: number;
-}
-
-/** Maps recordingId -> the client that won capture ownership. */
-const recordingClientClaims = new Map<string, RecordingClientClaim>();
-
 /** Pending stop-acknowledgement timeouts keyed by recordingId. */
 const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
 
@@ -63,16 +49,10 @@ const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
  *  cycle with a mismatched token are rejected. */
 let activeRestartToken: string | null = null;
 
-interface RecordingFinalizationResult {
-  success: boolean;
-  messageId?: string;
-}
-
-/** Caches terminal finalization results for idempotent status retries. */
-const finalizedRecordingResults = new Map<
-  string,
-  Promise<RecordingFinalizationResult>
->();
+/** Idempotency guard: tracks recording IDs that have already been finalized
+ *  to prevent double-finalization (e.g. during restart races). Entries are
+ *  auto-cleaned after 60 seconds to avoid unbounded growth. */
+const finalizedRecordingIds = new Set<string>();
 
 /** Tracks which conversationId has a pending restart so "no active recording"
  *  is only returned when the state is truly idle (not mid-restart). */
@@ -150,87 +130,6 @@ export function handleRecordingStart(
     "Standalone recording started",
   );
   return recordingId;
-}
-
-export function claimRecording(
-  recordingId: string,
-  clientId: string,
-  options: {
-    now?: number;
-    isClientConnected?: (clientId: string) => boolean;
-  } = {},
-): boolean {
-  return claimRecordingOutcome(recordingId, clientId, options) === "claimed";
-}
-
-export type RecordingClaimOutcome = "claimed" | "occupied" | "missing";
-
-export function claimRecordingOutcome(
-  recordingId: string,
-  clientId: string,
-  options: {
-    now?: number;
-    isClientConnected?: (clientId: string) => boolean;
-  } = {},
-): RecordingClaimOutcome {
-  if (!standaloneRecordingConversationId.has(recordingId)) {
-    return "missing";
-  }
-  const now = options.now ?? Date.now();
-  const owner = recordingClientClaims.get(recordingId);
-  if (owner?.clientId === clientId) {
-    owner.expiresAt = now + RECORDING_CLAIM_LEASE_MS;
-    return "claimed";
-  }
-  if (
-    owner &&
-    owner.expiresAt > now &&
-    (options.isClientConnected?.(owner.clientId) ?? true)
-  ) {
-    return "occupied";
-  }
-  recordingClientClaims.set(recordingId, {
-    clientId,
-    expiresAt: now + RECORDING_CLAIM_LEASE_MS,
-  });
-  return "claimed";
-}
-
-export function ownsRecordingClaim(
-  recordingId: string,
-  clientId: string,
-): boolean {
-  return recordingClientClaims.get(recordingId)?.clientId === clientId;
-}
-
-export function hasRecordingClaim(recordingId: string): boolean {
-  return recordingClientClaims.has(recordingId);
-}
-
-export function restoreMissingRecordingClaim(
-  recordingId: string,
-  clientId: string,
-): boolean {
-  if (
-    standaloneRecordingConversationId.has(recordingId) ||
-    recordingClientClaims.has(recordingId)
-  ) {
-    return false;
-  }
-  recordingClientClaims.set(recordingId, {
-    clientId,
-    expiresAt: Date.now() + RECORDING_CLAIM_LEASE_MS,
-  });
-  return true;
-}
-
-export function releaseRecordingClaim(
-  recordingId: string,
-  clientId: string,
-): void {
-  if (recordingClientClaims.get(recordingId)?.clientId === clientId) {
-    recordingClientClaims.delete(recordingId);
-  }
 }
 
 // ─── Stop ────────────────────────────────────────────────────────────────────
@@ -416,7 +315,6 @@ function cleanupMaps(
   conversationId: string | undefined,
 ): void {
   standaloneRecordingConversationId.delete(recordingId);
-  recordingClientClaims.delete(recordingId);
   if (conversationId) {
     const current = recordingOwnerByConversation.get(conversationId);
     if (current === recordingId) {
@@ -434,40 +332,31 @@ function cleanupMaps(
  * This is the shared finalization flow used by the normal stop path and
  * by the restart path to save the previous recording before starting a new one.
  *
- * Caches the terminal result so retries observe the same finalization outcome.
+ * Includes an idempotency guard so the same recording cannot be finalized
+ * twice (prevents double-finalization during restart races).
  */
-function finalizeAndPublishRecording(params: {
+async function finalizeAndPublishRecording(params: {
   recordingId: string;
   conversationId: string;
   filePath?: string;
-  attachmentId?: string;
   durationMs?: number;
-}): Promise<RecordingFinalizationResult> {
-  const existing = finalizedRecordingResults.get(params.recordingId);
-  if (existing) {
-    return existing;
+}): Promise<{ success: boolean; messageId?: string }> {
+  const { recordingId, conversationId, filePath } = params;
+
+  // Idempotency guard: prevent double-finalization.
+  // Mark as finalized eagerly (before any async work) so concurrent calls
+  // for the same recordingId are rejected immediately.
+  if (finalizedRecordingIds.has(recordingId)) {
+    log.warn(
+      { recordingId, conversationId },
+      "Recording already finalized — skipping duplicate finalization",
+    );
+    return { success: false };
   }
+  finalizedRecordingIds.add(recordingId);
+  setTimeout(() => finalizedRecordingIds.delete(recordingId), 60_000);
 
-  const finalization = finalizeAndPublishRecordingOnce(params);
-  finalizedRecordingResults.set(params.recordingId, finalization);
-  setTimeout(() => {
-    if (finalizedRecordingResults.get(params.recordingId) === finalization) {
-      finalizedRecordingResults.delete(params.recordingId);
-    }
-  }, 60_000);
-  return finalization;
-}
-
-async function finalizeAndPublishRecordingOnce(params: {
-  recordingId: string;
-  conversationId: string;
-  filePath?: string;
-  attachmentId?: string;
-  durationMs?: number;
-}): Promise<RecordingFinalizationResult> {
-  const { recordingId, conversationId, filePath, attachmentId } = params;
-
-  if (!filePath && !attachmentId) {
+  if (!filePath) {
     // No file path — recording stopped without producing a file
     log.warn(
       { recordingId, conversationId },
@@ -498,54 +387,49 @@ async function finalizeAndPublishRecordingOnce(params: {
     return { success: false };
   }
 
-  let resolvedPath: string | undefined;
-  if (filePath) {
+  // Restrict accepted file paths to the app's recordings directory to
+  // prevent attachment of arbitrary files via crafted messages.
+  let resolvedPath: string;
+  try {
+    resolvedPath = realpathSync(filePath);
+  } catch {
+    // File doesn't exist (broken symlink or missing) — use path.resolve
+    // as fallback; the existsSync check below will handle the missing file.
+    resolvedPath = path.resolve(filePath);
+  }
+  const allowedDirs = getCanonicalRecordingDirectories();
+  if (!allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))) {
+    log.warn(
+      { recordingId, filePath, allowedDirs },
+      "Recording file path outside allowed directory — rejecting",
+    );
+    const errorText = "Recording file is unavailable or expired.";
     try {
-      resolvedPath = realpathSync(filePath);
-    } catch {
-      resolvedPath = path.resolve(filePath);
-    }
-    const allowedDirs = getCanonicalRecordingDirectories();
-    if (!allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath!, dir))) {
-      log.warn(
-        { recordingId, filePath, allowedDirs },
-        "Recording file path outside allowed directory — rejecting",
+      await addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify([{ type: "text", text: errorText }]),
       );
-      const errorText = "Recording file is unavailable or expired.";
-      try {
-        await addMessage(
-          conversationId,
-          "assistant",
-          JSON.stringify([{ type: "text", text: errorText }]),
-        );
-      } catch (persistErr) {
-        log.warn(
-          { err: persistErr, recordingId, conversationId },
-          "Failed to persist recording error message",
-        );
-      }
-      broadcastMessage({
-        type: "assistant_text_delta",
-        text: errorText,
-        conversationId: conversationId,
-      });
-      broadcastMessage({
-        type: "message_complete",
-        conversationId: conversationId,
-      });
-      return { success: false };
+    } catch (persistErr) {
+      log.warn(
+        { err: persistErr, recordingId, conversationId },
+        "Failed to persist recording error message",
+      );
     }
+    broadcastMessage({
+      type: "assistant_text_delta",
+      text: errorText,
+      conversationId: conversationId,
+    });
+    broadcastMessage({
+      type: "message_complete",
+      conversationId: conversationId,
+    });
+    return { success: false };
   }
 
   try {
-    const uploadedAttachment = attachmentId
-      ? getAttachmentById(attachmentId, { hydrateFileData: false })
-      : null;
-    if (attachmentId && !uploadedAttachment?.mimeType.startsWith("video/")) {
-      throw new Error("Uploaded recording attachment is missing or not video");
-    }
-
-    if (resolvedPath && !existsSync(resolvedPath)) {
+    if (!existsSync(resolvedPath)) {
       log.error({ recordingId, filePath }, "Recording file does not exist");
       const errorText = "Recording failed to save.";
       try {
@@ -572,22 +456,8 @@ async function finalizeAndPublishRecordingOnce(params: {
       return { success: false };
     }
 
-    let filename: string;
-    let mimeType: string;
-    let sizeBytes: number;
-    if (resolvedPath) {
-      filename = path.basename(resolvedPath);
-      sizeBytes = statSync(resolvedPath).size;
-      const ext = filename.split(".").pop()?.toLowerCase();
-      mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || "video/mp4";
-    } else {
-      if (!uploadedAttachment) {
-        throw new Error("Uploaded recording attachment is unavailable");
-      }
-      filename = uploadedAttachment.originalFilename;
-      mimeType = uploadedAttachment.mimeType;
-      sizeBytes = uploadedAttachment.sizeBytes;
-    }
+    const stat = statSync(resolvedPath);
+    const sizeBytes = stat.size;
 
     if (sizeBytes === 0) {
       log.error(
@@ -619,6 +489,12 @@ async function finalizeAndPublishRecordingOnce(params: {
       return { success: false };
     }
 
+    const filename = path.basename(resolvedPath);
+
+    // Infer MIME type from extension
+    const ext = filename.split(".").pop()?.toLowerCase();
+    const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || "video/mp4";
+
     // Always create a new assistant message for the recording attachment.
     // Reusing the last assistant message would attach the recording to an
     // unrelated older message after reload.
@@ -634,32 +510,14 @@ async function finalizeAndPublishRecordingOnce(params: {
       "Created assistant message for recording attachment",
     );
 
-    let attachment;
-    if (attachmentId) {
-      const linkedAttachmentId = linkAttachmentToMessage(
-        messageId,
-        attachmentId,
-        0,
-      );
-      attachment = getAttachmentById(linkedAttachmentId, {
-        hydrateFileData: false,
-      });
-      if (!attachment) {
-        throw new Error("Linked recording attachment is unavailable");
-      }
-    } else {
-      if (!resolvedPath) {
-        throw new Error("Recording file path is unavailable");
-      }
-      attachment = attachFileBackedAttachmentToMessage(
-        messageId,
-        0,
-        filename,
-        mimeType,
-        resolvedPath,
-        sizeBytes,
-      );
-    }
+    const attachment = attachFileBackedAttachmentToMessage(
+      messageId,
+      0,
+      filename,
+      mimeType,
+      resolvedPath,
+      sizeBytes,
+    );
     log.info(
       {
         recordingId,
@@ -702,7 +560,7 @@ async function finalizeAndPublishRecordingOnce(params: {
           data: "", // empty for file-backed; client uses content endpoint
           sizeBytes: attachment.sizeBytes,
           thumbnailData,
-          ...(resolvedPath ? { filePath: resolvedPath } : {}),
+          filePath: resolvedPath,
         },
       ],
     });
@@ -751,7 +609,7 @@ async function finalizeAndPublishRecordingOnce(params: {
  */
 export async function handleRecordingStatusCore(
   msg: RecordingStatus,
-): Promise<RecordingFinalizationResult> {
+): Promise<void> {
   const recordingId = msg.conversationId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
 
@@ -772,7 +630,7 @@ export async function handleRecordingStatusCore(
       { recordingId },
       "Ignoring recording_status for unknown recording ID with no attachToConversationId",
     );
-    return { success: true };
+    return;
   }
 
   // ── Operation token validation for restart race hardening ──
@@ -796,7 +654,7 @@ export async function handleRecordingStatusCore(
       },
       "Rejecting stale recording_status — operation token mismatch (previous restart cycle)",
     );
-    return { success: true };
+    return;
   }
 
   // Cancel the stop timeout for most statuses, but NOT for a 'started' that
@@ -836,28 +694,29 @@ export async function handleRecordingStatusCore(
     }
 
     case "restart_cancelled": {
+      // The user closed/canceled the source picker during a restart.
+      // Emit a deterministic response — never "new recording started".
       log.info(
-        { recordingId, conversationId, operationToken: msg.operationToken },
-        "Recording source selection cancelled",
+        { recordingId, conversationId },
+        "Restart cancelled — source picker closed",
       );
 
+      // Clean up restart state
       cleanupMaps(recordingId, conversationId);
       pendingRestartByConversation.delete(conversationId);
       if (activeRestartToken && pendingRestartByConversation.size === 0) {
         activeRestartToken = null;
       }
 
-      if (msg.operationToken) {
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: "Recording restart cancelled.",
-          conversationId: conversationId,
-        });
-        broadcastMessage({
-          type: "message_complete",
-          conversationId: conversationId,
-        });
-      }
+      broadcastMessage({
+        type: "assistant_text_delta",
+        text: "Recording restart cancelled.",
+        conversationId: conversationId,
+      });
+      broadcastMessage({
+        type: "message_complete",
+        conversationId: conversationId,
+      });
       break;
     }
 
@@ -972,7 +831,6 @@ export async function handleRecordingStatusCore(
           recordingId,
           conversationId,
           filePath: msg.filePath,
-          attachmentId: msg.attachmentId,
           durationMs: msg.durationMs,
         });
 
@@ -993,17 +851,18 @@ export async function handleRecordingStatusCore(
 
         // Prevent fall-through to the normal finalization path below since
         // we already called finalizeAndPublishRecording explicitly above.
-        return finResult;
+        break;
       }
 
       // Finalize: attach the recording file to the conversation
-      return finalizeAndPublishRecording({
+      await finalizeAndPublishRecording({
         recordingId,
         conversationId,
         filePath: msg.filePath,
-        attachmentId: msg.attachmentId,
         durationMs: msg.durationMs,
       });
+
+      break;
     }
 
     case "failed": {
@@ -1037,8 +896,6 @@ export async function handleRecordingStatusCore(
       break;
     }
   }
-
-  return { success: true };
 }
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
@@ -1051,9 +908,8 @@ export function __resetRecordingState(): void {
   pendingStopTimeouts.clear();
   standaloneRecordingConversationId.clear();
   recordingOwnerByConversation.clear();
-  recordingClientClaims.clear();
   pendingRestartByConversation.clear();
   deferredRestartByConversation.clear();
-  finalizedRecordingResults.clear();
+  finalizedRecordingIds.clear();
   activeRestartToken = null;
 }

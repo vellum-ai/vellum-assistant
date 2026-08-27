@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
@@ -24,11 +25,7 @@ import {
 } from "@/utils/conversation-list-keys";
 import { listPage, queryFor } from "@/utils/conversation-list.test-helper";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
-import {
-  __resetForTesting,
-  publish,
-  type SourcedAssistantEventEnvelope,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/utils/fetch-conversation-detail`.
@@ -128,9 +125,8 @@ function emit(event: SyncChangedEvent): void {
   publish("sse.event", {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
-    sourceAssistantId: "asst-1",
     message: event,
-  } as SourcedAssistantEventEnvelope);
+  } as AssistantEventEnvelope);
 }
 
 function emitOpened(
@@ -520,13 +516,12 @@ describe("useConversationSync", () => {
       id: "evt-title",
       conversationId: "conv-1",
       emittedAt: new Date().toISOString(),
-      sourceAssistantId: "asst-1",
       message: {
         type: "conversation_title_updated",
         conversationId: "conv-1",
         title: "New Title",
       },
-    } as SourcedAssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     await waitFor(() => {
       const cached = queryClient.getQueryData<ConversationListPage>(
         conversationListQueryKey("asst-1"),

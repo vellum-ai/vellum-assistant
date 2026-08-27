@@ -27,10 +27,6 @@
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { CommandUrlProvenance } from "@/runtime/native-deep-link";
 
-export type SourcedAssistantEventEnvelope = AssistantEventEnvelope & {
-  readonly sourceAssistantId: string;
-};
-
 /**
  * Source of a synthetic `"app.resume"` event.
  *
@@ -66,11 +62,10 @@ export interface BusEventMap {
   /**
    * Re-broadcast of an SSE event received on the bus-owned
    * assistant-scoped `/v1/events` connection. The envelope carries
-   * its immutable source assistant plus transport metadata (`seq`,
-   * `conversationId`, `emittedAt`); subscribers read the semantic
-   * event from `envelope.message`.
+   * transport metadata (`seq`, `conversationId`, `emittedAt`);
+   * subscribers read the semantic event from `envelope.message`.
    */
-  "sse.event": SourcedAssistantEventEnvelope;
+  "sse.event": AssistantEventEnvelope;
   /**
    * The bus-owned SSE connection just opened (or reopened). Carries the
    * `cause` of the (re)open so consumers can distinguish a fresh

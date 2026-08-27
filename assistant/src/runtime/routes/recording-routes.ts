@@ -15,41 +15,29 @@
 import { z } from "zod";
 
 import {
-  claimRecordingOutcome,
   getActiveRestartToken,
   handleRecordingPause,
   handleRecordingResume,
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
-  hasRecordingClaim,
   isRecordingIdle,
-  ownsRecordingClaim,
-  releaseRecordingClaim,
-  restoreMissingRecordingClaim,
 } from "../../daemon/handlers/recording.js";
 import type {
   RecordingOptions,
   RecordingStatus,
 } from "../../daemon/message-protocol.js";
-import { recordingTransferStore } from "../../daemon/recording-transfer.js";
-import { getConversation } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { enforceSameActorOrThrow } from "../auth/same-actor.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
   ConflictError,
-  ForbiddenError,
   InternalError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("recording-routes");
-const MAX_RECORDING_CHUNK_BYTES = 16 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -81,224 +69,6 @@ async function handleStartRecording({ body }: RouteHandlerArgs) {
   );
 
   return { recordingId };
-}
-
-function requireClientId(headers?: Record<string, string>): string {
-  const clientId = headers?.["x-vellum-client-id"]?.trim();
-  if (!clientId) {
-    throw new BadRequestError("X-Vellum-Client-Id is required");
-  }
-  return clientId;
-}
-
-async function handleClaimRecording({ body, headers }: RouteHandlerArgs) {
-  const recordingId = body?.recordingId;
-  if (typeof recordingId !== "string") {
-    throw new BadRequestError("recordingId is required");
-  }
-  const rendererClientId = requireClientId(headers);
-  const clientId = headers?.["vellum-device-id"]?.trim()
-    ? await requireDesktopClient(headers)
-    : rendererClientId;
-  const outcome = claimRecordingOutcome(recordingId, clientId, {
-    isClientConnected: (clientId) =>
-      Boolean(assistantEventHub.getClientById(clientId)),
-  });
-  if (outcome === "claimed") {
-    recordingTransferStore.keepAlive(recordingId, clientId);
-  }
-  return { claimed: outcome === "claimed", outcome };
-}
-
-const TERMINAL_RECORDING_STATUSES = new Set([
-  "stopped",
-  "failed",
-  "restart_cancelled",
-]);
-
-async function requireDesktopClient(
-  headers: Record<string, string> | undefined,
-): Promise<string> {
-  const desktopClientId = headers?.["vellum-device-id"]?.trim();
-  if (!desktopClientId) {
-    throw new ForbiddenError("Recording request requires a desktop client");
-  }
-  const client = assistantEventHub.getClientById(desktopClientId);
-  if (
-    !client ||
-    (client.interfaceId !== "macos" && client.interfaceId !== "windows")
-  ) {
-    throw new ForbiddenError("Recording request requires a desktop client");
-  }
-
-  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
-    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
-  );
-  enforceSameActorOrThrow({
-    sourceActorPrincipalId: actorPrincipalId,
-    targetActorPrincipalId: client.actorPrincipalId,
-    targetClientId: desktopClientId,
-    op: "screen_recording",
-    hubForMissingTarget: assistantEventHub,
-  });
-  return desktopClientId;
-}
-
-async function restoreRestartFallbackOwner(
-  body: Record<string, unknown>,
-  headers: Record<string, string> | undefined,
-  recordingId: string,
-): Promise<string | null> {
-  if (
-    typeof body.status !== "string" ||
-    !TERMINAL_RECORDING_STATUSES.has(body.status) ||
-    typeof body.attachToConversationId !== "string"
-  ) {
-    return null;
-  }
-
-  const desktopClientId = await requireDesktopClient(headers);
-
-  if (!getConversation(body.attachToConversationId)) {
-    throw new NotFoundError("Conversation not found");
-  }
-
-  return restoreMissingRecordingClaim(recordingId, desktopClientId)
-    ? desktopClientId
-    : null;
-}
-
-async function requireStatusOwner(
-  body: Record<string, unknown>,
-  headers: Record<string, string> | undefined,
-  recordingId: string,
-  clientId: string,
-): Promise<{ clientId: string; restored: boolean }> {
-  if (ownsRecordingClaim(recordingId, clientId)) {
-    return { clientId, restored: false };
-  }
-  const desktopClientId = headers?.["vellum-device-id"]?.trim();
-  if (desktopClientId && ownsRecordingClaim(recordingId, desktopClientId)) {
-    await requireDesktopClient(headers);
-    return { clientId: desktopClientId, restored: false };
-  }
-  if (hasRecordingClaim(recordingId)) {
-    throw new ConflictError("Recording belongs to another client");
-  }
-  const outcome = claimRecordingOutcome(recordingId, clientId);
-  if (outcome === "claimed") {
-    return { clientId, restored: false };
-  }
-  if (outcome === "missing") {
-    const restoredOwnerId = await restoreRestartFallbackOwner(
-      body,
-      headers,
-      recordingId,
-    );
-    if (restoredOwnerId) {
-      return { clientId: restoredOwnerId, restored: true };
-    }
-  }
-  throw new ConflictError("Recording belongs to another client");
-}
-
-async function requireTransferOwner(
-  body: Record<string, unknown>,
-  headers: Record<string, string> | undefined,
-  recordingId: string,
-  clientId: string,
-): Promise<string> {
-  if (ownsRecordingClaim(recordingId, clientId)) {
-    return clientId;
-  }
-  const desktopClientId = headers?.["vellum-device-id"]?.trim();
-  if (desktopClientId && ownsRecordingClaim(recordingId, desktopClientId)) {
-    await requireDesktopClient(headers);
-    return desktopClientId;
-  }
-  if (
-    body.operation === "begin" &&
-    typeof body.attachToConversationId === "string" &&
-    !hasRecordingClaim(recordingId)
-  ) {
-    const restoredDesktopClientId = await requireDesktopClient(headers);
-    if (!getConversation(body.attachToConversationId)) {
-      throw new NotFoundError("Conversation not found");
-    }
-    if (restoreMissingRecordingClaim(recordingId, restoredDesktopClientId)) {
-      return restoredDesktopClientId;
-    }
-  }
-  if (!hasRecordingClaim(recordingId)) {
-    throw new NotFoundError("Recording state not found");
-  }
-  throw new ConflictError("Recording belongs to another client");
-}
-
-async function handleRecordingTransfer({ body, headers }: RouteHandlerArgs) {
-  const recordingId = body?.recordingId;
-  const operation = body?.operation;
-  if (typeof recordingId !== "string") {
-    throw new BadRequestError("recordingId is required");
-  }
-  if (typeof operation !== "string") {
-    throw new BadRequestError("operation is required");
-  }
-  const clientId = requireClientId(headers);
-  const ownerClientId = await requireTransferOwner(
-    body ?? {},
-    headers,
-    recordingId,
-    clientId,
-  );
-
-  switch (operation) {
-    case "begin":
-      await recordingTransferStore.begin(recordingId, ownerClientId);
-      return { ok: true };
-    case "append": {
-      if (typeof body?.data !== "string") {
-        throw new BadRequestError("data is required");
-      }
-      if (
-        typeof body.sequence !== "number" ||
-        !Number.isInteger(body.sequence) ||
-        body.sequence < 0
-      ) {
-        throw new BadRequestError("sequence is required");
-      }
-      if (
-        body.data.length >
-        Math.ceil((MAX_RECORDING_CHUNK_BYTES * 4) / 3) + 4
-      ) {
-        throw new BadRequestError("Recording chunk is too large");
-      }
-      const chunk = Buffer.from(body.data, "base64");
-      if (chunk.byteLength > MAX_RECORDING_CHUNK_BYTES) {
-        throw new BadRequestError("Recording chunk is too large");
-      }
-      await recordingTransferStore.append(
-        recordingId,
-        ownerClientId,
-        body.sequence,
-        chunk,
-      );
-      return { ok: true };
-    }
-    case "finish":
-      return {
-        ok: true,
-        attachmentId: await recordingTransferStore.finish(
-          recordingId,
-          ownerClientId,
-        ),
-      };
-    case "abort":
-      await recordingTransferStore.abort(recordingId, ownerClientId);
-      return { ok: true };
-    default:
-      throw new BadRequestError(`Invalid operation: ${operation}`);
-  }
 }
 
 async function handleStopRecording({ body }: RouteHandlerArgs) {
@@ -389,7 +159,7 @@ const VALID_RECORDING_STATUSES = [
   "resumed",
 ] as const;
 
-async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
+async function handlePostRecordingStatus({ body }: RouteHandlerArgs) {
   if (!body?.conversationId || typeof body.conversationId !== "string") {
     throw new BadRequestError("conversationId is required");
   }
@@ -406,36 +176,14 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError(`Invalid status: ${body.status}`);
   }
 
-  const clientId = requireClientId(headers);
-  const statusOwner = await requireStatusOwner(
-    body,
-    headers,
-    body.conversationId,
-    clientId,
-  );
-
   const msg: RecordingStatus = {
     ...(body as Omit<RecordingStatus, "type">),
     type: "recording_status",
   };
 
-  let result;
   try {
-    result = await handleRecordingStatusCore(msg);
-    if (
-      !result.success &&
-      body.status === "stopped" &&
-      typeof body.attachmentId === "string"
-    ) {
-      await recordingTransferStore.abort(
-        body.conversationId,
-        statusOwner.clientId,
-      );
-    }
+    await handleRecordingStatusCore(msg);
   } catch (err) {
-    if (statusOwner.restored) {
-      releaseRecordingClaim(body.conversationId, statusOwner.clientId);
-    }
     log.error(
       { err, conversationId: body.conversationId, status: body.status },
       "Recording status handler failed",
@@ -448,7 +196,7 @@ async function handlePostRecordingStatus({ body, headers }: RouteHandlerArgs) {
     "Recording status processed via HTTP",
   );
 
-  return { ok: result.success };
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -480,50 +228,6 @@ export const ROUTES: RouteDefinition[] = [
       recordingId: z.string(),
     }),
     handler: handleStartRecording,
-  },
-  {
-    operationId: "recordings_claim",
-    endpoint: "recordings/claim",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Claim recording",
-    description: "Atomically claim a recording for one connected client.",
-    tags: ["recordings"],
-    requestBody: z.object({
-      recordingId: z.string().uuid(),
-    }),
-    responseBody: z.object({
-      claimed: z.boolean(),
-      outcome: z.enum(["claimed", "occupied", "missing"]),
-    }),
-    handler: handleClaimRecording,
-  },
-  {
-    operationId: "recordings_transfer",
-    endpoint: "recordings/transfer",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Transfer recording",
-    description: "Append recording chunks into a file-backed attachment.",
-    tags: ["recordings"],
-    requestBody: z.object({
-      recordingId: z.string().uuid(),
-      operation: z.enum(["begin", "append", "finish", "abort"]),
-      sequence: z.number().int().nonnegative().optional(),
-      data: z.string().optional(),
-      attachToConversationId: z.string().optional(),
-    }),
-    responseBody: z.object({
-      ok: z.boolean(),
-      attachmentId: z.string().optional(),
-    }),
-    handler: handleRecordingTransfer,
   },
   {
     operationId: "recordings_stop",
@@ -621,7 +325,6 @@ export const ROUTES: RouteDefinition[] = [
           "started, stopped, failed, restart_cancelled, paused, resumed",
         ),
       filePath: z.string().optional(),
-      attachmentId: z.string().optional(),
       durationMs: z.number().optional(),
       error: z.string().optional(),
       attachToConversationId: z.string().optional(),

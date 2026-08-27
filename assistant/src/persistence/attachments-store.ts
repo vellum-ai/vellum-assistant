@@ -15,15 +15,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import {
-  basename,
-  dirname,
-  extname,
-  isAbsolute,
-  join,
-  relative,
-  sep,
-} from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -313,8 +305,8 @@ function materializeAttachmentIntoConversation(
   persistAttachmentFilePath(row.id, targetPath, sourcePath);
 
   // Remove the old staging file now that the canonical copy lives in
-  // the conversation directory. Only delete files that live in the
-  // staging tree (workspace/data/attachments/). When an attachment is
+  // the conversation directory.  Only delete files that live in the
+  // staging area (workspace/data/attachments/).  When an attachment is
   // cloned across conversations (e.g. during a fork), previousFilePath
   // may point to another conversation's directory — deleting that would
   // cause data loss for the source conversation.
@@ -327,26 +319,14 @@ function materializeAttachmentIntoConversation(
   } catch {
     stagingDir = stagingDirRaw;
   }
-  let stagedFilePath: string | null = null;
-  if (previousFilePath && existsSync(previousFilePath)) {
+  if (
+    previousFilePath &&
+    previousFilePath !== targetPath &&
+    dirname(previousFilePath) === stagingDir &&
+    existsSync(previousFilePath)
+  ) {
     try {
-      stagedFilePath = realpathSync(previousFilePath);
-    } catch {
-      stagedFilePath = previousFilePath;
-    }
-  }
-  const stagingRelativePath = stagedFilePath
-    ? relative(stagingDir, stagedFilePath)
-    : null;
-  const isStagedFile =
-    stagingRelativePath !== null &&
-    stagingRelativePath !== "" &&
-    stagingRelativePath !== ".." &&
-    !stagingRelativePath.startsWith(`..${sep}`) &&
-    !isAbsolute(stagingRelativePath);
-  if (stagedFilePath && stagedFilePath !== targetPath && isStagedFile) {
-    try {
-      unlinkSync(stagedFilePath);
+      unlinkSync(previousFilePath);
     } catch {
       /* file may already be gone */
     }

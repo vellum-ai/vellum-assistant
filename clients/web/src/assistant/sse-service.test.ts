@@ -111,7 +111,6 @@ beforeEach(() => {
   // tiny window locally and await it.
   __setHiddenTeardownGraceMsForTesting(10_000);
   nativeMobile = false;
-  delete window.vellum;
   activeOnEvent = null;
   activeOnError = null;
   activeOnReconnect = null;
@@ -164,10 +163,7 @@ describe("sseService.attach — connection lifecycle", () => {
 
     activeOnEvent!(envelope);
 
-    expect(publishSpy).toHaveBeenCalledWith("sse.event", {
-      ...envelope,
-      sourceAssistantId: "asst-1",
-    });
+    expect(publishSpy).toHaveBeenCalledWith("sse.event", envelope);
   });
 
   test("publishes sse.opened with cause=fresh once the stream establishes", () => {
@@ -406,20 +402,6 @@ describe("sseService.attach — SSE-connected store wiring", () => {
 });
 
 describe("sseService.attach — visibility-driven bounce", () => {
-  test("keeps the Electron lifecycle stream open while hidden", async () => {
-    window.vellum = {
-      platform: "electron",
-    } as NonNullable<typeof window.vellum>;
-    __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
-    sseService.attach("asst-1");
-
-    eventBus.publish("app.hidden", { signal: "visibility" });
-    await sleep(TEST_HIDDEN_GRACE_MS + 20);
-
-    expect(cancelMock).not.toHaveBeenCalled();
-    expect(subscribeEventsMock).toHaveBeenCalledTimes(1);
-  });
-
   test("does NOT tear down immediately on app.hidden — the teardown is debounced", async () => {
     __setHiddenTeardownGraceMsForTesting(TEST_HIDDEN_GRACE_MS);
     sseService.attach("asst-1");

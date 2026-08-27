@@ -56,7 +56,6 @@ function publishDocumentEdit(options: {
     publish("sse.event", {
       id: "evt-1",
       emittedAt: new Date().toISOString(),
-      sourceAssistantId: "asst-1",
       message: {
         type: "document_editor_update",
         conversationId: options.conversationId ?? "conv-1",

@@ -37,7 +37,6 @@ import {
   subscribeEvents,
   type EventStream,
 } from "@/lib/streaming/stream-transport";
-import { isElectron } from "@/runtime/is-electron";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useSSEConnectedStore } from "@/stores/sse-connected-store";
 
@@ -200,10 +199,7 @@ export const sseService: SseService = {
       const stream = subscribeEvents(
         assistantId,
         (envelope) => {
-          publish("sse.event", {
-            ...envelope,
-            sourceAssistantId: assistantId,
-          });
+          publish("sse.event", envelope);
         },
         (err) => {
           Sentry.addBreadcrumb({
@@ -350,9 +346,6 @@ export const sseService: SseService = {
     // real. Idempotent — a repeat `app.hidden` while already scheduled is
     // ignored.
     const handleAppHidden = () => {
-      if (isElectron()) {
-        return;
-      }
       if (!current) {
         return;
       }

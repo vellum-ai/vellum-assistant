@@ -1,21 +1,18 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+
 import { eventsDebugApi } from "@/domains/chat/api/debug-api";
-import {
-  __resetForTesting,
-  publish,
-  type SourcedAssistantEventEnvelope,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 afterEach(() => {
   __resetForTesting();
 });
 
-function makeEnvelope(): SourcedAssistantEventEnvelope {
+function makeEnvelope(): AssistantEventEnvelope {
   return {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
-    sourceAssistantId: "asst-1",
     message: { type: "conversation_list_invalidated", reason: "created" },
   };
 }

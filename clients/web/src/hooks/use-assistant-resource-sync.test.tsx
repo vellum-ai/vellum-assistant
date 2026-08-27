@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import {
@@ -29,11 +30,7 @@ import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
-import {
-  __resetForTesting,
-  publish,
-  type SourcedAssistantEventEnvelope,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 import { getClientId } from "@/lib/telemetry/client-identity";
 
 function createWrapper(queryClient: QueryClient) {
@@ -87,9 +84,8 @@ function emit(event: AssistantEvent): void {
   publish("sse.event", {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
-    sourceAssistantId: "asst-1",
     message: event,
-  } as SourcedAssistantEventEnvelope);
+  } as AssistantEventEnvelope);
 }
 
 /** Mirrors RECONNECT_SWEEP_DEBOUNCE_MS in use-assistant-resource-sync.ts. */

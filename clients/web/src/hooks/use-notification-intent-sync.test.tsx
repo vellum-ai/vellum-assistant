@@ -30,8 +30,9 @@ mock.module("@/lib/sounds/sound-manager", () => ({
   getSoundManager: () => ({ play: async () => {} }),
 }));
 
-const { useNotificationIntentSync } =
-  await import("@/hooks/use-notification-intent-sync");
+const { useNotificationIntentSync } = await import(
+  "@/hooks/use-notification-intent-sync"
+);
 
 function publishNotificationIntent(overrides: {
   remotePushDispatched?: boolean;
@@ -41,7 +42,6 @@ function publishNotificationIntent(overrides: {
     publish("sse.event", {
       id: "evt-1",
       emittedAt: new Date().toISOString(),
-      sourceAssistantId: "asst-1",
       message: {
         type: "notification_intent",
         sourceEventName: "reminder.fired",

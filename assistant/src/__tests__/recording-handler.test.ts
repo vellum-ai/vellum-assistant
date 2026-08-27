@@ -20,7 +20,6 @@ mock.module("../util/logger.js", () => ({
 // Conversation store mock
 const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
-let mockConversationExists = true;
 
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
@@ -41,8 +40,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     return msg;
   },
   createConversation: () => ({ id: "conv-mock" }),
-  getConversation: (id: string) =>
-    mockConversationExists ? { id, createdAt: Date.now() } : null,
+  getConversation: () => ({ id: "conv-mock" }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -54,9 +52,6 @@ const mockAttachments: Array<{
   sizeBytes: number;
 }> = [];
 let mockAttachmentIdCounter = 0;
-const mockLinkAttachmentToMessage = mock(
-  (_messageId: string, attachmentId: string) => attachmentId,
-);
 
 mock.module("../persistence/attachments-store.js", () => ({
   attachFileBackedAttachmentToMessage: (
@@ -91,10 +86,7 @@ mock.module("../persistence/attachments-store.js", () => ({
     mockAttachments.push(att);
     return att;
   },
-  getAttachmentById: (attachmentId: string) =>
-    mockAttachments.find((attachment) => attachment.id === attachmentId) ??
-    null,
-  linkAttachmentToMessage: mockLinkAttachmentToMessage,
+  linkAttachmentToMessage: noop,
   setAttachmentThumbnail: noop,
 }));
 
@@ -103,55 +95,6 @@ mock.module("../persistence/attachments-store.js", () => ({
 mock.module("../daemon/video-thumbnail.js", () => ({
   generateVideoThumbnail: async () => null,
   generateVideoThumbnailFromPath: async () => null,
-}));
-
-const mockTransferCalls: Array<{
-  operation: string;
-  recordingId: string;
-  ownerClientId: string;
-  sequence?: number;
-  data?: number[];
-}> = [];
-mock.module("../daemon/recording-transfer.js", () => ({
-  recordingTransferStore: {
-    begin: async (recordingId: string, ownerClientId: string) => {
-      mockTransferCalls.push({
-        operation: "begin",
-        recordingId,
-        ownerClientId,
-      });
-    },
-    append: async (
-      recordingId: string,
-      ownerClientId: string,
-      sequence: number,
-      data: Uint8Array,
-    ) => {
-      mockTransferCalls.push({
-        operation: "append",
-        recordingId,
-        ownerClientId,
-        sequence,
-        data: [...data],
-      });
-    },
-    finish: async (recordingId: string, ownerClientId: string) => {
-      mockTransferCalls.push({
-        operation: "finish",
-        recordingId,
-        ownerClientId,
-      });
-      return "att-recovered";
-    },
-    abort: async (recordingId: string, ownerClientId: string) => {
-      mockTransferCalls.push({
-        operation: "abort",
-        recordingId,
-        ownerClientId,
-      });
-    },
-    keepAlive: () => false,
-  },
 }));
 
 // The allowed recordings directory used by the recording handler
@@ -197,32 +140,9 @@ mock.module("node:fs", () => {
 
 // Capture broadcastMessage calls
 const broadcastedMessages: Array<{ type: string; [k: string]: unknown }> = [];
-const mockClients = new Map<
-  string,
-  {
-    clientId: string;
-    interfaceId: "macos" | "windows" | "web";
-    actorPrincipalId: string;
-  }
->();
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: unknown) => {
     broadcastedMessages.push(msg as { type: string; [k: string]: unknown });
-  },
-  assistantEventHub: {
-    getClientById: (clientId: string) => mockClients.get(clientId),
-    getActorPrincipalIdForClient: (clientId: string) =>
-      mockClients.get(clientId)?.actorPrincipalId,
-    subscribe: (client: {
-      clientId: string;
-      interfaceId: "macos" | "windows" | "web";
-      actorPrincipalId: string;
-    }) => {
-      mockClients.set(client.clientId, client);
-      return {
-        dispose: () => mockClients.delete(client.clientId),
-      };
-    },
   },
 }));
 
@@ -230,48 +150,17 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 import {
   __resetRecordingState,
-  claimRecording,
-  claimRecordingOutcome,
   handleRecordingStart,
   handleRecordingStatusCore,
   handleRecordingStop,
-  hasRecordingClaim,
 } from "../daemon/handlers/recording.js";
 import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
-import { ROUTES } from "../runtime/routes/recording-routes.js";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
 function createSent(): Array<{ type: string; [k: string]: unknown }> {
   broadcastedMessages.length = 0;
   return broadcastedMessages;
-}
-
-const statusRouteHandler = ROUTES.find(
-  (route) => route.operationId === "recordings_status_post",
-)!.handler;
-const transferRouteHandler = ROUTES.find(
-  (route) => route.operationId === "recordings_transfer",
-)!.handler;
-
-function registerMockClient(
-  clientId: string,
-  actorPrincipalId: string,
-  interfaceId: "macos" | "windows" | "web" = "macos",
-): void {
-  mockClients.set(clientId, { clientId, actorPrincipalId, interfaceId });
-}
-
-function statusHeaders(
-  clientId: string,
-  actorPrincipalId: string,
-  desktopClientId?: string,
-) {
-  return {
-    "x-vellum-client-id": clientId,
-    "x-vellum-actor-principal-id": actorPrincipalId,
-    ...(desktopClientId ? { "vellum-device-id": desktopClientId } : {}),
-  };
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -283,12 +172,8 @@ describe("handleRecordingStart", () => {
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
     mockAttachmentIdCounter = 0;
-    mockLinkAttachmentToMessage.mockClear();
     mockFileExists = true;
     mockFileSize = 1024;
-    mockConversationExists = true;
-    mockClients.clear();
-    mockTransferCalls.length = 0;
   });
 
   test("sends recording_start event and returns a UUID", () => {
@@ -316,41 +201,6 @@ describe("handleRecordingStart", () => {
     handleRecordingStart("conv-2", options);
 
     expect(sent[0].options).toEqual(options);
-  });
-
-  test("elects one client to own a recording", () => {
-    const recordingId = handleRecordingStart("conv-claim", undefined)!;
-
-    expect(claimRecording(recordingId, "client-1")).toBeTrue();
-    expect(claimRecording(recordingId, "client-1")).toBeTrue();
-    expect(claimRecording(recordingId, "client-2")).toBeFalse();
-    expect(claimRecordingOutcome("missing-recording", "client-2")).toBe(
-      "missing",
-    );
-  });
-
-  test("allows reclaim after owner disconnect or lease expiry", () => {
-    const disconnectedId = handleRecordingStart(
-      "conv-disconnected",
-      undefined,
-    )!;
-    expect(claimRecording(disconnectedId, "client-1", { now: 0 })).toBeTrue();
-    expect(
-      claimRecording(disconnectedId, "client-2", {
-        now: 1,
-        isClientConnected: () => false,
-      }),
-    ).toBeTrue();
-
-    __resetRecordingState();
-    const expiredId = handleRecordingStart("conv-expired", undefined)!;
-    expect(claimRecording(expiredId, "client-1", { now: 0 })).toBeTrue();
-    expect(
-      claimRecording(expiredId, "client-2", {
-        now: 30_001,
-        isClientConnected: () => true,
-      }),
-    ).toBeTrue();
   });
 
   test("returns null when recording already active and sends no messages", () => {
@@ -386,286 +236,6 @@ describe("handleRecordingStart", () => {
   });
 });
 
-describe("recording status restart fallback", () => {
-  beforeEach(() => {
-    __resetRecordingState();
-    mockMessages.length = 0;
-    mockAttachments.length = 0;
-    mockMessageIdCounter = 0;
-    mockAttachmentIdCounter = 0;
-    mockFileExists = true;
-    mockFileSize = 1024;
-    mockConversationExists = true;
-    mockClients.clear();
-    mockTransferCalls.length = 0;
-  });
-
-  test("attaches a completed recording after assistant state is lost", async () => {
-    const conversationId = "conv-recording-restart-fallback";
-    const recordingId = "00000000-0000-4000-8000-000000000091";
-    registerMockClient("renderer-1", "actor-1", "web");
-    registerMockClient("desktop-1", "actor-1", "windows");
-
-    await expect(
-      statusRouteHandler({
-        body: {
-          conversationId: recordingId,
-          attachToConversationId: conversationId,
-          status: "stopped",
-          filePath: `${ALLOWED_RECORDINGS_DIR}/${recordingId}.webm`,
-        },
-        headers: statusHeaders("renderer-1", "actor-1", "desktop-1"),
-      } as never),
-    ).resolves.toEqual({ ok: true });
-
-    expect(mockAttachments).toHaveLength(1);
-    expect(mockMessages.at(-1)?.content).toContain("Screen recording complete");
-    expect(hasRecordingClaim(recordingId)).toBeFalse();
-  });
-
-  test("returns the same failed finalization result on retry", async () => {
-    const conversationId = "conv-recording-finalization-failure";
-    const recordingId = handleRecordingStart(conversationId, undefined)!;
-    const uploadedAttachment = {
-      id: "attachment-finalization-failure",
-      originalFilename: "screen-recording.webm",
-      mimeType: "video/webm",
-      sizeBytes: 2048,
-    };
-    mockAttachments.push(uploadedAttachment);
-    mockLinkAttachmentToMessage.mockImplementationOnce(() => {
-      throw new Error("attachment link failed");
-    });
-    registerMockClient("renderer-finalize", "actor-1", "web");
-    registerMockClient("desktop-finalize", "actor-1", "windows");
-    expect(claimRecording(recordingId, "desktop-finalize")).toBeTrue();
-    const request = {
-      body: {
-        conversationId: recordingId,
-        attachToConversationId: conversationId,
-        status: "stopped",
-        attachmentId: uploadedAttachment.id,
-      },
-      headers: statusHeaders(
-        "renderer-finalize",
-        "actor-1",
-        "desktop-finalize",
-      ),
-    } as never;
-
-    await expect(statusRouteHandler(request)).resolves.toEqual({ ok: false });
-    await expect(statusRouteHandler(request)).resolves.toEqual({ ok: false });
-
-    expect(mockLinkAttachmentToMessage).toHaveBeenCalledTimes(1);
-    expect(mockTransferCalls).toEqual([
-      {
-        operation: "abort",
-        recordingId,
-        ownerClientId: "desktop-finalize",
-      },
-      {
-        operation: "abort",
-        recordingId,
-        ownerClientId: "desktop-finalize",
-      },
-    ]);
-  });
-
-  test("clears a stopped picker without publishing a no-file message", async () => {
-    const sent = createSent();
-    const recordingId = handleRecordingStart(
-      "conv-recording-picker-stop",
-      undefined,
-    );
-    expect(recordingId).not.toBeNull();
-    sent.length = 0;
-
-    await handleRecordingStatusCore({
-      type: "recording_status",
-      conversationId: recordingId!,
-      status: "restart_cancelled",
-      attachToConversationId: "conv-recording-picker-stop",
-    });
-
-    expect(sent).toEqual([]);
-    expect(hasRecordingClaim(recordingId!)).toBeFalse();
-  });
-
-  test("accepts duplicate desktop cancellation acknowledgements", async () => {
-    const conversationId = "conv-recording-version-timeout";
-    const recordingId = handleRecordingStart(conversationId, undefined)!;
-    registerMockClient("renderer-timeout-1", "actor-1", "web");
-    registerMockClient("desktop-timeout-1", "actor-1", "windows");
-    registerMockClient("renderer-timeout-2", "actor-1", "web");
-    registerMockClient("desktop-timeout-2", "actor-1", "macos");
-    const body = {
-      conversationId: recordingId,
-      attachToConversationId: conversationId,
-      status: "restart_cancelled",
-    };
-
-    await expect(
-      statusRouteHandler({
-        body,
-        headers: statusHeaders(
-          "renderer-timeout-1",
-          "actor-1",
-          "desktop-timeout-1",
-        ),
-      } as never),
-    ).resolves.toEqual({ ok: true });
-    await expect(
-      statusRouteHandler({
-        body,
-        headers: statusHeaders(
-          "renderer-timeout-2",
-          "actor-1",
-          "desktop-timeout-2",
-        ),
-      } as never),
-    ).resolves.toEqual({ ok: true });
-
-    expect(hasRecordingClaim(recordingId)).toBeFalse();
-  });
-
-  test("restarts a lost transfer under the authenticated desktop owner", async () => {
-    const recordingId = "00000000-0000-4000-8000-000000000096";
-    const headers = statusHeaders(
-      "renderer-transfer",
-      "actor-1",
-      "desktop-transfer",
-    );
-    registerMockClient("renderer-transfer", "actor-1", "web");
-    registerMockClient("desktop-transfer", "actor-1", "windows");
-
-    await expect(
-      transferRouteHandler({
-        body: {
-          recordingId,
-          operation: "begin",
-          attachToConversationId: "conv-recording-transfer-recovery",
-        },
-        headers,
-      } as never),
-    ).resolves.toEqual({ ok: true });
-    await transferRouteHandler({
-      body: {
-        recordingId,
-        operation: "append",
-        sequence: 0,
-        data: Buffer.from([1, 2, 3]).toString("base64"),
-      },
-      headers,
-    } as never);
-    await expect(
-      transferRouteHandler({
-        body: { recordingId, operation: "finish" },
-        headers,
-      } as never),
-    ).resolves.toEqual({ ok: true, attachmentId: "att-recovered" });
-
-    expect(mockTransferCalls).toEqual([
-      { operation: "begin", recordingId, ownerClientId: "desktop-transfer" },
-      {
-        operation: "append",
-        recordingId,
-        ownerClientId: "desktop-transfer",
-        sequence: 0,
-        data: [1, 2, 3],
-      },
-      { operation: "finish", recordingId, ownerClientId: "desktop-transfer" },
-    ]);
-  });
-
-  test("signals missing transfer state before the ownership renewal", async () => {
-    registerMockClient("renderer-missing-transfer", "actor-1", "web");
-
-    await expect(
-      transferRouteHandler({
-        body: {
-          recordingId: "00000000-0000-4000-8000-000000000097",
-          operation: "append",
-          sequence: 0,
-          data: Buffer.from([1]).toString("base64"),
-        },
-        headers: statusHeaders("renderer-missing-transfer", "actor-1"),
-      } as never),
-    ).rejects.toThrow("Recording state not found");
-  });
-
-  test("rejects restart fallback from the wrong actor", async () => {
-    registerMockClient("renderer-actor", "actor-2", "web");
-    registerMockClient("desktop-actor", "actor-1");
-
-    await expect(
-      statusRouteHandler({
-        body: {
-          conversationId: "00000000-0000-4000-8000-000000000092",
-          attachToConversationId: "conv-recording-wrong-actor",
-          status: "failed",
-        },
-        headers: statusHeaders("renderer-actor", "actor-2", "desktop-actor"),
-      } as never),
-    ).rejects.toThrow("does not match");
-  });
-
-  test("rejects a spoofed browser desktop marker", async () => {
-    registerMockClient("web-client", "actor-1", "web");
-
-    await expect(
-      statusRouteHandler({
-        body: {
-          conversationId: "00000000-0000-4000-8000-000000000093",
-          attachToConversationId: "conv-recording-wrong-client",
-          status: "failed",
-        },
-        headers: statusHeaders("web-client", "actor-1", "spoofed-desktop"),
-      } as never),
-    ).rejects.toThrow("desktop client");
-  });
-
-  test("rejects restart fallback for an unknown conversation", async () => {
-    mockConversationExists = false;
-    registerMockClient("renderer-conversation", "actor-1", "web");
-    registerMockClient("desktop-conversation", "actor-1");
-
-    await expect(
-      statusRouteHandler({
-        body: {
-          conversationId: "00000000-0000-4000-8000-000000000094",
-          attachToConversationId: "conv-recording-does-not-exist",
-          status: "stopped",
-        },
-        headers: statusHeaders(
-          "renderer-conversation",
-          "actor-1",
-          "desktop-conversation",
-        ),
-      } as never),
-    ).rejects.toThrow("Conversation not found");
-  });
-
-  test("rejects a non-terminal restart fallback status", async () => {
-    registerMockClient("renderer-non-terminal", "actor-1", "web");
-    registerMockClient("desktop-non-terminal", "actor-1");
-
-    await expect(
-      statusRouteHandler({
-        body: {
-          conversationId: "00000000-0000-4000-8000-000000000095",
-          attachToConversationId: "conv-recording-non-terminal",
-          status: "started",
-        },
-        headers: statusHeaders(
-          "renderer-non-terminal",
-          "actor-1",
-          "desktop-non-terminal",
-        ),
-      } as never),
-    ).rejects.toThrow("another client");
-  });
-});
-
 describe("handleRecordingStop", () => {
   beforeEach(() => {
     __resetRecordingState();
@@ -673,7 +243,6 @@ describe("handleRecordingStop", () => {
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
     mockAttachmentIdCounter = 0;
-    mockLinkAttachmentToMessage.mockClear();
     mockFileExists = true;
     mockFileSize = 1024;
   });
@@ -813,46 +382,6 @@ describe("handleRecordingStatusCore", () => {
       (m) => m.id !== "existing-msg" && m.role === "assistant",
     );
     expect(createdMsg).toBeTruthy();
-  });
-
-  test("links a client-uploaded remote recording", async () => {
-    const sent = createSent();
-    const conversationId = "conv-status-remote";
-    const uploadedAttachment = {
-      id: "attachment-remote",
-      originalFilename: "screen-recording.webm",
-      mimeType: "video/webm",
-      sizeBytes: 2048,
-    };
-    mockAttachments.push(uploadedAttachment);
-    const recordingId = handleRecordingStart(conversationId, undefined);
-    expect(recordingId).not.toBeNull();
-    sent.length = 0;
-
-    await handleRecordingStatusCore({
-      type: "recording_status",
-      conversationId: recordingId!,
-      status: "stopped",
-      attachmentId: uploadedAttachment.id,
-      durationMs: 5000,
-    });
-
-    expect(mockLinkAttachmentToMessage).toHaveBeenCalledWith(
-      expect.stringMatching(/^msg-/),
-      uploadedAttachment.id,
-      0,
-    );
-    const complete = sent.find(
-      (message) => message.type === "message_complete",
-    );
-    expect(complete?.attachments).toEqual([
-      expect.objectContaining({
-        id: uploadedAttachment.id,
-        filename: uploadedAttachment.originalFilename,
-        mimeType: uploadedAttachment.mimeType,
-        sizeBytes: uploadedAttachment.sizeBytes,
-      }),
-    ]);
   });
 
   test("handles stopped status and creates assistant message when none exists", async () => {
