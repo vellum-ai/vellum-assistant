@@ -21,7 +21,7 @@
  * tolerant of repeated message chunks, so the duplicate window is harmless.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
@@ -508,6 +508,40 @@ export function useAcpRunRehydration(
       );
     });
   });
+
+  // A Connect flow holds the prompt on its own anchor, so any auth failure
+  // that arrived while it ran was turned away rather than queued. Nothing
+  // replays it: the flow'''s own token write invalidates while the flow is
+  // still active, so that refetch is turned away too, and the card is then
+  // dismissed by the auto-continue with no fetch after it.
+  //
+  // Re-read once the flow settles and let the snapshot say what is true now.
+  // Replaying the prompt that was turned away would be worse: the connect that
+  // just completed may well have repaired it, and the snapshot knows that
+  // while a remembered prompt does not.
+  const flowActive = useInteractionStore.use.acpConnectFlowActive();
+  const flowWasActive = useRef(false);
+  useEffect(() => {
+    const settled = flowWasActive.current && !flowActive;
+    flowWasActive.current = flowActive;
+    // Only the falling edge. Mounting with no flow running is the ordinary
+    // case, and the conversation effect above already fetches for it.
+    if (!settled || !assistantId || !conversationId) {
+      return;
+    }
+    const priorActiveIds = activeRunIdsFor(conversationId);
+    const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+    const generation = beginAcpSnapshot(conversationId);
+    void fetchAcpSessions(assistantId, conversationId).then((entries) => {
+      applyAcpSnapshot(
+        entries,
+        priorActiveIds,
+        conversationId,
+        revisionAtFetch,
+        generation,
+      );
+    });
+  }, [flowActive, assistantId, conversationId]);
 
   useBusSubscription(
     "sse.opened",

@@ -359,3 +359,44 @@ describe("useAcpRunRehydration: an older snapshot cannot overwrite a newer one",
     mockGetImpl = undefined;
   });
 });
+
+describe("useAcpRunRehydration: re-reading once a Connect flow settles", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  test("refetches when the flow goes inactive", async () => {
+    // A flow holds the prompt on its own anchor, so any auth failure arriving
+    // while it ran was turned away rather than queued, and its own token write
+    // invalidated while the flow was still active so that refetch was turned
+    // away too. Without this the newer failure waits for a navigation.
+    useInteractionStore.setState({ acpConnectFlowActive: true });
+    mockSessions = [];
+    mount("asst-1", "conv-A");
+
+    useInteractionStore.getState().setAcpConnectFlowActive(false);
+    await flush();
+
+    expect(getCalls).toBeGreaterThan(0);
+  });
+
+  test("mounting with no flow running does not add a fetch", async () => {
+    // The conversation effect already loads on mount; only the falling edge
+    // is a new reason to look.
+    useInteractionStore.setState({ acpConnectFlowActive: false });
+    mockSessions = [];
+    mount("asst-1", "conv-A");
+    await flush();
+
+    expect(getCalls).toBe(0);
+  });
+
+  test("entering a flow does not refetch", async () => {
+    useInteractionStore.setState({ acpConnectFlowActive: false });
+    mockSessions = [];
+    mount("asst-1", "conv-A");
+
+    useInteractionStore.getState().setAcpConnectFlowActive(true);
+    await flush();
+
+    expect(getCalls).toBe(0);
+  });
+});
