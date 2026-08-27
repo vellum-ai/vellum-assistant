@@ -412,6 +412,14 @@
       "label": "monday.com Integration",
       "description": "Gates the seeded monday.com OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes.",
       "defaultEnabled": false
+    },
+    {
+      "id": "chatgpt-device-code-login",
+      "scope": "client",
+      "key": "chatgpt-device-code-login",
+      "label": "ChatGPT Device Code Login",
+      "description": "Gates the device-code sign-in as the primary ChatGPT subscription connect flow in the web client. Off: the redirect-and-paste flow is the only flow the connect section shows, with no device code UI and no other-sign-in-options disclosure. On: device code leads, and the redirect-and-paste flow stays reachable behind that disclosure and takes the section over when the assistant has no device-auth route.",
+      "defaultEnabled": false
     }
   ]
 }
