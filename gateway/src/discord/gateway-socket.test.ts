@@ -463,6 +463,71 @@ describe("message admission and normalization", () => {
   });
 });
 
+describe("reaction dispatch", () => {
+  const reactionAdd = (overrides: Record<string, unknown> = {}) => ({
+    op: 0,
+    t: "MESSAGE_REACTION_ADD",
+    s: 3,
+    d: {
+      user_id: "user-1",
+      channel_id: "channel-1",
+      message_id: "msg-1",
+      guild_id: "guild-1",
+      emoji: { id: null, name: "\u{1F44D}" },
+      ...overrides,
+    },
+  });
+
+  test("a reaction add is forwarded with its structured payload", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(reactionAdd());
+
+    expect(h.events).toHaveLength(1);
+    const event = h.events[0];
+    expect(event.message.eventKind).toBe("reaction");
+    expect(event.message.reaction).toEqual({
+      op: "added",
+      emoji: "\u{1F44D}",
+      targetMessageId: "msg-1",
+    });
+    expect(event.actor.actorExternalId).toBe("user-1");
+  });
+
+  test("a reaction remove carries the removed op", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message({ ...reactionAdd(), t: "MESSAGE_REACTION_REMOVE" });
+
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0].message.reaction!.op).toBe("removed");
+  });
+
+  test("the bot's own reactions are self-echoes and never forwarded", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(reactionAdd({ user_id: "bot-1" }));
+
+    expect(h.events).toHaveLength(0);
+  });
+
+  test("a thread reaction resolves its parent conversation", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message({
+      op: 0,
+      t: "THREAD_CREATE",
+      s: 2,
+      d: { id: "thread-5", type: 11, parent_id: "channel-1" },
+    });
+    ws.message(reactionAdd({ channel_id: "thread-5" }));
+
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0].message.conversationExternalId).toBe("channel-1");
+    expect(h.events[0].source.threadId).toBe("thread-5");
+  });
+});
+
 describe("shutdown", () => {
   test("stop closes with 1000 and schedules nothing", async () => {
     const h = harness();

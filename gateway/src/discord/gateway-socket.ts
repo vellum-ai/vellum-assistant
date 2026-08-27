@@ -54,11 +54,13 @@ import {
   DiscordReadySchema,
   DiscordThreadListSchema,
   DiscordMessageDeleteSchema,
+  DiscordMessageReactionSchema,
   DiscordThreadSchema,
 } from "./message-schemas.js";
 import {
   normalizeDiscordMessage,
   normalizeDiscordMessageDelete,
+  normalizeDiscordMessageReaction,
   toAdmissionCandidate,
 } from "./normalize.js";
 import { DiscordSessionState } from "./session-state.js";
@@ -665,6 +667,12 @@ export class DiscordGatewayClient {
       case "MESSAGE_DELETE":
         this.handleMessageDelete(data);
         return;
+      case "MESSAGE_REACTION_ADD":
+        this.handleMessageReaction(data, "added");
+        return;
+      case "MESSAGE_REACTION_REMOVE":
+        this.handleMessageReaction(data, "removed");
+        return;
       default:
         return;
     }
@@ -771,6 +779,52 @@ export class DiscordGatewayClient {
         conversationExternalId: normalized.message.conversationExternalId,
       },
       "Discord delete forwarded",
+    );
+    this.onEvent(normalized, new Map());
+  }
+
+  private handleMessageReaction(data: unknown, op: "added" | "removed"): void {
+    // Fail-closed like MESSAGE_CREATE: without the bot's own id, reactions
+    // the bot itself adds are indistinguishable from a person's.
+    if (!this.botUserId) {
+      log.warn("Dropping MESSAGE_REACTION: bot identity not yet resolved");
+      return;
+    }
+    const parsed = DiscordMessageReactionSchema.safeParse(data);
+    if (!parsed.success) {
+      log.warn("Dropping malformed MESSAGE_REACTION");
+      return;
+    }
+    const reaction = parsed.data;
+    // The bot's own reactions are self-echoes, never signals to ingest.
+    if (reaction.user_id === this.botUserId) {
+      return;
+    }
+    // No admission gate: the daemon's reaction intercept drops a stranger's
+    // reaction before any write and drops a reaction whose target message it
+    // never stored, so anything the gate would exclude is a no-op there. The
+    // event still rides the full forward path, where the kill switch and
+    // per-family stages apply.
+    const parentChannelId = this.threadParents.parentOf(reaction.channel_id);
+    const normalized = normalizeDiscordMessageReaction(reaction, {
+      op,
+      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      raw: (data ?? {}) as Record<string, unknown>,
+    });
+    if (!normalized) {
+      log.debug(
+        { messageId: reaction.message_id },
+        "Discord reaction dropped by normalization",
+      );
+      return;
+    }
+    log.info(
+      {
+        messageId: reaction.message_id,
+        conversationExternalId: normalized.message.conversationExternalId,
+        op,
+      },
+      "Discord reaction forwarded",
     );
     this.onEvent(normalized, new Map());
   }

@@ -1,5 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { normalizeTelegramUpdate } from "../telegram/normalize.js";
+import {
+  normalizeTelegramReactionEvents,
+  normalizeTelegramUpdate,
+} from "../telegram/normalize.js";
 import { verifyWebhookSecret } from "../telegram/verify.js";
 
 describe("normalizeTelegramUpdate", () => {
@@ -477,6 +480,114 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     expect(result!.message.content).toBe("Hello world");
     expect(result!.message.callbackQueryId).toBeUndefined();
     expect(result!.message.callbackData).toBeUndefined();
+  });
+});
+
+describe("normalizeTelegramReactionEvents", () => {
+  const reactionUpdate = (
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    update_id: 9001,
+    message_reaction: {
+      chat: { id: 12345, type: "private" },
+      message_id: 42,
+      user: { id: 67890, is_bot: false, first_name: "Test", last_name: "User" },
+      date: 1700000000,
+      old_reaction: [],
+      new_reaction: [{ type: "emoji", emoji: "\u{1F44D}" }],
+      ...overrides,
+    },
+  });
+
+  test("returns null for updates that are not reaction updates", () => {
+    expect(
+      normalizeTelegramReactionEvents({ update_id: 1, message: {} }),
+    ).toBeNull();
+  });
+
+  test("an added emoji normalizes to a structured reaction event", () => {
+    const events = normalizeTelegramReactionEvents(reactionUpdate());
+
+    expect(events).not.toBeNull();
+    expect(events!.length).toBe(1);
+    const event = events![0];
+    expect(event.sourceChannel).toBe("telegram");
+    expect(event.message.eventKind).toBe("reaction");
+    expect(event.message.content).toBe("");
+    expect(event.message.conversationExternalId).toBe("12345");
+    expect(event.message.externalMessageId).toBe("9001:reaction:\u{1F44D}");
+    expect(event.message.reaction).toEqual({
+      op: "added",
+      emoji: "\u{1F44D}",
+      targetMessageId: "42",
+    });
+    expect(event.actor.actorExternalId).toBe("67890");
+    expect(event.source.messageId).toBe("42");
+    expect(event.source.isDirectMessage).toBe(true);
+    expect(event.source.conversationType).toBe("dm");
+  });
+
+  test("one diff update fans out to an add and a removal", () => {
+    const events = normalizeTelegramReactionEvents(
+      reactionUpdate({
+        old_reaction: [{ type: "emoji", emoji: "\u{1F44D}" }],
+        new_reaction: [{ type: "emoji", emoji: "\u2764" }],
+      }),
+    );
+
+    expect(events!.length).toBe(2);
+    const added = events!.find((e) => e.message.reaction!.op === "added");
+    const removed = events!.find((e) => e.message.reaction!.op === "removed");
+    expect(added!.message.reaction!.emoji).toBe("\u2764");
+    expect(removed!.message.reaction!.emoji).toBe("\u{1F44D}");
+    expect(removed!.message.externalMessageId).toBe(
+      "9001:reaction:\u{1F44D}:removed",
+    );
+  });
+
+  test("custom_emoji and paid entries are skipped, emoji entries survive", () => {
+    const events = normalizeTelegramReactionEvents(
+      reactionUpdate({
+        new_reaction: [
+          { type: "custom_emoji", custom_emoji_id: "5312536423851630001" },
+          { type: "paid" },
+          { type: "emoji", emoji: "\u{1F44E}" },
+        ],
+      }),
+    );
+
+    expect(events!.length).toBe(1);
+    expect(events![0].message.reaction!.emoji).toBe("\u{1F44E}");
+  });
+
+  test("non-private chats are rejected like every other Telegram update", () => {
+    const events = normalizeTelegramReactionEvents(
+      reactionUpdate({ chat: { id: -100123, type: "supergroup" } }),
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  test("an anonymous reaction names no user and drops", () => {
+    const events = normalizeTelegramReactionEvents(
+      reactionUpdate({
+        user: undefined,
+        actor_chat: { id: 12345, type: "private" },
+      }),
+    );
+
+    expect(events).toEqual([]);
+  });
+
+  test("an unchanged reaction set yields no events", () => {
+    const events = normalizeTelegramReactionEvents(
+      reactionUpdate({
+        old_reaction: [{ type: "emoji", emoji: "\u{1F44D}" }],
+        new_reaction: [{ type: "emoji", emoji: "\u{1F44D}" }],
+      }),
+    );
+
+    expect(events).toEqual([]);
   });
 });
 

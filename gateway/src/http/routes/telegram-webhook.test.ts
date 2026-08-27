@@ -530,3 +530,76 @@ describe("telegram-webhook callback query acknowledgment", () => {
     expect(deleteCalls.length).toBe(1);
   });
 });
+describe("telegram-webhook reaction updates", () => {
+  beforeEach(() => {
+    callTelegramApiMock.mockClear();
+    handleInboundMock.mockClear();
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: true, rejected: false }),
+    );
+  });
+
+  const makeReactionBody = (updateId: number) =>
+    JSON.stringify({
+      update_id: updateId,
+      message_reaction: {
+        chat: { id: 42, type: "private" },
+        message_id: 10,
+        user: { id: 42, first_name: "Alice" },
+        date: 1700000000,
+        old_reaction: [{ type: "emoji", emoji: "\u{1F44D}" }],
+        new_reaction: [{ type: "emoji", emoji: "\u2764" }],
+      },
+    });
+
+  it("a diff update forwards each per-emoji event and acks", async () => {
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+    const res = await handler(postRequest(makeReactionBody(400)));
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(2);
+    const kinds = handleInboundMock.mock.calls.map(
+      (c) => (c[1] as { message: { eventKind?: string } }).message.eventKind,
+    );
+    expect(kinds).toEqual(["reaction", "reaction"]);
+    const ops = handleInboundMock.mock.calls
+      .map(
+        (c) =>
+          (c[1] as { message: { reaction?: { op: string } } }).message.reaction!
+            .op,
+      )
+      .sort();
+    expect(ops).toEqual(["added", "removed"]);
+  });
+
+  it("a forward failure on one event never blocks the rest", async () => {
+    handleInboundMock.mockImplementationOnce(() =>
+      Promise.reject(new Error("runtime hiccup")),
+    );
+
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+    const res = await handler(postRequest(makeReactionBody(401)));
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("a non-private reaction update is dropped without forwarding", async () => {
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
+    const body = JSON.stringify({
+      update_id: 402,
+      message_reaction: {
+        chat: { id: -100999, type: "supergroup" },
+        message_id: 10,
+        user: { id: 42, first_name: "Alice" },
+        date: 1700000000,
+        old_reaction: [],
+        new_reaction: [{ type: "emoji", emoji: "\u{1F44D}" }],
+      },
+    });
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+});

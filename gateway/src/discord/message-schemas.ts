@@ -24,6 +24,8 @@ import type {
   GatewayHelloData,
   GatewayMessageCreateDispatchData,
   GatewayMessageDeleteDispatchData,
+  GatewayMessageReactionAddDispatchData,
+  GatewayMessageReactionRemoveDispatchData,
   GatewayMessageUpdateDispatchData,
   GatewayReadyDispatchData,
   GatewayReceivePayload,
@@ -173,6 +175,33 @@ export const DiscordMessageDeleteSchema = z.object({
 });
 export type DiscordMessageDelete = z.infer<typeof DiscordMessageDeleteSchema>;
 
+/**
+ * MESSAGE_REACTION_ADD / MESSAGE_REACTION_REMOVE data: the fields the
+ * reaction path reads, which both dispatches share (ADD extends REMOVE with
+ * member and message-author data this client does not read). A unicode emoji
+ * arrives as `{id: null, name: "👍"}` where the name IS the character; a
+ * custom emoji carries a snowflake id and its guild-local name, which Discord
+ * may null on REMOVE for a deleted emoji. The guild sentinel matches the
+ * create schema's reasoning: absence means DM, so a malformed value must not
+ * read as one.
+ */
+export const DiscordMessageReactionSchema = z.object({
+  user_id: idString(),
+  channel_id: idString(),
+  message_id: idString(),
+  guild_id: z.string().optional().catch("malformed-guild-id"),
+  emoji: z
+    .object({
+      id: z.string().nullable().optional().catch(undefined),
+      name: z.string().nullable().optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
+});
+export type DiscordMessageReaction = z.infer<
+  typeof DiscordMessageReactionSchema
+>;
+
 // ---------------------------------------------------------------------------
 // Compile-time cross-check against the official Discord API types.
 //
@@ -238,6 +267,32 @@ type _DiscordApiCrossChecks = [
     ModeledKeysAreOfficial<
       z.infer<typeof DiscordMessageDeleteSchema>,
       GatewayMessageDeleteDispatchData
+    >
+  >,
+  // REMOVE is the narrower dispatch (ADD extends it), so the key check
+  // against it proves every modeled field rides both events.
+  Expect<
+    ModeledKeysAreOfficial<
+      DiscordMessageReaction,
+      GatewayMessageReactionRemoveDispatchData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      DiscordMessageReaction,
+      GatewayMessageReactionAddDispatchData
+    >
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<
+      DiscordMessageReaction,
+      GatewayMessageReactionRemoveDispatchData
+    >
+  >,
+  Expect<
+    ModeledKeysAreOfficial<
+      NonNullable<DiscordMessageReaction["emoji"]>,
+      GatewayMessageReactionRemoveDispatchData["emoji"]
     >
   >,
   Expect<

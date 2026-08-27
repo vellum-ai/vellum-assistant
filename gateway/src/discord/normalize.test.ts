@@ -4,10 +4,12 @@ import { admitDiscordMessage } from "./admit.js";
 import {
   DiscordMessageCreateSchema,
   DiscordMessageDeleteSchema,
+  DiscordMessageReactionSchema,
 } from "./message-schemas.js";
 import {
   normalizeDiscordMessage,
   normalizeDiscordMessageDelete,
+  normalizeDiscordMessageReaction,
   toAdmissionCandidate,
 } from "./normalize.js";
 import "../__tests__/test-preload.js";
@@ -480,5 +482,121 @@ describe("normalizeDiscordMessageDelete", () => {
 
     expect(event!.source.isDirectMessage).toBe(true);
     expect(event!.source.conversationType).toBe("dm");
+  });
+});
+describe("normalizeDiscordMessageReaction", () => {
+  function parseReaction(payload: Record<string, unknown>) {
+    const parsed = DiscordMessageReactionSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new Error("schema unexpectedly rejected payload");
+    }
+    return parsed.data;
+  }
+
+  test("a unicode reaction carries the structured payload", () => {
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "channel-1",
+        message_id: "msg-1",
+        guild_id: "guild-1",
+        emoji: { id: null, name: "\u{1F44D}" },
+      }),
+      { op: "added", raw: {} },
+    );
+
+    expect(event).not.toBeNull();
+    expect(event!.message.eventKind).toBe("reaction");
+    expect(event!.message.content).toBe("");
+    expect(event!.message.reaction).toEqual({
+      op: "added",
+      emoji: "\u{1F44D}",
+      targetMessageId: "msg-1",
+    });
+    expect(event!.message.externalMessageId).toBe(
+      "msg-1:reaction:\u{1F44D}:user-1",
+    );
+    expect(event!.source.messageId).toBe("msg-1");
+    expect(event!.actor.actorExternalId).toBe("user-1");
+    expect(event!.source.isDirectMessage).toBe(false);
+  });
+
+  test("a removal appends the op suffix so it never dedups against the add", () => {
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "channel-1",
+        message_id: "msg-1",
+        guild_id: "guild-1",
+        emoji: { id: null, name: "\u{1F44D}" },
+      }),
+      { op: "removed", raw: {} },
+    );
+
+    expect(event!.message.reaction!.op).toBe("removed");
+    expect(event!.message.externalMessageId).toBe(
+      "msg-1:reaction:\u{1F44D}:user-1:removed",
+    );
+  });
+
+  test("a custom emoji forwards its guild-local name as the vocabulary", () => {
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "channel-1",
+        message_id: "msg-1",
+        guild_id: "guild-1",
+        emoji: { id: "111222333", name: "party_blob" },
+      }),
+      { op: "added", raw: {} },
+    );
+
+    expect(event!.message.reaction!.emoji).toBe("party_blob");
+  });
+
+  test("an emoji with no name cannot be expressed and drops", () => {
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "channel-1",
+        message_id: "msg-1",
+        guild_id: "guild-1",
+        emoji: { id: "111222333", name: null },
+      }),
+      { op: "removed", raw: {} },
+    );
+
+    expect(event).toBeNull();
+  });
+
+  test("a DM reaction proves its lane by guild absence", () => {
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "dm-channel-1",
+        message_id: "msg-2",
+        emoji: { id: null, name: "\u2705" },
+      }),
+      { op: "added", raw: {} },
+    );
+
+    expect(event!.source.isDirectMessage).toBe(true);
+    expect(event!.source.conversationType).toBe("dm");
+  });
+
+  test("a thread reaction addresses the parent conversation and names the thread", () => {
+    const event = normalizeDiscordMessageReaction(
+      parseReaction({
+        user_id: "user-1",
+        channel_id: "thread-1",
+        message_id: "msg-3",
+        guild_id: "guild-1",
+        emoji: { id: null, name: "\u{1F44D}" },
+      }),
+      { op: "added", parentChannelId: "channel-1", raw: {} },
+    );
+
+    expect(event!.message.conversationExternalId).toBe("channel-1");
+    expect(event!.source.threadId).toBe("thread-1");
   });
 });

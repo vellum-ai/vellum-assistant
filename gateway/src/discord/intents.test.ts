@@ -15,7 +15,9 @@ describe("DISCORD_INTENTS", () => {
     expect(DISCORD_INTENTS.GUILD_MEMBERS).toBe(2);
     expect(DISCORD_INTENTS.GUILD_PRESENCES).toBe(256);
     expect(DISCORD_INTENTS.GUILD_MESSAGES).toBe(512);
+    expect(DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS).toBe(1024);
     expect(DISCORD_INTENTS.DIRECT_MESSAGES).toBe(4096);
+    expect(DISCORD_INTENTS.DIRECT_MESSAGE_REACTIONS).toBe(8192);
     expect(DISCORD_INTENTS.MESSAGE_CONTENT).toBe(32768);
   });
 });
@@ -59,6 +61,18 @@ describe("DISCORD_GATEWAY_INTENTS", () => {
     expect(DISCORD_GATEWAY_INTENTS & DISCORD_INTENTS.DIRECT_MESSAGES).not.toBe(
       0,
     );
+  });
+
+  test("subscribes to reactions in both guild channels and DMs", () => {
+    // A guardian's approval-by-reaction can land on an approval card in
+    // either place; without these bits the reaction path is deaf while the
+    // rest of the channel works, which nothing at IDENTIFY would surface.
+    expect(
+      DISCORD_GATEWAY_INTENTS & DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS,
+    ).not.toBe(0);
+    expect(
+      DISCORD_GATEWAY_INTENTS & DISCORD_INTENTS.DIRECT_MESSAGE_REACTIONS,
+    ).not.toBe(0);
   });
 
   test("DIRECT_MESSAGES is not one of the gated intents", () => {

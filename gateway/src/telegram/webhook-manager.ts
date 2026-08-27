@@ -21,7 +21,15 @@ interface WebhookInfo {
   /** Telegram does not return the secret itself, but we can detect a mismatch by re-setting. */
 }
 
-const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
+const ALLOWED_UPDATES = [
+  "message",
+  "edited_message",
+  "callback_query",
+  // Not delivered by default: reaction updates reach a bot only when this
+  // list names them. setWebhook runs on every reconciliation, so the
+  // subscription propagates without a manual re-registration.
+  "message_reaction",
+];
 
 /** Options bag for optional cache injection into webhook reconciliation. */
 export type WebhookManagerCaches = {

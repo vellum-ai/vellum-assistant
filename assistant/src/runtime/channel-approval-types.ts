@@ -165,7 +165,7 @@ export type ApprovalDecisionSource =
   | "telegram_button"
   | "whatsapp_button"
   | "slack_button"
-  | "slack_reaction"
+  | "reaction"
   | "vellum_surface"
   | "plain_text";
 

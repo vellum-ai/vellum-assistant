@@ -137,6 +137,7 @@ describe("reconcileTelegramWebhook", () => {
       "message",
       "edited_message",
       "callback_query",
+      "message_reaction",
     ]);
   });
 

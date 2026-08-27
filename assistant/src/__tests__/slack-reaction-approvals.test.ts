@@ -11,7 +11,7 @@ describe("reactionDecisionForEmoji", () => {
     const result = reactionDecisionForEmoji("+1");
     expect(result).toEqual({
       action: "approve_once",
-      source: "slack_reaction",
+      source: "reaction",
     });
   });
 
@@ -19,7 +19,7 @@ describe("reactionDecisionForEmoji", () => {
     const result = reactionDecisionForEmoji("thumbsup");
     expect(result).toEqual({
       action: "approve_once",
-      source: "slack_reaction",
+      source: "reaction",
     });
   });
 
@@ -27,7 +27,7 @@ describe("reactionDecisionForEmoji", () => {
     const result = reactionDecisionForEmoji("-1");
     expect(result).toEqual({
       action: "reject",
-      source: "slack_reaction",
+      source: "reaction",
     });
   });
 
@@ -35,7 +35,7 @@ describe("reactionDecisionForEmoji", () => {
     const result = reactionDecisionForEmoji("thumbsdown");
     expect(result).toEqual({
       action: "reject",
-      source: "slack_reaction",
+      source: "reaction",
     });
   });
 
@@ -43,7 +43,7 @@ describe("reactionDecisionForEmoji", () => {
     const result = reactionDecisionForEmoji("alarm_clock");
     expect(result).toEqual({
       action: "approve_once",
-      source: "slack_reaction",
+      source: "reaction",
     });
   });
 
@@ -51,7 +51,23 @@ describe("reactionDecisionForEmoji", () => {
     const result = reactionDecisionForEmoji("white_check_mark");
     expect(result).toEqual({
       action: "approve_once",
-      source: "slack_reaction",
+      source: "reaction",
+    });
+  });
+
+  test("unicode vocabulary: thumbs up, check mark, and alarm clock approve", () => {
+    for (const emoji of ["\u{1F44D}", "\u2705", "\u23F0"]) {
+      expect(reactionDecisionForEmoji(emoji)).toEqual({
+        action: "approve_once",
+        source: "reaction",
+      });
+    }
+  });
+
+  test("unicode vocabulary: thumbs down rejects", () => {
+    expect(reactionDecisionForEmoji("\u{1F44E}")).toEqual({
+      action: "reject",
+      source: "reaction",
     });
   });
 
