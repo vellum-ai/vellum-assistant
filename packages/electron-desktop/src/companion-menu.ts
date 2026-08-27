@@ -15,10 +15,8 @@ import {
  * the labels: "88pt" means nothing next to a floating avatar, and the sizes are
  * meant to be picked by looking at the result.
  *
- * One table rather than a literal per menu, since the tray and the surface's
- * own right-click both offer the steps. A user who met "Large" in one place and
- * "Big" in the other would reasonably wonder whether they were setting the same
- * thing.
+ * The vocabulary {@link companionSizeSubmenus} draws the steps from, which is
+ * the one place the wording is decided for every menu that offers them.
  */
 const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
   small: "Small",
@@ -36,10 +34,9 @@ const COMPANION_SIZE_LABELS: Record<CompanionSize, string> = {
  * creature reads "Avatar" before they read "size". The sentence case is the
  * design's wording, against the Title Case of the tray items beside it.
  *
- * Here beside the steps themselves, and for the same reason: both menus that
- * offer the sizes offer them under these two headings, and a user who met
- * "Avatar size" in one place and "Creature size" in the other would reasonably
- * wonder whether they were setting the same thing.
+ * The headings' half of the same vocabulary: {@link companionSizeSubmenus}
+ * titles its submenus from here, so every menu that offers the sizes offers
+ * them under these two words.
  */
 const COMPANION_SIZE_AXIS_LABELS: Record<CompanionSizeAxis, string> = {
   avatar: "Avatar size",

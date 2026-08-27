@@ -255,9 +255,9 @@ html[data-page-transition="pop"]::view-transition-new(root) {
    its `<svg>` for the breathe and morph, and two animations on one node means
    one of them silently wins.
 
-   The lift is also `COMPANION_BOB_LIFT` in `companion-layout.ts`, which the
-   host's hit-test adds to the avatar's rect so the raised creature is still
-   something the pointer can be on. */
+   The lift stays inside the creature's own box: the artwork is inset well
+   short of the top, so the raised creature is still somewhere the host's
+   hit-test finds the pointer. */
 @keyframes companion-avatar-bob {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-3px); }

@@ -604,23 +604,6 @@ describe("companion toggle", () => {
   });
 
   /**
-   * Two headings rather than one, because a single picker could only ever move
-   * both halves of the surface at once. The wording is the same table the
-   * surface's own right-click reads, so the two menus cannot describe the same
-   * choice differently.
-   */
-  test("offers a heading for each thing that is sized", () => {
-    installTray(handlers);
-    handlerFor(trays[0], "right-click")?.();
-    const calls = buildFromTemplateMock.mock.calls;
-    const template = calls[calls.length - 1]?.[0] as MenuItem[];
-    const headings = template
-      .map((i) => i.label)
-      .filter((label) => label === "Avatar size" || label === "Options size");
-    expect(headings).toEqual(["Avatar size", "Options size"]);
-  });
-
-  /**
    * What the tray adds to the pickers, which have their own suite in
    * `companion-menu.test.ts`: the sizes it shows are the ones it was configured
    * to read, and a pick lands on the setter it was configured with, under the

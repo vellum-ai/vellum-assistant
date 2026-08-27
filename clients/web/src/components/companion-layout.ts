@@ -9,17 +9,6 @@ import type {
 } from "@vellumai/ipc-contract";
 import type { CSSProperties } from "react";
 
-/**
- * How far the bob lifts the creature off its baseline, at the base size.
- *
- * The animation itself is `companion-avatar-bob` in `index.css` and the lift is
- * written there as a literal. It is stated here as well because the host
- * hit-tests the avatar against a rect the DOM box does not include: the
- * artwork rides above its own box for most of the cycle, and a pointer on the
- * drawn creature has to count as a pointer on the creature.
- */
-export const COMPANION_BOB_LIFT = 3;
-
 /** As much of a rect as hit-testing a point against it needs. */
 export type SurfaceRect = Pick<DOMRect, "left" | "right" | "top" | "bottom">;
 
@@ -85,6 +74,56 @@ export const bridgeRect = (
 };
 
 /**
+ * Whether a point is on the companion surface.
+ *
+ * **The surface is a union of rects, never the box around them:** the creature,
+ * the pill beside it, and the strip of gap the pointer crosses between the two.
+ * See {@link bridgeRect} for why the box around the pair is the wrong shape.
+ *
+ * The creature's rect is its own box as measured. The bob rides inside that
+ * box: the artwork is inset well short of the top and the lift is smaller than
+ * the slack, so a rect stretched to meet the raised creature would only claim
+ * empty canvas above it, which is the click-through window swallowing presses
+ * meant for whatever is behind it.
+ *
+ * The renderer hit-tests this way and so does the `Interactive` story, and one
+ * answer for both is what keeps the story honest about where the real window
+ * arms and where the desktop is left alone.
+ */
+export const onCompanionSurface = (
+  point: { x: number; y: number },
+  {
+    avatar,
+    pill,
+    rowHeight,
+    cardGrowth,
+  }: {
+    avatar: SurfaceRect;
+    /**
+     * The pill's rect, or null when there is no pill. At rest its box is
+     * nothing, and a rect of nothing beside the avatar is not somewhere a
+     * pointer can be.
+     */
+    pill: SurfaceRect | null;
+    /** The composer row's height in screen pixels. See {@link bridgeRect}. */
+    rowHeight: number;
+    cardGrowth: CompanionCardGrowth;
+  },
+): boolean => {
+  const inside = (rect: SurfaceRect): boolean =>
+    containsPoint(rect, point.x, point.y);
+  if (inside(avatar)) {
+    return true;
+  }
+  if (pill === null) {
+    return false;
+  }
+  return (
+    inside(pill) || inside(bridgeRect(avatar, pill, { rowHeight, cardGrowth }))
+  );
+};
+
+/**
  * The numbers everything on the companion surface is placed by, in points.
  *
  * Points because that is what the contract's helpers answer in and what main
@@ -99,8 +138,6 @@ export interface CompanionLayout {
   avatarHalf: number;
   /** The room the creature keeps from anything drawn beside it. */
   gap: number;
-  /** The creature's centre to the canvas edge it is near, which is what main places the window by. */
-  nearEdge: number;
   /** The one conversion into the units the layout is stated in. */
   inUnits: (points: number) => number;
   /**
@@ -161,7 +198,6 @@ export function companionLayoutFor(
     avatarRel: avatarBox / optionsBox,
     avatarHalf,
     gap,
-    nearEdge,
     inUnits,
     lineAt: (cardGrowth, offset) =>
       cardGrowth === "up"

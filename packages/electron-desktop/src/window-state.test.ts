@@ -65,6 +65,7 @@ mock.module("electron", () => ({
 const {
   restoreBounds,
   track,
+  promoteCompanionSizeToAxes,
   readCompanionHidden,
   readCompanionIntroSeen,
   readCompanionSize,
@@ -488,6 +489,68 @@ describe("companion surface sizes", () => {
     savedCompanionSize = "small";
     writeCompanionSize("avatar", "ridiculous");
     writeCompanionSize("options", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
+    ).toBe(false);
+  });
+});
+
+/**
+ * Neither axis is left sized from the shared key alone.
+ *
+ * `readCompanionSize` falls back to it either way, so what these state is that
+ * an install cannot sit half way across: an avatar resized on a build with two
+ * axes must not leave the pill governed by a key nothing writes.
+ */
+describe("promoting the single-axis size onto both axes", () => {
+  test("fills both axes when neither has a key of its own", () => {
+    savedCompanionSize = "huge";
+    promoteCompanionSizeToAxes();
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "huge");
+  });
+
+  test("fills only the axis that is missing one", () => {
+    savedCompanionSize = "huge";
+    savedCompanionAvatarSize = "small";
+    promoteCompanionSizeToAxes();
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionAvatarSize"),
+    ).toBe(false);
+  });
+
+  test("writes nothing when both axes already have their own key", () => {
+    savedCompanionSize = "huge";
+    savedCompanionAvatarSize = "small";
+    savedCompanionOptionsSize = "large";
+    promoteCompanionSizeToAxes();
+    expect(storeSetMock).not.toHaveBeenCalled();
+  });
+
+  test("writes nothing when there is no shared key to promote", () => {
+    promoteCompanionSizeToAxes();
+    expect(storeSetMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A size this build cannot draw is not a size to spread onto both axes. It
+   * would put a canvas sized from `undefined` on screen twice over.
+   */
+  test("writes nothing when the shared key holds a size this build does not know", () => {
+    savedCompanionSize = "enormous";
+    promoteCompanionSizeToAxes();
+    expect(storeSetMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The shared key stays where it is in every case. A build with one size axis
+   * still reads it, so a user who moves back to one finds the size they picked.
+   */
+  test("leaves the shared key in place", () => {
+    savedCompanionSize = "huge";
+    savedCompanionOptionsSize = "large";
+    promoteCompanionSizeToAxes();
     expect(
       storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
     ).toBe(false);

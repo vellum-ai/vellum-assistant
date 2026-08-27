@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 
+import { containsPoint } from "@/components/companion-layout";
 import {
   getDictationOverlayState,
   requestDictationOverlayStop,
@@ -120,12 +121,12 @@ export function DictationOverlayPage() {
       setInteractive(false);
       return;
     }
-    const rect = button.getBoundingClientRect();
     setInteractive(
-      event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom,
+      containsPoint(
+        button.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      ),
     );
   };
   const stopRecording = () => {
