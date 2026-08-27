@@ -45,6 +45,11 @@ const DICTATION_TEXT_SCHEMA = z.object({ text: z.string() });
 const DICTATION_TRANSCRIBED_SCHEMA = DICTATION_TEXT_SCHEMA.extend({
   requestId: z.string(),
 });
+const DICTATION_ERROR_SCHEMA = z.object({
+  message: z.string(),
+  onDevice: z.boolean().optional(),
+  willRetryServer: z.boolean().optional(),
+});
 let clientFactory = (): NativeSidecarClient => getWindowsHelperClient();
 let client: NativeSidecarClient | null = null;
 const getClient = (): NativeSidecarClient => (client ??= clientFactory());
@@ -161,9 +166,16 @@ export const installDictation = (): void => {
   );
   helper.onNotification(
     "dictation.error",
-    z.object({ message: z.string() }),
+    DICTATION_ERROR_SCHEMA,
     (event) => {
-      log.warn(`[win-helper] dictation error: ${event.message}`);
+      log.warn(
+        `[win-helper] dictation error (onDevice=${event.onDevice ?? true}, retryServer=${event.willRetryServer ?? false}): ${event.message}`,
+      );
+      // The helper is restarting the session on the server path; the
+      // owner keeps streaming.
+      if (event.willRetryServer) {
+        return;
+      }
       dictationOwners
         .target()
         ?.send(HELPER_DICTATION_FINALIZED_EVENT, { text: "" });

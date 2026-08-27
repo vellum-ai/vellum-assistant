@@ -1,23 +1,22 @@
 /**
- * `vellum pair [assistant] [--label <name>]`
+ * `vellum pair [assistant] [options]`
  *
- * Mint a device-scoped token for another machine and print a pairing bundle.
- * Runs on the machine hosting the assistant: it calls the local gateway's
- * loopback-only `POST /v1/pair` (cli interface) with a freshly generated
- * deviceId, then prints the credentials to hand to a second device.
+ * Print the pairing link for another device, and the same link rendered as a
+ * QR code. Runs on the machine hosting the assistant: it mints a remote-web
+ * pairing challenge over the loopback gateway and approves it immediately, so
+ * running this command IS the local-presence proof and one scan (or one paste
+ * into `vellum connect import`) completes the pairing.
  *
- * Each invocation generates a NEW random deviceId, so each pairing is an
- * independent, separately-revocable device (see `vellum unpair`, forthcoming).
+ * `--web-approve` is the reverse direction: approve a code a device already
+ * shows, for pairings that device started on its own.
  */
 
-import { nanoid } from "nanoid";
 // Call `qrcodeTerminal.generate` as a method — the library reads its default
 // error-correction level off `this`, so a destructured import renders nothing.
 import qrcodeTerminal from "qrcode-terminal";
 
 import {
   buildRemoteWebPairingUrl,
-  normalizePairingBaseUrl,
   resolvePublicBaseUrl,
   tunnelProviderWebsiteName,
   type PublicBaseUrlRejection,
@@ -36,13 +35,8 @@ import {
   resolveAssistant,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
-import {
-  CLI_INTERFACE_ID,
-  getClientRegistrationHeaders,
-} from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
 import { getCurrentEnvironment } from "../lib/environments/resolve.js";
-import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { formatWebApproveFailure, parseGatewayErrorCode } from "../lib/pair.js";
 import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
@@ -53,8 +47,8 @@ function assistantDisplayName(entry: AssistantEntry): string {
 
 /**
  * The tunnel-recorded ingress URL from this entry's own lockfile record, when
- * usable as a remote-web advertised default: https and non-loopback (the bar
- * `--qr`/`--web` URLs must clear). The lockfile is the CLI-owned contract —
+ * usable as the pairing link's advertised address: https and non-loopback (the
+ * bar a pairing URL must clear). The lockfile is the CLI-owned contract:
  * `vellum tunnel` providers mirror the URL onto the entry when they save it.
  */
 function usableEntryIngressUrl(entry: AssistantEntry): string | null {
@@ -75,63 +69,72 @@ function usableEntryIngressUrl(entry: AssistantEntry): string | null {
   return saved;
 }
 
+/**
+ * Options this command used to have, and what replaced them. Named explicitly
+ * so a scripted or copy-pasted invocation gets the migration instead of the
+ * generic unknown-option error's out-of-date-CLI advice.
+ */
+const RETIRED_FLAGS = new Map<string, string>([
+  [
+    "--web",
+    "the device being paired mints its own code. Run " +
+      "`vellum connect import <assistant-url>` there, then approve the code " +
+      "it prints with `vellum pair --web-approve <code>`.",
+  ],
+]);
+
 function printUsage(): void {
-  console.log(`vellum pair [beta] - Mint a device-scoped token for another machine
+  console.log(`vellum pair [beta] - Print a pairing link and QR code for another device
 
 USAGE:
     vellum pair [assistant] [options]
 
+Mints a pairing challenge on the assistant's gateway over loopback and
+approves it on the spot (running this command on the host machine is the
+approval), then prints the pairing link and the same link as a QR code.
+Scanning the QR, opening the link, or passing it to 'vellum connect import'
+on the other device completes the pairing in one step.
+
+The link needs a public https address: --url, else the address 'vellum tunnel'
+recorded for this assistant, else the assistant's runtime URL. Loopback,
+private-network, plain-http, and tunnel-provider website addresses are refused
+before anything is minted.
+
+The challenge lives on the assistant's gateway and expires (10 minutes); the
+link carries only a one-time device code, no tokens. Each paired device is
+listed and separately revocable via 'vellum devices'.
+
 ARGUMENTS:
-    [assistant]    Instance name (default: active assistant)
+    [assistant]     Assistant display name or ID (default: the active assistant)
 
 OPTIONS:
-    --url <url>      Reachable gateway URL to advertise in the bundle
-                    (default: the assistant's runtime URL, not loopback)
-    --label <name>   Human label for this pairing (echoed in the output; with
-                    --qr --app it also names the assistant in the connect link)
-    --web            Create a browser pairing URL for remote web access
-    --web-approve <code>
-                    Approve a browser pairing code shown by /assistant/pair
-    --qr             Render a QR code that pairs a device in one scan. Mints a
-                    remote-web pairing challenge and approves it locally, so the
-                    scan alone completes pairing. Needs a public https URL
-                    (--url, else the assistant's runtime URL); refuses
-                    loopback or non-https URLs.
-    --app            With --qr: encode the QR as a vellum-assistant://connect
-                    link that opens the Vellum iOS app directly (the plain
-                    https pairing URL is printed as a fallback). The link
-                    carries the assistant's name (--label overrides it) so the
-                    app can label the pairing. Requires an app build with the
-                    connect handler installed on the phone.
+    --url <url>     Public https base URL to advertise, e.g.
+                    https://your-assistant.ts.net. Overrides the address saved
+                    by 'vellum tunnel'.
+    --label <name>  Name for this pairing. Shown in the output, and used as the
+                    assistant's name in the --app link.
+    --app           Encode the QR as a <scheme>://connect link that opens the
+                    Vellum app directly. The https link is still printed as a
+                    fallback for devices without the app.
     --app-scheme <scheme>
-                    URL scheme for --app links (default: vellum-assistant;
-                    dev/staging app builds use vellum-assistant-dev /
-                    vellum-assistant-staging).
-    --json           Output the result as JSON. With --qr: {pairUrl, deviceCode,
-                    expiresAt, expiresInSeconds} (+ appUrl with --app)
+                    URL scheme for --app links; requires --app (default:
+                    vellum-assistant; dev and staging app builds register
+                    vellum-assistant-dev and vellum-assistant-staging).
+    --web-approve <code>
+                    Approve a pairing code another device is showing, in
+                    ABCD-EFGH form, e.g. from 'vellum connect import <url>' or
+                    the /assistant/pair page. Mints no link of its own.
+    --json          Print JSON instead of the QR code:
+                    {pairUrl, deviceCode, expiresAt, expiresInSeconds}, plus
+                    appUrl with --app. With --web-approve, the approval
+                    response: {status, verificationUri, expiresAt}.
 
 EXAMPLES:
     vellum pair
-    vellum pair "My Assistant" --label "phone"
-    vellum pair --url https://abc123.ngrok.app
-    vellum pair --web --url https://abc123.ngrok.app
+    vellum pair "My Assistant" --url https://your-assistant.ts.net
+    vellum pair --app --label "Phone"
     vellum pair --web-approve ABCD-EFGH
-    vellum pair --qr --url https://your-assistant.ts.net
-    vellum pair --qr --app --url https://your-assistant.ts.net
-    vellum pair --qr --json
 `);
-}
-
-interface PairResponse {
-  token: string;
-  expiresAt: string;
-  guardianId: string;
-  assistantId: string;
-  // Present on the device-bound path: a long-lived refresh credential the
-  // imported client uses to renew its access token (ISO-8601 strings).
-  refreshToken?: string;
-  refreshTokenExpiresAt?: string;
-  refreshAfter?: string;
 }
 
 /** Default URL scheme registered by production builds of the iOS app. */
@@ -169,12 +172,11 @@ async function gatewayPost(
   gatewayUrl: string,
   path: string,
   body: unknown,
-  headers?: Record<string, string>,
 ): Promise<Response> {
   try {
     return await loopbackSafeFetch(`${gatewayUrl}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } catch (err) {
@@ -196,9 +198,8 @@ async function gatewayPostOrExit(
   gatewayUrl: string,
   path: string,
   body: unknown,
-  headers?: Record<string, string>,
 ): Promise<Response> {
-  return exitOnHttpError(await gatewayPost(gatewayUrl, path, body, headers));
+  return exitOnHttpError(await gatewayPost(gatewayUrl, path, body));
 }
 
 /** Exit with a generic HTTP-error message on non-2xx; pass 2xx through. */
@@ -213,10 +214,7 @@ async function exitOnHttpError(response: Response): Promise<Response> {
   return response;
 }
 
-/**
- * Create a remote-web pairing challenge (RFC 8628 device-code flow). Shared by
- * `--web` and `--qr`, which differ only in how they present the same result.
- */
+/** Create a remote-web pairing challenge (RFC 8628 device-code flow). */
 async function createRemoteWebPairingChallenge(
   gatewayUrl: string,
   publicBaseUrl: string,
@@ -232,10 +230,10 @@ async function createRemoteWebPairingChallenge(
 /**
  * Approve a pending pairing challenge by its user code, the local-presence
  * proof for the device-code flow. Single owner of the pairing-verification
- * route and request body: `--qr` approves via {@link approveRemoteWebPairing}
- * (generic exit on non-2xx), while `--web-approve` calls this directly to
- * inspect rejections and print mismatch diagnostics (see
- * {@link formatWebApproveFailure}).
+ * route and request body: the link flow approves via
+ * {@link approveRemoteWebPairing} (generic exit on non-2xx), while
+ * `--web-approve` calls this directly to inspect rejections and print mismatch
+ * diagnostics (see {@link formatWebApproveFailure}).
  */
 async function postPairingVerification(
   gatewayUrl: string,
@@ -247,8 +245,8 @@ async function postPairingVerification(
 }
 
 /**
- * Approve the challenge `--qr` just minted so one scan completes pairing,
- * exiting with a generic message on non-2xx.
+ * Approve the challenge this command just minted so one scan completes
+ * pairing, exiting with a generic message on non-2xx.
  */
 async function approveRemoteWebPairing(
   gatewayUrl: string,
@@ -268,13 +266,23 @@ export async function pair(): Promise<void> {
     return;
   }
 
+  const retiredFlag = rawArgs.find((a) => RETIRED_FLAGS.has(a));
+  if (retiredFlag) {
+    console.error(
+      `Error: ${retiredFlag} is no longer an option: ${RETIRED_FLAGS.get(retiredFlag)}`,
+    );
+    console.error("Run `vellum pair --help` to see available options.");
+    process.exit(1);
+  }
+
   const jsonOutput = rawArgs.includes("--json");
-  const webPairing = rawArgs.includes("--web");
   const webApproval = rawArgs.includes("--web-approve");
-  const qrPairing = rawArgs.includes("--qr");
   const appVariant = rawArgs.includes("--app");
+  // `--qr` is accepted and ignored: QR output is unconditional, and iOS
+  // Settings copy in the field names `vellum pair --qr`. Out of --help as a
+  // compatibility shim, not part of the command's surface.
   let args = rawArgs.filter(
-    (a) => a !== "--json" && a !== "--web" && a !== "--qr" && a !== "--app",
+    (a) => a !== "--json" && a !== "--app" && a !== "--qr",
   );
 
   const [label, afterLabel] = extractFlag(args, "--label");
@@ -292,8 +300,7 @@ export async function pair(): Promise<void> {
   // Any `--`-prefixed token left after known-flag extraction is an option this
   // CLI version doesn't support. Fail loud before any network call rather than
   // letting it fall through: an unknown flag would otherwise be silently
-  // dropped and the command would run the wrong flow (e.g. `--qr` on an older
-  // CLI minting a copy-paste bundle instead of a QR). Positional names never
+  // dropped and the command would run the wrong flow. Positional names never
   // start with `--`, so multi-word assistant targets are unaffected.
   const unknownFlag = args.find((a) => a.startsWith("--"));
   if (unknownFlag) {
@@ -305,20 +312,24 @@ export async function pair(): Promise<void> {
     process.exit(1);
   }
 
-  if (webPairing && webApproveCode) {
-    console.error("Error: use either --web or --web-approve, not both.");
-    process.exit(1);
-  }
   if (webApproval && !webApproveCode) {
     console.error("Error: --web-approve requires a pairing code.");
     process.exit(1);
   }
-  if (qrPairing && (webPairing || webApproveCode)) {
-    console.error("Error: --qr can't be combined with --web or --web-approve.");
+  if ((appVariant || appSchemeOverride) && webApproveCode) {
+    console.error(
+      "Error: --app and --app-scheme don't apply to --web-approve, which " +
+        "approves a code the other device already has.",
+    );
     process.exit(1);
   }
-  if ((appVariant || appSchemeOverride) && !qrPairing) {
-    console.error("Error: --app and --app-scheme only apply to --qr pairing.");
+  // A scheme only names the app link, so accepting it without --app would
+  // print the https QR and drop the scheme without saying so.
+  if (appSchemeOverride && !appVariant) {
+    console.error(
+      "Error: --app-scheme names the scheme for the app link, so it needs " +
+        "--app. Re-run with both, or drop --app-scheme for the https link.",
+    );
     process.exit(1);
   }
 
@@ -344,19 +355,16 @@ export async function pair(): Promise<void> {
   }
 
   // Mint over loopback (localUrl avoids mDNS for same-machine calls), but
-  // advertise a REACHABLE url in the bundle — the loopback url would point the
-  // other machine at its own localhost. Prefer an explicit --url, then (for
-  // the remote-web flows) the ingress URL a tunnel provider saved, then the
-  // runtime (LAN/tunnel) url.
+  // advertise a REACHABLE url in the link, since the loopback url would point
+  // the other device at its own localhost. Prefer an explicit --url, then the
+  // ingress URL a tunnel provider saved, then the runtime (LAN/tunnel) url.
   const mintUrl = (
     entry.localUrl ||
     entry.runtimeUrl ||
     `http://127.0.0.1:${GATEWAY_PORT}`
   ).replace(/\/+$/, "");
   const savedIngressUrl =
-    !urlOverride && (qrPairing || webPairing)
-      ? usableEntryIngressUrl(entry)
-      : null;
+    !urlOverride && !webApproveCode ? usableEntryIngressUrl(entry) : null;
   const advertisedUrl = (
     urlOverride ||
     savedIngressUrl ||
@@ -368,42 +376,6 @@ export async function pair(): Promise<void> {
       `Using saved ingress URL ${savedIngressUrl} ` +
         "(from vellum tunnel; override with --url).",
     );
-  }
-
-  // A local hatch's runtimeUrl is itself loopback (http://localhost:<port>),
-  // so without an explicit --url the bundle would point the other machine at
-  // its own localhost. Refuse to advertise a loopback URL unless the user
-  // explicitly passed one. (An explicit --url is trusted as-is.)
-  if (
-    !urlOverride &&
-    !webApproveCode &&
-    !qrPairing &&
-    isLoopbackUrl(advertisedUrl)
-  ) {
-    const lan = getLocalLanIPv4();
-    // Use THIS assistant's gateway port (not the global default) — second
-    // local instances listen on a different port.
-    let port = String(GATEWAY_PORT);
-    try {
-      port = new URL(mintUrl).port || port;
-    } catch {
-      /* keep default */
-    }
-    const suggestion = lan
-      ? `http://${lan}:${port}`
-      : `http://<this-machine-ip>:${port}`;
-    console.error(
-      "Error: this assistant has no reachable gateway URL — its address is " +
-        `loopback (${advertisedUrl}), which the other machine can't connect to.`,
-    );
-    console.error(
-      `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
-    );
-    console.error(
-      "Pairing another device by QR instead? Use: vellum pair --qr " +
-        "(needs an https URL — run `vellum tunnel --provider tailscale` first).",
-    );
-    process.exit(1);
   }
 
   if (webApproveCode) {
@@ -436,190 +408,93 @@ export async function pair(): Promise<void> {
     return;
   }
 
-  if (webPairing) {
-    let publicBaseUrl: string;
-    try {
-      publicBaseUrl = normalizePairingBaseUrl(advertisedUrl);
-    } catch {
-      console.error(`Error: invalid --url value '${advertisedUrl}'.`);
-      process.exit(1);
-    }
-
-    const challenge = await createRemoteWebPairingChallenge(
-      mintUrl,
-      publicBaseUrl,
+  // Validate the public URL before any network call: a link that encodes a
+  // loopback or plain-http address is unusable from another device.
+  const resolved = resolvePublicBaseUrl(advertisedUrl);
+  if (!resolved.ok) {
+    const detailByReason: Record<PublicBaseUrlRejection, string> = {
+      unparseable: `${advertisedUrl} isn't a valid URL`,
+      loopback: `${advertisedUrl} is a loopback address`,
+      "private-address": `${advertisedUrl} is a private-network address the other device can't reach`,
+      "non-https": `${advertisedUrl} is not https`,
+      "service-website": `${advertisedUrl} is ${
+        tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"
+      }'s website, not your assistant's address`,
+    };
+    console.error(
+      "Error: pairing needs a public https URL the other device can open: " +
+        `${detailByReason[resolved.reason]}.`,
     );
-    const pairUrl = buildRemoteWebPairingUrl(challenge);
-
-    if (jsonOutput) {
-      console.log(
-        JSON.stringify(
-          {
-            pairUrl,
-            userCode: challenge.userCode,
-            verificationUri: challenge.verificationUri,
-            expiresAt: challenge.expiresAt,
-            expiresInSeconds: challenge.expiresInSeconds,
-          },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    const displayName = assistantDisplayName(entry);
-    console.log(`Created remote web pairing for ${displayName}.`);
-    console.log("");
-    console.log("Open this URL in the browser:");
-    console.log("");
-    console.log(`  ${pairUrl}`);
-    console.log("");
-    console.log("Approve this pairing locally when you're ready:");
-    console.log("");
-    const approveTarget = assistantName
-      ? `${JSON.stringify(assistantName)} `
-      : "";
-    console.log(`  Code: ${challenge.userCode}`);
-    console.log(
-      `  Run:  vellum pair ${approveTarget}--web-approve ${challenge.userCode}`,
+    console.error(
+      "Re-run with your assistant's public URL, e.g.:\n" +
+        "  vellum pair --url https://your-assistant.ts.net",
     );
-    console.log("");
-    console.log(`Expires: ${challenge.expiresAt}`);
-    return;
+    console.error(
+      "No public URL yet? Run `vellum tunnel --provider tailscale` first.",
+    );
+    process.exit(1);
   }
+  const publicBaseUrl = resolved.url;
 
-  if (qrPairing) {
-    // Validate the public URL before any network call — a QR that encodes a
-    // loopback or plain-http link is unscannable from another device.
-    const qrResult = resolvePublicBaseUrl(advertisedUrl);
-    if (!qrResult.ok) {
-      const detailByReason: Record<PublicBaseUrlRejection, string> = {
-        unparseable: `${advertisedUrl} isn't a valid URL`,
-        loopback: `${advertisedUrl} is a loopback address`,
-        "non-https": `${advertisedUrl} is not https`,
-        "service-website": `${advertisedUrl} is ${
-          tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"
-        }'s website, not your assistant's address`,
-      };
-      console.error(
-        "Error: --qr needs a public https URL the scanning device can open — " +
-          `${detailByReason[qrResult.reason]}.`,
-      );
-      console.error(
-        "Re-run with your assistant's public URL, e.g.:\n" +
-          "  vellum pair --qr --url https://your-assistant.ts.net",
-      );
-      process.exit(1);
-    }
-    const qrBaseUrl = qrResult.url;
-
-    // Mint a challenge and immediately approve it: running this CLI on the host
-    // IS the local-presence proof, so the scanning device completes pairing in
-    // one step. Reuses the `--web` + `--web-approve` code paths.
-    const challenge = await createRemoteWebPairingChallenge(mintUrl, qrBaseUrl);
-    await approveRemoteWebPairing(mintUrl, challenge.userCode);
-    const pairUrl = buildRemoteWebPairingUrl(challenge);
-    const appUrl = appVariant
-      ? buildAppConnectUrl(
-          appSchemeOverride ?? DEFAULT_APP_CONNECT_SCHEME,
-          qrBaseUrl,
-          challenge.deviceCode,
-          label || assistantDisplayName(entry),
-        )
-      : null;
-
-    if (jsonOutput) {
-      console.log(
-        JSON.stringify(
-          {
-            pairUrl,
-            ...(appUrl ? { appUrl } : {}),
-            deviceCode: challenge.deviceCode,
-            expiresAt: challenge.expiresAt,
-            expiresInSeconds: challenge.expiresInSeconds,
-          },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    const displayName = assistantDisplayName(entry);
-    console.log(`Scan to pair a device with ${displayName}:`);
-    console.log("");
-    qrcodeTerminal.generate(appUrl ?? pairUrl, { small: true }, (qr) => {
-      console.log(qr);
-    });
-    console.log("");
-    if (appUrl) {
-      console.log("The QR opens the Vellum app. App link:");
-      console.log("");
-      console.log(`  ${appUrl}`);
-      console.log("");
-      console.log(
-        "No app on the device? Open this URL in its browser instead:",
-      );
-    } else {
-      console.log("Or open this URL on the device:");
-    }
-    console.log("");
-    console.log(`  ${pairUrl}`);
-    console.log("");
-    console.log(`Expires: ${challenge.expiresAt}`);
-    return;
-  }
-
-  // Fresh per-pairing device identity — each `vellum pair` is independently
-  // revocable.
-  const deviceId = nanoid();
-
-  const response = await gatewayPostOrExit(
+  // Mint a challenge and immediately approve it: running this CLI on the host
+  // IS the local-presence proof, so the other device completes pairing in one
+  // step from the link alone.
+  const challenge = await createRemoteWebPairingChallenge(
     mintUrl,
-    "/v1/pair",
-    { deviceId, platform: "cli" },
-    getClientRegistrationHeaders(CLI_INTERFACE_ID),
+    publicBaseUrl,
   );
-
-  const result = (await response.json()) as PairResponse;
-
-  // Single-line, copy-pasteable blob for the consume side (`vellum connect
-  // import <blob>`, forthcoming).
-  const bundle = {
-    gatewayUrl: advertisedUrl,
-    assistantId: result.assistantId,
-    token: result.token,
-    deviceId,
-    // Carry the refresh credential through when the gateway issued one, so the
-    // imported client can renew without re-pairing. Omitted entirely for an
-    // access-only (older gateway) response so the bundle stays clean.
-    ...(result.refreshToken
-      ? {
-          refreshToken: result.refreshToken,
-          refreshTokenExpiresAt: result.refreshTokenExpiresAt,
-          refreshAfter: result.refreshAfter,
-        }
-      : {}),
-  };
-  const blob = Buffer.from(JSON.stringify(bundle)).toString("base64");
+  await approveRemoteWebPairing(mintUrl, challenge.userCode);
+  const pairUrl = buildRemoteWebPairingUrl(challenge);
+  const displayName = assistantDisplayName(entry);
+  const appUrl = appVariant
+    ? buildAppConnectUrl(
+        appSchemeOverride ?? DEFAULT_APP_CONNECT_SCHEME,
+        publicBaseUrl,
+        challenge.deviceCode,
+        label || displayName,
+      )
+    : null;
 
   if (jsonOutput) {
     console.log(
-      JSON.stringify({ ...bundle, expiresAt: result.expiresAt }, null, 2),
+      JSON.stringify(
+        {
+          pairUrl,
+          ...(appUrl ? { appUrl } : {}),
+          deviceCode: challenge.deviceCode,
+          expiresAt: challenge.expiresAt,
+          expiresInSeconds: challenge.expiresInSeconds,
+        },
+        null,
+        2,
+      ),
     );
     return;
   }
 
-  const displayName = assistantDisplayName(entry);
-  console.log(`Paired ${label ? `"${label}" ` : ""}with ${displayName}.`);
+  console.log(
+    label
+      ? `Scan to pair "${label}" with ${displayName}:`
+      : `Scan to pair a device with ${displayName}:`,
+  );
   console.log("");
-  console.log(`  Gateway:   ${advertisedUrl}`);
-  console.log(`  Assistant: ${result.assistantId}`);
-  console.log(`  Expires:   ${result.expiresAt}`);
+  qrcodeTerminal.generate(appUrl ?? pairUrl, { small: true }, (qr) => {
+    console.log(qr);
+  });
   console.log("");
-  console.log("Hand this to the other machine (keep it secret):");
+  if (appUrl) {
+    console.log("The QR opens the Vellum app. App link:");
+    console.log("");
+    console.log(`  ${appUrl}`);
+    console.log("");
+    console.log("No app on the device? Open this URL in its browser instead:");
+  } else {
+    console.log("Or open this URL on the device:");
+  }
   console.log("");
-  console.log(`  ${blob}`);
+  console.log(`  ${pairUrl}`);
   console.log("");
+  console.log(`On another computer, run:  vellum connect import "${pairUrl}"`);
+  console.log("");
+  console.log(`Expires: ${challenge.expiresAt}`);
 }

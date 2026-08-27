@@ -37,8 +37,6 @@ function normalizeSlackReaction(
   const routing = resolveAssistant(config, channel, event.user);
   if (isRejection(routing)) return null;
 
-  const prefix = op === "added" ? "reaction" : "reaction_removed";
-  const callbackData = `${prefix}:${event.reaction}`;
   // Include reactor user ID to prevent dedup collisions when multiple
   // users react with the same emoji on the same message. Append the op
   // suffix so an add and a subsequent remove of the same emoji by the
@@ -54,10 +52,21 @@ function normalizeSlackReaction(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
-        content: callbackData,
+        eventKind: "reaction",
+        // A reaction has no user-authored text; its payload is structured.
+        content: "",
         conversationExternalId: channel,
         externalMessageId,
-        callbackData,
+        reaction: {
+          op,
+          emoji: event.reaction,
+          targetMessageId: event.item.ts,
+        },
+        // A daemon that does not yet understand the structured payload
+        // dispatches reactions on the kind and reads this string
+        // unconditionally, so the sentinel form stays required beside the
+        // payload for mixed-version readers.
+        callbackData: `${op === "added" ? "reaction" : "reaction_removed"}:${event.reaction}`,
       },
       actor: {
         actorExternalId: event.user,

@@ -12,11 +12,13 @@ Commands here operate on a **single running assistant's** local state — config
 
 For commands that manage the **lifecycle of assistant instances** (create, start, stop, delete), see `cli/AGENTS.md`.
 
-Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`.
+Examples: `config`, `contacts` (reads), `memory`, `autonomy`, `conversations` belong here. `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong in `cli/`. Contact ACL writes belong on `gateway contacts`.
 
 ## Full CRUD for Resource Namespaces
 
 Every namespace that manages a resource (schedules, contacts, tasks, …) must expose the full CRUD surface — create, get/list, update, delete — each wired to a daemon route. Intentional exceptions (e.g. create restricted to one mode) must be documented inline in the namespace help text so agents know the gap is deliberate. Partial surfaces are not a smaller scope, they are a hazard: when a CRUD verb is missing, the model bypasses the CLI and hand-writes SQLite rows instead.
+
+**No write CLI for gateway-owned contact ACL.** Do not add `assistant contacts` verbs that persist contact ACL (risk ceilings, and any new ACL write). Those writes live on `gateway contacts`. `assistant contacts` may list and inspect.
 
 ## Conventions
 

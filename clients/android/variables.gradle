@@ -15,4 +15,5 @@ ext {
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'
     firebaseMessagingVersion = '25.0.1'
+    installReferrerVersion = '2.2'
 }

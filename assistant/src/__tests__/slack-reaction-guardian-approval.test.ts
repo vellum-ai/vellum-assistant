@@ -117,7 +117,11 @@ function reaction(opts: {
       guardianPrincipalId: opts.principal ?? PRINCIPAL,
     },
     conversationId: "guardian-conv",
-    callbackData: `reaction:${opts.emoji}`,
+    reaction: {
+      op: "added" as const,
+      emoji: opts.emoji,
+      targetMessageId: opts.reactedMessageTs ?? "",
+    },
     reactedMessageTs: opts.reactedMessageTs,
     channelDeliveryContext: {
       replyCallbackUrl: "https://gateway.test/deliver",
@@ -160,6 +164,30 @@ describe("routeGuardianReply / reactions", () => {
     expect(result.decisionApplied).toBe(true);
     expect(sim.getRequest("req-1")?.status).toBe("denied");
     expect(hcr.mock.calls[0]?.[1]).toBe("deny");
+  });
+
+  test("a person-addressed delivery resolves through the reactor's own id", async () => {
+    // Person-addressed adapters (Discord) record the guardian's user id as
+    // the destination, while the reaction arrives addressed by its chat, so
+    // the chat probe misses and the actor-id probe must find the card.
+    const hcr = seedApproval({
+      requestId: "req-person",
+      ts: "300.3",
+      chatId: GUARDIAN_USER,
+    });
+
+    const result = await routeGuardianReply(
+      reaction({
+        emoji: "white_check_mark",
+        reactedMessageTs: "300.3",
+        chatId: "DM_CHANNEL_9",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.decisionApplied).toBe(true);
+    expect(sim.getRequest("req-person")?.status).toBe("approved");
+    expect(hcr).toHaveBeenCalledTimes(1);
   });
 
   test("reacting on a specific card resolves only that card (disambiguates N>1)", async () => {

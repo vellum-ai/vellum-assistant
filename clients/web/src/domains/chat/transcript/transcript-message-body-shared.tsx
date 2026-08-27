@@ -14,7 +14,6 @@ import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-ca
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -27,7 +26,6 @@ export interface OpenRuleEditorContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
 }
 
 /**
@@ -40,6 +38,11 @@ export interface TranscriptMessageBodyProps {
   /** Conversation the message belongs to. Forwarded to the hover actions so
    *  the bookmark toggle can key on (messageId, conversationId). */
   conversationId?: string | null;
+  /** Tool call the inline Connect card renders under, or `null` when the card
+   *  belongs above the composer instead. Resolved once by `Transcript`: a
+   *  per-row read would subscribe every row to the whole transcript and
+   *  defeat `TranscriptRow`'s memo boundary on every streaming delta. */
+  acpConnectInlineToolUseId?: string | null;
   assistantDisplayName?: string | null;
 
   onSurfaceAction: (

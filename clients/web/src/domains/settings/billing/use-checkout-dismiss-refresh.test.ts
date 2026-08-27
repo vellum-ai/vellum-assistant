@@ -1,7 +1,7 @@
 /**
  * Tests for `useCheckoutDismissRefresh`. `openUrlFinishedListener` is
  * `mock.module`-replaced so the test can fire the Capacitor `browserFinished`
- * event by hand and assert the three billing queries are invalidated — the
+ * event by hand and assert the shared billing invalidation runs, which is the
  * only signal native iOS gives the app that an in-app Checkout sheet closed.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -13,6 +13,7 @@ import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 
 // Captures the subscriber so a test can fire `browserFinished` on demand, and
@@ -76,6 +77,7 @@ describe("useCheckoutDismissRefresh", () => {
       organizationsBillingSubscriptionRetrieveQueryKey(),
       organizationsBillingPlansRetrieveQueryKey(),
       organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      organizationsBillingSummaryRetrieveQueryKey(),
     ]);
   });
 

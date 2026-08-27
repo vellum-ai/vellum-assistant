@@ -3231,3 +3231,194 @@ describe("echo-cancelling output route", () => {
     expect(h.player.restartOutputRouteCount).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Speak first: a caller-supplied seed turn, sent once the microphone is live,
+// so the assistant opens the conversation instead of the user having to.
+// ---------------------------------------------------------------------------
+
+describe("speak first (seed turn)", () => {
+  const SEED = "Greet me in one short sentence.";
+  const FAST_BACKOFF = [20, 40, 60];
+
+  /** Start a hands-free session carrying a seed, without readying it. */
+  async function startWithSeed(
+    h: ReturnType<typeof renderController>,
+    options: { textInput: boolean; seedText?: string } = { textInput: true },
+  ): Promise<void> {
+    // The echo the real client sets from `ready.textInput`; the fakes bypass
+    // the frame, so state it directly.
+    h.client.textInputSupported = options.textInput;
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+        ...("seedText" in options
+          ? { seedText: options.seedText }
+          : { seedText: SEED }),
+      });
+    });
+  }
+
+  async function emitReady(
+    h: ReturnType<typeof renderController>,
+    sessionId = "s1",
+  ): Promise<void> {
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId,
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      // Fully drained, not a single microtask: the seed rides behind the
+      // capture-startup await.
+      await flushMicrotasks();
+    });
+  }
+
+  test("takes the seed turn once the session is ready and the mic is up", async () => {
+    const h = renderController();
+    await startWithSeed(h);
+    // Nothing before `ready`: the socket is not active yet, and the daemon
+    // would have no session to run the turn on.
+    expect(h.client.sentText).toEqual([]);
+
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([SEED]);
+    // Hidden: the seed drives the turn and stays in the model's context, but
+    // it is not something the user typed and must not render as though it
+    // were.
+    expect(h.client.sentTextOptions).toEqual([{ hidden: true }]);
+    // The seed does not hold up the mic. Capture is running and the session
+    // is in `listening`, so the user can talk over the greeting.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.getCapture().startCount).toBe(1);
+  });
+
+  test("never greets into a session whose microphone failed", async () => {
+    // A denied mic still gets a `ready` from the server. Seeding on that
+    // alone persists a user message the user never wrote into a conversation
+    // they can neither hear nor talk to, and the session then fails.
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.startResult = { ok: false, error: "permission-denied" };
+      },
+    });
+    await startWithSeed(h);
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("failed");
+  });
+
+  test("greets on a retry after a first attempt lost its microphone", async () => {
+    // The seed outlives a spent attempt: it is owed until some session
+    // actually opens with a mic, so the greeting is not lost to one denial.
+    let failNextCapture = true;
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        if (failNextCapture) {
+          capture.startResult = { ok: false, error: "permission-denied" };
+          failNextCapture = false;
+        }
+      },
+    });
+    await startWithSeed(h);
+    await emitReady(h);
+    expect(h.client.sentText).toEqual([]);
+
+    await startWithSeed(h);
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("opens silent when the caller asks for no greeting", async () => {
+    const h = renderController();
+    await startWithSeed(h, { textInput: true, seedText: undefined });
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("opens silent on an assistant that predates typed turns", async () => {
+    // The `ready` echo is the only way to know: a `text` frame such an
+    // assistant cannot parse comes back as `unknown_type`, indistinguishable
+    // from the `update_config` rejection. Degrading to the silent room is the
+    // right answer, and the session must be otherwise unharmed.
+    const h = renderController();
+    await startWithSeed(h, { textInput: false });
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("does not greet again when a dropped socket reconnects", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startWithSeed(h);
+    await emitReady(h);
+    expect(h.client.sentText).toEqual([SEED]);
+
+    // velay drops its tunnel mid-session. The same logical session comes back,
+    // and it has already said hello; greeting a second time would also land a
+    // second copy of the seed in the user's transcript.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "tunnel disconnected" });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("still greets after a pre-ready connect retry, which never got to", async () => {
+    // The initial-connect resilience path (JARVIS-1282) re-enters the connect
+    // flow before any `ready` landed, so the seed is still owed.
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startWithSeed(h);
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    await act(async () => {
+      await sleep(30);
+    });
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("a fresh session after one that greeted greets again", async () => {
+    // The arming lives on the hook, not the session context, so the guard that
+    // stops a reconnect must not also stop the next deliberate start.
+    const h = renderController();
+    await startWithSeed(h);
+    await emitReady(h);
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    await startWithSeed(h);
+    await emitReady(h, "s2");
+
+    expect(h.client.sentText).toEqual([SEED, SEED]);
+  });
+});

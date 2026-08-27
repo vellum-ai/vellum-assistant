@@ -4,6 +4,7 @@ import {
   sttTranscribePost,
 } from "@/generated/daemon/sdk.gen";
 import { MACOS_NATIVE_STT_PROVIDER_ID } from "@/lib/provider-catalogs";
+import { isCancellationError } from "@/utils/is-cancellation-error";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import { getLocalSetting, removeLocalSetting } from "@/utils/local-settings";
 import {
@@ -288,7 +289,7 @@ export async function postSttTranscribe(
         signal,
       });
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
+      if (isCancellationError(err)) {
         return { status: "error", reason: "aborted" };
       }
       console.warn("postSttTranscribe: client error", err);
@@ -299,16 +300,7 @@ export async function postSttTranscribe(
 
     if (!response) {
       const err = result.error;
-      if (err instanceof DOMException && err.name === "AbortError") {
-        return { status: "error", reason: "aborted" };
-      }
-      // Some browsers / abort polyfills surface aborts as plain objects with
-      // `.name === "AbortError"` rather than `DOMException` instances.
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as { name?: unknown }).name === "AbortError"
-      ) {
+      if (isCancellationError(err)) {
         return { status: "error", reason: "aborted" };
       }
       console.warn("postSttTranscribe: transport error (no response)", err);

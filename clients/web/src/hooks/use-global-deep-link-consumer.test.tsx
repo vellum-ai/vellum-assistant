@@ -1087,6 +1087,37 @@ describe("deeplink.newChat", () => {
   });
 });
 
+describe("deeplink.openConversations", () => {
+  test("parks the request and lands on the chat from a route that mounts no list", () => {
+    mockPathname = routes.settings.general;
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openConversations", { provenance: null });
+    });
+
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(routes.assistant);
+    expect(
+      usePendingDeepLinkStore.getState().pendingConversationListAt,
+    ).toEqual(expect.any(Number));
+  });
+
+  test("a settled conversation already mounts the list, so the tap only parks", () => {
+    mockPathname = routes.conversation("conv-1");
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.openConversations", { provenance: "intent" });
+    });
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(
+      usePendingDeepLinkStore.getState().pendingConversationListAt,
+    ).toEqual(expect.any(Number));
+  });
+});
+
 describe("deeplink.openCamera", () => {
   test("parks the request and mints a draft to land on, never the bouncing /assistant index", () => {
     renderConsumer();
@@ -1245,69 +1276,117 @@ describe("deeplink.openCamera", () => {
 });
 
 describe("deeplink.connect", () => {
-  test("a bundle link opens the connect dialog prefilled and navigates to the chooser", () => {
-    renderConsumer();
-
-    act(() => {
-      publish("deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" });
-    });
-
-    const dialog = useConnectDialogStore.getState();
-    expect(dialog.open).toBe(true);
-    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
-    expect(dialog.guidanceMessage).toBeNull();
-    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
-    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("a url+code QR link opens the dialog with guidance naming the host", () => {
+  test("a url+code link prefills the pairing link so one click completes the pair", () => {
     renderConsumer();
 
     act(() => {
       publish("deeplink.connect", {
         url: "https://office-mac.example:8443/assistant-1",
-        bundle: null,
+        code: "DEVICE-CODE-1",
+        legacy: false,
       });
     });
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
-    expect(dialog.initialBundle).toBeNull();
-    expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine at office-mac.example:8443 and paste the bundle here.",
+    // The two params recompose into the artifact the host hands out, which
+    // the dialog submits to the local-mode host verbatim. It carries the pair
+    // route, so copying it into another device's browser lands on the pair
+    // page rather than on the SPA root.
+    expect(dialog.initialAddress).toBe(
+      "https://office-mac.example:8443/assistant-1/assistant/pair#device_code=DEVICE-CODE-1",
     );
+    // Prefill only: a URL scheme carries no caller identity, so the pairing
+    // grant waits on the user's click.
+    expect(dialog.guidanceKind).toBeNull();
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });
 
-  test("a link with no usable fields still routes to the flow with hostless guidance", () => {
+  test("a codeless link prefills the bare address, which mints its own approval code", () => {
     renderConsumer();
 
     act(() => {
-      publish("deeplink.connect", { url: null, bundle: null });
+      publish("deeplink.connect", {
+        url: "https://office-mac.example:8443/assistant-1",
+        code: null,
+        legacy: false,
+      });
     });
 
     const dialog = useConnectDialogStore.getState();
     expect(dialog.open).toBe(true);
-    expect(dialog.guidanceMessage).toBe(
-      "This link came from a pairing QR code. To connect this Mac, run vellum pair on the assistant's machine and paste the bundle here.",
+    expect(dialog.initialAddress).toBe(
+      "https://office-mac.example:8443/assistant-1",
     );
+    expect(dialog.guidanceKind).toBeNull();
     expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
   });
 
-  test("a bundle wins over guidance when both fields arrive", () => {
+  test("a legacy bundle link opens the dialog with guidance, never prefilled", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.connect", { url: null, code: null, legacy: true });
+    });
+
+    const dialog = useConnectDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    // The bundle payload never crosses the bridge, so there is nothing to
+    // submit: the dialog explains the link instead. The kind is parked, not
+    // the copy, so the dialog resolves it in the active language.
+    expect(dialog.initialAddress).toBeNull();
+    expect(dialog.guidanceKind).toBe("legacy");
+    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a link with no usable fields still routes to the flow with guidance", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.connect", { url: null, code: null, legacy: false });
+    });
+
+    const dialog = useConnectDialogStore.getState();
+    expect(dialog.open).toBe(true);
+    expect(dialog.initialAddress).toBeNull();
+    expect(dialog.guidanceKind).toBe("generic");
+    expect(navigateMock).toHaveBeenCalledWith(routes.selectAssistant);
+  });
+
+  test("a legacy link that still carries a usable address prefills it", () => {
     renderConsumer();
 
     act(() => {
       publish("deeplink.connect", {
         url: "https://office-mac.example",
-        bundle: "eyJnYXRld2F5",
+        code: "DEVICE-CODE-1",
+        legacy: true,
       });
     });
 
     const dialog = useConnectDialogStore.getState();
-    expect(dialog.initialBundle).toBe("eyJnYXRld2F5");
-    expect(dialog.guidanceMessage).toBeNull();
+    expect(dialog.initialAddress).toBe(
+      "https://office-mac.example/assistant/pair#device_code=DEVICE-CODE-1",
+    );
+    expect(dialog.guidanceKind).toBeNull();
+  });
+
+  test("a trailing slash on the base does not double the pair route", () => {
+    renderConsumer();
+
+    act(() => {
+      publish("deeplink.connect", {
+        url: "https://office-mac.example/assistant-1/",
+        code: "DEVICE-CODE-1",
+        legacy: false,
+      });
+    });
+
+    expect(useConnectDialogStore.getState().initialAddress).toBe(
+      "https://office-mac.example/assistant-1/assistant/pair#device_code=DEVICE-CODE-1",
+    );
   });
 });
 
@@ -1343,7 +1422,7 @@ describe("subscription lifecycle", () => {
         prompt: null,
         provenance: null,
       });
-      publish("deeplink.connect", { url: null, bundle: "eyJnYXRld2F5" });
+      publish("deeplink.connect", { url: null, code: null, legacy: true });
       publish("deeplink.unknown", { url: "x" });
     });
 

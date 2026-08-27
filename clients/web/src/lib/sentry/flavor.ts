@@ -18,6 +18,13 @@ export interface SentryFlavor {
   close(): Promise<void> | void;
   /** Whether an enabled client is currently installed. */
   getClientEnabled(): boolean;
+  /**
+   * Stamp the signed-in user on the SDK scope, or clear it with `null`.
+   * Dispatched per flavor because two `@sentry/core` copies exist in the
+   * dependency tree, so the scope `@sentry/react` writes is not
+   * guaranteed to be the one `@sentry/capacitor` reads.
+   */
+  setUser(user: { id: string } | null): void;
 }
 
 /**

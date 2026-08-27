@@ -229,6 +229,9 @@ export function DailyCreditLimitCard() {
             updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
           }
           label={t("dailyCreditLimitCard.toggleLabel")}
+          helperText={
+            enabled ? t("dailyCreditLimitCard.toggleSubtitle") : undefined
+          }
         />
 
         {requiredByAutoTopUp && (

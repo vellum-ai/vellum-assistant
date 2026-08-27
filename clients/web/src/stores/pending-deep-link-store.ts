@@ -66,6 +66,16 @@ export interface PendingDeepLinkState {
    * the timestamp lets the drain know how stale it is.
    */
   pendingCamera: PendingCamera | null;
+  /**
+   * When a `deeplink.openConversations` was parked (`Date.now()`), or `null` if
+   * none is. Same race as `pendingCamera`, against a different owner: the
+   * conversation list belongs to `ChatLayout`, which is not mounted on a cold
+   * launch and never mounts on settings / logs / account routes. A timestamp
+   * rather than a payload, since the command carries nothing of its own and a
+   * second tap before the drain is the same request; the drain owns the age
+   * bound (see `consumePendingConversationList`).
+   */
+  pendingConversationListAt: number | null;
 }
 
 /** A proven send-into-thread request; see `pendingThreadSend`. */
@@ -142,6 +152,21 @@ export interface PendingDeepLinkActions {
    * one-shot clear they share.
    */
   consumePendingCamera: () => void;
+  /**
+   * Park an open-conversations deep link until `ChatLayout` is mounted on a
+   * settled route. A newer request replaces an older one, as with the camera.
+   */
+  setPendingConversationList: () => void;
+  /**
+   * Spend the parked open-conversations request. Returns nothing, like
+   * `consumePendingCamera`: the drain subscribes to `pendingConversationListAt`
+   * and so already holds the park it is spending, and both decisions about one
+   * are its own. It owns the age bound, since a park that was never drained
+   * (its navigation bounced off a route guard, say) must not throw the list
+   * open minutes later, and it owns when the route counts as settled, since
+   * only the layout knows whether the landing it is on is still redirecting.
+   */
+  consumePendingConversationList: () => void;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -153,6 +178,7 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     pendingVoiceStartAt: null,
     pendingThreadSend: null,
     pendingCamera: null,
+    pendingConversationListAt: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -187,6 +213,13 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
         set({ pendingCamera: null });
       }
     },
+    setPendingConversationList: () =>
+      set({ pendingConversationListAt: Date.now() }),
+    consumePendingConversationList: () => {
+      if (get().pendingConversationListAt !== null) {
+        set({ pendingConversationListAt: null });
+      }
+    },
   }),
 );
 
@@ -203,5 +236,6 @@ export function __resetPendingDeepLinkForTesting(): void {
     pendingVoiceStartAt: null,
     pendingThreadSend: null,
     pendingCamera: null,
+    pendingConversationListAt: null,
   });
 }

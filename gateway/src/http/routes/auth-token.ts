@@ -28,6 +28,8 @@ interface SourceActorTokenRecord {
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
+  pairingUserAgent: string | null;
+  clientReportedName: string | null;
 }
 
 function findSourceActorTokenRecord(
@@ -40,6 +42,8 @@ function findSourceActorTokenRecord(
           guardianPrincipalId: actorTokenRecords.guardianPrincipalId,
           hashedDeviceId: actorTokenRecords.hashedDeviceId,
           platform: actorTokenRecords.platform,
+          pairingUserAgent: actorTokenRecords.pairingUserAgent,
+          clientReportedName: actorTokenRecords.clientReportedName,
         })
         .from(actorTokenRecords)
         .where(
@@ -89,6 +93,8 @@ function recordDerivedActorToken(
         guardianPrincipalId: sourceRecord.guardianPrincipalId,
         hashedDeviceId: sourceRecord.hashedDeviceId,
         platform: sourceRecord.platform,
+        pairingUserAgent: sourceRecord.pairingUserAgent,
+        clientReportedName: sourceRecord.clientReportedName,
         status: "derived",
         issuedAt: now,
         expiresAt: now + TOKEN_TTL_SECONDS * 1000,

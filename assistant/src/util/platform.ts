@@ -1,7 +1,20 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import {
+  basename,
+  delimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  sep,
+} from "node:path";
 
+import {
+  AVATAR_IMAGE_FILENAME,
+  AVATAR_MANIFEST_FILENAME,
+  resolveAvatarDir,
+} from "@vellumai/avatar-manifest";
 import { SEEDS } from "@vellumai/environments";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
@@ -47,6 +60,62 @@ export function isLinux(): boolean {
 
 export function isWindows(): boolean {
   return process.platform === "win32";
+}
+
+/**
+ * Per-user application data root: `~/Library/Application Support` on macOS,
+ * `%APPDATA%` on Windows, `$XDG_DATA_HOME` (default `~/.local/share`) elsewhere.
+ */
+export function getUserAppDataDir(): string {
+  if (isMacOS()) {
+    return join(homedir(), "Library", "Application Support");
+  }
+  if (isWindows()) {
+    return process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+  }
+  return process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+}
+
+/**
+ * Extra directories to prepend to PATH so daemon-spawned tools are found
+ * even when launched from a minimal environment (macOS .app bundle). Empty
+ * on Windows, where PATH already carries the installer-managed entries.
+ */
+export function getExtraToolPathDirs(): string[] {
+  if (isWindows()) {
+    return [];
+  }
+  return [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    join(homedir(), ".local", "bin"),
+  ];
+}
+
+/**
+ * Add missing `dirs` to the PATH entry of `env` in place, using the platform
+ * delimiter. Windows keys the variable as `Path`, so the existing key is
+ * matched case-insensitively rather than assuming `PATH`.
+ */
+export function addToPathEnv(
+  env: Record<string, string | undefined>,
+  dirs: string[],
+  position: "front" | "back" = "front",
+): void {
+  if (dirs.length === 0) {
+    return;
+  }
+  const key =
+    Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  const entries = (env[key] ?? "").split(delimiter).filter(Boolean);
+  const missing = dirs.filter((d) => !entries.includes(d));
+  if (missing.length === 0) {
+    return;
+  }
+  env[key] =
+    position === "front"
+      ? [...missing, ...entries].join(delimiter)
+      : [...entries, ...missing].join(delimiter);
 }
 
 /**
@@ -160,19 +229,13 @@ export function getSoundsDir(): string {
 
 /** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
 export function getAvatarDir(): string {
-  return join(getWorkspaceDir(), "data", "avatar");
+  return resolveAvatarDir(getWorkspaceDir());
 }
-
-/** Canonical filename for the custom avatar PNG. */
-export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 
 /** Returns the canonical avatar image path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png). */
 export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
-
-/** Canonical filename for the avatar state manifest. */
-export const AVATAR_MANIFEST_FILENAME = "avatar.json";
 
 /** Returns the canonical avatar manifest path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar.json). */
 export function getAvatarManifestPath(): string {

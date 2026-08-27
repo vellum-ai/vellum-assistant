@@ -78,6 +78,18 @@ describe("getConnectedChannels gateway connectivity", () => {
     expect(await getConnectedChannels()).toContain("slack");
   });
 
+  test("marks discord connected from a verified guardian binding", async () => {
+    deliverableChannels = ["discord"];
+    gatewayGuardians = [gatewayBinding("discord", "999888777666555444")];
+    expect(await getConnectedChannels()).toContain("discord");
+  });
+
+  test("marks discord disconnected when the gateway has no binding", async () => {
+    deliverableChannels = ["discord"];
+    gatewayGuardians = [];
+    expect(await getConnectedChannels()).not.toContain("discord");
+  });
+
   test("always reports vellum and platform connected", async () => {
     deliverableChannels = ["vellum", "platform"];
     gatewayGuardians = null;

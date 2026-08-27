@@ -9,6 +9,8 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import type { InboundReactionPayload } from "@vellumai/gateway-client";
+
 import {
   listGuardianRequestsOrEmpty,
   listPendingRequestsByDestinationOrEmpty,
@@ -35,6 +37,7 @@ export interface GuardianReplyInterceptParams {
   trimmedContent: string;
   hasCallbackData: boolean;
   callbackData: string | undefined;
+  reaction?: InboundReactionPayload;
   /**
    * For emoji-reaction decisions: the channel-native id (Slack `ts`) of the
    * message the reaction was attached to. Threaded to the router so it can
@@ -81,6 +84,7 @@ export async function handleGuardianReplyIntercept(
     trimmedContent,
     hasCallbackData,
     callbackData,
+    reaction,
     reactedMessageTs,
     rawSenderId,
     canonicalSenderId,
@@ -136,7 +140,7 @@ export async function handleGuardianReplyIntercept(
   // Reactions address one specific request by the reacted card's message id,
   // so they bypass the pending-request list scoping that the text/NL paths
   // need — the router's reaction branch resolves the target directly.
-  const isReaction = callbackData?.startsWith("reaction:") === true;
+  const isReaction = reaction !== undefined;
   let pendingScope: GuardianPendingScope | undefined;
   if (!isReaction) {
     // Hint reads degrade to empty on gateway failure: Slack then blocks the
@@ -178,6 +182,7 @@ export async function handleGuardianReplyIntercept(
     },
     conversationId,
     callbackData,
+    ...(reaction ? { reaction } : {}),
     reactedMessageTs,
     pendingScope,
     approvalConversationGenerator,

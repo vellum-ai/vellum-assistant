@@ -1,12 +1,15 @@
 /**
  * In-chat trust rule editor modal.
  *
- * Mirrors the macOS `RuleEditorModal` — a focused dialog for creating or
- * editing a trust rule directly from the chat transcript. Supports:
- * - Create mode: pattern selection, directory scope, risk level picker
- * - Edit mode: locked existing pattern, "Save As New" for narrower scope
+ * A focused dialog for creating or editing a trust rule directly from the
+ * chat transcript. Supports:
+ * - Create mode: pattern selection and risk level picker
+ * - Edit mode: locked existing pattern, "Save As New" for a narrower pattern
  * - LLM suggestion pre-population with `hasUserInteracted` guard
  * - Suggestion annotation in edit mode ("Suggested: {risk}")
+ *
+ * Rules apply workspace-wide: the engine matches on (tool, pattern) only, so
+ * the editor offers no directory scoping and the gateway rejects any.
  *
  * Rendered by `ChatMainPanel` when `showRuleEditor` is `true`. Driven by
  * `RuleEditorContext` from `rule-editor-store`.
@@ -267,11 +270,6 @@ export function ChatRuleEditorModal({
     context.riskLevel,
   );
 
-  const directoryScopeFiltered = context.directoryScopeOptions.filter(
-    (opt) => opt.scope !== "everywhere",
-  );
-  const [selectedDirScopeIndex, setSelectedDirScopeIndex] = useState(-1);
-
   // Tracks whether user has manually interacted with the form.
   // Prevents a late-arriving LLM suggestion from overwriting user choices.
   const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -325,15 +323,6 @@ export function ChatRuleEditorModal({
           setSelectedPatternIndex(matchIdx);
         }
       }
-      // Apply suggestion directory scope in edit mode.
-      if (suggestion?.scope && suggestion.scope !== "everywhere") {
-        const matchIdx = directoryScopeFiltered.findIndex(
-          (o) => o.scope === suggestion.scope,
-        );
-        if (matchIdx >= 0) {
-          setSelectedDirScopeIndex(matchIdx);
-        }
-      }
     } else if (suggestion) {
       // Create mode with suggestion.
       if (suggestion.risk) {
@@ -348,14 +337,6 @@ export function ChatRuleEditorModal({
           (matchIdx >= 0 && isSingleOption)
         ) {
           setSelectedPatternIndex(matchIdx);
-        }
-      }
-      if (suggestion.scope && suggestion.scope !== "everywhere") {
-        const matchIdx = directoryScopeFiltered.findIndex(
-          (o) => o.scope === suggestion.scope,
-        );
-        if (matchIdx >= 0) {
-          setSelectedDirScopeIndex(matchIdx);
         }
       }
     } else {
@@ -373,7 +354,6 @@ export function ChatRuleEditorModal({
     effectiveOptions,
     isSingleOption,
     narrowerOptions,
-    directoryScopeFiltered,
     context.riskLevel,
     generalizationOffset,
   ]);
@@ -382,16 +362,6 @@ export function ChatRuleEditorModal({
     setHasUserInteracted(true);
     setter();
   }, []);
-
-  const resolvedScope = useCallback(() => {
-    if (
-      selectedDirScopeIndex >= 0 &&
-      selectedDirScopeIndex < directoryScopeFiltered.length
-    ) {
-      return directoryScopeFiltered[selectedDirScopeIndex].scope;
-    }
-    return "everywhere";
-  }, [selectedDirScopeIndex, directoryScopeFiltered]);
 
   const canSave =
     !isSaving &&
@@ -408,7 +378,6 @@ export function ChatRuleEditorModal({
         toolName: context.toolName,
         pattern: existingRule.pattern,
         riskLevel: selectedRiskLevel,
-        scope: "everywhere",
       });
     } else {
       const selectedOption = effectiveOptions[selectedPatternIndex];
@@ -416,7 +385,6 @@ export function ChatRuleEditorModal({
         toolName: context.toolName,
         pattern: selectedOption.pattern,
         riskLevel: selectedRiskLevel,
-        scope: resolvedScope(),
       });
     }
   }, [
@@ -427,7 +395,6 @@ export function ChatRuleEditorModal({
     context.toolName,
     selectedPatternIndex,
     selectedRiskLevel,
-    resolvedScope,
     onSave,
   ]);
 
@@ -440,7 +407,6 @@ export function ChatRuleEditorModal({
       toolName: context.toolName,
       pattern: selectedOption.pattern,
       riskLevel: selectedRiskLevel,
-      scope: resolvedScope(),
     });
   }, [
     onSaveAsNew,
@@ -448,7 +414,6 @@ export function ChatRuleEditorModal({
     selectedPatternIndex,
     context.toolName,
     selectedRiskLevel,
-    resolvedScope,
   ]);
 
   const riskHint = getRiskToleranceHint(selectedRiskLevel) ?? "";
@@ -474,7 +439,9 @@ export function ChatRuleEditorModal({
       <Modal.Content size="sm" hideCloseButton>
         <Modal.Header>
           <Modal.Title>
-            {isEditMode ? t("chatRuleEditorModal.editTitle") : t("chatRuleEditorModal.createTitle")}
+            {isEditMode
+              ? t("chatRuleEditorModal.editTitle")
+              : t("chatRuleEditorModal.createTitle")}
           </Modal.Title>
           <Modal.Description>
             {t("chatRuleEditorModal.description")}
@@ -511,7 +478,9 @@ export function ChatRuleEditorModal({
 
             {/* Apply to — pattern options */}
             <section className="flex flex-col gap-2">
-              <SectionHeading>{t("chatRuleEditorModal.applyTo")}</SectionHeading>
+              <SectionHeading>
+                {t("chatRuleEditorModal.applyTo")}
+              </SectionHeading>
               {isEditMode && existingRule ? (
                 <>
                   {/* Edit mode: the existing rule pattern is locked */}
@@ -616,50 +585,11 @@ export function ChatRuleEditorModal({
               ) : null}
             </section>
 
-            {/* Where — directory scope, one card per option */}
-            {directoryScopeFiltered.length > 0 && (
-              <section className="flex flex-col gap-2">
-                <SectionHeading>{t("chatRuleEditorModal.where")}</SectionHeading>
-                <RadioGroup
-                  aria-label={t("chatRuleEditorModal.where")}
-                  className="gap-2"
-                  value={String(selectedDirScopeIndex)}
-                  onValueChange={(next) =>
-                    handleUserInteraction(() =>
-                      setSelectedDirScopeIndex(Number(next)),
-                    )
-                  }
-                >
-                  {directoryScopeFiltered.map((option, i) => (
-                    <OverlayCard
-                      key={option.scope}
-                      onClick={() =>
-                        handleUserInteraction(() => setSelectedDirScopeIndex(i))
-                      }
-                    >
-                      <Radio
-                        value={String(i)}
-                        label={<OptionLabel>{option.label}</OptionLabel>}
-                      />
-                    </OverlayCard>
-                  ))}
-                  <OverlayCard
-                    onClick={() =>
-                      handleUserInteraction(() => setSelectedDirScopeIndex(-1))
-                    }
-                  >
-                    <Radio
-                      value="-1"
-                      label={<OptionLabel>{t("chatRuleEditorModal.everywhere")}</OptionLabel>}
-                    />
-                  </OverlayCard>
-                </RadioGroup>
-              </section>
-            )}
-
             {/* Treat as — risk level picker */}
             <section className="flex flex-col gap-2">
-              <SectionHeading>{t("chatRuleEditorModal.treatAs")}</SectionHeading>
+              <SectionHeading>
+                {t("chatRuleEditorModal.treatAs")}
+              </SectionHeading>
               <SegmentControl<TrustRuleRisk>
                 ariaLabel={t("chatRuleEditorModal.treatAs")}
                 value={selectedRiskLevel}
@@ -682,7 +612,9 @@ export function ChatRuleEditorModal({
                   variant="label-medium-default"
                   className="capitalize text-[var(--content-tertiary)]"
                 >
-                  {t("chatRuleEditorModal.suggested", { risk: suggestion.risk })}
+                  {t("chatRuleEditorModal.suggested", {
+                    risk: suggestion.risk,
+                  })}
                 </Typography>
               )}
               {riskHint && (
@@ -720,7 +652,9 @@ export function ChatRuleEditorModal({
                 onClick={handleSave}
                 disabled={isSaving}
               >
-                {isSaving ? t("chatRuleEditorModal.saving") : t("chatRuleEditorModal.save")}
+                {isSaving
+                  ? t("chatRuleEditorModal.saving")
+                  : t("chatRuleEditorModal.save")}
               </Button>
             </>
           ) : (
@@ -733,7 +667,9 @@ export function ChatRuleEditorModal({
                 onClick={handleSave}
                 disabled={!canSave}
               >
-                {isSaving ? t("chatRuleEditorModal.saving") : t("chatRuleEditorModal.saveRule")}
+                {isSaving
+                  ? t("chatRuleEditorModal.saving")
+                  : t("chatRuleEditorModal.saveRule")}
               </Button>
             </>
           )}

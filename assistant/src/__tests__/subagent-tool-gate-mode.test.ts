@@ -271,10 +271,10 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     const names = resolve(EMPTY_HISTORY)
       .map((t) => t.name)
       .sort();
-    // request_system_permission stays out: it keys on
-    // channelCapabilities.clientOS, which desktop HTTP live turns never set
-    // either — exclusion IS parity there. ask_question stays IN: its
-    // macOS-specific hide also keys on clientOS, which the pin leaves unset.
+    // request_system_permission stays out: it keys on the pinned clientOs,
+    // which this pin leaves unset (a pin never falls back to the transport).
+    // ask_question stays IN: its macOS-specific hide keys on
+    // channelCapabilities.clientOS, which the pin also leaves unset.
     expect(names).toEqual(["ask_question", "host_bash", "remember", "ui_show"]);
   });
 

@@ -231,9 +231,7 @@ describe("AddCreditsModal checkout return_target", () => {
     expect(call.body).toMatchObject({ return_target: "native" });
   });
 
-  test('sends return_target "web" on the Windows Electron shell', async () => {
-    // The Windows preload stubs deepLinks, so a native bounce would land on a
-    // custom-scheme URL nothing consumes.
+  test('sends return_target "native" on the Windows Electron shell', async () => {
     (window as { vellum?: unknown }).vellum = {
       platform: "electron",
       hostOS: "windows",
@@ -241,7 +239,7 @@ describe("AddCreditsModal checkout return_target", () => {
 
     const call = await submitCheckout();
 
-    expect(call.body).toMatchObject({ return_target: "web" });
+    expect(call.body).toMatchObject({ return_target: "native" });
   });
 });
 

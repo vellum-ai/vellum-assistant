@@ -245,6 +245,14 @@ export interface EventHandlerState {
    * the loop persists the failure as an assistant message.
    */
   providerErrorCategory: string | null;
+  /**
+   * Connection and profile attribution of the most recent provider error
+   * (`classifyConversationError(...).connectionName` / `.profileName`).
+   * Carried into the turn's outcome stamp so failure consumers scope
+   * identity by the route the call actually resolved.
+   */
+  providerErrorConnection: string | null;
+  providerErrorProfile: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -599,6 +607,8 @@ export function createEventHandlerState(): EventHandlerState {
     providerErrorUserMessage: null,
     providerErrorCode: null,
     providerErrorCategory: null,
+    providerErrorConnection: null,
+    providerErrorProfile: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -2732,6 +2742,8 @@ function handleError(
   state.providerErrorUserMessage = classified.userMessage;
   state.providerErrorCode = classified.code;
   state.providerErrorCategory = classified.errorCategory;
+  state.providerErrorConnection = classified.connectionName ?? null;
+  state.providerErrorProfile = classified.profileName ?? null;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }

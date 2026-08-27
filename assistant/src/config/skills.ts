@@ -18,6 +18,7 @@ import {
 
 import { z } from "zod";
 
+import type { ClientOs } from "../channels/types.js";
 import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
@@ -192,6 +193,8 @@ export interface SkillToolEntry {
   executor: string;
   /** Where the tool script runs. */
   execution_target: "host" | "sandbox";
+  /** Client operating systems that may expose this tool. Unset means all. */
+  supported_client_os?: ClientOs[];
 }
 
 /**

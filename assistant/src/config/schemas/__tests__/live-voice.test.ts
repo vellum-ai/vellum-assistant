@@ -30,7 +30,7 @@ const FRONT_MODEL_DEFAULTS = {
 // is absent for a related reason: unset means the spoken language selects the
 // model, and pinning one overrides that.
 const FLUX_DEFAULTS = {
-  turnEnd: { enabled: false },
+  turnEnd: { enabled: true },
   eotThreshold: 0.7,
   eotTimeoutMs: 5_000,
 };
@@ -230,7 +230,7 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
 });
 
 describe("LiveVoiceFluxConfigSchema", () => {
-  test("empty object parses to defaults, with turn-end off", () => {
+  test("empty object parses to defaults, with turn-end on", () => {
     expect(LiveVoiceFluxConfigSchema.parse({})).toEqual(FLUX_DEFAULTS);
   });
 
@@ -258,7 +258,7 @@ describe("LiveVoiceFluxConfigSchema", () => {
   test("partial overrides merge with defaults", () => {
     const parsed = LiveVoiceFluxConfigSchema.parse({ eotThreshold: 0.6 });
     expect(parsed.eotThreshold).toBe(0.6);
-    expect(parsed.turnEnd.enabled).toBe(false);
+    expect(parsed.turnEnd.enabled).toBe(true);
     expect(parsed.model).toBeUndefined();
     expect(parsed.eotTimeoutMs).toBe(5_000);
   });

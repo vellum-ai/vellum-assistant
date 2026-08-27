@@ -45,6 +45,15 @@
     "switchTo": "Переключиться на {name}",
     "unnamedAssistant": "Безымянный ассистент"
   },
+  "attachmentPreviewModal": {
+    "pdfLoadFailed": "Не удалось показать этот PDF"
+  },
+  "attachmentTile": {
+    "cancelUpload": "Отменить загрузку {filename}",
+    "preview": "Предпросмотр {filename}",
+    "remove": "Удалить {filename}",
+    "uploading": "Загрузка {filename}"
+  },
   "cacheBreakpointMapCard": {
     "description": "Где {count, plural, one {# точка разрыва кэша попала} few {# точки разрыва кэша попали} many {# точек разрыва кэша попали} other {# точки разрыва кэша попали}} в префикс этого запроса и какие сегменты прочитали, а какие создали заново.",
     "estimatedTokens": "≈ {count} токенов",
@@ -135,6 +144,36 @@
     "syntheticAgentLoopErrorWithReason": "Ошибка цикла агента · {reason}",
     "syntheticYield": "Пауза · сжатие не уместило следующий шаг",
     "unrecognizedCall": "Неизвестный вызов"
+  },
+  "channelReferenceChip": {
+    "heading": "Ссылка на сообщение из {channel}",
+    "headingWithSender": "Ссылка на сообщение {sender} в {channel}",
+    "removeAria": "Убрать выбранное сообщение"
+  },
+  "channelThreadControl": {
+    "closeAria": "Закрыть тред в {channel}",
+    "label": "Тред в {channel}",
+    "openAria": "Открыть тред в {channel}"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "Ассистент",
+    "closeAria": "Закрыть тред канала",
+    "closeTooltip": "Закрыть",
+    "emptyNoMessageDetail": "{channel} не передаёт Vellum данные по отдельным сообщениям, которые нужны этому виду, поэтому показывать здесь нечего. Откройте разговор в {channel}, чтобы прочитать его целиком.",
+    "emptyThread": "В этом разговоре пока нет сообщений из {channel}.",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "Без текста",
+    "openInChannel": "Открыть в {channel}",
+    "reactionAdded": "Реакция {emoji}",
+    "reactionRemoved": "Реакция {emoji} убрана",
+    "readOnly": "Только чтение",
+    "readOnlyNote": "Это разговор в том виде, в каком он есть в {channel}. Писать можно только в поле ввода Vellum.",
+    "reference": "Сослаться в Vellum",
+    "referenceAria": "Сослаться на это сообщение из {channel} в Vellum",
+    "referenced": "Выбрано",
+    "removeReferenceAria": "Убрать эту ссылку из поля ввода Vellum",
+    "title": "Тред в {channel}",
+    "unknownSender": "Неизвестный отправитель"
   },
   "chatComposer": {
     "addToChat": "Добавить в диалог",
@@ -231,6 +270,9 @@
   },
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
+  },
+  "documentViewerPage": {
+    "exportFailed": "Не удалось экспортировать PDF"
   },
   "exportProgressModal": {
     "cancel": "Отмена",
@@ -545,6 +587,12 @@
     "usageSubtitle": "Счётчики токенов и вызовов, нормализованные маршрутом ассистента.",
     "usageTitle": "Использование"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Загрузка PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Показана первая страница} few {Показаны первые # страницы} many {Показаны первые # страниц} other {Показаны первые # страницы}}"
+  },
   "pinnedAppColorSwatches": {
     "colors": {
       "green": "Зелёный",
@@ -559,10 +607,20 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Добавить кредиты",
     "exhausted": "Добавление кредитов для продолжения.",
+    "extraCredits": "Используются дополнительные кредиты",
     "pctUsed": "использовано {pct}%",
-    "resets": "Сброс {date}",
     "settingsAriaLabel": "Настройки использования и оплаты",
     "title": "Использование"
+  },
+  "previewError": {
+    "cannotPreview": "Не удаётся показать этот файл"
+  },
+  "previewTruncationNotice": {
+    "markdown": "Показаны первые 512 КБ",
+    "text": "Показаны первые 2 МБ"
+  },
+  "previewUnsupported": {
+    "noPreviewForType": "Нет предпросмотра для этого типа файла"
   },
   "promptTab": {
     "availableTools": "Доступные инструменты",

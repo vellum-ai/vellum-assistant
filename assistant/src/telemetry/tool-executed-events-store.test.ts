@@ -123,7 +123,6 @@ describe("tool-executed-events-store", () => {
         riskLevel: "low",
         durationMs: 5,
         attribution: null,
-        wasPrompted: false,
       });
 
     recordExecuted("t-opted-in-before");

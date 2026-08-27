@@ -11,6 +11,7 @@ import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
 import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
+import { isPluginChannel } from "@/domains/contacts/components/contact-channels-section";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/components/generate-invite-link-dialog";
@@ -19,6 +20,7 @@ import { LinkAccountDialog } from "@/domains/contacts/components/link-account-di
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
   deleteContact as gatewayDeleteContact,
+  linkContactChannelAccount,
   upsertContact,
   verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
@@ -309,6 +311,37 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
+  const thresholdMutation = useMutation({
+    mutationFn: ({
+      contactId,
+      displayName,
+      autoApproveThreshold,
+    }: {
+      contactId: string;
+      displayName: string;
+      autoApproveThreshold: ContactPayload["autoApproveThreshold"];
+    }) =>
+      upsertContact(assistantId, {
+        id: contactId,
+        displayName,
+        autoApproveThreshold,
+      }),
+    onSuccess: (updatedContact) => {
+      contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.map((c) =>
+                c.id === updatedContact.id ? updatedContact : c,
+              ),
+            }
+          : undefined,
+      );
+    },
+    onError: toastOnError(t("contactPermissions.saveFailed")),
+    onSettled: () => invalidateContacts(),
+  });
+
   const mergeMutation = useContactsMergePostMutation({
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
@@ -385,7 +418,10 @@ export function ContactsPage({
         return;
       }
       const info = availableChannels.find((ch) => ch.id === type);
-      const prompt = info?.setupMessages.contact;
+      if (!info || isPluginChannel(info)) {
+        return;
+      }
+      const prompt = info.setupMessages.contact;
       if (!prompt) {
         return;
       }
@@ -400,7 +436,10 @@ export function ContactsPage({
         return;
       }
       const info = availableChannels.find((ch) => ch.id === type);
-      const prompt = info?.setupMessages.guardian;
+      if (!info || isPluginChannel(info)) {
+        return;
+      }
+      const prompt = info.setupMessages.guardian;
       if (!prompt) {
         return;
       }
@@ -416,20 +455,43 @@ export function ContactsPage({
     onError: toastOnError(t("contactsPage.verifyFailed")),
   });
 
-  const handleVerifyChannel = useCallback(
-    (type: string) => {
+  const linkAndVerifyMutation = useMutation({
+    mutationFn: (args: { type: string; address: string }) => {
       if (!selectedContact) {
+        throw new Error("No contact selected");
+      }
+      return linkContactChannelAccount(
+        assistantId,
+        {
+          id: selectedContact.id,
+          displayName: selectedContact.displayName,
+        },
+        { type: args.type, address: args.address },
+      );
+    },
+    onSuccess: () => invalidateContacts(),
+    onError: toastOnError(t("contactsPage.verifyFailed")),
+  });
+
+  const handleVerifyChannel = useCallback(
+    (type: string, address?: string) => {
+      if (!selectedContact) {
+        return;
+      }
+      const trimmedAddress = address?.trim();
+      if (trimmedAddress) {
+        linkAndVerifyMutation.mutate({ type, address: trimmedAddress });
         return;
       }
       const channel = selectedContact.channels.find(
         (ch) => ch.type === type && ch.status !== "revoked",
       );
-      if (!channel) {
+      if (!channel?.address?.trim()) {
         return;
       }
       verifyChannelMutation.mutate({ channelId: channel.id });
     },
-    [selectedContact, verifyChannelMutation],
+    [selectedContact, linkAndVerifyMutation, verifyChannelMutation],
   );
 
   const slackLink = useAccountLink({
@@ -478,18 +540,34 @@ export function ContactsPage({
     if (!selectedContact) {
       return null;
     }
+    let next = selectedContact;
     if (
       updateMutation.isPending &&
       updateMutation.variables?.contactId === selectedContact.id
     ) {
-      return {
-        ...selectedContact,
+      next = {
+        ...next,
         displayName: updateMutation.variables.patch.displayName,
         notes: updateMutation.variables.patch.notes,
       };
     }
-    return selectedContact;
-  }, [selectedContact, updateMutation.isPending, updateMutation.variables]);
+    if (
+      thresholdMutation.isPending &&
+      thresholdMutation.variables?.contactId === selectedContact.id
+    ) {
+      next = {
+        ...next,
+        autoApproveThreshold: thresholdMutation.variables.autoApproveThreshold,
+      };
+    }
+    return next;
+  }, [
+    selectedContact,
+    updateMutation.isPending,
+    updateMutation.variables,
+    thresholdMutation.isPending,
+    thresholdMutation.variables,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -576,7 +654,10 @@ export function ContactsPage({
             <GuardianDetailView
               contact={optimisticContact}
               savePending={updateMutation.isPending}
-              verifyPending={verifyChannelMutation.isPending}
+              verifyPending={
+                verifyChannelMutation.isPending ||
+                linkAndVerifyMutation.isPending
+              }
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
@@ -603,7 +684,10 @@ export function ContactsPage({
               contact={optimisticContact}
               savePending={updateMutation.isPending}
               deletePending={deleteMutation.isPending}
-              verifyPending={verifyChannelMutation.isPending}
+              verifyPending={
+                verifyChannelMutation.isPending ||
+                linkAndVerifyMutation.isPending
+              }
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
@@ -625,6 +709,14 @@ export function ContactsPage({
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onLinkAccount={slackReady ? handleLinkAccount : undefined}
+              pendingAutoApproveThreshold={thresholdMutation.isPending}
+              onAutoApproveThresholdChange={(autoApproveThreshold) => {
+                thresholdMutation.mutate({
+                  contactId: optimisticContact.id,
+                  displayName: optimisticContact.displayName,
+                  autoApproveThreshold,
+                });
+              }}
             />
           )
         ) : (

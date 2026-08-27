@@ -34,14 +34,17 @@ const auditCalls = {
   denied: [] as any[],
   error: [] as any[],
   executed: [] as any[],
-  prompted: [] as string[],
+  prompted: [] as any[],
+  decided: [] as any[],
 };
 
 mock.module("../telemetry/tool-audit.js", () => ({
   recordToolDenied: (e: any) => auditCalls.denied.push(e),
   recordToolError: (e: any) => auditCalls.error.push(e),
   recordToolExecuted: (e: any) => auditCalls.executed.push(e),
-  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+  recordToolPermissionPrompted: (e: any) => auditCalls.prompted.push(e),
+  recordToolPermissionDecided: (e: any, outcome: string) =>
+    auditCalls.decided.push({ entry: e, outcome }),
 }));
 
 // ---------------------------------------------------------------------------

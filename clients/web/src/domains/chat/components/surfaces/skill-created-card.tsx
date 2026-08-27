@@ -1,5 +1,5 @@
 import { Brain } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -11,6 +11,7 @@ import {
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
+import { skillDetailBackState } from "@/utils/skills";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -69,6 +70,7 @@ function parseSkills(skills: unknown): SkillCardEntry[] {
 export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
+  const location = useLocation();
   const isMobile = useIsMobile();
   const skills = parseSkills(surface.data.skills);
 
@@ -78,7 +80,9 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   // chat-content-layout.tsx), so deep-link to the dedicated detail page.
   const handleView = (skillId: string) => {
     if (isMobile) {
-      navigate(routes.skills.detail(skillId));
+      navigate(routes.skills.detail(skillId), {
+        state: skillDetailBackState(location),
+      });
       return;
     }
     useViewerStore.getState().openSkillDetail(skillId);

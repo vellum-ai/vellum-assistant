@@ -14,7 +14,7 @@ import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 
 /**
  * Normalize a Slack `message_changed` event into the gateway's canonical
- * inbound event shape with `isEdit: true`.
+ * inbound event shape with `eventKind: "edit"`.
  *
  * The edited content lives in `event.message` (not `event.previous_message`).
  * Uses `event.message.ts` as `source.messageId` so the runtime can correlate
@@ -68,10 +68,10 @@ export function normalizeSlackMessageEdit(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "edit",
         content,
         conversationExternalId: channel,
         externalMessageId,
-        isEdit: true,
       },
       actor: {
         actorExternalId: edited.user,
@@ -108,10 +108,10 @@ export function normalizeSlackMessageEdit(
  *
  * The deleted message's `ts` arrives as `event.deleted_ts` and the prior
  * content (including any `thread_ts`) lives in `event.previous_message`.
- * The daemon detects deletes via the `message_deleted` sentinel placed in
- * `callbackData` and uses `source.messageId` (= `deleted_ts`) to look up
- * the stored row. `message.content` is intentionally empty — the daemon
- * just marks the row deleted and does not re-process content.
+ * The daemon routes deletes on `eventKind: "delete"` and uses
+ * `source.messageId` (= `deleted_ts`) to look up the stored row.
+ * `message.content` is intentionally empty: the daemon just marks the row
+ * deleted and does not re-process content.
  *
  * Each delete event gets a unique `externalMessageId` (= eventId) so the
  * dedup pipeline does not collide if Slack re-delivers the event.
@@ -149,12 +149,11 @@ export function normalizeSlackMessageDelete(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "delete",
         content: "",
         conversationExternalId: channel,
         // Unique per delete event to avoid dedup collisions
         externalMessageId: eventId,
-        // Sentinel value the daemon uses to detect deletions
-        callbackData: "message_deleted",
       },
       actor: {
         actorExternalId: actorId,

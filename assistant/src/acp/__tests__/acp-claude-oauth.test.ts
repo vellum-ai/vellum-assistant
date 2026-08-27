@@ -28,7 +28,13 @@ const setSecureKeyAsync = mock(
 );
 const getSecureKeyAsync = mock(async (_account: string) => getReturn);
 
+// Spread the real module rather than listing two exports. These cases reach
+// the marker tables, which pulls persistence into the graph, and anything in
+// there that imports another secure-keys export would fail to resolve against
+// a partial factory.
+const realSecureKeys = await import("../../security/secure-keys.js");
 mock.module("../../security/secure-keys.js", () => ({
+  ...realSecureKeys,
   setSecureKeyAsync,
   getSecureKeyAsync,
 }));
@@ -39,7 +45,24 @@ const { _setMetadataPath, getCredentialMetadata, upsertCredentialMetadata } =
 const { acpSpawnCredentialDenialReason } =
   await import("../prepare-agent-env.js");
 
+const { hasAcpConnectCardRaised, markAcpConnectCardRaised } =
+  await import("../acp-connect-card-state.js");
+const { installAcpConfigStub } = await import("./helpers/acp-config-stub.js");
+const acpConfig = await installAcpConfigStub();
+
+// The registry is retired per conversation by asking whether that conversation
+// still has a marker worth showing, so these cases need a real (empty)
+// database rather than an error path standing in for one.
+const { initializeDb } = await import("../../persistence/db-init.js");
+await initializeDb();
+
+const { claudeTokenDigest, noteClaudeTokenRefused } =
+  await import("../acp-auth-marker-store.js");
+const { clearHistory, insertHistoryRow } =
+  await import("./helpers/acp-history-db.js");
+
 const {
+  acpConnectCardStillWarranted,
   CLAUDE_OAUTH_CONFIG,
   CLAUDE_MANUAL_REDIRECT_URI,
   buildClaudeAuthorizeUrl,
@@ -47,6 +70,13 @@ const {
   storeAcpClaudeToken,
   hasAcpClaudeToken,
 } = await import("../acp-claude-oauth.js");
+
+/**
+ * The card notification is detached from the store so it cannot delay a
+ * sign-in, so a test asserting on its effects has to let it run.
+ */
+const settleNotification = () =>
+  new Promise((resolve) => setTimeout(resolve, 10));
 
 const ACP_SERVICE = "acp";
 const OAUTH_FIELD = "claude_oauth_token";
@@ -278,5 +308,237 @@ describe("hasAcpClaudeToken", () => {
     await hasAcpClaudeToken();
 
     expect(oauthMetadata()).toBeUndefined();
+  });
+});
+
+describe("storeAcpClaudeToken: retiring the card registry", () => {
+  test("clears the registry after the policy repair, not before it", () => {
+    // The write happens first and the policy repair second, so at the moment
+    // the credential seam asks, a token whose `acp_spawn` read is denied is
+    // not usable and nothing is retired. The repair on the next line is what
+    // makes it usable, so the notification has to run again after it.
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: ["some_other_tool"],
+      allowedDomains: [],
+    });
+    expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeDefined();
+    markAcpConnectCardRaised("conv-with-card");
+    getReturn = "sk-ant-oat-token";
+
+    return storeAcpClaudeToken("sk-ant-oat-token")
+      .then(settleNotification)
+      .then(() => {
+        expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeUndefined();
+        expect(hasAcpConnectCardRaised("conv-with-card")).toBe(false);
+      });
+  });
+
+  test("leaves the registry alone when the stored value is unusable", () => {
+    // A bulk restore can land an api-key-shaped value. The marker comparison
+    // keeps the card up for that reason, so forgetting the registry would open
+    // the second prompt it exists to suppress.
+    markAcpConnectCardRaised("conv-keeps-card");
+    getReturn = "sk-ant-api-key-shaped";
+
+    return storeAcpClaudeToken("sk-ant-api-key-shaped")
+      .then(settleNotification)
+      .then(() => {
+        expect(hasAcpConnectCardRaised("conv-keeps-card")).toBe(true);
+      });
+  });
+});
+
+describe("storeAcpClaudeToken: a re-written rejected token retires nothing", () => {
+  test("keeps the registry entry while the marker still stands", () => {
+    // A bulk restore can store the very token Claude rejected. It passes the
+    // shape and policy checks, so usability says yes, but nothing about the
+    // failure changed: the snapshot goes on serving that marker and the card
+    // stays up. Forgetting the entry would open a second prompt beside it.
+    clearHistory();
+    const token = "sk-ant-oat-still-rejected";
+    getReturn = token;
+    insertHistoryRow({
+      id: "run-still-rejected",
+      parentConversationId: "conv-still-broken",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest(token),
+    });
+    markAcpConnectCardRaised("conv-still-broken");
+
+    return storeAcpClaudeToken(token)
+      .then(settleNotification)
+      .then(() => {
+        expect(hasAcpConnectCardRaised("conv-still-broken")).toBe(true);
+      });
+  });
+
+  test("drops it once a different token makes the marker stale", () => {
+    clearHistory();
+    getReturn = "sk-ant-oat-replacement";
+    insertHistoryRow({
+      id: "run-repaired",
+      parentConversationId: "conv-repaired",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest("sk-ant-oat-old-rejected"),
+    });
+    markAcpConnectCardRaised("conv-repaired");
+
+    return storeAcpClaudeToken("sk-ant-oat-replacement")
+      .then(settleNotification)
+      .then(() => {
+        expect(hasAcpConnectCardRaised("conv-repaired")).toBe(false);
+      });
+  });
+});
+
+describe("acpConnectCardStillWarranted", () => {
+  test("a mid-run card stands while its marker names the credential in use", () => {
+    clearHistory();
+    const token = "sk-ant-oat-in-use";
+    getReturn = token;
+    insertHistoryRow({
+      id: "run-warranted",
+      parentConversationId: "conv-warranted",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest(token),
+    });
+
+    return acpConnectCardStillWarranted("conv-warranted").then((warranted) => {
+      expect(warranted).toBe(true);
+    });
+  });
+
+  test("a mid-run card falls once a different token is stored", () => {
+    // The repair need not be a credential write: editing the agent's
+    // configured token moves this answer too, which is why it is asked rather
+    // than remembered.
+    clearHistory();
+    getReturn = "sk-ant-oat-replacement";
+    insertHistoryRow({
+      id: "run-repaired",
+      parentConversationId: "conv-repaired-warrant",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: claudeTokenDigest("sk-ant-oat-old"),
+    });
+
+    return acpConnectCardStillWarranted("conv-repaired-warrant").then(
+      (warranted) => {
+        expect(warranted).toBe(false);
+      },
+    );
+  });
+
+  test("a pre-spawn card stands while there is no usable token", () => {
+    // The missing-token path has no session to record a marker on, so the
+    // absence of one says nothing; what keeps its card meaningful is that a
+    // spawn still has nothing to authenticate with.
+    clearHistory();
+    getReturn = undefined;
+
+    return acpConnectCardStillWarranted("conv-no-token").then((warranted) => {
+      expect(warranted).toBe(true);
+    });
+  });
+
+  test("a pre-spawn card falls once a usable token exists", () => {
+    clearHistory();
+    getReturn = "sk-ant-oat-now-present";
+
+    return acpConnectCardStillWarranted("conv-no-marker").then((warranted) => {
+      expect(warranted).toBe(false);
+    });
+  });
+});
+
+describe("acpConnectCardStillWarranted: a pre-spawn card and configured tokens", () => {
+  test("falls once the agent's configured token supplies a credential", () => {
+    // Repairing by setting `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` never
+    // touches the vault, so asking the vault would call this card warranted
+    // forever even though the next spawn authenticates fine.
+    clearHistory();
+    getReturn = undefined;
+    acpConfig.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-from-config" },
+        },
+      },
+    });
+    markAcpConnectCardRaised("conv-config-repair", "claude");
+
+    return acpConnectCardStillWarranted("conv-config-repair").then(
+      (warranted) => {
+        expect(warranted).toBe(false);
+      },
+    );
+  });
+
+  test("stands while neither config nor the vault offers one", () => {
+    clearHistory();
+    getReturn = undefined;
+    acpConfig.setConfig({ agents: {} });
+    markAcpConnectCardRaised("conv-still-nothing", "claude");
+
+    return acpConnectCardStillWarranted("conv-still-nothing").then(
+      (warranted) => {
+        expect(warranted).toBe(true);
+      },
+    );
+  });
+});
+
+describe("acpConnectCardStillWarranted: a resolved credential Claude already refused", () => {
+  test("stands while the only credential a spawn would pick is the refused one", () => {
+    // Standing down needs a replacement to stand down *to*. With none stored,
+    // the resolver still reports the refused configured token, and the next
+    // spawn rejects it exactly as this one did. Reading that as repaired drops
+    // the card and lets a second prompt open beside it.
+    clearHistory();
+    const token = "sk-ant-oat-config-refused";
+    getReturn = undefined;
+    acpConfig.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: token },
+        },
+      },
+    });
+    noteClaudeTokenRefused(claudeTokenDigest(token), 1000);
+    markAcpConnectCardRaised("conv-refused-config", "claude");
+
+    return acpConnectCardStillWarranted("conv-refused-config").then(
+      (warranted) => {
+        expect(warranted).toBe(true);
+      },
+    );
+  });
+
+  test("falls once the resolved credential is one Claude has not refused", () => {
+    clearHistory();
+    getReturn = undefined;
+    acpConfig.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-config-fresh" },
+        },
+      },
+    });
+    markAcpConnectCardRaised("conv-fresh-config", "claude");
+
+    return acpConnectCardStillWarranted("conv-fresh-config").then(
+      (warranted) => {
+        expect(warranted).toBe(false);
+      },
+    );
   });
 });

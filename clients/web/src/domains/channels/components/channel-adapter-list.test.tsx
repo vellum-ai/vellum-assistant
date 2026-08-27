@@ -14,6 +14,7 @@ const CHANNELS: AssistantChannelState[] = [
     status: "ready",
     configured: true,
     canDisconnect: true,
+    canManualEntry: true,
     address: "@vex",
   },
   {
@@ -21,12 +22,14 @@ const CHANNELS: AssistantChannelState[] = [
     status: "not_configured",
     configured: false,
     canDisconnect: true,
+    canManualEntry: true,
   },
   {
     key: "phone",
     status: "not_configured",
     configured: false,
     canDisconnect: true,
+    canManualEntry: true,
   },
 ];
 

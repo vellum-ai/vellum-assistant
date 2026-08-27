@@ -36,8 +36,9 @@ const probeTunnelMock = mock(
 mock.module("../../../daemon/handlers/config-ingress.js", () => ({
   getIngressConfigResult: () => ingressConfig,
   isVelayManagedIngress: () => velayManaged,
-  loadLastTunnelRecord: () => lastTunnel,
   loadPairingTunnelRecord: () => pairingTunnel,
+  // Mirrors the real selector: a pairing-only record wins over the last run.
+  loadRestartTunnelRecord: () => pairingTunnel ?? lastTunnel,
   loadRecordedAssistantId: () => recordedAssistantId,
 }));
 

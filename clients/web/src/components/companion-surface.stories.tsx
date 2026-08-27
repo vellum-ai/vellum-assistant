@@ -1,11 +1,19 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent,
+} from "react";
 
 import {
   CompanionIntro,
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
+import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
   type CompanionSurfacePhase,
@@ -13,8 +21,12 @@ import {
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import {
+  COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
+  COMPANION_SIZES,
+  companionBoxFor,
   type CompanionIntroBeat,
+  type CompanionSizeAxis,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -37,8 +49,8 @@ const DEMO_CALL: VoiceActivityState = {
 
 /**
  * A real assistant avatar, composed from the same bundled character components
- * the hatching screen uses, so what is on the pill is a genuine avatar rather
- * than a stand-in that happens to be round. Composed once at module scope: it
+ * the hatching screen uses, so what is beside the pill is a genuine avatar
+ * rather than a stand-in that happens to be round. Composed once at module scope: it
  * is a pure function of constants.
  */
 const EXAMPLE_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(
@@ -72,6 +84,21 @@ const BACKDROPS = {
 };
 
 type Backdrop = keyof typeof BACKDROPS;
+
+/**
+ * The five named steps for one axis, as the boxes the surface actually takes.
+ *
+ * The controls offer the names and hand over the numbers, because the names are
+ * what a user picks from a menu and the boxes are what the surface is drawn in.
+ * Per axis rather than shared, because the same name is a different box on each
+ * one: one vocabulary, two tables.
+ */
+const sizeOptionsFor = (axis: CompanionSizeAxis): number[] =>
+  COMPANION_SIZES.map((size) => companionBoxFor(axis, size));
+const sizeLabelsFor = (axis: CompanionSizeAxis): Record<number, string> =>
+  Object.fromEntries(
+    COMPANION_SIZES.map((size) => [companionBoxFor(axis, size), size]),
+  );
 
 type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
   backdrop: Backdrop;
@@ -109,8 +136,17 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: ["up", "down"],
     },
+    avatarBox: {
+      name: "avatarSize",
+      control: { type: "select", labels: sizeLabelsFor("avatar") },
+      options: sizeOptionsFor("avatar"),
+    },
+    optionsBox: {
+      name: "optionsSize",
+      control: { type: "select", labels: sizeLabelsFor("options") },
+      options: sizeOptionsFor("options"),
+    },
     accentHex: { control: "color" },
-    glow: { control: "boolean" },
     watching: { control: "boolean" },
     watchEnabled: { control: "boolean" },
     introBeat: {
@@ -120,7 +156,6 @@ const meta: Meta<StoryArgs> = {
   },
   args: {
     phase: "resting",
-    glow: true,
     // On here, off everywhere a real user meets it until the flag says
     // otherwise. Design stories are for looking at what the surface can draw,
     // and a control the stories hid would be one nobody could review. Turn it
@@ -141,7 +176,9 @@ const meta: Meta<StoryArgs> = {
       }
       return (
         <div
-          className="relative h-[340px] w-[560px] overflow-hidden rounded-xl"
+          // Overflow is left visible so a surface drawn at one of the larger
+          // option sizes is reviewable whole rather than cut off at the stage.
+          className="relative h-[340px] w-[560px] overflow-visible rounded-xl"
           style={{
             background:
               BACKDROPS[(context.args as StoryArgs).backdrop ?? "dark"],
@@ -164,6 +201,27 @@ export const Resting: Story = {
 };
 
 /**
+ * The same circle in an assistant's own colour, which is what the desktop
+ * actually shows: the glow is the character's palette hex, not the surface's
+ * teal default. Here so the resting colour is reviewable without a live call.
+ */
+export const RestingInItsOwnColour: Story = {
+  args: {
+    phase: "resting",
+    character: { bodyShape: "burst", eyeStyle: "curious", color: "orange" },
+    accentHex: "#E9642F",
+  },
+};
+
+/**
+ * An uploaded image instead of a composed creature. It has no palette colour to
+ * resolve, so this is the case the component's default accent exists for.
+ */
+export const RestingCustomImage: Story = {
+  args: { phase: "resting", character: undefined, avatarSrc: EXAMPLE_AVATAR },
+};
+
+/**
  * Resting, with a turn running somewhere the user is not looking.
  *
  * The state the working ring exists for: the assistant is doing something and
@@ -174,7 +232,13 @@ export const RestingWhileWorking: Story = {
   args: { phase: "resting", working: true },
 };
 
-/** The same turn with the pill open, where the ring follows the wider shape. */
+/**
+ * The same turn with the pill open, where the ring stays on the creature.
+ *
+ * The pill changes shape beside it and the light does not move: the creature
+ * holds one spot in the canvas, so the state stays where the eye already looks
+ * for it.
+ */
 export const HoverWhileWorking: Story = {
   args: { phase: "hover", hovered: true, working: true },
 };
@@ -182,8 +246,10 @@ export const HoverWhileWorking: Story = {
 /**
  * The reply to something typed on the surface, while the card is still open.
  *
- * The card is the tallest and squarest thing the surface draws, so it is where
- * a ring written for a 44pt circle is most likely to come apart.
+ * The card is the tallest thing the surface draws, and the ring is still the
+ * circle on the creature beside it: the widest gap between the two shapes, and
+ * the clearest case that the light belongs to the creature rather than to
+ * whatever is open next to it.
  */
 export const TypingWhileWorking: Story = {
   args: {
@@ -191,6 +257,68 @@ export const TypingWhileWorking: Story = {
     working: true,
     assistantName: "Ziggy",
     turns: [{ role: "user", text: "what is on my calendar tomorrow?" }],
+  },
+};
+
+/**
+ * A creature far larger than the controls beside it, which is the pair the two
+ * size axes exist for.
+ *
+ * The pill, the card and the gap follow the options size and the creature
+ * follows the avatar size, so the controls here sit well short of the creature
+ * beside them. The pill's bottom still sits on the creature's visible bottom,
+ * and its avatar-facing edge is the creature's own visual edge plus the gap,
+ * which is the distance the host sizes the window by.
+ */
+export const BigAvatarSmallOptions: Story = {
+  args: {
+    phase: "hover",
+    hovered: true,
+    avatarBox: companionBoxFor("avatar", "huge"),
+    optionsBox: companionBoxFor("options", "small"),
+  },
+};
+
+/**
+ * The reverse: a modest creature beside controls sized well past it.
+ *
+ * The surface scales its own box by the options size and the creature carries
+ * the difference back down, so the pill and every control on it grow and the
+ * creature does not. The pill still stands on the creature's visible bottom and
+ * so reaches well above its head. The gap is the smaller of the two objects'
+ * clearance rather than the larger one's, so a small creature beside an
+ * enormous pill is not separated from it by a chasm.
+ */
+export const SmallAvatarBigOptions: Story = {
+  args: {
+    phase: "hover",
+    hovered: true,
+    avatarBox: companionBoxFor("avatar", "small"),
+    optionsBox: companionBoxFor("options", "huge"),
+  },
+};
+
+/**
+ * The same pair at rest, which is the state the surface spends its day in.
+ *
+ * The pill is gone and the creature is all that is left, so what these two show
+ * is the creature at the avatar size against a canvas whose clearance the
+ * larger of the two boxes earns.
+ */
+export const RestingBigAvatarSmallOptions: Story = {
+  args: {
+    phase: "resting",
+    avatarBox: companionBoxFor("avatar", "huge"),
+    optionsBox: companionBoxFor("options", "small"),
+  },
+};
+
+/** The reverse pair at rest: a small creature on a canvas sized for the pill. */
+export const RestingSmallAvatarBigOptions: Story = {
+  args: {
+    phase: "resting",
+    avatarBox: companionBoxFor("avatar", "small"),
+    optionsBox: companionBoxFor("options", "huge"),
   },
 };
 
@@ -455,6 +583,13 @@ export const AgainstTheLeftEdge: Story = {
   ],
 };
 
+/** A 44px column at the stage's right edge, with the screen ending beside it. */
+const againstTheRightEdge: Decorator = (Story) => (
+  <div className="absolute top-0 right-0 h-full w-11">
+    <Story />
+  </div>
+);
+
 /**
  * The case that needs the flip: the circle parked against the right edge, where
  * the body has nowhere to run.
@@ -466,19 +601,38 @@ export const AgainstTheLeftEdge: Story = {
  */
 export const AgainstTheRightEdge: Story = {
   args: { phase: "call", growth: "left" },
-  decorators: [
-    (Story) => (
-      <div className="absolute top-0 right-0 h-full w-11">
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [againstTheRightEdge],
+};
+
+/**
+ * The flip with the two sizes pulling against each other, which is where a
+ * mirrored anchor is easiest to get wrong.
+ *
+ * The pill is pinned by its right edge a gap off a creature several times its
+ * height, and its bottom still sits on the creature's visible bottom. The
+ * creature holds the same spot it holds growing rightward: what a flip moves is
+ * the pill.
+ */
+export const BigAvatarAgainstTheRightEdge: Story = {
+  args: {
+    phase: "hover",
+    hovered: true,
+    growth: "left",
+    avatarBox: companionBoxFor("avatar", "huge"),
+    optionsBox: companionBoxFor("options", "small"),
+  },
+  decorators: [againstTheRightEdge],
 };
 
 /**
  * The move itself, which is the thing being designed and the one thing a
- * static story cannot show. Expansion arms on the avatar alone, so the rest of
- * the desktop is dead space exactly as it is in the real window.
+ * static story cannot show.
+ *
+ * Hover is hit-tested against the avatar, the pill and the strip between them,
+ * which is how the Electron host derives it: that window is click-through and
+ * receives forwarded mouse-move rather than `mouseenter`, so it works in
+ * coordinates. Doing the same here keeps the story honest about where the
+ * surface actually arms and where the desktop is left alone.
  *
  * Drop in an image to see the surface wearing a particular assistant. It never
  * leaves the browser: the file is read to a data URL and handed straight to the
@@ -497,6 +651,8 @@ export const Interactive: Story = {
 function HoverDrivenSurface(args: StoryArgs) {
   const [hovered, setHovered] = useState(false);
   const [uploaded, setUploaded] = useState<string | undefined>();
+  const avatarRef = useRef<HTMLDivElement | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
 
   const onFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -515,20 +671,54 @@ function HoverDrivenSurface(args: StoryArgs) {
   const phase: CompanionSurfacePhase =
     args.phase === "call" ? "call" : hovered ? "hover" : "resting";
 
+  const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    const avatar = avatarRef.current;
+    const pill = pillRef.current;
+    if (!avatar || !pill) {
+      return;
+    }
+    // The same rule the page hit-tests by: the pill is part of the surface for
+    // as long as it is drawn, which outlasts the expanded phase by the width
+    // transition it collapses through. At rest its width is zero and it is no
+    // part of the surface.
+    const pillRect = pill.getBoundingClientRect();
+    setHovered(
+      onCompanionSurface(
+        { x: event.clientX, y: event.clientY },
+        {
+          avatar: avatar.getBoundingClientRect(),
+          pill: pillRect.width > 0 ? pillRect : null,
+          // The composer row in stage pixels, which is the options box: the
+          // surface scales its own box by that size and these rects are read
+          // after the transform.
+          rowHeight: args.optionsBox ?? COMPANION_BASE_AVATAR_BOX,
+          cardGrowth: args.cardGrowth ?? "up",
+        },
+      ),
+    );
+  };
+
   return (
     <>
-      <CompanionSurface
-        {...args}
-        phase={phase}
-        hovered={hovered}
-        avatarSrc={uploaded ?? args.avatarSrc}
-        onHoverStart={() => {
-          setHovered(true);
-        }}
-        onHoverEnd={() => {
+      {/* The canvas, which is where the pointer is tracked. The surface's own
+          elements are all that arm it: everywhere else in here is desktop, the
+          way it is in the real window. */}
+      <div
+        className="absolute inset-0"
+        onMouseMove={onMouseMove}
+        onMouseLeave={() => {
           setHovered(false);
         }}
-      />
+      >
+        <CompanionSurface
+          {...args}
+          phase={phase}
+          hovered={hovered}
+          avatarSrc={uploaded ?? args.avatarSrc}
+          avatarRef={avatarRef}
+          rootRef={pillRef}
+        />
+      </div>
       <label className="absolute bottom-2 left-2 cursor-pointer rounded-md bg-black/50 px-2 py-1 text-[11px] text-white/80 backdrop-blur-sm">
         Use my own avatar
         <input
@@ -794,6 +984,10 @@ function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
             beat={beat}
             growth={args.growth}
             cardGrowth={args.cardGrowth}
+            // The same pair the surface is drawn at, so a mixed one shows the
+            // card clearing the pill rather than landing inside it.
+            avatarBox={args.avatarBox}
+            optionsBox={args.optionsBox}
             accentHex={args.accentHex}
             onAdvance={(action) => {
               const next =
@@ -821,7 +1015,7 @@ export const Introduction: Story = {
 /**
  * The card with a reply that uses the formatting an assistant actually writes:
  * emphasis, inline code, and a short list. What the card does with markdown is
- * worth looking at rather than reasoning about, since it is 360pt wide and set
+ * worth looking at rather than reasoning about, since it is a pill's width set
  * at 12px, and the primitive is authored for a full-width transcript.
  */
 export const TypingWithMarkdown: Story = {

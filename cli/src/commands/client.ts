@@ -39,7 +39,9 @@ import {
   runDevicesRevoke,
   runHatch,
   runRetire,
-  connectImport,
+  pairingCancel,
+  pairingPoll,
+  pairingStart,
   unpairAssistant,
   getGuardianAccessToken,
   getPairedGuardianAccessToken,
@@ -430,7 +432,9 @@ const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
 const UNPAIR_PATTERN = /^(?:\/assistant)?\/__local\/unpair$/;
 const DEVICES_PATTERN = /^(?:\/assistant)?\/__local\/devices$/;
 const DEVICES_REVOKE_PATTERN = /^(?:\/assistant)?\/__local\/devices-revoke$/;
-const CONNECT_IMPORT_PATTERN = /^(?:\/assistant)?\/__local\/connect-import$/;
+const PAIRING_START_PATTERN = /^(?:\/assistant)?\/__local\/pairing-start$/;
+const PAIRING_POLL_PATTERN = /^(?:\/assistant)?\/__local\/pairing-poll$/;
+const PAIRING_CANCEL_PATTERN = /^(?:\/assistant)?\/__local\/pairing-cancel$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
@@ -488,7 +492,9 @@ async function handleLocalEndpoints(
     UNPAIR_PATTERN.test(pathname) ||
     DEVICES_PATTERN.test(pathname) ||
     DEVICES_REVOKE_PATTERN.test(pathname) ||
-    CONNECT_IMPORT_PATTERN.test(pathname) ||
+    PAIRING_START_PATTERN.test(pathname) ||
+    PAIRING_POLL_PATTERN.test(pathname) ||
+    PAIRING_CANCEL_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
     parseGatewayUrl(pathname).match ||
@@ -765,16 +771,26 @@ async function handleLocalEndpoints(
     return Response.json(await runDevicesList(invocation, assistantId));
   }
 
-  // Connect-import: register a pairing bundle from another machine (guardian
-  // token + paired lockfile entry), the write counterpart of unpair.
-  if (CONNECT_IMPORT_PATTERN.test(pathname)) {
+  // Pairing: the three-step device-code exchange that registers an assistant
+  // paired on another machine (guardian token + paired lockfile entry), the
+  // write counterpart of unpair. The exchange runs here rather than in the
+  // browser, so the device code and the credentials it buys never reach it.
+  if (
+    PAIRING_START_PATTERN.test(pathname) ||
+    PAIRING_POLL_PATTERN.test(pathname) ||
+    PAIRING_CANCEL_PATTERN.test(pathname)
+  ) {
     if (req.method !== "POST") {
       return new Response(null, { status: 405 });
     }
 
-    let body: { bundle?: unknown; name?: unknown };
+    let body: { address?: unknown; handle?: unknown; name?: unknown };
     try {
-      body = (await req.json()) as { bundle?: unknown; name?: unknown };
+      body = (await req.json()) as {
+        address?: unknown;
+        handle?: unknown;
+        name?: unknown;
+      };
     } catch {
       return Response.json(
         { ok: false, error: "Invalid JSON body" },
@@ -782,21 +798,58 @@ async function handleLocalEndpoints(
       );
     }
 
-    const result = connectImport(lockfilePaths, configDir, {
-      bundle: body.bundle,
+    if (PAIRING_CANCEL_PATTERN.test(pathname)) {
+      return Response.json({ ok: pairingCancel(body.handle) });
+    }
+
+    if (PAIRING_START_PATTERN.test(pathname)) {
+      const result = await pairingStart(body.address);
+      if (result.ok) {
+        return Response.json({
+          ok: true,
+          handle: result.handle,
+          userCode: result.userCode,
+          expiresAt: result.expiresAt,
+          intervalSeconds: result.intervalSeconds,
+        });
+      }
+      // `rejection` rides along so the renderer can show its own localized
+      // copy for a refused address instead of this host's English.
+      return Response.json(
+        {
+          ok: false,
+          reason: result.reason,
+          error: result.error,
+          rejection: result.rejection,
+        },
+        { status: result.status },
+      );
+    }
+
+    const result = await pairingPoll(lockfilePaths, configDir, {
+      handle: body.handle,
       name: body.name,
     });
-    if (result.ok) {
+    if (!result.ok) {
+      return Response.json(
+        { ok: false, reason: result.reason, error: result.error },
+        { status: result.status },
+      );
+    }
+    if (result.status === "pending") {
       return Response.json({
         ok: true,
-        assistantId: result.assistantId,
-        accessOnly: result.accessOnly,
+        status: "pending",
+        expiresAt: result.expiresAt,
+        intervalSeconds: result.intervalSeconds,
       });
     }
-    return Response.json(
-      { ok: false, error: result.error },
-      { status: result.status },
-    );
+    return Response.json({
+      ok: true,
+      status: "imported",
+      assistantId: result.assistantId,
+      accessOnly: result.accessOnly,
+    });
   }
 
   // Guardian token

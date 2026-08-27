@@ -464,7 +464,7 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     base64?: string;
   }
 
-  test("returns the PNG for an image manifest", () => {
+  test("returns the PNG for an image manifest", async () => {
     writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
     const state: AvatarState = {
       kind: "image",
@@ -474,12 +474,12 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     };
     writeManifest(state, avatarDir);
 
-    const result = getHandler("avatar_get")({}) as GetResult;
+    const result = (await getHandler("avatar_get")({})) as GetResult;
     expect(result.exists).toBe(true);
     expect(result.path).toBe(path(IMAGE_FILENAME));
   });
 
-  test("returns base64 for an image manifest when format=base64", () => {
+  test("returns base64 for an image manifest when format=base64", async () => {
     writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
     const state: AvatarState = {
       kind: "image",
@@ -489,15 +489,15 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     };
     writeManifest(state, avatarDir);
 
-    const result = getHandler("avatar_get")({
+    const result = (await getHandler("avatar_get")({
       queryParams: { format: "base64" },
-    }) as GetResult;
+    })) as GetResult;
     expect(result.exists).toBe(true);
     expect(result.base64).toBe(Buffer.from("png bytes").toString("base64"));
     expect(result.path).toBeUndefined();
   });
 
-  test("returns the existing raster for a character manifest", () => {
+  test("returns the existing raster for a character manifest", async () => {
     // The builder writes the rendered PNG; assert the accessor returns it
     // without needing to re-render (the manifest says character).
     writeFileSync(path(IMAGE_FILENAME), Buffer.from("rendered character png"));
@@ -509,12 +509,12 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     };
     writeManifest(state, avatarDir);
 
-    const result = getHandler("avatar_get")({}) as GetResult;
+    const result = (await getHandler("avatar_get")({})) as GetResult;
     expect(result.exists).toBe(true);
     expect(result.path).toBe(path(IMAGE_FILENAME));
   });
 
-  test("manifest precedence wins over file order: a character manifest is honored even when a PNG is present", () => {
+  test("manifest precedence wins over file order: a character manifest is honored even when a PNG is present", async () => {
     // Both a PNG and traits are on disk, but the manifest declares character.
     // The pre-manifest accessor was image-first; precedence is now the manifest.
     writeFileSync(path(IMAGE_FILENAME), Buffer.from("rendered character png"));
@@ -527,27 +527,27 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     };
     writeManifest(state, avatarDir);
 
-    const result = getHandler("avatar_get")({}) as GetResult;
+    const result = (await getHandler("avatar_get")({})) as GetResult;
     expect(result.exists).toBe(true);
     expect(result.path).toBe(path(IMAGE_FILENAME));
   });
 
-  test("returns exists:false for a none manifest", () => {
+  test("returns exists:false for a none manifest", async () => {
     writeManifest(
       { kind: "none", traits: null, source: null, image: null },
       avatarDir,
     );
 
-    const result = getHandler("avatar_get")({}) as GetResult;
+    const result = (await getHandler("avatar_get")({})) as GetResult;
     expect(result.exists).toBe(false);
     expect(result.path).toBeUndefined();
   });
 
-  test("self-heals from legacy files when no manifest exists (image file) and persists the manifest", () => {
+  test("self-heals from legacy files when no manifest exists (image file) and persists the manifest", async () => {
     writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
     expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
 
-    const result = getHandler("avatar_get")({}) as GetResult;
+    const result = (await getHandler("avatar_get")({})) as GetResult;
     expect(result.exists).toBe(true);
     expect(result.path).toBe(path(IMAGE_FILENAME));
 
@@ -558,14 +558,14 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     expect(persisted.kind).toBe("image");
   });
 
-  test("returns exists:false for an empty workspace (no manifest, no files)", () => {
-    const result = getHandler("avatar_get")({}) as GetResult;
+  test("returns exists:false for an empty workspace (no manifest, no files)", async () => {
+    const result = (await getHandler("avatar_get")({})) as GetResult;
     expect(result.exists).toBe(false);
   });
 
-  test("rejects an invalid format", () => {
-    expect(() =>
+  test("rejects an invalid format", async () => {
+    await expect(
       getHandler("avatar_get")({ queryParams: { format: "bmp" } }),
-    ).toThrow(/Invalid format/);
+    ).rejects.toThrow(/Invalid format/);
   });
 });

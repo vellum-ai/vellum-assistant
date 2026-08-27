@@ -278,6 +278,9 @@ export const actorTokenRecords = sqliteTable(
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
+    // Siblings of platform so rotation carries them forward. Raw, never parsed here.
+    pairingUserAgent: text("pairing_user_agent"),
+    clientReportedName: text("client_reported_name"),
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     expiresAt: integer("expires_at"),
@@ -313,6 +316,8 @@ export const actorRefreshTokenRecords = sqliteTable(
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),
+    pairingUserAgent: text("pairing_user_agent"),
+    clientReportedName: text("client_reported_name"),
     status: text("status").notNull().default("active"),
     issuedAt: integer("issued_at").notNull(),
     absoluteExpiresAt: integer("absolute_expires_at").notNull(),

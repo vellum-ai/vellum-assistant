@@ -70,6 +70,50 @@ export function pluginScopedId(plugin: string, value: string): string {
 }
 
 /**
+ * The vendor-facing id inside a scoped plugin id.
+ *
+ * `pluginScopedId` prefixes with `${plugin}:`. The plugin's send API addresses
+ * chats in the vendor's own terms, so a notice has to carry the unprefixed
+ * value the declaration read, not the namespaced key the gate stores.
+ */
+export function unscopedPluginId(plugin: string, scoped: string): string {
+  const prefix = `${plugin}:`;
+  if (scoped.startsWith(prefix)) {
+    return scoped.slice(prefix.length);
+  }
+  return scoped;
+}
+
+/**
+ * The contact-channel key for a plugin inbound actor.
+ *
+ * Ingress stamps `sourceChannel` `plugin` and prefixes ids so two plugins
+ * cannot share conversations or the admission floor. Contacts stores each
+ * plugin under its directory name and the vendor id the user entered
+ * (`imessage` / `+12025550142`). Trust lookup uses this pair so verifying
+ * iMessage does not write a second `plugin` row, and a Phone row never
+ * admits iMessage inbound.
+ */
+export function pluginMemberIdentity(
+  sourceChannel: string,
+  actorExternalId: string,
+): { type: string; address: string } {
+  if (sourceChannel !== "plugin") {
+    return { type: sourceChannel, address: actorExternalId };
+  }
+  const sep = actorExternalId.indexOf(":");
+  if (sep <= 0) {
+    return { type: sourceChannel, address: actorExternalId };
+  }
+  const type = actorExternalId.slice(0, sep);
+  const address = actorExternalId.slice(sep + 1);
+  if (!type || !address) {
+    return { type: sourceChannel, address: actorExternalId };
+  }
+  return { type, address };
+}
+
+/**
  * The vendor payload the plugin carried forward, if it carried one.
  *
  * `raw` is what every other channel's normalizer keeps for a later stage to
@@ -208,6 +252,7 @@ export function readPluginInbound(
       sourceChannel: "plugin",
       receivedAt,
       message: {
+        eventKind: "message",
         content: read("content") ?? "",
         conversationExternalId: pluginScopedId(plugin, conversation!),
         externalMessageId: pluginScopedId(plugin, messageId!),

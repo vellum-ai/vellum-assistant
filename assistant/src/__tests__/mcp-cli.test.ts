@@ -438,12 +438,34 @@ describe("assistant mcp add", () => {
     expect(stderr).toContain("--url is required");
   });
 
-  test("defaults risk to high", async () => {
+  test("sends no risk when --risk is omitted, leaving the config default", async () => {
     const { exitCode } = await runMcpAdd("default-risk", [
       "-t",
       "sse",
       "-u",
       "https://example.com/sse",
+    ]);
+    expect(exitCode).toBe(0);
+
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
+    );
+    expect(addCall).toBeDefined();
+    const body = (addCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.risk).toBeUndefined();
+  });
+
+  test("forwards an explicit --risk", async () => {
+    const { exitCode } = await runMcpAdd("explicit-risk", [
+      "-t",
+      "sse",
+      "-u",
+      "https://example.com/sse",
+      "-r",
+      "high",
     ]);
     expect(exitCode).toBe(0);
 

@@ -164,6 +164,7 @@ export class LocalRerankBackend {
         modelCacheDir,
         this.dtype,
       ],
+      windowsHide: true,
       env: { ...workerMemoryEnv(), ...workerComputeEnv() },
       stdin: "pipe",
       stdout: "pipe",

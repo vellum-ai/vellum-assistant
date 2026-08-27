@@ -1,11 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { createContext, useContext, type ReactNode } from "react";
+
+import { COMPACT_WIDTH_PX, useIsCompactWidth } from "@/hooks/use-compact-width";
 
 /**
  * Composer card width (px) below which the action row can no longer hold the
@@ -13,10 +8,10 @@ import {
  * other and the two labels render on top of one another. Below this the pair
  * collapses into a single hamburger menu holding both sections.
  *
- * Measured against the card, not the viewport: the composer also narrows when
- * the sidebar opens or the window is split, and the collision follows the card.
+ * This is the tightest surface in the chat column, so it is what sets the
+ * column's shared threshold.
  */
-export const COMPOSER_COMPACT_WIDTH_PX = 520;
+export const COMPOSER_COMPACT_WIDTH_PX = COMPACT_WIDTH_PX;
 
 const ComposerCompactContext = createContext(false);
 
@@ -45,27 +40,6 @@ export function ComposerCompactProvider({
 
 /**
  * Track whether `ref`'s element is narrower than
- * {@link COMPOSER_COMPACT_WIDTH_PX}, via `ResizeObserver` so it follows
- * sidebar toggles and window resizes, not just the initial layout.
+ * {@link COMPOSER_COMPACT_WIDTH_PX}.
  */
-export function useIsCompactComposerWidth(
-  ref: RefObject<HTMLElement | null>,
-): boolean {
-  const [compact, setCompact] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const measure = () => {
-      setCompact(el.getBoundingClientRect().width < COMPOSER_COMPACT_WIDTH_PX);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref]);
-
-  return compact;
-}
+export const useIsCompactComposerWidth = useIsCompactWidth;

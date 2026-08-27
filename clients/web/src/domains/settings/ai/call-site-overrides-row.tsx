@@ -8,8 +8,10 @@ import { useTranslation } from "@/i18n";
 import {
   getDefaultModelForProvider,
   getModelsForProvider,
+  getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type {
   CallSiteOverrideDraft,
   ProviderConnection,
@@ -80,6 +82,8 @@ export function CallSiteOverrideRow({
   onToggle,
 }: CallSiteOverrideRowProps) {
   const { t } = useTranslation("settings");
+  const developerMode =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const overrideOn = isDraftActive(draft);
 
   const profileVal = (() => {
@@ -148,7 +152,7 @@ export function CallSiteOverrideRow({
     connectionsForProvider,
   )
     ? codexServableModels(currentProvider)
-    : getModelsForProvider(currentProvider);
+    : getVisibleModelsForProvider(currentProvider, developerMode);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,

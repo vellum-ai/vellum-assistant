@@ -32,6 +32,7 @@ import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handler
 import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
 import { isPlatformClientConfigured } from "../platform/client.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
+import { syncAvatarToPlatform } from "../platform/sync-avatar.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
@@ -695,9 +696,10 @@ export async function runDaemon(): Promise<void> {
 
   // Initialize providers before Qdrant so HTTP routes can begin accepting
   // requests while Qdrant initializes, then best-effort sync the workspace
-  // identity name to the platform record.
+  // identity name and avatar to the platform record.
   await initializeProviders(config);
   syncWorkspaceIdentityToPlatform();
+  syncAvatarToPlatform();
 
   // Start the idle/LRU/memory-pressure sweep over the in-memory conversation
   // pool.

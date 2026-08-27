@@ -79,10 +79,7 @@ import { initializeDb } from "../persistence/db-init.js";
 import { linkMessage, recordInbound } from "../persistence/delivery-crud.js";
 import { messages } from "../persistence/schema/conversations.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import {
-  isSlackReactionEvent,
-  parseSlackReactionCallbackData,
-} from "../runtime/routes/inbound-stages/reaction-intercept.js";
+import { isReactionEvent } from "../runtime/routes/inbound-stages/reaction-intercept.js";
 import {
   handleChannelInbound,
   seedContactChannel,
@@ -202,70 +199,26 @@ function readPersistedMessages(): Array<{
 // Helper unit tests
 // ---------------------------------------------------------------------------
 
-describe("isSlackReactionEvent", () => {
-  test("returns true for reaction added", () => {
-    expect(
-      isSlackReactionEvent({
-        sourceChannel: "slack",
-        callbackData: "reaction:thumbsup",
-      }),
-    ).toBe(true);
+describe("isReactionEvent", () => {
+  test("returns true for a stamped reaction kind", () => {
+    expect(isReactionEvent({ eventKind: "reaction" })).toBe(true);
   });
 
-  test("returns true for reaction removed", () => {
-    expect(
-      isSlackReactionEvent({
-        sourceChannel: "slack",
-        callbackData: "reaction_removed:eyes",
-      }),
-    ).toBe(true);
-  });
-
-  test("returns false for non-Slack source", () => {
-    expect(
-      isSlackReactionEvent({
-        sourceChannel: "telegram",
-        callbackData: "reaction:thumbsup",
-      }),
-    ).toBe(false);
+  test("returns true for replayed reaction sentinels, added and removed", () => {
+    expect(isReactionEvent({ callbackData: "reaction:thumbsup" })).toBe(true);
+    expect(isReactionEvent({ callbackData: "reaction_removed:eyes" })).toBe(
+      true,
+    );
   });
 
   test("returns false for non-reaction callback data", () => {
-    expect(
-      isSlackReactionEvent({
-        sourceChannel: "slack",
-        callbackData: "apr:req-1:approve_once",
-      }),
-    ).toBe(false);
+    expect(isReactionEvent({ callbackData: "apr:req-1:approve_once" })).toBe(
+      false,
+    );
   });
 
-  test("returns false when callbackData missing", () => {
-    expect(isSlackReactionEvent({ sourceChannel: "slack" })).toBe(false);
-  });
-});
-
-describe("parseSlackReactionCallbackData", () => {
-  test("parses reaction:<emoji> as added", () => {
-    expect(parseSlackReactionCallbackData("reaction:thumbsup")).toEqual({
-      op: "added",
-      emoji: "thumbsup",
-    });
-  });
-
-  test("parses reaction_removed:<emoji> as removed", () => {
-    expect(parseSlackReactionCallbackData("reaction_removed:eyes")).toEqual({
-      op: "removed",
-      emoji: "eyes",
-    });
-  });
-
-  test("returns null for empty emoji portion", () => {
-    expect(parseSlackReactionCallbackData("reaction:")).toBeNull();
-    expect(parseSlackReactionCallbackData("reaction_removed:")).toBeNull();
-  });
-
-  test("returns null for unrelated callback data", () => {
-    expect(parseSlackReactionCallbackData("apr:req-1:approve")).toBeNull();
+  test("returns false for a plain message", () => {
+    expect(isReactionEvent({})).toBe(false);
   });
 });
 
@@ -356,8 +309,10 @@ describe("Slack reaction event persistence", () => {
     });
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
     expect(resp.status).toBe(200);
+    // The payload resolver requires a target message id, so the dispatch
+    // drops the event before the intercept and it never reads as a message.
     expect(((await resp.json()) as Record<string, unknown>).reaction).toBe(
-      "dropped_unknown_target",
+      "dropped_unresolvable_payload",
     );
 
     const rows = readPersistedMessages();

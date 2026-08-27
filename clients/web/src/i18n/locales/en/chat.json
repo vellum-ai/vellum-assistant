@@ -94,7 +94,7 @@
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
     "navAria": "Assistant navigation",
-    "searchShortcut": "Search (⌘K)"
+    "searchShortcut": "Search ({shortcut})"
   },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
@@ -124,8 +124,15 @@
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
     "nextAttachmentAria": "Next attachment",
+    "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",
     "previousAttachmentAria": "Previous attachment"
+  },
+  "attachmentTile": {
+    "cancelUpload": "Cancel upload of {filename}",
+    "preview": "Preview {filename}",
+    "remove": "Remove {filename}",
+    "uploading": "Uploading {filename}"
   },
   "backgroundTaskDetailPanel": {
     "closeDetail": "Close task detail",
@@ -242,6 +249,11 @@
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
+  "channelReferenceChip": {
+    "heading": "Referencing a {channel} message",
+    "headingWithSender": "Referencing {sender} on {channel}",
+    "removeAria": "Remove the referenced message"
+  },
   "channelSetupPanel": {
     "accountSid": "Account SID",
     "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -259,7 +271,33 @@
     "setupTitle": "{channel} setup",
     "slackConnected": "Your assistant is ready to receive messages on Slack.",
     "telegramConnected": "Your assistant is ready to receive messages on Telegram.",
-    "twilioIntro": "Enter your Twilio credentials from the <consoleLink>Twilio Console</consoleLink>. After saving, return to the chat. Your assistant will finish configuring your phone number and webhooks."
+    "twilioIntro": "Enter your Twilio credentials from the <consoleLink>Twilio Console</consoleLink>. After saving, return to the chat. Your assistant will finish configuring your phone number and webhooks.",
+    "discordConnected": "Discord is connected. Add the bot to a server and it will start answering there."
+  },
+  "channelThreadControl": {
+    "closeAria": "Close the {channel} thread",
+    "label": "{channel} thread",
+    "openAria": "Open the {channel} thread"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "Assistant",
+    "closeAria": "Close the channel thread",
+    "closeTooltip": "Close",
+    "emptyNoMessageDetail": "{channel} does not send Vellum the per-message details this view needs, so there is nothing to list here. Open the conversation in {channel} to read it in full.",
+    "emptyThread": "No {channel} messages in this conversation yet.",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "No text content",
+    "openInChannel": "Open in {channel}",
+    "reactionAdded": "Reacted with {emoji}",
+    "reactionRemoved": "Removed the {emoji} reaction",
+    "readOnly": "Read only",
+    "readOnlyNote": "This is the conversation as it stands in {channel}. Vellum's composer is the only place you can write.",
+    "reference": "Reference in Vellum",
+    "referenceAria": "Reference this {channel} message in Vellum",
+    "referenced": "Referenced",
+    "removeReferenceAria": "Remove this reference from the Vellum composer",
+    "title": "{channel} thread",
+    "unknownSender": "Unknown sender"
   },
   "chatAttachments": {
     "attachFileAria": "Attach file",
@@ -326,7 +364,6 @@
     "createTitle": "Create Trust Rule",
     "description": "Matching tool calls take this rule's risk level, so your approval tolerance can auto-approve them.",
     "editTitle": "Edit Trust Rule",
-    "everywhere": "Everywhere",
     "narrowerScopeAria": "Narrower scope",
     "orNarrowScope": "Or narrow the scope:",
     "save": "Save",
@@ -334,8 +371,7 @@
     "saveRule": "Save Rule",
     "saving": "Saving…",
     "suggested": "Suggested: {risk}",
-    "treatAs": "Treat as",
-    "where": "Where"
+    "treatAs": "Treat as"
   },
   "choiceSurface": {
     "continue": "Continue",
@@ -418,11 +454,11 @@
     "loadingProfiles": "Loading profiles…",
     "modelProfile": "Model Profile",
     "modelProfileTitle": "Model profile",
-    "newProfile": "New Profile",
     "profileAria": "Model profile: {label}",
     "profileAriaFallback": "Model profile",
     "profileSwitchFailed": "Profile created, but couldn't switch to it",
-    "profileSwitchFallback": "Failed to switch profile. Please try again."
+    "profileSwitchFallback": "Failed to switch profile. Please try again.",
+    "quickAdd": "New Model"
   },
   "confirmationActions": {
     "submitFailed": "Failed to submit confirmation. Please try again.",
@@ -605,6 +641,7 @@
     "wordCount": "{count, plural, one {# word} other {# words}}"
   },
   "documentViewerPage": {
+    "exportFailed": "Failed to export PDF",
     "notFound": "Document not found."
   },
   "dynamicPageSurface": {
@@ -1081,6 +1118,12 @@
   "pageTabs": {
     "formStepsAria": "Form steps"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Loading PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Showing the first page} other {Showing the first # pages}}"
+  },
   "phaseGroupedStepList": {
     "startedAt": "Started at {time}"
   },
@@ -1112,10 +1155,13 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Add credits",
     "exhausted": "Add credits to continue.",
+    "extraCredits": "Now using extra usage credits",
     "pctUsed": "{pct}% used",
-    "resets": "Resets {date}",
     "settingsAriaLabel": "Usage and billing settings",
     "title": "Usage"
+  },
+  "previewError": {
+    "cannotPreview": "Can't preview this file"
   },
   "previewMessageCard": {
     "download": "Download",
@@ -1124,9 +1170,14 @@
   "previewSkeleton": {
     "loadingPreview": "Loading preview"
   },
+  "previewTruncationNotice": {
+    "markdown": "Showing the first 512 KB",
+    "text": "Showing the first 2 MB"
+  },
   "previewUnsupported": {
     "downloadFile": "Download file",
-    "goToFile": "Go to file"
+    "goToFile": "Go to file",
+    "noPreviewForType": "No preview for this file type"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
@@ -1158,18 +1209,19 @@
     "submitFailed": "Failed to submit response. Please try again."
   },
   "questionPromptCard": {
-    "closeQuestionAria": "Close question",
+    "expandAria": "Reopen question",
+    "minimizeAria": "Minimize question",
     "nextQuestionAria": "Next question",
     "optionAria": "Option {number}: {label}",
-    "position": "{current} of {total}",
     "previousQuestionAria": "Previous question",
+    "position": "{current} of {total}",
     "sendResponseAria": "Send response",
     "skip": "Skip",
     "skipAria": "Skip this question",
     "skipped": "Skipped",
     "skippedHint": "Skipped - pick an option to override",
     "typeDifferentAnswerAria": "Type a different answer",
-    "typeSomethingElsePlaceholder": "Type something else"
+    "typeSomethingElsePlaceholder": "Something else"
   },
   "queuedMessagesDrawer": {
     "cancelAll": "Cancel all",
@@ -1529,6 +1581,9 @@
     "openVoiceRoom": "Open voice room",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
+  },
+  "voiceEntryGreeting": {
+    "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."

@@ -17,66 +17,26 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
 import {
   AVATAR_IMAGE_FILENAME,
   AVATAR_MANIFEST_FILENAME,
-  getAvatarDir,
-} from "../util/platform.js";
-import { type CharacterTraits, TRAITS_FILENAME } from "./traits-png-sync.js";
+  AVATAR_TRAITS_FILENAME,
+  type AvatarImageMeta,
+  type AvatarKind,
+  type AvatarSource,
+  type AvatarState,
+  type CharacterTraits,
+  deriveAvatarFromLegacyFiles,
+  parseAvatarManifest,
+} from "@vellumai/avatar-manifest";
+
+import { getLogger } from "../util/logger.js";
+import { getAvatarDir } from "../util/platform.js";
 
 const log = getLogger("avatar-manifest");
 
-export type AvatarKind = "character" | "image" | "none";
-export type AvatarSource = "builder" | "upload" | "ai";
-
-export interface AvatarImageMeta {
-  updatedAt: string;
-  etag: string;
-}
-
-export interface AvatarState {
-  kind: AvatarKind;
-  traits: CharacterTraits | null;
-  source: AvatarSource | null;
-  image: AvatarImageMeta | null;
-}
-
-const AVATAR_KINDS: ReadonlySet<string> = new Set<AvatarKind>([
-  "character",
-  "image",
-  "none",
-]);
-
-/** Narrows an unknown value to valid CharacterTraits (presence check only). */
-function isValidTraits(value: unknown): value is CharacterTraits {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const t = value as Record<string, unknown>;
-  return (
-    typeof t.bodyShape === "string" &&
-    !!t.bodyShape &&
-    typeof t.eyeStyle === "string" &&
-    !!t.eyeStyle &&
-    typeof t.color === "string" &&
-    !!t.color
-  );
-}
-
-/** Narrows an unknown value to valid AvatarImageMeta (presence check only). */
-function isValidImageMeta(value: unknown): value is AvatarImageMeta {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const m = value as Record<string, unknown>;
-  return (
-    typeof m.updatedAt === "string" &&
-    !!m.updatedAt &&
-    typeof m.etag === "string" &&
-    !!m.etag
-  );
-}
+export type { AvatarImageMeta, AvatarKind, AvatarSource, AvatarState };
+export type { CharacterTraits };
 
 /**
  * Reads and validates the avatar manifest. Returns `null` when the manifest is
@@ -93,32 +53,9 @@ export function readManifest(
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(manifestPath, "utf-8")) as unknown;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.kind !== "string" || !AVATAR_KINDS.has(obj.kind)) {
-      return null;
-    }
-    const kind = obj.kind as AvatarKind;
-
-    // Reject partial manifests: a valid `kind` with a missing/malformed payload
-    // would otherwise short-circuit the legacy fallback and surface an avatar
-    // with null traits/image.
-    if (kind === "character" && !isValidTraits(obj.traits)) {
-      return null;
-    }
-    if (kind === "image" && !isValidImageMeta(obj.image)) {
-      return null;
-    }
-
-    return {
-      kind,
-      traits: (obj.traits as CharacterTraits | null) ?? null,
-      source: (obj.source as AvatarSource | null) ?? null,
-      image: (obj.image as AvatarImageMeta | null) ?? null,
-    };
+    return parseAvatarManifest(
+      JSON.parse(readFileSync(manifestPath, "utf-8")) as unknown,
+    );
   } catch (err) {
     log.warn({ err }, "Failed to read avatar manifest — treating as absent");
     return null;
@@ -167,24 +104,16 @@ export function computeImageMeta(imagePath: string): AvatarImageMeta {
  * Used by the read handlers to self-heal once on a manifest-miss: the derived
  * state is persisted via `writeManifest` so subsequent reads are manifest-only.
  *
- * Inference is **traits-first**: whenever a valid `character-traits.json`
- * exists, the result is `character` regardless of whether a PNG is also
- * present. We deliberately do NOT compare mtimes to break the both-present
- * tie, because the builder writes the rendered PNG *after* the traits file
- * (see traits-png-sync.ts), so the PNG is always newer even when the
- * character is the source of truth. Comparing mtimes would misclassify a
- * builder-generated character as an uploaded image.
+ * Inference is traits-first (see `deriveAvatarFromLegacyFiles`).
  */
 export function deriveStateFromLegacyFiles(
   avatarDir: string = getAvatarDir(),
 ): AvatarState {
-  const traitsPath = join(avatarDir, TRAITS_FILENAME);
+  const traitsPath = join(avatarDir, AVATAR_TRAITS_FILENAME);
+  let traitsJson: unknown;
   if (existsSync(traitsPath)) {
     try {
-      const traits = JSON.parse(readFileSync(traitsPath, "utf-8")) as unknown;
-      if (isValidTraits(traits)) {
-        return { kind: "character", traits, source: null, image: null };
-      }
+      traitsJson = JSON.parse(readFileSync(traitsPath, "utf-8")) as unknown;
     } catch (err) {
       log.warn(
         { err },
@@ -194,14 +123,33 @@ export function deriveStateFromLegacyFiles(
   }
 
   const imagePath = join(avatarDir, AVATAR_IMAGE_FILENAME);
-  if (existsSync(imagePath)) {
-    return {
-      kind: "image",
-      traits: null,
-      source: null,
-      image: computeImageMeta(imagePath),
-    };
+  const derived = deriveAvatarFromLegacyFiles({
+    traitsJson,
+    hasImage: existsSync(imagePath),
+  });
+  switch (derived.kind) {
+    case "character":
+      return {
+        kind: "character",
+        traits: derived.traits,
+        source: null,
+        image: null,
+      };
+    case "image":
+      return {
+        kind: "image",
+        traits: null,
+        source: null,
+        image: computeImageMeta(imagePath),
+      };
+    case "none":
+      return { kind: "none", traits: null, source: null, image: null };
   }
+}
 
-  return { kind: "none", traits: null, source: null, image: null };
+/** Manifest first, legacy sidecars as fallback. Never persists. */
+export function readAvatarState(
+  avatarDir: string = getAvatarDir(),
+): AvatarState {
+  return readManifest(avatarDir) ?? deriveStateFromLegacyFiles(avatarDir);
 }

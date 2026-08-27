@@ -18,15 +18,18 @@
  * `suppressFailureNotifications`.
  */
 
+import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { AttentionHints } from "../notifications/signal.js";
+import { emitBackgroundFailureSignal } from "../notifications/background-failure-signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import type { TitleOrigin } from "../persistence/conversation-title-service.js";
+import { dispatchProviderResolvable } from "../providers/provider-resolvability.js";
+import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -53,12 +56,14 @@ class BackgroundJobTimeoutError extends Error {
  */
 class BackgroundJobTurnFailureError extends Error {
   override name = "BackgroundJobTurnFailureError";
-  readonly failureCode: string | undefined;
-  constructor(failureCode: string | undefined) {
+  readonly turnFailure: TurnFailure;
+  constructor(turnFailure: TurnFailure) {
     super(
-      failureCode ? `Agent turn failed (${failureCode})` : "Agent turn failed",
+      turnFailure.failureCode
+        ? `Agent turn failed (${turnFailure.failureCode})`
+        : "Agent turn failed",
     );
-    this.failureCode = failureCode;
+    this.turnFailure = turnFailure;
   }
 }
 
@@ -99,9 +104,9 @@ export interface RunBackgroundJobOptions {
   timeoutMs: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
-   * Use for jobs that own their own failure UX (e.g. heartbeat's alerter)
-   * or for "quiet" scheduled jobs that the user has explicitly asked to
-   * suppress notifications for.
+   * Use for jobs whose failure alerting is owned elsewhere: heartbeat's
+   * alerter banner, and the scheduler's retry policy (which alerts once,
+   * when retries are exhausted, instead of once per attempt).
    */
   suppressFailureNotifications?: boolean;
   /** Conversation grouping id. Defaults to `"system:background"`. */
@@ -199,13 +204,14 @@ export interface RunBackgroundJobResult {
   error?: Error;
   errorKind?: BackgroundJobErrorKind;
   /**
-   * Stable classified error code (`ConversationErrorCode`, e.g.
-   * `"PROVIDER_BILLING"`) when the turn failed without throwing. Absent for
-   * timeouts and thrown exceptions. Lets callers branch on the failure class
-   * (e.g. billing vs transient) without depending on error identity or
-   * message text.
+   * The failing turn's full carried classification (stable failureCode,
+   * authored user message, category, connection/profile attribution), when
+   * the failure was a non-throwing turn failure. Absent for timeouts and
+   * thrown exceptions. The single classification field on the result:
+   * callers branch on `turnFailure?.failureCode` and forward the object
+   * wholesale when reporting the failure onward.
    */
-  failureCode?: string;
+  turnFailure?: TurnFailure;
   /**
    * Set when the runner declined to execute. Callers can distinguish a
    * skipped job from a successful one even though both report `ok: true`.
@@ -377,18 +383,17 @@ export async function runBackgroundJob(
     // Rethrow so it flows through the shared failure path below (logging +
     // `activity.failed` emission) rather than returning `ok: true`.
     if (runResult.turnFailure) {
-      throw new BackgroundJobTurnFailureError(
-        runResult.turnFailure.failureCode,
-      );
+      throw new BackgroundJobTurnFailureError(runResult.turnFailure);
     }
     return { conversationId: conversation.id, ok: true };
   } catch (err) {
     const errorKind = classifyError(err);
     const error = err instanceof Error ? err : new Error(String(err));
-    const failureCode =
+    const turnFailure =
       err instanceof BackgroundJobTurnFailureError
-        ? err.failureCode
+        ? err.turnFailure
         : undefined;
+    const failureCode = turnFailure?.failureCode;
     // Bootstrap can fail before `conversation` is assigned; fall back to ""
     // so the structured failure result still flows to the caller.
     const conversationId = conversation?.id ?? "";
@@ -404,38 +409,51 @@ export async function runBackgroundJob(
     );
 
     if (!opts.suppressFailureNotifications) {
-      const hints: AttentionHints = {
-        requiresAction: false,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      };
-      // Dedupe by jobName + UTC date so repeated failures of the same
-      // background job (e.g. a watcher whose credentials are revoked)
-      // collapse into a single home-feed entry per day rather than
-      // spamming on every tick.
-      const day = new Date().toISOString().slice(0, 10);
-      const dedupeKey = `activity-failed:${opts.jobName}:${day}`;
-      emitNotificationSignal({
+      // Fallback scope for failures that carry no attribution: the profile
+      // key the resolver would use for this call site, computed with the
+      // same provider-resolvability predicate dispatch uses so the
+      // recomputation cannot accept a profile dispatch rejected (e.g. a pin
+      // whose connection was force-deleted). A mix winner, no named winner,
+      // or a config read failing on this path all yield no scope, and the
+      // key falls back to per-job. A carried `turnFailure.profileName` is
+      // dispatch's own attribution and takes precedence over all of this.
+      let fallbackProviderScope: string | undefined;
+      try {
+        fallbackProviderScope = resolveSingleRouteProfileKey(
+          opts.callSite,
+          getConfig().llm,
+          {
+            ...(opts.overrideProfile
+              ? { overrideProfile: opts.overrideProfile }
+              : {}),
+            isResolvableProvider: dispatchProviderResolvable,
+          },
+        );
+      } catch {
+        fallbackProviderScope = undefined;
+      }
+      emitBackgroundFailureSignal({
+        jobName: opts.jobName,
         sourceChannel: "assistant_tool",
         sourceContextId: conversationId,
-        sourceEventName: "activity.failed",
-        dedupeKey,
-        contextPayload: {
-          jobName: opts.jobName,
-          errorMessage: error.message,
-          errorKind,
-        },
-        attentionHints: hints,
-      }).catch((emitErr) => {
-        log.warn(
-          {
-            err: emitErr instanceof Error ? emitErr.message : String(emitErr),
-            jobName: opts.jobName,
-            conversationId,
-          },
-          "Failed to emit activity.failed notification for background job",
-        );
+        errorKind,
+        errorMessage: error.message,
+        ...(failureCode !== undefined ? { failureCode } : {}),
+        ...(turnFailure?.userMessage !== undefined
+          ? { failureSummary: turnFailure.userMessage }
+          : {}),
+        ...(turnFailure?.errorCategory !== undefined
+          ? { errorCategory: turnFailure.errorCategory }
+          : {}),
+        ...(turnFailure?.connectionName !== undefined
+          ? { connectionName: turnFailure.connectionName }
+          : {}),
+        ...(turnFailure?.profileName !== undefined
+          ? { profileName: turnFailure.profileName }
+          : {}),
+        ...(fallbackProviderScope !== undefined
+          ? { fallbackProviderScope }
+          : {}),
       });
     }
 
@@ -444,7 +462,7 @@ export async function runBackgroundJob(
       ok: false,
       error,
       errorKind,
-      ...(failureCode !== undefined ? { failureCode } : {}),
+      ...(turnFailure !== undefined ? { turnFailure } : {}),
     };
   } finally {
     if (timer) {

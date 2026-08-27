@@ -9,7 +9,9 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
 
 - `src/main/index.ts` boots the hardened shell (single-instance lock,
   per-environment `userData`, `app://` serving with path-traversal protection,
-  platform API forwarding) and then composes `src/main/features/*`.
+  local, paired, and platform request forwarding, paired-request frame-origin
+  enforcement, CSP, a permission allowlist, and sandboxed `vellumapp://`
+  serving) and then composes `src/main/features/*`.
 - `src/main/features/*` and `src/preload/features/*` are capability modules
   installed through the registries in `@vellumai/electron-desktop`. Every
   `.ts` file in those directories is picked up automatically; a new capability
@@ -109,13 +111,24 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run build:web   # builds clients/web into resources/web-dist
-bun run pack        # electron-vite build + electron-builder --win (NSIS)
+bun run pack        # runtime + native helper + preview handler + electron-builder --win (NSIS)
+bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 ```
 
-Local and CI packs are unsigned. `bun run pack` skips the Explorer preview
-handler, which `.github/workflows/windows-package-smoke.yaml` builds before
-packaging and then install-, launch-, and uninstall-tests.
+`pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
+`build:preview-handler`) before `electron-builder`, so the Explorer preview
+handler DLL that `electron-builder.config.cjs` requires is always present.
+The builder rebuilds the Electron main and preload entrypoints immediately
+before collecting app files, including when it is invoked directly.
+
+`build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
+is used when its sha256 matches `scripts/bun-release.ts`, otherwise the
+matching GitHub release is downloaded and verified. Bump the pins there when
+the Bun version changes.
+
+Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
+runs the same steps per architecture, then install-, launch-, and
+uninstall-tests the installer.
 
 ## Release
 

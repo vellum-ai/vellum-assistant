@@ -33,7 +33,7 @@ import Foundation
 ///  1. `setActive`, so each in-app path inherits the drop without a call of its
 ///     own: the plugin's `switchTo`, `switchToPath` and `remove`, the `connect`
 ///     deep link on both a warm open and a cold launch, and the
-///     unreachable-server alert's "Use Vellum Cloud" fallback.
+///     unreachable-server alert's "Choose Assistant" fallback.
 ///  2. `MyViewController.reloadIfConfiguredOriginChanged()`, for the iOS
 ///     Settings pane, the one writer that goes straight to `UserDefaults`
 ///     behind this type's back while the app is running.
@@ -138,6 +138,60 @@ enum SelfHostedServer {
             return false
         }
         return canonicalString(active) == canonicalString(url)
+    }
+
+    /// Whether a URL falls inside a server base: same scheme, host and
+    /// effective port, with a path at or under the base's. The mirror of
+    /// Android's `SelfHostedServer.contains`, and the scope every "did the
+    /// configured server's own load fail?" check needs. Comparing hosts alone
+    /// would claim an unrelated URL on the same host, most plausibly a
+    /// Universal Link, whenever the base carries a path prefix or a nondefault
+    /// port.
+    static func contains(_ url: URL, base: URL) -> Bool {
+        let base = canonicalize(base)
+        let candidate = canonicalize(url)
+        guard base.scheme == candidate.scheme,
+              base.host == candidate.host,
+              base.port == candidate.port
+        else {
+            return false
+        }
+        // `canonicalize` collapses the https default port, so equal ports here
+        // are equal effective ports.
+        let basePath = comparablePath(base)
+        guard !basePath.isEmpty else {
+            return true
+        }
+        let candidatePath = comparablePath(candidate)
+        return candidatePath == basePath || candidatePath.hasPrefix(basePath + "/")
+    }
+
+    /// A canonicalized path as containment compares it: percent-escape hex
+    /// uppercased, since RFC 3986 makes it case-insensitive and `%2f` has to
+    /// match `%2F`. Comparison-only, like Android's `foldEscapeCase`; canonical
+    /// list identity keeps the original casing. Assumes a canonicalized URL, so
+    /// trailing slashes are already gone.
+    private static func comparablePath(_ canonical: URL) -> String {
+        let path = URLComponents(url: canonical, resolvingAgainstBaseURL: false)?
+            .percentEncodedPath ?? canonical.path
+        guard path != "/" else {
+            return ""
+        }
+        var folded = ""
+        folded.reserveCapacity(path.count)
+        var escapeDigits = 0
+        for character in path {
+            if escapeDigits > 0 {
+                folded.append(contentsOf: character.uppercased())
+                escapeDigits -= 1
+                continue
+            }
+            folded.append(character)
+            if character == "%" {
+                escapeDigits = 2
+            }
+        }
+        return folded
     }
 
     /// Persist a validated origin under the shared defaults key.

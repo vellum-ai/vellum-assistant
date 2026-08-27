@@ -75,7 +75,7 @@ TestFlight builds are produced by the `release-ios.yaml` reusable workflow in th
 
 ## Cutting Releases
 
-**Never cut or promote a release automatically — always get explicit manual confirmation from the user first.** This applies to both release steps: dispatching `create-release-branch.yml` (branch cut + staging bake) and dispatching `release.yml` on a `release/v<X.Y.Z>` branch (production deploy). An explicit user request for the release in the current conversation counts as confirmation; otherwise ask and wait. Never dispatch either workflow as a side effect of other work (merging PRs, completing a plan, scheduled or autonomous agent runs), and standing authorizations (e.g. auto-merge) do not extend to releases. The scheduled Tue/Fri branch cut is the only sanctioned automation; production promotion is always a deliberate human action. Process details: `/release` (`.claude/skills/release/SKILL.md`).
+**Never cut or promote a release automatically. Always get explicit manual confirmation from the user first.** This applies to both release steps: dispatching `create-release-branch.yml` (branch cut + staging bake) and dispatching `release.yml` on a `release/v<X.Y.Z>` branch (production deploy). An explicit user request for the release in the current conversation counts as confirmation; otherwise ask and wait. Never dispatch either workflow as a side effect of other work (merging PRs, completing a plan, scheduled or autonomous agent runs), and standing authorizations (e.g. auto-merge) do not extend to releases. The scheduled Tue/Thu branch cut is the only sanctioned automation; production promotion is always a deliberate human action. Process details: `/release` (`.claude/skills/release/SKILL.md`).
 
 ## Testing
 

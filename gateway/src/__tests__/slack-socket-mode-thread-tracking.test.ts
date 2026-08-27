@@ -1580,7 +1580,7 @@ describe("SlackSocketModeClient thread tracking", () => {
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-dm-edit");
-      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].event.message.eventKind).toBe("edit");
     } finally {
       rawDb.close();
     }
@@ -1620,7 +1620,7 @@ describe("SlackSocketModeClient thread tracking", () => {
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-dm-delete");
-      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].event.message.eventKind).toBe("delete");
     } finally {
       rawDb.close();
     }
@@ -2112,7 +2112,8 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0].event.message.reaction?.op).toBe("added");
     } finally {
       rawDb.close();
     }
@@ -2155,7 +2156,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].event.message.eventKind).toBe("edit");
     } finally {
       rawDb.close();
     }
@@ -2186,7 +2187,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].event.message.eventKind).toBe("delete");
     } finally {
       rawDb.close();
     }
@@ -2229,7 +2230,8 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0].event.message.reaction?.op).toBe("added");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();
@@ -2269,7 +2271,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].event.message.eventKind).toBe("edit");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();
@@ -2306,7 +2308,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].event.message.eventKind).toBe("delete");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();

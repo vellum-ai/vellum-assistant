@@ -29,6 +29,7 @@ import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
+import { supportsClientOsForSkillTool } from "../client-os.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -87,8 +88,23 @@ function loadToolManifest(
  */
 function formatToolSchemas(
   manifest: SkillToolManifest,
+  context: Pick<
+    ToolContext,
+    "clientOs" | "transportInterface" | "sourceActorPrincipalId"
+  >,
   childSkillName?: string,
-): string {
+): string | undefined {
+  const tools = manifest.tools.filter((tool) =>
+    supportsClientOsForSkillTool(tool.supported_client_os, tool.name, {
+      clientOs: context.clientOs,
+      transportInterface: context.transportInterface,
+      sourceActorPrincipalId: context.sourceActorPrincipalId,
+    }),
+  );
+  if (tools.length === 0) {
+    return undefined;
+  }
+
   const lines: string[] = childSkillName
     ? [`### Tools from ${childSkillName}`, ""]
     : [
@@ -100,7 +116,7 @@ function formatToolSchemas(
 
   const toolHeadingLevel = childSkillName ? "####" : "###";
 
-  for (const tool of manifest.tools) {
+  for (const tool of tools) {
     lines.push(`${toolHeadingLevel} ${tool.name}`);
     lines.push(
       tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
@@ -414,7 +430,7 @@ export const skillLoadTool = {
     // Load tool schemas for the main skill
     const mainManifest = loadToolManifest(skill.directoryPath);
     const toolSchemasSection = mainManifest
-      ? formatToolSchemas(mainManifest)
+      ? formatToolSchemas(mainManifest, context)
       : undefined;
 
     // Build immediate children metadata section and load included skill bodies
@@ -532,10 +548,15 @@ export const skillLoadTool = {
             childLoaded.skill.directoryPath,
           );
           if (childManifest) {
-            anyChildHasTools = true;
-            includedBodies.push(
-              formatToolSchemas(childManifest, childLoaded.skill.displayName),
+            const childSchemas = formatToolSchemas(
+              childManifest,
+              context,
+              childLoaded.skill.displayName,
             );
+            if (childSchemas) {
+              anyChildHasTools = true;
+              includedBodies.push(childSchemas);
+            }
           }
         }
       }

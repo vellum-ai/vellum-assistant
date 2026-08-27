@@ -27,6 +27,8 @@ import {
   selectUploadingCount,
   useComposerStore,
 } from "@/domains/chat/composer-store";
+import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
+import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
@@ -38,16 +40,14 @@ import {
   useIsCompactComposerWidth,
 } from "@/domains/chat/components/chat-composer/composer-compact";
 import {
+  COMPOSER_MOBILE_RADIUS_CLASS,
+  COMPOSER_RADIUS_CLASS,
   MOBILE_CONTROL_CLASS,
   MOBILE_GHOST_WASH_CLASS,
   MOBILE_GLYPH_CLASS,
   preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
-import {
-  COMPOSER_MOBILE_RADIUS_CLASS,
-  COMPOSER_RADIUS_CLASS,
-  VoiceComposerBar,
-} from "@/domains/chat/components/chat-composer/voice-composer-bar";
+import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import { useSupportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import {
@@ -70,6 +70,7 @@ import {
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { voiceEntryGreetingSeed } from "@/domains/chat/voice/live-voice/voice-entry-greeting";
 import {
   firstRunCardIntercepts,
   publishConfigNotice,
@@ -182,6 +183,15 @@ export interface ChatComposerProps {
   // absent the session starts without a conversation and the server assigns
   // one. The app-editing variant, which has no voice, leaves this undefined.
   conversationId?: string | null;
+
+  // Whether that conversation has nothing in it yet. Drives the one decision
+  // in `voiceEntryGreetingSeed`: a voice session opened on a blank thread
+  // takes its first turn on the user's behalf so the assistant speaks first,
+  // and one opened on a thread already underway does not. Pass the same value
+  // the empty state renders from, so the two cannot disagree about what empty
+  // means. Optional, defaulting to false: a caller that says nothing opens a
+  // silent room.
+  conversationIsEmpty?: boolean;
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row
   // on desktop; on mobile both settings slots move to the row above the card)
@@ -335,6 +345,7 @@ export function ChatComposer({
   isAssistantBusy,
   assistantId,
   conversationId,
+  conversationIsEmpty = false,
   thresholdPickerSlot,
   modelPickerSlot,
   settingsSheetOpen = false,
@@ -485,10 +496,18 @@ export function ChatComposer({
   // a user who switches chats (or leaves) mid-flight would otherwise resume and
   // bind the room to the chat they left. Kept in a ref so the check sees the
   // current render's values rather than the closure's.
-  const liveVoiceChatIdentityRef = useRef({ assistantId, conversationId });
+  const liveVoiceChatIdentityRef = useRef({
+    assistantId,
+    conversationId,
+    conversationIsEmpty,
+  });
   useEffect(() => {
-    liveVoiceChatIdentityRef.current = { assistantId, conversationId };
-  }, [assistantId, conversationId]);
+    liveVoiceChatIdentityRef.current = {
+      assistantId,
+      conversationId,
+      conversationIsEmpty,
+    };
+  }, [assistantId, conversationId, conversationIsEmpty]);
   const startLiveVoiceSession = useCallback(async () => {
     if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
@@ -547,7 +566,15 @@ export function ChatComposer({
     // Publish the origin BEFORE starting; the controller carries it across its
     // start-time `reset()` (see the live-voice store's `entryOrigin`).
     setLiveVoiceEntryOrigin(origin);
-    starter?.start(assistantId, conversationId ?? null);
+    // Read off `latest`, not off the render that opened this callback: the
+    // preflight above is a network round trip, and a conversation that filled
+    // up across it must not be seeded as if it were still blank. Unlike the
+    // assistant/conversation mismatch this is not a reason to abandon the
+    // start, only a reason to open silent, so it is decided here rather than
+    // in the staleness guard.
+    starter?.start(assistantId, conversationId ?? null, {
+      seedText: voiceEntryGreetingSeed(latest.conversationIsEmpty),
+    });
   }, [assistantId, conversationId]);
   /**
    * In-flight reclaim, so unmounting cancels it. The start on the far side of
@@ -767,9 +794,21 @@ export function ChatComposer({
   // stays a working composer underneath, so the user can type and send
   // mid-session.
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
+  // Staged context is anything that makes an empty input sendable: staged
+  // quotes, or the one channel reference pinned above this composer. Both are
+  // read from their stores here, the same way attachments are, so the send
+  // button, the Enter policy, and `useComposerSubmit`'s own guard all answer
+  // "is there something to send" from the same state.
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
+  // Derived boolean selector: swapping which row is staged replaces the
+  // reference object without changing sendability, so this subscribes to the
+  // flip alone rather than re-rendering the composer on every swap.
+  const hasStagedChannelReference = useChannelReferenceStore(
+    (s) => s.reference !== null,
+  );
+  const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
-    Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
+    Boolean(input.trim()) || canSendAttachments || hasStagedContext;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -968,9 +1007,16 @@ export function ChatComposer({
   // A banner docks to the card's top edge and takes the strip this row floats
   // in, so the row stands down while one is up rather than crowding it. The
   // avatar peeking over that same edge stands down with it (`ComposerPeek`).
+  //
+  // A pending question card lands in the same strip and stands the row down
+  // for the same reason, plus one of its own: the card is what the turn is
+  // waiting on, and the pills reach settings that are beside the point until
+  // it is answered.
+  const hasPendingQuestion = useHasPendingQuestion();
   const settingsPillsVisible =
     isMobileMainComposer &&
     !hasBannerAboveCard &&
+    !hasPendingQuestion &&
     (isNativeMobileShell || composerInUse);
   // The entrance belongs to the row that arrives with the keyboard. A row that
   // stands throughout has no arrival to animate, and the same animation there
@@ -984,8 +1030,8 @@ export function ChatComposer({
     : undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
-  // panel elsewhere, both from the live-voice bar's module: the bar stacks on
-  // this card and has to wear whichever corner it is showing. The banner
+  // panel elsewhere, both shared with the live-voice bar: it stacks on this
+  // card and has to wear whichever corner the card is showing. The banner
   // variants stay literal, since a bottom-only corner is not the same class.
   const cardShapeClass = isMobile
     ? hasBillingBanner
@@ -1424,7 +1470,7 @@ export function ChatComposer({
               sendDisabled,
               attachmentsUploadingCount,
               cmdEnterMode,
-              hasStagedQuotes,
+              hasStagedContext,
             },
           );
           if (decision === "ignore") {
@@ -1620,6 +1666,8 @@ export function ChatComposer({
                   <ChatAttachmentsStrip
                     attachments={attachments}
                     onRemove={removeAttachment}
+                    tileImages={isMobile}
+                    pressGuard={rowPressGuard}
                   />
                   {isMobile ? (
                     <>

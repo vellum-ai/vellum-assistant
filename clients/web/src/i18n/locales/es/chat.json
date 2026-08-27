@@ -94,7 +94,7 @@
     "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo.",
     "closeNavAria": "Cerrar navegación",
     "navAria": "Navegación del asistente",
-    "searchShortcut": "Buscar (⌘K)"
+    "searchShortcut": "Buscar ({shortcut})"
   },
   "assistantSwitcher": {
     "collapse": "Ocultar asistentes",
@@ -124,8 +124,15 @@
     "downloadAria": "Descargar {filename}",
     "downloadLabel": "Descargar",
     "nextAttachmentAria": "Adjunto siguiente",
+    "pdfLoadFailed": "No se pudo mostrar este PDF",
     "previewAria": "Vista previa de {filename}",
     "previousAttachmentAria": "Adjunto anterior"
+  },
+  "attachmentTile": {
+    "cancelUpload": "Cancelar la subida de {filename}",
+    "preview": "Vista previa de {filename}",
+    "remove": "Quitar {filename}",
+    "uploading": "Subiendo {filename}"
   },
   "backgroundTaskDetailPanel": {
     "closeDetail": "Cerrar detalle de la tarea",
@@ -242,6 +249,11 @@
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },
+  "channelReferenceChip": {
+    "heading": "Haciendo referencia a un mensaje de {channel}",
+    "headingWithSender": "Haciendo referencia a {sender} en {channel}",
+    "removeAria": "Quitar el mensaje referenciado"
+  },
   "channelSetupPanel": {
     "accountSid": "SID de la cuenta",
     "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -259,7 +271,33 @@
     "setupTitle": "Configuración de {channel}",
     "slackConnected": "Tu asistente ya puede recibir mensajes en Slack.",
     "telegramConnected": "Tu asistente ya puede recibir mensajes en Telegram.",
-    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks."
+    "twilioIntro": "Introduce tus credenciales de Twilio desde la <consoleLink>consola de Twilio</consoleLink>. Después de guardar, vuelve al chat. Tu asistente terminará de configurar tu número de teléfono y los webhooks.",
+    "discordConnected": "Discord esta conectado. Anade el bot a un servidor y empezara a responder alli."
+  },
+  "channelThreadControl": {
+    "closeAria": "Cerrar el hilo de {channel}",
+    "label": "Hilo de {channel}",
+    "openAria": "Abrir el hilo de {channel}"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "Asistente",
+    "closeAria": "Cerrar el hilo del canal",
+    "closeTooltip": "Cerrar",
+    "emptyNoMessageDetail": "{channel} no envía a Vellum los detalles por mensaje que necesita esta vista, así que no hay nada que mostrar aquí. Abre la conversación en {channel} para leerla completa.",
+    "emptyThread": "Todavía no hay mensajes de {channel} en esta conversación.",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "Sin contenido de texto",
+    "openInChannel": "Abrir en {channel}",
+    "reactionAdded": "Reaccionó con {emoji}",
+    "reactionRemoved": "Quitó la reacción {emoji}",
+    "readOnly": "Solo lectura",
+    "readOnlyNote": "Esta es la conversación tal como está en {channel}. El campo de escritura de Vellum es el único lugar donde puedes escribir.",
+    "reference": "Referenciar en Vellum",
+    "referenceAria": "Referenciar este mensaje de {channel} en Vellum",
+    "referenced": "Referenciado",
+    "removeReferenceAria": "Quitar esta referencia del campo de escritura de Vellum",
+    "title": "Hilo de {channel}",
+    "unknownSender": "Remitente desconocido"
   },
   "chatAttachments": {
     "attachFileAria": "Adjuntar archivo",
@@ -326,7 +364,6 @@
     "createTitle": "Crear regla de confianza",
     "description": "Las llamadas a herramientas que coincidan usan el nivel de riesgo de esta regla, para que tu tolerancia de aprobación pueda autoaprobarlas.",
     "editTitle": "Editar regla de confianza",
-    "everywhere": "En todas partes",
     "narrowerScopeAria": "Alcance más estrecho",
     "orNarrowScope": "O reduce el alcance:",
     "save": "Guardar",
@@ -334,8 +371,7 @@
     "saveRule": "Guardar regla",
     "saving": "Guardando…",
     "suggested": "Sugerido: {risk}",
-    "treatAs": "Tratar como",
-    "where": "Dónde"
+    "treatAs": "Tratar como"
   },
   "choiceSurface": {
     "continue": "Continuar",
@@ -418,11 +454,11 @@
     "loadingProfiles": "Cargando perfiles…",
     "modelProfile": "Perfil del modelo",
     "modelProfileTitle": "Perfil del modelo",
-    "newProfile": "Nuevo perfil",
     "profileAria": "Perfil del modelo: {label}",
     "profileAriaFallback": "Perfil del modelo",
     "profileSwitchFailed": "Perfil creado, pero no se pudo cambiar a él",
-    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo."
+    "profileSwitchFallback": "No se pudo cambiar de perfil. Inténtalo de nuevo.",
+    "quickAdd": "Nuevo modelo"
   },
   "confirmationActions": {
     "submitFailed": "No se pudo enviar la confirmación. Inténtalo de nuevo.",
@@ -605,6 +641,7 @@
     "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
   },
   "documentViewerPage": {
+    "exportFailed": "No se pudo exportar el PDF",
     "notFound": "Documento no encontrado."
   },
   "dynamicPageSurface": {
@@ -1081,6 +1118,12 @@
   "pageTabs": {
     "formStepsAria": "Pasos del formulario"
   },
+  "pdfPageSkeleton": {
+    "loadingPdf": "Cargando PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {Mostrando la primera página} other {Mostrando las primeras # páginas}}"
+  },
   "phaseGroupedStepList": {
     "startedAt": "Comenzó a las {time}"
   },
@@ -1112,10 +1155,13 @@
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Añadir créditos",
     "exhausted": "Añade créditos para continuar.",
+    "extraCredits": "Usando créditos de uso adicional",
     "pctUsed": "{pct}% usado",
-    "resets": "Se restablece el {date}",
     "settingsAriaLabel": "Ajustes de uso y facturación",
     "title": "Uso"
+  },
+  "previewError": {
+    "cannotPreview": "No se puede previsualizar este archivo"
   },
   "previewMessageCard": {
     "download": "Descargar",
@@ -1124,9 +1170,14 @@
   "previewSkeleton": {
     "loadingPreview": "Cargando vista previa"
   },
+  "previewTruncationNotice": {
+    "markdown": "Mostrando los primeros 512 KB",
+    "text": "Mostrando los primeros 2 MB"
+  },
   "previewUnsupported": {
     "downloadFile": "Descargar archivo",
-    "goToFile": "Ir al archivo"
+    "goToFile": "Ir al archivo",
+    "noPreviewForType": "No hay vista previa para este tipo de archivo"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
@@ -1158,18 +1209,19 @@
     "submitFailed": "No se pudo enviar tu respuesta. Inténtalo de nuevo."
   },
   "questionPromptCard": {
-    "closeQuestionAria": "Cerrar pregunta",
+    "expandAria": "Reabrir pregunta",
+    "minimizeAria": "Minimizar pregunta",
     "nextQuestionAria": "Pregunta siguiente",
     "optionAria": "Opción {number}: {label}",
-    "position": "{current} de {total}",
     "previousQuestionAria": "Pregunta anterior",
+    "position": "{current} de {total}",
     "sendResponseAria": "Enviar respuesta",
     "skip": "Omitir",
     "skipAria": "Omitir esta pregunta",
     "skipped": "Omitida",
     "skippedHint": "Omitida: elige una opción para anular",
     "typeDifferentAnswerAria": "Escribe una respuesta diferente",
-    "typeSomethingElsePlaceholder": "Escribe algo más"
+    "typeSomethingElsePlaceholder": "Algo más"
   },
   "queuedMessagesDrawer": {
     "cancelAll": "Cancelar todos",
@@ -1529,6 +1581,9 @@
     "openVoiceRoom": "Abrir la sala de voz",
     "unmuteAssistant": "Activar el audio del asistente",
     "unmuteMicrophone": "Activar el micrófono"
+  },
+  "voiceEntryGreeting": {
+    "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."

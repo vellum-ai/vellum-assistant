@@ -44,6 +44,7 @@ import {
 } from "../../security/secure-keys.js";
 import {
   getCredentialMetadata,
+  persistCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -156,7 +157,8 @@ export async function reconcileVellumMetadataFromCes(warningSink: {
       if (getCredentialMetadata("vellum", field)) {
         continue;
       }
-      upsertCredentialMetadata("vellum", field, {});
+      const metadata = upsertCredentialMetadata("vellum", field, {});
+      await persistCredentialMetadata(metadata);
       log.info(
         { field },
         "Reconciled vellum:* metadata entry from CES after import",

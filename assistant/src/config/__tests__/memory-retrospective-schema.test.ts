@@ -1,10 +1,10 @@
 /**
  * Guards over the `memory.retrospective` switches that decide whether the
- * retrospective pass runs at all, and how its fork is materialized.
+ * retrospective pass runs at all.
  *
- * The defaults are the contract: a workspace that says nothing must behave
- * exactly as it did before the fields existed: retrospectives on, forks
- * cloned.
+ * The defaults are the contract: a workspace that says nothing must leave
+ * retrospectives on. A leftover `forkStrategy` key is ignored; retrospective
+ * forks are always referential.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -12,10 +12,10 @@ import { describe, expect, test } from "bun:test";
 import { MemoryRetrospectiveConfigSchema } from "../schemas/memory-retrospective.js";
 
 describe("memory.retrospective config schema", () => {
-  test("an empty block leaves retrospectives on and forks cloning", () => {
+  test("an empty block leaves retrospectives on", () => {
     const parsed = MemoryRetrospectiveConfigSchema.parse({});
     expect(parsed.enabled).toBe(true);
-    expect(parsed.forkStrategy).toBe("cloning");
+    expect(parsed).not.toHaveProperty("forkStrategy");
   });
 
   test("enabled is a boolean-only kill switch", () => {
@@ -27,14 +27,11 @@ describe("memory.retrospective config schema", () => {
     ).toBe(false);
   });
 
-  test("forkStrategy accepts only cloning and reference", () => {
-    expect(
-      MemoryRetrospectiveConfigSchema.parse({ forkStrategy: "reference" })
-        .forkStrategy,
-    ).toBe("reference");
-    expect(
-      MemoryRetrospectiveConfigSchema.safeParse({ forkStrategy: "referential" })
-        .success,
-    ).toBe(false);
+  test("a leftover forkStrategy key is ignored", () => {
+    const parsed = MemoryRetrospectiveConfigSchema.parse({
+      forkStrategy: "cloning",
+    });
+    expect(parsed).not.toHaveProperty("forkStrategy");
+    expect(parsed.enabled).toBe(true);
   });
 });

@@ -50,7 +50,7 @@ export interface ProfileActions {
  * `makeActive`.
  */
 export function useProfileActions(assistantId: string): ProfileActions {
-  const configMutation = useLlmConfigPatch(assistantId);
+  const configMutation = useLlmConfigPatch();
   const queryClient = useQueryClient();
 
   // Make Default goes through the validated active-profile route on

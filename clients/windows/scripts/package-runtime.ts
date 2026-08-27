@@ -2,7 +2,9 @@ import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { withRuntimeNodePath } from "../src/shared/runtime-environment";
 import { resolveBuildCommitSha } from "./build-metadata";
+import { installPinnedBun } from "./bun-release";
 import { findPackageDir } from "./package-runtime-packages";
 
 interface RuntimeTarget {
@@ -188,17 +190,24 @@ for (const { packageName, resolveSpecifier, basedir } of runtimePackages) {
   );
 }
 
-const versionCheck = spawnSync(
-  path.join(outputDir, "assistant.exe"),
-  ["--version"],
-  { encoding: "utf8", windowsHide: true },
-);
-if (
-  versionCheck.status !== 0 ||
-  versionCheck.stdout.trim() !== assistantVersion
-) {
+const packagedAssistant = path.join(outputDir, "assistant.exe");
+const versionCheck = spawnSync(packagedAssistant, ["--version"], {
+  encoding: "utf8",
+  env: withRuntimeNodePath(packagedAssistant),
+  windowsHide: true,
+});
+const versionOutput = versionCheck.stdout?.trim() ?? "";
+const versionErrorOutput = versionCheck.stderr?.trim() ?? "";
+if (versionCheck.status !== 0 || versionOutput !== assistantVersion) {
+  const diagnostics = [
+    `exit ${versionCheck.status ?? "not started"}`,
+    versionCheck.error ? `spawn error: ${versionCheck.error.message}` : null,
+    versionErrorOutput ? `stderr: ${versionErrorOutput}` : null,
+  ]
+    .filter((detail): detail is string => detail !== null)
+    .join("; ");
   throw new Error(
-    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
+    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionOutput || "no output"} (${diagnostics}).`,
   );
 }
 for (const [source, name] of [
@@ -243,7 +252,14 @@ if (pluginApiShim.status !== 0) {
     `Failed to package the plugin API shim (exit ${pluginApiShim.status}).`,
   );
 }
-copyFileSync(process.execPath, path.join(outputDir, "bun.exe"));
+const bunSource = await installPinnedBun({
+  arch: targetArch,
+  cacheDir: path.join(windowsDir, "out", "bun-cache"),
+  destination: path.join(outputDir, "bun.exe"),
+  hostExecutable: process.execPath,
+  version: bunVersion,
+});
+console.log(`Bundled Bun ${bunVersion} (${targetArch}) from ${bunSource}.`);
 await Bun.write(
   path.join(outputDir, "runtime.json"),
   `${JSON.stringify({ version: appVersion, bunVersion, releaseChannel, architecture: targetArch })}\n`,

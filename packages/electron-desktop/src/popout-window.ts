@@ -42,7 +42,7 @@ const POPOUT_MIN_HEIGHT = 400;
 type RestoredBounds = Pick<
   BrowserWindowConstructorOptions,
   "fullscreen" | "height" | "width" | "x" | "y"
->;
+> & { maximized?: boolean };
 
 export interface PopoutWindowDependencies {
   createWindow: (options: CreateWindowOptions) => BrowserWindow;
@@ -83,8 +83,9 @@ export const openPopout = (conversationId: string): void => {
   }
 
   const stateKey = `thread.${conversationId}`;
-  const sizing = restoreBounds?.(stateKey, POPOUT_DEFAULT_BOUNDS) ??
-    POPOUT_DEFAULT_BOUNDS;
+  // `maximized` is not a BrowserWindow option; apply it once shown.
+  const { maximized, ...sizing }: RestoredBounds =
+    restoreBounds?.(stateKey, POPOUT_DEFAULT_BOUNDS) ?? POPOUT_DEFAULT_BOUNDS;
 
   const win = createWindow({
     browserWindow: {
@@ -116,6 +117,9 @@ export const openPopout = (conversationId: string): void => {
   popouts.set(conversationId, win);
 
   win.once("ready-to-show", () => {
+    if (maximized) {
+      win.maximize();
+    }
     win.show();
     win.focus();
   });

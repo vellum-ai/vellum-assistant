@@ -20,6 +20,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as reactRouter from "react-router";
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
 import {
   SIDEBAR_SECTION_MAX_HEIGHT,
   SIDEBAR_STACK_GAP,

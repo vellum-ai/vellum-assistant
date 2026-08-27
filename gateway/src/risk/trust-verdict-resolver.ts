@@ -25,6 +25,7 @@ import {
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
 import { hasInterceptableSession } from "../db/session-store.js";
+import { pluginMemberIdentity } from "../channels/plugin-inbound.js";
 import { canonicalSenderIdFor } from "../verification/identity.js";
 
 export interface ResolveTrustVerdictInput {
@@ -59,9 +60,17 @@ export async function resolveTrustVerdict(
 ): Promise<TrustVerdict> {
   const db = getGatewayDb();
 
+  // Plugin ingress is one channel id (`plugin`) covering every installed
+  // plugin. The contact row the guardian verifies is the plugin's own type
+  // (`imessage`, `meeting-bot`, …) and the unprefixed vendor id.
+  const memberIdentity = input.actorExternalId
+    ? pluginMemberIdentity(input.channelType, input.actorExternalId)
+    : { type: input.channelType, address: input.actorExternalId };
+  const channelType = memberIdentity.type;
+
   const canonicalSenderId = canonicalSenderIdFor(
-    input.channelType,
-    input.actorExternalId,
+    channelType,
+    memberIdentity.address,
   );
 
   // --- Guardian-for-channel binding (independent of THIS actor) ---
@@ -80,7 +89,7 @@ export async function resolveTrustVerdict(
     .where(
       and(
         eq(gwContacts.role, "guardian"),
-        eq(gwContactChannels.type, input.channelType),
+        eq(gwContactChannels.type, channelType),
         eq(gwContactChannels.status, "active"),
       ),
     )
@@ -110,7 +119,7 @@ export async function resolveTrustVerdict(
         .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
         .where(
           and(
-            eq(gwContactChannels.type, input.channelType),
+            eq(gwContactChannels.type, channelType),
             sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`,
           ),
         )

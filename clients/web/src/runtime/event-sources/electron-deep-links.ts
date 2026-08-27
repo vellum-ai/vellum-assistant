@@ -12,7 +12,7 @@ import { useConnectDialogStore } from "@/stores/connect-dialog-store";
  * Electron `vellum://` deep-link bridge → typed bus events:
  * `deeplink.send { message }` / `deeplink.openThread { threadId }`
  * / `deeplink.billingCheckoutComplete { status, sessionId, flow }`
- * / `deeplink.connect { url, bundle }` / `deeplink.unknown { url }`.
+ * / `deeplink.connect { url, code, legacy }` / `deeplink.unknown { url }`.
  *
  * Two surfaces because deep links can arrive BEFORE the renderer
  * exists (OS launches the app via a `vellum://` click → `open-url`
@@ -58,7 +58,8 @@ export function publishElectronDeepLinksSource(): () => void {
       case "connect":
         publish("deeplink.connect", {
           url: link.url ?? null,
-          bundle: link.bundle ?? null,
+          code: link.code ?? null,
+          legacy: link.legacy ?? false,
         });
         break;
       case "unknown":

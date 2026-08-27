@@ -11,7 +11,6 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { offersRuleOption } from "@/domains/chat/confirmation-decisions";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
@@ -201,26 +200,11 @@ export async function handleConfirmationSubmit(
       .getState()
       .confirmationToolCallMap.get(snapshot.requestId);
 
-  // Auto-select first pattern/scope when the request permits a durable rule.
-  // Same predicate the cards render from, so the hint cannot be sent for a
-  // request whose card withheld the option (or withheld for one that offered).
-  const ruleHint =
-    decision === "allow" && offersRuleOption(snapshot)
-      ? {
-          selectedPattern: snapshot.allowlistOptions![0]!.pattern,
-          selectedScope:
-            (snapshot.directoryScopeOptions?.[0]?.scope ??
-              snapshot.scopeOptions?.[0]?.scope) ||
-            "everywhere",
-        }
-      : undefined;
-
   try {
     const result = await submitConfirmation(
       ctx.assistantId,
       snapshot.requestId,
       decision,
-      ruleHint,
     );
 
     if (!result.ok) {
@@ -303,7 +287,6 @@ export async function handleAllowAndCreateRule(
     riskLevel: toRiskLevel(snapshot.riskLevel),
     allowlistOptions: snapshot.allowlistOptions ?? [],
     scopeOptions: snapshot.scopeOptions ?? [],
-    directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
     commandText: deriveCommandText(snapshot.input, snapshot.toolName ?? ""),
     commandDescription: snapshot.riskReason ?? snapshot.description ?? "",
   };
@@ -318,7 +301,6 @@ export async function handleAllowAndCreateRule(
       riskReason: snapshot.riskReason ?? snapshot.description,
       resolvedAllowlistOptions: snapshot.allowlistOptions ?? [],
       scopeOptions: snapshot.scopeOptions ?? [],
-      directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
     });
   };
 

@@ -420,6 +420,7 @@ function buildClassifyRiskParams(
   input: Record<string, unknown>,
   workingDir?: string,
   manifestOverride?: ManifestOverride,
+  shell?: ClassifyRiskIpcParams["shell"],
 ): ClassifyRiskIpcParams {
   // ── Bash/host_bash ──
   if (toolName === "bash" || toolName === "host_bash") {
@@ -437,6 +438,7 @@ function buildClassifyRiskParams(
     return {
       tool: toolName,
       command: getStringField(input, "command"),
+      shell,
       workingDir,
       workspaceRoot: getWorkspaceDir(),
       isContainerized: getIsContainerized(),
@@ -577,6 +579,7 @@ export async function classifyRisk(
   _preParsed?: unknown,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
+  shell?: ClassifyRiskIpcParams["shell"],
 ): Promise<RiskClassificationWithMeta> {
   signal?.throwIfAborted();
 
@@ -585,6 +588,7 @@ export async function classifyRisk(
     input,
     workingDir,
     manifestOverride,
+    shell,
   );
   const gatewayResult = await ipcClassifyRisk(ipcParams, signal);
   // A mid-retry cancellation should surface as an AbortError, not the
@@ -709,6 +713,7 @@ export async function check(
     policyContext?.conversationId,
     policyContext?.executionContext,
     cellQuery,
+    policyContext?.requesterContactId,
   );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
@@ -740,6 +745,7 @@ export async function check(
       policyContext?.conversationId,
       policyContext?.executionContext,
       cellQuery,
+      policyContext?.requesterContactId,
     );
     if (freshThreshold !== null && freshThreshold !== threshold) {
       approvalDecision = defaultApprovalPolicy.evaluate({

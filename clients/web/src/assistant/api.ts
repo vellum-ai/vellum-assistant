@@ -642,26 +642,46 @@ export type ListAssistantsResult =
   | { ok: true; status: number; data: Assistant[] }
   | { ok: false; status: number; error: Record<string, unknown> };
 
+const ASSISTANTS_PAGE_SIZE = 100;
+/** Bounds a runaway `next` chain; 2000 assistants is far past any real org. */
+const ASSISTANTS_MAX_PAGES = 20;
+
+/** Every page, so an org past one page size lists (and looks up) all of its assistants. */
 export async function listAssistants(): Promise<ListAssistantsResult> {
-  const { data, error, response } = await assistantsList({
-    query: { hosting: "all" },
-    throwOnError: false,
-  });
+  const results: Assistant[] = [];
+  let status = 200;
+  for (let page = 0; page < ASSISTANTS_MAX_PAGES; page++) {
+    const { data, error, response } = await assistantsList({
+      query: {
+        hosting: "all",
+        limit: ASSISTANTS_PAGE_SIZE,
+        offset: results.length,
+      },
+      throwOnError: false,
+    });
 
-  assertHasResponse(response, error, "Failed to list assistants.");
+    assertHasResponse(response, error, "Failed to list assistants.");
 
-  if (response.ok) {
-    return {
-      ok: true,
-      status: response.status,
-      data: data?.results ?? [],
-    };
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: toErrorObject(error, response),
+      };
+    }
+    status = response.status;
+    const pageResults = data?.results ?? [];
+    results.push(...pageResults);
+    if (!data?.next || pageResults.length === 0) {
+      return { ok: true, status, data: results };
+    }
   }
-
+  // A partial list must not read as authoritative: local mode mirrors it
+  // into the lockfile, dropping whatever it omits.
   return {
     ok: false,
-    status: response.status,
-    error: toErrorObject(error, response),
+    status,
+    error: { detail: "Assistant list exceeded the page cap." },
   };
 }
 

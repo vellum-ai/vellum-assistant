@@ -7,10 +7,12 @@
  *
  *   - `recordToolExecuted` / `recordToolError` / `recordToolDenied` write the
  *     always-on `tool_invocations` audit row (redacting secrets from the
- *     stored input/result), and — for prompted calls — the consent-gated
- *     `permission_decided` lifecycle-telemetry row.
- *   - `recordToolPermissionPrompted` writes the consent-gated
- *     `permission_prompt` lifecycle-telemetry row.
+ *     stored input/result).
+ *   - `recordToolPermissionPrompted` / `recordToolPermissionDecided` write the
+ *     consent-gated `permission_prompt` and `permission_decided`
+ *     lifecycle-telemetry rows. Both are called from the one site that owns an
+ *     interactive prompt (`tools/permission-checker.ts`), so every prompt has
+ *     exactly one decision and the two series reconcile.
  *   - `logToolFailure` emits the operator-facing failure log.
  *
  * The telemetry-only columns (payload sizes + model attribution) are the
@@ -24,8 +26,10 @@
  * are unaffected — `tool_invocations` is a local always-on audit log.
  */
 
-import { isAllowDecision, type UserDecision } from "../permissions/types.js";
-import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
+import {
+  type LifecycleEventAttributes,
+  recordLifecycleEvent,
+} from "../persistence/lifecycle-events-store.js";
 import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
@@ -62,8 +66,6 @@ interface ExecutedAuditEntry {
   durationMs: number;
   /** Model attribution at invocation time; `null` when unavailable. */
   attribution: UsageAttributionSnapshot | null;
-  /** True when this call was interactively approved via a permission prompt. */
-  wasPrompted: boolean;
 }
 
 interface ErrorAuditEntry {
@@ -90,8 +92,6 @@ interface DeniedAuditEntry {
   riskLevel: string;
   matchedTrustRuleId?: string;
   durationMs: number;
-  /** True when the denial followed an interactive permission prompt. */
-  wasPrompted: boolean;
 }
 
 /** Record an audit row for a tool that ran to completion. */
@@ -111,10 +111,6 @@ export function recordToolExecuted(entry: ExecutedAuditEntry): void {
     durationMs: entry.durationMs,
     ...telemetryColumns(entry.attribution, rawInput, entry.resultBytes),
   });
-
-  if (entry.wasPrompted && isAllowDecision(entry.decision as UserDecision)) {
-    recordToolPermissionDecided(entry.toolName, entry.decision);
-  }
 }
 
 /** Record an audit row and operator log for a tool that failed. */
@@ -156,30 +152,87 @@ export function recordToolDenied(entry: DeniedAuditEntry): void {
     // No telemetry columns: the tool never executed, and denied rows are
     // filtered out of the tool_executed projection anyway.
   });
+}
 
-  if (entry.wasPrompted) {
-    recordToolPermissionDecided(entry.toolName, "deny");
+/**
+ * How an interactive permission prompt ended.
+ *
+ * `allow` / `deny` are answers a human gave. `abandoned` covers every way a
+ * prompt stops without one: it timed out, a new user message superseded it,
+ * the turn was cancelled, or the prompter was disposed (client disconnect /
+ * conversation teardown). The daemon resolves all of those to a deny for the
+ * agent loop, so without this bucket they are indistinguishable from a human
+ * saying no.
+ */
+export type PermissionPromptOutcome = "allow" | "deny" | "abandoned";
+
+/**
+ * Grouping dimensions recorded on both halves of a permission-prompt pair.
+ * The tool and its risk are always known at the prompt site, so they tighten
+ * to required; the rest are the lifecycle attributes as declared. Metadata
+ * only: never a file path, a command string, or any tool input.
+ */
+export interface PermissionPromptTelemetry extends LifecycleEventAttributes {
+  toolName: string;
+  riskLevel: string;
+}
+
+/**
+ * Server bounds on the lifecycle `event_name` and `tool_name`. A field over
+ * its bound fails validation, and a failed event is acked and discarded rather
+ * than retried, so both are clamped here. `event_name` has one variable-length
+ * part (the tool name, which can be a long `mcp__server__tool` id) and is much
+ * the tighter of the two, which is why `tool_name` carries the full-length
+ * value consumers join a prompt to its decision on.
+ */
+const LIFECYCLE_EVENT_NAME_LIMIT = 64;
+const LIFECYCLE_TOOL_NAME_LIMIT = 255;
+
+function permissionEventName(
+  prefix: string,
+  toolName: string,
+  suffix: string,
+): string {
+  const budget = LIFECYCLE_EVENT_NAME_LIMIT - prefix.length - suffix.length;
+  return `${prefix}${toolName.slice(0, Math.max(budget, 0))}${suffix}`;
+}
+
+function recordPermissionLifecycleEvent(
+  eventName: string,
+  entry: PermissionPromptTelemetry,
+  failureMessage: string,
+): void {
+  try {
+    recordLifecycleEvent(eventName, {
+      ...entry,
+      toolName: entry.toolName.slice(0, LIFECYCLE_TOOL_NAME_LIMIT),
+    });
+  } catch (err) {
+    log.warn({ err, eventName, toolName: entry.toolName }, failureMessage);
   }
 }
 
 /** Record the consent-gated telemetry row for an interactive permission prompt. */
-export function recordToolPermissionPrompted(toolName: string): void {
-  try {
-    recordLifecycleEvent(`permission_prompt:${toolName}`);
-  } catch (err) {
-    log.warn({ err, toolName }, "Failed to record permission prompt telemetry");
-  }
+export function recordToolPermissionPrompted(
+  entry: PermissionPromptTelemetry,
+): void {
+  recordPermissionLifecycleEvent(
+    permissionEventName("permission_prompt:", entry.toolName, ""),
+    entry,
+    "Failed to record permission prompt telemetry",
+  );
 }
 
-function recordToolPermissionDecided(toolName: string, decision: string): void {
-  try {
-    recordLifecycleEvent(`permission_decided:${toolName}:${decision}`);
-  } catch (err) {
-    log.warn(
-      { err, toolName, decision },
-      "Failed to record permission decision telemetry",
-    );
-  }
+/** Record the consent-gated telemetry row for how that prompt ended. */
+export function recordToolPermissionDecided(
+  entry: PermissionPromptTelemetry,
+  outcome: PermissionPromptOutcome,
+): void {
+  recordPermissionLifecycleEvent(
+    permissionEventName("permission_decided:", entry.toolName, `:${outcome}`),
+    entry,
+    "Failed to record permission decision telemetry",
+  );
 }
 
 /** Operator-facing failure log: warn for expected failures, error otherwise. */

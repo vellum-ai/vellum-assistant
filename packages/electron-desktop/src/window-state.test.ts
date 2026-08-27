@@ -13,6 +13,9 @@ let savedWindows: Record<string, SavedState> = {};
 let savedOnboardingActive: boolean | undefined = undefined;
 let savedCompanionHidden: boolean | undefined = undefined;
 let savedCompanionIntroSeen: boolean | undefined = undefined;
+let savedCompanionSize: unknown = undefined;
+let savedCompanionAvatarSize: unknown = undefined;
+let savedCompanionOptionsSize: unknown = undefined;
 let savedTitleBarOverlay: unknown = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
@@ -30,6 +33,15 @@ mock.module("electron-store", () => ({
       if (key === "companionHidden") return savedCompanionHidden ?? fallback;
       if (key === "companionIntroSeen")
         return savedCompanionIntroSeen ?? fallback;
+      if (key === "companionSize") {
+        return savedCompanionSize ?? fallback;
+      }
+      if (key === "companionAvatarSize") {
+        return savedCompanionAvatarSize ?? fallback;
+      }
+      if (key === "companionOptionsSize") {
+        return savedCompanionOptionsSize ?? fallback;
+      }
       if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
@@ -55,10 +67,12 @@ const {
   track,
   readCompanionHidden,
   readCompanionIntroSeen,
+  readCompanionSize,
   readOnboardingActive,
   readTitleBarOverlayTheme,
   writeCompanionHidden,
   writeCompanionIntroSeen,
+  writeCompanionSize,
   writeOnboardingActive,
   writeTitleBarOverlayTheme,
 } = await import("./window-state");
@@ -89,6 +103,9 @@ beforeEach(() => {
   savedOnboardingActive = undefined;
   savedCompanionHidden = undefined;
   savedCompanionIntroSeen = undefined;
+  savedCompanionSize = undefined;
+  savedCompanionAvatarSize = undefined;
+  savedCompanionOptionsSize = undefined;
   savedTitleBarOverlay = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
@@ -373,6 +390,150 @@ describe("companion surface visibility flag", () => {
 
     writeCompanionHidden(true);
     expect(storeSetMock).toHaveBeenCalledWith("companionHidden", true);
+  });
+});
+
+/**
+ * The two sizes the companion surface is drawn at, which are one choice each
+ * and share a set of steps.
+ *
+ * The file is JSON a user can edit and another build can have written, and the
+ * values index a table of geometry, so what is worth stating is that only a
+ * step this build knows ever reaches the window, that an install carrying only
+ * the single size a one-axis build writes is not resized under its user, and
+ * that a downgrade finds that shared key holding whatever both axes agree on.
+ */
+describe("companion surface sizes", () => {
+  test("absent keys default to the shipped size on both axes", () => {
+    expect(readCompanionSize("avatar")).toBe("medium");
+    expect(readCompanionSize("options")).toBe("medium");
+  });
+
+  test("each axis reads its own key", () => {
+    savedCompanionAvatarSize = "ridiculous";
+    savedCompanionOptionsSize = "small";
+    expect(readCompanionSize("avatar")).toBe("ridiculous");
+    expect(readCompanionSize("options")).toBe("small");
+  });
+
+  /**
+   * Nobody is resized by the second axis arriving. Someone who picked `huge`
+   * from a menu that offered one size meant the thing they were looking at, so
+   * they get `huge` on both rather than the default on either.
+   */
+  test("falls back to the one size a single-axis build writes", () => {
+    savedCompanionSize = "huge";
+    expect(readCompanionSize("avatar")).toBe("huge");
+    expect(readCompanionSize("options")).toBe("huge");
+  });
+
+  test("an axis's own key wins over that fallback", () => {
+    savedCompanionSize = "huge";
+    savedCompanionOptionsSize = "small";
+    expect(readCompanionSize("avatar")).toBe("huge");
+    expect(readCompanionSize("options")).toBe("small");
+  });
+
+  test("a value this build does not know never reaches the window", () => {
+    savedCompanionAvatarSize = "gigantic";
+    savedCompanionSize = "enormous";
+    expect(readCompanionSize("avatar")).toBe("medium");
+  });
+
+  test("an unknown axis key still finds the shared fallback", () => {
+    savedCompanionAvatarSize = "gigantic";
+    savedCompanionSize = "large";
+    expect(readCompanionSize("avatar")).toBe("large");
+  });
+
+  test("writing one axis leaves the other alone", () => {
+    writeCompanionSize("avatar", "ridiculous");
+    expect(storeSetMock).toHaveBeenCalledWith(
+      "companionAvatarSize",
+      "ridiculous",
+    );
+    expect(storeSetMock).not.toHaveBeenCalledWith(
+      "companionOptionsSize",
+      "ridiculous",
+    );
+  });
+
+  test("writing skips persisting when the axis's own key already says so", () => {
+    savedCompanionOptionsSize = "large";
+    writeCompanionSize("options", "large");
+    expect(storeSetMock).not.toHaveBeenCalled();
+
+    writeCompanionSize("options", "small");
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "small");
+  });
+
+  /**
+   * The axis's own key, not the effective value that falls back to the shared
+   * one. Someone carrying `huge` from a one-axis build who picks Huge on an
+   * axis is asking for it to be that axis's own answer, and skipping the write
+   * because the fallback already agreed would leave them on the fallback
+   * forever.
+   */
+  test("an explicit pick matching the shared fallback still lands on its axis", () => {
+    savedCompanionSize = "huge";
+    writeCompanionSize("avatar", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
+  });
+
+  /**
+   * Both axes on one size is the whole of what a build with one size axis can
+   * say, so it is said: someone who put the pair at `small` and then opened an
+   * older build should find it small rather than a stale value or the default.
+   */
+  test("axes landing on the same size update the key a single-axis build reads", () => {
+    savedCompanionAvatarSize = "small";
+    writeCompanionSize("options", "small");
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "small");
+    expect(storeSetMock).toHaveBeenCalledWith("companionSize", "small");
+  });
+
+  /**
+   * Two different sizes are not representable there, and the shared key is not
+   * asked to pick one: handing that build one axis's answer for both would turn
+   * a user sizing the pill alone into one whose creature changed too.
+   */
+  test("axes that disagree leave that key alone", () => {
+    savedCompanionSize = "small";
+    savedCompanionAvatarSize = "ridiculous";
+    writeCompanionSize("options", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionOptionsSize", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
+    ).toBe(false);
+  });
+
+  /**
+   * Agreement reached through the fallback counts, and there is nothing to
+   * write: the key already holds the size both axes answer with.
+   */
+  test("a pick that agrees with the shared fallback does not rewrite it", () => {
+    savedCompanionSize = "huge";
+    writeCompanionSize("avatar", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
+    ).toBe(false);
+  });
+
+  /**
+   * The key keeps the last size the two agreed on rather than being cleared or
+   * dragged after the axis that moved. A build with one size axis then still
+   * opens at a size its user chose.
+   */
+  test("a later disagreement leaves the key where the axes last agreed", () => {
+    savedCompanionSize = "small";
+    savedCompanionAvatarSize = "small";
+    savedCompanionOptionsSize = "small";
+    writeCompanionSize("avatar", "huge");
+    expect(storeSetMock).toHaveBeenCalledWith("companionAvatarSize", "huge");
+    expect(
+      storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
+    ).toBe(false);
   });
 });
 

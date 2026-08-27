@@ -12,7 +12,11 @@
  */
 
 export type PTTModifier =
-  "function" | "control" | "shift" | "option" | "command";
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
 
 export interface PTTOff {
   kind: "off";
@@ -261,6 +265,12 @@ export function eventActivatesPTT(
   activator: PTTActivator,
 ): boolean {
   if (activator.kind === "off") {
+    return false;
+  }
+  // `KeyboardEvent.key` is typed `string`, but trusted keydowns from
+  // autofill, IME composition, and other synthetic dispatchers arrive
+  // with no key at all. An event with no usable key matches no binding.
+  if (typeof event.key !== "string") {
     return false;
   }
   if (activator.modifiers.includes("function")) {

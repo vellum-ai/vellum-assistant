@@ -202,14 +202,15 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
       "{ html, height? } — one self-contained HTML/SVG fragment (no DOCTYPE/html/head/body, no external resources); every colour comes from the injected design-token CSS variables, so hex/rgb literals and invented `var()` names are rejected. Load the `visualize` skill with `skill_load` for the full contract and the token vocabulary",
   },
   channel_setup: {
-    purpose: "open the Slack/Telegram/Phone setup panel",
-    shape: '{ channel: "slack" | "telegram" | "phone" }',
+    purpose: "open the Slack/Telegram/Discord/Phone setup panel",
+    shape: '{ channel: "slack" | "telegram" | "discord" | "phone" }',
     missingContent: (data) =>
       data.channel === "slack" ||
       data.channel === "telegram" ||
+      data.channel === "discord" ||
       data.channel === "phone"
         ? null
-        : '`data.channel` must be one of "slack", "telegram", "phone"',
+        : '`data.channel` must be one of "slack", "telegram", "discord", "phone"',
   },
   voice_picker: {
     // The steering lives in `purpose` because that is the only part of a cold

@@ -17,8 +17,12 @@ import { Button, Typography } from "@vellumai/design-library";
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
-import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import {
+  classifyAttachment,
+  formatAttachmentSize,
+} from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
+import { baseMimeType, extensionOf } from "@/domains/chat/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useTranslation } from "@/i18n";
@@ -47,14 +51,6 @@ const TEXT_PREVIEW_APPLICATION_MIMES = new Set([
   "application/javascript",
   "application/xml",
 ]);
-
-const getExtension = (filename: string): string => {
-  const dot = filename.lastIndexOf(".");
-  if (dot === -1 || dot === filename.length - 1) {
-    return "";
-  }
-  return filename.slice(dot + 1).toLowerCase();
-};
 
 interface AttachmentPreviewModalProps {
   open: boolean;
@@ -270,21 +266,22 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     return null;
   }
 
-  const mime = attachment.mimeType.toLowerCase();
-  const isImage = mime.startsWith("image/");
-  const isVideo = mime.startsWith("video/");
-  // Some uploads come through with a generic application/octet-stream MIME;
-  // fall back to the filename extension so a real PDF still gets the inline
-  // preview branch.
-  const isPdf =
-    mime === "application/pdf" ||
-    (mime === "application/octet-stream" &&
-      attachment.filename.toLowerCase().endsWith(".pdf"));
-  const extension = getExtension(attachment.filename);
+  const mime = baseMimeType(attachment.mimeType);
+  // One classifier picks the media branch, the same one the composer strip,
+  // the chip and the message square read: a photo delivered as
+  // application/octet-stream previews as an image, and a video named after an
+  // image format stays a video.
+  const kind = classifyAttachment(attachment.mimeType, attachment.filename);
+  const isImage = kind === "image";
+  const isVideo = kind === "video";
+  const isPdf = kind === "pdf";
+  const extension = extensionOf(attachment.filename);
   // Route by MIME first (text/* and the JSON/JS/XML application types), then
   // fall back to the file extension for uploads that arrive as
   // application/octet-stream. PDF/image/video branches above already win for
-  // their own types.
+  // their own types. Its own test rather than a `kind` check: the inline
+  // preview renders source files too, which `classifyAttachment` splits off
+  // into a separate `code` kind.
   const isText =
     mime.startsWith("text/") ||
     TEXT_PREVIEW_APPLICATION_MIMES.has(mime) ||
@@ -311,7 +308,19 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     }
 
     if (isPdf && effectiveUrl) {
-      return <PdfPreview url={effectiveUrl} />;
+      return (
+        <PdfPreview
+          url={effectiveUrl}
+          errorFallback={
+            <PreviewMessageCard
+              message={t("attachmentPreviewModal.pdfLoadFailed")}
+              filename={attachment.filename}
+              onDownload={handleDownload}
+              downloadDisabled={!effectiveUrl}
+            />
+          }
+        />
+      );
     }
 
     if (isImage && effectiveUrl && decodeFailedUrl !== effectiveUrl) {
@@ -362,7 +371,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           leftIcon={<Download />}
           onClick={handleDownload}
           disabled={!effectiveUrl}
-          aria-label={t("attachmentPreviewModal.downloadAria", { filename: attachment.filename })}
+          aria-label={t("attachmentPreviewModal.downloadAria", {
+            filename: attachment.filename,
+          })}
           className="mt-4 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent"
           tintColor="currentColor"
         >
@@ -377,7 +388,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label={t("attachmentPreviewModal.previewAria", { filename: attachment.filename })}
+      aria-label={t("attachmentPreviewModal.previewAria", {
+        filename: attachment.filename,
+      })}
       // Focusable so the overlay can hold keyboard focus for the arrow-key
       // handler; the ring is suppressed since the dialog is the whole screen.
       tabIndex={-1}
@@ -436,7 +449,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             expandOnMobile={false}
             onClick={handleDownload}
             disabled={!effectiveUrl}
-            aria-label={t("attachmentPreviewModal.downloadAria", { filename: attachment.filename })}
+            aria-label={t("attachmentPreviewModal.downloadAria", {
+              filename: attachment.filename,
+            })}
             className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />

@@ -14,16 +14,14 @@ import {
   getEffectiveCancelDate,
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
+import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
 import {
   organizationsBillingPlansRetrieveOptions,
-  organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionChangeCreditTierCreateMutation,
   organizationsBillingSubscriptionChangeMachineTierCreateMutation,
   organizationsBillingSubscriptionChangeStorageTierCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
-  organizationsBillingSubscriptionRetrieveQueryKey,
   organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
@@ -124,15 +122,7 @@ function AdjustPlanModalContent({
   // surrounding UI re-fetches, then close the modal.
   useEffect(() => {
     return openUrlFinishedListener(() => {
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingPlansRetrieveQueryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-      });
+      void invalidateBillingQueries(queryClient);
       onClose();
     });
   }, [queryClient, onClose]);
@@ -356,18 +346,6 @@ function AdjustPlanModalContent({
     }
   };
 
-  const invalidateBillingQueries = () => {
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingPlansRetrieveQueryKey(),
-    });
-  };
-
   const tierChangePending =
     changeMachineTierMutation.isPending ||
     changeStorageTierMutation.isPending ||
@@ -454,7 +432,7 @@ function AdjustPlanModalContent({
     }
 
     void Promise.all(pending).then((results) => {
-      invalidateBillingQueries();
+      void invalidateBillingQueries(queryClient);
 
       // A storage change is always an upgrade (downgrades are disabled in the
       // picker). A machine change needs the explicit downgrade check.

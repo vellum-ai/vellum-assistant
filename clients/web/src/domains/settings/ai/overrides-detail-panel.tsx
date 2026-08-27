@@ -90,7 +90,7 @@ export function OverridesDetailPanel({
     [requireOwnProviderAndModel],
   );
 
-  const configMutation = useLlmConfigPatch(assistantId);
+  const configMutation = useLlmConfigPatch();
 
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);

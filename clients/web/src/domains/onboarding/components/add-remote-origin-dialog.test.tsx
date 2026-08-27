@@ -1,10 +1,18 @@
 /**
  * Behavioral tests for the URL-only add-remote-origin dialog: the address is
- * normalized through the real `normalizeOriginUrl` before the store add,
- * invalid input renders the inline error without touching the store, a store
+ * reduced to its public base before the store add, a pasted pairing link keeps
+ * its device code for the caller while only the base is stored, a refused
+ * address renders that reason's copy without touching the store, a store
  * failure keeps the dialog open with its copy, and a successful add completes
- * via `onAdded`. Self-contained mocks: run this file solo (`mock.module`
- * leaks across a shared `bun test` run).
+ * via `onAdded`.
+ *
+ * The acceptance boundary is deliberately wider than a pairing mint's: this
+ * dialog records an origin the browser navigates to, so a LAN address is
+ * remembered rather than refused by an SSRF gate written for a host that
+ * POSTs.
+ *
+ * Self-contained mocks: run this file solo (`mock.module` leaks across a
+ * shared `bun test` run).
  */
 
 import {
@@ -17,9 +25,11 @@ import {
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
 
-import type {
-  AddOriginResult,
-  RememberedOrigin,
+import { t } from "@/i18n";
+import {
+  normalizeOriginUrl,
+  type AddOriginResult,
+  type RememberedOrigin,
 } from "@/stores/remembered-origins-store";
 
 // --- Mutable per-test state, reset in beforeEach ------------------------------
@@ -32,14 +42,16 @@ const addOriginMock = mock(
 );
 
 const onCloseMock = mock(() => {});
-const onAddedMock = mock((_origin: RememberedOrigin) => {});
+const onAddedMock = mock(
+  (_origin: RememberedOrigin, _deviceCode: string | null) => {},
+);
 
 // --- Mocks --------------------------------------------------------------------
 
-// The real normalizer, captured before the module mock below replaces the
-// registry entry, so the dialog validates with production semantics.
-const { normalizeOriginUrl } = await import("@/stores/remembered-origins-store");
-
+// Only the store's action is stubbed; the real `normalizeOriginUrl` is handed
+// back through the mock, since it is the dialog's acceptance gate. Bun keeps
+// the static-import binding above pointing at the real implementation, so this
+// re-export is not a cycle.
 mock.module("@/stores/remembered-origins-store", () => ({
   normalizeOriginUrl,
   useRememberedOriginsStore: {
@@ -83,15 +95,16 @@ mock.module("@vellumai/design-library/components/modal", () => ({
   },
 }));
 
-const { AddRemoteOriginDialog } = await import(
-  "@/domains/onboarding/components/add-remote-origin-dialog"
-);
+const { AddRemoteOriginDialog } =
+  await import("@/domains/onboarding/components/add-remote-origin-dialog");
 
 // --- Helpers ------------------------------------------------------------------
 
-const INVALID_COPY =
-  "Enter the full https address, like https://example.com/assistant-1.";
-const FAILED_COPY = "Failed to add the assistant. Please try again.";
+// The catalog copy each rejection reason renders, so a hardcoded English
+// string reappearing in the component fails here.
+const NON_HTTPS_COPY = t("settings:pairDeviceUrl.nonHttps");
+const UNPARSEABLE_COPY = t("settings:pairDeviceUrl.unparseable");
+const FAILED_COPY = t("onboarding:addRemoteOriginDialog.addFailed");
 
 function renderDialog(
   overrides: Partial<ComponentProps<typeof AddRemoteOriginDialog>> = {},
@@ -141,9 +154,39 @@ describe("AddRemoteOriginDialog", () => {
     await waitFor(() =>
       expect(onAddedMock).toHaveBeenCalledWith(
         expect.objectContaining({ url: "https://host.example/assistant-1" }),
+        null,
       ),
     );
   });
+
+  // The one-click artifact the docs point phones and tablets at. The code is
+  // credential material: it reaches the caller for the navigation and never
+  // reaches the store.
+  test.each([
+    "https://host.example/assistant/pair#device_code=ABCD-1234",
+    "https://host.example/assistant/pair#deviceCode=ABCD-1234",
+    "https://host.example/assistant/pair?device_code=ABCD-1234",
+  ])(
+    "a pairing link keeps its device code out of the store: %s",
+    async (link) => {
+      renderDialog();
+
+      fillAddress(link);
+      fireEvent.click(screen.getByText("Add"));
+
+      await waitFor(() =>
+        expect(onAddedMock).toHaveBeenCalledWith(
+          expect.objectContaining({ url: "https://host.example" }),
+          "ABCD-1234",
+        ),
+      );
+      expect(addOriginMock).toHaveBeenCalledWith({
+        url: "https://host.example",
+      });
+      const stored = JSON.stringify(addOriginMock.mock.calls);
+      expect(stored).not.toContain("ABCD-1234");
+    },
+  );
 
   // The dialog tells users to paste the link their pairing page gave them,
   // so the app-route tail has to reduce to the public base; otherwise
@@ -174,19 +217,53 @@ describe("AddRemoteOriginDialog", () => {
     );
   });
 
+  // Each refusal renders the copy written for its reason, not one catch-all
+  // sentence: a vendor-website paste is a different mistake from a typo.
   test.each([
-    "http://host.example/assistant-1",
-    "javascript:alert(1)",
-    "not a url",
-  ])("invalid input renders the inline error without a store add: %s", async (value) => {
+    ["http://host.example/assistant-1", NON_HTTPS_COPY],
+    ["javascript:alert(1)", NON_HTTPS_COPY],
+    ["not a url", UNPARSEABLE_COPY],
+    [
+      "https://login.tailscale.com/admin/invite/abc",
+      t("settings:pairDeviceUrl.serviceWebsite", { service: "Tailscale" }),
+    ],
+  ])(
+    "a refused address renders that reason's copy without a store add: %s",
+    async (value, copy) => {
+      renderDialog();
+
+      fillAddress(value);
+      fireEvent.click(screen.getByText("Add"));
+
+      await waitFor(() => expect(screen.getByText(copy)).toBeTruthy());
+      expect(addOriginMock).not.toHaveBeenCalled();
+      expect(onAddedMock).not.toHaveBeenCalled();
+    },
+  );
+
+  // A pairing mint refuses these: the host POSTs to whatever it is handed, so
+  // loopback and private literals are its SSRF containment. Remembering an
+  // origin is a navigation target, and a LAN assistant is a real one.
+  test.each([
+    ["https://192.168.1.5:8443", "https://192.168.1.5:8443"],
+    ["https://[fd00::1]", "https://[fd00::1]"],
+    ["https://10.0.0.7/assistant-1", "https://10.0.0.7/assistant-1"],
+    ["https://localhost:8443", "https://localhost:8443"],
+  ])("remembers the LAN address %s", async (typed, expected) => {
     renderDialog();
 
-    fillAddress(value);
+    fillAddress(typed);
     fireEvent.click(screen.getByText("Add"));
 
-    await waitFor(() => expect(screen.getByText(INVALID_COPY)).toBeTruthy());
-    expect(addOriginMock).not.toHaveBeenCalled();
-    expect(onAddedMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(addOriginMock).toHaveBeenCalledWith({ url: expected }),
+    );
+    await waitFor(() =>
+      expect(onAddedMock).toHaveBeenCalledWith(
+        expect.objectContaining({ url: expected }),
+        null,
+      ),
+    );
   });
 
   test("a store failure keeps the dialog open with the failure copy", async () => {

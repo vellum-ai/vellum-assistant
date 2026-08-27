@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { useTranslation, type TFunction } from "@/i18n";
+import { formatCountdown } from "@/utils/format-countdown";
 
 interface PairDeviceReadyProps {
   pairUrl: string;
@@ -19,11 +20,8 @@ function formatExpiry(t: TFunction<"settings">, remainingMs: number): string {
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
     return t("pairDeviceReady.singleUse");
   }
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
   return t("pairDeviceReady.expiresIn", {
-    time: `${minutes}:${seconds.toString().padStart(2, "0")}`,
+    time: formatCountdown(remainingMs),
   });
 }
 

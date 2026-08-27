@@ -6,7 +6,7 @@
  * to compile until a policy is added below.
  */
 
-import type { ChannelId } from "./types.js";
+import { CHANNEL_IDS, type ChannelId } from "./types.js";
 
 export type ConversationStrategy =
   | "start_new_conversation"
@@ -77,12 +77,12 @@ const CHANNEL_POLICIES = {
     notification: {
       // Replies to an inbound Discord message do not read this flag: they
       // route by `replyCallbackUrl` through the channel transport. This gates
-      // proactive notification only, which needs a guardian binding to
-      // address and a destination resolver to reach it. Discord has neither,
-      // and `NotificationChannel` is derived from this flag, so enabling it
-      // early would let the decision engine pick a channel that resolves to
-      // nothing.
-      deliveryEnabled: false,
+      // proactive notification, which addresses the verified guardian
+      // directly: the adapter resolves a DM channel from the guardian
+      // binding's user snowflake, so a notification can never land in a
+      // guild room whose id merely looks like a DM's (both are bare
+      // snowflakes).
+      deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
     },
   },
@@ -111,19 +111,30 @@ export function getChannelPolicy(
 }
 
 /**
+ * The channels whose policy enables proactive delivery, derived from the
+ * registry's literal flags: flipping a channel's deliveryEnabled changes
+ * this union, and every exhaustive switch over it, at compile time.
+ */
+export type DeliverableChannelId = {
+  [K in keyof ChannelPolicies]: ChannelPolicies[K]["notification"]["deliveryEnabled"] extends true
+    ? K
+    : never;
+}[keyof ChannelPolicies];
+
+/**
  * Returns the list of channels where notification delivery is enabled.
  *
  * The return type is derived from the registry so downstream consumers
  * get a narrow union rather than the full ChannelId set.
  */
-export function getDeliverableChannels(): ChannelId[] {
-  return (Object.keys(CHANNEL_POLICIES) as ChannelId[]).filter(
-    (id) => CHANNEL_POLICIES[id].notification.deliveryEnabled,
-  );
+export function getDeliverableChannels(): DeliverableChannelId[] {
+  return CHANNEL_IDS.filter(isNotificationDeliverable);
 }
 
 /** Whether notification delivery is enabled for the given channel. */
-export function isNotificationDeliverable(channelId: ChannelId): boolean {
+export function isNotificationDeliverable(
+  channelId: ChannelId,
+): channelId is DeliverableChannelId {
   return CHANNEL_POLICIES[channelId].notification.deliveryEnabled;
 }
 

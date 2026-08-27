@@ -43,8 +43,12 @@ const OOXML_MIME_TYPES: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
-/** Server types that name no format and must not shadow the extension map. */
-const GENERIC_MIME_TYPES = new Set([
+/**
+ * Types that name no format, so they must not shadow what the filename or the
+ * bytes say. An empty type is the same claim made by saying nothing.
+ */
+export const GENERIC_MIME_TYPES = new Set([
+  "",
   "application/octet-stream",
   "binary/octet-stream",
 ]);
@@ -209,21 +213,36 @@ export async function sniffBlobMimeType(blob: Blob): Promise<string | null> {
   return sniffMimeType(new Uint8Array(head));
 }
 
+/** A media type without its parameters, lowercased: `image/jpeg; q=0.8` reads as `image/jpeg`. */
+export function baseMimeType(raw: string): string {
+  return raw.split(";")[0]!.trim().toLowerCase();
+}
+
 function normalizeMimeType(raw: string | null): string | null {
   if (!raw) {
     return null;
   }
-  const mime = raw.split(";")[0]!.trim().toLowerCase();
+  const mime = baseMimeType(raw);
   return mime.length > 0 ? mime : null;
 }
 
-function extensionOf(filename: string): string {
+/**
+ * A filename's extension, lowercased, or `""` where it has none.
+ *
+ * Reads only the last path segment, so a directory named `photos.2024` does not
+ * lend its suffix to a dotless file inside it, and a leading dot names a hidden
+ * file rather than an extension.
+ */
+export function extensionOf(filename: string): string {
   const base = filename.slice(filename.lastIndexOf("/") + 1);
   const dot = base.lastIndexOf(".");
   if (dot <= 0) {
     return "";
   }
-  return base.slice(dot + 1).toLowerCase();
+  return base
+    .slice(dot + 1)
+    .trim()
+    .toLowerCase();
 }
 
 function kindForMimeType(mime: string | null): LocalFileKind {

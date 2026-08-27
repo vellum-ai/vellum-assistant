@@ -15,6 +15,8 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
+import { AVATAR_IMAGE_FILENAME } from "@vellumai/avatar-manifest";
+
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
 import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";
@@ -37,7 +39,6 @@ import { WORKSPACE_THEME_RELATIVE_PATH } from "../theme/workspace-theme.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
-  AVATAR_IMAGE_FILENAME,
   getAvatarDir,
   getSignalsDir,
   getSoundsDir,

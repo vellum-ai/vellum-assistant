@@ -289,7 +289,7 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. On by default; disable to hide the card.",
+      "description": "Server-side switch for admission-floor enforcement: the gateway kill switch, the runtime floor stage, and enforcement-time policy resolution gate on it. Configuration reads and writes stay available while it is off. On by default. Client UI visibility is version-gated, not flag-gated.",
       "defaultEnabled": true
     },
     {
@@ -386,7 +386,39 @@
       "scope": "client",
       "key": "obscure-credits",
       "label": "Obscure Credits",
-      "description": "Replaces the dollar amounts on the billing Plan section with a usage-relative view: the current-plan tile trades its price footer for a Usage Balance bar (managed spend this billing cycle against the package's included credits) and the credits spec chip reads \"<Package> usage, reset monthly\" instead of naming a dollar bundle. Spec chips wrap horizontally to fit the shorter labels. Off leaves the Plan section exactly as it ships today.",
+      "description": "Obscures raw credit dollar amounts across the web billing surfaces in favor of a usage-relative view. The Plan section's current-plan tile trades its price footer for a Usage Balance bar and its credits spec chip reads \"<Package> usage, reset monthly\"; the plans takeover, custom-plan modal, and Pro provisioning takeover swap dollar credit wording for the catalog's usage labels; the Credits balance tile and the chat preferences menu show only credit bought or earned beyond the plan's included grants. Chat low-balance and daily-limit banners still name credits. Off leaves every surface exactly as it ships today.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ios-avatar-app-icon",
+      "scope": "client",
+      "key": "ios-avatar-app-icon",
+      "label": "iOS Avatar App Icon",
+      "description": "Shows the App icon picker in Settings -> General, where any user chooses an eyes-on-color home screen icon for iOS, seeds the picker from their assistant's character avatar, or resets to the default. Every change is a press, and iOS confirms each one with an alert of its own. Off hides the picker and leaves the default icon in place.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "channel-conversation-sidecar",
+      "scope": "client",
+      "key": "channel-conversation-sidecar",
+      "label": "Channel Conversation Sidecar",
+      "description": "Renders a conversation bound to an external channel (Slack, Telegram, Discord, phone, email, and any other channel adapter) as two lanes in web chat: Vellum stays the primary full-width lane, and the canonical external-channel transcript moves into the existing read-only right drawer, opened from a channel-thread control in the chat header. Rows the client can attribute to the external channel are drawn once, in the drawer, instead of being blended into the Vellum lane. The drawer offers an Open in <channel> secondary action and a per-message Reference in Vellum action that stages one quoted reference above the Vellum composer. The Vellum composer stays the only input; nothing about delivery, routing, or permissions changes. Off leaves the header deep-link pill and the blended transcript unchanged.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "monday-oauth",
+      "scope": "assistant",
+      "key": "monday-oauth",
+      "label": "monday.com Integration",
+      "description": "Gates the seeded monday.com OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "chatgpt-device-code-login",
+      "scope": "client",
+      "key": "chatgpt-device-code-login",
+      "label": "ChatGPT Device Code Login",
+      "description": "Gates the device-code sign-in as the primary ChatGPT subscription connect flow in the web client. Off: the redirect-and-paste flow is the only flow the connect section shows, with no device code UI and no other-sign-in-options disclosure. On: device code leads, and the redirect-and-paste flow stays reachable behind that disclosure and takes the section over when the assistant has no device-auth route.",
       "defaultEnabled": false
     }
   ]

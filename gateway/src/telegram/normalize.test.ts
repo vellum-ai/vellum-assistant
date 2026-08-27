@@ -93,6 +93,39 @@ describe("normalizeTelegramUpdate — private-chat topics", () => {
   });
 });
 
+describe("normalizeTelegramUpdate: event kinds", () => {
+  it("classifies an edited_message as an edit", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 600,
+      edited_message: {
+        message_id: 60,
+        text: "fixed",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.message.eventKind).toBe("edit");
+    expect(result!.message.eventKind).toBe("edit");
+  });
+
+  it("classifies a plain message as a message", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 601,
+      message: {
+        message_id: 61,
+        text: "hello",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.message.eventKind).toBe("message");
+  });
+});
+
 describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
   it("accepts callback_query from private chat", () => {
     const result = normalizeTelegramUpdate(
@@ -100,7 +133,20 @@ describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
     );
     expect(result).not.toBeNull();
     expect(result!.message.callbackQueryId).toBe("cbq-1");
+    expect(result!.message.eventKind).toBe("button");
     expect(result!.message.callbackData).toBe("apr:run1:approve");
+  });
+
+  it("forwards the button message's id so the card can be edited later", () => {
+    // The approval-card edit after a decision addresses exactly the message
+    // holding the inline keyboard. Dropping this id would leave stale
+    // buttons on every decided card, silently: the daemon's interception
+    // reads it off sourceMetadata.messageId.
+    const result = normalizeTelegramUpdate(makeCallbackQueryPayload());
+
+    expect(result).not.toBeNull();
+    expect(result!.source.messageId).toBe("10");
+    expect(result!.message.eventKind).toBe("button");
   });
 
   it("rejects callback_query from group chat", () => {

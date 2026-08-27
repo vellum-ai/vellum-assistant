@@ -115,7 +115,6 @@ function harness(options: { allowed?: string[]; responses?: Response[] } = {}) {
   const client = new DiscordGatewayClient(
     {
       botToken: "token-abc",
-      readAllowedChannelIds: () => new Set(options.allowed ?? ["channel-1"]),
       fetchFn: (async (url: string | URL | Request, init?: RequestInit) => {
         fetchCalls.push({
           url: String(url),
@@ -216,9 +215,10 @@ describe("connect and identify", () => {
     };
     expect(identify.op).toBe(2);
     expect(identify.d.token).toBe("token-abc");
-    // GUILDS | GUILD_MESSAGES | DIRECT_MESSAGES: the unprivileged bitmask,
-    // pinned in intents.ts.
-    expect(identify.d.intents).toBe(4609);
+    // GUILDS | GUILD_MESSAGES | GUILD_MESSAGE_REACTIONS | DIRECT_MESSAGES |
+    // DIRECT_MESSAGE_REACTIONS: the unprivileged bitmask, pinned in
+    // intents.ts.
+    expect(identify.d.intents).toBe(13825);
   });
 
   test("a transient REST failure retries and connects on success", async () => {
@@ -405,7 +405,7 @@ describe("server-directed recovery", () => {
 });
 
 describe("message admission and normalization", () => {
-  test("a mention in an allow-listed channel is emitted", async () => {
+  test("a mention in a visible channel is emitted", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message(messageCreate());
@@ -418,19 +418,18 @@ describe("message admission and normalization", () => {
     expect(event.message.content).toBe("<@bot-1> hello");
   });
 
-  test("non-mentions, other channels, and bot authors are dropped", async () => {
+  test("non-mentions and bot authors are dropped", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
 
     ws.message(messageCreate({ mentions: [] }));
-    ws.message(messageCreate({ channel_id: "channel-other" }));
     ws.message(messageCreate({ author: { id: "other-bot", bot: true } }));
     // The bot's own echo.
     ws.message(messageCreate({ author: { id: "bot-1" } }));
     expect(h.events).toHaveLength(0);
   });
 
-  test("a thread message inherits its parent's allow-list entry", async () => {
+  test("a thread message delivers on its parent conversation", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message({
@@ -450,7 +449,7 @@ describe("message admission and normalization", () => {
     expect(event.source.threadId).toBe("thread-9");
   });
 
-  test("a THREAD_CREATE feeds later thread admission", async () => {
+  test("a THREAD_CREATE feeds later parent resolution", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message({
@@ -461,19 +460,167 @@ describe("message admission and normalization", () => {
     });
     ws.message(messageCreate({ channel_id: "thread-5" }));
     expect(h.events).toHaveLength(1);
+    expect(h.events[0]?.message.conversationExternalId).toBe("channel-1");
+  });
+});
+
+describe("reaction dispatch", () => {
+  const reactionAdd = (overrides: Record<string, unknown> = {}) => ({
+    op: 0,
+    t: "MESSAGE_REACTION_ADD",
+    s: 3,
+    d: {
+      user_id: "user-1",
+      channel_id: "channel-1",
+      message_id: "msg-1",
+      guild_id: "guild-1",
+      emoji: { id: null, name: "\u{1F44D}" },
+      ...overrides,
+    },
   });
 
-  test("a thread in a non-listed channel stays out", async () => {
+  test("a reaction add is forwarded with its structured payload", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(reactionAdd());
+
+    expect(h.events).toHaveLength(1);
+    const event = h.events[0];
+    expect(event.message.eventKind).toBe("reaction");
+    expect(event.message.reaction).toEqual({
+      op: "added",
+      emoji: "\u{1F44D}",
+      targetMessageId: "msg-1",
+    });
+    expect(event.actor.actorExternalId).toBe("user-1");
+  });
+
+  test("a reaction remove carries the removed op", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message({ ...reactionAdd(), t: "MESSAGE_REACTION_REMOVE" });
+
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0].message.reaction!.op).toBe("removed");
+  });
+
+  test("the bot's own reactions are self-echoes and never forwarded", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(reactionAdd({ user_id: "bot-1" }));
+
+    expect(h.events).toHaveLength(0);
+  });
+
+  test("a thread reaction resolves its parent conversation", async () => {
     const h = harness();
     const ws = await connectAndReady(h);
     ws.message({
       op: 0,
       t: "THREAD_CREATE",
       s: 2,
-      d: { id: "thread-6", type: 11, parent_id: "channel-other" },
+      d: { id: "thread-5", type: 11, parent_id: "channel-1" },
     });
-    ws.message(messageCreate({ channel_id: "thread-6" }));
+    ws.message(reactionAdd({ channel_id: "thread-5" }));
+
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0].message.conversationExternalId).toBe("channel-1");
+    expect(h.events[0].source.threadId).toBe("thread-5");
+  });
+});
+
+describe("interaction dispatch", () => {
+  const buttonPress = (overrides: Record<string, unknown> = {}) => ({
+    op: 0,
+    t: "INTERACTION_CREATE",
+    s: 4,
+    d: {
+      id: "inter-1",
+      token: "inter-token-1",
+      type: 3,
+      channel_id: "dm-channel-1",
+      data: { custom_id: "apr:req-1:approve_once", component_type: 2 },
+      message: { id: "card-msg-1" },
+      user: { id: "user-1", username: "alice", global_name: "Alice" },
+      ...overrides,
+    },
+  });
+
+  test("a button press acks deferred-update and forwards a button event", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(buttonPress());
+    await Promise.resolve();
+
+    const ack = h.fetchCalls.find((c) => c.url.includes("/interactions/"));
+    expect(ack?.url).toBe(
+      "https://discord.com/api/v10/interactions/inter-1/inter-token-1/callback",
+    );
+
+    expect(h.events).toHaveLength(1);
+    const event = h.events[0];
+    expect(event.message.eventKind).toBe("button");
+    expect(event.message.callbackData).toBe("apr:req-1:approve_once");
+    expect(event.message.content).toBe("apr:req-1:approve_once");
+    expect(event.message.conversationExternalId).toBe("dm-channel-1");
+    expect(event.source.messageId).toBe("card-msg-1");
+    expect(event.actor.actorExternalId).toBe("user-1");
+    expect(event.source.isDirectMessage).toBe(true);
+  });
+
+  test("a guild press names its actor from member.user", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(
+      buttonPress({
+        guild_id: "guild-1",
+        user: undefined,
+        member: { user: { id: "user-2", username: "bob" } },
+      }),
+    );
+
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0].actor.actorExternalId).toBe("user-2");
+    expect(h.events[0].source.isDirectMessage).toBe(false);
+  });
+
+  test("non-component interaction types are neither acked nor forwarded", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    // An application command (type 2) has no consumer here.
+    ws.message(buttonPress({ type: 2 }));
+    await Promise.resolve();
+
     expect(h.events).toHaveLength(0);
+    expect(
+      h.fetchCalls.filter((c) => c.url.includes("/interactions/")),
+    ).toHaveLength(0);
+  });
+
+  test("a select-menu press is not consumed", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(
+      buttonPress({
+        data: { custom_id: "pick", component_type: 3, values: ["a"] },
+      }),
+    );
+
+    expect(h.events).toHaveLength(0);
+  });
+
+  test("a bot actor drops at normalization but the ack still lands", async () => {
+    const h = harness();
+    const ws = await connectAndReady(h);
+    ws.message(
+      buttonPress({ user: { id: "other-bot", username: "x", bot: true } }),
+    );
+    await Promise.resolve();
+
+    expect(h.events).toHaveLength(0);
+    expect(
+      h.fetchCalls.filter((c) => c.url.includes("/interactions/")),
+    ).toHaveLength(1);
   });
 });
 

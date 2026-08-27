@@ -24,9 +24,9 @@ import { z } from "zod";
 import {
   getIngressConfigResult,
   isVelayManagedIngress,
-  loadLastTunnelRecord,
   loadPairingTunnelRecord,
   loadRecordedAssistantId,
+  loadRestartTunnelRecord,
 } from "../../daemon/handlers/config-ingress.js";
 import { probeTunnel } from "../../inbound/tunnel-probe.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -100,7 +100,7 @@ async function handleIngressStatus(): Promise<IngressStatusResponse> {
   if (isVelayManagedIngress() && !pairingTunnel) {
     return { state: "unconfigured" };
   }
-  const lastTunnel = pairingTunnel ?? loadLastTunnelRecord();
+  const lastTunnel = loadRestartTunnelRecord();
 
   const publicBaseUrl =
     pairingTunnel?.publicBaseUrl ?? config.publicBaseUrl.trim();

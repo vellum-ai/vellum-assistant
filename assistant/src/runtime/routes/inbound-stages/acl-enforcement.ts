@@ -6,10 +6,11 @@
  * Invite code/token redemption is intercepted at gateway ingress; redeemed
  * messages never reach this stage.
  */
-import type {
-  AdmissionPolicy,
-  SourceMetadata,
-  TrustVerdict,
+import {
+  ACCESS_DENIED_NOT_APPROVED_REPLY,
+  type AdmissionPolicy,
+  type SourceMetadata,
+  type TrustVerdict,
 } from "@vellumai/gateway-client";
 
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
@@ -78,7 +79,7 @@ export function composeAccessDenialReply(params: {
   if (params.guardianNotified) {
     return `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(params.verdict)} know you tried talking to me and get back to you.`;
   }
-  return "Sorry, you haven't been approved to message this assistant.";
+  return ACCESS_DENIED_NOT_APPROVED_REPLY;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,21 +99,26 @@ export interface AclEnforcementParams {
   replyCallbackUrl: string | undefined;
   assistantId: string;
   /**
-   * Effective admission policy for this request (gateway floor resolved with
-   * any per-conversation override). When set, ACL skips its hard-deny paths
-   * when the policy is permissive enough:
+   * Effective admission policy for this request (the gateway's per-channel
+   * floor). When set, ACL skips its hard-deny paths when the policy makes
+   * the floor stage the right place to answer:
    * - `strangers`: non-members and inactive (non-blocked) members are passed
    *   through so the admission floor can emit the final verdict.
-   * - `any_contact`: inactive `pending` members are passed through.
+   * - `guardian_only`: non-members and inactive `pending`/`unverified`
+   *   members are passed through; the floor denies everyone below guardian.
+   * - `any_contact`: inactive `pending`/`unverified` members are passed
+   *   through.
    *
-   * Passing this in avoids having ACL fire guardian notifications and canned
-   * replies for senders who will be admitted by the floor stage anyway.
+   * Passing this in keeps ACL from firing guardian notifications and canned
+   * replies for senders whose final answer belongs to the floor stage:
+   * admission under the permissive floors, or a `guardian_only` denial
+   * delivered without a misleading verification challenge.
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
   /**
-   * True when the inbound event is an interaction callback (e.g. a Slack
-   * Block Kit button press or a message_deleted sentinel) rather than a
-   * message the sender composed. Callbacks are decision attempts / lifecycle
+   * True when the inbound event is an interaction callback (a button
+   * press, a reaction, a delete: any kind that is not a composed message
+   * or an edit of one). Callbacks are decision attempts / lifecycle
    * events, not access attempts: a denied callback must never mint a
    * verification challenge or create an access request — a stale button
    * press from an unrecognized sender would otherwise spawn a fresh
@@ -121,6 +127,15 @@ export interface AclEnforcementParams {
    * caller makes the classification explicitly.
    */
   isCallbackInteraction: boolean;
+  /**
+   * The platform named no actor for this event (the id is a channel's
+   * synthetic system identity). There is no identity claim to enforce, so
+   * the ACL neither resolves a member nor denies: the family stage that
+   * consumes such an event applies it only to rows whose author cleared
+   * this ACL when the original message arrived. Callers set this ONLY for
+   * event kinds that cannot start an agent turn.
+   */
+  actorUnattributed?: boolean;
 }
 
 /**
@@ -199,6 +214,10 @@ export async function enforceIngressAcl(
     effectiveAdmissionPolicy,
     isCallbackInteraction,
   } = params;
+
+  if (params.actorUnattributed) {
+    return { resolvedMember: null };
+  }
 
   let validatedBootstrapSession: VerificationSessionWire | undefined;
 
@@ -880,8 +899,7 @@ export async function enforceIngressAcl(
           { sourceChannel, channelId: resolvedMember.channelId },
           "Ingress ACL: member policy deny",
         );
-        const denyReplyText =
-          "Sorry, you haven't been approved to message this assistant.";
+        const denyReplyText = ACCESS_DENIED_NOT_APPROVED_REPLY;
         let denyReplyDelivered = false;
         if (replyCallbackUrl) {
           const denyPayload: Parameters<typeof deliverChannelReply>[1] = {

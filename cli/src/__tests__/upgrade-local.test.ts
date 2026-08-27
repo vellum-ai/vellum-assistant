@@ -33,6 +33,8 @@ const realUpgradeLifecycle = { ...upgradeLifecycle };
 
 const findAssistantByNameMock =
   mock<typeof assistantConfig.findAssistantByName>();
+const lookupAssistantByIdentifierMock =
+  mock<typeof assistantConfig.lookupAssistantByIdentifier>();
 const getActiveAssistantMock = mock<typeof assistantConfig.getActiveAssistant>(
   () => "local-assistant",
 );
@@ -46,6 +48,7 @@ const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
 mock.module("../lib/assistant-config", () => ({
   ...realAssistantConfig,
   findAssistantByName: findAssistantByNameMock,
+  lookupAssistantByIdentifier: lookupAssistantByIdentifierMock,
   getActiveAssistant: getActiveAssistantMock,
   loadAllAssistants: loadAllAssistantsMock,
   saveAssistantEntry: saveAssistantEntryMock,
@@ -228,6 +231,8 @@ beforeEach(() => {
   const entry = makeLocalEntry();
   findAssistantByNameMock.mockReset();
   findAssistantByNameMock.mockReturnValue(entry);
+  lookupAssistantByIdentifierMock.mockReset();
+  lookupAssistantByIdentifierMock.mockReturnValue({ status: "found", entry });
   getActiveAssistantMock.mockReset();
   getActiveAssistantMock.mockReturnValue("local-assistant");
   loadAllAssistantsMock.mockReset();
@@ -444,5 +449,116 @@ describe("vellum upgrade local", () => {
     expect(startLocalDaemonMock).not.toHaveBeenCalled();
     expect(startGatewayMock).not.toHaveBeenCalled();
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain("Already on");
+  });
+});
+
+// `cli/AGENTS.md` § "Assistant targeting convention": exact assistant ID
+// matches win over display-name matches; a unique display-name match
+// resolves to its assistant; an ambiguous display name is an error listing
+// the matching IDs. That precedence lives in, and is tested directly against,
+// `lookupAssistantByIdentifier` (see assistant-config.test.ts). These tests
+// only check `vellum upgrade`'s wiring: each one stubs the exact result
+// (found/ambiguous) the shared helper would return for a given argument, and
+// asserts the command acts on it correctly, without reimplementing the
+// lookup rules themselves.
+describe("vellum upgrade assistant targeting", () => {
+  function makeQuillEntry(
+    overrides: Partial<AssistantEntry> = {},
+  ): AssistantEntry {
+    return {
+      ...makeLocalEntry(),
+      assistantId: "quill-uuid",
+      name: "Quill",
+      ...overrides,
+    };
+  }
+
+  function argvFor(...positional: string[]): string[] {
+    return [
+      "bun",
+      "vellum",
+      "upgrade",
+      ...positional,
+      "--version",
+      cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+    ];
+  }
+
+  test("resolves a unique display-name match to its assistant", async () => {
+    const quill = makeQuillEntry();
+    process.argv = argvFor("Quill");
+    lookupAssistantByIdentifierMock.mockReturnValue({
+      status: "found",
+      entry: quill,
+    });
+
+    await upgrade();
+
+    expect(lookupAssistantByIdentifierMock).toHaveBeenCalledWith("Quill");
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(stopLocalProcessesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceDir: quill.resources!.instanceDir }),
+    );
+  });
+
+  test("resolves a multi-word display-name argument, unsplit by --version", async () => {
+    const multiWord = makeQuillEntry({ name: "My Assistant" });
+    process.argv = argvFor("My", "Assistant");
+    lookupAssistantByIdentifierMock.mockReturnValue({
+      status: "found",
+      entry: multiWord,
+    });
+
+    await upgrade();
+
+    expect(lookupAssistantByIdentifierMock).toHaveBeenCalledWith(
+      "My Assistant",
+    );
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(stopLocalProcessesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceDir: multiWord.resources!.instanceDir,
+      }),
+    );
+  });
+
+  test("an exact assistant-ID argument resolves via the shared helper's found result", async () => {
+    // `lookupAssistantByIdentifier` owns ID-wins-over-name precedence
+    // (covered in assistant-config.test.ts); this only checks that
+    // `vellum upgrade` passes the raw argument through unmodified and acts
+    // on whatever entry the shared helper resolves.
+    const target = makeQuillEntry({ assistantId: "quill-uuid" });
+    process.argv = argvFor("quill-uuid");
+    lookupAssistantByIdentifierMock.mockReturnValue({
+      status: "found",
+      entry: target,
+    });
+
+    await upgrade();
+
+    expect(lookupAssistantByIdentifierMock).toHaveBeenCalledWith("quill-uuid");
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(stopLocalProcessesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceDir: target.resources!.instanceDir }),
+    );
+  });
+
+  test("an ambiguous display name fails and lists the matching IDs", async () => {
+    process.argv = argvFor("Quill");
+    lookupAssistantByIdentifierMock.mockReturnValue({
+      status: "ambiguous",
+      matches: [
+        makeQuillEntry({ assistantId: "quill-uuid-1" }),
+        makeQuillEntry({ assistantId: "quill-uuid-2" }),
+      ],
+    });
+
+    await expect(upgrade()).rejects.toThrow("process.exit(1)");
+
+    expect(stopLocalProcessesMock).not.toHaveBeenCalled();
+    const errText = consoleErrorSpy.mock.calls.flat().join("\n");
+    expect(errText).toContain("Multiple assistants match 'Quill'");
+    expect(errText).toContain("quill-uuid-1");
+    expect(errText).toContain("quill-uuid-2");
   });
 });

@@ -30,6 +30,10 @@ struct CatchUpWidget: Widget {
     }
 }
 
+// A Storybook replica copies this file's measurements and palette, at
+// `clients/web/src/components/ios-widget-previews/`. Nothing checks the two
+// against each other, so a change here wants a look there.
+
 /// Actions on the left, conversations on the right.
 ///
 /// The split is the point: the actions are always available and always in the
