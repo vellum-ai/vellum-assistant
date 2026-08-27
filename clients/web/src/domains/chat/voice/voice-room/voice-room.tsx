@@ -141,6 +141,7 @@ import {
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { CameraShutter } from "@/domains/chat/voice/camera-shutter";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -979,40 +980,17 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               reaches for without looking. */}
           {cameraOpen ? (
             <div className="relative flex w-full items-center justify-center">
+              {/* The one control with no `overMedia` branch: the shutter
+                  exists only while the viewfinder does, so it is never seen
+                  against anything but video. */}
               <Tooltip content={t("voiceRoom.takePhoto")}>
-                <button
-                  type="button"
+                <CameraShutter
                   onClick={() => void shutter()}
+                  ariaLabel={t("voiceRoom.takePhoto")}
+                  capturing={sending}
                   disabled={sending}
-                  aria-label={t("voiceRoom.takePhoto")}
-                  data-testid="voice-room-shutter"
-                  className={cn(
-                    "flex size-16 items-center justify-center rounded-full border-4 transition",
-                    // The one control with no camera-open branch: the shutter
-                    // exists only while the viewfinder does, so video is the
-                    // only thing it is ever seen against, and a tone-derived
-                    // color describes a background the feed has covered.
-                    //
-                    // White alone is not enough either, because the frame can
-                    // be any brightness: a white ring on a white wall is as
-                    // invisible as a dark one on a dark shirt. The white sits
-                    // on a dark fill and a dark outer hairline, so one edge or
-                    // the other separates it from the video at both extremes.
-                    "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-                    // The inner disc shrinks while the photo uploads: the
-                    // shutter's own press animation doubling as the progress
-                    // signal, so nothing else has to appear over the viewfinder.
-                    sending ? "opacity-60" : "hover:bg-black/45",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "rounded-full bg-white transition-all",
-                      sending ? "size-6" : "size-11",
-                    )}
-                  />
-                </button>
+                  testId="voice-room-shutter"
+                />
               </Tooltip>
 
               <VoiceRoomControl
