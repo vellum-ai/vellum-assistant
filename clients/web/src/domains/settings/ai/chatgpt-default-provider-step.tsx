@@ -17,7 +17,7 @@ import type {
   DefaultProviderStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import { useDefaultProviderSettingsSupport } from "@/lib/backwards-compat/default-provider-settings";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -95,7 +95,8 @@ export function ChatgptDefaultProviderStep({
   const [phase, setPhase] = useState<StepPhase>("deciding");
   const { setDefaultAsync } = useProviderActions(assistantId);
 
-  const supportsDefaultProvider = useSupportsDefaultProviderSettings();
+  const { supported: supportsDefaultProvider, versionKnown } =
+    useDefaultProviderSettingsSupport(assistantId);
   // Read only until the verdict is in: the switch invalidates this key, and a
   // step that kept observing it would refetch a status it has already used.
   const { data: status, isPending } = useQuery({
@@ -132,6 +133,12 @@ export function ChatgptDefaultProviderStep({
     if (decidedRef.current) {
       return;
     }
+    // A sign-in that finishes before the identity fetch lands would read the
+    // version-gated support as `false` and latch "no such routes" on an
+    // assistant that has them, closing the editor over a broken default.
+    if (!versionKnown) {
+      return;
+    }
     if (supportsDefaultProvider && isPending) {
       return;
     }
@@ -151,7 +158,14 @@ export function ChatgptDefaultProviderStep({
       return;
     }
     setPhase("offer");
-  }, [apply, connection, isPending, status, supportsDefaultProvider]);
+  }, [
+    apply,
+    connection,
+    isPending,
+    status,
+    supportsDefaultProvider,
+    versionKnown,
+  ]);
 
   if (phase === "deciding" || phase === "hidden") {
     return null;

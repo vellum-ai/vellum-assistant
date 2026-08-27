@@ -209,7 +209,9 @@ function resetState() {
   putShouldFail = false;
   invalidatedQueryIds = [];
   toastErrors = [];
-  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.11.0");
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", "0.11.0", ASSISTANT_ID);
 }
 
 function renderSection(onConnected: (c: ProviderConnection) => void = () => {}) {
@@ -363,7 +365,7 @@ describe("ChatgptOAuthSection with device-code login on", () => {
     expect(putBodies).toEqual([]);
   });
 
-  test("the switch refreshes the provider, profile and default caches", async () => {
+  test("the switch refreshes the provider, profile, call-site and default caches", async () => {
     defaultProviderState = {
       provider: "anthropic",
       resolvedConnectionName: "anthropic-personal",
@@ -379,6 +381,7 @@ describe("ChatgptOAuthSection with device-code login on", () => {
       "configLlmDefaultproviderGet",
       "configGet",
       "inferenceProfilesGet",
+      "configLlmCallsitesGet",
     ]) {
       expect(invalidatedQueryIds).toContain(id);
     }
@@ -419,8 +422,43 @@ describe("ChatgptOAuthSection with device-code login on", () => {
     expect(putBodies).toEqual([]);
   });
 
+  test("a sign-in that lands before the version does waits for it", async () => {
+    // The identity fetch has not answered yet, so the version-gated support
+    // reads `false` for a reason that says nothing about this assistant.
+    useAssistantIdentityStore.getState().clearIdentity();
+    defaultProviderState = {
+      provider: "anthropic",
+      resolvedConnectionName: "anthropic-personal",
+      availability: { status: "missing_credential" },
+    };
+    const connected: ProviderConnection[] = [];
+    renderSection((c) => connected.push(c));
+
+    signIn();
+
+    await screen.findByText("ChatGPT subscription connected successfully.");
+    expect(connected).toEqual([]);
+    expect(putBodies).toEqual([]);
+    expect(screen.queryByText("Done")).toBeNull();
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("test-asst", "0.11.0", ASSISTANT_ID);
+    });
+
+    expect(
+      await screen.findByText("ChatGPT is now your default provider for chat."),
+    ).toBeDefined();
+    expect(putBodies).toEqual([
+      { provider: "chatgpt", connectionName: "chatgpt-subscription" },
+    ]);
+  });
+
   test("assistants without the default-provider routes hand over as before", async () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.7");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.7", ASSISTANT_ID);
     const connected: ProviderConnection[] = [];
     renderSection((c) => connected.push(c));
 

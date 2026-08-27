@@ -2,11 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { renderHook } from "@testing-library/react";
 
-import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import {
+  useDefaultProviderSettingsSupport,
+  useSupportsDefaultProviderSettings,
+} from "@/lib/backwards-compat/default-provider-settings";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+
+const ASSISTANT_ID = "asst-1";
 
 function setVersion(version: string | null) {
   useAssistantIdentityStore.getState().setIdentity("test-asst", version);
+}
+
+function setVersionFor(assistantId: string, version: string | null) {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", version, assistantId);
 }
 
 beforeEach(() => {
@@ -43,5 +54,40 @@ describe("useSupportsDefaultProviderSettings", () => {
     setVersion("0.10.8-rc.1");
     const { result } = renderHook(() => useSupportsDefaultProviderSettings());
     expect(result.current).toBe(true);
+  });
+});
+
+// The form for callers that read the gate once: the same verdict, plus
+// whether it was read against a resolved version.
+describe("useDefaultProviderSettingsSupport", () => {
+  test("reports the version as unknown until one hydrates", () => {
+    const { result } = renderHook(() =>
+      useDefaultProviderSettingsSupport(ASSISTANT_ID),
+    );
+    expect(result.current).toEqual({ supported: false, versionKnown: false });
+  });
+
+  test("reports a version hydrated for the assistant asked about", () => {
+    setVersionFor(ASSISTANT_ID, "0.10.8");
+    const { result } = renderHook(() =>
+      useDefaultProviderSettingsSupport(ASSISTANT_ID),
+    );
+    expect(result.current).toEqual({ supported: true, versionKnown: true });
+  });
+
+  test("a version held for another assistant answers nothing about this one", () => {
+    setVersionFor("asst-2", "0.10.8");
+    const { result } = renderHook(() =>
+      useDefaultProviderSettingsSupport(ASSISTANT_ID),
+    );
+    expect(result.current).toEqual({ supported: false, versionKnown: false });
+  });
+
+  test("an older assistant is a known version, not an unknown one", () => {
+    setVersionFor(ASSISTANT_ID, "0.10.7");
+    const { result } = renderHook(() =>
+      useDefaultProviderSettingsSupport(ASSISTANT_ID),
+    );
+    expect(result.current).toEqual({ supported: false, versionKnown: true });
   });
 });

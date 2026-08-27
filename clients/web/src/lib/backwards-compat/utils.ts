@@ -88,6 +88,33 @@ export function useAssistantScopedSupports(
 }
 
 /**
+ * True once the identity store holds a version fetched for
+ * `ownerAssistantId`: the render-path counterpart to
+ * {@link whenAssistantVersionKnownFor}.
+ *
+ * `useAssistantScopedSupports` collapses "unknown" and "known-old" into one
+ * `false`, which a surface that re-renders when the version lands can act on
+ * safely. A caller that reads the gate once and latches the branch cannot:
+ * unknown would pin it to the legacy path for good. Those callers hold off
+ * until this returns `true`, so the gate is read against a resolved version.
+ *
+ * Scoped for the same reason the gate is: a version still held for the
+ * assistant the user was looking at a moment ago is not an answer about this
+ * one.
+ */
+export function useAssistantVersionKnownFor(
+  ownerAssistantId: string | null | undefined,
+): boolean {
+  const version = useAssistantIdentityStore.use.version();
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  return (
+    Boolean(version) &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
+/**
  * Non-hook variant of `useAssistantSupports`: reads the version
  * snapshot via `useAssistantIdentityStore.getState()` so it's safe to
  * call from non-hook contexts (event handlers, async ops, request

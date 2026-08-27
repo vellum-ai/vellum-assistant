@@ -8,6 +8,7 @@ import { isDefaultProviderId } from "@/domains/settings/ai/provider-row-meta";
 import { t } from "@/i18n";
 import {
   configGetQueryKey,
+  configLlmCallsitesGetQueryKey,
   configLlmDefaultproviderGetQueryKey,
   configLlmDefaultproviderPutMutation,
   inferenceProviderconnectionsGetQueryKey,
@@ -34,9 +35,9 @@ export interface ProviderActions {
 
 /**
  * Row mutations for the Providers section. Set-default refreshes the
- * default-provider status, the config, and the effective profile catalog
- * (managed tiers resolve their model through the default provider); delete
- * refreshes the connection list. Errors surface as toasts.
+ * default-provider status, the config, and the effective profile and
+ * call-site catalogs (managed tiers resolve their model through the default
+ * provider); delete refreshes the connection list. Errors surface as toasts.
  */
 export function useProviderActions(
   assistantId: string,
@@ -56,6 +57,12 @@ export function useProviderActions(
       });
       void queryClient.invalidateQueries({
         queryKey: inferenceProfilesGetQueryKey(pathOpts),
+      });
+      // The call-site catalog reports each action's winning profile, resolved
+      // through the default provider, so the same write moves it. The sync
+      // handler refreshes it for other clients; this covers the tab that wrote.
+      void queryClient.invalidateQueries({
+        queryKey: configLlmCallsitesGetQueryKey(pathOpts),
       });
     },
     onError: (error) => {
