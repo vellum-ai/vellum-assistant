@@ -305,6 +305,75 @@ describe("useVoiceCamera: handing the flash back", () => {
   });
 });
 
+describe("useVoiceCamera: a probe that outlives the camera it asked about", () => {
+  test("drops a late 'yes' from the camera the user flipped away from", async () => {
+    // The rear camera's probe is still in flight when the user flips to a
+    // front camera with no flash unit. Its answer describes a camera that is
+    // no longer running, and taking it would light the control on one whose
+    // Android implementation throws on the very next `setFlashMode`.
+    const rearProbe = deferredProbe();
+    getFlashModesSpy.mockImplementation(rearProbe.answer);
+
+    render(<Probe />);
+    await press("open");
+    await waitFor(() => expect(getFlashModesSpy).toHaveBeenCalledTimes(1));
+
+    // The camera the flip lands on answers first, and answers honestly.
+    getFlashModesSpy.mockImplementation(async () => []);
+    await press("flip");
+    await waitFor(() => expect(getFlashModesSpy).toHaveBeenCalledTimes(2));
+
+    await settle(() => rearProbe.resolve(FLASH_CAPABLE));
+
+    // The set is the part that throws: `off` is still a mode this camera never
+    // reported, and the bridge does not care that it is the harmless-looking
+    // one.
+    expect(setFlashModeSpy).not.toHaveBeenCalled();
+    expect(flashAvailable()).toBe(false);
+  });
+
+  test("keeps the answer of the camera that is actually running", async () => {
+    // The mirror case. A stale empty list is just as wrong as a stale capable
+    // one: it would hide a control the running camera can drive.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    const frontProbe = deferredProbe();
+    getFlashModesSpy.mockImplementation(frontProbe.answer);
+
+    render(<Probe />);
+    await press("open");
+    await waitFor(() => expect(getFlashModesSpy).toHaveBeenCalledTimes(1));
+
+    getFlashModesSpy.mockImplementation(async () => FLASH_CAPABLE);
+    await press("flip");
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+
+    await settle(() => frontProbe.resolve([]));
+
+    expect(flashAvailable()).toBe(true);
+    expect(setFlashModeSpy).toHaveBeenCalledWith("on");
+  });
+});
+
+/** A probe the test decides the timing of, rather than the microtask queue. */
+function deferredProbe() {
+  let resolve: (modes: string[]) => void = () => {};
+  const pending = new Promise<string[]>((r) => {
+    resolve = r;
+  });
+  return {
+    answer: () => pending,
+    resolve: (modes: string[]) => resolve(modes),
+  };
+}
+
+/** Run an act pass long enough for a resolved probe to reach React. */
+async function settle(release: () => void) {
+  await act(async () => {
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 /**
  * A real `MediaStream`, because happy-dom's `srcObject` setter enforces the
  * same instance check the browser does, with the two methods release needs

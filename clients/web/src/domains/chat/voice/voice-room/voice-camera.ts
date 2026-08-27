@@ -267,6 +267,11 @@ export function useVoiceCamera(
   // Bumped by every acquire and every release, so a `getUserMedia` that
   // resolves after it was superseded can tell and stop its own stream.
   const acquireEpochRef = useRef(0);
+  // Which camera the flash probe is asking about. Versioned separately from
+  // the acquire epoch because a native flip swaps the camera WITHOUT releasing
+  // the capture, so the acquire epoch alone would let a probe of the outgoing
+  // camera answer for the one that replaced it.
+  const flashProbeEpochRef = useRef(0);
   // True while a flash-capable camera is running with a mode other than off,
   // which is exactly when the plugin has state of ours to hand back. Cleared
   // rather than re-derived, so a camera that turned out to have no flash is
@@ -282,8 +287,10 @@ export function useVoiceCamera(
 
   const stopCapture = useCallback(() => {
     // Cancels any acquire still in flight, so its stream is stopped on arrival
-    // rather than installed behind this release.
+    // rather than installed behind this release, and any flash probe still in
+    // flight, whose camera is the one going away here.
     acquireEpochRef.current++;
+    flashProbeEpochRef.current++;
     const source = sourceRef.current;
     sourceRef.current = null;
     if (source === "native-pending" || source === "native") {
@@ -314,9 +321,13 @@ export function useVoiceCamera(
    *
    * Every path that changes which camera is running clears the answer first and
    * calls this after, because the answer belongs to one camera and a flip
-   * changes which one that is. A late answer is dropped: the epoch moves on
-   * every release and acquire, so a probe that resolves after the camera it
-   * asked about was released cannot describe the one that replaced it.
+   * changes which one that is. A late answer is dropped: the probe epoch moves
+   * on every release, every acquire and every flip, so a probe that resolves
+   * after the camera it asked about stopped being the active one cannot speak
+   * for the one that replaced it. A flip is the case that needs its own epoch:
+   * it swaps cameras without releasing the capture, so `sourceRef` still reads
+   * `native` and the acquire epoch still reads unchanged while the camera under
+   * the outstanding probe is already gone.
    *
    * A surface that did not opt into the flash never asks, which leaves the
    * supported list empty and every other flash path in this hook inert.
@@ -325,9 +336,12 @@ export function useVoiceCamera(
     if (!flash) {
       return;
     }
-    const epoch = acquireEpochRef.current;
+    const epoch = flashProbeEpochRef.current;
     const modes = await getNativeVoiceCameraFlashModes();
-    if (epoch !== acquireEpochRef.current || sourceRef.current !== "native") {
+    if (
+      epoch !== flashProbeEpochRef.current ||
+      sourceRef.current !== "native"
+    ) {
       return;
     }
     setSupportedFlashModes(modes.length > 0 ? modes : NO_FLASH_MODES);
@@ -494,6 +508,11 @@ export function useVoiceCamera(
     if (!sourceRef.current) {
       return;
     }
+    // Before anything else, and before the flip itself: from here on the camera
+    // any outstanding probe asked about is not the one that will be running,
+    // and a late "yes" from it is exactly the unprobed `setFlashMode` the
+    // Android implementation throws on.
+    flashProbeEpochRef.current++;
     const previous = facing;
     const next = previous === "environment" ? "user" : "environment";
 
