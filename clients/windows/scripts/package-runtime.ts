@@ -2,6 +2,7 @@ import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { withRuntimeNodePath } from "../src/shared/runtime-environment";
 import { resolveBuildCommitSha } from "./build-metadata";
 import { installPinnedBun } from "./bun-release";
 import { findPackageDir } from "./package-runtime-packages";
@@ -189,17 +190,25 @@ for (const { packageName, resolveSpecifier, basedir } of runtimePackages) {
   );
 }
 
-const versionCheck = spawnSync(
-  path.join(outputDir, "assistant.exe"),
-  ["--version"],
-  { encoding: "utf8", windowsHide: true },
-);
+const packagedAssistant = path.join(outputDir, "assistant.exe");
+const versionCheck = spawnSync(packagedAssistant, ["--version"], {
+  encoding: "utf8",
+  env: withRuntimeNodePath(packagedAssistant),
+  windowsHide: true,
+});
 if (
   versionCheck.status !== 0 ||
   versionCheck.stdout.trim() !== assistantVersion
 ) {
+  const diagnostics = [
+    `exit ${versionCheck.status ?? "not started"}`,
+    versionCheck.error ? `spawn error: ${versionCheck.error.message}` : null,
+    versionCheck.stderr.trim() ? `stderr: ${versionCheck.stderr.trim()}` : null,
+  ]
+    .filter((detail): detail is string => detail !== null)
+    .join("; ");
   throw new Error(
-    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"}.`,
+    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"} (${diagnostics}).`,
   );
 }
 for (const [source, name] of [

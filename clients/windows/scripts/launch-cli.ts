@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { withRuntimeNodePath } from "../src/shared/runtime-environment";
 import { sameWindowsPath } from "../src/shared/windows-path";
 
 interface LauncherOwnership {
@@ -11,7 +12,11 @@ interface LauncherOwnership {
 type SpawnCli = (
   command: string,
   args: string[],
-  options: { stdio: "inherit"; windowsHide: boolean },
+  options: {
+    env: NodeJS.ProcessEnv;
+    stdio: "inherit";
+    windowsHide: boolean;
+  },
 ) => { error?: Error; status: number | null };
 
 export function resolveOwnedCliTarget(execPath: string): string {
@@ -40,7 +45,9 @@ export function launchOwnedCli(
   spawnCli: SpawnCli = (command, commandArgs, options) =>
     spawnSync(command, commandArgs, options),
 ): number {
-  const result = spawnCli(resolveOwnedCliTarget(execPath), args, {
+  const target = resolveOwnedCliTarget(execPath);
+  const result = spawnCli(target, args, {
+    env: withRuntimeNodePath(target),
     stdio: "inherit",
     windowsHide: false,
   });
