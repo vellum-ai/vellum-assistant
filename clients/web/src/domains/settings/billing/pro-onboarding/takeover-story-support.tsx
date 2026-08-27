@@ -1,17 +1,22 @@
 /**
- * Shared setup for the two provisioning-takeover story files, which document
- * the same component with the `obscure-credits` flag off and on.
+ * Shared setup for the provisioning-takeover playground: everything that stands
+ * in for what `BillingOnboardingModal` supplies and Storybook cannot.
  *
- * Everything here stands in for what `BillingOnboardingModal` supplies and
- * Storybook cannot: the plan catalog and the avatar reads, answered from a
- * story-local query cache, plus the takeover frame the modal draws around the
- * step and the props it passes on every mount.
+ * That is the plan catalog and the avatar reads, answered from a story-local
+ * query cache; the takeover frame the modal draws around the step; the props it
+ * passes on every mount; and the fixture tables the Controls panel selects a row
+ * from (the plan move, the captured reconcile failure, the seeded assistant).
+ *
+ * The catalog fixture mirrors the platform's real Pro catalog (Mighty on
+ * `credits_25`, Super on `credits_45`), so the credits chip quotes the amounts a
+ * subscriber is actually billed, and each scenario's dimensions are the ones its
+ * packages really carry.
  *
  * Not a `.stories.tsx` file, so Storybook does not index it.
  */
 import type { Decorator } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { CSSProperties } from "react";
+import { useLayoutEffect, type CSSProperties } from "react";
 
 import {
   makeProPackage,
@@ -19,9 +24,14 @@ import {
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import type { CreditTier, PlanListResponse } from "@/generated/api/types.gen";
+import type {
+  CreditTier,
+  MachineSizeEnum,
+  PlanListResponse,
+} from "@/generated/api/types.gen";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -31,6 +41,8 @@ import {
   TAKEOVER_SURFACE_VAR,
   type ProvisioningStateProps,
 } from "./provisioning-state";
+import type { TakeoverDirection } from "./takeover-copy";
+import type { CreditTierChange } from "./use-provisioning-credits";
 import { useTakeoverSurface } from "./use-takeover-surface";
 
 // The takeover draws the assistant creature at 240px, and the bundled-component
@@ -39,11 +51,11 @@ import { useTakeoverSurface } from "./use-takeover-surface";
 preloadBundledAvatarComponents();
 
 /** The assistant whose avatar is a bundled creature: a purple blob. */
-export const CREATURE_ASSISTANT_ID = "story-assistant-creature";
+const CREATURE_ASSISTANT_ID = "story-assistant-creature";
 /** The assistant whose avatar is an uploaded image, blurred behind the content. */
-export const PHOTO_ASSISTANT_ID = "story-assistant-photo";
+const PHOTO_ASSISTANT_ID = "story-assistant-photo";
 /** An assistant with nothing in the avatar cache, so the read has to settle. */
-export const UNRESOLVED_ASSISTANT_ID = "story-assistant-unresolved";
+const UNRESOLVED_ASSISTANT_ID = "story-assistant-unresolved";
 
 const CREATURE_TRAITS: CharacterTraits = {
   bodyShape: "blob",
@@ -151,18 +163,27 @@ seedAvatar(PHOTO_ASSISTANT_ID, {
   customImageUrl: PHOTO_AVATAR_URL,
 });
 
+/** The assistants the `avatar` control picks between, by their seeded id. */
+export const TAKEOVER_AVATARS = {
+  creature: CREATURE_ASSISTANT_ID,
+  photo: PHOTO_ASSISTANT_ID,
+  unresolved: UNRESOLVED_ASSISTANT_ID,
+} satisfies Record<string, string>;
+
+export type TakeoverAvatarKey = keyof typeof TAKEOVER_AVATARS;
+
 /** A constant stamp, so a story's props never change between renders. */
 const INTENT_SAVED_AT = 0;
 
 /** A checkout that bought the Mighty package. */
-export const PACKAGE_INTENT: CheckoutIntent = {
+const PACKAGE_INTENT: CheckoutIntent = {
   kind: "package",
   packageKey: MIGHTY.key,
   savedAt: INTENT_SAVED_AT,
 };
 
 /** A custom checkout that picked a machine and storage but no bundle. */
-export const CUSTOM_INTENT_TWO_ITEMS: CheckoutIntent = {
+const CUSTOM_INTENT_TWO_ITEMS: CheckoutIntent = {
   kind: "custom",
   machineTier: "large",
   storageTier: "xl",
@@ -171,7 +192,7 @@ export const CUSTOM_INTENT_TWO_ITEMS: CheckoutIntent = {
 };
 
 /** A custom checkout that picked all three, which widens the chip row. */
-export const CUSTOM_INTENT_THREE_ITEMS: CheckoutIntent = {
+const CUSTOM_INTENT_THREE_ITEMS: CheckoutIntent = {
   kind: "custom",
   machineTier: "medium",
   storageTier: "s",
@@ -179,30 +200,210 @@ export const CUSTOM_INTENT_THREE_ITEMS: CheckoutIntent = {
   savedAt: INTENT_SAVED_AT,
 };
 
-export const NOTHING_TO_PROVISION: ProvisioningDimensions = {
+/** Nothing to provision on a dimension, and nothing read on it either. */
+const NOTHING_TO_PROVISION: ProvisioningDimensions = {
   machineSize: null,
   storageGib: null,
 };
 
 /**
- * Everything but the phase, which each meta names for itself. `phaseMinMs={0}`
- * disables the per-phase hold so the requested `state` paints immediately
- * instead of waiting out the floor the app uses to keep a fast upgrade from
- * flashing.
+ * A base-plan assistant: the standard machine on the smallest volume. A Mighty
+ * subscriber sits here too, since that package adds no machine or storage.
  */
-export const TAKEOVER_BASE_ARGS: Omit<ProvisioningStateProps, "state"> = {
-  softWaiting: false,
-  intent: null,
-  targets: NOTHING_TO_PROVISION,
-  fromSnapshot: NOTHING_TO_PROVISION,
-  celebrating: false,
+const BASE_ACTUALS: ProvisioningDimensions = {
+  machineSize: "small",
+  storageGib: 10,
+};
+
+/** What Mighty settles at: no machine tier of its own, 10 GB. */
+const MIGHTY_TARGETS: ProvisioningDimensions = {
+  machineSize: null,
+  storageGib: 10,
+};
+
+/** What Super buys: the medium machine on 30 GB. */
+const SUPER_TARGETS: ProvisioningDimensions = {
+  machineSize: "medium",
+  storageGib: 30,
+};
+
+/** What Ultra buys, and the plateau a credit-only switch sits on. */
+const ULTRA_TARGETS: ProvisioningDimensions = {
+  machineSize: "large",
+  storageGib: 60,
+};
+
+/**
+ * One plan move the takeover can be watching, as the props that describe it.
+ * Checkout mode carries a stashed `intent` and reads its bundle from there; an
+ * in-place resize carries `creditsChange` instead, so a stale stash can't leak
+ * into it. No scenario carries both.
+ */
+export interface TakeoverScenario {
+  /** Purchased ceilings, the "to" side of the machine and storage chips. */
+  targets: ProvisioningDimensions;
+  /** Pre-change actuals, the "from" side of every dimension chip. */
+  fromSnapshot: ProvisioningDimensions;
+  /** Display-only settle size for a package that names no machine tier. */
+  machineFloor?: MachineSizeEnum | null;
+  /** The checkout selection stashed before the Stripe redirect. */
+  intent: CheckoutIntent | null;
+  /** The bundle move an in-place resize carries instead of a stash. */
+  creditsChange?: CreditTierChange | null;
+  /** Which way the move goes, which selects the phase copy. */
+  direction: TakeoverDirection;
+}
+
+/**
+ * The plan moves the `change` control picks between, each named for the move it
+ * describes rather than the chips it happens to draw.
+ */
+export const TAKEOVER_SCENARIOS = {
+  /** Base to Super: both dimensions grow and the bundle arrives. Three chips. */
+  baseToSuper: {
+    targets: SUPER_TARGETS,
+    fromSnapshot: BASE_ACTUALS,
+    intent: null,
+    creditsChange: { fromTier: null, toTier: "credits_45" },
+    direction: "upgrade",
+  },
+  /**
+   * Base to Mighty. Mighty runs on the standard machine at the smallest volume,
+   * so the pod stays exactly where it is and the bundle is the whole move.
+   */
+  baseToMighty: {
+    targets: MIGHTY_TARGETS,
+    fromSnapshot: BASE_ACTUALS,
+    machineFloor: "small",
+    intent: null,
+    creditsChange: { fromTier: null, toTier: "credits_25" },
+    direction: "upgrade",
+  },
+  /** Mighty to Super as an in-place resize: every dimension steps up. */
+  mightyToSuper: {
+    targets: SUPER_TARGETS,
+    fromSnapshot: BASE_ACTUALS,
+    intent: null,
+    creditsChange: { fromTier: "credits_25", toTier: "credits_45" },
+    direction: "upgrade",
+  },
+  /**
+   * Super down to Mighty. Mighty names no machine tier, so the display-only
+   * `machineFloor` supplies the size the server settles the pod at. Storage
+   * never shrinks, so the lowered volume gets no chip at all.
+   */
+  superToMighty: {
+    targets: MIGHTY_TARGETS,
+    fromSnapshot: SUPER_TARGETS,
+    machineFloor: "small",
+    intent: null,
+    creditsChange: { fromTier: "credits_45", toTier: "credits_25" },
+    direction: "downgrade",
+  },
+  /**
+   * More storage on the same machine and bundle. The machine target is null, so
+   * no machine chip is drawn: a row for a pod that stays exactly where it is
+   * would assert a resize that never runs.
+   */
+  storageOnly: {
+    targets: { machineSize: null, storageGib: 60 },
+    fromSnapshot: BASE_ACTUALS,
+    intent: null,
+    direction: "change",
+  },
+  /**
+   * A credit-only switch: the machine and the volume both stay put, so the
+   * credit move is the takeover's one statement of what changed.
+   */
+  creditOnlySwitch: {
+    targets: ULTRA_TARGETS,
+    fromSnapshot: ULTRA_TARGETS,
+    intent: null,
+    creditsChange: { fromTier: "credits_25", toTier: "credits_115" },
+    direction: "change",
+  },
+  /** Dropping the bundle entirely: the to-side is the explicit no-credits choice. */
+  bundleDropped: {
+    targets: ULTRA_TARGETS,
+    fromSnapshot: ULTRA_TARGETS,
+    intent: null,
+    creditsChange: { fromTier: "credits_115", toTier: null },
+    direction: "change",
+  },
+  /**
+   * A freshly hatched assistant, whose actuals have never been read. Both chips
+   * drop their from-side and state only where they are headed.
+   */
+  freshHatch: {
+    targets: SUPER_TARGETS,
+    fromSnapshot: NOTHING_TO_PROVISION,
+    intent: null,
+    direction: "upgrade",
+  },
+  /** A custom checkout of a machine and storage, with no bundle picked. */
+  customTwoItems: {
+    targets: { machineSize: "large", storageGib: 250 },
+    fromSnapshot: BASE_ACTUALS,
+    intent: CUSTOM_INTENT_TWO_ITEMS,
+    direction: "upgrade",
+  },
+  /** A custom checkout with all three items picked, which widens the chip row. */
+  customThreeItems: {
+    targets: SUPER_TARGETS,
+    fromSnapshot: BASE_ACTUALS,
+    intent: CUSTOM_INTENT_THREE_ITEMS,
+    direction: "upgrade",
+  },
+  /** A package checkout, whose confirm phase names the package it bought. */
+  packageIntent: {
+    targets: MIGHTY_TARGETS,
+    fromSnapshot: BASE_ACTUALS,
+    machineFloor: "small",
+    intent: PACKAGE_INTENT,
+    direction: "upgrade",
+  },
+} satisfies Record<string, TakeoverScenario>;
+
+export type TakeoverScenarioKey = keyof typeof TAKEOVER_SCENARIOS;
+
+/**
+ * The ensure-provisioned failures the `snag` control picks between. `none` is
+ * the wait that simply ran long, which STALLED words honestly instead of
+ * escalating; everything else is a real captured failure, and the caption comes
+ * from `extractOnboardingErrorMessage` reading whichever field carries a
+ * message.
+ */
+export const TAKEOVER_SNAGS = {
+  /** No captured failure, so the wait is just slow. */
+  none: undefined,
+  /** A mapped code: the reconcile could not queue the change. */
+  submissionFailed: { error: "provisioning_submission_failed" },
+  /** A mapped code: the reconcile could not see the Pro entitlement yet. */
+  noActivePro: { error: "no_active_pro" },
+  /** No mapped code, so the server's own `detail` carries the caption. */
+  rawDetail: { detail: "Resize already in progress." },
+  /** A failure with nothing readable in it, so the direction words the caption. */
+  network: {},
+} satisfies Record<string, unknown>;
+
+export type TakeoverSnagKey = keyof typeof TAKEOVER_SNAGS;
+
+/** Long enough that a terminal phase stays on screen for as long as it is open. */
+const STORY_DWELL_MS = 60 * 60 * 1000;
+
+/**
+ * The props every scenario shares. `phaseMinMs: 0` disables the per-phase hold
+ * so the requested phase paints immediately instead of waiting out the floor the
+ * app uses to keep a fast upgrade from flashing.
+ */
+export const TAKEOVER_CONSTANT_PROPS = {
+  celebrating: true,
+  dwellMs: STORY_DWELL_MS,
   onCelebrationEnd: () => {},
-  assistantId: CREATURE_ASSISTANT_ID,
-  escapeAvailable: false,
   onEscape: () => {},
   confirm: { onRetry: () => {}, onGoToBilling: () => {} },
   phaseMinMs: 0,
-};
+} satisfies Partial<ProvisioningStateProps>;
 
 /** The cache the takeover's plan-catalog and avatar reads resolve from. */
 export const takeoverQueryDecorator: Decorator = (Story) => (
@@ -210,6 +411,30 @@ export const takeoverQueryDecorator: Decorator = (Story) => (
     <Story />
   </QueryClientProvider>
 );
+
+/**
+ * Puts the `obscure-credits` flag where the `obscureCredits` control says, so
+ * the flag-on treatment is one toggle away rather than its own story file.
+ *
+ * Written straight into the store rather than through `setFlags`, which layers
+ * local and env overrides back on top (an override to `false` would win) and
+ * marks the store hydrated as if a server response had landed. The write sits in
+ * an effect because the tree below subscribes to this store, and the whole
+ * previous state is handed back on unmount so nothing set here outlives the
+ * story.
+ */
+export const obscureCreditsDecorator: Decorator<{ obscureCredits: boolean }> =
+  function ObscureCreditsFlag(Story, context) {
+    const { obscureCredits } = context.args;
+    useLayoutEffect(() => {
+      const previous = useClientFeatureFlagStore.getState();
+      useClientFeatureFlagStore.setState({ obscureCredits });
+      return () => {
+        useClientFeatureFlagStore.setState(previous, true);
+      };
+    }, [obscureCredits]);
+    return <Story />;
+  };
 
 /**
  * The takeover frame: a black ground, a viewport-tall box, `data-theme="dark"`,
@@ -220,9 +445,11 @@ export const takeoverQueryDecorator: Decorator = (Story) => (
  * is `fixed`: one portaled overlay per story would stack every story in a file
  * on top of the others in the shared docs iframe.
  */
-export const takeoverFrameDecorator: Decorator<ProvisioningStateProps> =
+export const takeoverFrameDecorator: Decorator<{ avatar: TakeoverAvatarKey }> =
   function TakeoverFrame(Story, context) {
-    const { tintHex } = useTakeoverSurface(context.args.assistantId);
+    const { tintHex } = useTakeoverSurface(
+      TAKEOVER_AVATARS[context.args.avatar],
+    );
     return (
       <div
         data-theme="dark"
