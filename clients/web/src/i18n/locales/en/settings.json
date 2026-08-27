@@ -1887,7 +1887,7 @@
   "timezonePicker": {
     "noMatches": "No matches",
     "notSet": "Not set",
-    "searchPlaceholder": "Search city, country, or UTC offset...",
+    "searchPlaceholder": "Search city or UTC offset...",
     "timezone": "Timezone",
     "timezonesAriaLabel": "Timezones",
     "zoneName": "Zone name"
