@@ -13,7 +13,7 @@
  * Zones are inset past the room's corner controls — the gear/✕ cluster above,
  * the mute/stop cluster below — so text never collides with them. The `rem`
  * floor in each anchor is what guarantees that clearance (the controls are a
- * fixed 3rem tall at a 1.25rem inset); the percentage takes over on taller
+ * fixed 3.25rem tall at a 1.25rem inset); the percentage takes over on taller
  * viewports, where hugging a fixed offset off the edge would strand the text
  * far below the eyes. Both are safe-area aware per docs/CAPACITOR.md — the
  * `var()` is set by `capacitor-plugin-safe-area` on Capacitor iOS, `env()`

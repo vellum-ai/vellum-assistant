@@ -456,6 +456,64 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* Camera shutter: the ring and core the voice room's viewfinder and the
+ * deep-link capture overlay share.
+ *
+ * Three timings, one contract, so a caller cannot half-adopt it. The core's
+ * morph overshoots on purpose: shrinking past its target and settling back is
+ * what makes the photo-to-live change read as a record button starting rather
+ * than a circle being resized. The capture pulse is a ring of crimson leaving
+ * the shutter, and deliberately NOT a full-screen white flash, which strobes
+ * the frame in the middle of a conversation the user is still holding.
+ *
+ * Reduced motion retimes rather than removes. The pulse is feedback, not
+ * decoration: a press on a shutter whose viewfinder does not change is
+ * otherwise indistinguishable from a dead button, so it stays and shortens.
+ * The overshoot is the part that is movement for its own sake, so that is what
+ * it drops. `.camera-shutter-calm` is what the component applies from
+ * `useReducedMotion` (which is also what its tests can read); the media query
+ * is defense-in-depth for any caller that renders the markup without it. */
+.camera-shutter {
+  --camera-shutter-morph-duration: 0.4s;
+  --camera-shutter-morph-ease: cubic-bezier(0.34, 1.5, 0.5, 1);
+  --camera-shutter-pulse-duration: 500ms;
+  transition: border-color var(--camera-shutter-morph-duration) ease;
+}
+
+.camera-shutter-calm {
+  --camera-shutter-morph-duration: 0.2s;
+  --camera-shutter-morph-ease: linear;
+  --camera-shutter-pulse-duration: 250ms;
+}
+
+/* `scale` rather than `transform`: the utilities the core is sized with set the
+ * independent transform property, so a transition on `transform` would time
+ * nothing at all. */
+.camera-shutter-core {
+  transition:
+    scale var(--camera-shutter-morph-duration) var(--camera-shutter-morph-ease),
+    background-color var(--camera-shutter-morph-duration) ease,
+    opacity var(--camera-shutter-morph-duration) ease;
+}
+
+@keyframes camera-shutter-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75); }
+  70% { box-shadow: 0 0 0 12px rgba(207, 67, 112, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(207, 67, 112, 0); }
+}
+
+.camera-shutter-pulse {
+  animation: camera-shutter-pulse var(--camera-shutter-pulse-duration) ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-shutter {
+    --camera-shutter-morph-duration: 0.2s;
+    --camera-shutter-morph-ease: linear;
+    --camera-shutter-pulse-duration: 250ms;
+  }
+}
+
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */

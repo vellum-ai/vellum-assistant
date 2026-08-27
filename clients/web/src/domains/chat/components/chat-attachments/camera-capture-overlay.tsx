@@ -63,6 +63,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CameraShutter } from "@/domains/chat/voice/camera-shutter";
+import { CAMERA_SCRIM_BOTTOM } from "@/domains/chat/voice/voice-room/camera-mode-paint";
 import { useVoiceCamera } from "@/domains/chat/voice/voice-room/voice-camera";
 import { VoiceRoomControl } from "@/domains/chat/voice/voice-room/voice-room-control";
 import {
@@ -243,6 +244,21 @@ export function CameraCaptureOverlay({
           />
         )}
 
+        {/* Legibility scrim for the band the shutter sits in.
+
+            The shutter carries no fill of its own: it is a white ring around a
+            white core, which is invisible against a bright wall unless
+            something behind it gives way. The room darkens the same band for
+            the same reason, and shares the gradient so the two surfaces cannot
+            drift. Inert, since it lies over the controls, and it covers only
+            the bottom band so the part the user is aiming stays untouched. */}
+        <div
+          aria-hidden
+          data-testid="camera-deep-link-scrim"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[38%]"
+          style={{ background: CAMERA_SCRIM_BOTTOM }}
+        />
+
         {/* First tabbable control in the box, so one Tab off the dialog is the
             way out of here. */}
         <div
@@ -252,7 +268,7 @@ export function CameraCaptureOverlay({
           <VoiceRoomControl
             label={t("cameraDeepLink.close")}
             onClick={close}
-            overMedia
+            surface="media"
             data-testid="camera-deep-link-close"
           >
             <X className="size-5" />
@@ -275,7 +291,7 @@ export function CameraCaptureOverlay({
             <VoiceRoomControl
               label={t("cameraDeepLink.flip")}
               onClick={() => void flipCamera()}
-              overMedia
+              surface="media"
               data-testid="camera-deep-link-flip"
             >
               <SwitchCamera className="size-5" />
