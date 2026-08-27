@@ -1,0 +1,204 @@
+{
+  "assistantChannelsList": {
+    "drawerTitle": "渠道",
+    "disconnectTitle": "断开 {channel} 的连接？",
+    "disconnectConfirm": "断开连接"
+  },
+  "channelAdapterList": {
+    "pluginChannelAria": "{channel}，来自插件"
+  },
+  "connectionCard": {
+    "connected": "已连接",
+    "reconnecting": "正在重新连接…",
+    "statusUnavailable": "状态不可用",
+    "disconnecting": "正在断开连接…",
+    "disconnect": "断开连接"
+  },
+  "slackChannelCard": {
+    "setupHeading": "Slack 设置"
+  },
+  "channelPanel": {
+    "incompleteTitle": "{channel} 尚未正常工作",
+    "disconnectedTitle": "{channel} 未连接",
+    "incompleteDescription": "{channel} 已设置，但尚未发送消息。您的助手可以从设置中断处继续，并告诉您问题所在。",
+    "opening": "正在打开…",
+    "finishSetup": "使用您的助手完成设置",
+    "setUp": "设置",
+    "connectManually": "或手动连接"
+  },
+  "pluginChannelPanel": {
+    "navigateToPluginPage": "导航到插件页面",
+    "ingressLoading": "正在检查谁可以访问 {channel}…",
+    "ingressUnsupported": "此助手的网关不报告入口批准，因此此处无需决定。",
+    "ingressForbidden": "只有此助手的守护者才能查看或更改入口批准。",
+    "ingressUnreadable": "无法读取 {channel} 的入口批准。",
+    "ingressNone": "网关未发现 {channel} 的入口声明，因此尚未有任何可批准的内容。",
+    "ingressApprovedTag": "入口已批准",
+    "ingressPendingTag": "入口待批准",
+    "approveChannel": "批准渠道",
+    "revokeChannel": "撤销渠道",
+    "approveChannelInfo": "批准此渠道意味着您将向您的助手开放访问权限，以处理此渠道背后提供商发送的特定请求"
+  },
+  "channelTrustFloor": {
+    "heading": "谁可以向{assistant}发送消息",
+    "loading": "正在加载…",
+    "loadFailed": "无法加载此设置。请尝试重新打开此页面。",
+    "selectAria": "谁可以向{assistant}发送消息",
+    "trustedContactsNotice": "您尚未验证的人（即使是同一频道中的队友）也无法通过：{assistant}会告知他们需要验证，并通知您。您可以在“联系人”中提前验证人员。",
+    "confirmFallback": "确认",
+    "noOne": {
+      "label": "无人",
+      "description": "无人可以在此频道向{assistant}发送消息：包括您在内的所有消息都将被阻止。",
+      "confirmTitle": "阻止所有消息？",
+      "confirmMessage": "将此频道设置为“无人”将严格拒绝所有入站消息，包括您发送的消息。\n\n您可以随时撤销此操作。",
+      "confirmAction": "阻止所有"
+    },
+    "guardianOnly": {
+      "label": "仅您",
+      "description": "只有您可以向{assistant}发送消息。其他所有人都会被拒绝。"
+    },
+    "trustedContacts": {
+      "label": "已验证联系人",
+      "description": "您和您已验证的人员可以向{assistant}发送消息。其他任何人都会被要求先验证，并且您会收到通知。"
+    },
+    "anyContact": {
+      "label": "任何联系人",
+      "description": "您和任何已知联系人都可以向{assistant}发送消息，包括您尚未验证的联系人。陌生人会被要求先验证。",
+      "confirmTitle": "允许任何联系人？",
+      "confirmMessage": "“任何联系人”允许此频道中的所有匹配联系人（包括待处理、未验证的联系人），而不仅仅是您已验证的联系人。\n\n最适合仅由您已信任的人员组成的频道。",
+      "confirmAction": "允许任何联系人"
+    },
+    "strangers": {
+      "label": "陌生人",
+      "description": "任何人都可以向{assistant}发送消息，包括完全陌生的用户。",
+      "confirmTitle": "允许陌生人？",
+      "confirmMessage": "您确定要允许陌生人通过此频道联系您的助手吗？\n\n这样做可能会给您带来经济损失，并使您面临安全和隐私漏洞。\n\n请务必谨慎启用。",
+      "confirmAction": "允许陌生人"
+    }
+  },
+  "slackChannelTypeDefaults": {
+    "heading": "默认访问权限",
+    "subtitle": "{assistant}根据对话类型自行执行操作的程度。单个频道可以在下方覆盖此设置，<trustRules>信任规则</trustRules>则会微调何时进行询问。",
+    "bucketAria": "{bucket}的默认助手访问权限"
+  },
+  "tierPicker": {
+    "defaultSuffix": "默认",
+    "defaultPlaceholder": "默认"
+  },
+  "slackChannelTierLegend": {
+    "defaultMarker": "· 默认"
+  },
+  "slackChannelSection": {
+    "overridesLoadFailed": "无法加载访问设置。这些控件在加载完成前将保持禁用状态。请尝试重新打开此页面。",
+    "perChannelOverrides": "频道级覆盖设置"
+  },
+  "slackThreadBehavior": {
+    "heading": "线程行为",
+    "selectAria": "Slack 线程行为",
+    "mentionsOnly": "仅提及",
+    "mentionsOnlyHelp": "机器人仅在被 @提及 时响应。",
+    "followThreads": "首次提及后跟踪线程",
+    "followThreadsHelp": "在线程中被 @提及后，机器人会监听该线程的其余部分。"
+  },
+  "slackChannelList": {
+    "presenceHint": "在该 Slack 频道中，使用 <invite>/invite {handle}</invite> 添加，或使用 <remove>/remove {handle}</remove> 移除。此处仅显示 {assistant} 所在的频道。",
+    "loading": "正在加载…",
+    "loadFailed": "无法加载频道。请尝试重新打开此页面。",
+    "emptyTitle": "暂无频道",
+    "searchPlaceholder": "搜索频道",
+    "searchAria": "搜索频道",
+    "filterGroupAria": "按类型筛选频道",
+    "noMatches": "无匹配频道。",
+    "accessAria": "{channel} 中的助手访问权限",
+    "filterAll": "{count, plural, other {全部 (#)}}",
+    "filterPublic": "{count, plural, other {公开 (#)}}",
+    "filterPrivate": "{count, plural, other {私有 (#)}}"
+  },
+  "twilioCredentialEntry": {
+    "accountSid": "账户 SID",
+    "authToken": "身份验证令牌",
+    "authTokenPlaceholder": "Twilio 身份验证令牌",
+    "saving": "正在保存…",
+    "save": "保存"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "这将清除此助手存储的 Slack 机器人和应用令牌。您可以稍后重新连接。"
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "这将清除此助手存储的 Telegram 机器人令牌。您可以稍后重新连接。",
+      "disconnectedPitch": "连接 Telegram 机器人，以便 {assistant} 可以在 Telegram 上发送和接收消息。"
+    },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "连接 Discord 机器人，以便 {assistant} 可以在您的服务器中阅读和回复消息。",
+      "disconnectMessage": "这将清除此助手存储的 Discord 机器人令牌，并且机器人将停止接收消息。您的服务器将保留该机器人，直到您从服务器中将其移除。"
+    },
+    "email": {
+      "label": "电子邮件"
+    },
+    "phone": {
+      "label": "电话呼叫",
+      "disconnectMessage": "这将清除此助手存储的 Twilio 凭据。您可以稍后重新连接。",
+      "disconnectedPitch": "连接您的 Twilio 账户，以便 {assistant} 可以拨打和接听电话。"
+    }
+  },
+  "emailChannelSection": {
+    "apiKeyConfigured": "{providerName} API 密钥已配置。要重新配置，请运行 <code>{setupSkill}</code> 技能。",
+    "connecting": "正在连接到 Vellum 平台…",
+    "openProvider": "打开 {providerName}",
+    "platformLoginNotice": "登录 Vellum 平台以管理电子邮件设置。",
+    "providerLabel": "提供商",
+    "saveSuccessToast": "电子邮件设置已保存。",
+    "setupInstructions": "通过助手 CLI 配置 {providerName}：要求助手运行 <code>{setupSkill}</code> 技能。它将引导您存储 API 密钥、检测域并（可选）连接入站 Webhook。",
+    "subtitle": "配置您的助手如何发送和接收电子邮件",
+    "title": "电子邮件"
+  },
+  "emailManagedContent": {
+    "addressLabel": "地址",
+    "checkingSubscription": "正在检查订阅…",
+    "confirm": "确认",
+    "create": "创建",
+    "createEmailFailedFallback": "创建电子邮件地址失败。",
+    "creating": "正在创建…",
+    "domainLabel": "域名",
+    "domainRegisteredToast": "域名 {domain} 已注册。",
+    "domainReleaseFailedToast": "释放域名失败。",
+    "domainReleasedToast": "域名已释放。",
+    "emailAddressLabel": "电子邮件地址",
+    "emailCreatedToast": "电子邮件地址已创建。",
+    "emailRemoveFailedToast": "删除电子邮件地址失败。",
+    "emailRemovedToast": "电子邮件地址已删除。",
+    "emailUsernameAriaLabel": "电子邮件用户名",
+    "emailUsernamePlaceholder": "hi",
+    "enterSubdomainError": "请输入子域名。",
+    "enterUsernameError": "请输入电子邮件用户名。",
+    "register": "注册",
+    "registerDomainFailedFallback": "注册域名失败。",
+    "registering": "正在注册…",
+    "releaseConfirm": "释放",
+    "releaseDomainAriaLabel": "释放域名",
+    "releaseDomainConfirmMessage": "您确定要释放 <code>{domain}</code> 吗？该子域名将可供其他人认领。",
+    "releaseDomainTitle": "释放域名",
+    "removeAddressFirstToast": "请先删除电子邮件地址。",
+    "removeConfirm": "删除",
+    "removeEmailAriaLabel": "删除电子邮件地址",
+    "removeEmailConfirmMessage": "您确定要删除 <code>{address}</code> 吗？您的助手将无法再通过此地址发送或接收电子邮件。",
+    "removeEmailTitle": "删除电子邮件地址",
+    "retry": "重试",
+    "setSubdomainConfirmMessage": "<code>{subdomain}</code> 也将成为您助手的公开句柄。设置后将无法更改。",
+    "setSubdomainTitle": "设置子域名",
+    "subdomainExamplePlaceholder": "my-assistant",
+    "subdomainFallback": "子域名",
+    "subdomainHint": "每个助手都有自己的子域名。仅限小写字母、数字和连字符。",
+    "subdomainLabel": "子域名",
+    "subscriptionWarningBody": "我们无法连接到计费服务。以下表单假定您的组织已启用托管电子邮件。如果未启用，注册域名将失败。",
+    "subscriptionWarningTitle": "无法验证订阅状态",
+    "upgradeButton": "升级",
+    "upgradeNoticeBody": "升级到包含助手电子邮件地址的套餐。无需提供商设置。",
+    "upgradeNoticeTitle": "为您的助手提供专属电子邮件地址",
+    "usageSummary": "今日发送 {sent} / {limit} · 收到 {received}"
+  }
+}

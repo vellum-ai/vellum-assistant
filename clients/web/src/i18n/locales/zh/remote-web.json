@@ -1,0 +1,9 @@
+{
+  "pairingPage": {
+    "openInApp": "在 Vellum 应用中打开",
+    "continueInBrowser": "在此浏览器中继续",
+    "pairingCode": "配对码",
+    "expiresAt": "{time} 过期。",
+    "cancel": "取消"
+  }
+}

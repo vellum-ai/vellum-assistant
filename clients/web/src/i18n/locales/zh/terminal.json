@@ -1,0 +1,25 @@
+{
+  "terminalToolbar": {
+    "heading": "终端",
+    "recoveryTitle": "恢复模式已激活，会话已连接到调试终端",
+    "recoveryTag": "恢复",
+    "clearTitle": "清除终端输出",
+    "clear": "清除",
+    "disconnectTitle": "断开终端会话",
+    "disconnect": "断开连接",
+    "connectTitle": "连接终端会话",
+    "connect": "连接",
+    "statusAria": "终端状态：{status}"
+  },
+  "terminalStatus": {
+    "idle": "空闲",
+    "connecting": "正在连接",
+    "connected": "已连接",
+    "reconnecting": "正在重新连接",
+    "error": "错误",
+    "closed": "已关闭"
+  },
+  "terminalConsole": {
+    "consoleAria": "终端控制台"
+  }
+}

@@ -1,0 +1,428 @@
+{
+  "applyPersonalityUpdate": {
+    "conversationTitle": "正在更新个性"
+  },
+  "applyRename": {
+    "conversationTitle": "正在更新名称"
+  },
+  "assistantNameEditor": {
+    "greeting": "你好，我是 {name}",
+    "renamingInProgressAriaLabel": "正在重命名"
+  },
+  "categorySidebar": {
+    "all": "全部",
+    "skillCategoriesAriaLabel": "技能类别"
+  },
+  "conceptDetailPanel": {
+    "askAboutThis": "询问此内容",
+    "askPrompt": "告诉我你对“{title}”的记忆，以及它如何与你所知的其他内容联系起来。",
+    "backAriaLabel": "返回",
+    "closeAriaLabel": "关闭",
+    "connectionCount": "{count, plural, other {# 个连接}}",
+    "emptyContent": "此概念尚未有书面内容。它在图中以链接形式存在，但其页面为空。",
+    "loadError": "无法加载此概念。请稍后重试。",
+    "readFullNote": "阅读完整笔记",
+    "refine": "优化",
+    "refinePrompt": "我想优化你对“{title}”的记忆。告诉我哪里不对，我们一起修正。",
+    "showLess": "显示更少",
+    "trailAriaLabel": "概念轨迹",
+    "updated": "{date} 更新",
+    "wiredTo": "连接到"
+  },
+  "conceptGraphConstants": {
+    "nodeKind": {
+      "capability": "能力",
+      "concept": "概念",
+      "other": "其他",
+      "pending": "待处理",
+      "skill": "技能"
+    }
+  },
+  "conceptGraphIntroBanner": {
+    "description": "它学习的每一个想法，以及它们之间建立的联系，都会在这里显示。这张地图会随着你的对话而增长和重新排列，所以你分享得越多，它就越丰富。",
+    "dismissAriaLabel": "关闭",
+    "title": "这是你助手的思维"
+  },
+  "conceptGraphLegend": {
+    "coloredByTheme": "按主题着色",
+    "learned": "已学习",
+    "link": "链接",
+    "moreThemes": "{count, plural, other {+{count} 个更多}}"
+  },
+  "conceptGraphView": {
+    "clearSearchAriaLabel": "清除搜索",
+    "dragToRotateHint": "拖动旋转 · 滚动缩放",
+    "emptyDetail": "随着你的助手学习和关联想法，它们将在这里显示为一张生动的记忆地图。",
+    "emptyTitle": "暂无概念",
+    "enterFullscreenAriaLabel": "进入全屏",
+    "exitFullscreenAriaLabel": "退出全屏",
+    "loadErrorDetail": "获取助手记忆时出现问题。请稍后重试。",
+    "loadErrorTitle": "无法加载记忆图",
+    "resetViewAriaLabel": "重置视图",
+    "searchConceptsAriaLabel": "搜索概念",
+    "searchConceptsPlaceholder": "搜索概念…",
+    "truncatedNotice": "{count, plural, other {显示 {count} 个连接最多的概念}}",
+    "zoomInAriaLabel": "放大",
+    "zoomOutAriaLabel": "缩小"
+  },
+  "createMemoryModal": {
+    "cancel": "取消",
+    "contentLabel": "我应该记住什么？",
+    "contentPlaceholder": "例如：我喜欢简洁的要点总结。",
+    "create": "创建记忆",
+    "createError": "创建记忆失败。",
+    "creating": "正在创建…",
+    "helperText": "它会立即出现在地图上，并在归档后成为一个概念。",
+    "savedFoundToast": "明白了。正在带你前往。",
+    "savedPendingToast": "明白了。它已在你的地图上，我正在归档。",
+    "saveError": "无法保存该记忆。",
+    "title": "新记忆"
+  },
+  "getMemoryGraph": {
+    "failureMessage": "加载记忆图失败。"
+  },
+  "getMemoryGraphNode": {
+    "failureMessage": "加载此概念失败。"
+  },
+  "identityOverview": {
+    "cardHoverLine": {
+      "channels": "所有可以联系到我的地方",
+      "contacts": "我认识并信任的人",
+      "library": "我为你制作的应用和文档",
+      "memory": "我记住的一切",
+      "personality": "来吧，调整我的灵魂",
+      "schedules": "我重复执行的任务",
+      "superpowers": "我所知道的一切能力",
+      "workspace": "所有支持我的文件"
+    },
+    "defaultAssistantName": "助手",
+    "memoryCount": "{count, plural, other {# 条记忆}}",
+    "memoryCountLabel": "{count, plural, other {条记忆}}",
+    "renameErrorToast": "重命名未成功。请重试。",
+    "renameSuccessToast": "向 {newName} 问好！",
+    "scheduleCadence": "{cadence} · 下次 {nextRun}",
+    "updateAvatarAndName": "更新头像和名称",
+    "viewMoreSchedules": "{count, plural, other {查看 {count} 个更多…}}"
+  },
+  "identitySections": {
+    "channels": {
+      "description": "我倾听的地方",
+      "label": "渠道"
+    },
+    "contacts": {
+      "description": "我认识的人",
+      "label": "联系人"
+    },
+    "library": {
+      "description": "我的应用和文档",
+      "label": "资料库"
+    },
+    "memory": {
+      "description": "我记住的内容",
+      "label": "记忆"
+    },
+    "personality": {
+      "description": "调整我的说话方式",
+      "label": "个性"
+    },
+    "schedules": {
+      "description": "我的日常安排",
+      "label": "日程"
+    },
+    "superpowers": {
+      "description": "我能做的事情",
+      "label": "超能力"
+    },
+    "workspace": {
+      "description": "我的文件",
+      "label": "工作区"
+    }
+  },
+  "installSkill": {
+    "failureMessage": "技能安装失败。"
+  },
+  "intelligenceLayout": {
+    "backToAriaLabel": "返回 {name}",
+    "backToTitle": "返回 {name}"
+  },
+  "listConceptPages": {
+    "failureMessage": "概念页面加载失败。"
+  },
+  "memoryFormat": {
+    "justNow": "刚才"
+  },
+  "memoryPage": {
+    "createMemory": "创建记忆"
+  },
+  "memoryTypes": {
+    "sourceType": {
+      "direct": "直接告知",
+      "inferred": "推断",
+      "observed": "观察到",
+      "toldByOther": "他人告知"
+    }
+  },
+  "memoryUpgradePrompt": {
+    "memorySettings": "记忆设置",
+    "tryAgain": "重试",
+    "turnMemoryOn": "开启记忆",
+    "upgradeMemory": "升级记忆"
+  },
+  "personalityAxes": {
+    "companionCoworker": {
+      "left": "伙伴",
+      "right": "同事"
+    },
+    "executeCollaborate": {
+      "left": "独立",
+      "right": "协作"
+    },
+    "genzBoomer": {
+      "left": "Z世代",
+      "right": "婴儿潮一代"
+    },
+    "playfulSerious": {
+      "left": "活泼",
+      "right": "严肃"
+    },
+    "politeUnfiltered": {
+      "left": "礼貌",
+      "right": "直率"
+    }
+  },
+  "personalityPage": {
+    "back": "返回",
+    "subtitle": "滑动刻度盘，然后点击更新，我将重新调整以匹配您的设置。",
+    "title": "塑造我的个性",
+    "updateErrorToast": "个性更新未能成功。请重试。",
+    "updatePersonality": "更新个性",
+    "updateSuccessToast": "个性已更新。去打个招呼吧！",
+    "updatingPersonality": "正在更新 {name} 的个性…"
+  },
+  "personalitySignature": {
+    "ariaLabel": "个性：{summary}",
+    "axisBalanced": "{left} 和 {right} 平衡",
+    "axisLean": "{percent}% {label}"
+  },
+  "personalitySliderRow": {
+    "rangeAriaLabel": "{left} 到 {right}"
+  },
+  "pluginConstants": {
+    "installError": "插件安装失败。请重试。",
+    "removeConfirmMessage": "从该助手中移除“{name}”？",
+    "removeError": "插件移除失败。请重试。",
+    "riskyUpgradeConfirmLabel": "仍要升级",
+    "riskyUpgradeConfirmMessage": "“{name}”存在本地修改，升级后将被覆盖。是否继续？",
+    "toggleError": "插件更新失败。请重试。",
+    "upgradeError": "插件升级失败。请重试。"
+  },
+  "pluginDetail": {
+    "backToPluginsAriaLabel": "返回插件列表",
+    "noReadme": "此插件未附带 README 文件。",
+    "version": "v{version}"
+  },
+  "pluginDetailShared": {
+    "autoIncludeInChat": "在聊天中自动包含",
+    "download": "下载",
+    "homepageLabel": "主页",
+    "hooksLabel": "钩子",
+    "install": "安装",
+    "licenseLabel": "许可证",
+    "loadErrorDetail": "它可能不存在，或者您的助手可能正在使用较旧的版本。",
+    "loadErrorTitle": "我们无法加载此插件。",
+    "localSource": "本地",
+    "remove": "移除",
+    "removePluginTitle": "移除插件",
+    "skillsLabel": "技能",
+    "sourceLabel": "来源",
+    "toolsLabel": "工具",
+    "upgrade": "升级",
+    "upgradePluginTitle": "升级插件",
+    "upgradeTitle": "升级 {fromSha} → {toSha}"
+  },
+  "pluginListRow": {
+    "disabled": "已禁用",
+    "enabled": "已启用",
+    "installingAriaLabel": "正在安装",
+    "installPluginAriaLabel": "安装插件",
+    "moreIssues": "{count, plural, other { (+# 更多)}}",
+    "noDescription": "未提供描述。",
+    "pluginTag": "插件",
+    "removePluginAriaLabel": "移除插件",
+    "version": "v{version}"
+  },
+  "pluginOriginBadge": {
+    "external": "外部",
+    "local": "本地"
+  },
+  "pluginToast": {
+    "alreadyUpToDate": "{name} 已是最新版本",
+    "installed": "已安装 {name}",
+    "pluginFallback": "插件",
+    "pluginFallbackCapitalized": "插件",
+    "removed": "已移除 {name}",
+    "upgraded": "已将 {name} 升级到 {sha}"
+  },
+  "recencyLens": {
+    "all": "全部",
+    "ariaLabel": "近期窗口",
+    "month": "月",
+    "week": "周"
+  },
+  "sections": {
+    "channels": "渠道",
+    "contacts": "联系人",
+    "library": "库",
+    "memory": "记忆",
+    "schedules": "定时任务",
+    "superpowers": "我的超能力",
+    "workspace": "工作区"
+  },
+  "skillDetail": {
+    "backToConversationAriaLabel": "返回对话",
+    "backToSkillsAriaLabel": "返回技能",
+    "filesTab": "文件",
+    "fileViewModeAriaLabel": "文件查看模式",
+    "historyTab": "历史记录",
+    "install": "安装",
+    "noFilesAvailable": "无可用文件。",
+    "openInWorkspaceAriaLabel": "在工作区中打开",
+    "pendingAriaLabel": "待处理",
+    "preview": "预览",
+    "remove": "移除",
+    "saveFailed": "保存失败",
+    "selectAFile": "选择文件",
+    "selectFilePrompt": "选择一个文件以查看其内容。",
+    "source": "来源"
+  },
+  "skillDetailPage": {
+    "backToConversation": "返回对话",
+    "backToSuperpowers": "返回我的超能力",
+    "notFoundSubtitle": "此技能可能已被移除，或链接已过期。",
+    "notFoundTitle": "未找到技能"
+  },
+  "skillFileContent": {
+    "binaryFile": "二进制文件。无可用预览。",
+    "noPreviewAvailable": "{fileName} 无可用预览。"
+  },
+  "skillOriginBadge": {
+    "assistantMemory": "助手记忆",
+    "custom": "自定义"
+  },
+  "skillRevisionHistory": {
+    "loadError": "无法加载修订历史。",
+    "noChanges": "尚未记录任何更改。",
+    "noPreviewForChange": "此更改无可用预览。",
+    "truncatedNotice": "显示近期更改。较早的历史记录会定期压缩，因此可能无法追溯到技能创建时。"
+  },
+  "skillRow": {
+    "bundledSkillCannotBeRemovedAriaLabel": "捆绑技能无法移除",
+    "bundledSkillsCannotBeRemoved": "捆绑技能无法移除",
+    "installingAriaLabel": "正在安装",
+    "installSkillAriaLabel": "安装技能",
+    "removeSkillAriaLabel": "移除技能"
+  },
+  "skillsErrorState": {
+    "subtitle": "发生错误。请尝试刷新页面。",
+    "title": "加载技能失败"
+  },
+  "superpowersFilters": {
+    "categoriesLabel": "类别",
+    "done": "完成",
+    "filterAriaLabel": "筛选超能力",
+    "filterLabel": {
+      "all": "全部",
+      "assistantMemory": "助手记忆",
+      "available": "可用",
+      "custom": "自定义",
+      "installed": "已安装",
+      "plugins": "插件",
+      "skills": "技能"
+    },
+    "filtersTitle": "筛选器",
+    "searchAriaLabel": "搜索超能力",
+    "searchPlaceholder": "搜索超能力",
+    "sourceLabel": "来源",
+    "statusLabel": "状态",
+    "typeLabel": "类型"
+  },
+  "superpowersTab": {
+    "catalogBrowsingUnavailableNotice": "插件目录浏览暂时不可用。已安装的插件仍列于下方。",
+    "categoriesAriaLabel": "超能力类别",
+    "dismissTipAriaLabel": "关闭提示",
+    "emptyState": {
+      "assistantMemorySubtitle": "您的助手从过去的对话中创作的技能将显示在此处。",
+      "assistantMemoryTitle": "无记忆技能",
+      "availableSubtitle": "所有可用技能和插件均已安装。",
+      "availableTitle": "无可安装项",
+      "categorySubtitle": "尝试选择不同的类别或清除筛选器。",
+      "categoryTitle": "此类别中无内容",
+      "clawhubSubtitle": "未找到 Clawhub 技能。请尝试搜索目录。",
+      "clawhubTitle": "无 Clawhub 技能",
+      "customSubtitle": "通过在聊天中描述您的需求来创建自定义技能。",
+      "customTitle": "无自定义技能",
+      "defaultSubtitle": "检查您与 Vellum 目录的连接。",
+      "defaultTitle": "无可用超能力",
+      "installedSubtitle": "在聊天中要求您的助手搜索并安装新技能和插件。",
+      "installedTitle": "未安装超能力",
+      "pluginsSubtitle": "浏览目录以安装扩展您助手的插件。",
+      "pluginsTitle": "未找到插件",
+      "skillsshSubtitle": "未找到 skills.sh 技能。请尝试搜索目录。",
+      "skillsshTitle": "无 skills.sh 技能",
+      "skillsSubtitle": "在聊天中要求您的助手搜索并安装新技能。",
+      "skillsTitle": "未找到技能",
+      "vellumSubtitle": "未找到捆绑的 Vellum 技能。",
+      "vellumTitle": "无 Vellum 技能"
+    },
+    "errorStateSubtitle": "发生错误。请尝试刷新页面。",
+    "errorStateTitle": "加载超能力失败",
+    "pluginsUnavailableNotice": "插件暂时不可用。技能仍列于下方。",
+    "skillsUnavailableNotice": "技能暂时不可用。插件仍列于下方。",
+    "tipBannerText": "通过在聊天中描述您的需求来创建新的自定义技能，或安装插件以扩展您的助手。"
+  },
+  "updateAvailableBadge": {
+    "updateAvailable": "有可用更新",
+    "upgradePluginAriaLabel": "升级插件"
+  },
+  "useIdentitySectionStats": {
+    "activeCount": "{count, plural, other {# 个活跃}}",
+    "activeLabel": "{count, plural, other {活跃}}",
+    "appAndDocCount": "{count, plural, other {# 个应用或文档}}",
+    "appCount": "{count, plural, other {# 个应用}}",
+    "connectedCount": "{count, plural, other {# 个已连接}}",
+    "connectedLabel": "{count, plural, other {已连接}}",
+    "itemCount": "{count, plural, other {# 个项目}}",
+    "itemLabel": "{count, plural, other {项目}}",
+    "noSchedulesText": "尚未安排任何内容",
+    "personCount": "{count, plural, other {# 个人}}",
+    "personLabel": "{count, plural, other {人}}",
+    "skillAndPluginCount": "{count, plural, other {# 个技能或插件}}",
+    "skillCount": "{count, plural, other {# 个技能}}"
+  },
+  "usePluginsList": {
+    "failureMessage": "加载插件失败"
+  },
+  "memoryUnavailable": {
+    "statusError": {
+      "title": "无法检查您的记忆设置",
+      "detail": "读取此助手的记忆状态时发生错误，因此暂时无法提供可靠信息。"
+    },
+    "off": {
+      "title": "记忆已关闭",
+      "detail": "您的助手不会保留您对话中的任何内容，因此无法绘制记忆图。请重新开启记忆以开始记忆。"
+    },
+    "legacy": {
+      "title": "升级到记忆 v3",
+      "detail": "您的助手正在使用旧版记忆引擎。记忆 v3 将其所知内容重组为概念的链接维基，此记忆图正是基于该维基绘制的。"
+    },
+    "unknown": {
+      "title": "记忆图不可用",
+      "detail": "此助手的记忆后端未报告足够信息来解释原因。请更新您的助手，此页面将告知您所需内容。"
+    },
+    "prompts": {
+      "v2": "将我的记忆从 v2 迁移到 v3。这很可能是您的“记忆 v3 迁移”技能，但请弄清楚我的语料库实际需要什么，并严格遵循您使用的任何技能。\n\n在后台运行它，并在完成后或遇到阻碍时通知我。",
+      "v1": "将我的记忆从 v1 迁移到 v3。这很可能是两步操作，您的“记忆 v2 迁移”技能，然后是您的“记忆 v3 迁移”技能，但请弄清楚我的助手实际需要什么，并严格遵循您使用的任何技能。\n\n在后台运行它，并在完成后或遇到阻碍时通知我。",
+      "enable": "重新开启我的记忆。我希望您再次开始记住我们对话中的内容。"
+    }
+  }
+}
