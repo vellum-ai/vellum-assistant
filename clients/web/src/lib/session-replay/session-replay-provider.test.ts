@@ -13,7 +13,7 @@ mock.module("logrocket", () => ({
   default: { init: initMock, identify: identifyMock },
 }));
 
-const { provider } =
+const { provider, sessionReplayRootHostname } =
   await import("@/lib/session-replay/session-replay-provider");
 
 const BASE = "https://app.example.com";
@@ -33,6 +33,18 @@ beforeEach(() => {
 
 // The provider is a module singleton that lazily loads the SDK once, so these
 // tests run as an ordered sequence: the first `init` loads + primes it.
+describe("sessionReplayRootHostname", () => {
+  test("omits cookie scope on the packaged Electron origin", () => {
+    expect(sessionReplayRootHostname("app://vellum.ai")).toBeUndefined();
+  });
+
+  test("shares https recordings across Vellum subdomains", () => {
+    expect(sessionReplayRootHostname("https://app.vellum.ai")).toBe(
+      ".vellum.ai",
+    );
+  });
+});
+
 describe("replay provider (first-party proxy, lazy load)", () => {
   test("defers the SDK load, then forwards proxied config + queued identify", async () => {
     let consent = true;

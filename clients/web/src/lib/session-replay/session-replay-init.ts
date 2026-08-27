@@ -21,6 +21,27 @@ function sessionReplaySurface(): SessionReplayConfig["surface"] {
 }
 
 /**
+ * Origin that fronts `/_sr/cdn` and `/_sr/ingest`.
+ *
+ * Packaged Electron serves the renderer from `app://`. Replay must stay
+ * same-origin so the protocol handler can forward `/_sr/*` to the platform.
+ * A direct call to the platform URL is cross-origin from `app://` and the
+ * `/_sr` proxy does not treat that as a same-origin page.
+ *
+ * Web, iOS, Android, and Electron-dev (http localhost) keep using the
+ * platform runtime URL, which is the page origin on hosted surfaces.
+ */
+export function sessionReplayProxyBase(
+  location: Pick<Location, "protocol" | "origin">,
+  platformUrl: string,
+): string {
+  if (location.protocol === "app:") {
+    return location.origin;
+  }
+  return platformUrl;
+}
+
+/**
  * Bootstrap session-replay consent gating. No-ops when
  * `VITE_SESSION_REPLAY_APP_ID` is unset (mirrors Sentry's no-DSN no-op), so the
  * plumbing stays dark until a real provider and the app ID are configured.
@@ -35,8 +56,7 @@ export function initSessionReplay(): void {
     surface: sessionReplaySurface(),
     environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
     release: import.meta.env.VITE_APP_VERSION,
-    // Platform origin per environment + surface; fronts the first-party proxy.
-    base: getPlatformRuntimeUrl(),
+    base: sessionReplayProxyBase(window.location, getPlatformRuntimeUrl()),
     network: sessionReplayNetworkConfig,
   };
   syncSessionReplay(config);
