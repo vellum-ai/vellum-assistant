@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import {
   afterEach,
   beforeEach,
@@ -38,7 +40,9 @@ const appListeners = new Map<string, Listener>();
 const appOnMock = mock((event: string, listener: Listener) => {
   appListeners.set(event, listener);
 });
-const setAsDefaultProtocolClientMock = mock((_scheme: string) => true);
+const setAsDefaultProtocolClientMock = mock(
+  (_scheme: string, _path?: string, _args?: string[]) => true,
+);
 const ipcHandleMock = mock(
   (_channel: string, _handler: (...args: unknown[]) => unknown) => undefined,
 );
@@ -52,11 +56,15 @@ let windows: Array<{
 }> = [];
 
 let appIsReady = true;
+let appIsPackaged = false;
 mock.module("electron", () => ({
   app: {
     on: appOnMock,
     setAsDefaultProtocolClient: setAsDefaultProtocolClientMock,
     isReady: () => appIsReady,
+    get isPackaged() {
+      return appIsPackaged;
+    },
   },
   ipcMain: { handle: ipcHandleMock, on: ipcOnMock },
   BrowserWindow: { getAllWindows: () => windows },
@@ -115,6 +123,7 @@ beforeEach(() => {
   ensureMainWindowVisibleMock.mockClear();
   windows = [];
   appIsReady = true;
+  appIsPackaged = false;
   configureTestRuntime();
 });
 
@@ -553,21 +562,42 @@ describe("installDeepLinks", () => {
     expect(drain(allowedEvent)).toEqual([]);
   });
 
-  test("registers only the env-appropriate schemes and is idempotent across repeated calls", () => {
-    installDeepLinks();
-    const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
-
-    installDeepLinks();
-    installDeepLinks();
-
-    const schemes = setAsDefaultProtocolClientMock.mock.calls.map((c) => c[0]);
+  test("registers unpackaged apps with absolute executable and entry paths", () => {
+    const entryPoint = process.argv[1];
+    const platform = process.platform;
     const expected = resolveRegisteredSchemes(
       resolveEnvironmentName(process.env),
     );
-    expect(schemes).toEqual(expected);
-    // Idempotent — repeated calls don't register again.
-    expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(
-      firstCallCount,
+    process.argv[1] = ".";
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      installDeepLinks();
+      const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
+
+      installDeepLinks();
+      installDeepLinks();
+
+      expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
+        expected.map((scheme) => [scheme, process.execPath, [resolve(".")]]),
+      );
+      // Idempotent — repeated calls don't register again.
+      expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(
+        firstCallCount,
+      );
+    } finally {
+      process.argv[1] = entryPoint;
+      Object.defineProperty(process, "platform", { value: platform });
+    }
+  });
+
+  test("keeps unpackaged non-Windows protocol registration unchanged", () => {
+    installDeepLinks();
+
+    const expected = resolveRegisteredSchemes(
+      resolveEnvironmentName(process.env),
+    );
+    expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
+      expected.map((scheme) => [scheme]),
     );
   });
 
