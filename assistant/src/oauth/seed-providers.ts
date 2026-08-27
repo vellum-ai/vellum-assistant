@@ -225,15 +225,17 @@ export const PROVIDER_SEED_DATA: Record<
       "users:read.email",
     ],
     availableScopes: "https://api.slack.com/scopes",
-    // The user token is read-only by construction: `resolveSlackAuth("user")`
-    // is reached only from the messaging adapter's read path, where it buys
-    // wider channel visibility and `search.messages` (the one call a bot token
-    // cannot make). Every write resolves the bot identity instead, so a write
-    // scope here would be requested from the installer and never used.
-    // Mirrors `oauth_config.scopes.user` in the manifest.
+    // Do NOT narrow this to the manifest's read-only user list. On this
+    // provider's flow Slack returns a user token under `authed_user`, and
+    // `exchangeCodeForTokens` persists that in preference to the bot token
+    // (see `security/oauth2.ts`). The stored connection therefore acts as the
+    // installer for every call, writes included, so dropping `chat:write`,
+    // `im:write` or `reactions:write` here would leave a fresh connection
+    // unable to post. The read-only user set in the manifest is safe only
+    // because a Socket Mode install keeps a separate bot token alongside it.
     authorizeParams: {
       user_scope:
-        "channels:history,channels:read,groups:history,groups:read,im:history,im:read,mpim:history,mpim:read,reactions:read,search:read,users:read",
+        "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     loopbackPort: 17322,
     injectionTemplates: [
