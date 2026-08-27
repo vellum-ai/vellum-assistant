@@ -68,7 +68,11 @@ async function fetchAndPersistPairedPlatformId(
   }
   // Re-read: a rename or re-pair may have landed while the request was in flight.
   const current = getLockfileAssistant(assistantId);
-  if (!current || current.cloud !== "paired") {
+  if (
+    !current ||
+    current.cloud !== "paired" ||
+    current.runtimeUrl !== entry.runtimeUrl
+  ) {
     return null;
   }
   try {

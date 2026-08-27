@@ -147,6 +147,14 @@ describe("resolvePairedAssistantPlatformId", () => {
       "no longer paired",
       () => (lockfileEntry = { ...pairedEntry, cloud: "local" }),
     ],
+    [
+      "retargeted",
+      () =>
+        (lockfileEntry = {
+          ...pairedEntry,
+          runtimeUrl: "https://other.example",
+        }),
+    ],
   ])(
     "skips the write and resolves null when the entry is %s mid-request",
     async (_l, arrange) => {
