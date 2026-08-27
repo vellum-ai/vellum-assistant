@@ -17,7 +17,10 @@ import { Button, Typography } from "@vellumai/design-library";
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
-import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import {
+  formatAttachmentSize,
+  isImageAttachment,
+} from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
@@ -271,7 +274,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   }
 
   const mime = attachment.mimeType.toLowerCase();
-  const isImage = mime.startsWith("image/");
+  const isImage = isImageAttachment({
+    name: attachment.filename,
+    type: attachment.mimeType,
+  });
   const isVideo = mime.startsWith("video/");
   // Some uploads come through with a generic application/octet-stream MIME;
   // fall back to the filename extension so a real PDF still gets the inline

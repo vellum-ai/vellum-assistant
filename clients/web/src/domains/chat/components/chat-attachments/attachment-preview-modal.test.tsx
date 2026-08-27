@@ -72,6 +72,19 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
+  test("renders a generic-MIME image by its extension", () => {
+    renderModal({
+      ...ATTACHMENT,
+      filename: "photo.jpg",
+      mimeType: "application/octet-stream",
+      previewUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(screen.getByAltText("photo.jpg").getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+  });
+
   test("shows a clear message for rehydrated attachments and never fetches", () => {
     renderModal({ ...ATTACHMENT, id: "rehydrated:abc" });
 
