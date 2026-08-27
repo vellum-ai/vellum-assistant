@@ -1235,7 +1235,10 @@ export class AcpSessionManager {
             // Same registry as the missing-token spawn path, so the
             // credential-prompt route redirects a redundant secure prompt at
             // the card instead of stacking a second one.
-            markAcpConnectCardRaised(current.parentConversationId);
+            markAcpConnectCardRaised(
+              current.parentConversationId,
+              current.state.agentId,
+            );
             // The event above only reaches clients listening right now. The
             // code goes on the state so `persistTerminal` (called just below)
             // carries it to the history row, which is what a client that

@@ -475,3 +475,57 @@ describe("showAcpConnect: re-raising the same prompt is not a change", () => {
     );
   });
 });
+
+describe("showAcpConnect: a live failure supersedes a dismissal", () => {
+  test("a resumed run's second rejection raises the card again", () => {
+    // `resumeFromHistory` carries the original spawning tool call, so a second
+    // rejection arrives under the anchor whose card the user dismissed after
+    // the first sign-in. Treating it as the dismissed one leaves a live
+    // failure with no card while the daemon keeps redirecting prompts at one.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(["tool-resumed"]),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect(
+      {
+        toolUseId: "tool-resumed",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      { supersedesDismissal: true },
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tool-resumed",
+    );
+    // Forgotten with it, so a later restore of the same anchor is not
+    // suppressed either.
+    expect(
+      useInteractionStore
+        .getState()
+        .dismissedAcpConnectToolUseIds.has("tool-resumed"),
+    ).toBe(false);
+  });
+
+  test("a restored snapshot still respects the dismissal", () => {
+    // Only a failure happening now supersedes. A reseed of the same history
+    // must not resurrect what the user dismissed.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(["tool-dismissed"]),
+      acpConnectFlowActive: false,
+      acpConnectRevision: 0,
+    });
+
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tool-dismissed",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+});

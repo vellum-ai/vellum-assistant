@@ -302,5 +302,18 @@ export async function acpConnectCardStillWarranted(
   if (await conversationHasCurrentAcpMarker(conversationId)) {
     return true;
   }
-  return !(await hasAcpClaudeToken());
+  // No marker, so this is the pre-spawn card: the failure was that a spawn
+  // found nothing to authenticate with, and it stands while that is still
+  // true. Asked through the spawn's own resolution rather than of the vault,
+  // because a user can repair it by setting the agent's configured token, and
+  // a vault-only answer would call that card warranted forever.
+  const { raisedAcpConnectCardAgent } =
+    await import("./acp-connect-card-state.js");
+  const agentId = raisedAcpConnectCardAgent(conversationId);
+  if (agentId === undefined) {
+    return !(await hasAcpClaudeToken());
+  }
+  const { resolvedClaudeCredentialDigest } =
+    await import("./prepare-agent-env.js");
+  return (await resolvedClaudeCredentialDigest(agentId)) === undefined;
 }

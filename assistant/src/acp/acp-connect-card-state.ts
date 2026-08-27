@@ -19,15 +19,30 @@
  * card for auth that already works, and the persisted history markers the
  * entries name keep re-raising it on every reload.
  */
-const conversationsWithAcpConnectCard = new Set<string>();
+const conversationsWithAcpConnectCard = new Map<string, string | undefined>();
 
-/** Record that a Connect Claude card was raised for this conversation. */
+/**
+ * Record that a Connect Claude card was raised for this conversation.
+ *
+ * The agent is kept alongside it because deciding later whether the card still
+ * stands means asking what a spawn of that agent would resolve, and precedence
+ * is per agent: a configured `CLAUDE_CODE_OAUTH_TOKEN` on one alias is not the
+ * vault and is not another alias.
+ */
 export function markAcpConnectCardRaised(
   conversationId: string | undefined,
+  agentId?: string,
 ): void {
   if (conversationId) {
-    conversationsWithAcpConnectCard.add(conversationId);
+    conversationsWithAcpConnectCard.set(conversationId, agentId);
   }
+}
+
+/** The agent whose spawn raised this conversation's card, when it was known. */
+export function raisedAcpConnectCardAgent(
+  conversationId: string,
+): string | undefined {
+  return conversationsWithAcpConnectCard.get(conversationId);
 }
 
 /** Whether a Connect Claude card has been raised for this conversation. */
@@ -49,7 +64,7 @@ export function hasAcpConnectCardRaised(
  * re-raise.
  */
 export function takeConversationsWithAcpConnectCard(): string[] {
-  const conversationIds = [...conversationsWithAcpConnectCard];
+  const conversationIds = [...conversationsWithAcpConnectCard.keys()];
   conversationsWithAcpConnectCard.clear();
   return conversationIds;
 }
@@ -61,5 +76,5 @@ export function dropAcpConnectCardRaised(conversationId: string): void {
 
 /** Every conversation currently believed to have a card up. */
 export function conversationsWithRaisedAcpConnectCard(): string[] {
-  return [...conversationsWithAcpConnectCard];
+  return [...conversationsWithAcpConnectCard.keys()];
 }

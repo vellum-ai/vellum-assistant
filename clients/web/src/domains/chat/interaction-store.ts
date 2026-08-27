@@ -199,7 +199,20 @@ export interface InteractionActions {
   dismissQuestionCard: () => void;
 
   // ACP Connect Claude prompt
-  showAcpConnect: (payload: PendingAcpConnectState) => void;
+  /**
+   * Raise the Connect card.
+   *
+   * `supersedesDismissal` is for a failure happening now rather than one being
+   * restored. The dismissed set is keyed by the spawning tool call, and a
+   * resumed run reuses its original one, so a second rejection under the same
+   * anchor looks identical to the card the user already dismissed. Ignoring it
+   * would leave a live failure with no card, while the daemon goes on
+   * redirecting credential prompts at one.
+   */
+  showAcpConnect: (
+    payload: PendingAcpConnectState,
+    opts?: { supersedesDismissal?: boolean },
+  ) => void;
   /**
    * Give the standing Connect prompt the conversation that owns it, when it
    * was raised without one.
@@ -460,10 +473,22 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
         : { acpConnectPlacement: placement },
     ),
 
-  showAcpConnect: (payload) =>
+  showAcpConnect: (payload, opts) =>
     set((state) => {
       if (state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)) {
-        return state;
+        if (!opts?.supersedesDismissal) {
+          return state;
+        }
+        // A new rejection under an anchor the user dismissed. Forget the
+        // dismissal with it: keeping the id would suppress this card and every
+        // later restore of it, and the run has genuinely failed again.
+        const dismissed = new Set(state.dismissedAcpConnectToolUseIds);
+        dismissed.delete(payload.toolUseId);
+        return {
+          dismissedAcpConnectToolUseIds: dismissed,
+          pendingAcpConnect: payload,
+          acpConnectRevision: state.acpConnectRevision + 1,
+        };
       }
       // The revision means "the prompt changed", and readers compare against
       // it to tell whether a response they issued still speaks for what is on

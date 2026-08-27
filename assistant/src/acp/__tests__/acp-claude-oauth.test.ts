@@ -47,6 +47,8 @@ const { acpSpawnCredentialDenialReason } =
 
 const { hasAcpConnectCardRaised, markAcpConnectCardRaised } =
   await import("../acp-connect-card-state.js");
+const { installAcpConfigStub } = await import("./helpers/acp-config-stub.js");
+const acpConfig = await installAcpConfigStub();
 
 // The registry is retired per conversation by asking whether that conversation
 // still has a marker worth showing, so these cases need a real (empty)
@@ -433,5 +435,44 @@ describe("acpConnectCardStillWarranted", () => {
     return acpConnectCardStillWarranted("conv-no-marker").then((warranted) => {
       expect(warranted).toBe(false);
     });
+  });
+});
+
+describe("acpConnectCardStillWarranted: a pre-spawn card and configured tokens", () => {
+  test("falls once the agent's configured token supplies a credential", () => {
+    // Repairing by setting `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` never
+    // touches the vault, so asking the vault would call this card warranted
+    // forever even though the next spawn authenticates fine.
+    clearHistory();
+    getReturn = undefined;
+    acpConfig.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-from-config" },
+        },
+      },
+    });
+    markAcpConnectCardRaised("conv-config-repair", "claude");
+
+    return acpConnectCardStillWarranted("conv-config-repair").then(
+      (warranted) => {
+        expect(warranted).toBe(false);
+      },
+    );
+  });
+
+  test("stands while neither config nor the vault offers one", () => {
+    clearHistory();
+    getReturn = undefined;
+    acpConfig.setConfig({ agents: {} });
+    markAcpConnectCardRaised("conv-still-nothing", "claude");
+
+    return acpConnectCardStillWarranted("conv-still-nothing").then(
+      (warranted) => {
+        expect(warranted).toBe(true);
+      },
+    );
   });
 });
