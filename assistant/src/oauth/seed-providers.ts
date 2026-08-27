@@ -183,14 +183,14 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
-    // Bounded by what a user-token grant can satisfy, not by the Socket Mode
-    // manifest's bot list. This flow persists the `authed_user` token
-    // (`exchangeCodeForTokens`) and stores `authed_user.scope` as
-    // `grantedScopes`, which credential-health compares against this list.
-    // A bot-only scope never appears in that grant, and `missing_scopes` is a
-    // hard failure that disables the provider's tools. The wider bot set
-    // belongs to Socket Mode installs, which verify the live `x-oauth-scopes`
-    // header against SLACK_REQUIRED_BOT_SCOPES in channel-readiness-service.ts.
+    // Sent as the bot `scope` parameter, while this flow persists the
+    // `authed_user` token and stores `authed_user.scope` as `grantedScopes`.
+    // Credential health compares this list against that grant, so a scope
+    // listed here that `user_scope` does not also request reports as
+    // `missing_scopes`, a hard failure that disables the provider's tools.
+    // The wider bot set belongs to Socket Mode installs, which verify the live
+    // `x-oauth-scopes` header against SLACK_REQUIRED_BOT_SCOPES in
+    // channel-readiness-service.ts.
     defaultScopes: [
       "channels:join",
       "channels:read",
