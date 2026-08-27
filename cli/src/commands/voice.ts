@@ -121,7 +121,8 @@ export async function voice(): Promise<void> {
   });
 }
 
-interface SessionDeps {
+/** Exported for tests. Not part of the command's public surface. */
+export interface SessionDeps {
   client: CliLiveVoiceClient;
   player: PcmPlayer | null;
   reference: string;
@@ -144,7 +145,7 @@ interface SessionDeps {
  * failure. The exit code is set on the way out rather than thrown, so a failed
  * session prints one line instead of a stack.
  */
-function runSession({
+export function runSession({
   client,
   player,
   reference,
@@ -380,7 +381,13 @@ function runSession({
       // back at the last byte instead would make Ctrl+C quit the session while
       // the assistant is still talking, and let the next turn start a second
       // player over the top of the first.
-      void player?.finish().then(() => endTurn());
+      //
+      // `player` is null under `--no-audio`, and optional chaining on its own
+      // would short-circuit the whole expression in that case, skipping
+      // `.then()` and leaving `endTurn()` uncalled. `?? Promise.resolve()`
+      // keeps a promise on the left of `.then` either way, so the turn always
+      // ends whether or not there is a player to wait on.
+      void (player?.finish() ?? Promise.resolve()).then(() => endTurn());
     });
 
     client.on("turnCancelled", (turnId) => {
