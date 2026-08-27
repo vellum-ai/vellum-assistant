@@ -83,5 +83,9 @@ describe("classifyAttachment", () => {
     // preview modal picks its branch from this answer.
     expect(classifyAttachment("video/mp4", "clip.gif")).toBe("video");
     expect(classifyAttachment("text/plain", "diagram.svg")).toBe("text");
+    // The preview modal routes on this answer, so a text file named after a
+    // PDF must not reach the PDF renderer.
+    expect(classifyAttachment("text/plain", "notes.pdf")).toBe("text");
+    expect(classifyAttachment("application/json", "data.pdf")).not.toBe("pdf");
   });
 });
