@@ -145,6 +145,10 @@ const COMPANION_SIZE_KEYS: Record<
 const knownSize = (stored: CompanionSize | undefined): CompanionSize | null =>
   stored !== undefined && COMPANION_SIZES.includes(stored) ? stored : null;
 
+/** The size an axis has of its own, before any fallback. */
+const storedSize = (axis: CompanionSizeAxis): CompanionSize | null =>
+  knownSize(store().get(COMPANION_SIZE_KEYS[axis]));
+
 /**
  * Which named size one axis of the companion surface is drawn at.
  *
@@ -155,7 +159,7 @@ const knownSize = (stored: CompanionSize | undefined): CompanionSize | null =>
  * axes rather than the default on either.
  */
 export const readCompanionSize = (axis: CompanionSizeAxis): CompanionSize =>
-  knownSize(store().get(COMPANION_SIZE_KEYS[axis])) ??
+  storedSize(axis) ??
   knownSize(store().get("companionSize")) ??
   DEFAULT_COMPANION_SIZE;
 
@@ -184,8 +188,13 @@ export const writeCompanionIntroSeen = (): void => {
 };
 
 /**
- * Persist one axis's size. No-op when the effective value is unchanged, as the
- * opt-out is.
+ * Persist one axis's size. No-op only when that axis's own key already says so.
+ *
+ * The axis's own key rather than the effective value, because that value falls
+ * back to the single size a build with one size axis writes. Someone carrying
+ * that legacy size who picks it again on one axis is asking for it to be that
+ * axis's own answer, and comparing against the fallback would leave the
+ * per-axis key empty for as long as they keep agreeing with it.
  *
  * Only ever the axis's own key. Writing the shared one as well would hand a
  * build that reads only that key one axis's answer for both, and turn a user
@@ -195,7 +204,7 @@ export const writeCompanionSize = (
   axis: CompanionSizeAxis,
   size: CompanionSize,
 ): void => {
-  if (readCompanionSize(axis) === size) {
+  if (storedSize(axis) === size) {
     return;
   }
   store().set(COMPANION_SIZE_KEYS[axis], size);

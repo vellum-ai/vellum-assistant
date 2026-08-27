@@ -621,23 +621,12 @@ describe("companion toggle", () => {
   });
 
   /**
-   * Named steps rather than a slider (JARVIS-1549). The avatar's box is the
-   * geometry both processes derive from, so the sizes are a fixed set of
-   * layouts and the menu is where one is chosen.
+   * What the tray adds to the pickers, which have their own suite in
+   * `companion-menu.test.ts`: the sizes it shows are the ones it was configured
+   * to read, and a pick lands on the setter it was configured with, under the
+   * axis it was made on.
    */
-  test("offers a size for each named step, under both headings", () => {
-    for (const label of ["Avatar size", "Options size"]) {
-      expect(popSizeItem(label)?.submenu?.map((i) => i.label)).toEqual([
-        "Small",
-        "Medium",
-        "Large",
-        "Huge",
-        "Ridiculous",
-      ]);
-    }
-  });
-
-  test("marks the step each axis is on, since radio items have to show one", () => {
+  test("wires both headings to the tray's own size runtime", () => {
     companionSizes = { avatar: "medium", options: "ridiculous" };
     expect(
       popSizeItem("Avatar size")
@@ -649,17 +638,7 @@ describe("companion toggle", () => {
         ?.submenu?.filter((i) => i.checked)
         .map((i) => i.label),
     ).toEqual(["Ridiculous"]);
-  });
 
-  test("renders each heading's sizes as one radio group", () => {
-    for (const label of ["Avatar size", "Options size"]) {
-      expect(
-        popSizeItem(label)?.submenu?.every((i) => i.type === "radio"),
-      ).toBe(true);
-    }
-  });
-
-  test("applies the size that was picked, to the axis it was picked under", () => {
     popSizeItem("Avatar size")?.submenu?.[3]?.click?.({ checked: true });
     expect(setCompanionSizeMock).toHaveBeenLastCalledWith("avatar", "huge");
     popSizeItem("Options size")?.submenu?.[0]?.click?.({ checked: true });

@@ -12,6 +12,7 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
   COMPANION_SIZE_BOXES,
@@ -134,19 +135,6 @@ const COMPANION_KIND = "companion";
 const COMPANION_ROUTE = "/floating/companion";
 
 /**
- * The widest the pill's body gets at the size the surface's layout is authored
- * at, which is the ceiling every entry in the renderer's `FALLBACK_WIDTHS`
- * stays under.
- *
- * The body alone, because the avatar floats beside the pill rather than inside
- * it: what the canvas has to hold on the growth side is the avatar's half box,
- * the gap, and this at the options scale. A ceiling rather than a width, since
- * the pill measures its own content, and content wider than it is clipped by
- * the window. The call's approval row is the widest thing the surface renders.
- */
-const BASE_MAX_BODY_WIDTH = 316;
-
-/**
  * Everything the window's placement depends on, for one pair of companion
  * sizes.
  *
@@ -172,10 +160,6 @@ export interface CompanionGeometry {
    * back past it, and the shadow.
    */
   dropBelow: number;
-  /** The room between the avatar's edge and the pill, at these sizes. */
-  gap: number;
-  /** The widest the pill's body draws at this options size, gap not included. */
-  maxBodyWidth: number;
   /** The pill's far edge at its widest, measured from the avatar's centre. */
   maxReach: number;
 }
@@ -205,13 +189,14 @@ export const geometryFor = (
   const optionsBox = COMPANION_SIZE_BOXES[options];
   const pad = companionPadFor(avatarBox, optionsBox);
   const gap = companionGapFor(avatarBox, optionsBox);
-  const maxBodyWidth = BASE_MAX_BODY_WIDTH * companionScaleFor(optionsBox);
+  const maxPillWidth =
+    COMPANION_BASE_MAX_PILL_WIDTH * companionScaleFor(optionsBox);
   // The avatar holds its place and the pill hangs off one side of it across the
-  // gap, so the reach is the avatar's half box, the gap, and the widest body.
+  // gap, so the reach is the avatar's half box, the gap, and the widest pill.
   // The canvas has to hold it in whichever direction main later picks, so it is
   // sized for both sides, and `growthFor` picks that direction by the same
   // number.
-  const maxReach = avatarBox / 2 + gap + maxBodyWidth;
+  const maxReach = avatarBox / 2 + gap + maxPillWidth;
   // Both distances come from the contract, which is where the renderer reads
   // them too: main places the window by them and the renderer anchors the
   // surface by them, so a second copy of either is the avatar drawn somewhere
@@ -226,8 +211,6 @@ export const geometryFor = (
     canvasHeight: Math.round(riseAbove + dropBelow),
     riseAbove,
     dropBelow,
-    gap,
-    maxBodyWidth,
     maxReach,
   };
 };
@@ -395,7 +378,8 @@ export const callOnUpdate = (
  *
  * The room on each side is measured from the avatar's centre, so the clearance
  * the pill needs is measured from there too: the avatar's half box, then the
- * gap, then its widest body, which is {@link CompanionGeometry.maxReach}.
+ * gap, then the widest the pill draws, which is
+ * {@link CompanionGeometry.maxReach}.
  * Rightward is the default and leftward is what it flips to when the right edge
  * is too close, so the avatar stays exactly where the user put it instead of
  * the controls running off the display.
@@ -645,10 +629,10 @@ let installed = false;
  * The surface's own menu, on a right-click.
  *
  * **Because the tray is the wrong place to look.** The two things a user
- * wants from a floating avatar are to resize it and to make it go away, and
- * both were otherwise reachable only from a menu-bar icon that says nothing
- * about the thing they are actually looking at. A press on the object itself
- * is where people reach first.
+ * wants from a floating avatar are to resize it and to make it go away, and the
+ * tray offers both from a menu-bar icon that says nothing about the thing they
+ * are actually looking at. A press on the object itself is where people reach
+ * first.
  *
  * Built in main rather than in the renderer: a menu is a native window, and
  * main is the side that owns both the sizes and the visibility. The size
@@ -1181,14 +1165,6 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   finishIntro();
   closeCompanionWindow();
 };
-
-/**
- * Which size one axis of the surface is currently drawn at, for the radio items
- * in both menus that offer it.
- */
-export const readCompanionSurfaceSize = (
-  axis: CompanionSizeAxis,
-): CompanionSize => readCompanionSize(axis);
 
 /**
  * Draw the surface at a different size, keeping the avatar where it is.

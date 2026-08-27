@@ -1,9 +1,14 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { COMPANION_BASE_MAX_PILL_WIDTH } from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 
-import { CompanionSurface, FALLBACK_WIDTHS } from "./companion-surface";
+import {
+  CompanionSurface,
+  FALLBACK_WIDTHS,
+  INNER_GAP,
+} from "./companion-surface";
 
 afterEach(cleanup);
 
@@ -1162,8 +1167,20 @@ describe("the summary a finished watch session leaves on the surface", () => {
 });
 
 describe("the companion surface's width ceiling", () => {
-  /** `BASE_MAX_BODY_WIDTH` in `clients/macos/src/main/companion-window.ts`. */
-  const CANVAS_CEILING = 316;
+  const CANVAS_CEILING = COMPANION_BASE_MAX_PILL_WIDTH;
+
+  /**
+   * The ceiling is on the pill, not on the body inside it, so a body that fits
+   * with the clearance at either end left off is not one that fits. `typing` is
+   * the card's own outer width rather than a measured body, and the case below
+   * holds it exactly at the ceiling.
+   */
+  test("holds for every measured body once the pill's own clearance is on it", () => {
+    const over = Object.entries(FALLBACK_WIDTHS)
+      .filter(([phase]) => phase !== "typing")
+      .filter(([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING);
+    expect(over).toEqual([]);
+  });
 
   test("holds for every phase", () => {
     const over = Object.entries(FALLBACK_WIDTHS).filter(
