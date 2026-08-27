@@ -19,8 +19,10 @@ import { resolveChatgptConnection } from "./chatgpt-subscription-api";
  * authorize page in a second tab, then hand the daemon the `code` and `state`
  * off the callback URL the user copies back.
  *
- * Kept as the fallback behind the device-code flow, which needs nothing pasted
- * but depends on an account setting some organizations switch off.
+ * Serves as the section's only sign-in, and as the fallback behind the
+ * device-code flow, which needs nothing pasted but depends on an account
+ * setting some organizations switch off. Only the copy differs between the
+ * two: see {@link ChatgptPasteAuthFlowProps.standalone}.
  */
 type ChatgptPasteAuthState =
   | "idle"
@@ -33,11 +35,19 @@ type ChatgptPasteAuthState =
 interface ChatgptPasteAuthFlowProps {
   assistantId: string;
   onConnected: (connection: ProviderConnection) => void;
+  /**
+   * Whether this flow is the section's only sign-in rather than the fallback
+   * offered beside the device code. Alone it is simply "Sign in with ChatGPT";
+   * beside the device code that name would claim the whole section, so it
+   * narrows to the tab it opens.
+   */
+  standalone?: boolean;
 }
 
 export function ChatgptPasteAuthFlow({
   assistantId,
   onConnected,
+  standalone = false,
 }: ChatgptPasteAuthFlowProps) {
   const { t: translate } = useTranslation("settings");
   const [authState, setAuthState] = useState<ChatgptPasteAuthState>("idle");
@@ -129,8 +139,16 @@ export function ChatgptPasteAuthFlow({
               }
             >
               {authState === "idle"
-                ? translate("chatgptPasteAuthFlow.step1Idle")
-                : translate("chatgptPasteAuthFlow.step1PasteUrl")}
+                ? translate(
+                    standalone
+                      ? "chatgptPasteAuthFlow.step1IdleStandalone"
+                      : "chatgptPasteAuthFlow.step1Idle",
+                  )
+                : translate(
+                    standalone
+                      ? "chatgptPasteAuthFlow.step1PasteUrlStandalone"
+                      : "chatgptPasteAuthFlow.step1PasteUrl",
+                  )}
             </Typography>
             <Typography
               variant="body-small-default"
@@ -154,7 +172,11 @@ export function ChatgptPasteAuthFlow({
               size="compact"
               onClick={() => void handleSignIn()}
             >
-              {translate("chatgptPasteAuthFlow.signInButton")}
+              {translate(
+                standalone
+                  ? "chatgptPasteAuthFlow.signInButtonStandalone"
+                  : "chatgptPasteAuthFlow.signInButton",
+              )}
             </Button>
           ) : (
             <>

@@ -25,8 +25,10 @@ interface ChatgptOAuthSectionProps {
  * redirect-and-paste stays reachable behind a disclosure: device code
  * authorization is an account setting an organization can switch off, and the
  * paste flow takes the section over outright when the assistant's daemon has
- * no device-auth route at all. Every path reports the same stored connection
- * through `onConnected` for the parent to persist.
+ * no device-auth route at all. Whenever the paste flow is the only sign-in on
+ * screen it stands alone, under the plain name it carried before the device
+ * code joined it. Every path reports the same stored connection through
+ * `onConnected` for the parent to persist.
  */
 export function ChatgptOAuthSection({
   assistantId,
@@ -88,6 +90,7 @@ export function ChatgptOAuthSection({
         <ChatgptPasteAuthFlow
           assistantId={assistantId}
           onConnected={onConnected}
+          standalone={!deviceCodeShown}
         />
       ) : null}
     </div>
