@@ -32,8 +32,6 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { createMockLoggerModule } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
-import type { CatalogSkill } from "../../../../../skills/catalog-install.js";
-import type { MemoryNode, ScoredNode } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the dynamic imports below)
@@ -45,27 +43,16 @@ mock.module("../../../../../util/logger.js", () => createMockLoggerModule());
 // nodes — the v1 injection branch becomes a no-op, isolating the assertion
 // to "did the v2 routing fire?". Tracked via `mock()` so tests can also
 // assert that v1 retrieval is *not* called when v2 is enabled.
-const loadContextMemoryMock = mock(
-  async (): Promise<{
-    nodes: ScoredNode[];
-    serendipityNodes: ScoredNode[];
-    latencyMs: number;
-    metrics: null;
-    queryVector: undefined;
-    sparseVector: undefined;
-    userQueryVector: undefined;
-    userQuerySparseVector: undefined;
-  }> => ({
-    nodes: [],
-    serendipityNodes: [],
-    latencyMs: 1,
-    metrics: null,
-    queryVector: undefined,
-    sparseVector: undefined,
-    userQueryVector: undefined,
-    userQuerySparseVector: undefined,
-  }),
-);
+const loadContextMemoryMock = mock(async () => ({
+  nodes: [],
+  serendipityNodes: [],
+  latencyMs: 1,
+  metrics: null,
+  queryVector: undefined,
+  sparseVector: undefined,
+  userQueryVector: undefined,
+  userQuerySparseVector: undefined,
+}));
 const retrieveForTurnMock = mock(async () => ({
   nodes: [],
   latencyMs: 1,
@@ -76,13 +63,6 @@ const retrieveForTurnMock = mock(async () => ({
 mock.module("../../v1/graph/retriever.js", () => ({
   loadContextMemory: loadContextMemoryMock,
   retrieveForTurn: retrieveForTurnMock,
-}));
-
-let cachedCatalog: CatalogSkill[] = [];
-const realCatalogCache = await import("../../../../../skills/catalog-cache.js");
-mock.module("../../../../../skills/catalog-cache.js", () => ({
-  ...realCatalogCache,
-  getCachedCatalogSync: () => cachedCatalog,
 }));
 
 // Programmable embedding + Qdrant state. Mirrors the pattern in
@@ -285,50 +265,6 @@ function makeConfig(
   }) as AssistantConfig;
 }
 
-function makeScoredNode(overrides: Partial<MemoryNode>): ScoredNode {
-  const now = Date.now();
-  return {
-    node: {
-      id: "node-1",
-      content: "Example memory.",
-      type: "semantic",
-      created: now,
-      lastAccessed: now,
-      lastConsolidated: now,
-      eventDate: null,
-      emotionalCharge: {
-        valence: 0,
-        intensity: 0,
-        decayCurve: "linear",
-        decayRate: 0.05,
-        originalIntensity: 0,
-      },
-      fidelity: "vivid",
-      confidence: 0.8,
-      significance: 0.5,
-      stability: 14,
-      reinforcementCount: 0,
-      lastReinforced: now,
-      sourceConversations: ["conv-source"],
-      sourceType: "direct",
-      narrativeRole: null,
-      partOfStory: null,
-      imageRefs: null,
-      ...overrides,
-    },
-    score: 0.5,
-    scoreBreakdown: {
-      semanticSimilarity: 0.5,
-      effectiveSignificance: 0.5,
-      emotionalIntensity: 0,
-      temporalBoost: 0,
-      recencyBoost: 0.5,
-      triggerBoost: 0,
-      activationBoost: 0,
-    },
-  };
-}
-
 function makeMessages(
   text = "hello there, this is a long enough question",
 ): Message[] {
@@ -408,7 +344,6 @@ beforeEach(() => {
   retrieveForTurnMock.mockClear();
   embedWithBackendMock.mockClear();
   generateSparseEmbeddingMock.mockClear();
-  cachedCatalog = [];
   _resetMemoryV2QdrantForTests();
 });
 
@@ -715,60 +650,6 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
 
     expect(result.mode).toBe("context-load");
     expect(result.injectedBlockText).toBeNull();
-  });
-
-  test("keeps compatible serendipity when platform filtering removes deterministic nodes", async () => {
-    cachedCatalog = [
-      {
-        id: "windows-automation",
-        name: "Windows Automation",
-        description: "Automates Windows applications.",
-        platforms: ["windows"],
-        requiredHostCapabilities: ["host_bash"],
-      },
-    ];
-    loadContextMemoryMock.mockImplementationOnce(async () => ({
-      nodes: [
-        makeScoredNode({
-          id: "windows-skill",
-          content: "skill:windows-automation\nWindows automation skill.",
-          type: "procedural",
-        }),
-      ],
-      serendipityNodes: [
-        makeScoredNode({
-          id: "serendipity",
-          content: "Compatible serendipity memory.",
-        }),
-      ],
-      latencyMs: 1,
-      metrics: null,
-      queryVector: undefined,
-      sparseVector: undefined,
-      userQueryVector: undefined,
-      userQuerySparseVector: undefined,
-    }));
-
-    const messages = makeMessages("first message of the conversation here");
-    const memory = new ConversationGraphMemory("conv-serendipity-filter");
-    const result = await memory.prepareMemory(
-      messages,
-      makeConfig(false),
-      new AbortController().signal,
-      noopEvent,
-      messages,
-      {
-        clientOs: "windows",
-        isInteractive: true,
-        sourceActorPrincipalId: "actor-a",
-        hostPlatforms: [],
-      },
-    );
-
-    expect(result.injectedBlockText).toContain(
-      "Compatible serendipity memory.",
-    );
-    expect(result.injectedBlockText).not.toContain("Windows automation skill.");
   });
 });
 

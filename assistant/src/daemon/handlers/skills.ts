@@ -68,8 +68,8 @@ import {
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
 import {
-  filterSkillsByContext,
-  isSkillCompatibleWithContext,
+  filterSkillsByPlatform,
+  isSkillCompatibleWithPlatform,
   skillPlatformUnavailableMessage,
 } from "../../skills/platform-compatibility.js";
 import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
@@ -442,20 +442,10 @@ function toSlimSkillResponse(
   }
 }
 
-export function listSkills(
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-): SlimSkillResponse[] {
+export function listSkills(): SlimSkillResponse[] {
   const config = getConfig();
   const catalog = loadSkillCatalog();
-  const resolved = resolveSkillStates(catalog, config, {
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  });
+  const resolved = resolveSkillStates(catalog, config);
 
   const items = resolved.map((r) => toSlimSkillResponse(r.summary, r.state));
 
@@ -470,12 +460,7 @@ export function listSkills(
  * List installed skills merged with available catalog skills.
  * Installed skills take precedence when deduplicating by ID.
  */
-async function listSkillsWithCatalog(
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-): Promise<SlimSkillResponse[]> {
+async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
   // Warm the catalog cache before converting installed skills so
   // getCatalogCategoryMap() in toSlimSkillResponse() sees real categories
   // instead of falling back to "system" on a cold cache.
@@ -486,12 +471,7 @@ async function listSkillsWithCatalog(
     catalogSkills = [];
   }
 
-  const installed = listSkills(
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  );
+  const installed = listSkills();
   const installedIds = new Set(installed.map((s) => s.id));
 
   if (catalogSkills.length === 0) {
@@ -500,12 +480,7 @@ async function listSkillsWithCatalog(
 
   // All entries from the Vellum platform API are first-party.
   // Create SlimSkillResponses for catalog skills not already installed.
-  const available: SlimSkillResponse[] = filterSkillsByContext(catalogSkills, {
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  })
+  const available: SlimSkillResponse[] = filterSkillsByPlatform(catalogSkills)
     .filter((cs) => !installedIds.has(cs.id))
     .map((cs) => catalogSkillToSlim(cs));
 
@@ -565,31 +540,15 @@ function originMatchesQuery(origin: string, query: string): boolean {
  * List skills with filtering, category counts, and sorting.
  * Calls listSkillsWithCatalog for the full merged list, then applies filters.
  */
-export async function listSkillsFiltered(
-  filter: SkillListFilter,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-): Promise<{
+export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
   skills: SlimSkillResponse[];
   categoryCounts: Record<string, number>;
   totalCount: number;
 }> {
   let skills =
     filter.includeCatalog !== false
-      ? await listSkillsWithCatalog(
-          clientOs,
-          sourceActorPrincipalId,
-          isInteractive,
-          hostPlatforms,
-        )
-      : listSkills(
-          clientOs,
-          sourceActorPrincipalId,
-          isInteractive,
-          hostPlatforms,
-        );
+      ? await listSkillsWithCatalog()
+      : listSkills();
 
   // Apply origin filter
   if (filter.origin) {
@@ -675,67 +634,21 @@ export async function listSkillsFiltered(
   return { skills, categoryCounts, totalCount };
 }
 
-/** Resolve a local skill while preserving an incompatible ID match. */
-function resolveSkillById(
+/** Look up a single skill by ID from the resolved catalog, returning its SlimSkillResponse. */
+function findSkillById(
   skillId: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-): {
-  found?: { item: SlimSkillResponse; summary: SkillSummary };
-  incompatibleLocal?: SkillSummary;
-} {
+): { item: SlimSkillResponse; summary: SkillSummary } | undefined {
   const config = getConfig();
   const catalog = loadSkillCatalog();
-  const platformContext = {
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  };
-  const localMatch = catalog.find((skill) => skill.id === skillId);
-  if (
-    localMatch &&
-    !isSkillCompatibleWithContext(localMatch, platformContext)
-  ) {
-    return { incompatibleLocal: localMatch };
-  }
-  const resolved = resolveSkillStates(catalog, config, platformContext);
+  const resolved = resolveSkillStates(catalog, config);
   const match = resolved.find((r) => r.summary.id === skillId);
   if (!match) {
-    return {};
+    return undefined;
   }
 
   const r = match;
   const item = toSlimSkillResponse(r.summary, r.state);
-  return { found: { item, summary: r.summary } };
-}
-
-function findSkillById(
-  skillId: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-): { item: SlimSkillResponse; summary: SkillSummary } | undefined {
-  return resolveSkillById(
-    skillId,
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  ).found;
-}
-
-function unavailableSkillResponse(skillId: string): {
-  error: string;
-  status: 404;
-} {
-  return {
-    error: `Skill "${skillId}" is unavailable for this request`,
-    status: 404,
-  };
+  return { item, summary: r.summary };
 }
 
 /**
@@ -744,43 +657,15 @@ function unavailableSkillResponse(skillId: string): {
  * current-resource boundary as the file routes, so a deleted skill stops
  * answering even when durable artifacts about it survive elsewhere.
  */
-export function skillExistsLocally(
-  skillId: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-): boolean {
-  return (
-    findSkillById(
-      skillId,
-      clientOs,
-      sourceActorPrincipalId,
-      isInteractive,
-      hostPlatforms,
-    ) !== undefined
-  );
+export function skillExistsLocally(skillId: string): boolean {
+  return findSkillById(skillId) !== undefined;
 }
 
 export async function getSkill(
   skillId: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
 ): Promise<{ skill: SkillDetailResponse } | { error: string; status: number }> {
-  const lookup = resolveSkillById(
-    skillId,
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  );
-  const found = lookup.found;
+  const found = findSkillById(skillId);
   if (!found) {
-    if (lookup.incompatibleLocal) {
-      return unavailableSkillResponse(skillId);
-    }
     // Fallback: skill is not installed. Try all file providers.
     for (const provider of getFileProviders()) {
       if (!provider.canHandle(skillId)) {
@@ -916,13 +801,7 @@ export async function getSkill(
   return { skill: detail };
 }
 
-export function getSkillLocalDetail(
-  skillId: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
-):
+export function getSkillLocalDetail(skillId: string):
   | {
       ok: true;
       id: string;
@@ -952,12 +831,7 @@ export function getSkillLocalDetail(
   try {
     const catalog = loadSkillCatalog();
     const config = getConfig();
-    const resolved = resolveSkillStates(catalog, config, {
-      clientOs,
-      sourceActorPrincipalId,
-      isInteractive,
-      hostPlatforms,
-    });
+    const resolved = resolveSkillStates(catalog, config);
     const match = resolved.find((r) => r.summary.id === skillId);
     if (!match) {
       return {
@@ -1105,10 +979,6 @@ function readDirRecursive(dir: string, rootDir: string): SkillFileEntry[] {
 export async function getSkillFileContent(
   skillId: string,
   relativePath: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
 ): Promise<SkillFileContentResponse | { error: string; status: number }> {
   const sanitized = sanitizeRelativePath(relativePath);
   if (!sanitized) {
@@ -1127,17 +997,7 @@ export async function getSkillFileContent(
     return { error: "Invalid path", status: 400 };
   }
 
-  const lookup = resolveSkillById(
-    skillId,
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  );
-  const found = lookup.found;
-  if (lookup.incompatibleLocal) {
-    return unavailableSkillResponse(skillId);
-  }
+  const found = findSkillById(skillId);
   if (found) {
     if (!existsSync(found.summary.directoryPath)) {
       // Resolver lists the skill as installed but the directory is missing
@@ -1241,10 +1101,6 @@ export async function getSkillFileContent(
 
 export async function getSkillFiles(
   skillId: string,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
 ): Promise<
   | { skill: SlimSkillResponse; files: SkillFileEntry[] }
   | { error: string; status: number }
@@ -1252,17 +1108,7 @@ export async function getSkillFiles(
   // Preferred path: the skill is resolved locally (bundled, managed,
   // workspace, or extra) AND its directory exists on disk. Read files
   // eagerly with inline content.
-  const lookup = resolveSkillById(
-    skillId,
-    clientOs,
-    sourceActorPrincipalId,
-    isInteractive,
-    hostPlatforms,
-  );
-  const found = lookup.found;
-  if (lookup.incompatibleLocal) {
-    return unavailableSkillResponse(skillId);
-  }
+  const found = findSkillById(skillId);
   if (found) {
     if (existsSync(found.summary.directoryPath)) {
       const dirPath = found.summary.directoryPath;
@@ -1379,10 +1225,6 @@ export async function installSkill(spec: {
   catalogOnly?: boolean;
   overwrite?: boolean;
   contactId?: string;
-  clientOs?: string;
-  sourceActorPrincipalId?: string;
-  isInteractive?: boolean;
-  hostPlatforms?: readonly unknown[];
 }): Promise<
   { success: true; skillId: string } | { success: false; error: string }
 > {
@@ -1394,10 +1236,10 @@ export async function installSkill(spec: {
     const config = getConfig();
     const catalogSkill = catalog.find((s) => s.id === spec.slug);
     if (catalogSkill) {
-      if (!isSkillCompatibleWithContext(catalogSkill, spec)) {
+      if (!isSkillCompatibleWithPlatform(catalogSkill)) {
         return {
           success: false,
-          error: skillPlatformUnavailableMessage(spec.slug, catalogSkill, spec),
+          error: skillPlatformUnavailableMessage(spec.slug, catalogSkill),
         };
       }
       const flagKey = skillFlagKey(catalogSkill);
@@ -1446,14 +1288,10 @@ export async function installSkill(spec: {
         const vellumCatalog = await getCatalog();
         const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
         if (catalogEntry) {
-          if (!isSkillCompatibleWithContext(catalogEntry, spec)) {
+          if (!isSkillCompatibleWithPlatform(catalogEntry)) {
             return {
               success: false,
-              error: skillPlatformUnavailableMessage(
-                spec.slug,
-                catalogEntry,
-                spec,
-              ),
+              error: skillPlatformUnavailableMessage(spec.slug, catalogEntry),
             };
           }
           // Default `overwrite` to true at the handler boundary to preserve
@@ -1644,10 +1482,6 @@ export async function checkSkillUpdates(): Promise<
 export async function searchSkills(
   query: string,
   limit: number = 25,
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
-  hostPlatforms?: readonly unknown[],
 ): Promise<
   | { success: true; skills: SlimSkillResponse[] }
   | { success: false; error: string }
@@ -1659,18 +1493,8 @@ export async function searchSkills(
     // hard-coded as catalog/available.
     const catalog = loadSkillCatalog();
     const config = getConfig();
-    const compatibleCatalog = filterSkillsByContext(catalog, {
-      clientOs,
-      sourceActorPrincipalId,
-      isInteractive,
-      hostPlatforms,
-    });
-    const resolved = resolveSkillStates(compatibleCatalog, config, {
-      clientOs,
-      sourceActorPrincipalId,
-      isInteractive,
-      hostPlatforms,
-    });
+    const compatibleCatalog = filterSkillsByPlatform(catalog);
+    const resolved = resolveSkillStates(compatibleCatalog, config);
     const resolvedById = new Map(resolved.map((r) => [r.summary.id, r]));
 
     const catalogMatches = filterByQuery(compatibleCatalog, query, [

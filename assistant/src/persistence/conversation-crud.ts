@@ -412,19 +412,12 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
-    /** Skill IDs hidden from this row's memory blocks, keyed by viewer conversation. */
-    memorySkillCardSuppressions: z
-      .record(z.string(), z.array(z.string()))
-      .optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
      *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
      *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
      *  not import the memory feature. */
     memoryV3InjectedBlock: z.string().optional(),
-    memoryV3InjectedCardSlugs: z.array(z.string()).optional(),
-    memoryV3InjectedAt: z.number().int().nonnegative().optional(),
-    memoryV3LegacyBlockSuppressions: z.array(z.string()).optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),

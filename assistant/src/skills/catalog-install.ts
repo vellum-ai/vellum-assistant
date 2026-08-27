@@ -14,15 +14,13 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import type { HostProxyCapability } from "../channels/types.js";
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import {
-  isSkillCompatibleWithContext,
-  normalizeRequiredHostCapabilities,
+  isSkillCompatibleWithPlatform,
   normalizeSkillPlatforms,
   type SkillPlatform,
   skillPlatformUnavailableMessage,
@@ -42,8 +40,6 @@ export interface CatalogSkill {
   version?: string;
   updatedAt?: string;
   platforms?: SkillPlatform[];
-  requiredHostCapabilities?: HostProxyCapability[];
-  unsupportedHostCapabilities?: string[];
   metadata?: {
     icon?: string;
     emoji?: string;
@@ -54,7 +50,6 @@ export interface CatalogSkill {
       "feature-flag"?: string;
       category?: string;
       platforms?: SkillPlatform[];
-      "required-host-capabilities"?: string[];
     };
   };
 }
@@ -125,7 +120,6 @@ interface RawCatalogEntry {
   display_name?: unknown;
   category?: unknown;
   platforms?: unknown;
-  required_host_capabilities?: unknown;
   updated_at?: unknown;
   metadata?: CatalogSkill["metadata"];
 }
@@ -162,12 +156,6 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
   const platforms = normalizeSkillPlatforms(
     nested?.platforms ?? entry.platforms,
   );
-  const declaredHostCapabilities =
-    nested && Object.hasOwn(nested, "required-host-capabilities")
-      ? nested["required-host-capabilities"]
-      : entry.required_host_capabilities;
-  const { requiredHostCapabilities, unsupportedHostCapabilities } =
-    normalizeRequiredHostCapabilities(declaredHostCapabilities);
 
   return {
     id,
@@ -179,8 +167,6 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
     ...(entry.version ? { version: entry.version } : {}),
     ...(updatedAt ? { updatedAt } : {}),
     ...(platforms ? { platforms } : {}),
-    ...(requiredHostCapabilities ? { requiredHostCapabilities } : {}),
-    ...(unsupportedHostCapabilities ? { unsupportedHostCapabilities } : {}),
     metadata: {
       ...entry.metadata,
       ...(icon ? { icon } : {}),
@@ -189,9 +175,6 @@ function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
         ...(displayName ? { "display-name": displayName } : {}),
         ...(category ? { category } : {}),
         ...(platforms ? { platforms } : {}),
-        ...(Array.isArray(declaredHostCapabilities)
-          ? { "required-host-capabilities": declaredHostCapabilities }
-          : {}),
       },
     },
   };
@@ -650,9 +633,6 @@ export async function resolveCatalog(
 export async function autoInstallFromCatalog(
   skillId: string,
   catalog?: CatalogSkill[],
-  clientOs?: string,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
 ): Promise<boolean> {
   let skills: CatalogSkill[];
 
@@ -674,20 +654,8 @@ export async function autoInstallFromCatalog(
   if (!entry) {
     return false;
   }
-  if (
-    !isSkillCompatibleWithContext(entry, {
-      clientOs,
-      sourceActorPrincipalId,
-      isInteractive,
-    })
-  ) {
-    throw new Error(
-      skillPlatformUnavailableMessage(skillId, entry, {
-        clientOs,
-        sourceActorPrincipalId,
-        isInteractive,
-      }),
-    );
+  if (!isSkillCompatibleWithPlatform(entry)) {
+    throw new Error(skillPlatformUnavailableMessage(skillId, entry));
   }
 
   // If the skill already exists on disk, reuse it instead of attempting a

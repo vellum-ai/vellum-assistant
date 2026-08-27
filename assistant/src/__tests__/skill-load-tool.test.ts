@@ -26,7 +26,6 @@ mock.module("../skills/catalog-install.js", () => ({
 }));
 
 const { skillLoadTool } = await import("../tools/skills/load.js");
-const { assistantEventHub } = await import("../runtime/assistant-event-hub.js");
 
 function writeSkill(
   skillId: string,
@@ -93,16 +92,12 @@ function writeToolsJson(
 async function executeSkillLoad(
   input: Record<string, unknown>,
   clientOs?: ClientOs,
-  sourceActorPrincipalId?: string,
-  isInteractive: boolean = false,
 ): Promise<{ content: string; isError: boolean }> {
   const tool = skillLoadTool;
 
   const result = await tool.execute(input, {
     workingDir: "/tmp",
     conversationId: "conversation-1",
-    isInteractive,
-    sourceActorPrincipalId,
     trustClass: "guardian",
     clientOs,
   });
@@ -151,105 +146,6 @@ describe("skill_load tool", () => {
       /<loaded_skill id="release-checklist" version="(v1:[a-f0-9]{64})" \/>/,
     );
     expect(markerMatch).not.toBeNull();
-  });
-
-  test("loads a skill for a connected client on a different assistant host", async () => {
-    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
-    const skillDir = join(TEST_DIR, "skills", "client-platform-skill");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      join(skillDir, "SKILL.md"),
-      `---\nname: "Client Platform Skill"\ndescription: "Uses the connected host"\nmetadata: ${JSON.stringify({ vellum: { platforms: [clientPlatform], "required-host-capabilities": ["host_bash"] } })}\n---\n\nBody.\n`,
-    );
-
-    const withoutClient = await executeSkillLoad({
-      skill: "client-platform-skill",
-    });
-    expect(withoutClient.isError).toBe(true);
-
-    const hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "client-platform-skill-host",
-      interfaceId: clientPlatform,
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    try {
-      const withClient = await executeSkillLoad(
-        { skill: "client-platform-skill" },
-        clientPlatform,
-        "actor-a",
-        true,
-      );
-      expect(withClient.isError).toBe(false);
-      expect(withClient.content).toContain("Body.");
-    } finally {
-      hostClient.dispose();
-    }
-  });
-
-  test("rejects all-invalid and mixed host requirements even with a capable host", async () => {
-    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
-    for (const [id, requirements] of [
-      ["all-invalid-host-skill", ["future_host"]],
-      ["mixed-host-skill", ["host_bash", "future_host"]],
-    ] as const) {
-      const skillDir = join(TEST_DIR, "skills", id);
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(
-        join(skillDir, "SKILL.md"),
-        `---\nname: "${id}"\ndescription: "Needs an unsupported host capability"\nmetadata: ${JSON.stringify({ vellum: { platforms: [clientPlatform], "required-host-capabilities": requirements } })}\n---\n\nBody.\n`,
-      );
-    }
-
-    const hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "unknown-capability-host",
-      interfaceId: clientPlatform,
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    try {
-      for (const skill of ["all-invalid-host-skill", "mixed-host-skill"]) {
-        const result = await executeSkillLoad(
-          { skill },
-          clientPlatform,
-          "actor-a",
-          true,
-        );
-        expect(result.isError).toBe(true);
-        expect(result.content).not.toContain("Body.");
-      }
-    } finally {
-      hostClient.dispose();
-    }
-  });
-
-  test("loads a daemon-host skill for a browser turn", async () => {
-    const daemonPlatform =
-      process.platform === "darwin"
-        ? "macos"
-        : process.platform === "win32"
-          ? "windows"
-          : "linux";
-    const skillDir = join(TEST_DIR, "skills", "daemon-platform-skill");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      join(skillDir, "SKILL.md"),
-      `---\nname: "Daemon Platform Skill"\ndescription: "Runs on the assistant host"\nmetadata: ${JSON.stringify({ vellum: { platforms: [daemonPlatform] } })}\n---\n\nDaemon body.\n`,
-    );
-
-    const result = await executeSkillLoad(
-      { skill: "daemon-platform-skill" },
-      "web",
-      undefined,
-      true,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Daemon body.");
   });
 
   test("loads a skill by exact name (case-insensitive)", async () => {

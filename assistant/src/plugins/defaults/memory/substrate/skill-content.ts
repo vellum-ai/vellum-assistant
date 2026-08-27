@@ -1,5 +1,4 @@
 import { getConfig } from "../../../../config/loader.js";
-import { renderSkillAvailabilityLead } from "./skill-card-format.js";
 
 /**
  * Generic input for building capability statements: the capability fields of
@@ -43,7 +42,7 @@ export function buildSkillContent(
   maxChars: number = DEFAULT_CARD_CHARS,
 ): string {
   const list = maxChars > 500;
-  let content = `${renderSkillAvailabilityLead(input.displayName, input.id)} ${input.description}.`;
+  let content = `The "${input.displayName}" skill (${input.id}) is available. ${input.description}.`;
   if (input.activationHints && input.activationHints.length > 0) {
     content += list
       ? `\nUse when:\n${input.activationHints.map((h) => `- ${h}`).join("\n")}`

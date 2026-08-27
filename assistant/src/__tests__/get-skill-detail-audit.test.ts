@@ -52,18 +52,13 @@ const mockFetchSkillAudits = mock(
     >
   > => ({}),
 );
-let mockLocalSkillCatalog: Array<Record<string, unknown>> = [];
-const mockCatalogCanHandle = mock((_skillId: string) => false);
-const mockCatalogToSlimSkill = mock(
-  async (_skillId: string): Promise<Record<string, unknown> | null> => null,
-);
 
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
 // ---------------------------------------------------------------------------
 
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: () => mockLocalSkillCatalog,
+  loadSkillCatalog: () => [],
 }));
 
 mock.module("../config/skill-state.js", () => ({
@@ -127,9 +122,9 @@ mock.module("../skills/catalog-cache.js", () => ({
 mock.module("../skills/catalog-files.js", () => ({
   catalogSkillToSlim: () => ({}),
   createVellumCatalogProvider: () => ({
-    canHandle: mockCatalogCanHandle,
+    canHandle: () => false,
     listFiles: async () => null,
-    toSlimSkill: mockCatalogToSlimSkill,
+    toSlimSkill: async () => null,
     readFileContent: async () => null,
   }),
   hasHiddenOrSkippedSegment: () => false,
@@ -188,7 +183,6 @@ mock.module("../daemon/handlers/shared.js", () => ({
 
 // Import after mocking
 import { getSkill } from "../daemon/handlers/skills.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -203,16 +197,11 @@ describe("getSkill — skillssh audit enrichment", () => {
     mockResolveSkillStates.mockReset();
     mockReadInstallMeta.mockReset();
     mockFetchSkillAudits.mockReset();
-    mockCatalogCanHandle.mockReset();
-    mockCatalogToSlimSkill.mockReset();
-    mockLocalSkillCatalog = [];
 
     // Default: no skills resolved
     mockResolveSkillStates.mockReturnValue([]);
     mockReadInstallMeta.mockReturnValue(null);
     mockFetchSkillAudits.mockResolvedValue({});
-    mockCatalogCanHandle.mockReturnValue(false);
-    mockCatalogToSlimSkill.mockResolvedValue(null);
   });
 
   test("enriches skillssh skill detail with audit data on success", async () => {
@@ -366,85 +355,6 @@ describe("getSkill — skillssh audit enrichment", () => {
     if (detail.origin === "vellum") {
       expect(detail.owner).toEqual({ kind: "plugin", id: "caveman" });
     }
-  });
-
-  test("does not fall back to catalog detail after an installed skill host disconnects", async () => {
-    mockLocalSkillCatalog = [
-      {
-        id: "windows-automation",
-        name: "Windows Automation",
-        displayName: "Windows Automation",
-        description: "Automates native Windows applications",
-        source: "managed",
-        directoryPath: "/tmp/test-skills/windows-automation",
-        skillFilePath: "/tmp/test-skills/windows-automation/SKILL.md",
-        platforms: ["windows"],
-        requiredHostCapabilities: ["host_bash"],
-      },
-    ];
-    mockCatalogCanHandle.mockReturnValue(true);
-    mockCatalogToSlimSkill.mockResolvedValue({
-      id: "windows-automation",
-      name: "Windows Automation",
-      description: "Automates native Windows applications",
-      kind: "catalog",
-      origin: "vellum",
-      status: "available",
-      category: "system",
-    });
-    const hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "get-skill-detail-windows-host",
-      interfaceId: "windows",
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    hostClient.dispose();
-
-    const result = await getSkill(
-      "windows-automation",
-      "windows",
-      "actor-a",
-      true,
-    );
-
-    expect(result).toEqual({
-      error: 'Skill "windows-automation" is unavailable for this request',
-      status: 404,
-    });
-    expect(mockCatalogToSlimSkill).not.toHaveBeenCalled();
-  });
-
-  test("returns catalog detail for a genuinely uninstalled compatible skill", async () => {
-    mockCatalogCanHandle.mockImplementation(
-      (skillId) => skillId === "catalog-only-skill",
-    );
-    mockCatalogToSlimSkill.mockResolvedValue({
-      id: "catalog-only-skill",
-      name: "Catalog Only Skill",
-      description: "Available from the catalog",
-      kind: "catalog",
-      origin: "vellum",
-      status: "available",
-      category: "system",
-    });
-
-    const result = await getSkill(
-      "catalog-only-skill",
-      "windows",
-      "actor-a",
-      true,
-      ["windows"],
-    );
-
-    expect(result).toEqual({
-      skill: expect.objectContaining({
-        id: "catalog-only-skill",
-        status: "available",
-      }),
-    });
-    expect(mockCatalogToSlimSkill).toHaveBeenCalledWith("catalog-only-skill");
   });
 });
 

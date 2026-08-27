@@ -73,7 +73,6 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { resolveSkillTurnIsInteractive } from "../skills/platform-compatibility.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
@@ -2383,11 +2382,6 @@ export async function applyRuntimeInjections(
     timestamp,
     interfaceName,
     clientOs,
-    isInteractive: resolveSkillTurnIsInteractive({
-      isNonInteractive: options.isNonInteractive,
-      hasNoClient: liveConversation?.hasNoClient,
-    }),
-    sourceActorPrincipalId: liveConversation?.getTurnActorPrincipalId?.(),
     visibleApp,
     channelName,
     actorContext: options.actorContext,

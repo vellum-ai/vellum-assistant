@@ -174,13 +174,7 @@ async function buildInstalledSkillCards(): Promise<InstalledSkillCards> {
     if (skill.alwaysCandidate) {
       alwaysCandidateIds.add(skill.id);
     }
-    cards.push({
-      id: skill.id,
-      content,
-      platforms: skill.platforms,
-      requiredHostCapabilities: skill.requiredHostCapabilities,
-      unsupportedHostCapabilities: skill.unsupportedHostCapabilities,
-    });
+    cards.push({ id: skill.id, content });
   }
   return { installedIds, cards, alwaysCandidateIds };
 }
@@ -215,11 +209,6 @@ async function ensureCatalogFallback(): Promise<void> {
       fallbackLoad = null;
     }));
   await pending;
-}
-
-/** Ensure the synchronous skill-card cache has a catalog-backed snapshot. */
-export async function ensureSkillEntriesAvailable(): Promise<void> {
-  await ensureCatalogFallback();
 }
 
 /** The authoritative seeded snapshot, or the pre-seed catalog fallback. */
@@ -334,13 +323,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
           continue;
         }
         const content = buildSkillContent(entry);
-        seeds.push({
-          id: entry.id,
-          content,
-          platforms: entry.platforms,
-          requiredHostCapabilities: entry.requiredHostCapabilities,
-          unsupportedHostCapabilities: entry.unsupportedHostCapabilities,
-        });
+        seeds.push({ id: entry.id, content });
       }
     } catch (err) {
       log.warn(
@@ -539,11 +522,10 @@ export function isSkillSlug(slug: string): boolean {
  * up-to-the-moment state must re-call this after awaiting the seed.
  */
 export function listSkillEntries(): SkillEntry[] {
-  const available = readableEntries();
-  if (!available) {
+  if (!entries) {
     return [];
   }
-  return [...available.values()]
+  return [...entries.values()]
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((entry) => Object.freeze({ ...entry }));
 }

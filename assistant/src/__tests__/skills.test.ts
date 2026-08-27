@@ -232,54 +232,6 @@ describe("workspace skills", () => {
     expect(wsSkills[0].id).toBe("ws-skill");
   });
 
-  test("preserves unknown workspace host requirements for fail-closed checks", () => {
-    const skillDir = join(workspaceSkillsDir, "future-host-skill");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      join(skillDir, "SKILL.md"),
-      `---\nname: Future Host Skill\ndescription: Needs current and future host support\nmetadata:\n  vellum:\n    required-host-capabilities:\n      - host_bash\n      - future_host\n---\n\nBody.\n`,
-    );
-
-    const skill = loadSkillCatalog(workspaceSkillsDir).find(
-      (entry) => entry.id === "future-host-skill",
-    );
-    expect(skill?.requiredHostCapabilities).toEqual(["host_bash"]);
-    expect(skill?.unsupportedHostCapabilities).toEqual(["future_host"]);
-  });
-
-  test("fails closed on malformed workspace host requirements", () => {
-    const declarations = new Map([
-      ["scalar-host-requirement", "host_bash"],
-      ["object-host-requirement", "\n      capability: host_bash"],
-      ["null-host-requirement", "null"],
-      ["empty-host-requirement", "[]"],
-    ]);
-    for (const [skillId, declaration] of declarations) {
-      const skillDir = join(workspaceSkillsDir, skillId);
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(
-        join(skillDir, "SKILL.md"),
-        `---\nname: ${skillId}\ndescription: Host requirement validation\nmetadata:\n  vellum:\n    required-host-capabilities: ${declaration}\n---\n\nBody.\n`,
-      );
-    }
-
-    const skills = new Map(
-      loadSkillCatalog(workspaceSkillsDir).map((skill) => [skill.id, skill]),
-    );
-    for (const skillId of [
-      "scalar-host-requirement",
-      "object-host-requirement",
-      "null-host-requirement",
-    ]) {
-      expect(skills.get(skillId)?.unsupportedHostCapabilities).toEqual([
-        "<invalid-required-host-capabilities>",
-      ]);
-    }
-    expect(
-      skills.get("empty-host-requirement")?.unsupportedHostCapabilities,
-    ).toBeUndefined();
-  });
-
   test("resolveSkillSelector finds workspace skills when workspaceSkillsDir is provided", () => {
     writeWorkspaceSkill(
       "ws-resolve",
@@ -468,28 +420,6 @@ describe("plugin-resident skills", () => {
     } finally {
       noopLogger.warn = originalWarn;
     }
-  });
-
-  test("fails closed on malformed plugin host requirements", () => {
-    const pluginDir = join(pluginsDir, "host-plugin");
-    const skillDir = join(pluginDir, "skills", "host-plugin-skill");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      join(pluginDir, "package.json"),
-      JSON.stringify({ name: "host-plugin", version: "1.0.0" }),
-    );
-    writeFileSync(
-      join(skillDir, "SKILL.md"),
-      `---\nname: Host Plugin Skill\ndescription: Host requirement validation\nmetadata:\n  vellum:\n    required-host-capabilities: host_bash\n---\n\nBody.\n`,
-    );
-
-    const skill = loadSkillCatalog().find(
-      (entry) => entry.id === "host-plugin-skill",
-    );
-    expect(skill?.source).toBe("plugin");
-    expect(skill?.unsupportedHostCapabilities).toEqual([
-      "<invalid-required-host-capabilities>",
-    ]);
   });
 
   test("does not load resident skills from a plugin disabled via .disabled", () => {

@@ -32,7 +32,6 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 import {
-  resolveSkillTurnIsInteractive,
   updateMessageMetadata,
   VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
 } from "@vellumai/plugin-api";
@@ -52,16 +51,8 @@ import { timeLatencySubSpan } from "../../../../daemon/turn-latency-sub-spans.js
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
-import {
-  extractFramedCardSlugs,
-  MEMORY_V3_CARD_SLUGS_METADATA_KEY,
-} from "../skill-card-suppression.js";
 import { stripTailInjectionsForReinjection } from "../tail-reinjection-strip.js";
-import {
-  MEMORY_V3_INJECTED_AT_METADATA_KEY,
-  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-} from "../v3/ever-injected-store.js";
-import { stripIncompatibleSkillCardsFromMessages } from "../v3/skill-card-compatibility.js";
+import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
 /**
  * Whether to run legacy graph-memory retrieval this turn. It gates BOTH
@@ -263,11 +254,6 @@ async function persistInjectionBlocks(
     if (blocks.memoryV3InjectedBlock) {
       metadataUpdates[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] =
         blocks.memoryV3InjectedBlock;
-      metadataUpdates[MEMORY_V3_INJECTED_AT_METADATA_KEY] = Date.now();
-      const cardSlugs = extractFramedCardSlugs(blocks.memoryV3InjectedBlock);
-      if (cardSlugs) {
-        metadataUpdates[MEMORY_V3_CARD_SLUGS_METADATA_KEY] = cardSlugs;
-      }
     }
     if (blocks.unifiedTurnContext) {
       metadataUpdates.turnContextBlock = blocks.unifiedTurnContext;
@@ -335,19 +321,6 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   const actorContext = resolveTurnInboundActorContext(
     conversation?.trustContext,
   );
-  const skillPlatformContext = {
-    clientOs: conversation?.currentTurnClientOs,
-    isInteractive: resolveSkillTurnIsInteractive({
-      isNonInteractive: ctx.isNonInteractive,
-      hasNoClient: conversation?.hasNoClient,
-    }),
-    sourceActorPrincipalId: conversation?.getTurnActorPrincipalId?.(),
-  };
-  await stripIncompatibleSkillCardsFromMessages(
-    ctx.latestMessages,
-    skillPlatformContext,
-    { conversationId: ctx.conversationId },
-  );
 
   // Legacy (v1/v2) graph retrieval is the deprecated path:
   // `shouldRunLegacyMemoryRetrieval` skips it under memory-v3-live (v3 owns
@@ -386,7 +359,6 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
             ctx.isHiddenPrompt === true &&
               ctx.messageKind === VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
           ),
-          skillPlatformContext,
         ),
     );
 

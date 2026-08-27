@@ -40,14 +40,10 @@ import {
   test,
 } from "bun:test";
 
-import { resolveSkillTurnIsInteractive } from "@vellumai/plugin-api";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
-import { assistantEventHub } from "../../../../../runtime/assistant-event-hub.js";
-import { wrapMemoryBlock } from "../../memory-marker.js";
-import { stripIncompatibleSkillCardsFromMessages } from "../../substrate/skill-card-compatibility.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks
@@ -136,11 +132,8 @@ const skillState = {
   /** Skill ids the store reports as `always-candidate`. */
   alwaysCandidateIds: new Set<string>(),
 };
-const WINDOWS_SKILL_CONTENT =
-  'The "Windows Automation" skill (windows-automation) is available. Automates native Windows applications.';
 
 mock.module("../../substrate/skill-store.js", () => ({
-  ensureSkillEntriesAvailable: async () => {},
   getSkillCapability: (idOrSlug: string) => {
     const id = idOrSlug.startsWith("skills/")
       ? idOrSlug.slice("skills/".length)
@@ -1000,203 +993,6 @@ describe("injectMemoryV2Block", () => {
     );
     expect(headerIdx).toBeGreaterThan(-1);
     expect(skillIdx).toBeGreaterThan(headerIdx);
-  });
-
-  test("removes a carried Windows skill after host disconnect and restores it after reconnect", async () => {
-    stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
-    stageSkills([
-      {
-        id: "windows-automation",
-        content: WINDOWS_SKILL_CONTENT,
-        platforms: ["windows"],
-        requiredHostCapabilities: ["host_bash"],
-      },
-    ]);
-    let hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "memory-injection-windows-host",
-      interfaceId: "windows",
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    try {
-      const result = await injectMemoryV2Block({
-        conversationId: "conv-windows-host",
-        currentTurn: 1,
-        recentTurnPairs: [
-          { assistantMessage: "", userMessage: "Open Windows Settings" },
-        ],
-        nowText: "Now",
-        messageId: "msg-windows-host",
-        config: makeConfig(),
-        skillPlatformContext: {
-          clientOs: "windows",
-          isInteractive: true,
-          sourceActorPrincipalId: "actor-a",
-        },
-      });
-
-      expect(result.toInject).toEqual(["skills/windows-automation"]);
-      expect(result.block).toContain("Automates native Windows applications.");
-
-      const messages = [
-        {
-          role: "user" as const,
-          content: [
-            { type: "text" as const, text: wrapMemoryBlock(result.block!) },
-          ],
-        },
-      ];
-      hostClient.dispose();
-      await stripIncompatibleSkillCardsFromMessages(messages, {
-        clientOs: "windows",
-        isInteractive: true,
-        sourceActorPrincipalId: "actor-a",
-      });
-      expect(JSON.stringify(messages)).not.toContain(
-        "Automates native Windows applications.",
-      );
-
-      stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
-      const disconnected = await injectMemoryV2Block({
-        conversationId: "conv-windows-host",
-        currentTurn: 2,
-        recentTurnPairs: [
-          { assistantMessage: "", userMessage: "Open Windows Settings" },
-        ],
-        nowText: "Now",
-        messageId: "msg-windows-disconnected",
-        config: makeConfig(),
-        skillPlatformContext: {
-          clientOs: "windows",
-          isInteractive: true,
-          sourceActorPrincipalId: "actor-a",
-        },
-      });
-      expect(disconnected.block).toBeNull();
-      expect((await hydrate("conv-windows-host"))?.everInjected).toEqual([]);
-
-      hostClient = assistantEventHub.subscribe({
-        type: "client",
-        clientId: "memory-injection-windows-host-reconnected",
-        interfaceId: "windows",
-        capabilities: ["host_bash"],
-        actorPrincipalId: "actor-a",
-        callback: () => {},
-      });
-      stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
-      const reconnected = await injectMemoryV2Block({
-        conversationId: "conv-windows-host",
-        currentTurn: 3,
-        recentTurnPairs: [
-          { assistantMessage: "", userMessage: "Open Windows Settings" },
-        ],
-        nowText: "Now",
-        messageId: "msg-windows-reconnected",
-        config: makeConfig(),
-        skillPlatformContext: {
-          clientOs: "windows",
-          isInteractive: true,
-          sourceActorPrincipalId: "actor-a",
-        },
-      });
-      expect(reconnected.block).toContain(
-        "Automates native Windows applications.",
-      );
-    } finally {
-      hostClient.dispose();
-    }
-  });
-
-  test("strips and does not reinject a Windows skill on a scheduled turn with a connected client", async () => {
-    stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
-    stageSkills([
-      {
-        id: "windows-automation",
-        content: WINDOWS_SKILL_CONTENT,
-        platforms: ["windows"],
-        requiredHostCapabilities: ["host_bash"],
-      },
-    ]);
-    const hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "memory-injection-clientless-windows-host",
-      interfaceId: "windows",
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    try {
-      const scheduledSkillContext = {
-        clientOs: "windows",
-        isInteractive: resolveSkillTurnIsInteractive({
-          isNonInteractive: true,
-          hasNoClient: false,
-        }),
-        sourceActorPrincipalId: "actor-a",
-      };
-      const carriedMessages = [
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "text" as const,
-              text: wrapMemoryBlock(
-                '### Skills You Can Use\n- The "Windows Automation" skill (windows-automation) is available. Automates native Windows applications. → use skill_load to activate',
-              ),
-            },
-          ],
-        },
-      ];
-      await stripIncompatibleSkillCardsFromMessages(
-        carriedMessages,
-        scheduledSkillContext,
-      );
-      expect(JSON.stringify(carriedMessages)).not.toContain(
-        "Automates native Windows applications.",
-      );
-
-      const result = await injectMemoryV2Block({
-        conversationId: "conv-clientless-windows",
-        currentTurn: 1,
-        recentTurnPairs: [
-          { assistantMessage: "", userMessage: "Run scheduled maintenance" },
-        ],
-        nowText: "Now",
-        messageId: "msg-clientless-windows",
-        config: makeConfig(),
-        skillPlatformContext: scheduledSkillContext,
-      });
-
-      expect(result.toInject).toEqual([]);
-      expect(result.block).toBeNull();
-
-      stageTurn([{ slug: "skills/windows-automation", denseScore: 0.9 }]);
-      const interactive = await injectMemoryV2Block({
-        conversationId: "conv-interactive-windows",
-        currentTurn: 1,
-        recentTurnPairs: [
-          { assistantMessage: "", userMessage: "Open Windows Settings" },
-        ],
-        nowText: "Now",
-        messageId: "msg-interactive-windows",
-        config: makeConfig(),
-        skillPlatformContext: {
-          ...scheduledSkillContext,
-          isInteractive: resolveSkillTurnIsInteractive({
-            isNonInteractive: false,
-            hasNoClient: false,
-          }),
-        },
-      });
-      expect(interactive.toInject).toEqual(["skills/windows-automation"]);
-      expect(interactive.block).toContain(
-        "Automates native Windows applications.",
-      );
-    } finally {
-      hostClient.dispose();
-    }
   });
 
   // ---------------------------------------------------------------------------

@@ -61,17 +61,14 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 }));
 
 const {
-  _resetEverInjectedRuntimeStateForTests,
   clearConversation,
   forkEverInjected,
-  getActiveEntries,
   getActiveSlugs,
   getInjected,
   getPrunedSlugs,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected,
-  reconcilePersistedInjections,
   residentBytes,
   seedEverInjectedFromSlugs,
 } = await import("./ever-injected-store.js");
@@ -80,10 +77,6 @@ beforeEach(() => {
   storeMockActive = true;
   memoryDbAvailable = true;
   makeDb();
-  _resetEverInjectedRuntimeStateForTests();
-  for (const conversationId of ["conv-1", "conv-parent", "conv-child"]) {
-    clearConversation(conversationId);
-  }
 });
 
 afterAll(() => {
@@ -326,195 +319,15 @@ describe("memory-side schema", () => {
 });
 
 describe("fail-soft without a memory database", () => {
-  test("keeps the last pruned snapshot after a read failure", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-
-    memorySqlite.run("DROP TABLE memory_v3_ever_injected");
-
-    expect(() => getPrunedSlugs("conv-1")).not.toThrow();
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-  });
-
-  test("durable reads are empty while pending accounting remains active", () => {
+  test("reads return empty and writes no-op when the memory DB is unavailable", () => {
     memoryDbAvailable = false;
     expect(() =>
       recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000),
     ).not.toThrow();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+    expect(getActiveSlugs("conv-1").size).toBe(0);
     expect(getInjected("conv-1").size).toBe(0);
-    expect(residentBytes("conv-1")).toBe(100);
+    expect(residentBytes("conv-1")).toBe(0);
     expect(() => clearConversation("conv-1")).not.toThrow();
-  });
-
-  test("keeps a re-injected card active until its accounting write recovers", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-
-    memoryDbAvailable = false;
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getActiveEntries("conv-1")).toEqual([
-      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
-    ]);
-    expect(residentBytes("conv-1")).toBe(140);
-
-    memoryDbAvailable = true;
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 140,
-      prunedAt: null,
-    });
-  });
-
-  test("recovers a durable re-injection after runtime state is lost", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-
-    memoryDbAvailable = false;
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    memoryDbAvailable = true;
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
-    ]);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(residentBytes("conv-1")).toBe(140);
-  });
-
-  test("retains durable reconciliation until the memory database recovers", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    memoryDbAvailable = false;
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
-    ]);
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(residentBytes("conv-1")).toBe(140);
-
-    memoryDbAvailable = true;
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(residentBytes("conv-1")).toBe(140);
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 140,
-      prunedAt: null,
-    });
-  });
-
-  test("retains a newer prune after queued reconciliation recovers", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    memoryDbAvailable = false;
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 100, injectedAt: 1_500 },
-    ]);
-
-    memoryDbAvailable = true;
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
-  });
-
-  test("lets an outage-time prune supersede queued durable reconciliation", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    memoryDbAvailable = false;
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
-    ]);
-    markPruned("conv-1", ["topics/page-a"], 4_000);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
-    expect(residentBytes("conv-1")).toBe(0);
-
-    memoryDbAvailable = true;
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
-    expect(residentBytes("conv-1")).toBe(0);
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 140,
-      prunedAt: 4_000,
-    });
-  });
-
-  test("rolls back recovered injection when its queued prune fails", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    memoryDbAvailable = false;
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
-    ]);
-    markPruned("conv-1", ["topics/page-a"], 4_000);
-    memorySqlite.run(`
-      CREATE TRIGGER fail_recovered_prune
-      BEFORE UPDATE ON memory_v3_ever_injected
-      WHEN NEW.pruned_at = 4000
-      BEGIN
-        SELECT RAISE(ABORT, 'failed recovered prune');
-      END
-    `);
-
-    memoryDbAvailable = true;
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
-    expect(residentBytes("conv-1")).toBe(0);
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 100,
-      prunedAt: 2_000,
-    });
-
-    memorySqlite.run("DROP TRIGGER fail_recovered_prune");
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 140,
-      prunedAt: 4_000,
-    });
-  });
-
-  test("lets queued durable reconciliation supersede an older prune", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    memoryDbAvailable = false;
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 140, injectedAt: 3_000 },
-    ]);
-    markPruned("conv-1", ["topics/page-a"], 2_500);
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(residentBytes("conv-1")).toBe(140);
-
-    memoryDbAvailable = true;
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(residentBytes("conv-1")).toBe(140);
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 140,
-      prunedAt: null,
-    });
-  });
-
-  test("does not recover a persisted card older than its prune", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    _resetEverInjectedRuntimeStateForTests();
-
-    reconcilePersistedInjections("conv-1", [
-      { slug: "topics/page-a", bytes: 100, injectedAt: 1_500 },
-    ]);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
   });
 });
 
@@ -540,32 +353,5 @@ describe("fail-soft when the underlying statement fails", () => {
         5_000,
       ),
     ).not.toThrow();
-  });
-
-  test("retries a failed re-injection write before reading tombstones", () => {
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
-    markPruned("conv-1", ["topics/page-a"], 2_000);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-
-    memorySqlite.run(`
-      CREATE TRIGGER fail_reinjection
-      BEFORE UPDATE ON memory_v3_ever_injected
-      WHEN NEW.pruned_at IS NULL
-      BEGIN
-        SELECT RAISE(ABORT, 'failed re-injection');
-      END
-    `);
-    recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 140 }], 3_000);
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    expect(residentBytes("conv-1")).toBe(140);
-    expect(getInjected("conv-1").get("topics/page-a")?.prunedAt).toBe(2_000);
-
-    memorySqlite.run("DROP TRIGGER fail_reinjection");
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set());
-    expect(getInjected("conv-1").get("topics/page-a")).toEqual({
-      bytes: 140,
-      prunedAt: null,
-    });
   });
 });

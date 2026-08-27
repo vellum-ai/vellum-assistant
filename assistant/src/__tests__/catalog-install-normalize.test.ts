@@ -53,7 +53,6 @@ describe("fetchCatalog normalization", () => {
           icon: "🛒",
           category: "commerce",
           platforms: ["windows"],
-          required_host_capabilities: ["host_bash", "future_host"],
           updated_at: "2026-04-19T19:26:17Z",
         },
       ],
@@ -71,73 +70,6 @@ describe("fetchCatalog normalization", () => {
     expect(skill.updatedAt).toBe("2026-04-19T19:26:17Z");
     expect(skill.platforms).toEqual(["windows"]);
     expect(skill.metadata?.vellum?.platforms).toEqual(["windows"]);
-    expect(skill.requiredHostCapabilities).toEqual(["host_bash"]);
-    expect(skill.unsupportedHostCapabilities).toEqual(["future_host"]);
-    expect(skill.metadata?.vellum?.["required-host-capabilities"]).toEqual([
-      "host_bash",
-      "future_host",
-    ]);
-  });
-
-  test("preserves all-unknown remote requirements as unsupported", async () => {
-    globalThis.fetch = stubFetchJson({
-      skills: [
-        {
-          id: "future-skill",
-          description: "Needs a newer host",
-          required_host_capabilities: ["future_host"],
-        },
-      ],
-    });
-
-    const [skill] = await fetchCatalog();
-    expect(skill.requiredHostCapabilities).toBeUndefined();
-    expect(skill.unsupportedHostCapabilities).toEqual(["future_host"]);
-    expect(skill.metadata?.vellum?.["required-host-capabilities"]).toEqual([
-      "future_host",
-    ]);
-  });
-
-  test("fails closed on malformed remote host requirements", async () => {
-    globalThis.fetch = stubFetchJson({
-      skills: [
-        {
-          id: "scalar-host-requirement",
-          required_host_capabilities: "host_bash",
-        },
-        {
-          id: "object-host-requirement",
-          required_host_capabilities: { capability: "host_bash" },
-        },
-        {
-          id: "null-host-requirement",
-          metadata: {
-            vellum: { "required-host-capabilities": null },
-          },
-          required_host_capabilities: ["host_bash"],
-        },
-        {
-          id: "empty-host-requirement",
-          required_host_capabilities: [],
-        },
-      ],
-    });
-
-    const catalog = new Map(
-      (await fetchCatalog()).map((skill) => [skill.id, skill]),
-    );
-    for (const skillId of [
-      "scalar-host-requirement",
-      "object-host-requirement",
-      "null-host-requirement",
-    ]) {
-      expect(catalog.get(skillId)?.unsupportedHostCapabilities).toEqual([
-        "<invalid-required-host-capabilities>",
-      ]);
-    }
-    expect(
-      catalog.get("empty-host-requirement")?.unsupportedHostCapabilities,
-    ).toBeUndefined();
   });
 
   test("leaves category undefined when the API omits it", async () => {
@@ -190,7 +122,6 @@ describe("readLocalCatalog normalization", () => {
                   "display-name": "Tasks",
                   category: "productivity",
                   platforms: ["macos", "linux"],
-                  "required-host-capabilities": ["host_bash"],
                 },
               },
             },
@@ -204,7 +135,6 @@ describe("readLocalCatalog normalization", () => {
       expect(catalog[0].metadata?.vellum?.category).toBe("productivity");
       expect(catalog[0].metadata?.vellum?.["display-name"]).toBe("Tasks");
       expect(catalog[0].platforms).toEqual(["macos", "linux"]);
-      expect(catalog[0].requiredHostCapabilities).toEqual(["host_bash"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

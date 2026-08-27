@@ -1,7 +1,4 @@
-import {
-  isSkillCompatibleWithContext,
-  type SkillPlatformContext,
-} from "../skills/platform-compatibility.js";
+import { isSkillCompatibleWithPlatform } from "../skills/platform-compatibility.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import type { AssistantConfig, SkillEntryConfig } from "./schema.js";
 import type { SkillSummary } from "./skills.js";
@@ -27,7 +24,6 @@ export function skillFlagKey(
 export function resolveSkillStates(
   catalog: SkillSummary[],
   config: AssistantConfig,
-  platformContext?: SkillPlatformContext,
 ): ResolvedSkill[] {
   const results: ResolvedSkill[] = [];
   const { entries, allowBundled } = config.skills ?? {
@@ -36,10 +32,7 @@ export function resolveSkillStates(
   };
 
   for (const skill of catalog) {
-    if (
-      platformContext &&
-      !isSkillCompatibleWithContext(skill, platformContext)
-    ) {
+    if (!isSkillCompatibleWithPlatform(skill)) {
       continue;
     }
 

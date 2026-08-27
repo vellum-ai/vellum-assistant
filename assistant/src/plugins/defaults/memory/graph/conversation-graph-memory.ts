@@ -9,14 +9,11 @@
 // eviction of v2/v3 per-conversation state.
 // ---------------------------------------------------------------------------
 
-import {
-  type AssistantEvent,
-  type ContentBlock,
-  type ImageContent,
-  isSkillCompatibleWithContext,
-  type Message,
-  type PlatformScopedSkill,
-  type SkillPlatformContext,
+import type {
+  AssistantEvent,
+  ContentBlock,
+  ImageContent,
+  Message,
 } from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -25,7 +22,6 @@ import {
   isMemoryEnabled,
   isV2InjectionEngineActive,
 } from "../../../../config/memory-v3-gate.js";
-import { loadSkillCatalog } from "../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
 import { getDb, getMemoryDb } from "../../../../persistence/db-connection.js";
@@ -34,7 +30,6 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
 import { conversations } from "../../../../persistence/schema/conversations.js";
 import { memorySummaries } from "../../../../persistence/schema/index.js";
-import { getCachedCatalogSync } from "../../../../skills/catalog-cache.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
@@ -72,47 +67,11 @@ import {
   InContextTracker,
   type InContextTrackerSnapshot,
 } from "./in-context-tracker.js";
-import {
-  CAPABILITY_SKILL_SOURCE_PREFIX,
-  type RetrievalMetrics,
-  type ScoredNode,
-} from "./types.js";
+import type { RetrievalMetrics } from "./types.js";
 
 const log = getLogger("graph-conversation-memory");
 
 const ESTIMATED_IMAGE_TOKENS = 1000;
-
-function skillIdForCapabilityNode(scored: ScoredNode): string | null {
-  const source = scored.node.sourceConversations[0];
-  if (source?.startsWith(CAPABILITY_SKILL_SOURCE_PREFIX)) {
-    return source.slice(CAPABILITY_SKILL_SOURCE_PREFIX.length);
-  }
-  const legacy = /^skill:(\S+)\n/.exec(scored.node.content);
-  if (legacy) {
-    return legacy[1] ?? null;
-  }
-  return (
-    / skill \(([^)]+)\) is available\./.exec(scored.node.content)?.[1] ?? null
-  );
-}
-
-function filterSkillCapabilityNodes(
-  nodes: readonly ScoredNode[],
-  context?: SkillPlatformContext,
-): ScoredNode[] {
-  let catalog: Array<PlatformScopedSkill & { id: string }> | undefined;
-  return nodes.filter((scored) => {
-    const skillId = skillIdForCapabilityNode(scored);
-    if (skillId === null) {
-      return true;
-    }
-    catalog ??= [...loadSkillCatalog(), ...getCachedCatalogSync()];
-    const skill = catalog.find((entry) => entry.id === skillId);
-    return (
-      skill !== undefined && isSkillCompatibleWithContext(skill, context ?? {})
-    );
-  });
-}
 
 /**
  * Page size for {@link ConversationGraphMemory.fetchRecentSummaries}. It reads
@@ -566,7 +525,6 @@ export class ConversationGraphMemory {
     abortSignal: AbortSignal,
     onEvent: (msg: AssistantEvent) => void,
     routingMessages: Message[] = messages,
-    skillPlatformContext?: SkillPlatformContext,
   ): Promise<{
     runMessages: Message[];
     injectedTokens: number;
@@ -651,7 +609,6 @@ export class ConversationGraphMemory {
           firstUserText ?? undefined,
           abortSignal,
           onEvent,
-          skillPlatformContext,
         );
       }
 
@@ -660,7 +617,6 @@ export class ConversationGraphMemory {
         routingMessages,
         config,
         abortSignal,
-        skillPlatformContext,
       );
     } catch (err) {
       const errCode =
@@ -690,7 +646,6 @@ export class ConversationGraphMemory {
     userQuery: string | undefined,
     signal: AbortSignal,
     onEvent: (msg: AssistantEvent) => void,
-    skillPlatformContext?: SkillPlatformContext,
   ) {
     // Use the raw user text (no >10-char filter) so even short greetings
     // ("hi") get a fresh top-K activation dump on the first user message.
@@ -711,7 +666,6 @@ export class ConversationGraphMemory {
       // walking back through `messages`.
       rawUserText ?? userQuery ?? "",
       signal,
-      skillPlatformContext,
     );
 
     if (v2.routed) {
@@ -762,18 +716,7 @@ export class ConversationGraphMemory {
     this.initialized = true;
     this.needsReload = false;
 
-    const compatibleNodes = filterSkillCapabilityNodes(
-      result.nodes,
-      skillPlatformContext,
-    );
-    const compatibleSerendipityNodes = filterSkillCapabilityNodes(
-      result.serendipityNodes,
-      skillPlatformContext,
-    );
-    if (
-      compatibleNodes.length === 0 &&
-      compatibleSerendipityNodes.length === 0
-    ) {
+    if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -792,12 +735,12 @@ export class ConversationGraphMemory {
     }
 
     // Track loaded nodes (including serendipity)
-    this.tracker.add(compatibleNodes.map((n) => n.node.id));
-    this.tracker.add(compatibleSerendipityNodes.map((n) => n.node.id));
+    this.tracker.add(result.nodes.map((n) => n.node.id));
+    this.tracker.add(result.serendipityNodes.map((n) => n.node.id));
 
     // Assemble context block
-    const contextBlock = assembleContextBlock(compatibleNodes, {
-      serendipityNodes: compatibleSerendipityNodes,
+    const contextBlock = assembleContextBlock(result.nodes, {
+      serendipityNodes: result.serendipityNodes,
     });
     if (!contextBlock) {
       return {
@@ -816,7 +759,7 @@ export class ConversationGraphMemory {
 
     // Resolve images from scored nodes
     const images = await resolveInjectionImages(
-      [...compatibleNodes, ...compatibleSerendipityNodes],
+      [...result.nodes, ...result.serendipityNodes],
       MAX_CONTEXT_LOAD_IMAGES,
     );
 
@@ -831,8 +774,8 @@ export class ConversationGraphMemory {
 
     this.lastInjectedBlock = contextBlock;
     this.lastInjectedNodeIds = [
-      ...compatibleNodes.map((n) => n.node.id),
-      ...compatibleSerendipityNodes.map((n) => n.node.id),
+      ...result.nodes.map((n) => n.node.id),
+      ...result.serendipityNodes.map((n) => n.node.id),
     ];
     this.lastInjectedImages = images;
 
@@ -855,7 +798,6 @@ export class ConversationGraphMemory {
     routingMessages: Message[],
     config: AssistantConfig,
     signal: AbortSignal,
-    skillPlatformContext?: SkillPlatformContext,
   ) {
     // Extract last assistant and user messages as text
     let assistantLast = "";
@@ -894,7 +836,6 @@ export class ConversationGraphMemory {
       "per-turn",
       null,
       signal,
-      skillPlatformContext,
     );
     if (v2.routed) {
       // Surface a per-turn query embedding so PKB hint search still runs
@@ -943,11 +884,7 @@ export class ConversationGraphMemory {
       signal,
     });
 
-    const compatibleNodes = filterSkillCapabilityNodes(
-      result.nodes,
-      skillPlatformContext,
-    );
-    if (compatibleNodes.length === 0) {
+    if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
       this.lastInjectedImages = new Map();
@@ -964,9 +901,9 @@ export class ConversationGraphMemory {
     }
 
     // Track new nodes
-    this.tracker.add(compatibleNodes.map((n) => n.node.id));
+    this.tracker.add(result.nodes.map((n) => n.node.id));
 
-    const injectionBlock = assembleInjectionBlock(compatibleNodes);
+    const injectionBlock = assembleInjectionBlock(result.nodes);
     if (!injectionBlock) {
       return {
         runMessages: messages,
@@ -982,12 +919,12 @@ export class ConversationGraphMemory {
 
     // Resolve images from scored nodes
     const images = await resolveInjectionImages(
-      compatibleNodes,
+      result.nodes,
       MAX_PER_TURN_IMAGES,
     );
 
     this.lastInjectedBlock = injectionBlock;
-    this.lastInjectedNodeIds = compatibleNodes.map((n) => n.node.id);
+    this.lastInjectedNodeIds = result.nodes.map((n) => n.node.id);
     this.lastInjectedImages = images;
 
     return {
@@ -1070,7 +1007,6 @@ export class ConversationGraphMemory {
      */
     userMessageOverride: string | null,
     signal: AbortSignal,
-    skillPlatformContext?: SkillPlatformContext,
   ): Promise<{
     routed: boolean;
     runMessages: Message[];
@@ -1096,7 +1032,6 @@ export class ConversationGraphMemory {
       messageId: `${this.conversationId}:turn:${currentTurn}`,
       mode,
       config,
-      skillPlatformContext,
       signal,
     });
 

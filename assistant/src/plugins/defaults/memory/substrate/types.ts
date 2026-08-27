@@ -14,7 +14,6 @@
 // This file must not import from any other substrate module — it is the
 // leaf of the substrate dependency graph.
 
-import type { HostProxyCapability, SkillPlatform } from "@vellumai/plugin-api";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -167,9 +166,6 @@ export type ActivationState = z.infer<typeof ActivationStateSchema>;
 export interface SkillEntry {
   id: string;
   content: string;
-  platforms?: SkillPlatform[];
-  requiredHostCapabilities?: HostProxyCapability[];
-  unsupportedHostCapabilities?: string[];
 }
 
 // ---------------------------------------------------------------------------

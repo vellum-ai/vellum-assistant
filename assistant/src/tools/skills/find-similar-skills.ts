@@ -4,8 +4,8 @@ import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidat
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import {
-  filterSkillsByContext,
-  type PlatformScopedSkill,
+  filterSkillsByPlatform,
+  type SkillPlatform,
 } from "../../skills/platform-compatibility.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -43,13 +43,14 @@ export async function executeFindSimilarSkills(
   context: ToolContext,
   deps: {
     nearestExistingSkills?: typeof nearestExistingSkills;
-    loadCatalog?: () => (PlatformScopedSkill & {
+    loadCatalog?: () => {
       id: string;
       name: string;
       description: string;
       source: SkillSource;
       owner?: OwnerInfo;
-    })[];
+      platforms?: SkillPlatform[];
+    }[];
   } = {},
 ): Promise<ToolExecutionResult> {
   const goal = input.goal;
@@ -96,15 +97,10 @@ export async function executeFindSimilarSkills(
   // slices only those. Filtering after the limit would let out-of-scope
   // high-rank matches consume slots and starve usable in-scope skills out of
   // the result. `null` set = pass the catalog through unchanged.
-  const scopedCatalog = filterSkillsByContext(
+  const scopedCatalog = filterSkillsByPlatform(
     enabledPluginSet === null
       ? catalog
       : catalog.filter((skill) => !outOfScope(skill)),
-    {
-      clientOs: context.clientOs,
-      isInteractive: context.isInteractive,
-      sourceActorPrincipalId: context.sourceActorPrincipalId,
-    },
   );
 
   const hits = await findNearest(goal, {

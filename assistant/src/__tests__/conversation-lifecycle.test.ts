@@ -76,48 +76,22 @@ const realEverInjectedStore = {
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSlugs = new Set<string>();
-let mockReconciledInjections: Array<{
-  slug: string;
-  bytes: number;
-  injectedAt: number;
-}> = [];
 mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
   ...realEverInjectedStore,
   getPrunedSlugs: (conversationId: string) =>
     lifecycleStoreMockActive
       ? mockPrunedSlugs
       : realEverInjectedStore.getPrunedSlugs(conversationId),
-  reconcilePersistedInjections: (
-    conversationId: string,
-    entries: Array<{ slug: string; bytes: number; injectedAt: number }>,
-  ) => {
-    if (!lifecycleStoreMockActive) {
-      return realEverInjectedStore.reconcilePersistedInjections(
-        conversationId,
-        entries,
-      );
-    }
-    mockReconciledInjections = entries;
-    for (const entry of entries) {
-      mockPrunedSlugs.delete(entry.slug);
-    }
-  },
 }));
 
 import {
   Conversation,
   type ConversationConstructorOptions,
 } from "../daemon/conversation.js";
-import {
-  MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY,
-  SKILL_CARD_SUPPRESSIONS_METADATA_KEY,
-} from "../plugins/defaults/memory/skill-card-suppression.js";
-import { renderCardsBlockInner } from "../plugins/defaults/memory/v3/render-injection.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
   mockPrunedSlugs = new Set();
-  mockReconciledInjections = [];
 });
 
 afterAll(() => {
@@ -432,156 +406,6 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
-  test("restart keeps old skill occurrences suppressed after reconnect reinjection", async () => {
-    mockConversation = defaultConv();
-    const windowsCard =
-      "# Skill: windows-automation\nAutomates native Windows applications.";
-    const oldBlock = renderCardsBlockInner([
-      windowsCard,
-      "# memory/concepts/page-a.md\nhead a",
-    ]);
-    const reconnectedBlock = renderCardsBlockInner([windowsCard]);
-    mockDbMessages = [
-      {
-        id: "m1",
-        role: "user",
-        content: [{ type: "text", text: "First turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: oldBlock,
-          [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: {
-            "conv-1": ["windows-automation"],
-          },
-        }),
-      },
-      {
-        id: "m2",
-        role: "user",
-        content: [{ type: "text", text: "Reconnect turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: reconnectedBlock,
-        }),
-      },
-    ];
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-    const rendered = JSON.stringify(conversation.getMessages());
-
-    expect(
-      rendered.match(/Automates native Windows applications\./g),
-    ).toHaveLength(1);
-    expect(rendered).toContain("# memory/concepts/page-a.md");
-  });
-
-  test("restart uses legacy card identities to preserve canonical concept prose", async () => {
-    mockConversation = defaultConv();
-    const legacyBlock = [
-      "# memory/concepts/project.md",
-      "Concept lead.",
-      "# Skill: windows-automation",
-      'The "Windows Automation" skill (windows-automation) is available. Concept example.',
-      "# Skill: windows-automation",
-      'The "Windows Automation" skill (windows-automation) is available. Real card.',
-      "# memory/concepts/next.md",
-      "Adjacent concept.",
-    ].join("\n\n");
-    mockDbMessages = [
-      {
-        id: "m1",
-        role: "user",
-        content: [{ type: "text", text: "First turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: legacyBlock,
-          memoryV3InjectedCardSlugs: [
-            "project",
-            "skills/windows-automation",
-            "next",
-          ],
-          [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: {
-            "conv-1": ["windows-automation"],
-          },
-        }),
-      },
-    ];
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-    const rendered = JSON.stringify(conversation.getMessages());
-
-    expect(rendered).toContain("Concept example.");
-    expect(rendered).not.toContain("Real card.");
-    expect(rendered).toContain("Adjacent concept.");
-  });
-
-  test("restart keeps a replaced metadata-less legacy block suppressed", async () => {
-    mockConversation = defaultConv();
-    const legacyBlock = [
-      "# memory/concepts/project.md",
-      "Old concept content.",
-      "# Skill: windows-automation",
-      'The "Windows Automation" skill (windows-automation) is available. Old card.',
-    ].join("\n\n");
-    const reconnectedBlock = renderCardsBlockInner([
-      '# Skill: windows-automation\nThe "Windows Automation" skill (windows-automation) is available. Current card.',
-      "# memory/concepts/page-a.md\nCurrent concept.",
-    ]);
-    mockDbMessages = [
-      {
-        id: "m1",
-        role: "user",
-        content: [{ type: "text", text: "Disconnected turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: legacyBlock,
-          [MEMORY_V3_LEGACY_BLOCK_SUPPRESSIONS_METADATA_KEY]: ["conv-1"],
-        }),
-      },
-      {
-        id: "m2",
-        role: "user",
-        content: [{ type: "text", text: "Reconnect turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: reconnectedBlock,
-        }),
-      },
-    ];
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-    const rendered = JSON.stringify(conversation.getMessages());
-
-    expect(rendered).not.toContain("Old concept content.");
-    expect(rendered).not.toContain("Old card.");
-    expect(rendered).toContain("Current card.");
-    expect(rendered).toContain("Current concept.");
-  });
-
-  test("restart strips suppressed v1 skill entries and keeps ordinary memory", async () => {
-    mockConversation = defaultConv();
-    mockDbMessages = [
-      {
-        id: "m1",
-        role: "user",
-        content: [{ type: "text", text: "First turn" }],
-        metadata: JSON.stringify({
-          memoryInjectedBlock: [
-            '- [skill] The "Windows Automation" skill (windows-automation) is available. Automates Windows applications. → use skill_load to activate',
-            "- (1d ago) Keep this ordinary memory.",
-          ].join("\n"),
-          [SKILL_CARD_SUPPRESSIONS_METADATA_KEY]: {
-            "conv-1": ["windows-automation"],
-          },
-        }),
-      },
-    ];
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-    const rendered = JSON.stringify(conversation.getMessages());
-
-    expect(rendered).not.toContain("Windows Automation");
-    expect(rendered).toContain("Keep this ordinary memory.");
-  });
-
   test("pruned slugs' card sections are skipped at v3 rehydration (prune valve persistence)", async () => {
     // The prune valve marks cards pruned in the everInjected store instead of
     // rewriting the persisted metadata; the rehydration splice re-filters on
@@ -645,35 +469,6 @@ describe("loadFromDb metadata injection rehydration", () => {
     // No memory block at all — an instruction header with zero cards carries
     // no content (matches the live strip, which removes the emptied block).
     expect(messages[0].content).toEqual([{ type: "text", text: "First turn" }]);
-  });
-
-  test("durable injection metadata reconciles a stale prune before rehydration", async () => {
-    mockConversation = defaultConv();
-    mockPrunedSlugs = new Set(["page-a"]);
-    const card = "# memory/concepts/page-a.md\nhead a";
-    mockDbMessages = [
-      {
-        id: "m1",
-        role: "user",
-        content: [{ type: "text", text: "Re-injection turn" }],
-        metadata: JSON.stringify({
-          memoryV3InjectedBlock: renderCardsBlockInner([card]),
-          memoryV3InjectedAt: 3_000,
-        }),
-      },
-    ];
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    expect(mockReconciledInjections).toEqual([
-      {
-        slug: "page-a",
-        bytes: Buffer.byteLength(card, "utf8"),
-        injectedAt: 3_000,
-      },
-    ]);
-    expect(JSON.stringify(conversation.getMessages())).toContain("head a");
   });
 
   test("defensively-wrapped memoryV3InjectedBlock rehydrates singly-wrapped", async () => {

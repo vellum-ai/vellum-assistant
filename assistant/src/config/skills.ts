@@ -18,14 +18,13 @@ import {
 
 import { z } from "zod";
 
-import { type ClientOs, type HostProxyCapability } from "../channels/types.js";
+import type { ClientOs } from "../channels/types.js";
 import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
 import {
-  normalizeRequiredHostCapabilities,
   normalizeSkillPlatforms,
   SKILL_PLATFORM_VALUES,
   type SkillPlatform,
@@ -58,7 +57,6 @@ const VellumMetadataSchema = z
     category: z.string().optional(),
     "always-candidate": z.boolean().optional(),
     platforms: z.array(z.enum(SKILL_PLATFORM_VALUES)).optional(),
-    "required-host-capabilities": z.array(z.string()).optional(),
   })
   .passthrough();
 
@@ -139,9 +137,6 @@ export interface SkillSummary {
   alwaysCandidate?: boolean;
   /** Host operating systems on which this skill may be offered and loaded. */
   platforms?: SkillPlatform[];
-  /** Connected host capabilities required before this skill may be offered. */
-  requiredHostCapabilities?: HostProxyCapability[];
-  unsupportedHostCapabilities?: string[];
   /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
@@ -268,8 +263,6 @@ interface ParsedFrontmatter {
   category?: string;
   alwaysCandidate?: boolean;
   platforms?: SkillPlatform[];
-  requiredHostCapabilities?: HostProxyCapability[];
-  unsupportedHostCapabilities?: string[];
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
@@ -393,8 +386,6 @@ function parseFrontmatter(
       : undefined;
 
   const platforms = normalizeSkillPlatforms(vellum?.platforms);
-  const { requiredHostCapabilities, unsupportedHostCapabilities } =
-    normalizeRequiredHostCapabilities(vellum?.["required-host-capabilities"]);
 
   const strippedBody = stripCommentLines(body);
 
@@ -422,8 +413,6 @@ function parseFrontmatter(
     category,
     alwaysCandidate,
     platforms,
-    requiredHostCapabilities,
-    unsupportedHostCapabilities,
     inlineCommandExpansions,
   };
 }
@@ -585,8 +574,6 @@ function readSkillFromDirectory(
       category: parsed.category,
       alwaysCandidate: parsed.alwaysCandidate,
       platforms: parsed.platforms,
-      requiredHostCapabilities: parsed.requiredHostCapabilities,
-      unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -644,8 +631,6 @@ function readBundledSkillFromDirectory(
       category: parsed.category,
       alwaysCandidate: parsed.alwaysCandidate,
       platforms: parsed.platforms,
-      requiredHostCapabilities: parsed.requiredHostCapabilities,
-      unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -715,8 +700,6 @@ function loadBundledSkills(): SkillSummary[] {
       category: skill.category,
       alwaysCandidate: skill.alwaysCandidate,
       platforms: skill.platforms,
-      requiredHostCapabilities: skill.requiredHostCapabilities,
-      unsupportedHostCapabilities: skill.unsupportedHostCapabilities,
       inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
@@ -1008,8 +991,6 @@ function skillSummaryFromDefinition(
     category: skill.category,
     alwaysCandidate: skill.alwaysCandidate,
     platforms: skill.platforms,
-    requiredHostCapabilities: skill.requiredHostCapabilities,
-    unsupportedHostCapabilities: skill.unsupportedHostCapabilities,
     inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
@@ -1074,8 +1055,6 @@ export function loadSkillCatalog(
             category: parsed.category,
             alwaysCandidate: parsed.alwaysCandidate,
             platforms: parsed.platforms,
-            requiredHostCapabilities: parsed.requiredHostCapabilities,
-            unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -1224,8 +1203,6 @@ export function loadSkillCatalog(
           category: parsed.category,
           alwaysCandidate: parsed.alwaysCandidate,
           platforms: parsed.platforms,
-          requiredHostCapabilities: parsed.requiredHostCapabilities,
-          unsupportedHostCapabilities: parsed.unsupportedHostCapabilities,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 

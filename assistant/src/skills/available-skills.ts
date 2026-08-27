@@ -1,8 +1,10 @@
-import type { HostProxyCapability } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { SkillSource } from "../config/skills.js";
 import type { SkillInstallMeta } from "./install-meta.js";
-import type { SkillPlatform } from "./platform-compatibility.js";
+import {
+  isSkillCompatibleWithPlatform,
+  type SkillPlatform,
+} from "./platform-compatibility.js";
 
 /**
  * Plugin-facing read API over the skill surface: the locally installed
@@ -32,9 +34,6 @@ export interface ResolvedSkillEntry {
   alwaysCandidate?: boolean;
   /** Host operating systems on which this skill may be used. */
   platforms?: SkillPlatform[];
-  /** Connected host capabilities required before this skill may be used. */
-  requiredHostCapabilities?: HostProxyCapability[];
-  unsupportedHostCapabilities?: string[];
   /** True for locally installed skills; false for remote catalog entries. */
   installed: boolean;
   /** Where the installed skill comes from. Unset for remote catalog entries. */
@@ -85,14 +84,9 @@ export async function listInstalledSkills(): Promise<ResolvedSkillEntry[]> {
       avoidWhen: summary.avoidWhen,
       alwaysCandidate: summary.alwaysCandidate,
       platforms: summary.platforms,
-      requiredHostCapabilities: summary.requiredHostCapabilities,
-      unsupportedHostCapabilities: summary.unsupportedHostCapabilities,
       installed: true,
       source: summary.source,
-      state:
-        (summary.unsupportedHostCapabilities?.length ?? 0) > 0
-          ? "unavailable"
-          : (stateById.get(summary.id) ?? "unavailable"),
+      state: stateById.get(summary.id) ?? "unavailable",
     };
     if (
       summary.source === "managed" ||
@@ -134,6 +128,7 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       typeof flagKey === "string" &&
       flagKey.length > 0 &&
       !isAssistantFeatureFlagEnabled(flagKey, config);
+    const incompatible = !isSkillCompatibleWithPlatform(entry);
     return {
       id: entry.id,
       displayName: entry.metadata?.vellum?.["display-name"] ?? entry.name,
@@ -141,13 +136,8 @@ export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
       activationHints: entry.metadata?.vellum?.["activation-hints"],
       avoidWhen: entry.metadata?.vellum?.["avoid-when"],
       platforms: entry.platforms,
-      requiredHostCapabilities: entry.requiredHostCapabilities,
-      unsupportedHostCapabilities: entry.unsupportedHostCapabilities,
       installed: false,
-      state:
-        gated || (entry.unsupportedHostCapabilities?.length ?? 0) > 0
-          ? "unavailable"
-          : "available",
+      state: gated || incompatible ? "unavailable" : "available",
     };
   });
 }

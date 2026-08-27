@@ -905,7 +905,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-27T19:44:57.000Z"
+      "updatedAt": "2026-08-27T20:51:21.000Z"
     },
     {
       "id": "start-the-day",
@@ -1396,9 +1396,6 @@
           "display-name": "Windows Automation",
           "platforms": [
             "windows"
-          ],
-          "required-host-capabilities": [
-            "host_bash"
           ],
           "activation-hints": [
             "Interacting with native Windows apps or system settings",

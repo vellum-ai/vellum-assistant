@@ -4,7 +4,6 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary } from "../config/skills.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 beforeEach(() => {
@@ -226,48 +225,6 @@ describe("resolveSkillStates with feature flags", () => {
 
     // Skills without featureFlag are never gated — always pass through
     expect(ids).toContain("no-flag-skill");
-  });
-
-  test("includes a skill supported by the requesting desktop client", () => {
-    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
-    const skill = {
-      ...makeSkill("client-platform-skill"),
-      platforms: [clientPlatform],
-      requiredHostCapabilities: ["host_bash"],
-    } as SkillSummary;
-    const config = makeConfig();
-
-    expect(resolveSkillStates([skill], config)).toEqual([
-      expect.objectContaining({
-        summary: expect.objectContaining({ id: "client-platform-skill" }),
-        state: "enabled",
-      }),
-    ]);
-
-    const hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "skill-state-client-platform-host",
-      interfaceId: clientPlatform,
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    try {
-      expect(
-        resolveSkillStates([skill], config, {
-          clientOs: clientPlatform,
-          isInteractive: true,
-          sourceActorPrincipalId: "actor-a",
-        }),
-      ).toEqual([
-        expect.objectContaining({
-          summary: expect.objectContaining({ id: "client-platform-skill" }),
-          state: "enabled",
-        }),
-      ]);
-    } finally {
-      hostClient.dispose();
-    }
   });
 
   test("feature flag OFF takes precedence over user-enabled config entry", () => {

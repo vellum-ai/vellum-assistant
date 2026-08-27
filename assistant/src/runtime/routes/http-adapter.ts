@@ -135,7 +135,6 @@ export function routeDefinitionsToHTTPRoutes(
           queryParams,
           body,
           rawBody,
-          transport: "http",
           headers,
           abortSignal: req.signal,
         });

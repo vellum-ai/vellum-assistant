@@ -14,8 +14,6 @@ const mockCatalogSkills = mock(
     source: string;
     directoryPath?: string;
     platforms?: Array<"macos" | "windows" | "linux">;
-    requiredHostCapabilities?: Array<"host_bash">;
-    unsupportedHostCapabilities?: string[];
   }> => [],
 );
 const mockClawhubInstall = mock(
@@ -174,7 +172,6 @@ setConfig("memory", { v2: { enabled: false } });
 
 // Import after mocking
 import { installSkill } from "../daemon/handlers/skills.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -408,100 +405,6 @@ Body.
       expect(result.error).toContain("unavailable on this operating system");
     }
     expect(mockEnsureSkillEntry).not.toHaveBeenCalled();
-  });
-
-  test("allows a bundled skill supported by the requesting desktop client", async () => {
-    const clientPlatform = process.platform === "win32" ? "macos" : "windows";
-    mockCatalogSkills.mockReturnValue([
-      {
-        id: "client-platform-skill",
-        displayName: "Client Platform Skill",
-        description: "Uses the requesting desktop host",
-        source: "bundled",
-        directoryPath: "/tmp/test-bundled-skills/client-platform-skill",
-        platforms: [clientPlatform],
-        requiredHostCapabilities: ["host_bash"],
-      },
-    ]);
-
-    const hostClient = assistantEventHub.subscribe({
-      type: "client",
-      clientId: "install-skill-routing-host",
-      interfaceId: clientPlatform,
-      capabilities: ["host_bash"],
-      actorPrincipalId: "actor-a",
-      callback: () => {},
-    });
-    try {
-      const result = await installSkill({
-        slug: "client-platform-skill",
-        clientOs: clientPlatform,
-        sourceActorPrincipalId: "actor-a",
-        isInteractive: true,
-      });
-
-      expect(result).toEqual({
-        success: true,
-        skillId: "client-platform-skill",
-      });
-      expect(mockEnsureSkillEntry).toHaveBeenCalledWith(
-        expect.anything(),
-        "client-platform-skill",
-      );
-    } finally {
-      hostClient.dispose();
-    }
-  });
-
-  test("rejects bundled skills with unsupported host requirements", async () => {
-    mockCatalogSkills.mockReturnValue([
-      {
-        id: "future-skill",
-        displayName: "Future Skill",
-        description: "Needs a newer host",
-        source: "bundled",
-        directoryPath: "/tmp/test-bundled-skills/future-skill",
-        requiredHostCapabilities: ["host_bash"],
-        unsupportedHostCapabilities: ["future_host"],
-      },
-    ]);
-
-    const result = await installSkill({
-      slug: "future-skill",
-      clientOs: "windows",
-      sourceActorPrincipalId: "actor-a",
-      isInteractive: true,
-    });
-    expect(result.success).toBe(false);
-    expect(mockEnsureSkillEntry).not.toHaveBeenCalled();
-  });
-
-  test("asks the user to reconnect a missing capable host", async () => {
-    mockCatalogSkills.mockReturnValue([
-      {
-        id: "windows-automation",
-        displayName: "Windows Automation",
-        description: "Uses a connected Windows host",
-        source: "bundled",
-        directoryPath: "/tmp/test-bundled-skills/windows-automation",
-        platforms: ["windows"],
-        requiredHostCapabilities: ["host_bash"],
-      },
-    ]);
-
-    const result = await installSkill({
-      slug: "windows-automation",
-      clientOs: "windows",
-      sourceActorPrincipalId: "actor-a",
-      isInteractive: true,
-      hostPlatforms: [],
-    });
-
-    expect(result).toEqual({
-      success: false,
-      error:
-        'Skill "windows-automation" requires a connected host that provides: host_bash. Reconnect a compatible host client and try again.',
-    });
   });
 
   test("skills.sh install failure propagates error", async () => {

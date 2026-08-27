@@ -22,7 +22,7 @@ import {
 } from "../../skills/include-graph.js";
 import { renderInlineCommands } from "../../skills/inline-command-render.js";
 import {
-  isSkillCompatibleWithContext,
+  isSkillCompatibleWithPlatform,
   skillPlatformUnavailableMessage,
 } from "../../skills/platform-compatibility.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
@@ -204,13 +204,7 @@ export const skillLoadTool = {
       (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
     ) {
       try {
-        const installed = await autoInstallFromCatalog(
-          selector,
-          undefined,
-          context.clientOs,
-          context.sourceActorPrincipalId,
-          context.isInteractive,
-        );
+        const installed = await autoInstallFromCatalog(selector);
         if (installed) {
           log.info({ skillId: selector }, "Auto-installed skill from catalog");
           loaded = loadSkillBySelector(selector);
@@ -237,19 +231,9 @@ export const skillLoadTool = {
 
     const skill = loaded.skill;
 
-    if (
-      !isSkillCompatibleWithContext(skill, {
-        clientOs: context.clientOs,
-        isInteractive: context.isInteractive,
-        sourceActorPrincipalId: context.sourceActorPrincipalId,
-      })
-    ) {
+    if (!isSkillCompatibleWithPlatform(skill)) {
       return {
-        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill, {
-          clientOs: context.clientOs,
-          isInteractive: context.isInteractive,
-          sourceActorPrincipalId: context.sourceActorPrincipalId,
-        })}`,
+        content: `Error: ${skillPlatformUnavailableMessage(skill.id, skill)}`,
         isError: true,
       };
     }
@@ -337,9 +321,6 @@ export const skillLoadTool = {
             const installed = await autoInstallFromCatalog(
               missingId,
               remoteCatalog,
-              context.clientOs,
-              context.sourceActorPrincipalId,
-              context.isInteractive,
             );
             if (installed) {
               log.info(
@@ -468,13 +449,7 @@ export const skillLoadTool = {
         if (childOutOfPluginScope(child)) {
           continue;
         }
-        if (
-          !isSkillCompatibleWithContext(child, {
-            clientOs: context.clientOs,
-            isInteractive: context.isInteractive,
-            sourceActorPrincipalId: context.sourceActorPrincipalId,
-          })
-        ) {
+        if (!isSkillCompatibleWithPlatform(child)) {
           continue;
         }
         const childFlagKey = skillFlagKey(child);

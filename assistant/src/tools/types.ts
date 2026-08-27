@@ -176,7 +176,7 @@ export function stringifyToolInput(input: Record<string, unknown>): string {
  * - A small, stable core that we are comfortable exposing to any tool —
  *   including workspace- and plugin-authored tools via `@vellumai/plugin-api`:
  *   `conversationId`, `workingDir`, `requestId`, `signal`, `onOutput`,
- *   `assistantId`, `clientOs`, `isInteractive`.
+ *   `assistantId`, `isInteractive`.
  * - Everything tagged `@legacy` below: host-internal routing, permission,
  *   trust, requester-identity, proxy, and telemetry metadata that historically
  *   accreted on this single context. These are NOT a surface we want third-party

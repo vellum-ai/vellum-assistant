@@ -75,15 +75,9 @@ import {
 } from "../../../types.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock, wrapMemorySpotlightBlock } from "../memory-marker.js";
-import { isSkillSlugCompatible } from "../substrate/skill-card-compatibility.js";
-import { isSkillSlug } from "../substrate/skill-store.js";
 import { isCapabilitySlug } from "./capabilities.js";
 import { cardBytes } from "./card.js";
-import {
-  getActiveSlugs,
-  markPruned,
-  recordInjected,
-} from "./ever-injected-store.js";
+import { getActiveSlugs, recordInjected } from "./ever-injected-store.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { renderV3CardContent } from "./page-content.js";
 import { MemoryV3RetrievalUnavailableError } from "./pool-select.js";
@@ -298,18 +292,6 @@ export const memoryV3Injector: Injector = {
       return null;
     }
 
-    const skillPlatformContext = {
-      clientOs: ctx.clientOs,
-      isInteractive: ctx.isInteractive,
-      sourceActorPrincipalId: ctx.sourceActorPrincipalId,
-    };
-    const incompatibleActiveSkills = [...getActiveSlugs(ctx.conversationId)]
-      .filter(isSkillSlug)
-      .filter((slug) => !isSkillSlugCompatible(slug, skillPlatformContext));
-    if (incompatibleActiveSkills.length > 0) {
-      markPruned(ctx.conversationId, incompatibleActiveSkills, Date.now());
-    }
-
     let observed: OrchestrateResult | null;
     try {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
@@ -342,8 +324,7 @@ export const memoryV3Injector: Injector = {
       const active = getActiveSlugs(ctx.conversationId);
       const netNew = result.selections
         .map((s) => s.slug)
-        .filter((slug) => !active.has(slug))
-        .filter((slug) => isSkillSlugCompatible(slug, skillPlatformContext));
+        .filter((slug) => !active.has(slug));
 
       // Render net-new cards, skipping slugs that resolve to no content
       // (deleted pages, unresolvable capabilities) — nothing is attached for

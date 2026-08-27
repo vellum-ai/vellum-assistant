@@ -103,14 +103,6 @@ export type {
 // pass `"inference"` (the general-purpose call site) and pick the model via the
 // `overrideProfile` option.
 export type { LLMCallSite } from "../config/schemas/llm.js";
-export {
-  type HostProxyCapability,
-  isSkillCompatibleWithContext,
-  type PlatformScopedSkill,
-  resolveSkillTurnIsInteractive,
-  type SkillPlatform,
-  type SkillPlatformContext,
-} from "./skill-platform.js";
 export type {
   AgentLoopExitReason,
   ConversationDeletedContext,

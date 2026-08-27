@@ -23,8 +23,6 @@
 // user message only — prior turns' attachments are left alone. This keeps the
 // cached prefix bytes-identical across turns.
 
-import type { SkillPlatformContext } from "@vellumai/plugin-api";
-
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
@@ -35,10 +33,6 @@ import {
 import { getEdgeIndex } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
-import {
-  filterCompatibleEverInjected,
-  isSkillSlugCompatible,
-} from "../substrate/skill-card-compatibility.js";
 import {
   getSkillCapability,
   isSkillSlug,
@@ -108,8 +102,6 @@ export interface InjectMemoryV2BlockParams {
    */
   mode?: InjectMemoryV2Mode;
   config: AssistantConfig;
-  /** Platform capability of the interactive actor driving this turn. */
-  skillPlatformContext?: SkillPlatformContext;
   signal?: AbortSignal;
 }
 
@@ -156,7 +148,6 @@ export async function injectMemoryV2Block(
     nowText,
     messageId,
     config,
-    skillPlatformContext,
     signal,
   } = params;
 
@@ -198,7 +189,6 @@ export async function injectMemoryV2Block(
       messageId,
       config,
       priorState,
-      skillPlatformContext,
       signal,
     });
   }
@@ -246,10 +236,8 @@ export async function injectMemoryV2Block(
   // prior cached attachments don't exist or have been thrown away. The user
   // message gets a complete top-K dump alongside the static
   // essentials/threads/recent block, then per-turn turns just add deltas.
-  const priorEverInjected = filterCompatibleEverInjected(
-    priorState?.everInjected ?? [],
-    skillPlatformContext ?? {},
-  );
+  const priorEverInjected: readonly EverInjectedEntry[] =
+    priorState?.everInjected ?? [];
   const { topNow, toInject } = selectInjections({
     A: finalActivation,
     priorEverInjected,
@@ -305,7 +293,6 @@ export async function injectMemoryV2Block(
     telemetryRows,
     config,
     nextStateMap,
-    skillPlatformContext,
   });
 }
 
@@ -366,7 +353,6 @@ async function finalizeInjection(args: {
   telemetryRows: MemoryV2ConceptRowRecord[];
   config: AssistantConfig;
   nextStateMap: Record<string, number>;
-  skillPlatformContext?: SkillPlatformContext;
   /**
    * When true, errors thrown inside the helper (save / render / status
    * finalization) are logged and swallowed instead of re-thrown. Used by
@@ -382,16 +368,11 @@ async function finalizeInjection(args: {
     currentTurn,
     messageId,
     priorEverInjected,
-    slugsToRender: candidateSlugs,
+    slugsToRender: selectedSlugs,
     telemetryRows,
     config,
     nextStateMap,
-    skillPlatformContext,
   } = args;
-
-  const selectedSlugs = candidateSlugs.filter((slug) =>
-    isSkillSlugCompatible(slug, skillPlatformContext ?? {}),
-  );
 
   const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
 
@@ -403,10 +384,7 @@ async function finalizeInjection(args: {
   // visible until compaction evicts the turn and re-opens the slug.
   const selectedSet = new Set(selectedSlugs);
   const pinnedSlugs = (await listAlwaysCandidateSkillSlugs()).filter(
-    (slug) =>
-      isSkillSlugCompatible(slug, skillPlatformContext ?? {}) &&
-      !selectedSet.has(slug) &&
-      !everInjectedSet.has(slug),
+    (slug) => !selectedSet.has(slug) && !everInjectedSet.has(slug),
   );
   const slugsToRender = [...selectedSlugs, ...pinnedSlugs];
   const telemetrySlugSet = new Set(telemetryRows.map((row) => row.slug));
@@ -598,7 +576,6 @@ async function injectViaRouter(args: {
   messageId: string;
   config: AssistantConfig;
   priorState: ActivationState | null;
-  skillPlatformContext?: SkillPlatformContext;
   signal?: AbortSignal;
 }): Promise<InjectMemoryV2BlockResult> {
   const {
@@ -610,14 +587,11 @@ async function injectViaRouter(args: {
     messageId,
     config,
     priorState,
-    skillPlatformContext,
     signal,
   } = args;
 
-  const priorEverInjected = filterCompatibleEverInjected(
-    priorState?.everInjected ?? [],
-    skillPlatformContext ?? {},
-  );
+  const priorEverInjected: readonly EverInjectedEntry[] =
+    priorState?.everInjected ?? [];
 
   // Saturated-index bypass: when every page in the index has already been
   // injected on a prior turn of this conversation, the router LLM call is
@@ -667,7 +641,6 @@ async function injectViaRouter(args: {
       })),
       config,
       nextStateMap: {},
-      skillPlatformContext,
     });
   }
 
@@ -715,7 +688,6 @@ async function injectViaRouter(args: {
       telemetryRows: [],
       config,
       nextStateMap: {},
-      skillPlatformContext,
       bestEffort: true,
     });
   }
@@ -776,7 +748,6 @@ async function injectViaRouter(args: {
     telemetryRows,
     config,
     nextStateMap: {},
-    skillPlatformContext,
   });
 }
 

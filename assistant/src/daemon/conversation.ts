@@ -72,17 +72,8 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
-  extractFramedCardEntries,
-  isMemoryV3LegacyBlockSuppressed,
-  MEMORY_V3_CARD_SLUGS_METADATA_KEY,
-  stripSuppressedSkillCards,
-  suppressedSkillIdsForConversation,
-} from "../plugins/defaults/memory/skill-card-suppression.js";
-import {
   getPrunedSlugs,
-  MEMORY_V3_INJECTED_AT_METADATA_KEY,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-  reconcilePersistedInjections,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
 import {
@@ -1133,47 +1124,21 @@ export class Conversation {
     // in the HTTP-auth-disabled dev bypass, so a turn with no bound actor
     // resolves the same way on both paths.
     const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
-    const persistedV3Injections: Array<{
-      slug: string;
-      bytes: number;
-      injectedAt: number;
-    }> = [];
-    for (const message of slicedDbMessages.slice(preStrippedCount)) {
-      if (message.role !== "user" || !message.metadata) {
-        continue;
-      }
-      try {
-        const metadata = JSON.parse(message.metadata) as Record<
-          string,
-          unknown
-        >;
-        const block = metadata[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY];
-        const injectedAt = metadata[MEMORY_V3_INJECTED_AT_METADATA_KEY];
-        if (typeof block !== "string" || typeof injectedAt !== "number") {
-          continue;
-        }
-        const entries = extractFramedCardEntries(unwrapMemoryBlock(block));
-        if (entries) {
-          persistedV3Injections.push(
-            ...entries.map((entry) => ({ ...entry, injectedAt })),
-          );
-        }
-      } catch {
-        // Malformed metadata is ignored by the rehydration path below too.
-      }
-    }
-    reconcilePersistedInjections(this.conversationId, persistedV3Injections);
     // Pruned v3 card slugs, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
     // prune valve marks cards pruned in the everInjected store instead of
     // rewriting the persisted metadata, so the v3 rehydration splice below
     // re-applies the filter on every load — that is what makes a prune
-    // survive daemon restarts. The store returns its last successful snapshot
-    // when the memory database is temporarily unavailable.
+    // survive daemon restarts. Defensive catch: a store failure degrades to
+    // an unfiltered (pre-prune) rehydration rather than a failed load.
     let v3PrunedSlugsMemo: Set<string> | null = null;
     const v3PrunedSlugs = (): Set<string> => {
       if (v3PrunedSlugsMemo === null) {
-        v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+        try {
+          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+        } catch {
+          v3PrunedSlugsMemo = new Set();
+        }
       }
       return v3PrunedSlugsMemo;
     };
@@ -1269,34 +1234,13 @@ export class Conversation {
             personalMemoryAllowed &&
             typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string"
           ) {
-            const suppressedSkillIds = suppressedSkillIdsForConversation(
-              meta,
-              this.conversationId,
-            );
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
-            const suppressLegacyBlock = isMemoryV3LegacyBlockSuppressed(
-              meta,
-              this.conversationId,
+            const v3Resident = filterPrunedCardSections(
+              unwrapMemoryBlock(v3Block),
+              v3PrunedSlugs(),
             );
-            const legacyCardSlugs = Array.isArray(
-              meta[MEMORY_V3_CARD_SLUGS_METADATA_KEY],
-            )
-              ? (meta[MEMORY_V3_CARD_SLUGS_METADATA_KEY] as unknown[]).filter(
-                  (slug): slug is string => typeof slug === "string",
-                )
-              : undefined;
-            const v3Resident = suppressLegacyBlock
-              ? ""
-              : filterPrunedCardSections(
-                  stripSuppressedSkillCards(
-                    unwrapMemoryBlock(v3Block),
-                    suppressedSkillIds,
-                    { legacyCardSlugs },
-                  ),
-                  v3PrunedSlugs(),
-                );
             if (v3Resident.length > 0) {
               content = [
                 { type: "text" as const, text: wrapMemoryBlock(v3Resident) },
@@ -1332,23 +1276,15 @@ export class Conversation {
           // legitimate unwrapped payloads that happen to start with
           // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            const suppressedSkillIds = suppressedSkillIdsForConversation(
-              meta,
-              this.conversationId,
-            );
-            const residentBlock = stripSuppressedSkillCards(
-              unwrapMemoryBlock(meta.memoryInjectedBlock),
-              suppressedSkillIds,
-            );
-            if (residentBlock.length > 0) {
-              content = [
-                {
-                  type: "text" as const,
-                  text: wrapMemoryBlock(residentBlock),
-                },
-                ...content,
-              ];
-            }
+            content = [
+              {
+                type: "text" as const,
+                text: wrapMemoryBlock(
+                  unwrapMemoryBlock(meta.memoryInjectedBlock),
+                ),
+              },
+              ...content,
+            ];
           }
 
           // `<channel_capabilities>` lands just below `<turn_context>`: live

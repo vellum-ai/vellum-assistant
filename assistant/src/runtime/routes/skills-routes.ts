@@ -5,10 +5,8 @@
  * Routes requiring authContext remain HTTP-only via skillHttpOnlyRouteDefinitions().
  */
 
-import { CLIENT_METADATA_HEADERS } from "@vellumai/service-contracts/client-metadata";
 import { z } from "zod";
 
-import { parseClientOs } from "../../channels/types.js";
 import {
   checkSkillUpdates,
   configureSkill,
@@ -30,43 +28,10 @@ import {
   updateSkill,
 } from "../../daemon/handlers/skills.js";
 import { getCategories } from "../../skills/categories-cache.js";
-import {
-  type HostPlatformCapabilityProof,
-  skillPlatformForNodePlatform,
-} from "../../skills/platform-compatibility.js";
 import { getSkillHistory } from "../../skills/skill-history.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-function requestClientOs(
-  headers: Record<string, string> | undefined,
-): string | undefined {
-  const reported = parseClientOs(headers?.[CLIENT_METADATA_HEADERS.os]);
-  if (reported) {
-    return reported;
-  }
-  return headers?.["x-vellum-principal-type"] === "local"
-    ? (skillPlatformForNodePlatform(process.platform) ?? undefined)
-    : undefined;
-}
-
-function requestLocalHostPlatforms(
-  headers: Record<string, string> | undefined,
-  transport: RouteHandlerArgs["transport"],
-): HostPlatformCapabilityProof[] | undefined {
-  if (transport !== "ipc" || headers?.["x-vellum-principal-type"] !== "local") {
-    return undefined;
-  }
-  const platform = skillPlatformForNodePlatform(process.platform);
-  return platform ? [{ platform, capabilities: ["host_bash"] }] : undefined;
-}
-
-function requestActorPrincipalId(
-  headers: Record<string, string> | undefined,
-): string | undefined {
-  return headers?.["x-vellum-actor-principal-id"];
-}
 
 const partnerAuditSchema = z.object({
   risk: z.enum(["safe", "low", "medium", "high", "critical", "unknown"]),
@@ -250,12 +215,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe("Total number of skills matching non-category filters"),
     }),
-    handler: async ({
-      queryParams = {},
-      headers,
-      transport,
-    }: RouteHandlerArgs) => {
-      const clientOs = requestClientOs(headers);
+    handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
       const include = queryParams.include;
       const origin = queryParams.origin;
       const kind = queryParams.kind;
@@ -265,19 +225,13 @@ export const ROUTES: RouteDefinition[] = [
       const hasFilter = !!(origin || kind || q || category);
 
       if (hasFilter || include === "catalog") {
-        const result = await listSkillsFiltered(
-          {
-            ...(origin ? { origin } : {}),
-            ...(kind ? { kind } : {}),
-            ...(q ? { q } : {}),
-            ...(category ? { category } : {}),
-            includeCatalog: include === "catalog",
-          },
-          clientOs,
-          requestActorPrincipalId(headers),
-          true,
-          requestLocalHostPlatforms(headers, transport),
-        );
+        const result = await listSkillsFiltered({
+          ...(origin ? { origin } : {}),
+          ...(kind ? { kind } : {}),
+          ...(q ? { q } : {}),
+          ...(category ? { category } : {}),
+          includeCatalog: include === "catalog",
+        });
         return {
           skills: result.skills,
           categoryCounts: result.categoryCounts,
@@ -285,12 +239,7 @@ export const ROUTES: RouteDefinition[] = [
         };
       }
 
-      const skills = listSkills(
-        clientOs,
-        requestActorPrincipalId(headers),
-        true,
-        requestLocalHostPlatforms(headers, transport),
-      );
+      const skills = listSkills();
       return { skills };
     },
   },
@@ -349,24 +298,12 @@ export const ROUTES: RouteDefinition[] = [
       isBinary: z.boolean(),
       content: z.string().nullable(),
     }),
-    handler: async ({
-      pathParams,
-      queryParams = {},
-      headers,
-      transport,
-    }: RouteHandlerArgs) => {
+    handler: async ({ pathParams, queryParams = {} }: RouteHandlerArgs) => {
       const path = queryParams.path;
       if (!path) {
         throw new BadRequestError("path query parameter is required");
       }
-      const result = await getSkillFileContent(
-        pathParams!.id,
-        path,
-        requestClientOs(headers),
-        requestActorPrincipalId(headers),
-        true,
-        requestLocalHostPlatforms(headers, transport),
-      );
+      const result = await getSkillFileContent(pathParams!.id, path);
       if ("error" in result) {
         if (result.status === 400) {
           throw new BadRequestError(result.error);
@@ -405,14 +342,8 @@ export const ROUTES: RouteDefinition[] = [
         )
         .describe("Directory contents"),
     }),
-    handler: async ({ pathParams, headers, transport }: RouteHandlerArgs) => {
-      const result = await getSkillFiles(
-        pathParams!.id,
-        requestClientOs(headers),
-        requestActorPrincipalId(headers),
-        true,
-        requestLocalHostPlatforms(headers, transport),
-      );
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await getSkillFiles(pathParams!.id);
       if ("error" in result) {
         if (result.status === 404) {
           throw new NotFoundError(result.error);
@@ -465,12 +396,7 @@ export const ROUTES: RouteDefinition[] = [
           "Older history was squashed away, so the oldest entry is a floor rather than the skill's creation",
         ),
     }),
-    handler: async ({
-      pathParams,
-      queryParams,
-      headers,
-      transport,
-    }: RouteHandlerArgs) => {
+    handler: async ({ pathParams, queryParams }: RouteHandlerArgs) => {
       const rawLimit = queryParams?.limit;
       const limit =
         typeof rawLimit === "string" && rawLimit.trim().length > 0
@@ -483,15 +409,7 @@ export const ROUTES: RouteDefinition[] = [
         // gone. An existing skill with nothing recorded still gets an empty
         // list, which is the honest answer for a bundled skill or one the
         // workspace has not committed yet.
-        if (
-          !skillExistsLocally(
-            pathParams!.id,
-            requestClientOs(headers),
-            requestActorPrincipalId(headers),
-            true,
-            requestLocalHostPlatforms(headers, transport),
-          )
-        ) {
+        if (!skillExistsLocally(pathParams!.id)) {
           throw new NotFoundError(`Skill "${pathParams!.id}" not found`);
         }
         return await getSkillHistory(pathParams!.id, {
@@ -631,11 +549,7 @@ export const ROUTES: RouteDefinition[] = [
         .array(slimSkillSchema)
         .describe("Skill objects matching the search query"),
     }),
-    handler: async ({
-      queryParams = {},
-      headers,
-      transport,
-    }: RouteHandlerArgs) => {
+    handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
       const query = queryParams.q ?? "";
       if (!query) {
         throw new BadRequestError("q query parameter is required");
@@ -644,14 +558,7 @@ export const ROUTES: RouteDefinition[] = [
       const limit = limitRaw
         ? Math.max(1, Number.parseInt(limitRaw, 10) || 25)
         : 25;
-      const result = await searchSkills(
-        query,
-        limit,
-        requestClientOs(headers),
-        requestActorPrincipalId(headers),
-        true,
-        requestLocalHostPlatforms(headers, transport),
-      );
+      const result = await searchSkills(query, limit);
       if (!result.success) {
         throw new InternalError(result.error);
       }
@@ -747,14 +654,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       skill: skillDetailSchema.describe("Skill detail object"),
     }),
-    handler: async ({ pathParams, headers, transport }: RouteHandlerArgs) => {
-      const result = await getSkill(
-        pathParams!.id,
-        requestClientOs(headers),
-        requestActorPrincipalId(headers),
-        true,
-        requestLocalHostPlatforms(headers, transport),
-      );
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await getSkill(pathParams!.id);
       if ("error" in result) {
         if (result.status === 404) {
           throw new NotFoundError(result.error);
@@ -832,7 +733,7 @@ export const ROUTES: RouteDefinition[] = [
       ok: z.boolean(),
       skillId: z.string().optional(),
     }),
-    handler: async ({ body = {}, headers, transport }: RouteHandlerArgs) => {
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
       const slug =
         (body.slug as string) ?? (body.url as string) ?? (body.spec as string);
       if (!slug || typeof slug !== "string") {
@@ -844,10 +745,6 @@ export const ROUTES: RouteDefinition[] = [
         origin: body.origin as "clawhub" | "skillssh" | undefined,
         catalogOnly: body.catalogOnly as boolean | undefined,
         overwrite: body.overwrite as boolean | undefined,
-        clientOs: requestClientOs(headers),
-        sourceActorPrincipalId: requestActorPrincipalId(headers),
-        isInteractive: true,
-        hostPlatforms: requestLocalHostPlatforms(headers, transport),
       });
       if (!result.success) {
         throw new InternalError(result.error);
@@ -908,14 +805,8 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return full local detail for an installed or bundled skill, including featureFlag, toolManifest, installMeta, configEntry, and directoryPath.",
     tags: ["skills"],
-    handler: ({ pathParams, headers, transport }: RouteHandlerArgs) => {
-      const result = getSkillLocalDetail(
-        pathParams!.id,
-        requestClientOs(headers),
-        requestActorPrincipalId(headers),
-        true,
-        requestLocalHostPlatforms(headers, transport),
-      );
+    handler: ({ pathParams }: RouteHandlerArgs) => {
+      const result = getSkillLocalDetail(pathParams!.id);
       if (!result.ok) {
         if (result.status === 404) {
           throw new NotFoundError(result.error);
