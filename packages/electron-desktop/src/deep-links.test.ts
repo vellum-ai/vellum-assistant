@@ -507,7 +507,12 @@ describe("installDeepLinks", () => {
 
   test("registers unpackaged apps with absolute executable and entry paths", () => {
     const entryPoint = process.argv[1];
+    const platform = process.platform;
+    const expected = resolveRegisteredSchemes(
+      resolveEnvironmentName(process.env),
+    );
     process.argv[1] = ".";
+    Object.defineProperty(process, "platform", { value: "win32" });
     try {
       installDeepLinks();
       const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
@@ -515,9 +520,6 @@ describe("installDeepLinks", () => {
       installDeepLinks();
       installDeepLinks();
 
-      const expected = resolveRegisteredSchemes(
-        resolveEnvironmentName(process.env),
-      );
       expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
         expected.map((scheme) => [scheme, process.execPath, [resolve(".")]]),
       );
@@ -527,7 +529,19 @@ describe("installDeepLinks", () => {
       );
     } finally {
       process.argv[1] = entryPoint;
+      Object.defineProperty(process, "platform", { value: platform });
     }
+  });
+
+  test("keeps unpackaged non-Windows protocol registration unchanged", () => {
+    installDeepLinks();
+
+    const expected = resolveRegisteredSchemes(
+      resolveEnvironmentName(process.env),
+    );
+    expect(setAsDefaultProtocolClientMock.mock.calls).toEqual(
+      expected.map((scheme) => [scheme]),
+    );
   });
 
   test("subscribes to will-finish-launching and registers an open-url listener under it", () => {
