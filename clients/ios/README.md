@@ -385,9 +385,9 @@ the cost.
 
 | Catalog | Committed PNGs | `Assets.car` |
 | ------- | -------------- | ------------ |
-| 54 eyes-on-color alternates | 593,575 B (0.57 MiB) | 1,193,784 B (1.14 MiB) |
+| 54 eyes-on-color alternates | 590,542 B (0.56 MiB) | 1,188,152 B (1.13 MiB) |
 
-That is **21.6 KiB per alternate icon** compiled. The whole catalog is one
+That is **21.5 KiB per alternate icon** compiled. The whole catalog is one
 `Assets.car` slice, so the cost lands on every install whether or not the user
 ever switches icons.
 
@@ -401,7 +401,7 @@ replaces every one of those edges with a six-pixel gradient ramp:
 
 | Full catalog, 54 icons | Committed PNGs | `Assets.car` |
 | ---------------------- | -------------- | ------------ |
-| Native 1024 render | 593,575 B (0.57 MiB) | 1,193,784 B (1.14 MiB) |
+| Native 1024 render | 590,542 B (0.56 MiB) | 1,188,152 B (1.13 MiB) |
 | 180 px detail, bilinear upscale | 3,764,157 B (3.59 MiB) | 6,817,336 B (6.50 MiB) |
 
 Rendering at 360 px instead of 180 only halves the overshoot. Nearest-neighbour
