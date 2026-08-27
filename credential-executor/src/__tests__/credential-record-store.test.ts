@@ -158,4 +158,66 @@ describe("003-import-workspace-metadata", () => {
       }
     }
   });
+
+  test("keeps an existing CES record instead of overwriting it", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "ces-ws-"));
+    const cesData = mkdtempSync(join(tmpdir(), "ces-data-"));
+    const leftoverPath = join(workspace, "data", "credentials", "metadata.json");
+    mkdirSync(join(workspace, "data", "credentials"), { recursive: true });
+    writeFileSync(
+      leftoverPath,
+      JSON.stringify({
+        version: 5,
+        credentials: [
+          makeRecord("vercel", "api_token", { allowedTools: ["bash"] }),
+        ],
+      }),
+    );
+    const store = new CesMetadataStore(getMetadataPath(cesData));
+    store.setByAccount(
+      "credential/vercel/api_token",
+      makeRecord("vercel", "api_token", {
+        credentialId: "id-ces-newer",
+        allowedTools: ["publish_page"],
+      }),
+    );
+
+    const prevWorkspace = process.env.VELLUM_WORKSPACE_DIR;
+    const prevMode = process.env.CES_MODE;
+    const prevData = process.env.CES_DATA_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspace;
+    process.env.CES_MODE = "managed";
+    process.env.CES_DATA_DIR = cesData;
+
+    const unusedBackend: SecureKeyBackend = {
+      get: async () => undefined,
+      set: async () => true,
+      delete: async () => "not-found",
+      list: async () => [],
+    };
+
+    try {
+      await importWorkspaceMetadataMigration.run(unusedBackend);
+      const kept = store.getByAccount("credential/vercel/api_token");
+      expect(kept?.credentialId).toBe("id-ces-newer");
+      expect(kept?.allowedTools).toEqual(["publish_page"]);
+      expect(existsSync(leftoverPath)).toBe(true);
+    } finally {
+      if (prevWorkspace === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
+      } else {
+        process.env.VELLUM_WORKSPACE_DIR = prevWorkspace;
+      }
+      if (prevMode === undefined) {
+        delete process.env.CES_MODE;
+      } else {
+        process.env.CES_MODE = prevMode;
+      }
+      if (prevData === undefined) {
+        delete process.env.CES_DATA_DIR;
+      } else {
+        process.env.CES_DATA_DIR = prevData;
+      }
+    }
+  });
 });

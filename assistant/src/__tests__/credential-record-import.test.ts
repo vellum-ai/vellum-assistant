@@ -118,4 +118,74 @@ describe("CES leftover metadata import", () => {
     expect(backend.store.size).toBe(0);
     expect(existsSync(leftover)).toBe(true);
   });
+
+  test("does not overwrite an existing CES record", async () => {
+    const leftover = leftoverPath();
+    mkdirSync(dirname(leftover), { recursive: true });
+    writeFileSync(
+      leftover,
+      JSON.stringify({
+        version: 5,
+        credentials: [
+          {
+            credentialId: "id-leftover",
+            service: "github",
+            field: "token",
+            allowedTools: ["bash"],
+            allowedDomains: [],
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      }),
+    );
+
+    const backend = makeBackend();
+    backend.store.set(credentialKey("github", "token"), {
+      credentialId: "id-ces-newer",
+      service: "github",
+      field: "token",
+      allowedTools: ["http"],
+      allowedDomains: ["api.github.com"],
+      createdAt: 10,
+      updatedAt: 20,
+    });
+    setCredentialRecordBackend(backend);
+    await hydrateCredentialRecordsFromCes();
+
+    const stored = backend.store.get(credentialKey("github", "token"));
+    expect(stored?.credentialId).toBe("id-ces-newer");
+    expect(stored?.allowedTools).toEqual(["http"]);
+    expect(existsSync(leftover)).toBe(true);
+  });
+
+  test("skips leftover import when CES list fails", async () => {
+    const leftover = leftoverPath();
+    mkdirSync(dirname(leftover), { recursive: true });
+    writeFileSync(
+      leftover,
+      JSON.stringify({
+        version: 5,
+        credentials: [
+          {
+            credentialId: "id-github-token",
+            service: "github",
+            field: "token",
+            allowedTools: ["bash"],
+            allowedDomains: [],
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+      }),
+    );
+
+    const backend = makeBackend();
+    backend.list = async () => null;
+    setCredentialRecordBackend(backend);
+    await hydrateCredentialRecordsFromCes();
+
+    expect(backend.store.size).toBe(0);
+    expect(existsSync(leftover)).toBe(true);
+  });
 });

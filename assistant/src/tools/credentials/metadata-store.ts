@@ -106,8 +106,9 @@ function defaultMetadataPath(): string {
 }
 
 /**
- * Copy leftover workspace metadata.json rows into CES. The workspace
- * file stays in place. Reads continue from the file.
+ * Copy leftover workspace metadata.json rows that CES does not already
+ * have. Existing CES records win. The workspace file stays in place.
+ * Reads continue from the file.
  */
 export async function hydrateCredentialRecordsFromCes(): Promise<void> {
   if (!_recordBackend || _overridePath) {
@@ -129,24 +130,37 @@ export async function hydrateCredentialRecordsFromCes(): Promise<void> {
     return;
   }
 
-  const results = await _recordBackend.bulkSet(
-    localRecords.map((record) => ({
-      account: credentialKey(record.service, record.field),
-      record: toRecord(record),
-    })),
-  );
+  const existing = await _recordBackend.list();
+  if (existing === null) {
+    log.warn("CES record list failed; skipping metadata.json import");
+    return;
+  }
+  const existingAccounts = new Set(existing.map((entry) => entry.account));
+  const missing = localRecords.filter((record) => {
+    return !existingAccounts.has(credentialKey(record.service, record.field));
+  });
+  if (missing.length === 0) {
+    return;
+  }
+
+  const results =
+    (await _recordBackend.bulkSet(
+      missing.map((record) => ({
+        account: credentialKey(record.service, record.field),
+        record: toRecord(record),
+      })),
+    )) ?? [];
   const imported =
-    results.length === localRecords.length &&
-    results.every((entry) => entry.ok);
+    results.length === missing.length && results.every((entry) => entry.ok);
   if (!imported) {
     log.warn(
-      { expected: localRecords.length, results },
+      { expected: missing.length, results },
       "CES import of metadata.json incomplete",
     );
     return;
   }
   log.info(
-    { count: localRecords.length },
+    { count: missing.length },
     "Imported workspace credential metadata.json into CES",
   );
 }
