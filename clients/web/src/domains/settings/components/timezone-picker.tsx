@@ -88,6 +88,16 @@ function buildKnownTimezones(): string[] {
   return [...FALLBACK_TIMEZONES].sort();
 }
 
+/** Signed minutes from the ([+-])(hh)(mm) groups of an offset regex match. */
+function offsetMatchToMinutes(
+  sign: string | undefined,
+  hours: string | undefined,
+  minutes: string | undefined,
+): number {
+  const total = parseInt(hours ?? "0", 10) * 60 + parseInt(minutes ?? "0", 10);
+  return (sign === "-" ? -1 : 1) * total;
+}
+
 function buildMetadata(identifier: string): TimezoneEntry | null {
   const parts = identifier.split("/");
   const city = (parts[parts.length - 1] ?? identifier).replace(/_/g, " ");
@@ -106,10 +116,7 @@ function buildMetadata(identifier: string): TimezoneEntry | null {
       tz.startsWith("GMT") || tz.startsWith("UTC") ? tz : `GMT ${tz}`;
     const match = tz.match(/([+-])(\d{1,2})(?::(\d{2}))?/);
     if (match) {
-      const sign = match[1] === "-" ? -1 : 1;
-      const hours = parseInt(match[2] ?? "0", 10);
-      const minutes = parseInt(match[3] ?? "0", 10);
-      offsetMinutes = sign * (hours * 60 + minutes);
+      offsetMinutes = offsetMatchToMinutes(match[1], match[2], match[3]);
     }
   } catch {
     return null;
@@ -161,13 +168,9 @@ function parseOffsetQuery(query: string): number | null {
   if (!match) {
     return null;
   }
-  const sign = match[1] === "-" ? -1 : 1;
-  const hours = parseInt(match[2] ?? "0", 10);
-  const minutes = parseInt(match[3] ?? "0", 10);
-  if (hours > 14 || minutes > 59) {
-    return null;
-  }
-  return sign * (hours * 60 + minutes);
+  const total = offsetMatchToMinutes(match[1], match[2], match[3]);
+  // Real zones span UTC-12 to UTC+14; anything wider is not an offset.
+  return Math.abs(total) <= 14 * 60 ? total : null;
 }
 
 export interface TimezonePickerProps {
