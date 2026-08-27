@@ -188,12 +188,11 @@ describe("ChatAttachmentsStrip tiles", () => {
   });
 
   test("keeps the folder row for a path reference", () => {
-    const { container } = renderStrip([pathReference()], { tileImages: true });
+    renderStrip([pathReference()], { tileImages: true });
 
     expect(tiles()).toHaveLength(0);
     expect(screen.getByText("project")).toBeTruthy();
     expect(screen.getByText("/Users/example/project")).toBeTruthy();
-    expect(stripRow(container).className).toContain("items-start");
   });
 
   test("keeps the error chip for a failed image upload", () => {
@@ -212,34 +211,52 @@ describe("ChatAttachmentsStrip tiles", () => {
     expect(onRemove).toHaveBeenCalledWith("local-1");
   });
 
-  test("routes the composer's press guard to the tile's control", () => {
-    const pressGuard = mock(() => {});
-    renderStrip([uploaded()], { tileImages: true, pressGuard });
+  // Every removal control in the strip wears the guard, so a tap on any of
+  // them leaves the textarea focused and the mobile row standing.
+  const PRESS_GUARD_CASES: Array<{
+    what: string;
+    attachment: ChatAttachment;
+    control: string;
+  }> = [
+    { what: "the tile", attachment: uploaded(), control: "Remove photo.jpg" },
+    {
+      what: "a chip",
+      attachment: uploaded({
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        previewUrl: null,
+      }),
+      control: "Remove report.pdf",
+    },
+    {
+      what: "an uploading chip",
+      attachment: uploading({
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+      }),
+      control: "Cancel upload of report.pdf",
+    },
+    {
+      what: "a path reference",
+      attachment: pathReference(),
+      control: "Remove project",
+    },
+    {
+      what: "a failed upload",
+      attachment: failed(),
+      control: "Remove broken.jpg",
+    },
+  ];
 
-    fireEvent.mouseDown(
-      screen.getByRole("button", { name: "Remove photo.jpg" }),
-    );
-    expect(pressGuard).toHaveBeenCalledTimes(1);
-  });
+  for (const { what, attachment, control } of PRESS_GUARD_CASES) {
+    test(`routes the composer's press guard to ${what}`, () => {
+      const pressGuard = mock(() => {});
+      renderStrip([attachment], { tileImages: true, pressGuard });
 
-  test("routes the composer's press guard to a chip's control", () => {
-    const pressGuard = mock(() => {});
-    renderStrip(
-      [
-        uploaded({
-          filename: "report.pdf",
-          mimeType: "application/pdf",
-          previewUrl: null,
-        }),
-      ],
-      { tileImages: true, pressGuard },
-    );
-
-    fireEvent.mouseDown(
-      screen.getByRole("button", { name: "Remove report.pdf" }),
-    );
-    expect(pressGuard).toHaveBeenCalledTimes(1);
-  });
+      fireEvent.mouseDown(screen.getByRole("button", { name: control }));
+      expect(pressGuard).toHaveBeenCalledTimes(1);
+    });
+  }
 
   test("opens the preview modal from the tile image", () => {
     renderStrip([uploaded()], { tileImages: true });
@@ -290,11 +307,30 @@ describe("ChatAttachmentsStrip chips", () => {
     expect(stripRow(container).className).not.toContain("items-start");
   });
 
+  test("falls back to the kind icon when a chip preview cannot decode", () => {
+    renderStrip([uploaded()]);
+
+    const image = screen.getByRole("img", { name: "photo.jpg" });
+    fireEvent.error(image.querySelector("img") as HTMLImageElement);
+
+    expect(screen.queryByRole("img", { name: "photo.jpg" })).toBeNull();
+    // The chip is still the chip, so the file is still named.
+    expect(screen.getByText("photo.jpg")).toBeTruthy();
+  });
+
   test("opens the row's top inset for a tile row", () => {
     const { container } = renderStrip([uploaded()], { tileImages: true });
 
     expect(stripRow(container).className).toContain("pt-3");
     // A chip beside a 100px tile keeps its own height.
     expect(stripRow(container).className).toContain("items-start");
+  });
+
+  test("keeps the stretch for a mobile row with no tile in it", () => {
+    const { container } = renderStrip([pathReference()], { tileImages: true });
+
+    // The card inset still applies; only the alignment is keyed on a tile.
+    expect(stripRow(container).className).toContain("pt-3");
+    expect(stripRow(container).className).not.toContain("items-start");
   });
 });

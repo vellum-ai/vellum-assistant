@@ -3,7 +3,10 @@ import type { MouseEventHandler } from "react";
 
 import { useTranslation } from "@/i18n";
 
-import { Button } from "@vellumai/design-library";
+import { Button, cn } from "@vellumai/design-library";
+
+/** The tile's corner, worn by the box and by the picture it clips. */
+const TILE_RADIUS_CLASS = "rounded-[14px]";
 
 interface AttachmentTileProps {
   id: string;
@@ -43,14 +46,20 @@ export function AttachmentTile({
     <div
       data-slot="attachment-tile"
       title={filename}
-      className="relative size-[100px] shrink-0 rounded-[14px] bg-[var(--surface-base)]"
+      className={cn(
+        "relative size-[100px] shrink-0 bg-[var(--surface-base)]",
+        TILE_RADIUS_CLASS,
+      )}
     >
       {previewUrl !== null ? (
         // The picture is the only thing the tile clips, so the remove control
         // keeps its full press target past the tile's corner.
         <button
           type="button"
-          className="block size-full cursor-pointer overflow-hidden rounded-[14px] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0"
+          className={cn(
+            "block size-full cursor-pointer overflow-hidden outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
+            TILE_RADIUS_CLASS,
+          )}
           aria-label={t("attachmentTile.preview", { filename })}
           onMouseDown={pressGuard}
           onClick={onPreview}
@@ -88,10 +97,7 @@ export function AttachmentTile({
           { filename },
         )}
         onMouseDown={pressGuard}
-        onClick={(event) => {
-          event.stopPropagation();
-          onRemove(id);
-        }}
+        onClick={() => onRemove(id)}
       />
     </div>
   );

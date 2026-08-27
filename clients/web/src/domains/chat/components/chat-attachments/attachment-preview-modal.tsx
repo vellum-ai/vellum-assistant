@@ -273,11 +273,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     return null;
   }
 
-  const mime = attachment.mimeType.toLowerCase();
-  // One classifier picks the media branch, the same one the chip, the tile and
-  // the message square read: a photo delivered as application/octet-stream
-  // previews as an image, and a video named after an image format stays a
-  // video.
+  const mime = attachment.mimeType.split(";")[0]!.trim().toLowerCase();
+  // One classifier picks the media branch, the same one the composer strip,
+  // the chip and the message square read: a photo delivered as
+  // application/octet-stream previews as an image, and a video named after an
+  // image format stays a video.
   const kind = classifyAttachment(attachment.mimeType, attachment.filename);
   const isImage = kind === "image";
   const isVideo = kind === "video";
@@ -286,7 +286,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   // Route by MIME first (text/* and the JSON/JS/XML application types), then
   // fall back to the file extension for uploads that arrive as
   // application/octet-stream. PDF/image/video branches above already win for
-  // their own types.
+  // their own types. Its own test rather than a `kind` check: the inline
+  // preview renders source files too, which `classifyAttachment` splits off
+  // into a separate `code` kind.
   const isText =
     mime.startsWith("text/") ||
     TEXT_PREVIEW_APPLICATION_MIMES.has(mime) ||
