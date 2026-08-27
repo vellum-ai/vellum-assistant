@@ -9,9 +9,8 @@ interface PreviewTruncationNoticeProps {
 
 /**
  * Footer telling the reader a preview is showing part of a file rather than
- * all of it. The readers cap different things (bytes of text, pages of a
- * document), so each supplies its own sentence and this owns only the
- * treatment they share.
+ * all of it. A reader caps whatever unit it measures in and supplies the
+ * sentence saying so, leaving this to own only the treatment they share.
  */
 export function PreviewTruncationNotice({
   children,
