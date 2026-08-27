@@ -52,6 +52,7 @@ function Probe({ flash = true }: { flash?: boolean }) {
       <span data-testid="flash-available">
         {camera.flashAvailable ? "yes" : "no"}
       </span>
+      <span data-testid="facing">{camera.facing}</span>
       <button
         type="button"
         data-testid="open"
@@ -79,6 +80,8 @@ function Probe({ flash = true }: { flash?: boolean }) {
 
 const flashAvailable = () =>
   screen.getByTestId("flash-available").textContent === "yes";
+
+const facing = () => screen.getByTestId("facing").textContent;
 
 async function press(testId: string) {
   await act(async () => {
@@ -311,7 +314,7 @@ describe("useVoiceCamera: a probe that outlives the camera it asked about", () =
     // front camera with no flash unit. Its answer describes a camera that is
     // no longer running, and taking it would light the control on one whose
     // Android implementation throws on the very next `setFlashMode`.
-    const rearProbe = deferredProbe();
+    const rearProbe = deferredCall<string[]>();
     getFlashModesSpy.mockImplementation(rearProbe.answer);
 
     render(<Probe />);
@@ -336,7 +339,7 @@ describe("useVoiceCamera: a probe that outlives the camera it asked about", () =
     // The mirror case. A stale empty list is just as wrong as a stale capable
     // one: it would hide a control the running camera can drive.
     useVoicePrefsStore.setState({ flashMode: "on" });
-    const frontProbe = deferredProbe();
+    const frontProbe = deferredCall<string[]>();
     getFlashModesSpy.mockImplementation(frontProbe.answer);
 
     render(<Probe />);
@@ -354,15 +357,67 @@ describe("useVoiceCamera: a probe that outlives the camera it asked about", () =
   });
 });
 
-/** A probe the test decides the timing of, rather than the microtask queue. */
-function deferredProbe() {
-  let resolve: (modes: string[]) => void = () => {};
-  const pending = new Promise<string[]>((r) => {
+describe("useVoiceCamera: a flip that resumes onto a different camera", () => {
+  test("abandons itself when the camera was replaced mid hand-back", async () => {
+    // Handing the flash back is a bridge round trip, and a close plus a reopen
+    // fits inside it. What is running on the other side is a preview this flip
+    // never opened: flipping it would spin a viewfinder the user just raised
+    // and file the capabilities it then probes under the wrong camera.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    await openNativeCamera();
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+
+    const handBack = deferredCall<boolean>();
+    setFlashModeSpy.mockImplementation(handBack.answer);
+    await press("flip");
+    setFlashModeSpy.mockImplementation(async () => true);
+
+    await press("close");
+    await press("open");
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+    const probesTheReopenMade = getFlashModesSpy.mock.calls.length;
+
+    await settle(() => handBack.resolve(true));
+
+    expect(flipSpy).not.toHaveBeenCalled();
+    // The reopened camera keeps its own answer, and its own facing.
+    expect(getFlashModesSpy).toHaveBeenCalledTimes(probesTheReopenMade);
+    expect(facing()).toBe("environment");
+  });
+
+  test("does not announce a facing the replacement never took", async () => {
+    // The same race one await later: the flip is already dispatched when the
+    // close and the reopen land. With the flash off there is no hand-back to
+    // wait behind, so this is the bridge's own round trip.
+    await openNativeCamera();
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+
+    const flip = deferredCall<boolean>();
+    flipSpy.mockImplementation(flip.answer);
+    await press("flip");
+    flipSpy.mockImplementation(async () => true);
+
+    await press("close");
+    await press("open");
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+    const probesTheReopenMade = getFlashModesSpy.mock.calls.length;
+
+    await settle(() => flip.resolve(true));
+
+    expect(facing()).toBe("environment");
+    expect(getFlashModesSpy).toHaveBeenCalledTimes(probesTheReopenMade);
+  });
+});
+
+/** A bridge call the test decides the timing of, not the microtask queue. */
+function deferredCall<T>() {
+  let resolve: (value: T) => void = () => {};
+  const pending = new Promise<T>((r) => {
     resolve = r;
   });
   return {
     answer: () => pending,
-    resolve: (modes: string[]) => resolve(modes),
+    resolve: (value: T) => resolve(value),
   };
 }
 

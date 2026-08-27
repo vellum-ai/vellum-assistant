@@ -420,6 +420,13 @@ export function useVoiceCamera(
           },
         });
       } catch (cause) {
+        // Superseded requests report as superseded whether they succeeded or
+        // failed. A rejection that lands after a close is not news the user
+        // needs, and reporting it as a real failure is what would send the web
+        // flip path into a fallback acquire of a camera nobody has open.
+        if (epoch !== acquireEpochRef.current) {
+          return "aborted";
+        }
         return classifyError(cause);
       }
 
@@ -503,6 +510,12 @@ export function useVoiceCamera(
    * convenience: a device that turns out to have only one usable camera
    * should leave the user aiming the one that works, not close the viewfinder
    * mid-conversation and make them find the button again.
+   *
+   * Every await here is a place the capture can be released and replaced under
+   * the flip, so the acquire epoch is snapshotted up front and rechecked after
+   * each one. A flip that resumes onto a preview it did not open would spin a
+   * viewfinder the user just raised and file the capabilities it then probes
+   * under a camera nobody asked about.
    */
   const flipCamera = useCallback(async () => {
     if (!sourceRef.current) {
@@ -513,6 +526,9 @@ export function useVoiceCamera(
     // and a late "yes" from it is exactly the unprobed `setFlashMode` the
     // Android implementation throws on.
     flashProbeEpochRef.current++;
+    // Which capture this flip belongs to. Every release bumps it, so it is
+    // also the token for "the camera I started on is still the one running".
+    const generation = acquireEpochRef.current;
     const previous = facing;
     const next = previous === "environment" ? "user" : "environment";
 
@@ -523,9 +539,20 @@ export function useVoiceCamera(
       if (flashEngagedRef.current) {
         flashEngagedRef.current = false;
         await setNativeVoiceCameraFlashMode("off");
+        // A close and a reopen fit inside that round trip, and the preview on
+        // the other side of it is a different operation's.
+        if (generation !== acquireEpochRef.current) {
+          return;
+        }
       }
       setSupportedFlashModes(NO_FLASH_MODES);
-      if (await flipNativeVoiceCamera()) {
+      const flipped = await flipNativeVoiceCamera();
+      // Whatever released the camera during the flip owns the state now,
+      // including the facing this would otherwise announce.
+      if (generation !== acquireEpochRef.current) {
+        return;
+      }
+      if (flipped) {
         setFacing(next);
       }
       // Re-probed whether or not the flip took: on a failure the old camera is
