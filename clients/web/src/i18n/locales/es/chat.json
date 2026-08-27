@@ -127,6 +127,12 @@
     "previewAria": "Vista previa de {filename}",
     "previousAttachmentAria": "Adjunto anterior"
   },
+  "attachmentTile": {
+    "cancelUpload": "Cancelar la subida de {filename}",
+    "preview": "Vista previa de {filename}",
+    "remove": "Quitar {filename}",
+    "uploading": "Subiendo {filename}"
+  },
   "backgroundTaskDetailPanel": {
     "closeDetail": "Cerrar detalle de la tarea",
     "command": "Comando",
