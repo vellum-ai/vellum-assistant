@@ -1,11 +1,14 @@
 /**
  * Tests for the ChatGPT subscription sign-in section.
  *
- * Covers the device-code path the section leads with: the code and its
- * destination on screen, the stored connection handed back on success, and a
- * rejection keeping the code visible beside the account-setting hint. The
- * redirect-and-paste path is covered only as far as being reachable behind the
- * disclosure; its own behaviour is unchanged.
+ * With `chatgpt-device-code-login` on, covers the device-code path the section
+ * leads with: the code and its destination on screen, the stored connection
+ * handed back on success, and a rejection keeping the code visible beside the
+ * account-setting hint. The redirect-and-paste path is covered only as far as
+ * being reachable behind the disclosure; its own behaviour is unchanged.
+ *
+ * With the flag off, covers that redirect-and-paste is the whole section: no
+ * code is minted and no disclosure is offered.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -86,9 +89,17 @@ mock.module("@/utils/poll-until-settled", () => ({
     settle === "never" ? new Promise(() => {}) : Promise.resolve(settle),
 }));
 
+const { useClientFeatureFlagStore } = await import(
+  "@/stores/client-feature-flag-store"
+);
+
 const { ChatgptOAuthSection } = await import(
   "@/domains/settings/ai/chatgpt-oauth-section"
 );
+
+function setDeviceCodeLoginFlag(value: boolean) {
+  useClientFeatureFlagStore.setState({ chatgptDeviceCodeLogin: value });
+}
 
 function renderSection(onConnected: (c: ProviderConnection) => void = () => {}) {
   return render(
@@ -99,17 +110,19 @@ function renderSection(onConnected: (c: ProviderConnection) => void = () => {}) 
   );
 }
 
-describe("ChatgptOAuthSection", () => {
+describe("ChatgptOAuthSection with device-code login on", () => {
   beforeEach(() => {
     startShouldFail = false;
     startUnsupported = false;
     startCalls = 0;
     cancelledStates = [];
     settle = { kind: "connected" };
+    setDeviceCodeLoginFlag(true);
   });
 
   afterEach(() => {
     cleanup();
+    setDeviceCodeLoginFlag(false);
   });
 
   test("leads with the device-code sign-in and mints nothing until asked", () => {
@@ -252,5 +265,31 @@ describe("ChatgptOAuthSection", () => {
 
     expect(screen.getByText("Open ChatGPT sign-in")).toBeDefined();
     expect(screen.getByText("Hide other sign-in options")).toBeDefined();
+  });
+});
+
+describe("ChatgptOAuthSection with device-code login off", () => {
+  beforeEach(() => {
+    startCalls = 0;
+    setDeviceCodeLoginFlag(false);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("the paste flow is the whole section", () => {
+    renderSection();
+
+    expect(screen.getByText("Open ChatGPT sign-in")).toBeDefined();
+    expect(
+      screen.getByText(
+        "3. Copy the full URL from that page's address bar and paste it below",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText("Sign in with ChatGPT")).toBeNull();
+    expect(screen.queryByText("Other sign-in options")).toBeNull();
+    expect(screen.queryByText("Hide other sign-in options")).toBeNull();
+    expect(startCalls).toBe(0);
   });
 });
