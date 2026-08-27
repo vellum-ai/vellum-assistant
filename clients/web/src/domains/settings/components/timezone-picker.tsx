@@ -166,12 +166,16 @@ function getDisplayName(identifier: string, notSetLabel: string): string {
 }
 
 /**
- * A query shaped like an offset ("UTC-4", "gmt+5:30", "-04:00") means the
- * offset itself, not a substring: the rendered labels carry only one
- * spelling (`GMT-4`), so these are resolved to minutes and matched exactly.
- * Returns null for anything else, which falls back to substring matching.
+ * A query shaped like an offset ("UTC-4", "gmt+5:30", "-04:00", and the
+ * bare zero-offset spellings "UTC" / "GMT") means the offset itself, not a
+ * substring: the rendered labels carry only one spelling (`GMT-4`), so
+ * these are resolved to minutes and matched exactly. Returns null for
+ * anything else, which falls back to substring matching.
  */
 function parseOffsetQuery(query: string): number | null {
+  if (query === "utc" || query === "gmt") {
+    return 0;
+  }
   const match = query.match(/^(?:utc|gmt)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$/);
   if (!match) {
     return null;

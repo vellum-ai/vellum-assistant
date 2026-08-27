@@ -578,7 +578,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-08-27T04:08:20.000Z"
+      "updatedAt": "2026-08-27T04:20:00.000Z"
     },
     {
       "id": "meme-generator",

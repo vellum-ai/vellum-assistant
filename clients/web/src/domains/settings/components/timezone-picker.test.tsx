@@ -103,6 +103,22 @@ describe("TimezonePicker", () => {
     }
   });
 
+  test("bare UTC and GMT mean the zero offset, not a substring", () => {
+    const { field } = renderPicker();
+
+    fireEvent.focusIn(field);
+
+    // A substring read would match every zone for GMT (every offset label
+    // starts with it) and nothing for UTC on ICU builds that omit the
+    // literal UTC zone. Reykjavik pins GMT+0 year-round; Tokyo proves the
+    // list is offset-filtered rather than showing everything.
+    for (const spelling of ["UTC", "GMT", "utc"]) {
+      fireEvent.change(field, { target: { value: spelling } });
+      expect(screen.getByText("Reykjavik")).toBeTruthy();
+      expect(screen.queryByText("Tokyo")).toBeNull();
+    }
+  });
+
   test("a malformed minute field fails closed instead of aliasing to the next hour", () => {
     const { field } = renderPicker();
 
