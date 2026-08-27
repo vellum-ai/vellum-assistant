@@ -18,11 +18,17 @@ let getCalls = 0;
 let mockOk = true;
 let mockSessions: unknown[] = [];
 let lastQuery: Record<string, unknown> | undefined;
+// Set by a test that needs to control response ordering; otherwise the default
+// below answers immediately from `mockSessions`.
+let mockGetImpl: undefined | (() => Promise<unknown>);
 mock.module("@/generated/daemon/client.gen", () => ({
   client: {
     get: async (opts?: { query?: Record<string, unknown> }) => {
       getCalls += 1;
       lastQuery = opts?.query;
+      if (mockGetImpl) {
+        return mockGetImpl();
+      }
       return {
         data: mockOk ? { sessions: mockSessions } : undefined,
         response: { ok: mockOk },
@@ -32,7 +38,7 @@ mock.module("@/generated/daemon/client.gen", () => ({
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 
-const { useAcpRunRehydration } =
+const { useAcpRunRehydration, __resetAcpSnapshotGenerationsForTests } =
   await import("@/domains/chat/hooks/use-acp-run-rehydration");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 const { useInteractionStore } =
@@ -289,5 +295,67 @@ describe("useAcpRunRehydration: a config change is also a reason to re-read", ()
     await flush();
 
     expect(getCalls).toBe(0);
+  });
+});
+
+describe("useAcpRunRehydration: an older snapshot cannot overwrite a newer one", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  test("a marked response that a newer unmarked one overtook raises nothing", async () => {
+    // The revision cannot order these on its own: it moves when the prompt
+    // changes, so a newer authoritative snapshot that finds nothing to change
+    // leaves it untouched, and the older marked response then still looks
+    // current.
+    __resetAcpSnapshotGenerationsForTests();
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+      acpConnectFlowActive: false,
+    });
+
+    // Hold the first fetch open so the second can overtake it.
+    let releaseFirst = (_v: unknown) => {};
+    const firstBody = new Promise((resolve) => {
+      releaseFirst = resolve;
+    });
+    let call = 0;
+    mockGetImpl = async () => {
+      call += 1;
+      if (call === 1) {
+        await firstBody;
+        return {
+          data: {
+            sessions: [
+              {
+                id: "run-marked",
+                agentId: "claude",
+                acpSessionId: "run-marked",
+                parentConversationId: "conv-A",
+                status: "failed",
+                startedAt: 1,
+                parentToolUseId: "tool-stale",
+                authErrorCode: "acp_claude_auth_required",
+              },
+            ],
+          },
+          response: { ok: true },
+        };
+      }
+      return { data: { sessions: [] }, response: { ok: true } };
+    };
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+    await flush();
+    // The invalidation starts a second, newer fetch that completes first.
+    publish("sse.event", {
+      assistantId: "asst-1",
+      message: { type: "sync_changed", tags: [SYNC_TAGS.acpAuthRecovery] },
+    } as never);
+    await flush();
+    releaseFirst(undefined);
+    await flush();
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+    mockGetImpl = undefined;
   });
 });

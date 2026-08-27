@@ -714,13 +714,14 @@ export async function setSecureKeyAsync(
     updateCesHttpReachability(backend, !stored);
     return stored;
   }, false);
-  // Outside the timed section, because it does not decide the result. The
-  // deadline exists to bound the write, and running the notifications under it
-  // let their cost turn a stored credential into a reported failure: the
-  // caller would tell the user their sign-in failed, and skip the policy
-  // repair that follows, with the token already in the vault.
+  // Detached, because it neither decides the result nor gates it. Under the
+  // deadline its cost could turn a stored credential into a reported failure;
+  // awaited after it, the cost merely held the caller at "signing in" while a
+  // scan and a broadcast finished. Nothing downstream depends on it having
+  // run: a card is retired by the marker comparison at read time, and the
+  // credential prompt re-checks the registry entry before honouring it.
   if (ok) {
-    await onCredentialsWritten([account]);
+    void onCredentialsWritten([account]);
   }
   return ok;
 }

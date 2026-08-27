@@ -341,15 +341,60 @@ function activeRunIdsFor(conversationId: string): string[] {
  * still-running run off the snapshot, so absence isn't authoritative there —
  * we seed but skip retirement rather than risk cancelling a live run.
  */
+/**
+ * Newest snapshot request issued per conversation.
+ *
+ * The prompt revision cannot order two responses on its own. It moves when the
+ * prompt changes, so a newer authoritative snapshot that finds nothing to
+ * change leaves it untouched, and an older marked response then still looks
+ * current and raises a card the newer one had just spoken against.
+ *
+ * A per conversation counter says which request is the latest regardless of
+ * what either response turned out to contain.
+ */
+const snapshotGeneration = new Map<string, number>();
+
+/** Claim the next snapshot generation for a conversation. */
+function beginAcpSnapshot(conversationId: string | null): number {
+  if (conversationId === null) {
+    return 0;
+  }
+  const next = (snapshotGeneration.get(conversationId) ?? 0) + 1;
+  snapshotGeneration.set(conversationId, next);
+  return next;
+}
+
+/** Whether this response is still the newest request for its conversation. */
+function isNewestAcpSnapshot(
+  conversationId: string | null,
+  generation: number,
+): boolean {
+  if (conversationId === null) {
+    return true;
+  }
+  return (snapshotGeneration.get(conversationId) ?? 0) === generation;
+}
+
+/** Test seam: forget generations between cases. */
+export function __resetAcpSnapshotGenerationsForTests(): void {
+  snapshotGeneration.clear();
+}
+
 function applyAcpSnapshot(
   entries: AcpRunEntry[] | null,
   priorActiveIds: string[],
   snapshotConversationId: string | null = null,
   revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
+  generation?: number,
 ): void {
   if (entries === null) {
     return;
   }
+  // Superseded by a later request for the same conversation. Its runs are
+  // still worth seeding, but it has nothing to say about the prompt.
+  const newest =
+    generation === undefined ||
+    isNewestAcpSnapshot(snapshotConversationId, generation);
   const store = useAcpRunStore.getState();
   if (entries.length > 0) {
     store.seedFromHistory(entries);
@@ -357,7 +402,13 @@ function applyAcpSnapshot(
   // Outside the length check: a conversation whose only marked run was cleared
   // can come back empty, and that emptiness is exactly the signal that the
   // prompt is stale.
-  raiseAcpConnectFromSnapshot(entries, snapshotConversationId, revisionAtFetch);
+  if (newest) {
+    raiseAcpConnectFromSnapshot(
+      entries,
+      snapshotConversationId,
+      revisionAtFetch,
+    );
+  }
   if (entries.length >= ACP_SNAPSHOT_LIMIT) {
     return;
   }
@@ -386,6 +437,7 @@ export function useAcpRunRehydration(
     // raised while this was in flight, which is exactly the prompt the stale
     // response must not speak for.
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+    const generation = beginAcpSnapshot(conversationId);
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       if (cancelled) {
         return;
@@ -395,6 +447,7 @@ export function useAcpRunRehydration(
         priorActiveIds,
         conversationId ?? null,
         revisionAtFetch,
+        generation,
       );
     });
     return () => {
@@ -444,12 +497,14 @@ export function useAcpRunRehydration(
     }
     const priorActiveIds = activeRunIdsFor(conversationId);
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+    const generation = beginAcpSnapshot(conversationId);
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       applyAcpSnapshot(
         entries,
         priorActiveIds,
         conversationId ?? null,
         revisionAtFetch,
+        generation,
       );
     });
   });
@@ -469,12 +524,14 @@ export function useAcpRunRehydration(
       }
       const priorActiveIds = activeRunIdsFor(conversationId);
       const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
+      const generation = beginAcpSnapshot(conversationId);
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
         applyAcpSnapshot(
           entries,
           priorActiveIds,
           conversationId ?? null,
           revisionAtFetch,
+          generation,
         );
       });
     },
