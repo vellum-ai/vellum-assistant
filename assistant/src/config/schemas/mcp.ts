@@ -66,9 +66,9 @@ export const McpServerConfigSchema = z
       .enum(["low", "medium", "high"], {
         error: "mcp server defaultRiskLevel must be one of: low, medium, high",
       })
-      .default("high")
+      .default("medium")
       .describe(
-        "Default risk level assigned to tools from this server (affects approval requirements)",
+        "Risk level tools from this server start at (affects approval requirements). A tool's own MCP annotations move it one step from here: destructiveHint up, readOnlyHint down.",
       ),
     maxTools: z
       .number({ error: "mcp server maxTools must be a number" })

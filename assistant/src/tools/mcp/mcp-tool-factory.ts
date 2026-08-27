@@ -27,24 +27,48 @@ export interface McpToolMetadata {
   annotations?: McpToolAnnotations;
 }
 
+/** Risk levels ordered low to high, so a hint can step one place along it. */
+const RISK_LADDER: readonly RiskLevel[] = [
+  RiskLevel.Low,
+  RiskLevel.Medium,
+  RiskLevel.High,
+];
+
+function stepRisk(risk: RiskLevel, direction: -1 | 1): RiskLevel {
+  const index = RISK_LADDER.indexOf(risk);
+  if (index === -1) {
+    return risk;
+  }
+  const next = Math.min(Math.max(index + direction, 0), RISK_LADDER.length - 1);
+  return RISK_LADDER[next] ?? risk;
+}
+
 /**
  * Resolve the risk level a tool carries.
  *
- * `readOnlyHint` is self-reported by the server, so it only refines risk
- * downward and only for servers the user has already configured below the
- * high-trust ceiling. Servers left at the default "high" are unaffected, and
- * the hint never raises risk above the server default.
+ * The server's configured level is the anchor. A tool's MCP annotations then
+ * move it at most one step along {@link RISK_LADDER}:
+ *
+ * - `destructiveHint` steps up. Raising is the safe direction, so it applies
+ *   whatever the server is set to.
+ * - `readOnlyHint` steps down, and only one step. The hint is self-reported by
+ *   the server, so a single step keeps a false claim from carrying a tool from
+ *   the high ceiling all the way to auto-approval.
+ *
+ * `destructiveHint` wins when a server sends both, since a tool that both reads
+ * and destroys is a tool that destroys.
  */
 function resolveRiskLevel(
   metadata: McpToolMetadata,
   serverConfig: McpServerConfig,
 ): RiskLevel {
   const serverRisk = riskMap[serverConfig.defaultRiskLevel] ?? RiskLevel.High;
-  if (
-    metadata.annotations?.readOnlyHint === true &&
-    serverRisk !== RiskLevel.High
-  ) {
-    return RiskLevel.Low;
+  const annotations = metadata.annotations;
+  if (annotations?.destructiveHint === true) {
+    return stepRisk(serverRisk, 1);
+  }
+  if (annotations?.readOnlyHint === true) {
+    return stepRisk(serverRisk, -1);
   }
   return serverRisk;
 }
