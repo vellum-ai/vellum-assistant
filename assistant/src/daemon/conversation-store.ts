@@ -147,24 +147,6 @@ function applyTransportMetadata(
 }
 
 /**
- * True when dropping this in-memory instance would lose work that is still
- * in flight: a live turn, a queued successor, or a child subagent.
- */
-function hasInFlightWork(
-  conversation: {
-    isProcessing(): boolean;
-    hasQueuedMessages(): boolean;
-  },
-  conversationId: string,
-): boolean {
-  return (
-    conversation.isProcessing() ||
-    conversation.hasQueuedMessages() ||
-    getSubagentManager().hasActiveChildren(conversationId)
-  );
-}
-
-/**
  * Get or create an active conversation by ID.
  *
  * Handles provider setup, rate limiting, system prompt, memory policy,
@@ -208,7 +190,7 @@ export async function getOrCreateConversation(
   // conversation stays stale and is rebuilt on a later call.
   if (
     !conversation ||
-    (conversation.isStale() && !hasInFlightWork(conversation, conversationId))
+    (conversation.isStale() && !conversation.hasInFlightWork())
   ) {
     if (conversation) {
       // Stale rebuild: the conversation id lives on, so abort any children
@@ -427,7 +409,7 @@ export function clearAllActiveConversations(): number {
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();
   for (const [id, conversation] of conversationEntries()) {
-    if (hasInFlightWork(conversation, id)) {
+    if (conversation.hasInFlightWork()) {
       conversation.markStale();
       continue;
     }

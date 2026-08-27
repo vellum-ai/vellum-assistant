@@ -54,6 +54,8 @@ function register(
     isProcessing: () => state.processing,
     hasQueuedMessages: () => state.queued,
     isStale: () => state.stale === true || fake.markedStale,
+    hasInFlightWork: () =>
+      state.processing || state.queued || activeParents.has(id),
     dispose() {
       fake.disposed = true;
     },
