@@ -109,7 +109,10 @@ export function classifyAttachment(
   if (mime.startsWith("audio/")) {
     return "audio";
   }
-  if (mime === "application/pdf" || ext === "pdf") {
+  if (
+    mime === "application/pdf" ||
+    (GENERIC_MIME_TYPES.has(mime) && ext === "pdf")
+  ) {
     return "pdf";
   }
   if (
