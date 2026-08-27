@@ -28,13 +28,19 @@ const loadBuilderConfig = (environment: string) => {
 
 const inspectIco = (
   relativePath: string,
-): { dimensions: [number, number]; digest: string } => {
+): { sizes: number[]; digest: string } => {
   const icon = readFileSync(path.join(windowsDir, relativePath));
   expect(icon.readUInt16LE(0)).toBe(0);
   expect(icon.readUInt16LE(2)).toBe(1);
-  expect(icon.readUInt16LE(4)).toBeGreaterThan(0);
+  const imageCount = icon.readUInt16LE(4);
   return {
-    dimensions: [icon[6] || 256, icon[7] || 256],
+    sizes: Array.from({ length: imageCount }, (_, index) => {
+      const entryOffset = 6 + index * 16;
+      const width = icon[entryOffset] || 256;
+      const height = icon[entryOffset + 1] || 256;
+      expect(width).toBe(height);
+      return width;
+    }),
     digest: createHash("sha256").update(icon).digest("hex"),
   };
 };
@@ -46,7 +52,7 @@ test("packages a distinct valid icon for every supported environment", () => {
       expect(config.nsis.installerIcon).toBe(config.win.icon);
       expect(config.nsis.uninstallerIcon).toBe(config.win.icon);
       const icon = inspectIco(config.win.icon);
-      expect(icon.dimensions).toEqual([256, 256]);
+      expect(icon.sizes).toEqual([16, 24, 32, 48, 64, 128, 256]);
       return { path: config.win.icon, digest: icon.digest };
     },
   );
