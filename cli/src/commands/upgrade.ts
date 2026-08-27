@@ -44,6 +44,7 @@ import {
   restoreBackup,
 } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
@@ -91,9 +92,14 @@ interface UpgradeArgs {
   force: boolean;
 }
 
+// Flags that consume the following argv token as a value, rather than a
+// boolean switch. Passed to `parseAssistantTargetArg` so an unquoted
+// multi-word display name is not truncated at a flag's value.
+const UPGRADE_FLAGS_WITH_VALUES = ["--version"];
+
 function parseArgs(): UpgradeArgs {
   const args = process.argv.slice(3);
-  let name: string | null = null;
+  const name = parseAssistantTargetArg(args, UPGRADE_FLAGS_WITH_VALUES) ?? null;
   let version: string | null = null;
   let latest = false;
   let prepare = false;
@@ -168,7 +174,8 @@ function parseArgs(): UpgradeArgs {
     } else if (arg === "--force") {
       force = true;
     } else if (!arg.startsWith("-")) {
-      name = arg;
+      // Positional token, part of a possibly multi-word display name.
+      // Collected up front via `parseAssistantTargetArg` above.
     } else {
       console.error(`Error: Unknown option '${arg}'.`);
       emitCliError("UNKNOWN", `Unknown option '${arg}'`);
