@@ -1804,6 +1804,7 @@ export class WorkspaceGitService {
         timeout: timeoutMs,
         env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
+        windowsHide: true,
       });
       return { stdout, stderr };
     } catch (err) {

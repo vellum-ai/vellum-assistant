@@ -835,6 +835,7 @@ async function startDaemonFromSource(
     ? spawn(bunPath, ["run", daemonMainPath], {
         stdio: "inherit",
         env: spawnEnv,
+        windowsHide: true,
       })
     : (() => {
         const daemonLogFd = openLogFile("hatch.log");
@@ -1173,7 +1174,12 @@ function findPidListeningOnPort(port: number): number | undefined {
     const output = execFileSync(
       "lsof",
       ["-iTCP:" + port, "-sTCP:LISTEN", "-t"],
-      { encoding: "utf-8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] },
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      },
     ).trim();
     // lsof -t may return multiple PIDs (one per line); take the first.
     const pid = parseInt(output.split("\n")[0], 10);
@@ -1659,6 +1665,7 @@ export async function startLocalDaemon(
             cwd: dirname(daemonBinary),
             stdio: "inherit",
             env: daemonEnv,
+            windowsHide: true,
           })
         : (() => {
             const daemonLogFd = openLogFile("hatch.log");
@@ -1939,6 +1946,7 @@ function isNgrokProcess(pid: number): boolean {
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     return /ngrok/.test(output);
   } catch {

@@ -124,7 +124,11 @@ export function isOnPath(command: string): boolean {
       ? ["where", [command]]
       : ["/bin/sh", ["-c", `command -v ${command}`]];
   try {
-    execFileSync(probe, args, { stdio: "ignore", timeout: 2000 });
+    execFileSync(probe, args, {
+      stdio: "ignore",
+      timeout: 2000,
+      windowsHide: true,
+    });
     return true;
   } catch {
     return false;
@@ -268,6 +272,7 @@ export class PcmPlayer {
     }
     const child = spawn(this.player.name, this.player.args(sampleRate), {
       stdio: ["pipe", "ignore", "ignore"],
+      windowsHide: true,
     });
     this.adopt(child);
     this.activeSampleRate = sampleRate;
@@ -297,6 +302,7 @@ export class PcmPlayer {
     this.adopt(
       spawn(this.player.name, this.player.args(sampleRate, filePath), {
         stdio: "ignore",
+        windowsHide: true,
       }),
     );
   }

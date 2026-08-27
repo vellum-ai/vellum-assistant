@@ -421,6 +421,7 @@ export async function installSkillDependenciesIfPresent(
       cwd: skillDir,
       stdio: "inherit",
       env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+      windowsHide: true,
     });
     child.on("error", reject);
     child.on("close", (code) => {

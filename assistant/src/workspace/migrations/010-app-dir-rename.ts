@@ -242,6 +242,7 @@ export const appDirRenameMigration: WorkspaceMigration = {
             cwd: appsDir,
             stdio: "ignore",
             timeout: 10_000,
+            windowsHide: true,
           },
         );
       }

@@ -88,6 +88,7 @@ function realFindBinary(): string | null {
       encoding: "utf-8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     if (!res.error && res.status === 0) {
       return candidate;
@@ -97,7 +98,11 @@ function realFindBinary(): string | null {
 }
 
 function realRun(bin: string, args: string[]): TailscaleCommandResult {
-  const res = spawnSync(bin, args, { encoding: "utf-8", timeout: 15_000 });
+  const res = spawnSync(bin, args, {
+    encoding: "utf-8",
+    timeout: 15_000,
+    windowsHide: true,
+  });
   if (res.error) {
     throw res.error;
   }

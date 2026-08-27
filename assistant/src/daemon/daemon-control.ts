@@ -126,6 +126,7 @@ function isVellumDaemonProcess(pid: number): boolean {
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     // The daemon is spawned as `bun run <path>/main.ts` — look for bun
     // running our daemon entry point.

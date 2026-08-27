@@ -36,6 +36,7 @@ export function getNgrokVersion(): string | null {
       encoding: "utf-8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     return output.trim();
   } catch {
@@ -152,6 +153,7 @@ export function startNgrokProcess(
   const child = spawn("ngrok", args, {
     detached: true,
     stdio,
+    windowsHide: true,
   });
 
   // The child process inherits a duplicate of the fd via dup2, so the

@@ -66,6 +66,7 @@ export async function runScript(
     detached: true,
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
     env: {
       ...buildSanitizedEnv(),
       // __SCHEDULE_ID lets a saved command find its own dir; __SCHEDULE_RUN_ID

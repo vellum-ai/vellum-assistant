@@ -170,6 +170,7 @@ async function downloadAndExtract(
       cmd: ["tar", "xzf", tmpTar, "-C", targetDir, "--strip-components=1"],
       stdout: "ignore",
       stderr: "pipe",
+      windowsHide: true,
     });
     await proc.exited;
     if (proc.exitCode !== 0) {

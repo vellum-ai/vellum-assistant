@@ -24,6 +24,7 @@ export function getCloudflareTunnelVersion(): string | null {
       encoding: "utf-8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
     return output.trim();
   } catch {
@@ -41,7 +42,7 @@ export function startCloudflareTunnelProcess(targetPort: number): ChildProcess {
     "cloudflared",
     ["tunnel", "--url", `http://localhost:${targetPort}`, "--no-autoupdate"],
     // Keep stdio as pipes so we can parse the URL from output.
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
   );
 }
 

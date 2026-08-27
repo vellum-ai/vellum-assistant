@@ -1527,7 +1527,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     const installResult = spawnSync(
       "bun",
       ["install", "-g", `vellum@${stripVersionPrefix(latestTag)}`],
-      { stdio: "inherit" },
+      { stdio: "inherit", windowsHide: true },
     );
     if (installResult.error || installResult.status !== 0) {
       const detail =
@@ -1551,6 +1551,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`🚀 Re-running upgrade with updated CLI...\n`);
     const reexecResult = spawnSync("vellum", reexecArgs, {
       stdio: "inherit",
+      windowsHide: true,
     });
     process.exit(reexecResult.status ?? 1);
   }

@@ -260,6 +260,7 @@ async function runSips(
       stdout: "ignore",
       stderr: "ignore",
       timeout: 15_000,
+      windowsHide: true,
     });
     await proc.exited;
     if (proc.exitCode !== 0) {

@@ -1479,6 +1479,7 @@ async function runViteDevServer(
   const child = spawn("bun", ["run", "dev"], {
     cwd: webSourceDir,
     stdio: "inherit",
+    windowsHide: true,
     env: {
       ...process.env,
       ...flagEnvVars,
