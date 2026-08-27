@@ -196,19 +196,18 @@ const versionCheck = spawnSync(packagedAssistant, ["--version"], {
   env: withRuntimeNodePath(packagedAssistant),
   windowsHide: true,
 });
-if (
-  versionCheck.status !== 0 ||
-  versionCheck.stdout.trim() !== assistantVersion
-) {
+const versionOutput = versionCheck.stdout?.trim() ?? "";
+const versionErrorOutput = versionCheck.stderr?.trim() ?? "";
+if (versionCheck.status !== 0 || versionOutput !== assistantVersion) {
   const diagnostics = [
     `exit ${versionCheck.status ?? "not started"}`,
     versionCheck.error ? `spawn error: ${versionCheck.error.message}` : null,
-    versionCheck.stderr.trim() ? `stderr: ${versionCheck.stderr.trim()}` : null,
+    versionErrorOutput ? `stderr: ${versionErrorOutput}` : null,
   ]
     .filter((detail): detail is string => detail !== null)
     .join("; ");
   throw new Error(
-    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionCheck.stdout.trim() || "no output"} (${diagnostics}).`,
+    `Packaged assistant version check failed: expected ${assistantVersion}, got ${versionOutput || "no output"} (${diagnostics}).`,
   );
 }
 for (const [source, name] of [
