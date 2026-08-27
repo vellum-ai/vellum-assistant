@@ -103,6 +103,21 @@ describe("TimezonePicker", () => {
     }
   });
 
+  test("a malformed minute field fails closed instead of aliasing to the next hour", () => {
+    const { field } = renderPicker();
+
+    fireEvent.focusIn(field);
+
+    // 5:60 must not be read as 6:00, and 12:60 not as 13:00: a typo that
+    // silently selected a neighboring zone would save the wrong timezone.
+    for (const malformed of ["UTC+5:60", "UTC+12:60", "-0:60"]) {
+      fireEvent.change(field, { target: { value: malformed } });
+      expect(
+        screen.getByRole("listbox", { name: "Timezones" }).textContent,
+      ).toBe("No matches");
+    }
+  });
+
   test("a query that matches nothing says so and stays dismissable", () => {
     const { field } = renderPicker();
 

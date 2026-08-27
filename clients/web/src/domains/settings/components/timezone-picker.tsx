@@ -88,13 +88,21 @@ function buildKnownTimezones(): string[] {
   return [...FALLBACK_TIMEZONES].sort();
 }
 
-/** Signed minutes from the ([+-])(hh)(mm) groups of an offset regex match. */
+/**
+ * Signed minutes from the ([+-])(hh)(mm) groups of an offset regex match.
+ * Null when the minute field is not a real one (60-99): carrying it into
+ * the hour would alias the value to a neighboring offset (5:60 is not 6:00).
+ */
 function offsetMatchToMinutes(
   sign: string | undefined,
   hours: string | undefined,
   minutes: string | undefined,
-): number {
-  const total = parseInt(hours ?? "0", 10) * 60 + parseInt(minutes ?? "0", 10);
+): number | null {
+  const minutePart = parseInt(minutes ?? "0", 10);
+  if (minutePart > 59) {
+    return null;
+  }
+  const total = parseInt(hours ?? "0", 10) * 60 + minutePart;
   return (sign === "-" ? -1 : 1) * total;
 }
 
@@ -116,7 +124,7 @@ function buildMetadata(identifier: string): TimezoneEntry | null {
       tz.startsWith("GMT") || tz.startsWith("UTC") ? tz : `GMT ${tz}`;
     const match = tz.match(/([+-])(\d{1,2})(?::(\d{2}))?/);
     if (match) {
-      offsetMinutes = offsetMatchToMinutes(match[1], match[2], match[3]);
+      offsetMinutes = offsetMatchToMinutes(match[1], match[2], match[3]) ?? 0;
     }
   } catch {
     return null;
@@ -170,7 +178,7 @@ function parseOffsetQuery(query: string): number | null {
   }
   const total = offsetMatchToMinutes(match[1], match[2], match[3]);
   // Real zones span UTC-12 to UTC+14; anything wider is not an offset.
-  return Math.abs(total) <= 14 * 60 ? total : null;
+  return total !== null && Math.abs(total) <= 14 * 60 ? total : null;
 }
 
 export interface TimezonePickerProps {
