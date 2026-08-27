@@ -37,7 +37,7 @@ import {
   NOTIFICATIONS_PANEL_HEADER_CLASS,
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
-import { NotificationsBellEmptyState } from "./notifications-empty-state";
+import { NotificationsBellEmptyState } from "./notifications-bell-empty-state";
 
 /**
  * Router state read by `HomePageRoute`: arriving at the Activity page with a

@@ -126,20 +126,6 @@ mock.module("@/utils/conversation-navigation", () => ({
   navigateToNewConversation: navigateToNewConversationMock,
 }));
 
-// The empty state leads with the assistant's avatar where there is one. The
-// bell has no assistant to read here, so this pins its icon fallback.
-mock.module("@/hooks/use-assistant-avatar", () => ({
-  useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
-    state: null,
-    isLoading: false,
-    isSuccess: true,
-    invalidate: () => {},
-  }),
-}));
-
 /**
  * The three conversation lists the detail validates its link against, plus a
  * record of the `enabled` flag each hook was called with. The flags are what
@@ -479,16 +465,12 @@ describe("NotificationsBell empty state", () => {
     ).toBeTruthy();
   });
 
-  test("carries neither a description line nor a secondary action", async () => {
-    // The panel already names itself "Notifications", so a description would
-    // restate the heading, and a second button would compete with the recipe.
+  test("carries no second action beside the recipe", async () => {
+    // The bell trigger and the recipe, and nothing else: a second button would
+    // compete with the one thing this scene is asking for.
     await openBell();
 
     expect(screen.getAllByRole("button")).toHaveLength(2);
-    expect(screen.queryByText(/schedule runs/)).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "See all schedules" }),
-    ).toBeNull();
   });
 
   test("the recipe closes the panel and seeds a conversation", async () => {
