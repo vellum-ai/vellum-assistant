@@ -198,10 +198,11 @@ function canLookUpRowAvatarByPlatformId(row: ResolvedAssistant): boolean {
 }
 
 /** Under the row prefix so `forgetAssistantAvatar` drops it with the rest. */
-function pairedPlatformIdQueryKey(assistantId: string) {
+function pairedPlatformIdQueryKey(assistantId: string, runtimeUrl?: string) {
   return [
     ...chooserRowAvatarQueryKeyPrefix(assistantId),
     "platformId",
+    runtimeUrl ?? null,
   ] as const;
 }
 
@@ -220,7 +221,7 @@ function usePlatformLookupId(
   const needsPairedResolve =
     row.isPaired && !row.platformAssistantId && canLookUp;
   const pairedQuery = useQuery<string | null>({
-    queryKey: pairedPlatformIdQueryKey(row.id),
+    queryKey: pairedPlatformIdQueryKey(row.id, row.runtimeUrl),
     queryFn: () => resolvePairedAssistantPlatformId(row.id),
     enabled: needsPairedResolve && hasPlatformSession,
     staleTime: Infinity,

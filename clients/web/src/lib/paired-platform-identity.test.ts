@@ -73,6 +73,13 @@ describe("resolvePairedAssistantPlatformId", () => {
     });
   });
 
+  test("a re-pair to another gateway probes again", async () => {
+    await resolvePairedAssistantPlatformId("paired-remote");
+    lockfileEntry = { ...pairedEntry, runtimeUrl: "https://new.example.com" };
+    await resolvePairedAssistantPlatformId("paired-remote");
+    expect(fetchPlatformStatus).toHaveBeenCalledTimes(2);
+  });
+
   test("resolves once per id per session", async () => {
     await resolvePairedAssistantPlatformId("paired-remote");
     await resolvePairedAssistantPlatformId("paired-remote");

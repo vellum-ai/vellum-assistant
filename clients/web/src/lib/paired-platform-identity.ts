@@ -5,8 +5,16 @@ import {
   updateLockfileAssistant,
 } from "@/lib/local-mode";
 
-/** One attempt per paired id per session; a miss (unreachable, unregistered) is cached too. */
+/**
+ * One attempt per paired target per session; a miss (unreachable,
+ * unregistered) is cached too. Keyed by gateway URL as well as id so a
+ * same-name re-pair to another gateway probes again.
+ */
 const pairedPlatformIdCache = new Map<string, Promise<string | null>>();
+
+function pairedCacheKey(assistantId: string): string {
+  return `${assistantId}\n${getLockfileAssistant(assistantId)?.runtimeUrl ?? ""}`;
+}
 
 export function resetPairedPlatformIdentityCacheForTesting(): void {
   pairedPlatformIdCache.clear();
@@ -26,12 +34,13 @@ export function resetPairedPlatformIdentityCacheForTesting(): void {
 export function resolvePairedAssistantPlatformId(
   assistantId: string,
 ): Promise<string | null> {
-  const cached = pairedPlatformIdCache.get(assistantId);
+  const key = pairedCacheKey(assistantId);
+  const cached = pairedPlatformIdCache.get(key);
   if (cached) {
     return cached;
   }
   const promise = fetchAndPersistPairedPlatformId(assistantId);
-  pairedPlatformIdCache.set(assistantId, promise);
+  pairedPlatformIdCache.set(key, promise);
   return promise;
 }
 
