@@ -38,7 +38,10 @@ import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { EventStream } from "@/lib/streaming/stream-transport";
-import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import type {
+  ReconcileActiveConversationResult,
+  ReconcileTrigger,
+} from "@/domains/chat/hooks/use-message-reconciliation";
 import type { AssistantEvent } from "@/types/event-types";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 
@@ -56,6 +59,7 @@ export interface UseEventStreamParams {
   // Callbacks from useStreamEventHandler / useMessageReconciliation
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
   reconcileActiveConversation: (
+    trigger: ReconcileTrigger,
     authoritative?: boolean,
   ) => Promise<ReconcileActiveConversationResult>;
   startReconciliationLoop: (epoch: number) => void;
@@ -227,7 +231,8 @@ export function useEventStream({
       // Seq-gap reconcile: a proven out-of-ring gap means the live suffix
       // is non-contiguous, so re-bootstrap authoritatively from the server
       // snapshot rather than keeping the holey local rows.
-      reconcileActive: () => reconcileActiveConversationRef.current(true),
+      reconcileActive: () =>
+        reconcileActiveConversationRef.current("seq_gap", true),
     });
   }, [
     assistantStateKind,
@@ -259,7 +264,7 @@ export function useEventStream({
       // keep-local rule protect the freshly streamed tail the debounced
       // `/messages` snapshot has not persisted yet. A genuine out-of-ring
       // gap is healed authoritatively by the consumer's seq-gap detector.
-      reconcileActive: () => reconcileActiveConversationRef.current(),
+      reconcileActive: () => reconcileActiveConversationRef.current("reopen"),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
     });

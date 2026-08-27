@@ -7,6 +7,7 @@ const meta: Meta<typeof ShortcutKeys> = {
   component: ShortcutKeys,
   argTypes: {
     accelerator: { control: "text" },
+    platform: { control: "inline-radio", options: ["mac", "windows"] },
   },
 };
 
@@ -32,6 +33,10 @@ export const PunctuationKey: Story = {
 
 export const AllModifiers: Story = {
   args: { accelerator: "CmdOrCtrl+Control+Alt+Shift+K" },
+};
+
+export const Windows: Story = {
+  args: { accelerator: "CmdOrCtrl+Shift+N", platform: "windows" },
 };
 
 export const Gallery: Story = {

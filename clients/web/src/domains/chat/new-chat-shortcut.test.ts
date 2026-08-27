@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+// Shortcut hints follow the host OS; pin macOS so the glyph assertions below
+// hold on Linux CI runners too.
+Object.defineProperty(navigator, "platform", {
+  value: "MacIntel",
+  configurable: true,
+});
 let electron = false;
 
 mock.module("@/runtime/is-electron", () => ({

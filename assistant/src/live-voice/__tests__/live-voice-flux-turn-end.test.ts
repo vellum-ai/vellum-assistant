@@ -277,6 +277,13 @@ const FLUX_ON = {
   eotTimeoutMs: 500,
 } as const satisfies Partial<LiveVoiceFluxConfig>;
 
+// Turn-end is on by schema default, so a session that must run the local
+// silence boundary has to say so. Naming it keeps those tests about the
+// boundary they exercise rather than about a default they no longer own.
+const FLUX_OFF = {
+  turnEnd: { enabled: false },
+} as const satisfies Partial<LiveVoiceFluxConfig>;
+
 describe("LiveVoiceSession Flux end-of-turn", () => {
   test("commits the turn on turn-end without an endpoint-decision leg", async () => {
     const { frames, session, transcribers, turnCalls } = createHarness({
@@ -331,6 +338,7 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
 
   test("ignores turn-end when the flag is off and keeps the hold path", async () => {
     const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_OFF,
       startVoiceTurn: autoCompletingTurn(),
     });
 
@@ -420,8 +428,9 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
 
   test("records the commit latency on the front-door path too, with no hold", async () => {
     const { frames, session, transcribers, turnCalls } = createHarness({
-      // No flux config: the latch is down and the local silence boundary owns
+      // Turn-end off: the latch is down and the local silence boundary owns
       // the commit, which is arm A of the measurement run.
+      fluxConfig: FLUX_OFF,
       silenceThresholdMs: 40,
       emitMetrics: true,
       startVoiceTurn: autoCompletingTurn(),
@@ -915,11 +924,53 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     await session.close("client_end");
   });
 
+  test("seeds the latch from the live-voice role, not the global provider", async () => {
+    // The configuration roles exist for: live voice on flux while the global
+    // stays on a family that owns no turn boundary. Seeding from the global
+    // leaves the latch false, and the opening utterance closes its silence
+    // boundary on the caller's side before the dial can correct it.
+    setConfig("services", {
+      stt: {
+        provider: "deepgram",
+        providers: { deepgram: {} },
+        roles: { liveVoice: { provider: "deepgram", model: "flux" } },
+      },
+    });
+    const gate = createDialGate();
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+      silenceThresholdMs: 40,
+      resolveGate: gate.promise,
+      startVoiceTurn: autoCompletingTurn(),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await sleep(PAST_SILENCE_BOUNDARY_MS);
+
+    // Deferred under the seeded latch: Flux owns this boundary.
+    expect(countFrames(frames, "utterance_end")).toBe(0);
+    expect(turnCalls).toHaveLength(0);
+
+    gate.open();
+    await waitFor(() => transcribers.length > 0);
+    transcribers[0]?.endOfTurn("what is the weather");
+
+    await waitFor(
+      () => turnCalls.length === 1,
+      "The opening utterance never committed on the Flux end-of-turn",
+    );
+    expect(turnCalls[0]?.content).toBe("what is the weather");
+    expect(countFrames(frames, "utterance_end")).toBe(1);
+
+    await session.close("client_end");
+  });
+
   test("never seeds the latch when the flag is off", async () => {
     const gate = createDialGate();
     const { frames, session, transcribers, turnCalls } = createHarness({
-      // No fluxConfig: `turnEnd.enabled` keeps its schema default of false
-      // while config still selects the flux model family.
+      // Turn-end explicitly off while config still selects the flux family.
+      fluxConfig: FLUX_OFF,
       silenceThresholdMs: 40,
       resolveGate: gate.promise,
       startVoiceTurn: autoCompletingTurn(),

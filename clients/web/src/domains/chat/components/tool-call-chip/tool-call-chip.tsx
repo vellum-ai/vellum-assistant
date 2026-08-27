@@ -46,7 +46,6 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -68,7 +67,6 @@ export interface ToolCallChipProps {
     input: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
-    directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
   onConfirmationSubmit?: (
@@ -271,7 +269,9 @@ export function InlineConfirmationCard({
             // typography: off-scale — 11px tertiary disclosure per the Figma spec
             className="flex items-center gap-1 self-start text-[11px] font-medium text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
           >
-            {showDetails ? t("toolCallChip.hideDetails") : t("toolCallChip.showDetails")}
+            {showDetails
+              ? t("toolCallChip.hideDetails")
+              : t("toolCallChip.showDetails")}
             <ChevronDown
               className={`size-2.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
@@ -468,8 +468,6 @@ export function ToolCallChip({
                   input: toolCall.input,
                   allowlistOptions: toolCall.riskAllowlistOptions ?? [],
                   scopeOptions: toolCall.scopeOptions ?? [],
-                  directoryScopeOptions:
-                    toolCall.riskDirectoryScopeOptions ?? [],
                   matchedTrustRuleId: toolCall.matchedTrustRuleId,
                 });
               }}
@@ -524,7 +522,9 @@ export function ToolCallChip({
             <div className="mb-1.5 text-label-small-default uppercase tracking-wider text-[var(--content-tertiary)]">
               {t("toolCallChip.technicalDetails")}
             </div>
-            <div className="text-[var(--content-secondary)]">{t("toolCallChip.toolName")}</div>
+            <div className="text-[var(--content-secondary)]">
+              {t("toolCallChip.toolName")}
+            </div>
             <div className="text-[var(--content-secondary)]">
               {toolCall.name
                 .replace(/_/g, " ")

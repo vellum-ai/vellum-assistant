@@ -21,8 +21,24 @@ import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
+import { saveFile } from "@/runtime/native-file";
 import { cn } from "@/utils/misc";
 import { Button, ConfirmDialog, Toggle } from "@vellumai/design-library";
+
+/**
+ * The on-disk name for a plugin artifact: the URL path's basename.
+ * `artifact.label` is display copy ("Download for macOS"), not a filename.
+ */
+function artifactFilename(url: string): string {
+  try {
+    const basename = new URL(url, window.location.href).pathname
+      .split("/")
+      .pop();
+    return basename || "plugin-artifact";
+  } catch {
+    return "plugin-artifact";
+  }
+}
 
 /**
  * Presentational building blocks shared by the plugin detail surfaces so the
@@ -249,10 +265,14 @@ export function PluginDetailActions({
             />
           ) : null}
           {artifact ? (
-            <Button asChild leftIcon={<Download aria-hidden />}>
-              <a href={artifact.url} download>
-                {artifact.label ?? t("pluginDetailShared.download")}
-              </a>
+            <Button
+              type="button"
+              leftIcon={<Download aria-hidden />}
+              onClick={() =>
+                void saveFile(artifact.url, artifactFilename(artifact.url))
+              }
+            >
+              {artifact.label ?? t("pluginDetailShared.download")}
             </Button>
           ) : null}
           {updateAvailable ? (

@@ -64,7 +64,7 @@ const PAIRING_DOCS_URL = docsUrl(routes.docs.pairADevice);
 
 /**
  * Settings card that pairs another device to this assistant without shell
- * commands, the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
+ * commands, the UI equivalent of `vellum pair`. It mints and auto-approves a
  * device-code challenge against the host's loopback gateway and renders the
  * https pair URL as a QR with a copyable link and expiry countdown. It also
  * hosts the approval list for pairing requests minted elsewhere

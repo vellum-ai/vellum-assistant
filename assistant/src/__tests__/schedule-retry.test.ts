@@ -10,12 +10,23 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let injectedProcessMessageForRunner:
   | ((conversationId: string, message: string) => Promise<unknown>)
   | null = null;
+// Options of every mocked `runBackgroundJob` call, for asserting what the
+// scheduler asked of the runner (e.g. that per-attempt failure emissions are
+// suppressed in favor of the retries-exhausted alert).
+const runnerCalls: Array<Record<string, unknown>> = [];
+// When set, a failing mocked run reports this classification instead of the
+// default generic exception, letting a test drive the cause-keyed alert path.
+let runnerFailureClassification: {
+  errorKind: "timeout" | "model_provider" | "exception";
+  failureCode?: string;
+} | null = null;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: {
     jobName: string;
     prompt: string;
     onConversationCreated?: (conversationId: string) => void;
   }) => {
+    runnerCalls.push(opts as unknown as Record<string, unknown>);
     const conversationId = `mock-conv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     opts.onConversationCreated?.(conversationId);
     try {
@@ -25,11 +36,17 @@ mock.module("../runtime/background-job-runner.js", () => ({
       return { conversationId, ok: true };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      const classification = runnerFailureClassification ?? {
+        errorKind: "exception" as const,
+      };
       return {
         conversationId,
         ok: false,
         error,
-        errorKind: "exception" as const,
+        errorKind: classification.errorKind,
+        ...(classification.failureCode !== undefined
+          ? { turnFailure: { failureCode: classification.failureCode } }
+          : {}),
       };
     }
   },
@@ -466,6 +483,171 @@ describe("scheduler retry integration", () => {
   });
 });
 
+// ── Execute-mode failure notifications ────────────────────────────────
+
+describe("execute-mode failure notifications", () => {
+  let scheduler: SchedulerHandle;
+
+  beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
+    runnerCalls.length = 0;
+    runnerFailureClassification = null;
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  afterEach(() => {
+    scheduler?.stop();
+    runnerFailureClassification = null;
+  });
+
+  test("a failing schedule alerts once, at exhaustion, keyed on the failure cause", async () => {
+    const emitted: Array<Record<string, unknown>> = [];
+    emitNotificationSignalImpl = async (payload) => {
+      emitted.push(payload as Record<string, unknown>);
+    };
+    runnerFailureClassification = {
+      errorKind: "model_provider",
+      failureCode: "PROVIDER_BILLING",
+    };
+
+    const schedule = await createSchedule({
+      name: "Billing victim",
+      cronExpression: "0 * * * *",
+      message: "do work",
+      syntax: "cron",
+      maxRetries: 1,
+      retryBackoffMs: 1000,
+    });
+    forceScheduleDue(schedule.id);
+
+    scheduler = startScheduler(async () => {
+      throw new Error("PROVIDER_BILLING: Agent turn failed.");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // First failure: a retry is pending, so nothing is user-visible yet, and
+    // the scheduler told the runner to keep its per-attempt emission quiet.
+    expect(emitted).toHaveLength(0);
+    expect(runnerCalls.length).toBeGreaterThanOrEqual(1);
+    for (const call of runnerCalls) {
+      expect(call.suppressFailureNotifications).toBe(true);
+    }
+
+    // Second failure exhausts retries (maxRetries: 1) and fires the single
+    // alert, deduped on the classified cause rather than the schedule.
+    forceScheduleDue(schedule.id);
+    await scheduler.runOnce();
+    scheduler.stop();
+
+    expect(emitted).toHaveLength(1);
+    const alert = emitted[0];
+    expect(alert.sourceEventName).toBe("activity.failed");
+    expect(alert.sourceContextId).toBe(schedule.id);
+    // Schedules snapshot a concrete inference profile at creation, and that
+    // profile is the alert's provider scope.
+    const scope = schedule.inferenceProfile;
+    expect(scope).toBeTruthy();
+    expect(alert.dedupeKey).toMatch(
+      new RegExp(
+        `^activity-failed:cause:PROVIDER_BILLING:${scope}:\\d{4}-\\d{2}-\\d{2}$`,
+      ),
+    );
+    expect(alert.contextPayload).toMatchObject({
+      jobName: "schedule:Billing victim",
+      errorKind: "model_provider",
+    });
+  });
+
+  test("schedules on different profiles alert separately for the same cause", async () => {
+    // Two provider connections can fail for the same class of reason with
+    // different remedies; schedule A's alert must not suppress schedule B's.
+    const emitted: Array<Record<string, unknown>> = [];
+    emitNotificationSignalImpl = async (payload) => {
+      emitted.push(payload as Record<string, unknown>);
+    };
+    runnerFailureClassification = {
+      errorKind: "model_provider",
+      failureCode: "PROVIDER_INVALID_KEY",
+    };
+
+    const scheduleA = await createSchedule({
+      name: "Profile A victim",
+      cronExpression: "0 * * * *",
+      message: "do work",
+      syntax: "cron",
+      maxRetries: 1,
+      retryBackoffMs: 1000,
+      inferenceProfile: "cost-optimized",
+    });
+    const scheduleB = await createSchedule({
+      name: "Profile B victim",
+      cronExpression: "0 * * * *",
+      message: "do work",
+      syntax: "cron",
+      maxRetries: 1,
+      retryBackoffMs: 1000,
+      inferenceProfile: "balanced",
+    });
+    forceScheduleDue(scheduleA.id);
+    forceScheduleDue(scheduleB.id);
+
+    scheduler = startScheduler(async () => {
+      throw new Error("provider rejected the key");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    forceScheduleDue(scheduleA.id);
+    forceScheduleDue(scheduleB.id);
+    await scheduler.runOnce();
+    scheduler.stop();
+
+    expect(emitted).toHaveLength(2);
+    const keys = emitted.map((signal) => signal.dedupeKey as string).sort();
+    expect(keys[0]).toMatch(
+      /^activity-failed:cause:PROVIDER_INVALID_KEY:balanced:\d{4}-\d{2}-\d{2}$/,
+    );
+    expect(keys[1]).toMatch(
+      /^activity-failed:cause:PROVIDER_INVALID_KEY:cost-optimized:\d{4}-\d{2}-\d{2}$/,
+    );
+  });
+
+  test("a cause-less failure keys the exhaustion alert per schedule", async () => {
+    const emitted: Array<Record<string, unknown>> = [];
+    emitNotificationSignalImpl = async (payload) => {
+      emitted.push(payload as Record<string, unknown>);
+    };
+
+    const schedule = await createSchedule({
+      name: "Crashing job",
+      cronExpression: "0 * * * *",
+      message: "do work",
+      syntax: "cron",
+      maxRetries: 1,
+      retryBackoffMs: 1000,
+    });
+    forceScheduleDue(schedule.id);
+
+    scheduler = startScheduler(async () => {
+      throw new Error("boom");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    forceScheduleDue(schedule.id);
+    await scheduler.runOnce();
+    scheduler.stop();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].dedupeKey).toMatch(
+      new RegExp(
+        `^activity-failed:schedule:${schedule.id}:\\d{4}-\\d{2}-\\d{2}$`,
+      ),
+    );
+    expect(emitted[0].contextPayload).toMatchObject({
+      errorKind: "exception",
+    });
+  });
+});
+
 // ── Crash recovery ────────────────────────────────────────────────────
 
 describe("crash recovery", () => {
@@ -667,7 +849,6 @@ describe("scheduler-recovery equivalence", () => {
     await applyRetryDecision({
       job: jobB,
       isOneShot: false,
-      errorMsg: "fail",
       decision,
       scheduleRetry,
       failOneShotPermanently: () => {},
@@ -747,7 +928,6 @@ describe("scheduler-recovery equivalence", () => {
     await applyRetryDecision({
       job: jobB1,
       isOneShot: true,
-      errorMsg: "fail",
       decision: decision1,
       scheduleRetry,
       failOneShotPermanently: (id: string) => {
@@ -774,7 +954,6 @@ describe("scheduler-recovery equivalence", () => {
     await applyRetryDecision({
       job: jobB2,
       isOneShot: true,
-      errorMsg: "fail",
       decision: decision2,
       scheduleRetry,
       failOneShotPermanently: (id: string) => {

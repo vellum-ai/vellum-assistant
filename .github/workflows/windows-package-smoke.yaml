@@ -67,9 +67,6 @@ jobs:
       - name: Build packaged runtime
         run: bun run build:runtime
 
-      - name: Build main and preload
-        run: bun run build
-
       - name: Package NSIS installer
         run: bunx electron-builder --win --config electron-builder.config.cjs --publish never
 

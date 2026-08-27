@@ -16,6 +16,13 @@
  * - `delete_credential` — Delete a credential by account name
  * - `list_credentials` — List all credential account names
  * - `bulk_set_credentials` — Store multiple credentials at once
+ *
+ * **Credential records** (non-secret identity + policy)
+ * - `get_credential_record` — Retrieve a credential record by account name
+ * - `set_credential_record` — Store or update a credential record
+ * - `delete_credential_record` — Delete a credential record by account name
+ * - `list_credential_records` — List all credential records
+ * - `bulk_set_credential_records` — Store multiple credential records at once
  */
 
 import { z } from "zod";
@@ -38,6 +45,16 @@ export const CesRpcMethod = {
   ListCredentials: "list_credentials",
   /** Bulk-import credentials (set multiple at once). */
   BulkSetCredentials: "bulk_set_credentials",
+  /** Retrieve a single credential record (identity + policy) by account name. */
+  GetCredentialRecord: "get_credential_record",
+  /** Store or update a credential record by account name. */
+  SetCredentialRecord: "set_credential_record",
+  /** Delete a credential record by account name. */
+  DeleteCredentialRecord: "delete_credential_record",
+  /** List all credential records. */
+  ListCredentialRecords: "list_credential_records",
+  /** Bulk-import credential records. */
+  BulkSetCredentialRecords: "bulk_set_credential_records",
 } as const;
 
 export type CesRpcMethod = (typeof CesRpcMethod)[keyof typeof CesRpcMethod];
@@ -169,6 +186,123 @@ export type BulkSetCredentialsResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// Credential records (identity + policy, never secret values)
+// ---------------------------------------------------------------------------
+
+export const CredentialInjectionTemplateSchema = z.object({
+  hostPattern: z.string(),
+  injectionType: z.enum(["header", "query"]),
+  headerName: z.string().optional(),
+  valuePrefix: z.string().optional(),
+  queryParamName: z.string().optional(),
+  composeWith: z
+    .object({
+      service: z.string(),
+      field: z.string(),
+      separator: z.string(),
+    })
+    .optional(),
+  valueTransform: z.enum(["base64"]).optional(),
+});
+export type CredentialInjectionTemplate = z.infer<
+  typeof CredentialInjectionTemplateSchema
+>;
+
+export const CredentialRecordSchema = z.object({
+  credentialId: z.string(),
+  service: z.string(),
+  field: z.string(),
+  allowedTools: z.array(z.string()),
+  allowedDomains: z.array(z.string()),
+  usageDescription: z.string().optional(),
+  alias: z.string().optional(),
+  injectionTemplates: z.array(CredentialInjectionTemplateSchema).optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type CredentialRecord = z.infer<typeof CredentialRecordSchema>;
+
+export const GetCredentialRecordSchema = z.object({
+  /** The account name to look up (`credential/{service}/{field}`). */
+  account: z.string(),
+});
+export type GetCredentialRecord = z.infer<typeof GetCredentialRecordSchema>;
+
+export const GetCredentialRecordResponseSchema = z.object({
+  found: z.boolean(),
+  record: CredentialRecordSchema.optional(),
+});
+export type GetCredentialRecordResponse = z.infer<
+  typeof GetCredentialRecordResponseSchema
+>;
+
+export const SetCredentialRecordSchema = z.object({
+  account: z.string(),
+  record: CredentialRecordSchema,
+});
+export type SetCredentialRecord = z.infer<typeof SetCredentialRecordSchema>;
+
+export const SetCredentialRecordResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SetCredentialRecordResponse = z.infer<
+  typeof SetCredentialRecordResponseSchema
+>;
+
+export const DeleteCredentialRecordSchema = z.object({
+  account: z.string(),
+});
+export type DeleteCredentialRecord = z.infer<
+  typeof DeleteCredentialRecordSchema
+>;
+
+export const DeleteCredentialRecordResponseSchema = z.object({
+  result: z.enum(["deleted", "not-found", "error"]),
+});
+export type DeleteCredentialRecordResponse = z.infer<
+  typeof DeleteCredentialRecordResponseSchema
+>;
+
+export const ListCredentialRecordsSchema = z.object({});
+export type ListCredentialRecords = z.infer<typeof ListCredentialRecordsSchema>;
+
+export const ListCredentialRecordsResponseSchema = z.object({
+  records: z.array(
+    z.object({
+      account: z.string(),
+      record: CredentialRecordSchema,
+    }),
+  ),
+});
+export type ListCredentialRecordsResponse = z.infer<
+  typeof ListCredentialRecordsResponseSchema
+>;
+
+export const BulkSetCredentialRecordsSchema = z.object({
+  records: z.array(
+    z.object({
+      account: z.string(),
+      record: CredentialRecordSchema,
+    }),
+  ),
+});
+export type BulkSetCredentialRecords = z.infer<
+  typeof BulkSetCredentialRecordsSchema
+>;
+
+export const BulkSetCredentialRecordsResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      account: z.string(),
+      ok: z.boolean(),
+    }),
+  ),
+});
+export type BulkSetCredentialRecordsResponse = z.infer<
+  typeof BulkSetCredentialRecordsResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Full RPC contract type map
 // ---------------------------------------------------------------------------
 
@@ -201,6 +335,26 @@ export interface CesRpcContract {
     request: BulkSetCredentials;
     response: BulkSetCredentialsResponse;
   };
+  [CesRpcMethod.GetCredentialRecord]: {
+    request: GetCredentialRecord;
+    response: GetCredentialRecordResponse;
+  };
+  [CesRpcMethod.SetCredentialRecord]: {
+    request: SetCredentialRecord;
+    response: SetCredentialRecordResponse;
+  };
+  [CesRpcMethod.DeleteCredentialRecord]: {
+    request: DeleteCredentialRecord;
+    response: DeleteCredentialRecordResponse;
+  };
+  [CesRpcMethod.ListCredentialRecords]: {
+    request: ListCredentialRecords;
+    response: ListCredentialRecordsResponse;
+  };
+  [CesRpcMethod.BulkSetCredentialRecords]: {
+    request: BulkSetCredentialRecords;
+    response: BulkSetCredentialRecordsResponse;
+  };
 }
 
 /**
@@ -230,5 +384,25 @@ export const CesRpcSchemas = {
   [CesRpcMethod.BulkSetCredentials]: {
     request: BulkSetCredentialsSchema,
     response: BulkSetCredentialsResponseSchema,
+  },
+  [CesRpcMethod.GetCredentialRecord]: {
+    request: GetCredentialRecordSchema,
+    response: GetCredentialRecordResponseSchema,
+  },
+  [CesRpcMethod.SetCredentialRecord]: {
+    request: SetCredentialRecordSchema,
+    response: SetCredentialRecordResponseSchema,
+  },
+  [CesRpcMethod.DeleteCredentialRecord]: {
+    request: DeleteCredentialRecordSchema,
+    response: DeleteCredentialRecordResponseSchema,
+  },
+  [CesRpcMethod.ListCredentialRecords]: {
+    request: ListCredentialRecordsSchema,
+    response: ListCredentialRecordsResponseSchema,
+  },
+  [CesRpcMethod.BulkSetCredentialRecords]: {
+    request: BulkSetCredentialRecordsSchema,
+    response: BulkSetCredentialRecordsResponseSchema,
   },
 } as const;

@@ -18,8 +18,6 @@ import {
   MINIMIZE_COMMIT_PX,
   MINIMIZE_TRAVEL_PX,
   collapseProgress,
-  expandedChromeOpacity,
-  minimizedChromeOpacity,
   useQuestionCardMinimize,
 } from "@/domains/chat/hooks/use-question-card-minimize";
 
@@ -102,53 +100,39 @@ describe("collapseProgress", () => {
   });
 });
 
-describe("chrome opacities", () => {
-  test("the two crossfades never overlap", () => {
-    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
-      const both =
-        expandedChromeOpacity(progress) > 0 &&
-        minimizedChromeOpacity(progress) > 0;
-      expect(both).toBe(false);
-    }
-  });
-
-  test("each is fully opaque at its own resting state", () => {
-    expect(expandedChromeOpacity(1)).toBe(1);
-    expect(expandedChromeOpacity(0)).toBe(0);
-    expect(minimizedChromeOpacity(0)).toBe(1);
-    expect(minimizedChromeOpacity(1)).toBe(0);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // State and gesture
 // ---------------------------------------------------------------------------
 
 describe("useQuestionCardMinimize", () => {
   test("starts expanded", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
 
     expect(result.current.isMinimized).toBe(false);
     expect(result.current.progress).toBe(1);
     expect(result.current.dragAttr).toBeUndefined();
   });
 
-  test("toggle flips the state and expand only ever opens", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+  test("toggle flips the state", () => {
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
 
     act(() => result.current.toggle());
     expect(result.current.isMinimized).toBe(true);
     expect(result.current.progress).toBe(0);
 
-    act(() => result.current.expand());
+    act(() => result.current.toggle());
     expect(result.current.isMinimized).toBe(false);
-
-    act(() => result.current.expand());
-    expect(result.current.isMinimized).toBe(false);
+    expect(result.current.progress).toBe(1);
   });
 
   test("a downward drag tracks the finger before it commits", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
     const half = MINIMIZE_TRAVEL_PX / 2;
 
     act(() => {
@@ -168,7 +152,9 @@ describe("useQuestionCardMinimize", () => {
   });
 
   test("releasing past the commit distance minimizes", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
     const travel = MINIMIZE_COMMIT_PX + 10;
 
     act(() => {
@@ -189,7 +175,9 @@ describe("useQuestionCardMinimize", () => {
   });
 
   test("releasing short of the commit distance springs back", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
     const travel = MINIMIZE_COMMIT_PX - 10;
 
     act(() => {
@@ -209,7 +197,9 @@ describe("useQuestionCardMinimize", () => {
   });
 
   test("an upward drag past the commit distance expands a minimized card", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
     const travel = MINIMIZE_COMMIT_PX + 10;
 
     act(() => result.current.toggle());
@@ -230,7 +220,9 @@ describe("useQuestionCardMinimize", () => {
   });
 
   test("the click a drag leaves behind is swallowed, and only that one", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
     let stopped = 0;
     const click = () =>
       ({
@@ -260,8 +252,86 @@ describe("useQuestionCardMinimize", () => {
     expect(stopped).toBe(1);
   });
 
+  test("a card with no room to collapse into holds open, and stays open", () => {
+    const { result, rerender } = renderHook(
+      ({ canMinimize }) => useQuestionCardMinimize({ canMinimize }),
+      { initialProps: { canMinimize: true } },
+    );
+
+    act(() => result.current.toggle());
+    expect(result.current.isMinimized).toBe(true);
+
+    rerender({ canMinimize: false });
+    expect(result.current.isMinimized).toBe(false);
+    expect(result.current.progress).toBe(1);
+
+    // The request went with the room, so the card does not spring shut the
+    // moment the room comes back.
+    rerender({ canMinimize: true });
+    expect(result.current.isMinimized).toBe(false);
+  });
+
+  test("a card with no room to collapse into never arms the gesture", () => {
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: false }),
+    );
+    const travel = MINIMIZE_COMMIT_PX + 10;
+
+    act(() => {
+      result.current.dragHandlers.onTouchStart(
+        touchEvent("touchstart", [finger(START_Y)]),
+      );
+      result.current.dragHandlers.onTouchMove(
+        touchEvent("touchmove", [finger(START_Y + travel)]),
+      );
+      result.current.dragHandlers.onTouchEnd(
+        touchEvent("touchend", [], [finger(START_Y + travel)]),
+      );
+    });
+
+    expect(result.current.isDragging).toBe(false);
+    expect(result.current.isMinimized).toBe(false);
+  });
+
+  test("a gesture that outlives the room it armed in commits nothing", () => {
+    const { result, rerender } = renderHook(
+      ({ canMinimize }) => useQuestionCardMinimize({ canMinimize }),
+      { initialProps: { canMinimize: true } },
+    );
+    const travel = MINIMIZE_COMMIT_PX + 10;
+
+    act(() => {
+      result.current.dragHandlers.onTouchStart(
+        touchEvent("touchstart", [finger(START_Y)]),
+      );
+      result.current.dragHandlers.onTouchMove(
+        touchEvent("touchmove", [finger(START_Y + travel)]),
+      );
+    });
+
+    // The card widens mid-drag, as a rotation does. The engine only consults
+    // `enabled` when a gesture arms, so this one still reaches the release.
+    rerender({ canMinimize: false });
+
+    act(() => {
+      result.current.dragHandlers.onTouchEnd(
+        touchEvent("touchend", [], [finger(START_Y + travel)]),
+      );
+    });
+
+    expect(result.current.isMinimized).toBe(false);
+
+    // The release must leave nothing behind either: a request recorded here
+    // would spring the card shut the next time it narrows, with nothing on
+    // screen having asked for it.
+    rerender({ canMinimize: true });
+    expect(result.current.isMinimized).toBe(false);
+  });
+
   test("a tap that never moves leaves the following click alone", () => {
-    const { result } = renderHook(() => useQuestionCardMinimize());
+    const { result } = renderHook(() =>
+      useQuestionCardMinimize({ canMinimize: true }),
+    );
     let stopped = 0;
     const click = () =>
       ({

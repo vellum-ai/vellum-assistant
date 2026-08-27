@@ -5,6 +5,7 @@ import type { ToolContext } from "../../types.js";
 import {
   BROWSER_STATUS_INPUT_FIELD,
   BROWSER_STATUS_MODE,
+  CHROME_WEB_STORE_INSTALL_URL,
 } from "../browser-status-constants.js";
 import { CdpError } from "../cdp-client/errors.js";
 
@@ -214,6 +215,9 @@ describe("executeBrowserStatus", () => {
     expect(extension.summary).toContain("no Chrome Extension is connected");
     expect(extension.verified).toBe("preflight");
     expect(extension.details.transport).toBe("extension-ws");
+    expect(extension.userActions.join("\n")).toContain(
+      CHROME_WEB_STORE_INSTALL_URL,
+    );
   });
 
   test("probe failure diagnostics include remediation actions", async () => {
@@ -237,6 +241,9 @@ describe("executeBrowserStatus", () => {
     expect(extension).toBeDefined();
     expect(extension.available).toBe(false);
     expect(extension.summary).toContain("probe failed");
+    expect(extension.userActions.join("\n")).toContain(
+      CHROME_WEB_STORE_INSTALL_URL,
+    );
   });
 
   test("recommendation order follows auto candidate precedence with available extension", async () => {

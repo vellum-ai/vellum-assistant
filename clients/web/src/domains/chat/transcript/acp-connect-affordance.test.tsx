@@ -219,6 +219,27 @@ describe("AcpConnectAffordance", () => {
     expect(recordedLifecycleDiagnostics).toEqual([]);
   });
 
+  test("keeps a restored auth_required prompt up even when connected reports true", async () => {
+    // `hasAcpClaudeToken` answers on presence, shape and broker readability
+    // without putting the token to Claude, so a rejected token still reports
+    // connected. Retiring on that would dismiss the card over the failure it
+    // exists to repair, and the dismissal set would keep it from coming back
+    // for the rest of the session. Stale markers are retired at the daemon,
+    // when a new token is actually written.
+    alreadyConnected = true;
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "toolu-acp-1",
+      reason: "auth_required",
+      conversationId: "conv-1",
+    });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    await flushConnectedCheck();
+
+    expect(screen.getByTestId("acp-connect-affordance")).not.toBeNull();
+    expect(recordedLifecycleDiagnostics).toEqual([]);
+  });
+
   test("records nothing when the connected check answers false", async () => {
     alreadyConnected = false;
     useInteractionStore

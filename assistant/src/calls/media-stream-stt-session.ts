@@ -432,6 +432,7 @@ export class MediaStreamSttSession {
     let transcriber: StreamingTranscriber | null = null;
     try {
       transcriber = await resolveStreamingTranscriber({
+        role: "telephony",
         sampleRate: STREAMING_SAMPLE_RATE,
         utteranceBoundaryFinals: true,
         utteranceEndMs: getConfig().calls.voice.utteranceEndMs,
@@ -688,7 +689,7 @@ export class MediaStreamSttSession {
     // Resolve a batch transcriber for the configured provider.
     let transcriber;
     try {
-      transcriber = await resolveBatchTranscriber();
+      transcriber = await resolveBatchTranscriber({ role: "telephony" });
     } catch (err) {
       if (this.disposed) {
         return;

@@ -1,4 +1,4 @@
-import { parseAccelerator } from "@vellumai/design-library";
+import { formatAcceleratorHint } from "@vellumai/design-library";
 
 import { isElectron } from "@/runtime/is-electron";
 
@@ -22,7 +22,7 @@ export function newChatAccelerator(): string {
     : WEB_NEW_CHAT_ACCELERATOR;
 }
 
-/** Compact glyph form for tooltips and palette hints (`⌘N`, `⌘⇧O`). */
+/** Compact form for tooltips and palette hints (`⌘N` on macOS, `Ctrl+N` on Windows). */
 export function newChatShortcutHint(): string {
-  return parseAccelerator(newChatAccelerator()).join("");
+  return formatAcceleratorHint(newChatAccelerator());
 }

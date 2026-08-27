@@ -1,4 +1,10 @@
-import { BrowserWindow, Menu, screen, shell } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  screen,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { z } from "zod";
 
 import {
@@ -6,13 +12,15 @@ import {
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
-  COMPANION_BASE_AVATAR_BOX,
-  COMPANION_BASE_CANVAS_PAD,
+  COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
-  COMPANION_SIZES,
-  COMPANION_NEAR_EDGE,
-  COMPANION_SIZE_BOXES,
+  companionBoxFor,
+  companionCardSideFor,
+  companionGapFor,
+  companionNearEdgeFor,
+  companionPadFor,
+  companionScaleFor,
   WATCH_FLAG,
   type CompanionCardGrowth,
   type CompanionGrowth,
@@ -20,11 +28,12 @@ import {
   type CompanionIntroAction,
   type CompanionIntroBeat,
   type CompanionSize,
+  type CompanionSizeAxis,
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
-import { COMPANION_SIZE_LABELS } from "@vellumai/electron-desktop/companion-menu";
+import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 import {
   onSettingChange,
   readSetting,
@@ -126,59 +135,52 @@ const COMPANION_KIND = "companion";
 const COMPANION_ROUTE = "/floating/companion";
 
 /**
- * The widest the pill gets at {@link COMPANION_BASE_AVATAR_BOX}, matching
- * `FALLBACK_WIDTHS.call` in the renderer.
- *
- * A ceiling rather than a width: the pill measures its own content, so this is
- * what the canvas is sized to hold, and content wider than it is clipped by the
- * window. The call's approval row is the widest thing the surface renders.
- */
-const BASE_MAX_PILL_WIDTH = 360;
-
-/**
- * The tallest the surface gets, which is the typing card.
- *
- * Every other state is a pill exactly {@link COMPANION_BASE_AVATAR_BOX} tall. The card
- * stacks the conversation on top of that row, in a viewport that scrolls once
- * it is full, so the card has a ceiling rather than growing with the exchange:
- * the renderer's `TURNS_MAX_HEIGHT` (220) and its padding, over the composer.
- * Rounded up from what that comes to, because the text is laid out in the
- * renderer and a canvas a few points short clips the top of the card off.
- *
- * Matched to `CompanionSurface`'s card in `companion-surface.tsx`, the way
- * {@link BASE_MAX_PILL_WIDTH} is matched to its widths.
- */
-const BASE_MAX_CARD_HEIGHT = 290;
-
-/**
- * Everything the window's placement depends on, for one companion size.
+ * Everything the window's placement depends on, for one pair of companion
+ * sizes.
  *
  * A record rather than a set of module constants because the user picks the
- * size and the whole canvas follows it. Passed to the placement
+ * sizes and the whole canvas follows them. Passed to the placement
  * rules explicitly rather than read off the module, so they stay pure functions
  * of their inputs and every size is a case a test can state.
  */
 export interface CompanionGeometry {
-  /** The avatar's box, and the scale: this over {@link COMPANION_BASE_AVATAR_BOX}. */
+  /** The creature's box, which is the whole of its own scale. */
   avatarBox: number;
+  /**
+   * The pill's box, which is the scale of everything that is not the creature.
+   */
+  optionsBox: number;
   /** The canvas, sized to hold the largest state in either direction. */
   canvasWidth: number;
   canvasHeight: number;
   /** How much canvas the card's side of the avatar needs, shadow included. */
   riseAbove: number;
-  /** How much the other side needs: the avatar and its shadow, and no more. */
+  /**
+   * How much the other side needs: the avatar, whatever of the pill reaches
+   * back past it, and the shadow.
+   */
   dropBelow: number;
-  /** What {@link growthFor} measures the room against. */
-  maxPillWidth: number;
+  /**
+   * The pill's far edge at its widest, measured from the avatar's centre.
+   *
+   * Whole points, as every number here is: the window is placed and sized in
+   * them, and the avatar stands on the line between the two offsets and on the
+   * canvas's own centre line.
+   */
+  maxReach: number;
 }
 
 /**
- * The canvas for a named size.
+ * The canvas for a pair of named sizes.
+ *
+ * Each name goes through its own axis's table ({@link companionBoxFor}), so the
+ * same name on both axes is a creature and a pill a notch apart rather than two
+ * boxes of one size.
  *
  * The asymmetry between {@link CompanionGeometry.riseAbove} and `dropBelow` is
  * the point of the shape. Sizing both sides for the card, which is what pinning
  * the avatar to the canvas's centre amounts to, spends the card's whole height
- * on a side that never draws anything taller than the avatar, and macOS
+ * on a side that never draws anything taller than the pill, and macOS
  * refuses a window origin above the top of the work area, so that spend is
  * exactly how far short of the top the avatar would stop.
  *
@@ -186,29 +188,54 @@ export interface CompanionGeometry {
  * the same bargain the width makes. A canvas that grew with the card would move
  * the window under the pointer mid-press and put the expansion back on the main
  * process, which is what the fixed canvas exists to avoid. It *is* resized when
- * the user picks a different size, which is a deliberate, one-off event rather
- * than something that happens mid-gesture.
+ * the user picks a different size on either axis, which is a deliberate,
+ * one-off event rather than something that happens mid-gesture.
  */
-export const geometryFor = (size: CompanionSize): CompanionGeometry => {
-  const avatarBox = COMPANION_SIZE_BOXES[size];
-  const scale = avatarBox / COMPANION_BASE_AVATAR_BOX;
-  const pad = COMPANION_BASE_CANVAS_PAD * scale;
-  const maxPillWidth = BASE_MAX_PILL_WIDTH * scale;
-  // The avatar holds its place and the body runs off one side of it, so the
-  // reach is almost the pill's whole width. The canvas has to hold it in
-  // whichever direction main later picks, so it is sized for both sides.
-  const maxReach = maxPillWidth - avatarBox / 2;
-  const riseAbove = BASE_MAX_CARD_HEIGHT * scale - avatarBox / 2 + pad;
-  // The invariant the renderer anchors by, at this size. Scaled rather than
-  // recomputed, so the formula lives in one place for both processes.
-  const dropBelow = COMPANION_NEAR_EDGE * scale;
+export const geometryFor = (
+  avatar: CompanionSize,
+  options: CompanionSize,
+): CompanionGeometry => {
+  const avatarBox = companionBoxFor("avatar", avatar);
+  const optionsBox = companionBoxFor("options", options);
+  const pad = companionPadFor(avatarBox, optionsBox);
+  const gap = companionGapFor(avatarBox, optionsBox);
+  const maxPillWidth =
+    COMPANION_BASE_MAX_PILL_WIDTH * companionScaleFor(optionsBox);
+  // The avatar holds its place and the pill hangs off one side of it across the
+  // gap, so the reach is the avatar's half box, the gap, and the widest pill.
+  // The canvas has to hold it in whichever direction main later picks, so it is
+  // sized for both sides, and `growthFor` picks that direction by the same
+  // number. Whole points like everything else published here: the options
+  // sizes below the authored box are not whole multiples of it, and a reach
+  // carrying a repeating fraction is a canvas edge that lands between points.
+  const maxReach = Math.round(avatarBox / 2 + gap + maxPillWidth);
+  // Both distances come from the contract, which is where the renderer reads
+  // them too: main places the window by them and the renderer anchors the
+  // surface by them, so a second copy of either is the avatar drawn somewhere
+  // main did not put it. Each already answers for both card directions, which
+  // is what lets a flip move the canvas rather than resize it.
+  const dropBelow = companionNearEdgeFor(avatarBox, optionsBox);
+  const canvasHeight = Math.round(
+    companionCardSideFor(avatarBox, optionsBox) + dropBelow,
+  );
+  // The near edge is taken exactly as the contract states it and the card's
+  // side absorbs the rounding, because the renderer names the card's edge with
+  // `100%` and steps back from it by that near edge. Rounding the other way
+  // round would leave main placing the window by one line and the renderer
+  // drawing the creature on another, and a card side is a ceiling with slack in
+  // it where a near edge is the line itself.
+  const riseAbove = canvasHeight - dropBelow;
   return {
     avatarBox,
-    canvasWidth: Math.round(maxReach * 2 + pad * 2),
-    canvasHeight: Math.round(riseAbove + dropBelow),
+    optionsBox,
+    // Twice a whole half rather than a whole total. The renderer puts the
+    // avatar on the canvas's centre line, so an odd width would stand the
+    // creature on a half point and a resize would not land back on it.
+    canvasWidth: Math.round(maxReach + pad) * 2,
+    canvasHeight,
     riseAbove,
     dropBelow,
-    maxPillWidth,
+    maxReach,
   };
 };
 
@@ -234,7 +261,10 @@ let cardGrowth: CompanionCardGrowth = "up";
  * computed here is measured in, and reading the store on each mouse-move of a
  * drag would be a file read per frame.
  */
-let geometry: CompanionGeometry = geometryFor(readCompanionSize());
+let geometry: CompanionGeometry = geometryFor(
+  readCompanionSize("avatar"),
+  readCompanionSize("options"),
+);
 
 /**
  * The beat of the one-time introduction the surface is on, or `null` when it is
@@ -326,6 +356,7 @@ const currentState = (): CompanionSurfaceState => {
     growth,
     cardGrowth,
     avatarBox: geometry.avatarBox,
+    optionsBox: geometry.optionsBox,
     character: character === null ? undefined : character,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
@@ -369,10 +400,13 @@ export const callOnUpdate = (
 /**
  * Which way the pill grows, from where the avatar actually sits.
  *
- * The body needs `maxPillWidth - avatarBox` of clearance on the side it
- * grows into. Rightward is the default and leftward is what it flips to when
- * the right edge is too close, so the avatar stays exactly where the user put
- * it instead of the controls running off the display.
+ * The room on each side is measured from the avatar's centre, so the clearance
+ * the pill needs is measured from there too: the avatar's half box, then the
+ * gap, then the widest the pill draws, which is
+ * {@link CompanionGeometry.maxReach}.
+ * Rightward is the default and leftward is what it flips to when the right edge
+ * is too close, so the avatar stays exactly where the user put it instead of
+ * the controls running off the display.
  *
  * A display too narrow for either direction still grows right, because the
  * clipping is then unavoidable and the user can drag the surface somewhere it
@@ -383,7 +417,7 @@ export const growthFor = (
   workArea: { x: number; width: number },
   geometry: CompanionGeometry,
 ): CompanionGrowth => {
-  const needed = geometry.maxPillWidth - geometry.avatarBox;
+  const needed = geometry.maxReach;
   const roomRight = workArea.x + workArea.width - avatarCentreX;
   const roomLeft = avatarCentreX - workArea.x;
   if (roomRight < needed && roomLeft >= needed) {
@@ -615,6 +649,47 @@ export const dispatchWithoutRaising = (command: VellumCommand): void => {
 
 let installed = false;
 
+/**
+ * The surface's own menu, on a right-click.
+ *
+ * **Because the tray is the wrong place to look.** The two things a user
+ * wants from a floating avatar are to resize it and to make it go away, and the
+ * tray offers both from a menu-bar icon that says nothing about the thing they
+ * are actually looking at. A press on the object itself is where people reach
+ * first.
+ *
+ * Built in main rather than in the renderer: a menu is a native window, and
+ * main is the side that owns both the sizes and the visibility. The size
+ * pickers come from the same builder the tray reads, so the two menus cannot
+ * drift into describing the same surface differently.
+ *
+ * A pure template, separately from the press that pops it, because the menu
+ * itself is a native window and what is worth stating is the wording and which
+ * radio is marked.
+ */
+export const companionContextMenuTemplate = (
+  current: Record<CompanionSizeAxis, CompanionSize>,
+  actions: {
+    setSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
+    hide: () => void;
+  },
+): MenuItemConstructorOptions[] => [
+  // The size pickers the tray offers too, from the one builder both read. They
+  // leave the top level short enough to read at a glance: two headings, and the
+  // one item that is not a size.
+  ...companionSizeSubmenus(current, actions.setSize),
+  { type: "separator" as const },
+  {
+    // Named for what it does to the thing under the cursor. The tray's item is
+    // a checkbox because it is also the way back; here there is a surface in
+    // front of the user, so this only has to take it away.
+    label: "Hide Companion",
+    click: () => {
+      actions.hide();
+    },
+  },
+];
+
 export const installCompanionWindow = (): void => {
   if (installed) {
     return;
@@ -838,55 +913,25 @@ export const installCompanionWindow = (): void => {
     },
   );
 
-  /**
-   * The surface's own menu, on a right-click.
-   *
-   * **Because the tray is the wrong place to look.** The two things a user
-   * wants from a floating avatar are to resize it and to make it go away, and
-   * both were otherwise reachable only from a menu-bar icon that says nothing
-   * about the thing they are actually looking at. A press on the object itself
-   * is where people reach first.
-   *
-   * Built here rather than in the renderer: a menu is a native window, and main
-   * is the side that owns both the size and the visibility. The wording comes
-   * from the tray's own table, so the two menus cannot drift into describing
-   * the same surface differently.
-   */
   on("vellum:companion:contextMenu", z.tuple([]), () => {
     const win = getFloatingWindow(COMPANION_KIND);
     if (!win || win.isDestroyed()) {
       return;
     }
-    const current = readCompanionSize();
-    const menu = Menu.buildFromTemplate([
-      {
-        // The sizes sit under a heading rather than flat at the top level.
-        // Flat, the first thing a right-click offered was four words that only
-        // read as sizes once you had noticed they were sizes, and the one item
-        // that was not a size sat at the end of the same list. A named submenu
-        // says what the four are before it shows them, and leaves the top level
-        // short enough to read at a glance.
-        label: "Size",
-        submenu: COMPANION_SIZES.map((size) => ({
-          label: COMPANION_SIZE_LABELS[size],
-          type: "radio" as const,
-          checked: current === size,
-          click: () => {
-            setCompanionSurfaceSize(size);
-          },
-        })),
-      },
-      { type: "separator" as const },
-      {
-        // Named for what it does to the thing under the cursor. The tray's item
-        // is a checkbox because it is also the way back; here there is a
-        // surface in front of the user, so this only has to take it away.
-        label: "Hide Companion",
-        click: () => {
-          setCompanionSurfaceVisible(false);
+    const menu = Menu.buildFromTemplate(
+      companionContextMenuTemplate(
+        {
+          avatar: readCompanionSize("avatar"),
+          options: readCompanionSize("options"),
         },
-      },
-    ]);
+        {
+          setSize: setCompanionSurfaceSize,
+          hide: () => {
+            setCompanionSurfaceVisible(false);
+          },
+        },
+      ),
+    );
     menu.popup({ window: win });
   });
 
@@ -1145,10 +1190,6 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   closeCompanionWindow();
 };
 
-/** Which size the surface is currently drawn at, for the tray's radio items. */
-export const readCompanionSurfaceSize = (): CompanionSize =>
-  readCompanionSize();
-
 /**
  * Draw the surface at a different size, keeping the avatar where it is.
  *
@@ -1163,10 +1204,21 @@ export const readCompanionSurfaceSize = (): CompanionSize =>
  * hundreds of points, and the user would watch the thing they were trying to
  * enlarge walk off across the desktop. So the centre is read in the old
  * geometry, and the window placed in the new one around the same point.
+ *
+ * Both axes take this same path. Sizing the options alone leaves the creature
+ * exactly as it was and still moves every edge around it: the pill's reach and
+ * the card's height are stated in the options size, so the canvas has to be
+ * built again for them.
  */
-export const setCompanionSurfaceSize = (size: CompanionSize): void => {
-  writeCompanionSize(size);
-  const next = geometryFor(size);
+export const setCompanionSurfaceSize = (
+  axis: CompanionSizeAxis,
+  size: CompanionSize,
+): void => {
+  writeCompanionSize(axis, size);
+  const next = geometryFor(
+    readCompanionSize("avatar"),
+    readCompanionSize("options"),
+  );
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     geometry = next;

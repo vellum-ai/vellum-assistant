@@ -279,6 +279,7 @@
     "workspace": "Рабочая область"
   },
   "skillDetail": {
+    "backToConversationAriaLabel": "Назад к диалогу",
     "backToSkillsAriaLabel": "Назад к навыкам",
     "filesTab": "Файлы",
     "fileViewModeAriaLabel": "Режим просмотра файла",
@@ -295,6 +296,7 @@
     "source": "Код"
   },
   "skillDetailPage": {
+    "backToConversation": "Назад к диалогу",
     "backToSuperpowers": "Назад к моим суперсилам",
     "notFoundSubtitle": "Этот навык могли удалить, или ссылка устарела.",
     "notFoundTitle": "Навык не найден"

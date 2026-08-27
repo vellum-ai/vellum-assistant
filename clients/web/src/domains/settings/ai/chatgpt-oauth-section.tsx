@@ -1,145 +1,56 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { Loader2 } from "lucide-react";
-
-import {
-  inferenceChatgptsubscriptionAuthExchangePost,
-  inferenceChatgptsubscriptionAuthPost,
-  inferenceProviderconnectionsGet,
-} from "@/generated/daemon/sdk.gen";
 
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
-import { t, useTranslation } from "@/i18n";
+import { useTranslation } from "@/i18n";
 
-// ---------------------------------------------------------------------------
-// ChatGPT Subscription OAuth Section
-// ---------------------------------------------------------------------------
-//
-// Self-contained OAuth flow for connecting a ChatGPT subscription.
-// Renders inside the provider editor modal when auth type is
-// "oauth_subscription". Manages a 6-state machine:
-//   idle → starting → paste_url → exchanging → completed | failed
-//
-// On successful exchange the component calls `onConnected` with the
-// resulting connection so the parent can persist it.
-
-type ChatgptOAuthState =
-  "idle" | "starting" | "paste_url" | "exchanging" | "completed" | "failed";
+import { ChatgptDeviceAuthFlow } from "./chatgpt-device-auth-flow";
+import { ChatgptPasteAuthFlow } from "./chatgpt-paste-auth-flow";
+import { useChatgptDeviceCodeLogin } from "./use-chatgpt-device-code-login-flag";
 
 interface ChatgptOAuthSectionProps {
   assistantId: string;
   onConnected: (connection: ProviderConnection) => void;
 }
 
+/**
+ * Connects a ChatGPT subscription. Rendered inside the provider editor when
+ * the auth type is `oauth_subscription`.
+ *
+ * The redirect-and-paste flow is the whole section unless
+ * `chatgpt-device-code-login` is on. Under that flag the device code leads,
+ * asking the user for nothing but a code typed into ChatGPT's own page, and
+ * redirect-and-paste stays reachable behind a disclosure: device code
+ * authorization is an account setting an organization can switch off, and the
+ * paste flow takes the section over outright when the assistant's daemon has
+ * no device-auth route at all. Whenever the paste flow is the only sign-in on
+ * screen it stands alone, under the plain name it carried before the device
+ * code joined it. Every path reports the same stored connection through
+ * `onConnected` for the parent to persist.
+ */
 export function ChatgptOAuthSection({
   assistantId,
   onConnected,
 }: ChatgptOAuthSectionProps) {
-  const { t: translate } = useTranslation("settings");
-  const [oauthState, setOauthState] = useState<ChatgptOAuthState>("idle");
-  const [pastedUrl, setPastedUrl] = useState("");
-  const [oauthError, setOauthError] = useState<string | null>(null);
-
-  async function handleSignIn() {
-    setOauthState("starting");
-    setOauthError(null);
-    const popup = window.open("about:blank", "_blank");
-    try {
-      const {
-        data: { authorize_url },
-      } = await inferenceChatgptsubscriptionAuthPost({
-        path: { assistant_id: assistantId },
-        throwOnError: true,
-      });
-      if (popup) {
-        popup.opener = null;
-        popup.location.href = authorize_url;
-      } else {
-        window.open(authorize_url, "_blank", "noopener");
-      }
-      setOauthState("paste_url");
-    } catch {
-      popup?.close();
-      setOauthState("failed");
-      setOauthError(t("settings:chatgptOauthSection.startFailed"));
-    }
-  }
-
-  async function handleUrlSubmit() {
-    setOauthError(null);
-    const trimmed = pastedUrl.trim();
-    if (!trimmed) {
-      setOauthError(t("settings:chatgptOauthSection.pasteUrlError"));
-      return;
-    }
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(trimmed);
-    } catch {
-      setOauthError(t("settings:chatgptOauthSection.invalidUrl"));
-      return;
-    }
-    const code = parsedUrl.searchParams.get("code");
-    const state = parsedUrl.searchParams.get("state");
-    if (!code) {
-      setOauthError(t("settings:chatgptOauthSection.missingCode"));
-      return;
-    }
-    if (!state) {
-      setOauthError(t("settings:chatgptOauthSection.missingState"));
-      return;
-    }
-    setOauthState("exchanging");
-    try {
-      await inferenceChatgptsubscriptionAuthExchangePost({
-        path: { assistant_id: assistantId },
-        body: { code, state },
-        throwOnError: true,
-      });
-      setOauthState("completed");
-      // Unfiltered: the subscription row is found by name, and its provider
-      // column differs across daemon versions ("chatgpt" on current daemons,
-      // "openai" on older ones), so a provider-filtered list can miss it.
-      const { data } = await inferenceProviderconnectionsGet({
-        path: { assistant_id: assistantId },
-        throwOnError: true,
-      });
-      const conns = data.connections;
-      const chatgptConn = conns.find(
-        (c) => c.name === "chatgpt-subscription" || c.name === "openai-chatgpt",
-      );
-      if (chatgptConn) {
-        onConnected(chatgptConn);
-      } else {
-        onConnected({
-          name: "chatgpt-subscription",
-          provider: "chatgpt",
-          auth: {
-            type: "oauth_subscription",
-            credential: "credential/openai/chatgpt-subscription",
-          },
-          label: "ChatGPT Subscription",
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          baseUrl: null,
-          models: null,
-          isManaged: false,
-        });
-      }
-    } catch {
-      setOauthState("failed");
-      setOauthError(t("settings:chatgptOauthSection.completeFailed"));
-    }
-  }
-
-  function handleReset() {
-    setOauthState("idle");
-    setPastedUrl("");
-    setOauthError(null);
-  }
+  const { t } = useTranslation("settings");
+  const deviceCodeLoginFlag = useChatgptDeviceCodeLogin();
+  // The flag picks the section's shape once, at mount, and a value that lands
+  // afterwards never changes it. Swapping the flows mid-visit would unmount
+  // whichever one the user had already started: a pending PKCE exchange and a
+  // pasted callback URL would go with it, stranding the authorization page
+  // they had opened. A mount that reads the pre-hydration default keeps the
+  // redirect-and-paste flow, which signs in on its own, and the next time the
+  // editor opens the settled value leads.
+  const [deviceCodeLoginOn] = useState(deviceCodeLoginFlag);
+  const [otherOptionsOpen, setOtherOptionsOpen] = useState(false);
+  const [deviceAuthUnsupported, setDeviceAuthUnsupported] = useState(false);
+  const handleDeviceAuthUnsupported = useCallback(
+    () => setDeviceAuthUnsupported(true),
+    [],
+  );
+  const deviceCodeShown = deviceCodeLoginOn && !deviceAuthUnsupported;
 
   return (
     <div className="space-y-3 rounded-lg border border-[var(--border-base)] p-4">
@@ -148,123 +59,39 @@ export function ChatgptOAuthSection({
         as="p"
         className="text-[var(--content-tertiary)]"
       >
-        {translate("chatgptOauthSection.intro")}
+        {t("chatgptOauthSection.intro")}
       </Typography>
 
-      {oauthState === "idle" || oauthState === "paste_url" ? (
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className={
-                oauthState === "paste_url"
-                  ? "text-[var(--content-tertiary)] line-through"
-                  : "text-[var(--content-secondary)]"
-              }
-            >
-              {oauthState === "idle"
-                ? translate("chatgptOauthSection.step1Idle")
-                : translate("chatgptOauthSection.step1PasteUrl")}
-            </Typography>
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-[var(--content-secondary)]"
-            >
-              {translate("chatgptOauthSection.step2")}
-            </Typography>
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="text-[var(--content-secondary)]"
-            >
-              {translate("chatgptOauthSection.step3")}
-            </Typography>
-          </div>
+      {deviceCodeShown ? (
+        <>
+          <ChatgptDeviceAuthFlow
+            assistantId={assistantId}
+            onConnected={onConnected}
+            superseded={otherOptionsOpen}
+            onUnsupported={handleDeviceAuthUnsupported}
+          />
 
-          {oauthState === "idle" ? (
+          <div>
             <Button
-              variant="outlined"
+              variant="ghost"
               size="compact"
-              onClick={() => void handleSignIn()}
+              aria-expanded={otherOptionsOpen}
+              onClick={() => setOtherOptionsOpen((open) => !open)}
             >
-              {translate("chatgptOauthSection.signInButton")}
+              {otherOptionsOpen
+                ? t("chatgptOauthSection.hideOtherOptions")
+                : t("chatgptOauthSection.otherOptions")}
             </Button>
-          ) : (
-            <>
-              <Input
-                value={pastedUrl}
-                onChange={(e) => {
-                  setPastedUrl(e.target.value);
-                  setOauthError(null);
-                }}
-                placeholder={translate("chatgptOauthSection.urlPlaceholder")}
-                fullWidth
-              />
-              <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  size="compact"
-                  disabled={!pastedUrl.trim()}
-                  onClick={() => void handleUrlSubmit()}
-                >
-                  {translate("chatgptOauthSection.completeSignIn")}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
+          </div>
+        </>
       ) : null}
 
-      {oauthState === "starting" ? (
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-          <Typography
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {translate("chatgptOauthSection.startingSignIn")}
-          </Typography>
-        </div>
-      ) : null}
-
-      {oauthState === "exchanging" ? (
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
-          <Typography
-            variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
-          >
-            {translate("chatgptOauthSection.completingSignIn")}
-          </Typography>
-        </div>
-      ) : null}
-
-      {oauthState === "completed" ? (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-[var(--system-positive-strong)]"
-        >
-          {translate("chatgptOauthSection.connected")}
-        </Typography>
-      ) : null}
-
-      {oauthError ? (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-(--system-negative-strong)"
-        >
-          {oauthError}
-        </Typography>
-      ) : null}
-
-      {oauthState === "failed" ? (
-        <Button variant="outlined" size="compact" onClick={handleReset}>
-          {translate("chatgptOauthSection.tryAgain")}
-        </Button>
+      {!deviceCodeShown || otherOptionsOpen ? (
+        <ChatgptPasteAuthFlow
+          assistantId={assistantId}
+          onConnected={onConnected}
+          standalone={!deviceCodeShown}
+        />
       ) : null}
     </div>
   );

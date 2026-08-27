@@ -63,6 +63,7 @@ import {
 import {
   createBundleConfirmBridge,
   createDeepLinksBridge,
+  createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
@@ -298,6 +299,7 @@ const bridge: VellumBridge = {
     shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
       ipcRenderer.invoke("vellum:share:file", bytes, filename),
   },
+  downloads: createDownloadsBridge(ipcRenderer),
   localMode: createLocalModeBridge(ipcRenderer),
   menu: {
     setPlatformSession: (has: boolean): Promise<void> =>

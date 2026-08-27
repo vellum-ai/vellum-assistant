@@ -126,12 +126,18 @@ export function generateState(): string {
 // Token exchange (shared between transports)
 // ---------------------------------------------------------------------------
 
+export interface ExchangeCodeOptions {
+  /** Aborts the token request when the flow it belongs to is cancelled. */
+  signal?: AbortSignal;
+}
+
 export async function exchangeCodeForTokens(
   config: OAuth2Config,
   code: string,
   redirectUri: string,
   codeVerifier: string,
   state?: string,
+  options: ExchangeCodeOptions = {},
 ): Promise<OAuth2FlowResult> {
   const authMethod = config.tokenEndpointAuthMethod ?? "client_secret_post";
   const bodyFormat = config.tokenExchangeBodyFormat ?? "form";
@@ -176,6 +182,7 @@ export async function exchangeCodeForTokens(
       bodyFormat === "json"
         ? JSON.stringify(tokenBody)
         : new URLSearchParams(tokenBody),
+    signal: options.signal,
   });
 
   if (!tokenResp.ok) {

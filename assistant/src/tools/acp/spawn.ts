@@ -111,7 +111,7 @@ export async function executeAcpSpawn(
       // This failure raises the inline Connect card. Record it so the
       // credential-prompt route only redirects a redundant secure-prompt when a
       // card actually exists (not for a proactive prompt before any failure).
-      markAcpConnectCardRaised(context.conversationId);
+      markAcpConnectCardRaised(context.conversationId, agent);
     }
     return { content: msg, isError: true, ...(errorCode ? { errorCode } : {}) };
   }
@@ -174,7 +174,7 @@ export async function executeAcpSpawn(
         err instanceof Error
           ? err.message
           : String((err as { message?: unknown }).message ?? err);
-      markAcpConnectCardRaised(context.conversationId);
+      markAcpConnectCardRaised(context.conversationId, agent);
       return {
         content: `${message}\n\n${ACP_AUTH_RECOVERY_GUIDANCE}`,
         isError: true,

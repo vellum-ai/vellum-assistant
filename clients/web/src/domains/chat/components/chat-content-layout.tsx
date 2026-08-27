@@ -11,7 +11,7 @@
  */
 
 import { lazy, useCallback, useEffect, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -38,6 +38,7 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
+import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
 // below and the idle-prefetch effect. Once a thunk has run, the browser module
@@ -58,6 +59,8 @@ const importBackgroundTaskDetailPanel = () =>
   import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
+const importChannelTranscriptPanel = () =>
+  import("@/domains/chat/channel-sidecar/channel-transcript-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
@@ -84,6 +87,11 @@ const BackgroundTaskDetailPanel = lazy(() =>
 );
 const SkillDetailPanel = lazy(() =>
   importSkillDetailPanel().then((m) => ({ default: m.SkillDetailPanel })),
+);
+const ChannelTranscriptPanel = lazy(() =>
+  importChannelTranscriptPanel().then((m) => ({
+    default: m.ChannelTranscriptPanel,
+  })),
 );
 
 // ---------------------------------------------------------------------------
@@ -125,6 +133,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   );
   const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
+  const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -132,6 +141,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const editApp = useEditApp();
 
   // -------------------------------------------------------------------------
@@ -234,6 +244,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeChannelSetup();
   }, []);
 
+  const onCloseChannelTranscript = useCallback(() => {
+    useViewerStore.getState().closeChannelTranscript();
+  }, []);
+
   // -------------------------------------------------------------------------
   // Mobile fallback: side-drawer panels don't render on narrow viewports, so
   // redirect to the Channels tab with the channel's setup form pre-opened.
@@ -274,8 +288,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       return;
     }
     useViewerStore.getState().closeSkillDetail();
-    navigate(routes.skills.detail(activeSkillDetailId));
-  }, [isMobile, mainView, activeSkillDetailId, navigate]);
+    navigate(routes.skills.detail(activeSkillDetailId), {
+      state: skillDetailBackState(location),
+    });
+  }, [isMobile, mainView, activeSkillDetailId, navigate, location]);
 
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
@@ -316,6 +332,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // Warm the lazy side-panel chunks while the browser is idle so the first
   // open renders immediately instead of stalling on a dynamic import.
+  //
+  // The channel transcript panel is deliberately absent: it is reachable only
+  // behind a default-off flag and only from a channel-bound conversation, so
+  // warming it would spend every session's idle budget on a chunk almost no
+  // session opens. It loads on demand through `LazyBoundary` instead.
   useEffect(() => {
     // Swallow prefetch rejections: this is best-effort warming, so a chunk
     // 404 (offline / stale deploy) must not surface as an unhandledrejection.
@@ -586,6 +607,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           payload={activeChannelSetup}
           onClose={onCloseChannelSetup}
         />
+      );
+    } else if (mainView === "channel-transcript" && activeChannelTranscript) {
+      rightPanel = (
+        <LazyBoundary>
+          {/* Re-key per thread so switching conversations remounts the panel
+              rather than reusing one whose scroll position belongs to the
+              previous thread. */}
+          <ChannelTranscriptPanel
+            key={`${activeChannelTranscript.conversationId}:${activeChannelTranscript.channelId}`}
+            sidecarRef={activeChannelTranscript}
+            onClose={onCloseChannelTranscript}
+          />
+        </LazyBoundary>
       );
     }
   }

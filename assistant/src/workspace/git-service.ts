@@ -15,6 +15,7 @@ import { getConfig } from "../config/loader.js";
 import { isFileUnheld } from "../util/file-use.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
+import { addToPathEnv, getExtraToolPathDirs } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 
 const execFileAsync = promisify(execFile);
@@ -41,18 +42,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
   }
   env.GIT_CEILING_DIRECTORIES = workspaceDir;
 
-  const home = process.env.HOME ?? "";
-  const extraDirs = [
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    `${home}/.local/bin`,
-  ];
-  const currentPath = env.PATH ?? "";
-  const pathDirs = currentPath.split(":");
-  const missing = extraDirs.filter((d) => !pathDirs.includes(d));
-  if (missing.length > 0) {
-    env.PATH = [...missing, currentPath].filter(Boolean).join(":");
-  }
+  addToPathEnv(env, getExtraToolPathDirs());
 
   return env;
 }

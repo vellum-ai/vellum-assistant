@@ -17,7 +17,7 @@ const TOC_ITEMS = [
   { id: "custom-plan", label: "Custom", level: 3 },
   { id: "machine-sizes", label: "Machine sizes", level: 3 },
   { id: "storage", label: "Storage", level: 3 },
-  { id: "credit-bundles", label: "Credit bundles", level: 3 },
+  { id: "credit-bundles", label: "Usage bundles", level: 3 },
   { id: "changing-your-plan", label: "Changing your plan", level: 3 },
   { id: "how-pricing-works", label: "How pricing works", level: 2 },
   { id: "vellum-credits", label: "Vellum Credits", level: 2 },
@@ -29,6 +29,7 @@ const TOC_ITEMS = [
   { id: "purchasing-credits", label: "Purchasing Credits", level: 2 },
   { id: "how-to-add-credits", label: "How to add credits", level: 3 },
   { id: "auto-reload", label: "Auto-Reload", level: 3 },
+  { id: "spending-controls", label: "Spending controls", level: 3 },
   { id: "how-credits-are-spent", label: "How credits are spent", level: 2 },
   { id: "need-help-with-billing", label: "Need help with billing?", level: 2 },
 ];
@@ -125,7 +126,7 @@ export function PricingContent() {
               Vellum has two plans: <strong>Base</strong> (free) and{" "}
               <strong>Pro</strong> (paid). Pro comes in three preset packages
               (Mighty, Super, Ultra) that bundle machine size, storage, and
-              monthly credits, or you can build a <strong>Custom</strong>{" "}
+              monthly usage, or you can build a <strong>Custom</strong>{" "}
               configuration by selecting each component individually.
             </p>
 
@@ -157,7 +158,7 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               Three preset packages that bundle a machine size, storage tier,
-              and monthly credit allowance into a single monthly price. Each
+              and monthly usage allowance into a single monthly price. Each
               package is a starting point: you can adjust individual tiers
               afterward, which converts your plan to a Custom configuration.
             </p>
@@ -213,11 +214,11 @@ export function PricingContent() {
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
-                      Monthly credits
+                      Monthly usage
                     </td>
-                    <td className="px-6 py-3 text-zinc-600">$25</td>
-                    <td className="px-6 py-3 text-zinc-600">$45</td>
-                    <td className="px-6 py-3 text-zinc-600">$115</td>
+                    <td className="px-6 py-3 text-zinc-600">Mighty Usage</td>
+                    <td className="px-6 py-3 text-zinc-600">Super Usage</td>
+                    <td className="px-6 py-3 text-zinc-600">Ultra Usage</td>
                   </tr>
                   <tr className="border-b border-zinc-100">
                     <td className="py-3 pr-6 font-medium text-zinc-700">
@@ -242,19 +243,19 @@ export function PricingContent() {
             </div>
             <p className="mb-2 text-zinc-600">
               <strong>Mighty</strong> is the entry-level Pro package. You get
-              10 GiB of storage and $25 in monthly credits on the standard
+              10 GiB of storage and monthly Mighty Usage on the standard
               Small machine. The $10/mo platform fee is not included, so there
               is no custom subdomain, static IP, or priority support.
             </p>
             <p className="mb-2 text-zinc-600">
               <strong>Super</strong> steps up to a Medium machine with 30 GiB
-              of storage and $45 in monthly credits. The platform fee is
+              of storage and monthly Super Usage. The platform fee is
               included, so you get a custom subdomain, static IP, and priority
               support.
             </p>
             <p className="mb-6 text-zinc-600">
               <strong>Ultra</strong> is the most powerful package: a Large
-              machine, 60 GiB of storage, and $115 in monthly credits, with the
+              machine, 60 GiB of storage, and monthly Ultra Usage, with the
               platform fee included.
             </p>
 
@@ -268,7 +269,7 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               Prefer to pick your own components? The Custom plan lets you
-              select a machine size, storage tier, and optional credit bundle
+              select a machine size, storage tier, and optional usage bundle
               individually. Your monthly total is the sum of:
             </p>
             <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
@@ -284,12 +285,13 @@ export function PricingContent() {
                 <strong>Storage tier</strong>: $5 to $30/mo (10 to 120 GiB)
               </li>
               <li>
-                <strong>Credit bundle</strong> (optional): $10 to $200/mo
+                <strong>Usage bundle</strong> (optional): Mighty, Super, or
+                Ultra Usage at $25, $45, or $115/mo
               </li>
             </ul>
             <p className="mb-6 text-zinc-600">
               The minimum Custom configuration is $50/mo (Medium machine + 10
-              GiB storage, no credit bundle). Credits are still pay-as-you-go
+              GiB storage, no usage bundle). Credits are still pay-as-you-go
               on top of any bundle you choose. If you start on a package and
               later change any individual tier, your plan automatically becomes
               Custom.
@@ -419,25 +421,26 @@ export function PricingContent() {
               changes are limited to the tiers listed above.
             </p>
 
-            {/* Credit bundles */}
+            {/* Usage bundles */}
             <SectionHeading
               id="credit-bundles"
               level={3}
               className="scroll-mt-24"
             >
-              Credit bundles
+              Usage bundles
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
-              Pro packages include a monthly credit allowance (for example, $25
-              with Mighty, $45 with Super). On the Custom plan, you can add an
-              optional recurring credit bundle to your subscription:
+              Each Pro package includes a monthly usage allowance named for
+              the package (Mighty Usage, Super Usage, Ultra Usage). On the
+              Custom plan, you can add one of the same usage bundles to your
+              subscription as an optional recurring line item:
             </p>
             <div className="not-prose mb-6 overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200">
                     <th className="py-3 pr-6 text-left font-semibold text-zinc-900">
-                      Monthly credits
+                      Usage bundle
                     </th>
                     <th className="px-6 py-3 text-left font-semibold text-zinc-900">
                       Price
@@ -446,11 +449,9 @@ export function PricingContent() {
                 </thead>
                 <tbody>
                   {[
-                    { credits: "$10", price: "+$10/mo" },
-                    { credits: "$25", price: "+$25/mo" },
-                    { credits: "$50", price: "+$50/mo" },
-                    { credits: "$100", price: "+$100/mo" },
-                    { credits: "$200", price: "+$200/mo" },
+                    { credits: "Mighty Usage", price: "+$25/mo" },
+                    { credits: "Super Usage", price: "+$45/mo" },
+                    { credits: "Ultra Usage", price: "+$115/mo" },
                   ].map(({ credits, price }, i, arr) => (
                     <tr
                       key={credits}
@@ -467,11 +468,21 @@ export function PricingContent() {
                 </tbody>
               </table>
             </div>
+            <p className="mb-3 text-zinc-600">
+              Usage bundles are charged as a recurring subscription line item
+              and appear on your invoice under the bundle name. They are
+              separate from pay-as-you-go credit top-ups: a bundle covers a
+              set amount of usage each month, while pay-as-you-go credits let
+              you add more anytime. Bundles previously offered at other
+              amounts remain in place for subscribers who already have them.
+            </p>
             <p className="mb-10 text-zinc-600">
-              Credit bundles are charged as a recurring subscription line item.
-              They are separate from pay-as-you-go credit top-ups: bundles give
-              you a set amount each month, while pay-as-you-go credits let you
-              add more anytime. One Vellum Credit equals one US dollar.
+              Included usage resets each billing cycle: whatever is left when
+              the period ends expires and does not roll over. Purchased
+              pay-as-you-go credits last much longer: they expire twelve
+              months after purchase. Your assistant always spends included
+              usage before touching credits; credits are only drawn once the
+              month&apos;s usage is fully consumed.
             </p>
 
             {/* Changing your plan */}
@@ -492,43 +503,49 @@ export function PricingContent() {
                 Checkout. Active immediately.
               </li>
               <li>
-                <strong>Change tiers.</strong> Switch machine, storage, or
-                credit tier anytime. Changes are prorated. Modifying any tier on
-                a package converts your plan to Custom.
+                <strong>Upgrade a tier.</strong> Switch to a bigger machine,
+                storage, or usage tier anytime, or to a bigger package.
+                Upgrades bill immediately: the price difference is charged
+                right away, and a bigger usage bundle unlocks its extra
+                monthly usage as soon as that charge succeeds. New machine or
+                storage capacity then finishes provisioning in the background
+                shortly after checkout. When the difference cannot be charged
+                right away (for example, on a discounted subscription), the
+                bundle change waits for your next renewal instead. Modifying
+                any individual tier on a package converts your plan to
+                Custom.
               </li>
               <li>
-                <strong>Cancel.</strong> Takes effect at period end. Pro
-                features stay active until then.
+                <strong>Downgrade a tier.</strong> A smaller machine applies
+                immediately, and the price difference is credited toward your
+                next invoice. A smaller usage bundle starts at your next
+                renewal; the usage included for this cycle stays yours.
+                There are no mid-cycle cash refunds.
+              </li>
+              <li>
+                <strong>Cancel.</strong> Choose Downgrade to Base from the
+                plans page. Takes effect at period end; Pro features stay
+                active until then.
               </li>
             </ul>
           </CollapsibleSection>
 
           <CollapsibleSection id="how-pricing-works" label="How pricing works">
             <p className="mb-4 text-zinc-600">
-              Vellum uses a prepaid credit balance: usage is deducted from your
-              credits as you use the assistant. You can add credits anytime from
+              Paid work draws on two pools, in order. If your plan includes
+              monthly usage, that allowance is always consumed first. Only
+              after the included usage is fully consumed does spending move to
+              your prepaid credit balance. You can add credits anytime from
               the Billing page via Stripe Checkout. Applicable taxes may be
               added during checkout.
             </p>
-            <p className="mb-4 text-zinc-600">
-              In the app, your Billing screen shows a{" "}
-              <strong>Credit Balance</strong> plus a breakdown of settled and
-              pending amounts:
+            <p className="mb-0 text-zinc-600">
+              In the app, your Billing screen shows your current{" "}
+              <strong>Credit Balance</strong>, alongside the controls for
+              adding credits, Auto-Reload, your daily credit limit, and
+              low-balance alerts. The Usage tab breaks down where credits went
+              by day, model, and action.
             </p>
-            <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
-              <li>
-                <strong>Credit Balance</strong>: the current amount available
-                after pending compute is considered.
-              </li>
-              <li>
-                <strong>Settled Balance</strong>: charges that have already
-                settled.
-              </li>
-              <li>
-                <strong>Pending Usage</strong>: estimated in-flight compute that
-                may not be fully settled yet.
-              </li>
-            </ul>
           </CollapsibleSection>
 
           <CollapsibleSection id="vellum-credits" label="Vellum Credits">
@@ -554,6 +571,11 @@ export function PricingContent() {
               accessed through Vellum&apos;s managed OAuth (for example,
               Twitter). No alternative direct-payment method is available for
               Credit-Eligible Features.
+            </p>
+            <p className="mb-6 text-zinc-600">
+              If your plan includes monthly usage, that usage is consumed
+              first. Vellum Credits are only spent after your included usage
+              is fully consumed.
             </p>
 
             <div className="mt-8">
@@ -586,6 +608,11 @@ export function PricingContent() {
               top-up, through the payment methods made available in the
               Services, or at such other amounts as determined by Vellum from
               time to time.
+            </p>
+            <p className="mb-6 text-zinc-600">
+              Purchased credits sit behind your plan&apos;s included usage:
+              your assistant only starts spending them once the month&apos;s
+              included usage is fully consumed.
             </p>
 
             <div className="mt-8">
@@ -661,6 +688,30 @@ export function PricingContent() {
                 file so you can re-enable it later without re-entering details.
               </p>
             </div>
+
+            <div className="mt-8">
+              <SectionHeading
+                id="spending-controls"
+                level={3}
+                className="scroll-mt-24"
+              >
+                Spending controls
+              </SectionHeading>
+              <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
+                <li>
+                  <strong>Daily credit limit.</strong> An optional cap on how
+                  many credits your assistant can spend per day (UTC). When the
+                  limit is reached, paid usage pauses until the next day and
+                  the account owner gets an email. From Billing you can raise
+                  or remove the limit, or skip it just for today.
+                </li>
+                <li>
+                  <strong>Low-balance alert.</strong> An email when your
+                  balance drops below a threshold you set, so you can top up
+                  before your assistant runs dry.
+                </li>
+              </ul>
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection
@@ -672,7 +723,10 @@ export function PricingContent() {
               <strong>LLM inference</strong> (the biggest line item by far),{" "}
               <strong>web search</strong>, <strong>image generation</strong>,
               and <strong>paid third-party APIs</strong> you reach through
-              Vellum&apos;s managed OAuth (for example, Twitter).
+              Vellum&apos;s managed OAuth (for example, Twitter). On plans
+              with monthly included usage, this work draws on that usage
+              first; credits are only spent after the included usage is fully
+              consumed.
             </p>
             <p className="mb-4 text-zinc-600">
               Inference is itself broken into a set of <strong>Actions</strong>{" "}

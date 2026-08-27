@@ -2,6 +2,11 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import {
+  isDnsIndependentLoopbackUrl,
+  isLoopbackPublicUrl,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import { guardianTokenPath, resolveConfigDirPaths } from "./config";
 import type { CliInvocation } from "./util";
 
@@ -51,54 +56,42 @@ export function saveGuardianToken(
 
 /**
  * The guardian refresh token is long-lived and replayable, so it is only
- * transmitted over a confidential channel: HTTPS, or a loopback host (local
- * dev, or a same-host reverse proxy / tunnel agent). Refreshing against a
- * non-loopback plaintext `http://` URL is refused; an on-path attacker could
- * otherwise capture the refresh token and rotate it into fresh credentials.
+ * transmitted over a confidential channel: HTTPS, or a host that stays on this
+ * machine whatever DNS answers (local dev, or a same-host reverse proxy /
+ * tunnel agent). Refreshing against any other plaintext `http://` URL is
+ * refused; an on-path attacker could otherwise capture the refresh token and
+ * rotate it into fresh credentials.
  *
  * A user-chosen malicious `https://` destination is intentionally out of
  * scope: HTTPS protects the channel, and the access token already goes
  * wherever the configured URL points. This guard targets the
  * plaintext-interception vector.
  */
-function isLoopbackHostname(hostname: string): boolean {
-  // Strip URL brackets so IPv6 forms compare on the bare address.
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return (
-    h === "localhost" ||
-    h === "::1" ||
-    h === "0:0:0:0:0:0:0:1" ||
-    /^127(?:\.\d{1,3}){3}$/.test(h) ||
-    // Wildcard hosts reach a local listener when dialed (0.0.0.0 / ::), so
-    // they count as local for both the refresh-channel and pairing guards.
-    h === "0.0.0.0" ||
-    h === "0" ||
-    h === "::" ||
-    h === "0:0:0:0:0:0:0:0" ||
-    // IPv4-mapped loopback and wildcard, in dotted and hex encodings.
-    /^(?:0:0:0:0:0|:):ffff:127(?:\.\d{1,3}){3}$/.test(h) ||
-    /^(?:0:0:0:0:0|:):ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(h) ||
-    /^(?:0:0:0:0:0|:):ffff:0\.0\.0\.0$/.test(h) ||
-    /^(?:0:0:0:0:0|:):ffff:0:0$/.test(h)
-  );
-}
-
 export function isConfidentialRefreshUrl(gatewayUrl: string): boolean {
   try {
-    const url = new URL(gatewayUrl);
-    return url.protocol === "https:" || isLoopbackHostname(url.hostname);
+    return (
+      new URL(gatewayUrl).protocol === "https:" ||
+      // The narrow loopback set, not {@link isLoopbackUrl}: this grants a
+      // plaintext channel the trust of an encrypted one, and a reserved
+      // `*.localhost` name resolves to whatever DNS says on a resolver that
+      // does not implement RFC 6761, which would put the refresh token on the
+      // wire to an arbitrary address.
+      isDnsIndependentLoopbackUrl(gatewayUrl)
+    );
   } catch {
     return false;
   }
 }
 
-/** Whether a URL's host is loopback; false for unparseable URLs. */
+/**
+ * Whether a URL's host is loopback, judged wide; false for unparseable URLs.
+ * Delegates to the shared pairing predicate so this package's refusals and the
+ * address checks in `@vellumai/service-contracts` judge a host by the same
+ * rules. Callers refuse what this matches; a caller granting loopback a
+ * privilege reads `isDnsIndependentLoopbackUrl` instead.
+ */
 export function isLoopbackUrl(url: string): boolean {
-  try {
-    return isLoopbackHostname(new URL(url).hostname);
-  } catch {
-    return false;
-  }
+  return isLoopbackPublicUrl(url);
 }
 
 function isAccessTokenExpired(data: GuardianTokenData): boolean {

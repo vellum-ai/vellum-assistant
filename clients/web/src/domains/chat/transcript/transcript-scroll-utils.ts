@@ -73,6 +73,51 @@ export function classifyScrollPosition(
   return { distanceFromBottom, isPinned, showScrollToLatest, shouldLoadOlder };
 }
 
+/**
+ * Whether two item lists hold the same rows, compared by key.
+ *
+ * Guards the underfilled-viewport auto-fetch: transcript items are a
+ * projection of the loaded transcript (confirmation visibility and other
+ * filters can drop rows), so a fetched history page can change the items
+ * array's identity without changing its rows. An auto-fetch that re-fires on
+ * such a no-progress update would chain-load history the transcript will not
+ * show. Key equality is the right grain: a page that adds or removes any
+ * visible row changes the key sequence, while in-place updates to an
+ * existing row (streaming text) keep it.
+ */
+export function haveSameItemKeys(
+  a: readonly TranscriptItem[],
+  b: readonly TranscriptItem[],
+): boolean {
+  return a.length === b.length && a.every((item, i) => item.key === b[i]?.key);
+}
+
+/**
+ * Whether a history-seeking user gesture should page in older history.
+ *
+ * An underfilled scroll element is pinned at scrollTop 0 and never fires
+ * `scroll`, so the scroll-handler load-older path is unreachable there and
+ * the no-progress guard (see {@link haveSameItemKeys}) has stopped the
+ * automatic chain. Gestures are the only remaining signal of intent, and
+ * each one pages in at most one fetch.
+ */
+export function shouldGestureLoadOlder(
+  metrics: ScrollMetrics,
+  flags: {
+    hasMore: boolean;
+    isLoadingOlder: boolean;
+    hasConversation: boolean;
+  },
+): boolean {
+  const underfilled = metrics.scrollHeight <= metrics.clientHeight;
+  return (
+    underfilled &&
+    flags.hasConversation &&
+    flags.hasMore &&
+    !flags.isLoadingOlder
+  );
+}
+
 /** Find the new index of a previously saved anchor key inside a refreshed
  *  items list. Returns -1 if the key is no longer present. */
 export function findAnchorIndex(

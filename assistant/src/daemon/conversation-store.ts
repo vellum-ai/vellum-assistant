@@ -184,18 +184,18 @@ export async function getOrCreateConversation(
   // messages live in memory on the instance being disposed, and the queue
   // drains via an async dispatch after the current turn releases, so
   // `isProcessing()` can read false while a queued turn is still pending:
-  // rebuilding in that gap would silently drop those messages. The conversation
-  // stays stale and is rebuilt on a later call.
+  // rebuilding in that gap would silently drop those messages. In-flight
+  // subagents are the same: the parent reads idle between its own tool calls
+  // while children still run, and rebuilding would abort them. The
+  // conversation stays stale and is rebuilt on a later call.
   if (
     !conversation ||
-    (conversation.isStale() &&
-      !conversation.isProcessing() &&
-      !conversation.hasQueuedMessages())
+    (conversation.isStale() && !conversation.hasInFlightWork())
   ) {
     if (conversation) {
-      // Stale rebuild: the conversation id lives on, so abort in-flight
-      // children but keep terminal subagent results readable for the
-      // retention window.
+      // Stale rebuild: the conversation id lives on, so abort any children
+      // that raced into flight after the idle check and keep terminal
+      // subagent results readable for the retention window.
       getSubagentManager().abortAllForParent(conversationId);
       conversation.dispose();
     }
@@ -400,25 +400,22 @@ export function clearAllActiveConversations(): number {
 
 /**
  * Evict in-memory conversations after a config/prompt/skills reload so the next
- * turn rebuilds them against the new config. Idle conversations are disposed and
- * dropped; busy ones are marked stale so they're rebuilt once their current turn
- * finishes. Also used when provider credentials change.
+ * turn rebuilds them against the new config. Conversations with in-flight work
+ * (a live turn, a queued successor, or an active subagent) are marked stale
+ * and rebuilt by `getOrCreateConversation` once that work finishes. Idle
+ * conversations are disposed and dropped. Also used when provider credentials
+ * change.
  */
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();
   for (const [id, conversation] of conversationEntries()) {
-    // A conversation with queued messages is not idle: the queue drains via an
-    // async dispatch after the current turn releases, so `isProcessing()` can
-    // read false while a queued turn is still pending. Disposing in that gap
-    // would silently drop the queued messages, so mark it stale instead and
-    // let it rebuild once the queue has run.
-    if (!conversation.isProcessing() && !conversation.hasQueuedMessages()) {
-      subagentManager.abortAllForParent(id);
-      conversation.dispose();
-      deleteConversation(id);
-      removeFromEvictor(id);
-    } else {
+    if (conversation.hasInFlightWork()) {
       conversation.markStale();
+      continue;
     }
+    subagentManager.abortAllForParent(id);
+    conversation.dispose();
+    deleteConversation(id);
+    removeFromEvictor(id);
   }
 }

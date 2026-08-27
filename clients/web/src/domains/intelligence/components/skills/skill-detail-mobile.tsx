@@ -33,6 +33,12 @@ interface SkillDetailMobileProps {
   assistantId: string;
   skill: SkillInfo;
   onBack: () => void;
+  /**
+   * True when `onBack` returns to the conversation the skill was opened
+   * from (chat-origin `backTo` router state) rather than the skills list,
+   * so the back control announces where it actually lands.
+   */
+  backToConversation?: boolean;
   onInstall?: () => void;
   onRemove?: () => void;
   isInstalling?: boolean;
@@ -73,6 +79,7 @@ export function SkillDetailMobile({
   assistantId,
   skill,
   onBack,
+  backToConversation = false,
   onInstall,
   onRemove,
   isInstalling = false,
@@ -136,7 +143,11 @@ export function SkillDetailMobile({
           variant="ghost"
           iconOnly={<ArrowLeft aria-hidden />}
           expandOnMobile
-          aria-label={t("skillDetail.backToSkillsAriaLabel")}
+          aria-label={t(
+            backToConversation
+              ? "skillDetail.backToConversationAriaLabel"
+              : "skillDetail.backToSkillsAriaLabel",
+          )}
           onClick={onBack}
           className="max-md:bg-[var(--surface-active)]"
         />

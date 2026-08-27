@@ -202,6 +202,7 @@ export function normalizeTelegramUpdate(
       sourceChannel: "telegram",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "button",
         content: cbq.data,
         conversationExternalId: chatId,
         externalMessageId: String(updateId),
@@ -224,6 +225,8 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
+        // Non-private chats were rejected above, so one human reader is proven.
+        isDirectMessage: true,
         ...(telegramConversationType(cbq.message.chat.type)
           ? {
               conversationType: telegramConversationType(cbq.message.chat.type),
@@ -318,11 +321,11 @@ export function normalizeTelegramUpdate(
     sourceChannel: "telegram",
     receivedAt: new Date().toISOString(),
     message: {
+      eventKind: isEdit ? "edit" : "message",
       content,
       conversationExternalId: String(message.chat.id),
       externalMessageId: String(updateId),
       ...(attachments.length > 0 ? { attachments } : {}),
-      ...(isEdit ? { isEdit: true } : {}),
     },
     actor: {
       actorExternalId,
@@ -338,6 +341,8 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
+      // Non-private chats were rejected above, so one human reader is proven.
+      isDirectMessage: true,
       ...(telegramConversationType(message.chat.type)
         ? { conversationType: telegramConversationType(message.chat.type) }
         : {}),

@@ -18,6 +18,7 @@ import {
 } from "../permissions/checker.js";
 import {
   channelNoCellDefault,
+  getContactAutoApproveThreshold,
   resolveChannelPermissionCell,
 } from "../permissions/gateway-threshold-reader.js";
 import {
@@ -525,6 +526,11 @@ function reachesPrivateNetwork(
  * Each stays on the capability floor, so a channel actor escalates to the
  * guardian for them at every level. None of this touches the guardian's own
  * lane — it decides what a *cell* may delegate, not how risk is classified.
+ *
+ * A contact-level ceiling is a different grant: the owner named this person,
+ * not a room. That ceiling may lift sandbox `bash`. It still cannot lift
+ * host reach, control-plane writes, unvetted tools, or private-network
+ * fetches; those stay on the floor regardless of the contact's threshold.
  */
 function isChannelLiftable(
   reach: SensitiveToolReach,
@@ -558,16 +564,54 @@ function isChannelLiftable(
 }
 
 /**
- * Threshold of the approval-matrix cell governing this invocation, read only
- * when it can change the outcome: a channel-liftable invocation whose actor
- * sits on the escalate floor. Guardians, non-sensitive tools, host reach,
- * everything {@link isChannelLiftable} excludes, and identity-less actors
- * return early, so the gateway lookup never lands on the paths where it could
+ * Whether a contact-level ceiling may lift the floor for this invocation.
+ *
+ * Same sandbox-only rule as {@link isChannelLiftable}, except sandbox `bash`
+ * is included: the owner set a per-person ceiling, and that ceiling is what
+ * authorizes code execution in the workspace. Host reach, control-plane
+ * writes, unvetted tools, and private-network fetches stay unliftable.
+ */
+function isContactCeilingLiftable(
+  reach: SensitiveToolReach,
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir: string | undefined,
+): boolean {
+  if (reach !== "sandbox") {
+    return false;
+  }
+  if (
+    isWorkspaceWriteTool(toolName) &&
+    (!workingDir || isControlPlaneWorkspaceWrite(toolName, input, workingDir))
+  ) {
+    return false;
+  }
+  if (isUnvettedExtensionTool(toolName)) {
+    return false;
+  }
+  if (reachesPrivateNetwork(toolName, input)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Threshold governing this invocation's floor lift, read only when it can
+ * change the outcome: an escalate-floor actor whose invocation a cell or a
+ * contact ceiling may lift. Guardians, non-sensitive tools, host reach,
+ * everything those lift paths exclude, and identity-less actors return
+ * early, so the gateway lookup never lands on the paths where it could
  * only add latency — grant consumption for an already-approved call, and voice
  * abort handling.
  *
- * The permission checker reads this same cell later in the turn, within the
- * reader's cache window, so the lift costs at most one lookup per turn.
+ * A non-null contact ceiling wins over the matrix cell. It is the owner's
+ * override for that person and is not collapsed to the channel's two
+ * levels, so `medium` / `high` can lift sandbox `bash`. Cells still cannot
+ * lift bash.
+ *
+ * The permission checker reads this same contact ceiling / cell later in
+ * the turn, within the reader's cache window, so the lift costs at most
+ * one lookup per turn.
  *
  * Returns `undefined` when the turn has no channel coordinates or a lookup
  * fails — nothing lifts the floor then. A successful walk that finds no cell
@@ -583,10 +627,21 @@ async function resolveApprovalCellThreshold(
   sensitiveToolApproval: SensitiveToolApproval,
   context: ToolContext,
 ): Promise<ApprovalCellThreshold | undefined> {
+  if (sensitiveToolApproval !== "escalate-and-wait") {
+    return undefined;
+  }
+
+  const contactCeiling = await getContactAutoApproveThreshold(
+    context.requesterContactId,
+  );
   if (
-    sensitiveToolApproval !== "escalate-and-wait" ||
-    !isChannelLiftable(reach, toolName, input, context.workingDir)
+    contactCeiling !== null &&
+    isContactCeilingLiftable(reach, toolName, input, context.workingDir)
   ) {
+    return contactCeiling;
+  }
+
+  if (!isChannelLiftable(reach, toolName, input, context.workingDir)) {
     return undefined;
   }
   const query = buildChannelPermissionCellQuery(
@@ -708,7 +763,6 @@ export class ToolApprovalHandler {
       reason,
       riskLevel,
       durationMs: Date.now() - startTime,
-      wasPrompted: false,
     });
   }
 

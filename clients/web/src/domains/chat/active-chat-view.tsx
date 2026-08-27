@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 /**
  * ActiveChatView — chat orchestration, mounted only when the assistant is usable.
@@ -427,7 +426,7 @@ export function ActiveChatView() {
     transcriptItemsRef,
     transcriptRef,
     uiContextRef,
-    reconcileActiveConversation,
+    reconcileActiveConversation: () => reconcileActiveConversation("debug"),
   });
 
   // Deep-link: ?message=<id> scrolls to and highlights that message (e.g. the

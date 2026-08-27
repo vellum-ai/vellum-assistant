@@ -41,9 +41,8 @@ Approvals are **orthogonal to message sending**. The assistant asks for approval
 
 - **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
 - **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
-  - `POST /v1/confirm` — `{ requestId, decision, selectedPattern?, selectedScope? }`. Valid decisions: `"allow"`, `"allow_10m"`, `"allow_conversation"`, `"deny"`, `"always_allow"`, `"always_deny"`. For persistent decisions (`always_allow`, `always_deny`), `selectedPattern` and `selectedScope` are validated against the server-provided allowlist/scope options from the original confirmation request before trust rules are persisted.
+  - `POST /v1/confirm` — `{ requestId, decision }`. Valid decisions: `"allow"`, `"deny"`. The confirm route resolves the pending interaction and nothing else: durable Always-Allow rules are minted through the gateway trust-rules API (`POST /v1/trust-rules`, also served assistant-scoped), which carries the rule's tool, pattern, and risk. The daemon's own `trust-rules` surface is read-only (`GET /v1/trust-rules` list, `POST /v1/trust-rules/suggest`).
   - `POST /v1/secret` — `{ requestId, value, delivery }`
-  - `POST /v1/trust-rules` — `{ requestId, pattern, scope, decision }`. Validates pattern/scope against server-provided options. Does not resolve the confirmation itself.
 - **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → conversation`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.
 
 Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
@@ -157,7 +156,7 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 **Auto-mode fallback logging**: In auto mode, fallback transitions are logged at `warn` level with structured metadata including the full candidate sequence and per-candidate failure reasons. This ensures fallback events are always observable in production logs.
 
-**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path and macOS SSE bridge path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
+**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. Route-wiring coverage for the macOS fallback path lives in `__tests__/conversation-routes-disk-view.test.ts`, which asserts a macOS turn carries its interface context rather than exercising the backends themselves. Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
 
 ### Interactive requests on channels (approvals, questions)
 

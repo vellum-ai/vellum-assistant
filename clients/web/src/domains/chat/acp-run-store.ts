@@ -72,6 +72,10 @@ export interface AcpRunEntry {
   acpSessionId: string;
   agent: string;
   parentConversationId: string;
+  /** Credential failure that ended the run, when the daemon recorded one.
+   *  Drives the inline Connect card on reopen; the daemon clears it when a
+   *  replacement token is stored. */
+  authErrorCode?: string;
   task?: string;
   status: AcpRunStatus;
   stopReason?: string;

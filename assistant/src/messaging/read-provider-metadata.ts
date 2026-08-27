@@ -1,3 +1,4 @@
+import type { ChannelId } from "../channels/types.js";
 import { safeParseRecord } from "../util/json.js";
 import {
   type ProviderMessageMetadata,
@@ -48,4 +49,35 @@ export function readProviderMetadata(
 
   const slackMeta = readSlackMetadataFromMessageMetadata(metadata, opts);
   return slackMeta ? slackMetadataAsProviderMetadata(slackMeta) : null;
+}
+
+/**
+ * Merge an edit or delete stamp into a row's serialized metadata, producing
+ * the neutral envelope to store back under `providerMeta`.
+ *
+ * The base is whatever the row already says about itself through
+ * {@link readProviderMetadata}, flat-legacy Slack rows included, so fields
+ * the old envelope carried (thread, actor, display name) survive the stamp
+ * rather than being shadowed by a minimal synthesis. A row that says
+ * nothing gets the envelope synthesized from the caller's lookup-derived
+ * facts, so the result always validates on read.
+ */
+export function mergeProviderMessageMetadata(
+  rowMetadata: string | null,
+  seed: {
+    source: ChannelId;
+    conversationExternalId: string;
+    messageId: string;
+    threadId?: string;
+  },
+  patch: { editedAt?: number; deletedAt?: number },
+): string {
+  const base = readProviderMetadata(rowMetadata, { allowFlatLegacy: true }) ?? {
+    source: seed.source,
+    conversationExternalId: seed.conversationExternalId,
+    messageId: seed.messageId,
+    ...(seed.threadId ? { threadId: seed.threadId } : {}),
+    eventKind: "message" as const,
+  };
+  return JSON.stringify({ ...base, ...patch });
 }

@@ -779,7 +779,12 @@ describe("vellum:localMode:listDevices handler", () => {
       Buffer.from(JSON.stringify({ devices: [device] })),
     );
     lastChild.emit("close", 0);
-    expect(await pending).toEqual({ ok: true, devices: [device] });
+    expect(await pending).toEqual({
+      ok: true,
+      devices: [
+        { ...device, pairingUserAgent: null, clientReportedName: null },
+      ],
+    });
   });
 
   test("a non-zero exit resolves to a failure carrying the CLI's stderr", async () => {
@@ -920,25 +925,63 @@ describe("vellum:localMode:unpair handler", () => {
   });
 });
 
-describe("vellum:localMode:connectImport handler", () => {
-  type ConnectImportResult = {
+describe("vellum:localMode:pairing handlers", () => {
+  type StartResult = {
     ok: boolean;
+    handle?: string;
+    userCode?: string | null;
+    expiresAt?: string;
+    intervalSeconds?: number;
+    reason?: string;
+    error?: string;
+    rejection?: string;
+  };
+  type PollResult = {
+    ok: boolean;
+    status?: string;
     assistantId?: string;
     accessOnly?: boolean;
+    reason?: string;
     error?: string;
   };
-  const connectImport = (
-    bundle?: unknown,
-    name?: unknown,
-  ): ConnectImportResult =>
-    handlers["vellum:localMode:connectImport"](
-      allowedEvent,
-      bundle,
-      name,
-    ) as ConnectImportResult;
 
-  const encodeBundle = (bundle: Record<string, unknown>): string =>
-    Buffer.from(JSON.stringify(bundle)).toString("base64");
+  const pairingStart = (address?: unknown): Promise<StartResult> =>
+    handlers["vellum:localMode:pairingStart"](
+      allowedEvent,
+      address,
+    ) as Promise<StartResult>;
+  const pairingPoll = (handle?: unknown, name?: unknown): Promise<PollResult> =>
+    handlers["vellum:localMode:pairingPoll"](
+      allowedEvent,
+      handle,
+      name,
+    ) as Promise<PollResult>;
+  const pairingCancel = (handle?: unknown): { ok: boolean } =>
+    handlers["vellum:localMode:pairingCancel"](allowedEvent, handle) as {
+      ok: boolean;
+    };
+
+  const PAIRING_LINK =
+    "https://gw.example.com/assistant/pair#device_code=device-code-abc";
+
+  // The exchange itself belongs to `@vellumai/local-mode`; here the gateway is
+  // a stub so these cases cover the IPC wiring and nothing else.
+  const realFetch = globalThis.fetch;
+  let respond: () => Response;
+  const setFetch = (): void => {
+    globalThis.fetch = (async () => respond()) as unknown as typeof fetch;
+  };
+  const approvedReply = (): Response =>
+    new Response(
+      JSON.stringify({
+        status: "approved",
+        accessToken: "acc-tok",
+        refreshAfter: new Date(Date.now() + 1_800_000).toISOString(),
+        refreshToken: "refresh-tok",
+        refreshTokenExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
 
   beforeEach(() => {
     fs.rmSync(lockfilePath, { force: true });
@@ -946,19 +989,37 @@ describe("vellum:localMode:connectImport handler", () => {
       recursive: true,
       force: true,
     });
+    respond = approvedReply;
+    setFetch();
   });
 
-  test("registers a paired entry and writes its guardian token without spawning", () => {
-    const result = connectImport(
-      encodeBundle({
-        gatewayUrl: "https://gw.example.com",
-        token: "tok-access",
-        deviceId: "dev-1",
-      }),
-      "desk",
-    );
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
 
-    expect(result).toEqual({ ok: true, assistantId: "desk", accessOnly: true });
+  test("a pairing link imports on the first poll and refreshes the lockfile", async () => {
+    const started = await pairingStart(PAIRING_LINK);
+
+    // The device code stays host-side: the renderer gets a handle and nothing
+    // it could replay.
+    expect(started.userCode).toBeNull();
+    expect(Object.keys(started).sort()).toEqual([
+      "expiresAt",
+      "handle",
+      "intervalSeconds",
+      "ok",
+      "userCode",
+    ]);
+    expect(JSON.stringify(started)).not.toContain("device-code-abc");
+
+    const polled = await pairingPoll(started.handle, "desk");
+
+    expect(polled).toEqual({
+      ok: true,
+      status: "imported",
+      assistantId: "desk",
+      accessOnly: false,
+    });
     expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
     expect(fs.existsSync(guardianTokenPath(configDir, "desk"))).toBe(true);
     const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
@@ -973,44 +1034,88 @@ describe("vellum:localMode:connectImport handler", () => {
     expect(spawnArgs).toHaveLength(0);
   });
 
-  test("a malformed bundle resolves to a structured error", () => {
-    const result = connectImport("not-base64-json!!!");
+  test("a bare address reports the approval code and stays pending", async () => {
+    respond = () =>
+      new Response(
+        JSON.stringify({
+          deviceCode: "device-code-abc",
+          userCode: "ABCD-EFGH",
+          verificationUri: "https://gw.example.com/assistant/pair",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          intervalSeconds: 3,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("base64");
+    const started = await pairingStart("https://gw.example.com");
+
+    expect(started.ok).toBe(true);
+    expect(started.userCode).toBe("ABCD-EFGH");
+    expect(started.intervalSeconds).toBe(3);
+
+    respond = () =>
+      new Response(
+        JSON.stringify({
+          status: "pending",
+          expiresAt: new Date(Date.now() + 500_000).toISOString(),
+          intervalSeconds: 5,
+        }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      );
+
+    const polled = await pairingPoll(started.handle);
+
+    expect(polled.ok).toBe(true);
+    expect(polled.status).toBe("pending");
     expect(refreshLockfileNowMock).not.toHaveBeenCalled();
-    expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 
-  test("refuses to overwrite an existing non-paired assistant", () => {
+  test("an unusable address is refused without a request", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("fetch must not run for an unusable address");
+    }) as unknown as typeof fetch;
+
+    const started = await pairingStart("http://localhost:3000");
+
+    expect(started.ok).toBe(false);
+    expect(started.reason).toBe("invalid-address");
+    expect(started.error).toContain("this machine");
+    // The renderer localizes off this, rather than showing the host's English.
+    expect(started.rejection).toBe("loopback");
+    expect(await pairingStart(undefined)).toMatchObject({
+      ok: false,
+      reason: "invalid-address",
+    });
+  });
+
+  test("cancelling a session leaves it unpollable", async () => {
+    const started = await pairingStart(PAIRING_LINK);
+
+    expect(pairingCancel(started.handle)).toEqual({ ok: true });
+    expect(pairingCancel(started.handle)).toEqual({ ok: false });
+
+    const polled = await pairingPoll(started.handle);
+
+    expect(polled).toMatchObject({ ok: false, reason: "unknown-session" });
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
+  });
+
+  test("refuses to overwrite an existing non-paired assistant", async () => {
     saveLockfileAssistant(
       { assistantId: "local-1", cloud: "local" },
       "local-1",
     );
+    const started = await pairingStart(PAIRING_LINK);
 
-    const result = connectImport(
-      encodeBundle({ gatewayUrl: "https://gw.example.com", token: "tok" }),
-      "local-1",
-    );
+    const polled = await pairingPoll(started.handle, "local-1");
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("already exists");
+    expect(polled.ok).toBe(false);
+    // The pre-check reason: the refusal came before the exchange, so the
+    // device code is unspent and this session still completes under a free
+    // name.
+    expect(polled.reason).toBe("import-precheck");
+    expect(polled.error).toContain("already exists");
     expect(fs.existsSync(guardianTokenPath(configDir, "local-1"))).toBe(false);
-  });
-
-  test("rejects a missing or oversized bundle with a structured error", () => {
-    expect(connectImport(undefined)).toEqual({
-      ok: false,
-      error: "Missing pairing bundle",
-    });
-    expect(connectImport("")).toEqual({
-      ok: false,
-      error: "Missing pairing bundle",
-    });
-    expect(connectImport("a".repeat(64 * 1024 + 1))).toEqual({
-      ok: false,
-      error: "Pairing bundle is too large",
-    });
   });
 });
 
@@ -1308,5 +1413,153 @@ describe("vellum:localMode:guardianToken handler", () => {
       error: "Missing assistantId",
     });
     expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:readAssistantAvatar handler", () => {
+  // Disk-read semantics (manifest precedence, legacy fallbacks, size cap)
+  // live with `readLockfileAssistantAvatar` in @vellumai/local-mode; this
+  // covers only the IPC wiring around it.
+  type AvatarResult =
+    | { ok: true; avatar: Record<string, unknown> | null }
+    | { ok: false; error: string };
+  const readAssistantAvatar = (assistantId?: unknown): AvatarResult =>
+    handlers["vellum:localMode:readAssistantAvatar"](
+      allowedEvent,
+      assistantId,
+    ) as AvatarResult;
+
+  const traits = { bodyShape: "round", eyeStyle: "dot", color: "#abc" };
+  let instanceDir: string;
+
+  beforeEach(() => {
+    instanceDir = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-instance-"));
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "asst-1",
+            cloud: "local",
+            runtimeUrl: "http://127.0.0.1:1",
+            resources: { instanceDir, gatewayPort: 1, daemonPort: 2 },
+          },
+        ],
+        activeAssistant: "asst-1",
+      }),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(instanceDir, { recursive: true, force: true });
+    fs.rmSync(lockfilePath, { force: true });
+  });
+
+  test("reads the avatar off the lockfile entry's instance dir", () => {
+    const avatarDir = path.join(
+      instanceDir,
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(avatarDir, "avatar.json"),
+      JSON.stringify({ kind: "character", traits }),
+    );
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: true,
+      avatar: { kind: "character", traits },
+    });
+  });
+
+  test("missing lockfile entry yields null", () => {
+    expect(readAssistantAvatar("asst-gone")).toEqual({
+      ok: true,
+      avatar: null,
+    });
+  });
+
+  test("reports a corrupt lockfile as a failure, not a conclusive none", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: false,
+      error: "lockfile unreadable",
+    });
+  });
+
+  test("entry without an instanceDir reads the default dir from process.env", () => {
+    const previousDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-data-"));
+    process.env.XDG_DATA_HOME = dataHome;
+    try {
+      fs.writeFileSync(
+        lockfilePath,
+        JSON.stringify({
+          assistants: [{ assistantId: "asst-1", cloud: "local" }],
+          activeAssistant: "asst-1",
+        }),
+      );
+      const avatarDir = path.join(
+        dataHome,
+        "vellum",
+        "assistants",
+        "asst-1",
+        ".vellum",
+        "workspace",
+        "data",
+        "avatar",
+      );
+      fs.mkdirSync(avatarDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(avatarDir, "character-traits.json"),
+        JSON.stringify(traits),
+      );
+
+      expect(readAssistantAvatar("asst-1")).toEqual({
+        ok: true,
+        avatar: { kind: "character", traits },
+      });
+    } finally {
+      if (previousDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousDataHome;
+      }
+      fs.rmSync(dataHome, { recursive: true, force: true });
+    }
+  });
+
+  test("an unreadable manifest image surfaces as a failure over IPC", () => {
+    const avatarDir = path.join(
+      instanceDir,
+      ".vellum",
+      "workspace",
+      "data",
+      "avatar",
+    );
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(avatarDir, "avatar.json"),
+      JSON.stringify({
+        kind: "image",
+        image: { updatedAt: "2026-01-01T00:00:00.000Z", etag: "abc" },
+      }),
+    );
+
+    expect(readAssistantAvatar("asst-1")).toEqual({
+      ok: false,
+      error: "avatar image unreadable",
+    });
+  });
+
+  test("missing assistantId is a structured error", () => {
+    expect(readAssistantAvatar(undefined)).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
   });
 });

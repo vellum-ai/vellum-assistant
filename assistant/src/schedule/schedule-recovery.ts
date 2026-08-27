@@ -52,7 +52,6 @@ export async function recoverStaleSchedules(): Promise<number> {
       await applyRetryDecision({
         job,
         isOneShot,
-        errorMsg,
         decision,
         scheduleRetry,
         failOneShotPermanently,

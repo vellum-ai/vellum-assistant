@@ -183,6 +183,14 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
+    // Sent as the bot `scope` parameter, while this flow persists the
+    // `authed_user` token and stores `authed_user.scope` as `grantedScopes`.
+    // Credential health compares this list against that grant, so a scope
+    // listed here that `user_scope` does not also request reports as
+    // `missing_scopes`, a hard failure that disables the provider's tools.
+    // The wider bot set belongs to Socket Mode installs, which verify the live
+    // `x-oauth-scopes` header against SLACK_REQUIRED_BOT_SCOPES in
+    // channel-readiness-service.ts.
     defaultScopes: [
       "channels:join",
       "channels:read",
@@ -200,6 +208,10 @@ export const PROVIDER_SEED_DATA: Record<
       "reactions:write",
     ],
     availableScopes: "https://api.slack.com/scopes",
+    // Carries write scopes because the persisted `authed_user` token is the
+    // only credential this flow stores, so it acts as the installer for every
+    // call including `chat.postMessage`. The manifest's user list is read-only
+    // instead, since a Socket Mode install keeps a bot token beside it.
     authorizeParams: {
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
@@ -714,8 +726,6 @@ export const PROVIDER_SEED_DATA: Record<
       "workspaces:read",
       "boards:read",
       "boards:write",
-      "items:read",
-      "items:write",
       "docs:read",
       "updates:read",
       "updates:write",
@@ -752,8 +762,6 @@ export const PROVIDER_SEED_DATA: Record<
       },
       { scope: "boards:read", description: "Read a user's board data" },
       { scope: "boards:write", description: "Modify a user's board data" },
-      { scope: "items:read", description: "Read a user's item data" },
-      { scope: "items:write", description: "Modify a user's item data" },
       { scope: "docs:read", description: "Read a user's docs" },
       { scope: "docs:write", description: "Modify a user's docs" },
       {
@@ -811,6 +819,7 @@ export const PROVIDER_SEED_DATA: Record<
     identityHeaders: { "Content-Type": "application/json" },
     identityBody: { query: "{ me { id name email } }" },
     identityResponsePaths: ["data.me.name", "data.me.email"],
+    featureFlag: "monday-oauth",
   },
 
   eventbrite: {

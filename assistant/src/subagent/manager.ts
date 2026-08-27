@@ -1478,6 +1478,18 @@ export class SubagentManager {
       .filter((s): s is SubagentState => s !== undefined);
   }
 
+  /**
+   * True when this parent still has a child that is not terminal (`pending`,
+   * `running`, or `awaiting_input`). Idle-eviction and config-reload rebuild
+   * skip those parents so an otherwise-idle conversation does not abort
+   * mid-task children.
+   */
+  hasActiveChildren(parentConversationId: string): boolean {
+    return this.getChildrenOf(parentConversationId).some(
+      (child) => !TERMINAL_STATUSES.has(child.status),
+    );
+  }
+
   /** Total number of active (non-terminal) subagents. */
   get activeCount(): number {
     return [...this.subagents.values()].filter(

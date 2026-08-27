@@ -40,9 +40,11 @@ export type DeepLink =
       sessionId: null;
       flow?: BillingCheckoutFlow;
     }
-  /** `<scheme>://connect` pairing hand-off. `bundle` is secret material:
-   *  never log or breadcrumb it. */
-  | { kind: "connect"; url?: string; bundle?: string }
+  /** `<scheme>://connect` pairing hand-off. `code` is the device code the
+   *  local-mode host exchanges, and is credential material: never log or
+   *  breadcrumb it. `legacy` marks a link that carried an older version's
+   *  pairing bundle, whose payload never crosses the bridge. */
+  | { kind: "connect"; url?: string; code?: string; legacy?: true }
   | { kind: "unknown"; url: string };
 
 export async function drainPendingDeepLinks(): Promise<DeepLink[]> {

@@ -1,3 +1,4 @@
+import { invalidateAllContactThresholdCaches } from "../permissions/gateway-threshold-reader.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { invalidateGuardianContactCache } from "./guardian-contact-reader.js";
 import { invalidateGuardianDeliveryCache } from "./guardian-delivery-reader.js";
@@ -7,11 +8,13 @@ import { invalidateGuardianDeliveryCache } from "./guardian-delivery-reader.js";
  * a successful contact write:
  *
  * - broadcasts `contacts_changed` so connected clients refresh their view, and
- * - drops the guardian-contact and guardian-delivery caches so the next read
- *   refetches from the gateway instead of serving a stale set.
+ * - drops the guardian-contact, guardian-delivery, and contact-threshold
+ *   caches so the next read refetches from the gateway instead of serving
+ *   a stale set.
  */
 export function notifyContactsChanged(): void {
   broadcastMessage({ type: "contacts_changed" });
   invalidateGuardianContactCache();
   invalidateGuardianDeliveryCache();
+  invalidateAllContactThresholdCaches();
 }

@@ -6,6 +6,10 @@ import { Input } from "@vellumai/design-library/components/input";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
+import {
+  canEditContactPermissions,
+  ContactPermissionsSection,
+} from "@/domains/contacts/components/contact-permissions-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { isDraftContactName } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
@@ -25,10 +29,14 @@ interface ContactDetailViewProps {
   onDelete: () => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
-  onVerifyChannel?: (type: string) => void;
+  onVerifyChannel?: (type: string, address?: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
   /** Opens the roster picker for a linkable channel row. */
   onLinkAccount?: (channelId: string) => void;
+  pendingAutoApproveThreshold?: boolean;
+  onAutoApproveThresholdChange?: (
+    autoApproveThreshold: ContactPayload["autoApproveThreshold"],
+  ) => void;
 }
 
 export function ContactDetailView(props: ContactDetailViewProps) {
@@ -52,6 +60,8 @@ function ContactDetailViewInner({
   onVerifyChannel,
   onRevokeChannel,
   onLinkAccount,
+  pendingAutoApproveThreshold,
+  onAutoApproveThresholdChange,
 }: ContactDetailViewProps) {
   const { t } = useTranslation("contacts");
   const isNewContactDraft = isDraftContactName(contact.displayName);
@@ -193,6 +203,14 @@ function ContactDetailViewInner({
           onLinkAccount={onLinkAccount}
         />
       </DetailCard>
+
+      {canEditContactPermissions(contact) && onAutoApproveThresholdChange ? (
+        <ContactPermissionsSection
+          contact={contact}
+          pending={pendingAutoApproveThreshold}
+          onAutoApproveThresholdChange={onAutoApproveThresholdChange}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={confirmOpen}

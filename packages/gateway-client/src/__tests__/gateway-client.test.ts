@@ -30,6 +30,7 @@ describe("package independence", () => {
     "../http-delivery.ts",
     "../ipc-client.ts",
     "../gateway-ipc-contracts.ts",
+    "../plugin-admission-denied-contract.ts",
   ];
 
   for (const file of sourceFiles) {

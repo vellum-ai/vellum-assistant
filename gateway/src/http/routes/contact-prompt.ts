@@ -414,6 +414,21 @@ async function channelResolutionError(requestId: string): Promise<Response> {
  * return { accepted: true }. IPC failures are best-effort — they only mean the
  * CLI may time out, not that the write failed.
  */
+async function promptWantsVerify(requestId: string): Promise<boolean> {
+  try {
+    const result = await ipcCallAssistant("contact_prompt_flags", {
+      body: { requestId },
+    });
+    return (result as { verify?: boolean }).verify === true;
+  } catch (err) {
+    log.warn(
+      { err, requestId },
+      "contact-prompt-submit: contact_prompt_flags IPC failed; leaving channel unverified",
+    );
+    return false;
+  }
+}
+
 async function resolveContactPrompt(args: {
   requestId: string;
   contactId: string;
@@ -422,6 +437,15 @@ async function resolveContactPrompt(args: {
   address: string;
 }): Promise<Response> {
   const { requestId, contactId, channelId, channelType, address } = args;
+  if (await promptWantsVerify(requestId)) {
+    const verified = await getStore().markChannelVerified(channelId);
+    if (!verified) {
+      log.warn(
+        { requestId, contactId, channelId },
+        "contact-prompt-submit: --verify was set but the channel could not be attested",
+      );
+    }
+  }
   try {
     const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
       body: { requestId, contactId, channelId, channelType, address },

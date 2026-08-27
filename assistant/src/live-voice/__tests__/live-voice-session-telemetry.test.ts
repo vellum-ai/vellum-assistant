@@ -157,6 +157,70 @@ describe("live-voice session telemetry", () => {
     });
   });
 
+  /**
+   * Run one typed turn against a session with a real turn starter, then close.
+   *
+   * `readySession` wires none, so `handleTextTurn` returns before dispatching
+   * and every silence assertion against it passes for the wrong reason.
+   */
+  async function endAfterTypedTurn(frame: {
+    text: string;
+    hidden?: boolean;
+  }): Promise<void> {
+    let started = false;
+    const session = new LiveVoiceSession(createContext(), {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness: mock(
+        async (): Promise<LiveVoiceCredentialReadiness> => ({
+          status: "ready",
+        }),
+      ),
+      startVoiceTurn: mock(async () => {
+        started = true;
+        return { turnId: "bridge-turn-1", abort: mock() };
+      }),
+      emitMetrics: false,
+    });
+    await session.start();
+    await session.handleClientFrame({ type: "text", ...frame });
+    for (let attempt = 0; attempt < 40 && !started; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    if (!started) {
+      throw new Error("the typed turn never reached the bridge");
+    }
+    await session.close("client_end");
+  }
+
+  test("the greeting that opens a session does not spend its silence reason", async () => {
+    // The classification answers "did anything come from the person?". A
+    // session that greets and hears nothing back is silent, and counting the
+    // greeting would retire the taxonomy for every greeted session.
+    await endAfterTypedTurn({
+      text: "this message is sent automatically",
+      hidden: true,
+    });
+
+    expect(recordLiveVoiceSessionEnded).toHaveBeenCalledWith({
+      sessionId: "session-123",
+      screen: "ended_client_end:silent_no_audio",
+      outcome: "completed",
+    });
+  });
+
+  test("a turn the user really took clears the silence reason", async () => {
+    // The other half, and what keeps the test above honest: the same path with
+    // an ordinary typed turn is the person taking a turn, so the session is
+    // not silent and carries no classification at all.
+    await endAfterTypedTurn({ text: "typed by hand" });
+
+    expect(recordLiveVoiceSessionEnded).toHaveBeenCalledWith({
+      sessionId: "session-123",
+      screen: "ended_client_end",
+      outcome: "completed",
+    });
+  });
+
   test("a dropped socket ends as completed, not failed", async () => {
     const session = readySession();
     await session.start();

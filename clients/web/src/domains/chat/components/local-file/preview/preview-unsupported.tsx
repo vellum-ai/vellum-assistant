@@ -10,9 +10,6 @@ import {
 } from "@/domains/chat/components/local-file/local-file-icon";
 import { useTranslation } from "@/i18n";
 
-/** Shown for a file no reader covers, whatever its format. */
-const PREVIEW_UNSUPPORTED_MESSAGE = "No preview for this file type";
-
 interface PreviewUnsupportedProps {
   filename: string;
   sizeBytes: number | null;
@@ -70,7 +67,7 @@ export function PreviewUnsupported({
         variant="body-small-default"
         className="text-[var(--content-tertiary)]"
       >
-        {PREVIEW_UNSUPPORTED_MESSAGE}
+        {t("previewUnsupported.noPreviewForType")}
       </Typography>
       <span className="flex flex-wrap items-center gap-2">
         <Button

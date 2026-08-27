@@ -165,18 +165,6 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
   rebuildConversationDiskViewFromDbState: () => {},
 }));
 
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
-
 mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],

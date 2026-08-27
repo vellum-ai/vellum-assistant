@@ -17,6 +17,7 @@ import type { PackageChangeResponse } from "@/generated/api/types.gen";
 const SUBSCRIPTION_KEY = ["subscription"];
 const PLANS_KEY = ["plans"];
 const ONBOARDING_KEY = ["onboarding"];
+const SUMMARY_KEY = ["summary"];
 
 // Captures the body posted to `mutateAsync` and lets each test drive the
 // mutation's resolution (resolve a response, or reject to hit the error path).
@@ -36,6 +37,7 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingPlansRetrieveQueryKey: () => PLANS_KEY,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey: () =>
     ONBOARDING_KEY,
+  organizationsBillingSummaryRetrieveQueryKey: () => SUMMARY_KEY,
 }));
 
 const toastErrorCalls: string[] = [];
@@ -92,7 +94,7 @@ describe("useChangePackage", () => {
     mutationImpl = async () => okResponse();
   });
 
-  test("posts the package and invalidates the three billing keys on success", async () => {
+  test("posts the package and invalidates the billing keys on success", async () => {
     const response = okResponse();
     mutationImpl = async () => response;
     const { result, invalidatedKeys } = setup();
@@ -108,6 +110,7 @@ describe("useChangePackage", () => {
       SUBSCRIPTION_KEY,
       PLANS_KEY,
       ONBOARDING_KEY,
+      SUMMARY_KEY,
     ]);
     expect(toastErrorCalls).toEqual([]);
   });

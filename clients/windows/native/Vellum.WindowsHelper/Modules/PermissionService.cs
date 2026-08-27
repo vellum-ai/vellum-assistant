@@ -14,8 +14,10 @@ public sealed class PermissionService : IRpcModule, INativeCapability
 {
     public const string StateMethod = "permissions.state";
 
-    private const string MicrophoneConsentPath =
-        @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
+    private const string ConsentStorePath =
+        @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore";
+    private const string MicrophoneConsentPath = $@"{ConsentStorePath}\microphone";
+    private const string ScreenConsentPath = $@"{ConsentStorePath}\graphicsCaptureProgrammatic";
     private const string OnlineSpeechPath =
         @"Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy";
     private const string PushNotificationsPath =
@@ -45,18 +47,21 @@ public sealed class PermissionService : IRpcModule, INativeCapability
 
     public object QueryState() => new
     {
-        microphone = MapMicrophoneConsent(
-            _readCurrentUserValue(MicrophoneConsentPath, "Value"),
-            _readCurrentUserValue($@"{MicrophoneConsentPath}\NonPackaged", "Value")),
+        microphone = ReadConsent(MicrophoneConsentPath),
+        screen = ReadConsent(ScreenConsentPath),
         speechRecognition = MapOnlineSpeech(
             _readCurrentUserValue(OnlineSpeechPath, "HasAccepted")),
         notifications = MapToastEnabled(
             _readCurrentUserValue(PushNotificationsPath, "ToastEnabled")),
     };
 
-    // Desktop apps are gated by the global microphone consent plus the
+    private string ReadConsent(string path) => MapConsent(
+        _readCurrentUserValue(path, "Value"),
+        _readCurrentUserValue($@"{path}\NonPackaged", "Value"));
+
+    // Desktop apps are gated by the global capability consent plus the
     // non-packaged app consent; a deny on either wins.
-    public static string MapMicrophoneConsent(object? global, object? nonPackaged)
+    public static string MapConsent(object? global, object? nonPackaged)
     {
         if (IsDenyConsent(global) || IsDenyConsent(nonPackaged))
         {

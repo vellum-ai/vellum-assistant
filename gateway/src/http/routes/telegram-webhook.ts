@@ -1,3 +1,4 @@
+import { eventRefersToAnotherMessage } from "../../channels/inbound-event.js";
 import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
@@ -572,7 +573,6 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
-    const isEdit = !!normalized.message.isEdit;
     const isCallback = !!normalized.message.callbackQueryId;
 
     // Check routing early so we can gate attachments
@@ -584,16 +584,15 @@ export function createTelegramWebhookHandler(
     );
     const routable = !isRejection(routing);
 
-    // Download and upload attachments if present (skip for edits and callback
-    // queries — edits only update text, callbacks have no media to process)
+    // Download and upload attachments if present. An event that refers to
+    // another message (edit, button press) carries no media of its own.
     let attachmentIds: string[] | undefined;
     const eventAttachments = normalized.message.attachments;
     if (
       eventAttachments &&
       eventAttachments.length > 0 &&
       routable &&
-      !isEdit &&
-      !isCallback
+      !eventRefersToAnotherMessage(normalized.message)
     ) {
       try {
         const result = await ingestAttachments(

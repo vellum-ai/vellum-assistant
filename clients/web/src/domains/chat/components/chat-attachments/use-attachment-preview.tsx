@@ -15,9 +15,9 @@ interface UseAttachmentPreviewResult {
 
 /**
  * Owns the shared full-screen-preview plumbing for the attachment renderers
- * ({@link BubbleAttachments} and {@link MessageAttachments}): the open/close
- * state and the {@link AttachmentPreviewModal} element. Consumers call
- * `openPreview(att)` from an item's click handler and render `previewModal`.
+ * (the message squares and the composer strip): the open/close state and the
+ * {@link AttachmentPreviewModal} element. Consumers call `openPreview(att)`
+ * from an item's click handler and render `previewModal`.
  *
  * When multiple attachments are present, the modal renders prev/next gallery
  * navigation so the user can arrow between sibling images without closing.

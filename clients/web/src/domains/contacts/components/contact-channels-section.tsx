@@ -9,11 +9,13 @@ import {
   Phone,
   Send,
 } from "lucide-react";
-import { createElement, useState } from "react";
-import type { CSSProperties } from "react";
+import { createElement, useId, useRef, useState } from "react";
+import type { CSSProperties, FormEvent } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
 
 import {
   isVerifiedContactChannel,
@@ -49,6 +51,27 @@ export type ChannelActionState =
   | { kind: "setup" }
   | { kind: "none" };
 
+/**
+ * Manual guardian attest on Contacts (the Verify me button).
+ *
+ * `supportsVerification` is the outbound challenge flow (voice/DM code).
+ * Plugin channels have no challenge, but they still use the same one-click
+ * attest Phone already has on this page.
+ */
+export function isPluginChannel(info: ChannelInfo): boolean {
+  return typeof info.source === "string" && info.source.startsWith("plugin:");
+}
+
+export function offersManualVerify(info: ChannelInfo): boolean {
+  return info.supportsVerification || isPluginChannel(info);
+}
+
+export function hasVerifiableAddress(
+  existing: ContactChannelPayload | undefined,
+): boolean {
+  return Boolean(existing?.address?.trim());
+}
+
 export function getChannelActionState(
   info: ChannelInfo,
   existing: ContactChannelPayload | undefined,
@@ -72,6 +95,11 @@ export function getChannelActionState(
     return { kind: "none" };
   }
   if (existing && existing.status !== "revoked") {
+    return { kind: "unverified" };
+  }
+  // Plugin channels have no outbound challenge conversation. Contacts
+  // attests them in-place, including when no row exists yet.
+  if (isPluginChannel(info)) {
     return { kind: "unverified" };
   }
   return { kind: "setup" };
@@ -131,7 +159,11 @@ interface ContactChannelsSectionProps {
   verifyLoading?: boolean;
   verifySubject?: "self" | "contact";
   onSetupChannel?: (type: string) => void;
-  onVerifyChannel?: (type: string) => void;
+  /**
+   * `address` is set when the row has no identifier yet. The page upserts
+   * that address and then attests it.
+   */
+  onVerifyChannel?: (type: string, address?: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
   /**
    * Opens the roster picker for a linkable channel row (see
@@ -193,7 +225,10 @@ export function ContactChannelsSection({
   onLinkAccount,
 }: ContactChannelsSectionProps) {
   const { t } = useTranslation("contacts");
-  const [verifyPending, setVerifyPending] = useState<ChannelInfo | null>(null);
+  const [verifyPending, setVerifyPending] = useState<{
+    info: ChannelInfo;
+    existing: ContactChannelPayload | undefined;
+  } | null>(null);
   const [revokePending, setRevokePending] = useState<{
     channelId: string;
     channel: ChannelInfo;
@@ -209,11 +244,11 @@ export function ContactChannelsSection({
     }
   }
 
-  const handleVerifyConfirm = () => {
+  const handleVerifyConfirm = (address?: string) => {
     if (!verifyPending) {
       return;
     }
-    onVerifyChannel?.(verifyPending.id);
+    onVerifyChannel?.(verifyPending.info.id, address);
     setVerifyPending(null);
   };
 
@@ -256,8 +291,8 @@ export function ContactChannelsSection({
                   onSetupChannel ? () => onSetupChannel(info.id) : undefined
                 }
                 onVerify={
-                  onVerifyChannel && info.supportsVerification
-                    ? () => setVerifyPending(info)
+                  onVerifyChannel && offersManualVerify(info)
+                    ? () => setVerifyPending({ info, existing })
                     : undefined
                 }
                 onRevoke={
@@ -280,26 +315,15 @@ export function ContactChannelsSection({
         })}
       </div>
 
-      {verifyPending && (
-        <ConfirmDialog
-          open={true}
-          title={t("contactChannelsSection.verifyConfirmTitle", {
-            channel: verifyPending.label,
-          })}
-          message={
-            verifySubject === "contact"
-              ? t("contactChannelsSection.verifyConfirmMessageContact", {
-                  channel: verifyPending.label,
-                })
-              : t("contactChannelsSection.verifyConfirmMessageGuardian", {
-                  channel: verifyPending.label,
-                })
-          }
-          confirmLabel={t("actions.verify")}
+      {verifyPending ? (
+        <VerifyChannelDialog
+          info={verifyPending.info}
+          existing={verifyPending.existing}
+          verifySubject={verifySubject}
           onConfirm={handleVerifyConfirm}
           onCancel={() => setVerifyPending(null)}
         />
-      )}
+      ) : null}
 
       {revokePending && (
         <ConfirmDialog
@@ -420,5 +444,129 @@ function ChannelRow({
         ) : null}
       </div>
     </div>
+  );
+}
+
+interface VerifyChannelDialogProps {
+  info: ChannelInfo;
+  existing: ContactChannelPayload | undefined;
+  verifySubject: "self" | "contact";
+  onConfirm: (address?: string) => void;
+  onCancel: () => void;
+}
+
+function VerifyChannelDialog({
+  info,
+  existing,
+  verifySubject,
+  onConfirm,
+  onCancel,
+}: VerifyChannelDialogProps) {
+  const { t } = useTranslation("contacts");
+  const knownAddress = existing?.address?.trim() ?? "";
+  const [address, setAddress] = useState(knownAddress);
+  const addressInputRef = useRef<HTMLInputElement>(null);
+  const addressFieldId = useId();
+  const trimmedAddress = address.trim();
+
+  if (hasVerifiableAddress(existing)) {
+    return (
+      <ConfirmDialog
+        open={true}
+        title={t("contactChannelsSection.verifyConfirmTitle", {
+          channel: info.label,
+        })}
+        message={
+          verifySubject === "contact"
+            ? t("contactChannelsSection.verifyConfirmMessageContact", {
+                channel: info.label,
+              })
+            : t("contactChannelsSection.verifyConfirmMessageGuardian", {
+                channel: info.label,
+              })
+        }
+        confirmLabel={t("actions.verify")}
+        onConfirm={() => {
+          onConfirm();
+        }}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (trimmedAddress.length === 0) {
+      return;
+    }
+    onConfirm(trimmedAddress);
+  };
+
+  return (
+    <Modal.Root
+      open={true}
+      onOpenChange={(next) => {
+        if (!next) {
+          onCancel();
+        }
+      }}
+    >
+      <Modal.Content
+        size="sm"
+        hideCloseButton
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          addressInputRef.current?.focus();
+        }}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+        }}
+      >
+        <form className="flex flex-col" onSubmit={handleSubmit}>
+          <Modal.Header>
+            <Modal.Title>
+              {t("contactChannelsSection.verifyConfirmTitle", {
+                channel: info.label,
+              })}
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body className="flex flex-col gap-3">
+            <Modal.Description>
+              {verifySubject === "contact"
+                ? t("contactChannelsSection.verifyAddressMessageContact", {
+                    channel: info.label,
+                  })
+                : t("contactChannelsSection.verifyAddressMessageGuardian", {
+                    channel: info.label,
+                  })}
+            </Modal.Description>
+            <Input
+              ref={addressInputRef}
+              id={addressFieldId}
+              label={t("contactChannelsSection.verifyAddressLabel")}
+              type="text"
+              value={address}
+              onChange={(event) => {
+                setAddress(event.target.value);
+              }}
+              placeholder={t("contactChannelsSection.verifyAddressPlaceholder")}
+              autoComplete="off"
+              spellCheck={false}
+              fullWidth
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="outlined" type="button" onClick={onCancel}>
+              {t("actions.cancel")}
+            </Button>
+            <Button type="submit" disabled={trimmedAddress.length === 0}>
+              {t("actions.verify")}
+            </Button>
+          </Modal.Footer>
+        </form>
+      </Modal.Content>
+    </Modal.Root>
   );
 }

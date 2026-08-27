@@ -26,6 +26,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
+  getVisibleModelsForProvider,
   getManagedUpstreamForModel,
   VELLUM_SERVED_PROVIDERS,
   type LlmProviderId,
@@ -117,18 +118,19 @@ describe("parity with meta/llm-provider-catalog.json", () => {
   );
   const webProviderIds = (
     Object.keys(MODELS_BY_PROVIDER) as LlmProviderId[]
-  ).filter((id) => id !== "openai-compatible");
+  ).filter((id) => id !== "openai-compatible" && id !== "vellum");
+  const pickerProviderIds = webProviderIds;
 
-  test("vellum is a picker-only entry: absent from the catalogs by design", () => {
-    // The Vellum entry is the managed routing identity, not a provider with
-    // its own catalog — it must never gain a MODELS_BY_PROVIDER key or a
-    // meta-catalog entry. Its model list is the union of the providers it
-    // serves, exposed only through getModelsForProvider.
-    expect(Object.keys(MODELS_BY_PROVIDER)).not.toContain("vellum");
-    expect(metaProvidersById.has("vellum")).toBe(false);
+  test("vellum picker is the union of served catalogs, including GPU models", () => {
+    // MODELS_BY_PROVIDER.vellum lists only Vellum-hosted GPU models. The
+    // picker still exposes the union of every served catalog through
+    // getModelsForProvider("vellum").
+    expect(MODELS_BY_PROVIDER.vellum.map((model) => model.id)).toEqual([
+      "qwen/qwen3-8b",
+    ]);
+    expect(metaProvidersById.get("vellum")?.id).toBe("vellum");
 
     const vellumModels = getModelsForProvider("vellum");
-    // Every entry comes from a served provider's catalog…
     const servedIds = new Set<string>(
       VELLUM_SERVED_PROVIDERS.flatMap((p) =>
         MODELS_BY_PROVIDER[p].map((m) => m.id),
@@ -137,11 +139,8 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     for (const model of vellumModels) {
       expect(servedIds.has(model.id)).toBe(true);
     }
-    // …labels are unique (the picker renders labels only, so duplicates
-    // would be indistinguishable options)…
     const labels = vellumModels.map((m) => m.displayName);
     expect(new Set(labels).size).toBe(labels.length);
-    // …and no distinct label from any served catalog is missing.
     const servedLabels = new Set(
       VELLUM_SERVED_PROVIDERS.flatMap((p) =>
         MODELS_BY_PROVIDER[p].map((m) => m.displayName),
@@ -155,7 +154,24 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     expect(
       getManagedUpstreamForModel("accounts/fireworks/models/glm-5p2"),
     ).toBe("fireworks");
+    expect(getManagedUpstreamForModel("qwen/qwen3-8b")).toBe("vellum");
     expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();
+  });
+
+  test("vellum GPU models stay out of pickers and hide without developer mode", () => {
+    expect(Object.keys(MODELS_BY_PROVIDER)).toContain("vellum");
+    expect(INFERENCE_PROVIDERS).not.toContain("vellum");
+    expect(CONNECTION_PROVIDERS).not.toContain("vellum");
+    expect(
+      getVisibleModelsForProvider("vellum", false).some(
+        (model) => model.id === "qwen/qwen3-8b",
+      ),
+    ).toBe(false);
+    expect(
+      getVisibleModelsForProvider("vellum", true).some(
+        (model) => model.id === "qwen/qwen3-8b",
+      ),
+    ).toBe(true);
   });
 
   test("every meta provider exists in the web mirror", () => {
@@ -201,20 +217,27 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     // unselectable there. Order is not asserted: the list's order is the
     // picker's display order (a UI choice, with index 0 as the default
     // fallback), not the catalog's.
-    expect([...INFERENCE_PROVIDERS].sort()).toEqual([...webProviderIds].sort());
+    expect([...INFERENCE_PROVIDERS].sort()).toEqual(
+      [...pickerProviderIds].sort(),
+    );
   });
 
-  test("CONNECTION_PROVIDERS covers every meta catalog provider", () => {
+  test("CONNECTION_PROVIDERS covers every meta catalog provider except vellum", () => {
     // The connection-creation picker is driven by CONNECTION_PROVIDERS in
     // provider-editor-constants.ts. Unlike INFERENCE_PROVIDERS, it
     // intentionally includes daemon-only providers (ollama) and the
     // free-form openai-compatible escape hatch — any daemon provider can
     // back a connection — so it must list exactly the meta catalog's
     // provider ids or a provider becomes un-creatable as a connection.
+    // `vellum` is excluded: those models use the assistant API key on the
+    // existing managed connection and have no BYOK create path.
     // Order is not asserted: the list's order is the picker's display order.
     const connectionProviderIds: string[] = [...CONNECTION_PROVIDERS];
     expect(connectionProviderIds.sort()).toEqual(
-      metaCatalog.providers.map((provider) => provider.id).sort(),
+      metaCatalog.providers
+        .map((provider) => provider.id)
+        .filter((id) => id !== "vellum")
+        .sort(),
     );
   });
 

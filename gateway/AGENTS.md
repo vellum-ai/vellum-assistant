@@ -217,7 +217,7 @@ Two orthogonal axes, do not conflate them:
 - **Admission** (above) — _who gets in the door_. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
 - **Capabilities** — _what an actor may do once admitted_. Resolved in the runtime, never on the gateway.
 
-**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
+**Trust classes** (`TrustClass` in `assistant/src/runtime/trust-class.ts`, re-exported from `actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
 
 | Class                | Rank | Meaning                                                                  |
 | -------------------- | ---- | ------------------------------------------------------------------------ |
@@ -241,6 +241,20 @@ The gateway classifies the actor at ingress (keyed on `actorExternalId`) and for
 **Adding a capability**: add the field to `CapabilitySet` + the three class records (`GUARDIAN_CAPABILITIES`, `CONTACT_CAPABILITIES`, `UNKNOWN_CAPABILITIES`) + the `MATRIX` in `capabilities.test.ts`. **Adding a trust class**: add a member to `TrustClass` (the `Record<TrustClass, …>` tables then fail to compile until every column is filled) and a matrix row.
 
 **Intentionally NOT capability-gated** (these are identity / admission-flow decisions, not permissions, and stay raw class checks): `calls/*` guardian-identity call routing, `inbound-message-handler` heartbeat/timezone side-effects, `surface-action-routes` drift-heal re-resolution, and `channel-retry-sweep` trust-class parsing.
+
+## Operator CLI (`gateway contacts`)
+
+The gateway package ships an operator CLI (`gateway/src/cli/`, bin `gateway`) for gateway-owned contact ACL. This is the write surface for a contact's assistant-access ceiling. Do not add that write to `assistant contacts`.
+
+```
+gateway contacts list
+gateway contacts get <contactId>
+gateway contacts set-risk-threshold <contactId> --threshold none|low|medium|high|inherit
+```
+
+The CLI talks to the running gateway over its IPC socket (`set_contact_threshold`, `contacts_list_rich`, `contacts_get_rich`). It does not open `gateway.sqlite` itself.
+
+From the host: `vellum exec --service gateway -- gateway contacts ...`. Do not add a `vellum gateway contacts` verb.
 
 ## Guardian Requests (gateway-owned)
 

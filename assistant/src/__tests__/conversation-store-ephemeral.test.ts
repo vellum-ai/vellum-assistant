@@ -96,18 +96,6 @@ mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
-
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}

@@ -51,8 +51,11 @@ import {
   type CredentialRouteDeps,
 } from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
+import { handleMetadataRoute } from "./http/metadata-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
 import { runCesMigrations } from "./migrations/runner.js";
+import { buildRecordHandlers } from "./records/handlers.js";
+import { initMetadataStore } from "./records/metadata-store.js";
 
 // ---------------------------------------------------------------------------
 // Logging (module-level for early bootstrap + structured logging post-init)
@@ -274,11 +277,17 @@ function startHealthServer(
 
       // Credential CRUD routes (only if service token is configured)
       if (credentialDeps) {
+        const metadataResponse = await handleMetadataRoute(req);
+        if (metadataResponse) {
+          return metadataResponse;
+        }
         const credentialResponse = await handleCredentialRoute(
           req,
           credentialDeps,
         );
-        if (credentialResponse) return credentialResponse;
+        if (credentialResponse) {
+          return credentialResponse;
+        }
       }
 
       // Log export route
@@ -349,11 +358,16 @@ async function main(): Promise<void> {
   );
   log.info(`CES ${mode} startup: migrations complete`);
 
+  initMetadataStore(getCesDataRoot(mode));
+
   // -- Build handlers --------------------------------------------------------
   // The per-connection session ID lives in each CesRpcServer's SessionContext;
   // handlers read it at call time. The registry is shared across connections
   // and identical in both modes.
-  const handlers = buildCrudHandlers(secureKeyBackend);
+  const handlers = {
+    ...buildCrudHandlers(secureKeyBackend),
+    ...buildRecordHandlers(),
+  };
 
   // -- Health server (managed only) -----------------------------------------
   if (mode === "managed") {

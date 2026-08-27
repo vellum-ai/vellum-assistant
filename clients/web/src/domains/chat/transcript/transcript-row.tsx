@@ -37,6 +37,9 @@ export interface TranscriptRowProps {
   item: TranscriptItem;
   /** Conversation id, forwarded to message bodies for the bookmark toggle. */
   conversationId?: string | null;
+  /** Tool call the Connect card renders under, resolved once by
+   *  `Transcript` so rows do not each subscribe to the transcript. */
+  acpConnectInlineToolUseId?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (
     surfaceId: string,
@@ -59,7 +62,6 @@ export interface TranscriptRowProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -165,6 +167,7 @@ function CreditsUpsellMessageRow({
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   conversationId,
+  acpConnectInlineToolUseId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -202,6 +205,7 @@ export const TranscriptRow = memo(function TranscriptRow({
         <TranscriptMessageBody
           message={item.message}
           conversationId={conversationId}
+          acpConnectInlineToolUseId={acpConnectInlineToolUseId}
           assistantDisplayName={assistantDisplayName}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}

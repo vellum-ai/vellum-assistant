@@ -2,11 +2,7 @@ import { useEffect } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import {
-  organizationsBillingPlansRetrieveQueryKey,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-  organizationsBillingSubscriptionRetrieveQueryKey,
-} from "@/generated/api/@tanstack/react-query.gen";
+import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
 import { openUrlFinishedListener } from "@/runtime/browser";
 
 /**
@@ -27,15 +23,7 @@ export function useCheckoutDismissRefresh(): void {
 
   useEffect(() => {
     return openUrlFinishedListener(() => {
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingPlansRetrieveQueryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-      });
+      void invalidateBillingQueries(queryClient);
     });
   }, [queryClient]);
 }

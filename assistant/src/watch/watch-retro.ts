@@ -76,16 +76,58 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * gap between those two is the whole risk of turning a demonstration into a
  * skill. `skill-management` will not scaffold until that step is settled
  * either, so an unasked one stalls the flow it was meant to feed.
+ *
+ * **The skill loads before the report is written, and nothing follows the
+ * report.** This is about where the report lands on screen, not about the
+ * order the work happens in. A client renders an assistant turn as its final
+ * prose plus the intermediate work that led there, and the web transcript
+ * collapses that intermediate half into an "Earlier activity" disclosure that
+ * a settled turn shows closed (`finalResponseGroupIndex` in
+ * `transcript-message-body.tsx`). Everything before the turn's last non-empty
+ * text block is intermediate by that rule, including prose. Writing the report
+ * first and loading the skill after it puts a `skill_load` and whatever the
+ * model says once the skill is in hand *after* the report, which demotes the
+ * report to intermediate work and hides it behind a collapsed row next to the
+ * reasoning rows. The user presses stop on a session and is shown a folded-up
+ * link where the account of it should be.
+ *
+ * So the load comes first and the report is last. `skill-management` opens on
+ * "Ask before doing anything", so a turn that loads it and then asks is
+ * following it rather than jumping the flow, and the report is the alignment
+ * its first step calls for. The instruction that nothing follows the report is
+ * as load-bearing as the ordering: one trailing line of sign-off is another
+ * text block after it, and the report is intermediate again.
+ *
+ * **The report does not depend on the load succeeding.** `skill-management` is
+ * a selector, not a fixed definition: `loadSkillCatalog` lets a managed or
+ * workspace skill of the same id replace the bundled one, and
+ * `resolveSkillSelector` hands back whichever entry won. So the load can come
+ * back as someone else's skill, or as a refusal, and putting it ahead of the
+ * report is what makes either one land before the user has been told anything.
+ * A refusal is the likelier of the two here: this wake is `clientless`, and an
+ * inline-command load with no human present is denied outright
+ * (`permissions/checker.ts`, `isDynamicSkillLoadInvocation`). The bundled skill
+ * carries no such expansions, so the ordinary path is unaffected, but a shadow
+ * that carries them is denied on arrival.
+ *
+ * Neither outcome is allowed to become the retro. The session was recorded, the
+ * timeline is already in this prompt, and the account of it is the one thing the
+ * user is owed for having pressed stop; a permission error where that account
+ * should be is the same empty thread the `surfaceConversation` guard exists to
+ * prevent, just with prose in it. So the instructions write the report either
+ * way and say the handoff did not happen, rather than reporting on the load.
  */
-const RETRO_INSTRUCTIONS = `Write back to the user in two sections, in this order, both as level-2 headings.
+const RETRO_INSTRUCTIONS = `Load the \`skill-management\` skill first, before you write anything, and follow it. Do not author or scaffold a skill until the four points that step names are settled: the report below is the alignment its first step calls for.
+
+Write the report below whether or not that load succeeds. If it fails, is refused, or comes back as something other than the skill-management flow, do not report on the load and do not retry it: write the report, and end it with one line saying you could not open the skill-authoring flow, so the user knows the handoff is the part that did not happen.
+
+Then write back to the user in two sections, in this order, both as level-2 headings. That report is the last thing you do this turn, and nothing follows it: no sign-off, no note about what you loaded, no further tool call. Their answers come back as an ordinary reply and the flow picks up from there.
 
 First, "What I need from you". The questions you cannot answer from the recording, numbered, most consequential first. Each one concrete enough to answer in a sentence, and each one about something you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Always ask what they would say to start this task, in their own words, because the recording cannot tell you that. Ask about the done condition if it is unclear. Always confirm any destructive or irreversible step, even one the recording showed plainly: watching someone do a thing once is not agreement to have it done again unattended, and this is the one place the rule below does not apply. Otherwise do not ask them to confirm something the recording already showed you.
 
 Second, "What I saw". Open with one sentence naming the task and what it is for, on its own and not as a list item. Then the steps in order beneath it, one line each and concrete enough to follow, carrying no purpose of their own. This is the record your questions sit on top of, so state it rather than asking about it.
 
-Open on the first heading. No preamble, no announcing what you are about to do, no narrating which skills you are loading.
-
-Then load the \`skill-management\` skill and follow it, treating the answers to your questions as the alignment its first step calls for. Do not author or scaffold a skill until the four points that step names are settled. Correct your reading against whatever they tell you. If they decide this is not worth keeping, say so and stop.`;
+Open on the first heading. No preamble, no announcing what you are about to do, no narrating which skills you are loading. Correct your reading against whatever they tell you. If they decide this is not worth keeping, say so and stop.`;
 
 /**
  * Told to the model whenever the render was bounded, naming the bound that

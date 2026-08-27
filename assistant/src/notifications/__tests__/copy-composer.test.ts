@@ -35,6 +35,89 @@ function makeSignal(
 
 const CHANNELS: NotificationChannel[] = ["vellum" as NotificationChannel];
 
+// ── activity.failed rendering ─────────────────────────────────────────
+
+describe("activity.failed copy", () => {
+  function failedSignal(
+    contextPayload: Record<string, unknown>,
+  ): NotificationSignal {
+    return makeSignal({
+      sourceEventName: "activity.failed",
+      contextPayload,
+    });
+  }
+
+  test("renders the carried classification message verbatim", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "schedule:PR scan",
+        errorKind: "model_provider",
+        errorMessage: "Agent turn failed (PROVIDER_BILLING)",
+        failureSummary:
+          "You're out of credits. Add credits in Settings to continue.",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.title).toBe("Background job failed: schedule:PR scan");
+    expect(copy.vellum?.body).toBe(
+      "You're out of credits. Add credits in Settings to continue.",
+    );
+  });
+
+  test("an oversized carried summary is bounded", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "job",
+        errorKind: "model_provider",
+        errorMessage: "irrelevant",
+        failureSummary: "x".repeat(400),
+      }),
+      CHANNELS,
+    );
+    expect((copy.vellum?.body ?? "").length).toBeLessThanOrEqual(303);
+    expect(copy.vellum?.body).toEndWith("...");
+  });
+
+  test("constant-shaped raw detail never reaches the body", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "heartbeat",
+        errorKind: "model_provider",
+        errorMessage: "Agent turn failed (PROVIDER_BILLING)",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toBe("The model provider did not respond.");
+    expect(copy.vellum?.body).not.toContain("PROVIDER_BILLING");
+  });
+
+  test("readable raw detail is appended to the kind prose", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "watcher",
+        errorKind: "exception",
+        errorMessage: "The feed endpoint returned an empty document.",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toBe(
+      "It stopped with an error. The feed endpoint returned an empty document.",
+    );
+  });
+
+  test("timeout renders its own prose", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "filing",
+        errorKind: "timeout",
+        errorMessage: "Background job 'filing' timed out after 1800000ms",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toContain("It ran out of time before finishing.");
+  });
+});
+
 // ── composeFallbackCopy with requestedMessage ─────────────────────────
 
 describe("composeFallbackCopy honors requestedMessage / requestedTitle", () => {

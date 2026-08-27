@@ -43,11 +43,15 @@ function makeSurface(overrides: Partial<Surface> = {}): Surface {
   };
 }
 
-/** Exposes the router's current URL so tests can assert navigation. */
+/** Exposes the router's current URL and state so tests can assert navigation. */
 function LocationProbe() {
   const location = useLocation();
+  const state = location.state as { backTo?: string } | null;
   return (
-    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+    <>
+      <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+      <div data-testid="location-back-to">{state?.backTo ?? ""}</div>
+    </>
   );
 }
 
@@ -142,6 +146,11 @@ describe("SkillCreatedCard", () => {
 
     expect(getByTestId("location").textContent).toBe(
       "/assistant/skills/skill-2",
+    );
+    // The conversation's location rides along as router state so the detail
+    // page's back affordances return here instead of the Superpowers list.
+    expect(getByTestId("location-back-to").textContent).toBe(
+      "/assistant/conversations/conv-xyz",
     );
     // The panel path is not taken on mobile.
     expect(useViewerStore.getState().mainView).toBe("chat");

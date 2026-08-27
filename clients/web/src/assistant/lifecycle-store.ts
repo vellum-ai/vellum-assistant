@@ -17,7 +17,7 @@
  * `useAssistantLifecycleStore.setState(...)`. Consumers read.
  *
  * @see {@link ./lifecycle-service.ts}
- * @see {@link ./selection-store.ts}
+ * @see {@link ./selection.ts}
  */
 
 import { create } from "zustand";

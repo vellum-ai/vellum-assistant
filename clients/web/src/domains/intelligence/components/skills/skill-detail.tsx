@@ -59,6 +59,12 @@ interface SkillDetailProps {
   tab: SkillDetailTab;
   onTabChange: (tab: SkillDetailTab) => void;
   onBack: () => void;
+  /**
+   * True when `onBack` returns to the conversation the skill was opened
+   * from (chat-origin `backTo` router state) rather than the skills list,
+   * so the back control announces where it actually lands.
+   */
+  backToConversation?: boolean;
   onInstall?: () => void;
   onRemove?: () => void;
   isInstalling?: boolean;
@@ -76,6 +82,7 @@ export function SkillDetail({
   tab,
   onTabChange,
   onBack,
+  backToConversation = false,
   onInstall,
   onRemove,
   isInstalling = false,
@@ -121,7 +128,11 @@ export function SkillDetail({
         type="button"
         variant="ghost"
         iconOnly={<ArrowLeft aria-hidden />}
-        aria-label={t("skillDetail.backToSkillsAriaLabel")}
+        aria-label={t(
+          backToConversation
+            ? "skillDetail.backToConversationAriaLabel"
+            : "skillDetail.backToSkillsAriaLabel",
+        )}
         onClick={onBack}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">

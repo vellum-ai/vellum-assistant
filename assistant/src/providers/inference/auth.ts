@@ -118,20 +118,20 @@ export type ResolvedAuth =
 // providers at runtime.
 
 export const VALID_CONNECTION_PROVIDERS: readonly string[] = [
-  ...PROVIDER_CATALOG.map((p) => p.id),
-  // The provider-agnostic Vellum-managed connection stores this sentinel in its
-  // `provider` column. It is intentionally not a PROVIDER_CATALOG entry (it
-  // names no single upstream), so it must be allowlisted explicitly or the DB
-  // loaders (getConnection/listConnections) and the create route would reject
-  // persisted `vellum` rows — the routing threaded in via `providerOverride`
-  // never runs on a row that fails to load.
-  VELLUM_MANAGED_PROVIDER,
-  // The ChatGPT-subscription row stores the "chatgpt" routing identity in its
-  // `provider` column for the same reason: the row IS the subscription route
-  // (auth modality = provider identity), and dispatch derives the openai
-  // upstream per-request. Allowlisted explicitly or the DB loaders would drop
-  // the persisted row.
-  "chatgpt",
+  ...new Set([
+    ...PROVIDER_CATALOG.map((p) => p.id),
+    // The provider-agnostic Vellum-managed connection stores this sentinel in
+    // its `provider` column. The same id owns Vellum-hosted GPU models in the
+    // catalog. Keep it allowlisted explicitly so a future catalog rename
+    // cannot drop persisted `vellum` rows from the DB loaders.
+    VELLUM_MANAGED_PROVIDER,
+    // The ChatGPT-subscription row stores the "chatgpt" routing identity in
+    // its `provider` column: the row IS the subscription route (auth
+    // modality = provider identity), and dispatch derives the openai
+    // upstream per-request. Allowlisted explicitly or the DB loaders would
+    // drop the persisted row.
+    "chatgpt",
+  ]),
 ];
 
 export type ConnectionProvider = string;
@@ -190,6 +190,7 @@ export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
 export const PROVIDERS_ALLOWING_CUSTOM_BASE_URL: ReadonlySet<string> = new Set([
   ...PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   "ollama",
+  "opencode",
 ]);
 
 // ---------------------------------------------------------------------------

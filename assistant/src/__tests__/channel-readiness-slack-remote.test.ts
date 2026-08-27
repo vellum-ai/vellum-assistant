@@ -174,9 +174,9 @@ describe("slack remote probe (auth.test)", () => {
 
 /**
  * Slack can install an app with a fraction of the manifest's scopes while
- * auth.test still succeeds — a live install produced 2 of 18, and the first
- * real API call failed with missing_scope. auth.test passing is therefore not
- * evidence the install is usable.
+ * auth.test still succeeds, leaving the first real API call to fail with
+ * missing_scope. auth.test passing is therefore not evidence the install is
+ * usable.
  */
 describe("slack auth.test response validation", () => {
   test("reports an unexpected shape instead of trusting the field types", async () => {

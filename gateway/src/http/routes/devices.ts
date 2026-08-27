@@ -51,6 +51,8 @@ export async function handleListDevices(
     .select({
       hashedDeviceId: actorTokenRecords.hashedDeviceId,
       platform: actorTokenRecords.platform,
+      pairingUserAgent: actorTokenRecords.pairingUserAgent,
+      clientReportedName: actorTokenRecords.clientReportedName,
       issuedAt: actorTokenRecords.issuedAt,
       expiresAt: actorTokenRecords.expiresAt,
     })
@@ -85,6 +87,8 @@ export async function handleListDevices(
   const devices = tokens.map((t) => ({
     hashedDeviceId: t.hashedDeviceId,
     platform: t.platform,
+    pairingUserAgent: t.pairingUserAgent ?? null,
+    clientReportedName: t.clientReportedName ?? null,
     issuedAt: t.issuedAt,
     expiresAt: t.expiresAt ?? null,
     lastUsedAt: lastUsedByDevice.get(t.hashedDeviceId) ?? null,

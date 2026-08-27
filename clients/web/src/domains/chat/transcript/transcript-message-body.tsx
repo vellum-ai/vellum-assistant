@@ -138,6 +138,7 @@ function safeDecodeURIComponent(value: string): string {
 export function TranscriptMessageBody({
   message,
   conversationId,
+  acpConnectInlineToolUseId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -714,9 +715,13 @@ export function TranscriptMessageBody({
   // reseed that would strip the tool-call `errorCode` marker. Pass the
   // transcript's `assistantId` down so the affordance never calls the
   // active-assistant hook that throws outside `ActiveAssistantGate`.
+  // `null` while the card belongs above the composer instead, so the inline
+  // copy stands down rather than the two both rendering. Resolved by
+  // `Transcript` rather than here: a per-row read would subscribe every row to
+  // the whole transcript.
   const renderAcpConnectAffordance = (toolCalls: ChatMessageToolCall[]) =>
-    acpConnectToolUseId !== null &&
-    toolCalls.some((tc) => tc.id === acpConnectToolUseId) ? (
+    acpConnectInlineToolUseId != null &&
+    toolCalls.some((tc) => tc.id === acpConnectInlineToolUseId) ? (
       <AcpConnectAffordance assistantId={assistantId} />
     ) : null;
 

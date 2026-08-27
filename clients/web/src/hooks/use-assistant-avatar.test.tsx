@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type { AvatarFileResult } from "@/assistant/avatar-api";
+import type * as AvatarLastSeenCache from "@/lib/avatar-last-seen-cache";
 import type {
   AvatarState,
   CharacterComponents,
@@ -10,7 +12,9 @@ import type {
 } from "@/types/avatar";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
+import { chooserRowAvatarCacheQueryKey } from "@/lib/persist-last-seen-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -62,23 +66,50 @@ const noneState: AvatarState = {
 
 const fetchCharacterComponents = mock(async () => components);
 const fetchAvatarState = mock(async () => noneState as AvatarState | null);
-const fetchAvatarImageUrl = mock(async () => null as string | null);
-const fetchCharacterTraits = mock(async () => null as CharacterTraits | null);
+const ABSENT: AvatarFileResult<never> = { status: "absent" };
+const FAILED: AvatarFileResult<never> = { status: "failed" };
+const found = <T,>(value: T): AvatarFileResult<T> => ({
+  status: "found",
+  value,
+});
+const fetchAvatarImageUrlResult = mock(
+  async () => ABSENT as AvatarFileResult<string>,
+);
+const fetchCharacterTraitsResult = mock(
+  async () => ABSENT as AvatarFileResult<CharacterTraits>,
+);
 
 mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterComponents,
   fetchAvatarState,
-  fetchAvatarImageUrl,
-  fetchCharacterTraits,
+  fetchAvatarImageUrlResult,
+  fetchCharacterTraitsResult,
 }));
+
+const actualLastSeenCache = await import("@/lib/avatar-last-seen-cache");
+const writeLastSeenAvatar = mock(
+  async (_id: string, _v: AvatarLastSeenCache.LastSeenAvatar) => {},
+);
+const deleteLastSeenAvatar = mock(async (_id: string) => {});
+mock.module(
+  "@/lib/avatar-last-seen-cache",
+  (): Partial<typeof AvatarLastSeenCache> => ({
+    ...actualLastSeenCache,
+    writeLastSeenAvatar,
+    deleteLastSeenAvatar,
+  }),
+);
 
 const { useAssistantAvatar } = await import("@/hooks/use-assistant-avatar");
 
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+const revokeObjectURL = mock((_url: string) => {});
+URL.revokeObjectURL = revokeObjectURL;
 
+function createWrapper(
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  }),
+) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -90,22 +121,178 @@ beforeEach(() => {
   // Default to a manifest-capable assistant so the `/avatar/state` path is
   // exercised; legacy-path tests override the version explicitly.
   useAssistantIdentityStore.getState().setIdentity("test-asst", MIN_VERSION);
+  useResolvedAssistantsStore.getState().setActiveAssistantId("asst-1");
 });
 
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   fetchCharacterComponents.mockClear();
   fetchAvatarState.mockClear();
-  fetchAvatarImageUrl.mockClear();
-  fetchCharacterTraits.mockClear();
+  fetchAvatarImageUrlResult.mockClear();
+  fetchCharacterTraitsResult.mockClear();
+  writeLastSeenAvatar.mockClear();
+  deleteLastSeenAvatar.mockClear();
+  revokeObjectURL.mockClear();
   fetchCharacterComponents.mockResolvedValue(components);
   fetchAvatarState.mockResolvedValue(noneState);
-  fetchAvatarImageUrl.mockResolvedValue(null);
-  fetchCharacterTraits.mockResolvedValue(null);
+  fetchAvatarImageUrlResult.mockResolvedValue(ABSENT);
+  fetchCharacterTraitsResult.mockResolvedValue(ABSENT);
 });
 
 describe("useAssistantAvatar", () => {
+  describe("last-seen cache", () => {
+    test("a resolved character avatar is persisted for the chooser's fallback", async () => {
+      fetchAvatarState.mockResolvedValueOnce(characterState);
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "asst-1",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a resolved none evicts the entry", async () => {
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
+      await waitFor(() => {
+        expect(deleteLastSeenAvatar).toHaveBeenCalledWith(
+          "asst-1",
+          expect.any(Number),
+        );
+      });
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a persist invalidates the chooser's cache query for that id", async () => {
+      fetchAvatarState.mockResolvedValueOnce(characterState);
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const cacheKey = chooserRowAvatarCacheQueryKey("asst-1");
+      queryClient.setQueryData(cacheKey, { traits: null, imageUrl: null });
+      renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(queryClient),
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(queryClient.getQueryState(cacheKey)?.isInvalidated).toBe(true);
+      });
+    });
+
+    test("a sibling's read never touches the cache, only the active assistant's does", async () => {
+      fetchAvatarState.mockResolvedValueOnce(characterState);
+      const { result } = renderHook(() => useAssistantAvatar("asst-2"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+
+    test("a read issued for the active assistant persists even if the user switched before it landed", async () => {
+      let resolveState: (state: AvatarState) => void = () => {};
+      fetchAvatarState.mockImplementationOnce(
+        () =>
+          new Promise<AvatarState>((resolve) => {
+            resolveState = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+      });
+
+      useResolvedAssistantsStore.getState().setActiveAssistantId("asst-2");
+      resolveState(characterState);
+
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+          "asst-1",
+          { kind: "character", traits },
+          expect.any(Number),
+        );
+      });
+    });
+
+    test("a superseded legacy read that finishes last persists nothing and drops its blob", async () => {
+      let resolveOld: (result: AvatarFileResult<string>) => void = () => {};
+      const oldImage = new Promise<AvatarFileResult<string>>((resolve) => {
+        resolveOld = resolve;
+      });
+      fetchAvatarImageUrlResult.mockImplementationOnce(() => oldImage);
+      fetchAvatarState.mockResolvedValue(characterState);
+
+      const { result, rerender } = renderHook(
+        (supportsManifest: boolean) =>
+          useAssistantAvatar("asst-1", { supportsManifest }),
+        { wrapper: createWrapper(), initialProps: false },
+      );
+      await waitFor(() => {
+        expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
+      });
+
+      rerender(true);
+      await waitFor(() => {
+        expect(result.current.traits).toEqual(traits);
+      });
+      await waitFor(() => {
+        expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      });
+
+      resolveOld(found("blob:old"));
+      await waitFor(() => {
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:old");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(writeLastSeenAvatar).toHaveBeenCalledTimes(1);
+      expect(writeLastSeenAvatar).toHaveBeenCalledWith(
+        "asst-1",
+        { kind: "character", traits },
+        expect.any(Number),
+      );
+      expect(result.current.traits).toEqual(traits);
+      expect(result.current.customImageUrl).toBeNull();
+    });
+
+    test("an inconclusive read touches nothing", async () => {
+      fetchAvatarState.mockResolvedValue(null);
+      const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+        wrapper: createWrapper(),
+      });
+      await waitFor(() => {
+        expect(fetchAvatarState).toHaveBeenCalled();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(result.current.isSuccess).toBe(false);
+      expect(writeLastSeenAvatar).not.toHaveBeenCalled();
+      expect(deleteLastSeenAvatar).not.toHaveBeenCalled();
+    });
+  });
+
   test("character kind exposes manifest traits and skips the image fetch", async () => {
     fetchAvatarState.mockResolvedValueOnce(characterState);
 
@@ -120,14 +307,17 @@ describe("useAssistantAvatar", () => {
     // traits present + no image ⇒ ChatAvatar renders AnimatedAvatar.
     expect(result.current.components).toEqual(components);
     expect(result.current.customImageUrl).toBeNull();
+    // The manifest itself travels with the derived fields, for consumers that
+    // need `kind` rather than just traits.
+    expect(result.current.state).toEqual(characterState);
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
-    expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
+    expect(fetchAvatarImageUrlResult).not.toHaveBeenCalled();
   });
 
   test("image kind fetches the static image and leaves traits null", async () => {
     fetchAvatarState.mockResolvedValueOnce(imageState);
-    fetchAvatarImageUrl.mockResolvedValueOnce("blob:avatar-image");
+    fetchAvatarImageUrlResult.mockResolvedValueOnce(found("blob:avatar-image"));
 
     const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
       wrapper: createWrapper(),
@@ -140,9 +330,10 @@ describe("useAssistantAvatar", () => {
     // image present + no traits ⇒ ChatAvatar renders the static circle.
     expect(result.current.components).toEqual(components);
     expect(result.current.traits).toBeNull();
+    expect(result.current.state).toEqual(imageState);
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
-    expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
   });
 
   test("none kind falls back with neither traits nor image", async () => {
@@ -157,9 +348,10 @@ describe("useAssistantAvatar", () => {
     // both null ⇒ ChatAvatar falls back to default components / "V".
     expect(result.current.traits).toBeNull();
     expect(result.current.customImageUrl).toBeNull();
+    expect(result.current.state).toEqual(noneState);
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
-    expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
+    expect(fetchAvatarImageUrlResult).not.toHaveBeenCalled();
   });
 
   test("null state (transport failure) preserves the cached avatar instead of blanking", async () => {
@@ -267,7 +459,7 @@ describe("useAssistantAvatar", () => {
     // GIVEN the avatar state is an uploaded image
     fetchAvatarState.mockResolvedValue(imageState);
     // AND the image fetch succeeds
-    fetchAvatarImageUrl.mockResolvedValue("blob:avatar-image");
+    fetchAvatarImageUrlResult.mockResolvedValue(found("blob:avatar-image"));
     // AND the character-components endpoint fails
     fetchCharacterComponents.mockResolvedValue(
       null as unknown as CharacterComponents,
@@ -290,7 +482,7 @@ describe("useAssistantAvatar", () => {
 
   test("pre-manifest assistants infer character traits from the sidecar files", async () => {
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
-    fetchCharacterTraits.mockResolvedValueOnce(traits);
+    fetchCharacterTraitsResult.mockResolvedValueOnce(found(traits));
 
     const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
       wrapper: createWrapper(),
@@ -302,14 +494,22 @@ describe("useAssistantAvatar", () => {
 
     // Legacy path: no image ⇒ read traits sidecar, never touch `/avatar/state`.
     expect(result.current.customImageUrl).toBeNull();
-    expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
-    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    // The file precedence is restated as a manifest, with the two fields the
+    // sidecars cannot answer left null.
+    expect(result.current.state).toEqual({
+      kind: "character",
+      traits,
+      source: null,
+      image: null,
+    });
+    expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(1);
+    expect(fetchCharacterTraitsResult).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).not.toHaveBeenCalled();
   });
 
   test("pre-manifest assistants render a custom image and skip the traits fetch", async () => {
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
-    fetchAvatarImageUrl.mockResolvedValueOnce("blob:legacy-image");
+    fetchAvatarImageUrlResult.mockResolvedValueOnce(found("blob:legacy-image"));
 
     const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
       wrapper: createWrapper(),
@@ -321,7 +521,113 @@ describe("useAssistantAvatar", () => {
 
     // A custom image exists ⇒ traits are intentionally not fetched.
     expect(result.current.traits).toBeNull();
-    expect(fetchCharacterTraits).not.toHaveBeenCalled();
+    expect(result.current.state).toEqual({
+      kind: "image",
+      traits: null,
+      source: null,
+      image: null,
+    });
+    expect(fetchCharacterTraitsResult).not.toHaveBeenCalled();
     expect(fetchAvatarState).not.toHaveBeenCalled();
+  });
+
+  test("image content failure preserves the cached avatar instead of blanking", async () => {
+    fetchAvatarState.mockResolvedValue(imageState);
+    fetchAvatarImageUrlResult.mockResolvedValueOnce(found("blob:avatar-image"));
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const first = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.customImageUrl).toBe("blob:avatar-image");
+    });
+    first.unmount();
+
+    // The manifest still says image, but the content request fails.
+    fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+    await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
+
+    const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(2);
+    });
+    expect(second.result.current.customImageUrl).toBe("blob:avatar-image");
+  });
+
+  test("pre-manifest assistants with both sidecars absent resolve to a bare avatar", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expect(result.current.traits).toBeNull();
+    expect(result.current.customImageUrl).toBeNull();
+  });
+
+  test("pre-manifest image read failure is inconclusive even when traits load", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+    fetchAvatarImageUrlResult.mockResolvedValueOnce(found("blob:avatar-image"));
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const first = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.customImageUrl).toBe("blob:avatar-image");
+    });
+    first.unmount();
+
+    fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+    fetchCharacterTraitsResult.mockResolvedValue(found(traits));
+    await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
+
+    const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchCharacterTraitsResult).not.toHaveBeenCalled();
+    expect(second.result.current.customImageUrl).toBe("blob:avatar-image");
+    expect(second.result.current.traits).toBeNull();
+  });
+
+  test("pre-manifest sidecar transport failure preserves the cached avatar", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+    fetchCharacterTraitsResult.mockResolvedValueOnce(found(traits));
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const first = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.traits).toEqual(traits);
+    });
+    first.unmount();
+
+    fetchAvatarImageUrlResult.mockResolvedValue(FAILED);
+    fetchCharacterTraitsResult.mockResolvedValue(FAILED);
+    await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
+
+    const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalledTimes(2);
+    });
+    expect(second.result.current.traits).toEqual(traits);
   });
 });

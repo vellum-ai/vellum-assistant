@@ -37,6 +37,9 @@ import {
   _clearGlobalCacheForTesting,
   _resetFailureCoalesceForTesting,
   getAutoApproveThreshold,
+  getContactAutoApproveThreshold,
+  invalidateAllContactThresholdCaches,
+  invalidateContactThresholdCache,
   refreshAutoApproveThreshold,
 } from "./gateway-threshold-reader.js";
 
@@ -631,5 +634,186 @@ describe("contact cell layer failure semantics", () => {
     expect(
       await refreshAutoApproveThreshold("conv-fc3", "conversation", CELL_QUERY),
     ).toBe("low");
+  });
+});
+
+describe("contact-level ceiling", () => {
+  beforeEach(() => {
+    _clearGlobalCacheForTesting();
+    _resetFailureCoalesceForTesting();
+    ipcHandlers.clear();
+    ipcCallLog.length = 0;
+  });
+
+  test("the conversation override beats the contact ceiling", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => ({
+      threshold: "none",
+    }));
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "low", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct1",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBe("none");
+    expect(countCalls("get_contact_threshold")).toBe(0);
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+
+  test("the contact ceiling beats the cell", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct2",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBe("high");
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+
+  test("the contact ceiling is not collapsed", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "medium" }));
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct3",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBe("medium");
+  });
+
+  test("a null contact ceiling inherits the cell cascade", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("get_contact_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct4",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBe("none");
+  });
+
+  test("a contact-threshold transport failure falls through to the cell", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold(
+        "conv-ct-fail",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBe("none");
+  });
+
+  test("refresh honors the contact ceiling after a conversation miss", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("low");
+
+    expect(
+      await refreshAutoApproveThreshold(
+        "conv-ct5",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBe("high");
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+
+  test("refresh keeps the prompt when the contact lookup fails", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "low", scope: "channel" },
+    }));
+    setGlobals("high");
+
+    expect(
+      await refreshAutoApproveThreshold(
+        "conv-ct6",
+        "conversation",
+        CELL_QUERY,
+        "contact-1",
+      ),
+    ).toBeNull();
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
+  });
+
+  test("getContactAutoApproveThreshold returns a live ceiling and caches it", async () => {
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
+    expect(countCalls("get_contact_threshold")).toBe(1);
+  });
+
+  test("invalidateContactThresholdCache drops a cached ceiling", async () => {
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
+
+    invalidateContactThresholdCache("contact-1");
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "low" }));
+
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("low");
+    expect(countCalls("get_contact_threshold")).toBe(2);
+  });
+
+  test("invalidateAllContactThresholdCaches drops every cached ceiling", async () => {
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "high" }));
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("high");
+
+    invalidateAllContactThresholdCaches();
+    ipcHandlers.set("get_contact_threshold", () => ({ threshold: "none" }));
+
+    expect(await getContactAutoApproveThreshold("contact-1")).toBe("none");
+    expect(countCalls("get_contact_threshold")).toBe(2);
+  });
+
+  test("getContactAutoApproveThreshold returns null for an unset contact", async () => {
+    ipcHandlers.set("get_contact_threshold", () => null);
+
+    expect(await getContactAutoApproveThreshold("contact-1")).toBeNull();
+  });
+
+  test("getContactAutoApproveThreshold returns null when contactId is missing", async () => {
+    expect(await getContactAutoApproveThreshold(undefined)).toBeNull();
+    expect(countCalls("get_contact_threshold")).toBe(0);
   });
 });

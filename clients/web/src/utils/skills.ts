@@ -38,3 +38,29 @@ export function invalidateSkillsList(
     queryKey: skillsGetQueryKey({ path: { assistant_id: assistantId } }),
   });
 }
+
+/**
+ * Router state a chat surface attaches when opening the skill detail page
+ * (`routes.skills.detail`), so the page's back affordances return to the
+ * conversation the skill was opened from instead of the My Superpowers list.
+ *
+ * `skill-detail-page.tsx` is the one reader; it validates the value before
+ * trusting it, so deep links and stale history entries degrade to the list.
+ */
+export function skillDetailBackState(location: {
+  pathname: string;
+  search: string;
+  hash: string;
+}): { backTo: string } {
+  // `?prompt=` / `?relay=` are auto-send commands (use-auto-send-effects.ts).
+  // Relay callers deliberately keep them in the URL after dispatch, so a
+  // return trip would remount the chat view, reset its consumed-prompt ref,
+  // and send the prompt again. Strip them from the return location.
+  const params = new URLSearchParams(location.search);
+  params.delete("prompt");
+  params.delete("relay");
+  const search = params.toString();
+  return {
+    backTo: `${location.pathname}${search ? `?${search}` : ""}${location.hash}`,
+  };
+}

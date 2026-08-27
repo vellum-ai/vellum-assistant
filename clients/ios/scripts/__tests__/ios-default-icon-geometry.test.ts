@@ -2,10 +2,11 @@
  * Drift guard for the iOS default app icon geometry.
  *
  * The quirky eye pair is duplicated by design between the avatar component
- * library and the three Icon Composer bundles; asset catalogs cannot import
- * TypeScript, so the geometry is embedded verbatim and this test pins the
- * copies to the library. A change to the quirky eye style, or a hand edit to
- * any one bundle's SVG, fails here until every copy agrees again.
+ * library, the three Icon Composer bundles, and the widget extension's asset
+ * catalog, which draws the app's mark on the New Chat surfaces; asset catalogs
+ * cannot import TypeScript, so the geometry is embedded verbatim and this test
+ * pins the copies to the library. A change to the quirky eye style, or a hand
+ * edit to any one copy's SVG, fails here until every copy agrees again.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -13,12 +14,14 @@ import { join } from "node:path";
 
 import { getCharacterComponents } from "../../../../assistant/src/avatar/character-components.js";
 
-const APP_DIR = join(import.meta.dir, "../../App/App");
+const IOS_APP_DIR = join(import.meta.dir, "../../App");
 
 const EYE_SVGS = [
-  "AppIcon.icon/Assets/eyes.svg",
-  "AppIcon-Dev.icon/Assets/eyes.svg",
-  "AppIcon-Staging.icon/Assets/eyes.svg",
+  "App/AppIcon.icon/Assets/eyes.svg",
+  "App/AppIcon-Dev.icon/Assets/eyes.svg",
+  "App/AppIcon-Staging.icon/Assets/eyes.svg",
+  // The widget extension draws the same mark on its New Chat surfaces.
+  "VoiceActivity/Assets.xcassets/VellumAppIconEyes.imageset/eyes.svg",
 ];
 
 function extractPaths(svg: string): Array<{ fill: string; d: string }> {
@@ -43,12 +46,16 @@ describe("ios default icon geometry", () => {
   }
 
   const contents = EYE_SVGS.map((relativePath) =>
-    readFileSync(join(APP_DIR, relativePath), "utf8"),
+    readFileSync(join(IOS_APP_DIR, relativePath), "utf8"),
   );
 
-  test("all three bundles share one eyes.svg byte for byte", () => {
-    expect(contents[1]).toBe(contents[0]);
-    expect(contents[2]).toBe(contents[0]);
+  test("every copy of eyes.svg is the same file byte for byte", () => {
+    for (const [index, copy] of contents.entries()) {
+      if (index === 0) {
+        continue;
+      }
+      expect(copy).toBe(contents[0]);
+    }
   });
 
   test("eyes.svg embeds the library quirky paths verbatim", () => {

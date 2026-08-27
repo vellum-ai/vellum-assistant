@@ -120,6 +120,61 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.modelIntent).toBeUndefined();
   });
 
+  test("stamps OpenCode support headers and strips conversationId", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryRetrieval: {
+          provider: "opencode",
+          model: "mimo-v2.5-free",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("opencode", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval", conversationId: "conv-xyz" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    const headers = config.requestHeaders as Record<string, string>;
+    expect(config.conversationId).toBeUndefined();
+    expect(headers["x-opencode-session"]).toBe("conv-xyz");
+    expect(headers["x-opencode-request"]).toBeDefined();
+    expect(headers).not.toHaveProperty("session_id");
+  });
+
+  test("does not stamp OpenCode headers on openai-compatible", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryRetrieval: {
+          provider: "openai-compatible",
+          model: "local-model",
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai-compatible", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval", conversationId: "conv-xyz" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.requestHeaders).toBeUndefined();
+    expect(config.conversationId).toBeUndefined();
+  });
+
   test("strips conversationId before delegating to the inner provider", async () => {
     setLlmConfig({
       callSites: {

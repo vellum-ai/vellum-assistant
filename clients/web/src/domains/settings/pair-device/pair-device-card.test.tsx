@@ -400,7 +400,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+        "This is Tailscale's website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
       ),
     ).toBeTruthy();
     // The bad URL is refused client-side — no challenge is ever minted.
@@ -417,7 +417,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "Scan with another device's camera, or open the link on it, to use My Assistant there.",
+        "Scan it with a phone's camera, or paste the link into another computer, to use My Assistant there.",
       ),
     ).toBeTruthy();
   });
@@ -476,7 +476,7 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "Scan with another device's camera, or open the link on it, to use this assistant there.",
+        "Scan it with a phone's camera, or paste the link into another computer, to use this assistant there.",
       ),
     ).toBeTruthy();
   });

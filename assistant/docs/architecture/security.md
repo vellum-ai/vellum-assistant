@@ -34,7 +34,7 @@ The order inside `check()`: the memory-retrospective skill-authoring grant, then
 
 ### Auto-Approve Threshold
 
-Thresholds are **gateway-owned**: stored in the gateway's SQLite database, read by the assistant over IPC (`get_global_thresholds`, `get_conversation_threshold`), and set from the Settings UI (Permissions & Privacy) or the per-conversation risk tolerance picker. When the gateway is unreachable the assistant resolves `"none"` (Strict), fail-closed with no local fallback.
+Thresholds are **gateway-owned**: stored in the gateway's SQLite database, read by the assistant over IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`), and written via `set_contact_threshold` (`gateway contacts set-risk-threshold` or `POST /v1/contacts`) as well as the Settings UI (Permissions & Privacy) or the per-conversation risk tolerance picker. When the gateway is unreachable the assistant resolves `"none"` (Strict), fail-closed with no local fallback.
 
 Gateway defaults per execution context (`gateway/src/ipc/threshold-handlers.ts`): `interactive` (a conversation with a client) `medium`, `autonomous` (background/scheduled) `low`, `headless` `none`. A per-conversation override wins over the global value; for non-guardian actors a channel-permission cell can only lower the effective threshold.
 
@@ -203,7 +203,7 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.use(service, field, tool, domain)"]
+    TOOL["Tool (e.g. browser_fill_credential)"] --> BROKER["CredentialBroker.browserFill / serverUse"]
     BROKER --> POLICY{"Check policy:<br/>allowedTools + allowedDomains"}
     POLICY -->|denied| REJECT["PolicyDenied error"]
     POLICY -->|allowed| FETCH["getSecureKeyAsync(credential/svc/field)"]
@@ -214,7 +214,7 @@ graph TB
 
 The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send Once" button in the secret prompt UI. When used:
 
-- The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `consume` or `browserFill` call
+- The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `browserFill` or `serverUse` call
 - The value is **not** persisted to the credential store
 - The broker discards the value after a single use
 - The credentials prompt route output confirms delivery without including the secret value — the value is never returned to the model

@@ -644,6 +644,30 @@ export function resolveEffectiveProfileKey(
 }
 
 /**
+ * Returns the winning profile key only when it identifies a single provider
+ * route: one profile whose own provider/model fragment serves every call it
+ * wins. A mix winner returns `undefined` on purpose. Its arm is picked per
+ * conversation from a seed (or `Math.random()` unseeded), so a caller
+ * recomputing after the fact cannot know which arm actually ran, and arms can
+ * span providers, so the outer mix key would put one label on what are
+ * several provider routes. Use this where attribution must not claim a
+ * broader scope than the route that ran (e.g. failure-notification dedupe);
+ * `undefined` means "no single route can be named", and callers fall back to
+ * their narrower key.
+ */
+export function resolveSingleRouteProfileKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): string | undefined {
+  const name = selectWinningProfile(callSite, llm, opts).profileName;
+  if (name == null) {
+    return undefined;
+  }
+  return providerAwareEntry(llm, name)?.mix == null ? name : undefined;
+}
+
+/**
  * Stable non-null identity for profileless configs. Callers should prefer real
  * profile keys first; when no named profile applies, the resolved model id is
  * the only model-selection identifier available.

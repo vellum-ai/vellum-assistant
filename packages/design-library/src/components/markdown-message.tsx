@@ -2,6 +2,7 @@ import { Check, Copy } from "lucide-react";
 import {
   type AnchorHTMLAttributes,
   Children,
+  type ClipboardEvent,
   isValidElement,
   type ReactNode,
   useCallback,
@@ -20,6 +21,10 @@ import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
 
 import { cn } from "../utils/cn";
+import {
+  buildSelectionClipboardPayload,
+  isSelectionWithin,
+} from "../utils/selection-clipboard";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
@@ -60,6 +65,7 @@ function CopyButton({
       onClick={onClick}
       title={copied ? "Copied!" : "Copy"}
       data-reveal=""
+      data-copy-control=""
       className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-stone-200/80 text-[var(--content-tertiary)] hover:bg-stone-300 hover:text-[var(--content-secondary)] dark:bg-moss-600/80 dark:hover:bg-moss-500 dark:hover:text-stone-200"
     >
       <div className="relative h-3.5 w-3.5">
@@ -127,7 +133,10 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       className="relative mb-2 overflow-hidden rounded-md bg-stone-100 last:mb-0 dark:bg-moss-800"
     >
       {language && (
-        <div className="flex items-center justify-between px-3 pt-2">
+        <div
+          data-code-block-header=""
+          className="flex items-center justify-between px-3 pt-2"
+        >
           {/* typography: off-scale — monospace language label */}
           {}
           <span className="font-mono text-xs font-medium uppercase text-[var(--content-tertiary)]">
@@ -899,6 +908,32 @@ function remarkPreserveOrderedListNumbers() {
   };
 }
 
+/**
+ * Replace the browser's `copy` payload for a selection that lies entirely
+ * within the rendered markdown. The browser's own HTML flavor inlines
+ * computed background colors (grey shading when pasted into Outlook) and its
+ * plain-text flavor is a flat dump with a blank line after every block. The
+ * replacement is semantic HTML plus markdown. See
+ * `buildSelectionClipboardPayload`.
+ *
+ * A selection that reaches outside the message is left to the browser.
+ */
+function handleSelectionCopy(event: ClipboardEvent<HTMLDivElement>) {
+  const root = event.currentTarget;
+  const selection = root.ownerDocument.defaultView?.getSelection();
+  if (
+    !selection ||
+    !event.clipboardData ||
+    !isSelectionWithin(selection, root)
+  ) {
+    return;
+  }
+  const payload = buildSelectionClipboardPayload(selection, root.ownerDocument);
+  event.clipboardData.setData("text/html", payload.html);
+  event.clipboardData.setData("text/plain", payload.text);
+  event.preventDefault();
+}
+
 export interface MarkdownMessageProps {
   content: string;
   className?: string;
@@ -994,6 +1029,7 @@ export function MarkdownMessage({
     <div
       data-slot="markdown-message"
       className={cn("text-chat text-[var(--content-default)]", className)}
+      onCopy={handleSelectionCopy}
     >
       <ReactMarkdown
         remarkPlugins={[

@@ -22,6 +22,7 @@ import {
   navigateToNewConversation,
   revealConversationView,
 } from "@/utils/conversation-navigation";
+import { pairingLinkForBase } from "@/utils/pairing-address";
 import { conversationIdForPath, routes } from "@/utils/routes";
 
 /**
@@ -65,12 +66,18 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  *   anywhere else, and park the request in `usePendingDeepLinkStore` addressed
  *   to whichever conversation that was, for its composer's attachment layer to
  *   drain (`useCameraDeepLink`).
+ * - `deeplink.openConversations` → `ensureMainWindowVisible()`, then land on
+ *   the chat if the current route is not already a conversation, and park the
+ *   request for `ChatLayout` to drain into the conversation list (the mobile
+ *   drawer, or the sidebar on a wider window).
  * - `deeplink.connect` → `ensureMainWindowVisible()` + park the request
  *   in the connect-dialog store + navigate to the assistant chooser,
- *   which opens its Connect a Remote Assistant dialog off that store: a
- *   `bundle` prefills the paste field; a bundle-less link (the pair
- *   page's url+code hand-off, which cannot complete a durable desktop
- *   pairing) gets guidance naming the host instead.
+ *   which opens its Connect a Remote Assistant dialog off that store.
+ *   A `url`+`code` link recomposes into the pairing link and prefills the
+ *   address field, so the pair completes on one click; a link carrying
+ *   only a base prefills that, and the dialog mints its own approval
+ *   code. A link with no usable base gets guidance instead of a prefill,
+ *   naming its legacy pairing bundle when it carried one.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * ## Deep-link text: proven provenance sends, anything else pre-fills
@@ -124,27 +131,26 @@ import { conversationIdForPath, routes } from "@/utils/routes";
  */
 
 /**
- * Guidance for a connect link that carried no bundle: the pair page's
- * url+code hand-off. The device-code exchange cannot produce a durable
- * desktop pairing (its refresh token is an HttpOnly cookie), so the
- * dialog explains how to get a pastable bundle instead. Named host only
- * when the link carried a parseable https base.
+ * The address a `connect` deep link asks the dialog to pair with. A link
+ * carrying a device code recomposes into the pairing link the local-mode host
+ * exchanges outright; a link carrying only a base becomes the bare address,
+ * which mints its own approval code. `null` when the link carried no usable
+ * base, leaving the dialog nothing to submit.
  */
-function connectGuidanceMessage(url: string | null): string {
-  let host: string | null = null;
-  if (url !== null) {
-    try {
-      host = new URL(url).host;
-    } catch {
-      // Main-side validation makes this unreachable; guidance degrades
-      // to the hostless copy.
-    }
+function connectAddress(
+  url: string | null,
+  code: string | null,
+): string | null {
+  if (url === null) {
+    return null;
   }
-  const machine =
-    host === null
-      ? "the assistant's machine"
-      : `the assistant's machine at ${host}`;
-  return `This link came from a pairing QR code. To connect this Mac, run vellum pair on ${machine} and paste the bundle here.`;
+  if (code === null) {
+    return url;
+  }
+  // The link the user sees in the address field, so it has to be one they can
+  // also paste into another device's browser: the base plus the pair route,
+  // not the base with a bare fragment hung off it.
+  return pairingLinkForBase(url, code) ?? url;
 }
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -348,6 +354,23 @@ export function useGlobalDeepLinkConsumer(): void {
     usePendingDeepLinkStore.getState().setPendingCamera(targetId);
   });
 
+  // The Home Screen widgets' unread chip and unread line. The list they point
+  // at is owned by `ChatLayout`, which is not mounted on a cold launch and
+  // never mounts on settings / logs / account routes, so the request is parked
+  // the way the camera's is and the layout drains it (`chat-layout.tsx`).
+  //
+  // The navigation is skipped on a settled conversation route: the layout is
+  // already mounted there, and re-navigating would push a history entry for no
+  // change on screen. Everywhere else lands on the chat, and the drain holds
+  // the park across the replace-navigation that landing runs on arrival.
+  useBusSubscription("deeplink.openConversations", () => {
+    void ensureMainWindowVisible();
+    if (conversationIdForPath(pathname) === null) {
+      navigateRef.current(routes.assistant);
+    }
+    usePendingDeepLinkStore.getState().setPendingConversationList();
+  });
+
   useBusSubscription(
     "deeplink.billingCheckoutComplete",
     ({ status, sessionId, flow }) => {
@@ -376,16 +399,28 @@ export function useGlobalDeepLinkConsumer(): void {
     },
   );
 
-  useBusSubscription("deeplink.connect", ({ url, bundle }) => {
+  // A usable address prefills the field and stops there. A custom URL scheme
+  // carries no caller identity (see the provenance note above the hook) and a
+  // pairing is an authority grant: submitting one unattended would let any page
+  // that can open a URL attach an assistant of its choosing and have the
+  // chooser connect to it. Prefilling retypes nothing, shows the user the host
+  // they are about to pair with, and leaves the grant one click away.
+  //
+  // With nothing to submit the dialog explains the link instead. `legacy`
+  // marks app versions whose connect dialog took a pasted pairing bundle; the
+  // payload never crosses the bridge, so only the flag is read. The kind is
+  // parked rather than the copy, so the dialog resolves it reactively.
+  useBusSubscription("deeplink.connect", ({ url, code, legacy }) => {
     void ensureMainWindowVisible();
+    const address = connectAddress(url, code);
     // Park before navigating so the chooser mounts with the dialog
     // already open (its auto-skip stands down while it is).
     useConnectDialogStore
       .getState()
       .openConnectDialog(
-        bundle !== null
-          ? { initialBundle: bundle }
-          : { guidanceMessage: connectGuidanceMessage(url) },
+        address !== null
+          ? { initialAddress: address }
+          : { guidanceKind: legacy ? "legacy" : "generic" },
       );
     navigateRef.current(routes.selectAssistant);
   });

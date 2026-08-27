@@ -246,6 +246,52 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   75% { transform: rotate(-0.86deg); }
 }
 
+/* Companion avatar bob: the creature lifting off its baseline and settling
+   back, so a surface that otherwise only breathes reads as alive from across
+   the desk. One-directional on purpose: 0% is the avatar's resting position,
+   and the lift is the only departure from it.
+
+   It has to live on a wrapper of its own. `AnimatedAvatar` owns `transform` on
+   its `<svg>` for the breathe and morph, and two animations on one node means
+   one of them silently wins.
+
+   The lift stays inside the creature's own box: the artwork is inset well
+   short of the top, so the raised creature is still somewhere the host's
+   hit-test finds the pointer. */
+@keyframes companion-avatar-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* The glow's breath, with both ends written out. Tailwind's `animate-pulse`
+   synthesises its 0%/100% from whatever opacity the element already carries,
+   which on a glow this faint is a swing nobody can see. */
+@keyframes companion-glow-breathe {
+  0%, 100% { opacity: 0.32; }
+  50% { opacity: 0.5; }
+}
+
+.companion-avatar-bob {
+  animation: companion-avatar-bob 5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.companion-glow {
+  /* Where the breath starts and where it is held when it cannot run. */
+  opacity: 0.32;
+  animation: companion-glow-breathe 4s ease-in-out infinite;
+}
+
+/* Held still rather than dropped: the glow is the avatar's own colour thrown
+   onto the desktop, so it stays lit at rest, and the creature keeps its
+   baseline rather than disappearing from it. */
+@media (prefers-reduced-motion: reduce) {
+  .companion-avatar-bob,
+  .companion-glow {
+    animation: none;
+  }
+}
+
 /* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
  * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
  * ActivityRunCard for active/thinking phases. */
