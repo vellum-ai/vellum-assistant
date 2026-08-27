@@ -14,6 +14,12 @@ import { useRef } from "react";
 
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
+import {
+  fakeStream,
+  restoreMediaDevices,
+  stubMediaDevices,
+} from "./voice-camera.test-helper";
+
 // Replaced rather than spread over the real module: platform detection reaches
 // the generated auth SDK through `native-auth`, and the hook under test wants
 // exactly one thing from it.
@@ -96,18 +102,6 @@ async function openNativeCamera() {
   await waitFor(() => expect(getFlashModesSpy).toHaveBeenCalled());
 }
 
-const originalMediaDevices = Object.getOwnPropertyDescriptor(
-  navigator,
-  "mediaDevices",
-);
-
-function stubMediaDevices(value: unknown) {
-  Object.defineProperty(navigator, "mediaDevices", {
-    configurable: true,
-    value,
-  });
-}
-
 beforeEach(() => {
   nativeMobile = true;
   startSpy.mockClear();
@@ -123,11 +117,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  if (originalMediaDevices) {
-    Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
-  } else {
-    stubMediaDevices(undefined);
-  }
+  restoreMediaDevices();
 });
 
 describe("useVoiceCamera: which cameras get a flash control", () => {
@@ -172,7 +162,7 @@ describe("useVoiceCamera: which cameras get a flash control", () => {
 
   test("offers nothing on the browser fallback path", async () => {
     nativeMobile = false;
-    stubMediaDevices({ getUserMedia: async () => fakeStream() });
+    stubMediaDevices(async () => fakeStream());
 
     render(<Probe />);
     await press("open");
@@ -198,7 +188,7 @@ describe("useVoiceCamera: which cameras get a flash control", () => {
     // Both flash calls reach for the capture device the preview owns. Asking
     // before there is one is the case iOS answers by force-unwrapping.
     startSpy.mockImplementation(async () => false);
-    stubMediaDevices(undefined);
+    stubMediaDevices(null);
 
     render(<Probe />);
     await press("open");
@@ -452,6 +442,86 @@ describe("useVoiceCamera: two flips at once", () => {
   });
 });
 
+describe("useVoiceCamera: a flip the bridge never answers", () => {
+  test("comes back after a close and a reopen", async () => {
+    // Nothing times out a bridge call, so a hand-back that never settles used
+    // to hold the flip guard for the life of the hook: the button stopped
+    // working, and closing the camera and raising it again did not bring it
+    // back.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    await openNativeCamera();
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+
+    const neverAnswers = deferredCall<boolean>();
+    setFlashModeSpy.mockImplementation(neverAnswers.answer);
+    await press("flip");
+    expect(flipSpy).not.toHaveBeenCalled();
+
+    setFlashModeSpy.mockImplementation(async () => true);
+    await press("close");
+    await press("open");
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+
+    await press("flip");
+
+    expect(flipSpy).toHaveBeenCalledTimes(1);
+    expect(facing()).toBe("user");
+  });
+
+  test("does not release the flip that replaced it when it finally answers", async () => {
+    // The other side of the recovery: the abandoned flip still runs its own
+    // exit, and by then the claim it took belongs to a flip that is mid-flight.
+    // Clearing it there would put two flips on the hardware at once, which is
+    // the case the guard exists for.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    await openNativeCamera();
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+
+    const abandoned = deferredCall<boolean>();
+    setFlashModeSpy.mockImplementation(abandoned.answer);
+    await press("flip");
+
+    setFlashModeSpy.mockImplementation(async () => true);
+    await press("close");
+    await press("open");
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+
+    const replacement = deferredCall<boolean>();
+    setFlashModeSpy.mockImplementation(replacement.answer);
+    await press("flip");
+
+    await settle(() => abandoned.resolve(true));
+
+    // The replacement is still handing its own flash back, so this tap is the
+    // second flip its guard is there to drop.
+    await press("flip");
+    expect(flipSpy).not.toHaveBeenCalled();
+
+    await settle(() => replacement.resolve(true));
+
+    expect(flipSpy).toHaveBeenCalledTimes(1);
+    expect(facing()).toBe("user");
+  });
+
+  test("does not hold the next flip behind its capability probe", async () => {
+    // The probe decides one button and the flip epoch already makes a late
+    // answer safe, so waiting on it would let a slow probe do exactly what the
+    // hung hand-back above does.
+    await openNativeCamera();
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+
+    const slowProbe = deferredCall<string[]>();
+    getFlashModesSpy.mockImplementation(slowProbe.answer);
+    await press("flip");
+    expect(facing()).toBe("user");
+
+    await press("flip");
+
+    expect(flipSpy).toHaveBeenCalledTimes(2);
+    expect(facing()).toBe("environment");
+  });
+});
+
 /** A bridge call the test decides the timing of, not the microtask queue. */
 function deferredCall<T>() {
   let resolve: (value: T) => void = () => {};
@@ -470,18 +540,4 @@ async function settle(release: () => void) {
     release();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-}
-
-/**
- * A real `MediaStream`, because happy-dom's `srcObject` setter enforces the
- * same instance check the browser does, with the two methods release needs
- * filled in.
- */
-function fakeStream() {
-  const stream = new MediaStream();
-  Object.defineProperties(stream, {
-    getTracks: { value: () => [] },
-    getVideoTracks: { value: () => [] },
-  });
-  return stream;
 }

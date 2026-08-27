@@ -47,6 +47,11 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  fakeStream,
+  restoreMediaDevices,
+  stubMediaDevices,
+} from "@/domains/chat/voice/voice-room/voice-camera.test-helper";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -1487,38 +1492,6 @@ describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)
  * inside the room rather than behind the system camera.
  */
 describe("VoiceRoom: camera", () => {
-  const originalMediaDevices = Object.getOwnPropertyDescriptor(
-    navigator,
-    "mediaDevices",
-  );
-
-  /** Present a camera to the room; `null` removes the API entirely. */
-  function stubMediaDevices(
-    getUserMedia:
-      ((constraints?: MediaStreamConstraints) => Promise<unknown>) | null,
-  ) {
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: getUserMedia ? { getUserMedia } : undefined,
-    });
-  }
-
-  // A real `MediaStream`, because happy-dom's `HTMLMediaElement.srcObject`
-  // setter enforces the same instance check the browser does and a duck-typed
-  // stand-in throws where a real camera would not, but happy-dom's
-  // implementation has no `getTracks()`, which release needs, so that one
-  // method is filled in.
-  function fakeStream(getSettings?: () => MediaTrackSettings) {
-    const stream = new MediaStream();
-    Object.defineProperties(stream, {
-      getTracks: { value: () => [] },
-      getVideoTracks: {
-        value: () => (getSettings ? [{ getSettings }] : []),
-      },
-    });
-    return stream;
-  }
-
   /**
    * Make the shutter able to produce a frame.
    *
@@ -1580,11 +1553,7 @@ describe("VoiceRoom: camera", () => {
   const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
 
   afterEach(() => {
-    if (originalMediaDevices) {
-      Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
-    } else {
-      stubMediaDevices(null);
-    }
+    restoreMediaDevices();
   });
 
   test("offers no camera when the assistant version is unknown", () => {

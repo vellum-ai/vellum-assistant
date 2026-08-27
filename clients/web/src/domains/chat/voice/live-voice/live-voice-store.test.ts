@@ -17,7 +17,6 @@ import {
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   LIVE_VOICE_STATE_LABELS,
-  liveVoiceStateLabel,
   liveVoiceSurfaceLabel,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
@@ -215,15 +214,6 @@ describe("useLiveVoiceStore — room minimize", () => {
   });
 });
 
-describe("liveVoiceStateLabel", () => {
-  test("relabels only the connecting phase while reconnecting", () => {
-    expect(liveVoiceStateLabel("connecting", true)).toBe("Reconnecting…");
-    expect(liveVoiceStateLabel("connecting", false)).toBe("Connecting…");
-    // reconnecting is ignored for every other phase.
-    expect(liveVoiceStateLabel("listening", true)).toBe("Listening…");
-  });
-});
-
 describe("LIVE_VOICE_STATE_LABELS", () => {
   /**
    * `toVoiceAvatarVisual` collapses `transcribing` into `thinking`, so a label
@@ -241,7 +231,9 @@ describe("LIVE_VOICE_STATE_LABELS", () => {
     expect(toVoiceAvatarVisual("transcribing", false)).toBe(
       toVoiceAvatarVisual("thinking", false),
     );
-    expect(liveVoiceStateLabel("transcribing", false)).toBe("Thinking…");
+    expect(liveVoiceSurfaceLabel("transcribing", false, true, false)).toBe(
+      "Thinking…",
+    );
   });
 });
 
@@ -262,6 +254,11 @@ describe("liveVoiceSurfaceLabel", () => {
       "Reconnecting…",
     );
     expect(liveVoiceSurfaceLabel("listening", false, false, false)).toBe(
+      "Listening…",
+    );
+    // Only `connecting` reads the signal: a retry that has already reconnected
+    // far enough to listen is listening.
+    expect(liveVoiceSurfaceLabel("listening", true, false, false)).toBe(
       "Listening…",
     );
   });
@@ -598,6 +595,28 @@ describe("isLiveVoiceMicLive", () => {
     for (const state of micOff) {
       expect(isLiveVoiceMicLive(state)).toBe(false);
     }
+  });
+});
+
+describe("useLiveVoiceStore: utteranceOpen", () => {
+  test("closed until the server VAD opens an utterance", () => {
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+    useLiveVoiceStore.getState().setUtteranceOpen(true);
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+  });
+
+  test("closes again when the utterance ends or is discarded", () => {
+    useLiveVoiceStore.getState().setUtteranceOpen(true);
+    useLiveVoiceStore.getState().setUtteranceOpen(false);
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("reset closes it with the rest of the session", () => {
+    // Session-scoped: an utterance open when the session ends must not read as
+    // the user talking into the next one.
+    useLiveVoiceStore.getState().setUtteranceOpen(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
   });
 });
 
