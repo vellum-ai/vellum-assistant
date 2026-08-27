@@ -46,6 +46,12 @@ mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => ({ ok: true, data: { user: { id: "user-1" } } }),
 }));
 
+const refreshSession = mock(async () => true);
+mock.module("@/stores/auth-store", () => ({
+  useAuthStore: { getState: () => ({ refreshSession }) },
+  whenPlatformSessionSettled: async () => {},
+}));
+
 const {
   clearStaleNativeCheckoutStash,
   resolveNativePostAuthDestination,
@@ -234,9 +240,7 @@ describe("startAuthFlow on Electron", () => {
       Promise.resolve({ sessionToken: "session-token" }),
     );
     windowWithBridge.vellum = { platform: "electron", auth: { startOAuth } };
-    const { useAuthStore } = await import("@/stores/auth-store");
-    const originalRefreshSession = useAuthStore.getState().refreshSession;
-    const refreshSession = mock(async () => {
+    refreshSession.mockImplementationOnce(async () => {
       useResolvedAssistantsStore.setState({
         assistants: [
           {
@@ -252,16 +256,11 @@ describe("startAuthFlow on Electron", () => {
       });
       return true;
     });
-    useAuthStore.setState({ refreshSession });
 
-    try {
-      await startAuthFlow("workos", "/account/provider/callback", {
-        returnTo: routes.onboarding.hosting,
-        intent: "login",
-      });
-    } finally {
-      useAuthStore.setState({ refreshSession: originalRefreshSession });
-    }
+    await startAuthFlow("workos", "/account/provider/callback", {
+      returnTo: routes.onboarding.hosting,
+      intent: "login",
+    });
 
     expect(refreshSession).toHaveBeenCalledTimes(1);
     expect(window.location.href).toBe(routes.assistant);
