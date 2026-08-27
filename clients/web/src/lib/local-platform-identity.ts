@@ -338,8 +338,12 @@ async function ensureGatewayAccess(
   return { gatewayUrl, actorToken };
 }
 
-async function fetchPlatformStatus(
-  gateway: { gatewayUrl: string; actorToken: string },
+/**
+ * The daemon's `platform/status`, null on any failure. A null `actorToken`
+ * sends no bearer: the paired proxy's trusted host installs its own.
+ */
+export async function fetchPlatformStatus(
+  gateway: { gatewayUrl: string; actorToken: string | null },
   runtimeAssistantId: string,
 ): Promise<LocalPlatformStatus | null> {
   const url = gatewayUrl(
@@ -349,7 +353,9 @@ async function fetchPlatformStatus(
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${gateway.actorToken}`,
+      ...(gateway.actorToken && {
+        Authorization: `Bearer ${gateway.actorToken}`,
+      }),
     },
     credentials: "omit",
   }).catch(() => null);
@@ -596,7 +602,7 @@ function gatewayUrl(baseUrl: string, path: string): string {
   return url.toString();
 }
 
-function isUuid(value: string): boolean {
+export function isUuid(value: string): boolean {
   return UUID_RE.test(value);
 }
 

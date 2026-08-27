@@ -72,7 +72,7 @@ export function suppressPlatformAvatarUrl(
  * `avatarUrl` and the platform list is only reachable through a side query.
  * Gateway auth has no platform list at all.
  */
-function isLockfileDrivenStore(): boolean {
+export function isLockfileDrivenStore(): boolean {
   return (isLocalClient() || isRemoteGatewayMode()) && !isGatewayAuthEnabled();
 }
 
