@@ -42,6 +42,7 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { mergeProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
@@ -94,6 +95,7 @@ import { upsertBinding } from "../../persistence/external-conversation-store.js"
 import type { ContentBlock } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
+import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import {
@@ -567,43 +569,15 @@ export async function handleChannelInbound({
       return { accepted: true, deleted: false };
     }
 
-    // Merge deletedAt into the existing slackMeta sub-key. If the row has
-    // no slackMeta (legacy pre-upgrade row), skip — the renderer's flat
-    // fallback ignores deletedAt for those rows anyway, and synthesizing
-    // a partial slackMeta here would produce metadata that fails
-    // readSlackMetadata validation.
+    // Merge deletedAt into the existing slackMeta sub-key when the row has
+    // one, so the Slack transcript renderer keeps seeing its own envelope.
+    // A row without it (a legacy pre-enrichment row) stamps the neutral
+    // shape instead: readProviderMetadata serves either to every
+    // channel-agnostic reader, so no delete goes unmarked over a metadata
+    // accident.
     const row = getMessageById(original.messageId);
-    if (!row?.metadata) {
-      log.debug(
-        {
-          conversationExternalId,
-          deletedMessageTs,
-          messageId: original.messageId,
-        },
-        "Stored Slack message has no metadata; skipping delete marker",
-      );
-      return { accepted: true, deleted: false };
-    }
-
-    let parentMetadata: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(row.metadata) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        parentMetadata = parsed as Record<string, unknown>;
-      } else {
-        parentMetadata = {};
-      }
-    } catch {
-      log.debug(
-        {
-          conversationExternalId,
-          deletedMessageTs,
-          messageId: original.messageId,
-        },
-        "Failed to parse stored metadata; skipping delete marker",
-      );
-      return { accepted: true, deleted: false };
-    }
+    const parentMetadata: Record<string, unknown> =
+      row?.metadata != null ? safeParseRecord(row.metadata) : {};
 
     const existingSlackMeta =
       typeof parentMetadata.slackMeta === "string"
@@ -611,15 +585,27 @@ export async function handleChannelInbound({
         : null;
 
     if (!existingSlackMeta) {
-      log.debug(
+      const providerMeta = mergeProviderMessageMetadata(
+        typeof parentMetadata.providerMeta === "string"
+          ? parentMetadata.providerMeta
+          : null,
+        {
+          source: sourceChannel,
+          conversationExternalId,
+          messageId: deletedMessageTs,
+        },
+        { deletedAt: Date.now() },
+      );
+      updateMessageMetadata(original.messageId, { providerMeta });
+      log.info(
         {
           conversationExternalId,
           deletedMessageTs,
           messageId: original.messageId,
         },
-        "Stored Slack message has no slackMeta; skipping delete marker",
+        "Marked message deleted via neutral metadata",
       );
-      return { accepted: true, deleted: false };
+      return { accepted: true, deleted: true, messageId: original.messageId };
     }
 
     const updatedSlackMeta = mergeSlackMetadata(existingSlackMeta, {

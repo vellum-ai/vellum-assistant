@@ -9,6 +9,8 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -249,7 +251,10 @@ describe("Slack delete propagation", () => {
     expect(slackMeta!.deletedAt).toBeUndefined();
   });
 
-  test("delete for row without slackMeta is a no-op (legacy row)", async () => {
+  test("delete for row without slackMeta stamps the neutral metadata", async () => {
+    // A legacy pre-enrichment row still gets its delete marked: the neutral
+    // envelope is synthesized so readProviderMetadata serves the stamp to
+    // every channel-agnostic reader, and content stays for audit.
     const seeded = seedSlackMessage({
       externalChatId: "C0123CHANNEL",
       originalTs: "2222.2222",
@@ -257,6 +262,7 @@ describe("Slack delete propagation", () => {
       withSlackMeta: false,
     });
 
+    const before = Date.now();
     const req = buildSlackDeleteRequest({
       externalChatId: seeded.externalChatId,
       deletedTs: seeded.originalTs,
@@ -265,7 +271,7 @@ describe("Slack delete propagation", () => {
     const json = (await resp.json()) as Record<string, unknown>;
 
     expect(json.accepted).toBe(true);
-    expect(json.deleted).toBe(false);
+    expect(json.deleted).toBe(true);
 
     const db = getDb();
     const row = db
@@ -277,6 +283,12 @@ describe("Slack delete propagation", () => {
     expect(row!.content).toBe("Legacy pre-upgrade text");
     const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
     expect(parsed.slackMeta).toBeUndefined();
+    const neutral = readProviderMetadata(row!.metadata);
+    expect(neutral).not.toBeNull();
+    expect(neutral!.source).toBe("slack");
+    expect(neutral!.messageId).toBe(seeded.originalTs);
+    expect(neutral!.deletedAt).toBeDefined();
+    expect(neutral!.deletedAt!).toBeGreaterThanOrEqual(before);
   });
 
   test("delete missing sourceMetadata.messageId is a no-op", async () => {
