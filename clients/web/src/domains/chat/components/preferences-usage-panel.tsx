@@ -38,10 +38,10 @@ export function PreferencesUsagePanel({
 
   const title = t("preferencesUsagePanel.title");
   const pct = Math.round(usage.ratio * 100);
-  // Used-up grants with credit still behind them are not an alarm: the next
-  // turn draws on extra usage credits, and the amber line below says so in
-  // the bar's place. An empty wallet keeps the red reading whether or not
-  // the BYOK-aware `exhausted` raises the strip below.
+  // Used-up grants with credit still behind them are not an alarm: the
+  // percentage keeps its neutral color and the amber line below names the
+  // extra usage credits in the bar's place. An empty wallet keeps the red
+  // reading whether or not the BYOK-aware `exhausted` raises the strip below.
   const { spent, exhausted, usingExtraCredits } = usage;
 
   return (
@@ -56,19 +56,17 @@ export function PreferencesUsagePanel({
             {title}
           </Typography>
           <div className="flex shrink-0 items-center gap-1.5">
-            {usingExtraCredits ? null : (
-              <Typography
-                as="span"
-                variant="body-small-default"
-                className={
-                  spent
-                    ? "whitespace-nowrap text-[var(--system-negative-strong)]"
-                    : "whitespace-nowrap text-[var(--content-secondary)]"
-                }
-              >
-                {t("preferencesUsagePanel.pctUsed", { pct })}
-              </Typography>
-            )}
+            <Typography
+              as="span"
+              variant="body-small-default"
+              className={
+                spent && !usingExtraCredits
+                  ? "whitespace-nowrap text-[var(--system-negative-strong)]"
+                  : "whitespace-nowrap text-[var(--content-secondary)]"
+              }
+            >
+              {t("preferencesUsagePanel.pctUsed", { pct })}
+            </Typography>
             <Button
               variant="ghost"
               size="compact"
