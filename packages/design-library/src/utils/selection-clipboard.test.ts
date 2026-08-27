@@ -69,6 +69,14 @@ describe("html flavor", () => {
     );
   });
 
+  test("keeps a task list checkbox a checkbox", () => {
+    const { html } = payloadFor(
+      '<ul><li class="task"><input type="checkbox" disabled="" checked=""> done</li></ul>',
+    );
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("checked");
+  });
+
   test("drops aria-hidden KaTeX duplicates", () => {
     const { html } = payloadFor(
       '<p><span class="katex"><span class="katex-mathml">x</span><span class="katex-html" aria-hidden="true">x</span></span></p>',
@@ -105,6 +113,20 @@ describe("markdown flavor", () => {
   test("keeps emphasis markers tight against their content", () => {
     const { text } = payloadFor("<p>a <strong> bold </strong>b</p>");
     expect(text).toBe("a **bold** b");
+  });
+
+  test("switches the marker for emphasis nested in the same emphasis", () => {
+    const { text } = payloadFor(
+      "<p><em>italic <em>inner</em> tail</em> and <strong>bold <strong>inner</strong></strong></p>",
+    );
+    expect(text).toBe("_italic *inner* tail_ and **bold __inner__**");
+  });
+
+  test("renders task list items as GFM checkboxes", () => {
+    const { text } = payloadFor(
+      '<ul><li><input type="checkbox" disabled=""> open task</li><li><input type="checkbox" disabled="" checked=""> done task</li></ul>',
+    );
+    expect(text).toBe("- [ ] open task\n- [x] done task");
   });
 
   test("leaves an autolink unwrapped", () => {

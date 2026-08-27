@@ -22,6 +22,8 @@
 const KEPT_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
   a: ["href"],
   img: ["src", "alt"],
+  // A task list checkbox reads as a text field without its type.
+  input: ["type", "checked", "disabled"],
   ol: ["start"],
   li: ["value"],
   td: ["colspan", "rowspan"],
@@ -239,11 +241,29 @@ function itemNumber(item: Element, start: number, index: number): number {
 }
 
 /**
+ * The GFM task box for an item whose renderer emitted a checkbox, so a copied
+ * checklist pastes back as a checklist.
+ */
+function taskBox(item: Element): string {
+  const checkbox = Array.from(item.children).find(
+    (child) =>
+      child.tagName === "INPUT" && child.getAttribute("type") === "checkbox",
+  );
+  if (!checkbox) {
+    return "";
+  }
+  const checked =
+    (checkbox as HTMLInputElement).checked || checkbox.hasAttribute("checked");
+  return checked ? "[x] " : "[ ] ";
+}
+
+/**
  * Render one list item: the marker opens the first line and every following
  * line is indented to the marker's width, which is what makes a nested list
  * nest.
  */
 function renderListItem(item: Element, marker: string): string {
+  const opener = `${marker}${taskBox(item)}`;
   const blocks = renderBlocks(item);
   let body = "";
   blocks.forEach((block, index) => {
@@ -258,7 +278,7 @@ function renderListItem(item: Element, marker: string): string {
     .split("\n")
     .map((line, index) => {
       if (index === 0) {
-        return `${marker}${line}`;
+        return `${opener}${line}`;
       }
       return line === "" ? "" : `${indent}${line}`;
     })
@@ -330,7 +350,21 @@ function renderCell(cell: Element): string {
   return renderOneLine(cell).replace(/\|/g, "\\|");
 }
 
-function renderInline(node: Node): string {
+/**
+ * Emphasis already open around a node. Nesting the same marker twice is
+ * ambiguous in markdown, so the inner one switches to the other spelling.
+ */
+interface EmphasisContext {
+  em: boolean;
+  strong: boolean;
+}
+
+const NO_EMPHASIS: EmphasisContext = { em: false, strong: false };
+
+function renderInline(
+  node: Node,
+  context: EmphasisContext = NO_EMPHASIS,
+): string {
   if (node.nodeType === node.TEXT_NODE) {
     return (node.textContent ?? "").replace(/\s+/g, " ");
   }
@@ -344,18 +378,24 @@ function renderInline(node: Node): string {
   if (tag === "IMG") {
     return `![${node.getAttribute("alt") ?? ""}](${node.getAttribute("src") ?? ""})`;
   }
-  const inner = renderInlineChildren(node);
+  if (tag === "STRONG" || tag === "B") {
+    const inner = renderInlineChildren(node, { ...context, strong: true });
+    return inner.trim() === ""
+      ? inner
+      : wrapEmphasis(inner, context.strong ? "__" : "**");
+  }
+  if (tag === "EM" || tag === "I") {
+    const inner = renderInlineChildren(node, { ...context, em: true });
+    return inner.trim() === ""
+      ? inner
+      : wrapEmphasis(inner, context.em ? "*" : "_");
+  }
+  const inner = renderInlineChildren(node, context);
   if (tag === "CODE") {
     return wrapCode(inner);
   }
   if (inner.trim() === "") {
     return inner;
-  }
-  if (tag === "STRONG" || tag === "B") {
-    return wrapEmphasis(inner, "**");
-  }
-  if (tag === "EM" || tag === "I") {
-    return wrapEmphasis(inner, "_");
   }
   if (tag === "DEL" || tag === "S" || tag === "STRIKE") {
     return wrapEmphasis(inner, "~~");
@@ -366,8 +406,13 @@ function renderInline(node: Node): string {
   return inner;
 }
 
-function renderInlineChildren(element: Element): string {
-  return Array.from(element.childNodes).map(renderInline).join("");
+function renderInlineChildren(
+  element: Element,
+  context: EmphasisContext = NO_EMPHASIS,
+): string {
+  return Array.from(element.childNodes)
+    .map((child) => renderInline(child, context))
+    .join("");
 }
 
 /** Split off the whitespace around `text`, which markers may not enclose. */
