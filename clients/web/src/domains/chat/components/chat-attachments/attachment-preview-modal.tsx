@@ -22,6 +22,7 @@ import {
   formatAttachmentSize,
 } from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
+import { baseMimeType } from "@/domains/chat/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useTranslation } from "@/i18n";
@@ -273,7 +274,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     return null;
   }
 
-  const mime = attachment.mimeType.split(";")[0]!.trim().toLowerCase();
+  const mime = baseMimeType(attachment.mimeType);
   // One classifier picks the media branch, the same one the composer strip,
   // the chip and the message square read: a photo delivered as
   // application/octet-stream previews as an image, and a video named after an

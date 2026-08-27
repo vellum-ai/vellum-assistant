@@ -73,6 +73,7 @@ describe("classifyAttachment", () => {
       "image",
     );
     expect(classifyAttachment("", "photo.HEIC")).toBe("image");
+    expect(classifyAttachment("", "photo.jpg ")).toBe("image");
     expect(classifyAttachment("application/octet-stream", "report.pdf")).toBe(
       "pdf",
     );

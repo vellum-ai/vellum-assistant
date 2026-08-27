@@ -1,4 +1,5 @@
 import {
+  baseMimeType,
   extensionOf,
   GENERIC_MIME_TYPES,
 } from "@/domains/chat/utils/mime-sniff";
@@ -98,7 +99,7 @@ export function classifyAttachment(
   mimeType: string,
   filename: string,
 ): AttachmentIconKind {
-  const mime = (mimeType || "").split(";")[0]!.trim().toLowerCase();
+  const mime = baseMimeType(mimeType || "");
   const ext = extensionOf(filename);
   const isGenericMime = GENERIC_MIME_TYPES.has(mime);
 
