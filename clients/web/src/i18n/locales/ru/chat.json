@@ -139,6 +139,14 @@
     "syntheticYield": "Пауза · сжатие не уместило следующий шаг",
     "unrecognizedCall": "Неизвестный вызов"
   },
+  "cameraStatusPill": {
+    "announcePhotoListening": "Фото. Слушаю",
+    "announcePhotoMuted": "Фото. Звук выключен",
+    "announcePhotoSpeaking": "Фото. {name} говорит",
+    "listening": "Слушаю",
+    "muted": "Без звука",
+    "photo": "Фото"
+  },
   "channelReferenceChip": {
     "heading": "Ссылка на сообщение из {channel}",
     "headingWithSender": "Ссылка на сообщение {sender} в {channel}",

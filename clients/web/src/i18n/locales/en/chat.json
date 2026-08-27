@@ -240,6 +240,14 @@
     "shutter": "Take photo",
     "title": "Take a photo"
   },
+  "cameraStatusPill": {
+    "announcePhotoListening": "Photo. Listening",
+    "announcePhotoMuted": "Photo. Muted",
+    "announcePhotoSpeaking": "Photo. {name} speaking",
+    "listening": "Listening",
+    "muted": "Muted",
+    "photo": "Photo"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },

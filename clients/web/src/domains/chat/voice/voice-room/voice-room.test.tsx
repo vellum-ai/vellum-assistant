@@ -1712,6 +1712,64 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()?.className).toContain("z-[2]");
   });
 
+  test("the status pill and the scrims come up with the camera and go with it", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the look already narrates the session, so the pill would be a
+    // second answer to a question nobody asked.
+    expect(screen.queryByTestId("camera-status-pill")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-top")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo",
+    );
+    // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
+    // bottom scrim lies over the shutter and the whole control row.
+    const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");
+    expect(bottomScrim.className).toContain("z-[3]");
+    expect(bottomScrim.className).toContain("pointer-events-none");
+    expect(screen.getByTestId("voice-room-scrim-top").className).toContain(
+      "pointer-events-none",
+    );
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.queryByTestId("camera-status-pill")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
+  });
+
+  test("the pill is the only announcer of voice state while the camera is open", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the room's own live region carries the label (the "…"-suffixed
+    // one, distinct from the caption's un-suffixed text).
+    expect(screen.getByText("Listening…")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the pill says it with the mode attached, and the old region stands
+    // down, so a screen reader hears the state once rather than twice.
+    expect(screen.queryByText("Listening…")).toBeNull();
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo. Listening",
+    );
+  });
+
   test("the controls take a scrim once they sit over the feed", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
