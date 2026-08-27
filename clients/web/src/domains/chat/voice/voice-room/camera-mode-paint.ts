@@ -63,9 +63,8 @@ export const CAMERA_DESTRUCTIVE = "#e8453f";
 
 /**
  * Legibility scrims for the top and bottom bands of the feed, where all the
- * camera chrome lives. Only those two bands: the design explicitly dropped the
- * screen-edge tint, so the middle of the frame (the part the user is actually
- * aiming at) stays untouched.
+ * camera chrome lives. Only those two bands carry a tint, so the middle of the
+ * frame (the part the user is actually aiming at) stays untouched.
  */
 export const CAMERA_SCRIM_TOP = "linear-gradient(rgba(0,0,0,.42), transparent)";
 export const CAMERA_SCRIM_BOTTOM =
