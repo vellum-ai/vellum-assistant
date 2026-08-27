@@ -1,6 +1,10 @@
 /**
  * Resolving the live-voice WebSocket URL and the credential to open it with.
  *
+ * Two transports, chosen by how the assistant is deployed. A cloud assistant
+ * goes through velay with a minted WS token (see `./velay.ts`, which owns that
+ * path end to end). Everything below is the local and self-hosted one.
+ *
  * The endpoint is the **gateway's** `/v1/live-voice`, not the runtime's. That
  * distinction is the whole of the auth story: the runtime's copy demands a
  * gateway service token, which no client can mint, while the gateway's copy
@@ -26,18 +30,36 @@ import {
   formatAssistantReference,
   lookupAssistantByIdentifier,
   resolveTargetAssistant,
+  type AssistantEntry,
 } from "../assistant-config.js";
+import { getPlatformUrl, readPlatformToken } from "../platform-client.js";
 import {
   guardianTokenDueForRenewal,
   loadGuardianToken,
   refreshGuardianToken,
 } from "../guardian-token.js";
+import {
+  buildVelayLiveVoiceUrl,
+  mintVelayWsToken,
+  VelayWsTokenError,
+} from "./velay.js";
+
+/**
+ * Where the credential goes on the upgrade.
+ *
+ * A gateway takes a guardian JWT in an `Authorization` header. velay takes a
+ * minted WS token in the query string and reads no headers, so the two are not
+ * interchangeable: sending the header form to velay authenticates nothing.
+ */
+export type LiveVoiceTokenTransport = "header" | "query";
 
 export interface LiveVoiceConnection {
-  /** `ws(s)://…/v1/live-voice` on the assistant's gateway. */
+  /** `ws(s)://…/v1/live-voice`, on the assistant's gateway or on velay. */
   readonly url: string;
-  /** Guardian access token, sent as `Authorization: Bearer`. */
+  /** Guardian access token, or a minted velay WS token. */
   readonly token: string;
+  /** How {@link token} reaches the server. */
+  readonly tokenTransport: LiveVoiceTokenTransport;
   readonly assistantId: string;
   /** `name (id)` when they differ, else the id, for user-facing output. */
   readonly reference: string;
@@ -65,15 +87,12 @@ export async function resolveLiveVoiceConnection(
     ? resolveNamedAssistant(assistantIdArg)
     : resolveTargetAssistant();
 
-  // Platform-cloud assistants authenticate with a platform session token
-  // (`X-Session-Token`), and the live-voice upgrade accepts only an actor edge
-  // JWT or a velay attestation, neither of which the CLI has for a cloud
-  // instance. Say so plainly rather than opening a socket that 401s.
+  // Platform-cloud assistants are reached the other way round. Their gateway
+  // is behind velay, which authenticates nobody and forwards an attestation
+  // the gateway trusts, so the credential is not the guardian JWT below but a
+  // WS token minted from the platform session the CLI already holds.
   if (entry.cloud === "vellum") {
-    throw new LiveVoiceConnectionError(
-      `${formatAssistantReference(entry)} is a Vellum cloud assistant. ` +
-        "Voice sessions are supported for local and self-hosted assistants only.",
-    );
+    return await resolveCloudConnection(entry);
   }
 
   const baseUrl = (entry.localUrl || entry.runtimeUrl).replace(/\/+$/, "");
@@ -99,6 +118,64 @@ export async function resolveLiveVoiceConnection(
   return {
     url: parsed.toString(),
     token,
+    tokenTransport: "header",
+    assistantId: entry.assistantId,
+    reference: formatAssistantReference(entry),
+  };
+}
+
+/**
+ * Resolve a live-voice connection to a platform-hosted assistant.
+ *
+ * The session token is the CLI's own platform login, not anything specific to
+ * this assistant, so a missing one is a `vellum login` problem rather than an
+ * assistant problem and says so.
+ *
+ * The minted token is deliberately resolved here, at the last moment before
+ * the socket opens, and never cached: it expires in 60 seconds and is consumed
+ * by the upgrade that uses it.
+ */
+async function resolveCloudConnection(
+  entry: AssistantEntry,
+): Promise<LiveVoiceConnection> {
+  const sessionToken = readPlatformToken();
+  if (!sessionToken) {
+    throw new LiveVoiceConnectionError(
+      `${formatAssistantReference(entry)} is a Vellum cloud assistant, which ` +
+        "needs a platform login. Run 'vellum login' and try again.",
+    );
+  }
+
+  // `runtimeUrl` is the platform this entry was hatched against, which is the
+  // one that can mint for it. `getPlatformUrl()` is the fallback for an entry
+  // written before that field was recorded.
+  const platformUrl = (entry.runtimeUrl || getPlatformUrl()).replace(
+    /\/+$/,
+    "",
+  );
+
+  let token: string;
+  try {
+    token = await mintVelayWsToken({
+      platformUrl,
+      assistantId: entry.assistantId,
+      sessionToken,
+    });
+  } catch (err) {
+    if (err instanceof VelayWsTokenError) {
+      throw new LiveVoiceConnectionError(err.message);
+    }
+    throw err;
+  }
+
+  return {
+    url: buildVelayLiveVoiceUrl({
+      platformUrl,
+      assistantId: entry.assistantId,
+      token,
+    }),
+    token,
+    tokenTransport: "query",
     assistantId: entry.assistantId,
     reference: formatAssistantReference(entry),
   };
