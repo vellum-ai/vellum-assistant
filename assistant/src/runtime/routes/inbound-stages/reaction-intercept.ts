@@ -23,7 +23,6 @@ import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
   type InboundReactionPayload,
   resolveInboundEventKind,
-  resolveInboundReactionPayload,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
@@ -54,54 +53,23 @@ import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 const log = getLogger("runtime-http");
 
 /**
- * Detect a Slack reaction event by inspecting the inbound payload's
- * `callbackData` prefix. The gateway encodes reactions as a unified
- * `SlackInboundEvent` with `callbackData` of the form `reaction:<emoji>`
- * (added) or `reaction_removed:<emoji>` (removed) — see
- * `gateway/src/slack/normalize.ts`. This helper centralizes that convention
- * so the daemon can route reactions to this dedicated stage instead of the
- * agent-response pipeline.
+ * Whether the inbound payload belongs to the reaction event family, on any
+ * channel. Family membership is the kind alone; whether the payload can be
+ * acted on is `resolveInboundReactionPayload`'s answer, and the dispatch
+ * drops a family member whose payload does not resolve rather than letting
+ * it be reinterpreted as a message.
  */
 export function isReactionEvent(body: {
-  sourceChannel?: string;
   eventKind?: string;
-  reaction?: InboundReactionPayload;
+  isEdit?: boolean;
   callbackData?: string;
-  sourceMetadata?: { messageId?: string };
+  callbackQueryId?: string;
 }): boolean {
-  return (
-    resolveInboundEventKind(body) === "reaction" &&
-    resolveInboundReactionPayload(body) !== null
-  );
-}
-
-/**
- * Parse a reaction `callbackData` string into its op (added/removed) and
- * emoji name. Returns `null` when the input is not a reaction prefix or
- * when the emoji portion is empty.
- */
-export function parseSlackReactionCallbackData(
-  callbackData: string,
-): { op: "added" | "removed"; emoji: string } | null {
-  let op: "added" | "removed";
-  let emoji: string;
-  if (callbackData.startsWith("reaction_removed:")) {
-    op = "removed";
-    emoji = callbackData.slice("reaction_removed:".length);
-  } else if (callbackData.startsWith("reaction:")) {
-    op = "added";
-    emoji = callbackData.slice("reaction:".length);
-  } else {
-    return null;
-  }
-  if (emoji.length === 0) {
-    return null;
-  }
-  return { op, emoji };
+  return resolveInboundEventKind(body) === "reaction";
 }
 
 export interface ReactionInterceptParams {
-  /** The reaction callbackData (`reaction:<emoji>` / `reaction_removed:<emoji>`). */
+  /** The resolved structured payload: op, emoji, and target message id. */
   reaction: InboundReactionPayload;
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId | undefined;
