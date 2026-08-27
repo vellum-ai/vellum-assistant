@@ -409,6 +409,49 @@ describe("useVoiceCamera: a flip that resumes onto a different camera", () => {
   });
 });
 
+describe("useVoiceCamera: two flips at once", () => {
+  test("collapses a double tap into one flip", async () => {
+    // A native flip does not release the capture, so a second flip entering
+    // the first one's hand-back shares its generation and reads the same
+    // pre-flip facing. Both would compute the same side, spin the hardware
+    // twice back to where it started, and agree on the one it is not pointing
+    // at: a viewfinder mirrored the wrong way, and every later flip working
+    // from a facing the camera does not have.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    await openNativeCamera();
+    await waitFor(() => expect(setFlashModeSpy).toHaveBeenCalledWith("on"));
+
+    const handBack = deferredCall<boolean>();
+    setFlashModeSpy.mockImplementation(handBack.answer);
+    await press("flip");
+    setFlashModeSpy.mockImplementation(async () => true);
+
+    // The second tap lands while the first flip is still handing the flash
+    // back, which is the whole window this guard exists for.
+    await press("flip");
+    expect(flipSpy).not.toHaveBeenCalled();
+
+    await settle(() => handBack.resolve(true));
+
+    expect(flipSpy).toHaveBeenCalledTimes(1);
+    expect(facing()).toBe("user");
+  });
+
+  test("takes the next flip once the first one finishes", async () => {
+    // The guard is a window, not a latch. A flip that bailed out on a released
+    // camera clears it the same as one that completed.
+    await openNativeCamera();
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+
+    await press("flip");
+    expect(facing()).toBe("user");
+
+    await press("flip");
+    expect(facing()).toBe("environment");
+    expect(flipSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
 /** A bridge call the test decides the timing of, not the microtask queue. */
 function deferredCall<T>() {
   let resolve: (value: T) => void = () => {};

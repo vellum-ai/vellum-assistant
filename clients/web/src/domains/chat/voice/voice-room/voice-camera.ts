@@ -272,6 +272,9 @@ export function useVoiceCamera(
   // the capture, so the acquire epoch alone would let a probe of the outgoing
   // camera answer for the one that replaced it.
   const flashProbeEpochRef = useRef(0);
+  // True from the first line of a flip to the last. See `flipCamera`: two of
+  // them overlapping spin the hardware twice and agree on the wrong answer.
+  const flipInFlightRef = useRef(false);
   // True while a flash-capable camera is running with a mode other than off,
   // which is exactly when the plugin has state of ours to hand back. Cleared
   // rather than re-derived, so a camera that turned out to have no flash is
@@ -516,61 +519,79 @@ export function useVoiceCamera(
    * each one. A flip that resumes onto a preview it did not open would spin a
    * viewfinder the user just raised and file the capabilities it then probes
    * under a camera nobody asked about.
+   *
+   * One flip at a time, for a reason the epoch cannot cover: a native flip
+   * swaps cameras without releasing the capture, so a second flip entering
+   * while the first is mid-await shares its generation AND reads the same
+   * pre-flip `facing`. Both would compute the same `next`, spin the hardware
+   * twice back to where it started, and leave the hook reporting the far side,
+   * which is a viewfinder mirrored the wrong way and every later flip working
+   * from a facing the camera does not have. Dropping the second tap is also
+   * what the user meant by it.
    */
   const flipCamera = useCallback(async () => {
-    if (!sourceRef.current) {
+    if (!sourceRef.current || flipInFlightRef.current) {
       return;
     }
-    // Before anything else, and before the flip itself: from here on the camera
-    // any outstanding probe asked about is not the one that will be running,
-    // and a late "yes" from it is exactly the unprobed `setFlashMode` the
-    // Android implementation throws on.
-    flashProbeEpochRef.current++;
-    // Which capture this flip belongs to. Every release bumps it, so it is
-    // also the token for "the camera I started on is still the one running".
-    const generation = acquireEpochRef.current;
-    const previous = facing;
-    const next = previous === "environment" ? "user" : "environment";
+    flipInFlightRef.current = true;
+    try {
+      // Before anything else, and before the flip itself: from here on the
+      // camera any outstanding probe asked about is not the one that will be
+      // running, and a late "yes" from it is exactly the unprobed
+      // `setFlashMode` the Android implementation throws on.
+      flashProbeEpochRef.current++;
+      // Which capture this flip belongs to. Every release bumps it, so it is
+      // also the token for "the camera I started on is still the one running".
+      const generation = acquireEpochRef.current;
+      const previous = facing;
+      const next = previous === "environment" ? "user" : "environment";
 
-    if (sourceRef.current === "native") {
-      // Give the flash back while the camera that has one is still the active
-      // camera. Neither platform carries the mode across a flip, and iOS keeps
-      // its own copy of it, which the camera arriving may have no way to fire.
-      if (flashEngagedRef.current) {
-        flashEngagedRef.current = false;
-        await setNativeVoiceCameraFlashMode("off");
-        // A close and a reopen fit inside that round trip, and the preview on
-        // the other side of it is a different operation's.
+      if (sourceRef.current === "native") {
+        // Give the flash back while the camera that has one is still the
+        // active camera. Neither platform carries the mode across a flip, and
+        // iOS keeps its own copy of it, which the camera arriving may have no
+        // way to fire.
+        if (flashEngagedRef.current) {
+          flashEngagedRef.current = false;
+          await setNativeVoiceCameraFlashMode("off");
+          // A close and a reopen fit inside that round trip, and the preview
+          // on the other side of it is a different operation's.
+          if (generation !== acquireEpochRef.current) {
+            return;
+          }
+        }
+        setSupportedFlashModes(NO_FLASH_MODES);
+        const flipped = await flipNativeVoiceCamera();
+        // Whatever released the camera during the flip owns the state now,
+        // including the facing this would otherwise announce.
         if (generation !== acquireEpochRef.current) {
           return;
         }
-      }
-      setSupportedFlashModes(NO_FLASH_MODES);
-      const flipped = await flipNativeVoiceCamera();
-      // Whatever released the camera during the flip owns the state now,
-      // including the facing this would otherwise announce.
-      if (generation !== acquireEpochRef.current) {
+        if (flipped) {
+          setFacing(next);
+        }
+        // Re-probed whether or not the flip took: on a failure the old camera
+        // is still running and its capabilities were just cleared.
+        await probeFlash();
         return;
       }
-      if (flipped) {
-        setFacing(next);
-      }
-      // Re-probed whether or not the flip took: on a failure the old camera is
-      // still running and its capabilities were just cleared.
-      await probeFlash();
-      return;
-    }
 
-    const failure = await acquire(next);
-    if (!failure || failure === "aborted") {
-      return;
-    }
-    // The replacement failed and the old capture is already released, so the
-    // fallback is a fresh acquire of what was running a moment ago.
-    const fallbackFailure = await acquire(previous);
-    if (fallbackFailure && fallbackFailure !== "aborted") {
-      setError(fallbackFailure);
-      setOpen(false);
+      const failure = await acquire(next);
+      if (!failure || failure === "aborted") {
+        return;
+      }
+      // The replacement failed and the old capture is already released, so the
+      // fallback is a fresh acquire of what was running a moment ago.
+      const fallbackFailure = await acquire(previous);
+      if (fallbackFailure && fallbackFailure !== "aborted") {
+        setError(fallbackFailure);
+        setOpen(false);
+      }
+    } finally {
+      // Unconditional, and the only place this is cleared: a release or a
+      // close landing mid-flip takes one of the bail-outs above, and a flip
+      // left marked in flight would be a flip button that never works again.
+      flipInFlightRef.current = false;
     }
   }, [acquire, facing, probeFlash]);
 
