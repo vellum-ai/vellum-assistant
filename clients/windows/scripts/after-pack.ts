@@ -6,9 +6,9 @@ import { argValue } from "./cli-args";
 
 /**
  * Enumerates every packaged binary that must be signed before release:
- * the app executable, the CLI runtime, the native helper, the preview
- * handler COM DLL, and the NSIS installer. The manifest is the input for
- * later signature verification; a missing required binary fails the pack.
+ * the app executable, the CLI runtime, the native helper, and the NSIS
+ * installer. The manifest is the input for later signature verification;
+ * a missing required binary fails the pack.
  */
 
 const windowsDir = path.resolve(import.meta.dir, "..");
@@ -27,7 +27,6 @@ export const requiredPackageBinaries = (arch: string): string[] => [
   "resources/cli-runtime/vellum-worker.exe",
   "resources/cli-runtime/vellum.exe",
   `resources/native-helper/${arch}/Vellum.WindowsHelper.exe`,
-  "resources/preview-handler/Vellum.PreviewHandler.dll",
 ];
 
 interface ManifestEntry {
