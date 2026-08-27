@@ -166,18 +166,16 @@ export async function storeAcpClaudeToken(token: string): Promise<void> {
   // usable. Running it a second time is safe: taking the registry is
   // idempotent, and the invalidation is a refetch trigger.
   //
-  // Never allowed to fail the store. The token is written either way, and
-  // these are notifications: losing one costs a client a stale card until its
-  // next snapshot, while throwing here would tell the user their sign-in
-  // failed when it did not.
-  try {
-    await notifyAcpConnectRetired();
-  } catch (err) {
+  // Never allowed to fail or delay the store. The token is written either way,
+  // and these are notifications: losing one costs a client a stale card until
+  // its next snapshot, while waiting on one holds the user at "signing in"
+  // while a scan finishes.
+  void notifyAcpConnectRetired().catch((err: unknown) => {
     log.warn(
       { err },
       "ACP Connect card notification failed after a token store",
     );
-  }
+  });
 }
 
 /**

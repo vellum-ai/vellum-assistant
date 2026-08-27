@@ -6,16 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  notInArray,
-  or,
-} from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { acpAuthMarkerStillCurrent } from "../../acp/acp-auth-marker-store.js";
@@ -57,16 +48,16 @@ const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
 const log = getLogger("acp-routes");
 
 /**
- * How many of a conversation's newest marked rows are read to learn which
- * agents to resolve credentials for.
+ * How many of a conversation's newest markers are examined before giving up on
+ * finding a current one.
  *
- * Enough to be sure of covering the agents in play, small enough that a long
- * failure history costs a fixed read rather than a growing one. A marker under
- * an agent older than this window is not reached, which trades an exotic case
- * (the newest twenty failures all under agents whose credentials have since
- * changed, with an older alias still current) for a bounded query.
+ * A conversation keeps every marker it has ever had, so this is what makes the
+ * lookup a fixed read rather than one that grows with its failure history. A
+ * current marker older than this window is not reached, which trades an exotic
+ * case (the newest twenty failures all naming credentials that have since
+ * changed, with an older one still matching) for a bounded query.
  */
-const MARKER_AGENT_SCAN_LIMIT = 20;
+const MARKER_SCAN_LIMIT = 20;
 
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;
@@ -979,14 +970,18 @@ async function findRecoveryMarker(
   resolvedFor: (agentId: string) => Promise<string | undefined>,
 ): Promise<MergedSession | undefined> {
   const db = getDb();
-  // Agents taken from the newest marked rows rather than from every one of
-  // them. A distinct over the whole set still visits each row, and a
-  // conversation can carry marked runs under aliases that have since been
-  // removed from config, so both the scan and the per-agent fan-out below
-  // would grow with the failure history. The row a client wants is the newest
-  // that still matches, so the newest markers are where to look for its agent.
-  const recentMarkedAgents = db
-    .select({ agentId: acpSessionHistory.agentId })
+  // One ordered read of the newest markers, then the answer is decided in
+  // memory. Filtering by agent and credential in SQL meant the planner could
+  // only seek to the conversation and then walk its marked history looking for
+  // a match, so a run of failures against a replaced credential put that walk
+  // back on every snapshot. This shape is the one the index serves: seek,
+  // read in order, stop.
+  const markers = db
+    .select({
+      id: acpSessionHistory.id,
+      agentId: acpSessionHistory.agentId,
+      credential: acpSessionHistory.authErrorCredential,
+    })
     .from(acpSessionHistory)
     .where(
       and(
@@ -995,40 +990,25 @@ async function findRecoveryMarker(
       ),
     )
     .orderBy(desc(acpSessionHistory.startedAt))
-    .limit(MARKER_AGENT_SCAN_LIMIT)
+    .limit(MARKER_SCAN_LIMIT)
     .all();
-  const markedAgents = [
-    ...new Set(recentMarkedAgents.map((row) => row.agentId)),
-  ];
 
-  let newest: typeof acpSessionHistory.$inferSelect | undefined;
-  for (const agentId of markedAgents) {
-    const resolved = await resolvedFor(agentId);
-    const row = db
-      .select()
-      .from(acpSessionHistory)
-      .where(
-        and(
-          eq(acpSessionHistory.parentConversationId, conversationId),
-          eq(acpSessionHistory.agentId, agentId),
-          isNotNull(acpSessionHistory.authErrorCode),
-          // A marker naming no credential is served rather than hidden, the
-          // same way the comparison treats it: unknown is no evidence the
-          // failure was repaired.
-          resolved === undefined
-            ? undefined
-            : or(
-                isNull(acpSessionHistory.authErrorCredential),
-                eq(acpSessionHistory.authErrorCredential, resolved),
-              ),
-        ),
+  for (const marker of markers) {
+    if (
+      acpAuthMarkerStillCurrent(
+        marker.credential,
+        await resolvedFor(marker.agentId),
       )
-      .orderBy(desc(acpSessionHistory.startedAt))
-      .limit(1)
-      .get();
-    if (row && (!newest || row.startedAt > newest.startedAt)) {
-      newest = row;
+    ) {
+      // Newest-first, so the first match is the one a client would restore
+      // from. Only now is the full row worth loading, by primary key.
+      const row = db
+        .select()
+        .from(acpSessionHistory)
+        .where(eq(acpSessionHistory.id, marker.id))
+        .get();
+      return row ? toMergedSession(row) : undefined;
     }
   }
-  return newest ? toMergedSession(newest) : undefined;
+  return undefined;
 }

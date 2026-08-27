@@ -70,6 +70,13 @@ const {
   hasAcpClaudeToken,
 } = await import("../acp-claude-oauth.js");
 
+/**
+ * The card notification is detached from the store so it cannot delay a
+ * sign-in, so a test asserting on its effects has to let it run.
+ */
+const settleNotification = () =>
+  new Promise((resolve) => setTimeout(resolve, 10));
+
 const ACP_SERVICE = "acp";
 const OAUTH_FIELD = "claude_oauth_token";
 const ACP_SPAWN_TOOL = "acp_spawn";
@@ -317,10 +324,12 @@ describe("storeAcpClaudeToken: retiring the card registry", () => {
     markAcpConnectCardRaised("conv-with-card");
     getReturn = "sk-ant-oat-token";
 
-    return storeAcpClaudeToken("sk-ant-oat-token").then(() => {
-      expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeUndefined();
-      expect(hasAcpConnectCardRaised("conv-with-card")).toBe(false);
-    });
+    return storeAcpClaudeToken("sk-ant-oat-token")
+      .then(settleNotification)
+      .then(() => {
+        expect(acpSpawnCredentialDenialReason(OAUTH_FIELD)).toBeUndefined();
+        expect(hasAcpConnectCardRaised("conv-with-card")).toBe(false);
+      });
   });
 
   test("leaves the registry alone when the stored value is unusable", () => {
@@ -330,9 +339,11 @@ describe("storeAcpClaudeToken: retiring the card registry", () => {
     markAcpConnectCardRaised("conv-keeps-card");
     getReturn = "sk-ant-api-key-shaped";
 
-    return storeAcpClaudeToken("sk-ant-api-key-shaped").then(() => {
-      expect(hasAcpConnectCardRaised("conv-keeps-card")).toBe(true);
-    });
+    return storeAcpClaudeToken("sk-ant-api-key-shaped")
+      .then(settleNotification)
+      .then(() => {
+        expect(hasAcpConnectCardRaised("conv-keeps-card")).toBe(true);
+      });
   });
 });
 
@@ -354,9 +365,11 @@ describe("storeAcpClaudeToken: a re-written rejected token retires nothing", () 
     });
     markAcpConnectCardRaised("conv-still-broken");
 
-    return storeAcpClaudeToken(token).then(() => {
-      expect(hasAcpConnectCardRaised("conv-still-broken")).toBe(true);
-    });
+    return storeAcpClaudeToken(token)
+      .then(settleNotification)
+      .then(() => {
+        expect(hasAcpConnectCardRaised("conv-still-broken")).toBe(true);
+      });
   });
 
   test("drops it once a different token makes the marker stale", () => {
@@ -371,9 +384,11 @@ describe("storeAcpClaudeToken: a re-written rejected token retires nothing", () 
     });
     markAcpConnectCardRaised("conv-repaired");
 
-    return storeAcpClaudeToken("sk-ant-oat-replacement").then(() => {
-      expect(hasAcpConnectCardRaised("conv-repaired")).toBe(false);
-    });
+    return storeAcpClaudeToken("sk-ant-oat-replacement")
+      .then(settleNotification)
+      .then(() => {
+        expect(hasAcpConnectCardRaised("conv-repaired")).toBe(false);
+      });
   });
 });
 

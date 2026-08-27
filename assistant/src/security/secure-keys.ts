@@ -787,9 +787,9 @@ export async function bulkSetSecureKeysAsync(
     },
     credentials.map((c) => ({ account: c.account, ok: false })),
   );
-  // Same reason as the single-write path: notification cost must not be able
-  // to report every credential in the bundle as failed.
-  await onCredentialsWritten(results.filter((r) => r.ok).map((r) => r.account));
+  // Same as the single-write path: detached, so a bundle's notifications
+  // neither decide nor delay its result.
+  void onCredentialsWritten(results.filter((r) => r.ok).map((r) => r.account));
   return results;
 }
 
