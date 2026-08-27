@@ -104,17 +104,25 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           void doc.destroy();
           return;
         }
-        // Hand the proxy to state before reading a page: from here the
-        // cleanup effect owns destroying it, so a page read that throws
-        // releases the worker instead of stranding it.
-        setPdf(doc);
-
-        const firstPage = await doc.getPage(1);
+        // The proxy stays this function's to release until it is handed to
+        // state: the cleanup effect only destroys what it sees replaced or
+        // unmounted, so a document abandoned here would hold its worker for
+        // as long as the error state is on screen.
+        let firstPage;
+        try {
+          firstPage = await doc.getPage(1);
+        } catch (pageError) {
+          void doc.destroy();
+          throw pageError;
+        }
         if (cancelled) {
+          void doc.destroy();
           return;
         }
+
         const { width, height } = firstPage.getViewport({ scale: 1 });
         placeholderAspectRatio.current = height > 0 ? width / height : null;
+        setPdf(doc);
         setNumPages(Math.min(doc.numPages, MAX_PAGES));
       } catch {
         if (!cancelled) {
