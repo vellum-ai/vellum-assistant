@@ -18,7 +18,11 @@ const sendCalls: Array<{
 const editCalls: Array<{ channelId: string; messageId: string; text: string }> =
   [];
 
+// Spread the actual module: the real send.js is imported below for its
+// error class and transitively needs api.js's other named exports.
+const actualApi = await import("../messaging/providers/discord/api.js");
 mock.module("../messaging/providers/discord/api.js", () => ({
+  ...actualApi,
   openDiscordDmChannel: async (userId: string) => {
     dmOpens.push(userId);
     return `dm-for-${userId}`;
