@@ -19,7 +19,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import "@/index.css";
 
 import { CameraShutter } from "./camera-shutter";
-import { CameraRowFlipStandIn, overFakeFeed } from "./camera-story-feed";
+import { CameraRowScene, overFakeFeed } from "./camera-story-feed";
 
 const meta: Meta<typeof CameraShutter> = {
   title: "Chat/Voice/CameraShutter",
@@ -98,19 +98,11 @@ export const ReducedMotion: Story = {
 };
 
 /**
- * Where it actually sits: centred, with flash to the left and flip to the
- * right, neither of them reachable by a thumb aimed at the middle. The two
- * flanking marks are story-local stand-ins at the design's offsets.
+ * Where it actually sits: centred, with the real flash control to the left and
+ * flip to the right, neither of them reachable by a thumb aimed at the middle.
+ * The `mode` control still drives the shutter here, so the morph can be watched
+ * with the row's weight around it.
  */
 export const InTheCameraRow: Story = {
-  render: (args) => (
-    <div className="relative flex w-[390px] items-center justify-center">
-      <span
-        aria-hidden
-        className="absolute left-11 size-[46px] rounded-full border border-white/20 bg-black/42"
-      />
-      <CameraShutter {...args} />
-      <CameraRowFlipStandIn />
-    </div>
-  ),
+  render: (args) => <CameraRowScene shutter={args} />,
 };

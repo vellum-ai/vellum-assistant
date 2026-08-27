@@ -1,11 +1,16 @@
 /**
  * Tests for `VoiceRoomControl`, every circular icon control in the room.
  *
- * Load-bearing contracts: the three surfaces, since a control that reads the
- * wrong one is invisible rather than merely wrong; the `live` tone, whose whole
- * job is to exist only where a viewfinder covers the room's own look; and the
- * corner's exemption from the camera fills, which is what keeps the bottom row
- * reading as one set of related acts.
+ * Only what a real room render cannot reach. The camera fills and the shared
+ * 52px size are proved in `voice-room.test.tsx`, against the room's own
+ * controls with the viewfinder genuinely open; asserting them again here
+ * against a bare harness proves one branch twice and leaves two places to fix
+ * when the palette moves.
+ *
+ * What is left is the paint contract the control publishes for itself, since
+ * the deep-link overlay mounts these outside the room entirely, and the `live`
+ * tone off camera mode, where the `media` surface is one the room never
+ * renders at all.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -36,45 +41,12 @@ function renderControl(props: Partial<VoiceRoomControlProps> = {}) {
 }
 
 describe("VoiceRoomControl", () => {
-  test("camera mode fills every tone, and tells them apart by what they do", () => {
-    // White for the control that says the session is live, warm for the ones
-    // that are about the camera rather than the call, red for the one act that
-    // cannot be undone.
-    expect(
-      renderControl({ surface: "camera", tone: "live" }).className,
-    ).toContain("bg-white");
-    cleanup();
-    expect(renderControl({ surface: "camera" }).className).toContain(
-      "bg-[var(--camera-warm)]",
-    );
-    cleanup();
-    expect(
-      renderControl({ surface: "camera", tone: "destructive" }).className,
-    ).toContain("bg-[var(--camera-destructive)]");
-  });
-
-  test("an engaged toggle sits a shade heavier than its resting peers", () => {
-    // The camera control is held down for the whole time the viewfinder is up;
-    // flip, beside it, toggles nothing.
-    expect(
-      renderControl({ surface: "camera", pressed: true }).className,
-    ).toContain("bg-[var(--camera-warm-strong)]");
-  });
-
   test("the camera fills are published as vars by the control itself", () => {
     // Nothing above this in the tree is guaranteed to carry the contract: the
     // deep-link overlay mounts these controls outside the room entirely.
     const style = renderControl({ surface: "camera" }).getAttribute("style");
     expect(style).toContain("--camera-warm");
     expect(style).toContain("--camera-destructive");
-  });
-
-  test("corner chrome keeps the glass treatment in camera mode", () => {
-    // A filled circle in the corner would join the bottom row's set of related
-    // acts, which the minimize control is not part of.
-    const bare = renderControl({ surface: "camera", bare: true });
-    expect(bare.className).toContain("bg-black/45");
-    expect(bare.className).not.toContain("camera-warm");
   });
 
   test("the live tone is the neutral one anywhere but camera mode", () => {
@@ -92,17 +64,5 @@ describe("VoiceRoomControl", () => {
     const media = renderControl({ tone: "live", surface: "media" });
     expect(media.className).toContain("bg-black/45");
     expect(media.className).not.toContain("bg-white");
-  });
-
-  test("every control is the same 52px, on every surface", () => {
-    // 52 clears the 44pt a thumb needs on its own, so nothing here depends on
-    // an invisible margin the way the flash control does. Held equal across the
-    // surfaces because the row is the same row whether or not the viewfinder is
-    // up, and a control that resized as the camera opened would move out from
-    // under a thumb already on its way to it.
-    for (const surface of ["room", "media", "camera"] as const) {
-      expect(renderControl({ surface }).className).toContain("size-13");
-      cleanup();
-    }
   });
 });
