@@ -33,6 +33,8 @@ const realUpgradeLifecycle = { ...upgradeLifecycle };
 
 const findAssistantByNameMock =
   mock<typeof assistantConfig.findAssistantByName>();
+const lookupAssistantByIdentifierMock =
+  mock<typeof assistantConfig.lookupAssistantByIdentifier>();
 const getActiveAssistantMock = mock<typeof assistantConfig.getActiveAssistant>(
   () => "local-assistant",
 );
@@ -46,6 +48,7 @@ const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
 mock.module("../lib/assistant-config", () => ({
   ...realAssistantConfig,
   findAssistantByName: findAssistantByNameMock,
+  lookupAssistantByIdentifier: lookupAssistantByIdentifierMock,
   getActiveAssistant: getActiveAssistantMock,
   loadAllAssistants: loadAllAssistantsMock,
   saveAssistantEntry: saveAssistantEntryMock,
@@ -228,6 +231,8 @@ beforeEach(() => {
   const entry = makeLocalEntry();
   findAssistantByNameMock.mockReset();
   findAssistantByNameMock.mockReturnValue(entry);
+  lookupAssistantByIdentifierMock.mockReset();
+  lookupAssistantByIdentifierMock.mockReturnValue({ status: "found", entry });
   getActiveAssistantMock.mockReset();
   getActiveAssistantMock.mockReturnValue("local-assistant");
   loadAllAssistantsMock.mockReset();
@@ -444,5 +449,118 @@ describe("vellum upgrade local", () => {
     expect(startLocalDaemonMock).not.toHaveBeenCalled();
     expect(startGatewayMock).not.toHaveBeenCalled();
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain("Already on");
+  });
+});
+
+// Mirrors the precedence documented in `cli/AGENTS.md` § "Assistant targeting
+// convention": exact assistant ID wins over a display-name match; a unique
+// display-name match resolves to its assistant; an ambiguous display name is
+// an error listing the matching IDs. These tests exercise `vellum upgrade`'s
+// wiring against that precedence rather than re-testing the precedence logic
+// itself (covered directly in `assistant-config.test.ts`).
+function lookupByFixture(
+  fixture: AssistantEntry[],
+): typeof assistantConfig.lookupAssistantByIdentifier {
+  return (identifier: string) => {
+    const exactId = fixture.find((e) => e.assistantId === identifier);
+    if (exactId) {
+      return { status: "found", entry: exactId };
+    }
+    const nameMatches = fixture.filter((e) => e.name === identifier);
+    if (nameMatches.length === 1) {
+      return { status: "found", entry: nameMatches[0] };
+    }
+    if (nameMatches.length > 1) {
+      return { status: "ambiguous", matches: nameMatches };
+    }
+    return { status: "not_found" };
+  };
+}
+
+describe("vellum upgrade assistant targeting", () => {
+  function makeQuillEntry(
+    overrides: Partial<AssistantEntry> = {},
+  ): AssistantEntry {
+    return {
+      ...makeLocalEntry(),
+      assistantId: "quill-uuid",
+      name: "Quill",
+      ...overrides,
+    };
+  }
+
+  test("resolves a unique display-name match to its assistant", async () => {
+    const quill = makeQuillEntry();
+    process.argv = [
+      "bun",
+      "vellum",
+      "upgrade",
+      "Quill",
+      "--version",
+      cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+    ];
+    lookupAssistantByIdentifierMock.mockImplementation(
+      lookupByFixture([quill]),
+    );
+
+    await upgrade();
+
+    expect(lookupAssistantByIdentifierMock).toHaveBeenCalledWith("Quill");
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(stopLocalProcessesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceDir: quill.resources!.instanceDir }),
+    );
+  });
+
+  test("an exact assistant-ID match wins over a same-string display-name match", async () => {
+    // A second assistant happens to be *named* the first assistant's ID —
+    // the ID lookup must still win.
+    const target = makeQuillEntry({ assistantId: "quill-uuid" });
+    const decoy = makeQuillEntry({
+      assistantId: "decoy-uuid",
+      name: "quill-uuid",
+    });
+    process.argv = [
+      "bun",
+      "vellum",
+      "upgrade",
+      "quill-uuid",
+      "--version",
+      cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+    ];
+    lookupAssistantByIdentifierMock.mockImplementation(
+      lookupByFixture([target, decoy]),
+    );
+
+    await upgrade();
+
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(stopLocalProcessesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceDir: target.resources!.instanceDir }),
+    );
+  });
+
+  test("an ambiguous display name fails and lists the matching IDs", async () => {
+    const first = makeQuillEntry({ assistantId: "quill-uuid-1" });
+    const second = makeQuillEntry({ assistantId: "quill-uuid-2" });
+    process.argv = [
+      "bun",
+      "vellum",
+      "upgrade",
+      "Quill",
+      "--version",
+      cliPkg.version ? `v${cliPkg.version}` : "v0.8.12",
+    ];
+    lookupAssistantByIdentifierMock.mockImplementation(
+      lookupByFixture([first, second]),
+    );
+
+    await expect(upgrade()).rejects.toThrow("process.exit(1)");
+
+    expect(stopLocalProcessesMock).not.toHaveBeenCalled();
+    const errText = consoleErrorSpy.mock.calls.flat().join("\n");
+    expect(errText).toContain("Multiple assistants match 'Quill'");
+    expect(errText).toContain("quill-uuid-1");
+    expect(errText).toContain("quill-uuid-2");
   });
 });

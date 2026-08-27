@@ -6,8 +6,10 @@ import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
+  formatAssistantLookupError,
   getActiveAssistant,
   loadAllAssistants,
+  lookupAssistantByIdentifier,
   saveAssistantEntry,
   type AssistantEntry,
 } from "../lib/assistant-config";
@@ -202,22 +204,22 @@ function parseArgs(): UpgradeArgs {
 
 /**
  * Resolve which assistant to target for the upgrade command. Priority:
- * 1. Explicit name argument
+ * 1. Explicit name argument (exact assistant ID wins over a display-name
+ *    match; a unique display-name match resolves; an ambiguous display
+ *    name is an error listing the matching IDs)
  * 2. Active assistant set via `vellum use`
  * 3. Sole assistant (when exactly one exists)
  */
 function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   if (nameArg) {
-    const entry = findAssistantByName(nameArg);
-    if (!entry) {
-      console.error(`No assistant found with name '${nameArg}'.`);
-      emitCliError(
-        "ASSISTANT_NOT_FOUND",
-        `No assistant found with name '${nameArg}'.`,
-      );
+    const result = lookupAssistantByIdentifier(nameArg);
+    if (result.status !== "found") {
+      const msg = formatAssistantLookupError(nameArg, result);
+      console.error(msg);
+      emitCliError("ASSISTANT_NOT_FOUND", msg);
       process.exit(1);
     }
-    return entry;
+    return result.entry;
   }
 
   const active = getActiveAssistant();
