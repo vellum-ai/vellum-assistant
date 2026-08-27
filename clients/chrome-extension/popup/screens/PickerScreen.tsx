@@ -4,9 +4,11 @@ export interface PickerScreenProps {
   assistants: CloudAssistant[];
   email?: string;
   error?: string;
+  refreshing?: boolean;
   onSelect: (id: string, name: string) => void;
   onBack: () => void;
   onRetry?: () => void;
+  onCreateAssistant: () => void;
 }
 
 export function PickerScreen({
@@ -14,9 +16,11 @@ export function PickerScreen({
   onSelect,
   onBack,
   error,
+  refreshing,
   onRetry,
+  onCreateAssistant,
 }: PickerScreenProps) {
-  const loading = assistants.length === 0 && !error;
+  const isEmpty = assistants.length === 0 && !error;
 
   return (
     <div>
@@ -45,9 +49,11 @@ export function PickerScreen({
         <h1 className="text-lg font-semibold text-fg">Choose an Assistant</h1>
       </header>
 
-      <p className="text-sm text-fg-muted mb-4">
-        Select which assistant to connect to this browser.
-      </p>
+      {!isEmpty && !error && (
+        <p className="text-sm text-fg-muted mb-4">
+          Select which assistant to connect to this browser.
+        </p>
+      )}
 
       {error && (
         <div className="rounded-lg bg-danger-soft p-3 mb-4" role="alert">
@@ -59,18 +65,41 @@ export function PickerScreen({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-2 text-xs px-3 py-1.5 rounded bg-surface-alt text-fg border-none cursor-pointer hover:bg-edge-hover transition-colors"
+              disabled={refreshing}
+              className="mt-2 text-xs px-3 py-1.5 rounded bg-surface-alt text-fg border-none cursor-pointer hover:bg-edge-hover transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Retry
+              {refreshing ? 'Refreshing...' : 'Retry'}
             </button>
           )}
         </div>
       )}
 
-      {loading && (
-        <p className="text-xs text-fg-subtle text-center py-5">
-          Loading assistants...
-        </p>
+      {isEmpty && (
+        <div className="flex flex-col items-center text-center px-2 pt-5 pb-2">
+          <p className="text-sm font-medium text-fg mb-1.5">
+            You don't have an assistant yet
+          </p>
+          <p className="text-xs text-fg-muted mb-4">
+            Create one in the Vellum app, then come back here to connect it.
+          </p>
+          <button
+            type="button"
+            onClick={onCreateAssistant}
+            className="bg-fg text-bg rounded-lg px-4 py-2.5 text-sm font-medium w-full max-w-[240px] hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            Create an assistant
+          </button>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={refreshing}
+              className="mt-2 bg-transparent text-fg-muted border border-edge rounded-lg px-4 py-2.5 text-sm w-full max-w-[240px] hover:border-edge-hover hover:text-fg transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          )}
+        </div>
       )}
 
       {assistants.length > 0 && (

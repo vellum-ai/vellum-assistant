@@ -132,3 +132,14 @@ export function cloudUrlsForEnvironment(env: ExtensionEnvironment): CloudUrls {
       };
   }
 }
+
+/**
+ * Web-app path for creating the first cloud assistant. The extension cannot
+ * hatch; this is the chooser, which already has "Create a new assistant".
+ */
+export const CREATE_ASSISTANT_WEB_PATH = '/assistant/select-assistant';
+
+/** Environment-specific URL that opens the web app's assistant chooser. */
+export function createFirstAssistantUrl(env: ExtensionEnvironment): string {
+  return `${cloudUrlsForEnvironment(env).webBaseUrl}${CREATE_ASSISTANT_WEB_PATH}`;
+}
