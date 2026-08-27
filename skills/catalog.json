@@ -184,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-26T15:06:39.000Z"
+      "updatedAt": "2026-08-26T16:13:57.000Z"
     },
     {
       "id": "doordash",
@@ -1067,7 +1067,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-21T21:09:58.000Z"
+      "updatedAt": "2026-08-27T00:46:35.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1356,7 +1356,7 @@
           ]
         }
       },
-      "updatedAt": "2026-08-26T00:47:45.000Z"
+      "updatedAt": "2026-08-26T23:11:05.000Z"
     },
     {
       "id": "watcher",
