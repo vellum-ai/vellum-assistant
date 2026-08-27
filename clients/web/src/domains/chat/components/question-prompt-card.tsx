@@ -220,12 +220,10 @@ export function QuestionPromptBody({
       const next = { ...draftResponses, [entry.id]: response };
       setDraftResponses(next);
       // Land on an entry that still needs an answer, looking forward first
-      // and then wrapping. The wrap is what closes the batch: the chevrons
-      // let someone page past a question, and without it, answering the last
-      // entry leaves that skipped one unanswered with nothing to route back
-      // to it, so the submit below never fires and the card sits there.
-      // When every entry has a draft, auto-POST the batched submission, so
-      // there is no explicit Done button.
+      // and then wrapping: the chevrons let someone page past a question, so
+      // the entry still owed an answer can sit behind the current position
+      // as easily as ahead of it. When every entry holds a draft, auto-POST
+      // the batch, so there is no explicit Done button.
       for (let step = 1; step < entries.length; step++) {
         const i = (currentIndex + step) % entries.length;
         const e = entries[i];
