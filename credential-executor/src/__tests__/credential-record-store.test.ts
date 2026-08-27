@@ -12,7 +12,6 @@ import {
   CesMetadataStore,
   getMetadataPath,
   parseCredentialAccount,
-  resolveWorkspaceMetadataPath,
 } from "../records/metadata-store.js";
 
 function makeRecord(
@@ -90,16 +89,6 @@ describe("parseCredentialAccount", () => {
 
   test("rejects non-credential accounts", () => {
     expect(parseCredentialAccount("oauth/google/access")).toBeUndefined();
-  });
-});
-
-describe("resolveWorkspaceMetadataPath", () => {
-  test("joins the leftover metadata path under the workspace dir", () => {
-    expect(resolveWorkspaceMetadataPath("/tmp/workspace")).toBe(
-      "/tmp/workspace/data/credentials/metadata.json",
-    );
-    expect(resolveWorkspaceMetadataPath(undefined)).toBeUndefined();
-    expect(resolveWorkspaceMetadataPath("")).toBeUndefined();
   });
 });
 

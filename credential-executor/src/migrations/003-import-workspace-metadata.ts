@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
@@ -8,9 +9,17 @@ import {
   accountForRecord,
   CesMetadataStore,
   getMetadataPath,
-  resolveWorkspaceMetadataPath,
 } from "../records/metadata-store.js";
 import type { CesMigration } from "./types.js";
+
+function leftoverWorkspaceMetadataPath(
+  workspaceDir: string | undefined,
+): string | undefined {
+  if (!workspaceDir || workspaceDir.trim() === "") {
+    return undefined;
+  }
+  return join(workspaceDir, "data", "credentials", "metadata.json");
+}
 
 const log = getLogger("ces-migrations");
 
@@ -27,7 +36,7 @@ export const importWorkspaceMetadataMigration: CesMigration = {
 
   async run(_backend: SecureKeyBackend): Promise<void> {
     const workspaceDir = process.env["VELLUM_WORKSPACE_DIR"]?.trim();
-    const leftoverPath = resolveWorkspaceMetadataPath(workspaceDir);
+    const leftoverPath = leftoverWorkspaceMetadataPath(workspaceDir);
     if (!leftoverPath || !existsSync(leftoverPath)) {
       log.info("CES metadata import: no workspace metadata.json; skipping");
       return;

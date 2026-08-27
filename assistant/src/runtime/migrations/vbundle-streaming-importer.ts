@@ -1231,17 +1231,6 @@ export async function streamCommitImport(
   try {
     await swapWorkspaceContents(realWorkspaceDir, tempWorkspaceDir, backupDir);
 
-    try {
-      const { hydrateCredentialRecordsFromCes } = await import(
-        "../../tools/credentials/metadata-store.js"
-      );
-      await hydrateCredentialRecordsFromCes();
-    } catch (err) {
-      warnings.push(
-        `Failed to import credential records into CES: ${errMessage(err)}`,
-      );
-    }
-
     // Swap succeeded. Record that fact in the marker BEFORE deleting it —
     // otherwise a crash between `swapWorkspaceContents` returning and
     // `safelyDeleteMarker` completing would leave a marker with

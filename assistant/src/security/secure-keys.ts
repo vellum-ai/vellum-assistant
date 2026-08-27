@@ -157,14 +157,7 @@ export function setCesClient(client: CesClient | undefined): void {
     "CES client updated; resetting resolved credential backend cache",
   );
   _cesClientListener?.(client);
-  _recordBackendAttach = attachCredentialRecordBackend(client);
-}
-
-let _recordBackendAttach: Promise<void> = Promise.resolve();
-
-/** Resolves when the CES record backend matches the latest setCesClient call. */
-export function awaitCredentialRecordBackendAttach(): Promise<void> {
-  return _recordBackendAttach;
+  void attachCredentialRecordBackend(client);
 }
 
 async function attachCredentialRecordBackend(
@@ -400,11 +393,6 @@ export async function attemptCesReconnection(
       const newClient = await _cesReconnect!();
       if (newClient) {
         setCesClient(newClient);
-        await awaitCredentialRecordBackendAttach();
-        const { hydrateCredentialRecordsFromCes } = await import(
-          "../tools/credentials/metadata-store.js"
-        );
-        await hydrateCredentialRecordsFromCes();
         log.info("CES reconnection successful — credential backend restored");
         return true;
       }
@@ -462,11 +450,6 @@ async function tryLazyCesConnect(): Promise<CesClient | undefined> {
         "Lazy CES connection established — credential operations routed through CES RPC",
       );
       setCesClient(client);
-      await awaitCredentialRecordBackendAttach();
-      const { hydrateCredentialRecordsFromCes } = await import(
-        "../tools/credentials/metadata-store.js"
-      );
-      await hydrateCredentialRecordsFromCes();
       // Register a reconnect callback so the lazy connection self-heals
       // if the transport drops, mirroring the daemon's proactive reconnect.
       setCesReconnect(async () => {
@@ -959,5 +942,4 @@ export function _resetBackend(): void {
   _reconnectInFlight = undefined;
   _cesHttpUnreachable = false;
   _lazyConnectPromise = undefined;
-  _recordBackendAttach = Promise.resolve();
 }

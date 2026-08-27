@@ -3,7 +3,6 @@ import type { AssistantConfig } from "../config/schema.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import {
   attemptCesReconnection,
-  awaitCredentialRecordBackendAttach,
   getCesClient as getSecureKeysCesClient,
   onCesClientChanged,
   setCesClient,
@@ -181,11 +180,6 @@ export async function startCes(config: AssistantConfig): Promise<void> {
         "CES client injected into credential resolver at startup; credential reads route through CES RPC",
       );
       setCesClient(client);
-      await awaitCredentialRecordBackendAttach();
-      const { hydrateCredentialRecordsFromCes } = await import(
-        "../tools/credentials/metadata-store.js"
-      );
-      await hydrateCredentialRecordsFromCes();
     } else {
       // The handshake lost the startup race, so provider init proceeds on the
       // direct credential store. Still inject the CES client into the resolver
@@ -194,15 +188,7 @@ export async function startCes(config: AssistantConfig): Promise<void> {
       // the process.
       injectCesClientWhenReady(cesResult.clientPromise, {
         getCesClient: getSecureKeysCesClient,
-        setCesClient: (readyClient) => {
-          setCesClient(readyClient);
-          void awaitCredentialRecordBackendAttach().then(async () => {
-            const { hydrateCredentialRecordsFromCes } = await import(
-              "../tools/credentials/metadata-store.js"
-            );
-            await hydrateCredentialRecordsFromCes();
-          });
-        },
+        setCesClient,
       });
     }
   }
