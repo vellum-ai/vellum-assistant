@@ -462,6 +462,13 @@ export async function startAuthFlow(
       });
       if (result?.sessionToken) {
         primeElectronSessionToken(result.sessionToken);
+        // Reconcile the account before choosing where login lands. Keep this
+        // dynamic because auth-store imports this module.
+        const { useAuthStore, whenPlatformSessionSettled } = await import(
+          "@/stores/auth-store"
+        );
+        await useAuthStore.getState().refreshSession();
+        await whenPlatformSessionSettled();
         await setMenuPlatformSession(true);
         const destination = sanitizeReturnTo(
           resolveNativePostAuthDestination(options.intent, options.returnTo),
