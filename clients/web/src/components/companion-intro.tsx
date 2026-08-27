@@ -193,8 +193,8 @@ export function CompanionIntro({
     companionLayoutFor(avatarBox, optionsBox);
   // Clears whichever of the creature and the pill reaches further on this side,
   // and then the gap. Stepping off the creature alone would put the card inside
-  // a pill taller than it, since the pill is bottom-flush with the avatar
-  // rather than centred on it and every beat but `meet` holds it open.
+  // a pill taller than it, since the pill stands on the creature's baseline
+  // rather than being centred on it and every beat but `meet` holds it open.
   const stepOff = inUnits(introStepOff(cardGrowth));
 
   // Hung off the avatar's own edge, which is the point the host positioned this

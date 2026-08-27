@@ -15,7 +15,7 @@ import {
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
-  COMPANION_SIZE_BOXES,
+  companionBoxFor,
   companionCardSideFor,
   companionGapFor,
   companionNearEdgeFor,
@@ -160,12 +160,22 @@ export interface CompanionGeometry {
    * back past it, and the shadow.
    */
   dropBelow: number;
-  /** The pill's far edge at its widest, measured from the avatar's centre. */
+  /**
+   * The pill's far edge at its widest, measured from the avatar's centre.
+   *
+   * Whole points, as every number here is: the window is placed and sized in
+   * them, and the avatar stands on the line between the two offsets and on the
+   * canvas's own centre line.
+   */
   maxReach: number;
 }
 
 /**
  * The canvas for a pair of named sizes.
+ *
+ * Each name goes through its own axis's table ({@link companionBoxFor}), so the
+ * same name on both axes is a creature and a pill a notch apart rather than two
+ * boxes of one size.
  *
  * The asymmetry between {@link CompanionGeometry.riseAbove} and `dropBelow` is
  * the point of the shape. Sizing both sides for the card, which is what pinning
@@ -185,8 +195,8 @@ export const geometryFor = (
   avatar: CompanionSize,
   options: CompanionSize,
 ): CompanionGeometry => {
-  const avatarBox = COMPANION_SIZE_BOXES[avatar];
-  const optionsBox = COMPANION_SIZE_BOXES[options];
+  const avatarBox = companionBoxFor("avatar", avatar);
+  const optionsBox = companionBoxFor("options", options);
   const pad = companionPadFor(avatarBox, optionsBox);
   const gap = companionGapFor(avatarBox, optionsBox);
   const maxPillWidth =
@@ -195,20 +205,34 @@ export const geometryFor = (
   // gap, so the reach is the avatar's half box, the gap, and the widest pill.
   // The canvas has to hold it in whichever direction main later picks, so it is
   // sized for both sides, and `growthFor` picks that direction by the same
-  // number.
-  const maxReach = avatarBox / 2 + gap + maxPillWidth;
+  // number. Whole points like everything else published here: the options
+  // sizes below the authored box are not whole multiples of it, and a reach
+  // carrying a repeating fraction is a canvas edge that lands between points.
+  const maxReach = Math.round(avatarBox / 2 + gap + maxPillWidth);
   // Both distances come from the contract, which is where the renderer reads
   // them too: main places the window by them and the renderer anchors the
   // surface by them, so a second copy of either is the avatar drawn somewhere
   // main did not put it. Each already answers for both card directions, which
   // is what lets a flip move the canvas rather than resize it.
-  const riseAbove = companionCardSideFor(avatarBox, optionsBox);
   const dropBelow = companionNearEdgeFor(avatarBox, optionsBox);
+  const canvasHeight = Math.round(
+    companionCardSideFor(avatarBox, optionsBox) + dropBelow,
+  );
+  // The near edge is taken exactly as the contract states it and the card's
+  // side absorbs the rounding, because the renderer names the card's edge with
+  // `100%` and steps back from it by that near edge. Rounding the other way
+  // round would leave main placing the window by one line and the renderer
+  // drawing the creature on another, and a card side is a ceiling with slack in
+  // it where a near edge is the line itself.
+  const riseAbove = canvasHeight - dropBelow;
   return {
     avatarBox,
     optionsBox,
-    canvasWidth: Math.round(maxReach * 2 + pad * 2),
-    canvasHeight: Math.round(riseAbove + dropBelow),
+    // Twice a whole half rather than a whole total. The renderer puts the
+    // avatar on the canvas's centre line, so an odd width would stand the
+    // creature on a half point and a resize would not land back on it.
+    canvasWidth: Math.round(maxReach + pad) * 2,
+    canvasHeight,
     riseAbove,
     dropBelow,
     maxReach,

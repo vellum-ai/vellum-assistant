@@ -23,9 +23,10 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
-  COMPANION_SIZE_BOXES,
   COMPANION_SIZES,
+  companionBoxFor,
   type CompanionIntroBeat,
+  type CompanionSizeAxis,
   type VoiceActivityState,
 } from "@vellumai/ipc-contract";
 
@@ -85,16 +86,19 @@ const BACKDROPS = {
 type Backdrop = keyof typeof BACKDROPS;
 
 /**
- * The five named steps, as the boxes the surface actually takes.
+ * The five named steps for one axis, as the boxes the surface actually takes.
  *
  * The controls offer the names and hand over the numbers, because the names are
  * what a user picks from a menu and the boxes are what the surface is drawn in.
- * Both axes read from the same set: one vocabulary, two answers.
+ * Per axis rather than shared, because the same name is a different box on each
+ * one: one vocabulary, two tables.
  */
-const SIZE_OPTIONS = COMPANION_SIZES.map((size) => COMPANION_SIZE_BOXES[size]);
-const SIZE_LABELS: Record<number, string> = Object.fromEntries(
-  COMPANION_SIZES.map((size) => [COMPANION_SIZE_BOXES[size], size]),
-);
+const sizeOptionsFor = (axis: CompanionSizeAxis): number[] =>
+  COMPANION_SIZES.map((size) => companionBoxFor(axis, size));
+const sizeLabelsFor = (axis: CompanionSizeAxis): Record<number, string> =>
+  Object.fromEntries(
+    COMPANION_SIZES.map((size) => [companionBoxFor(axis, size), size]),
+  );
 
 type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
   backdrop: Backdrop;
@@ -134,13 +138,13 @@ const meta: Meta<StoryArgs> = {
     },
     avatarBox: {
       name: "avatarSize",
-      control: { type: "select", labels: SIZE_LABELS },
-      options: SIZE_OPTIONS,
+      control: { type: "select", labels: sizeLabelsFor("avatar") },
+      options: sizeOptionsFor("avatar"),
     },
     optionsBox: {
       name: "optionsSize",
-      control: { type: "select", labels: SIZE_LABELS },
-      options: SIZE_OPTIONS,
+      control: { type: "select", labels: sizeLabelsFor("options") },
+      options: sizeOptionsFor("options"),
     },
     accentHex: { control: "color" },
     watching: { control: "boolean" },
@@ -261,17 +265,17 @@ export const TypingWhileWorking: Story = {
  * size axes exist for.
  *
  * The pill, the card and the gap follow the options size and the creature
- * follows the avatar size, so the controls here sit at the size the layout is
- * authored at while the creature runs well past them. The two still share a
- * bottom line and that gap: the pill's avatar-facing edge is the creature's own
- * visual edge plus the gap, which is the distance the host sizes the window by.
+ * follows the avatar size, so the controls here sit well short of the creature
+ * beside them. The pill's bottom still sits on the creature's visible bottom,
+ * and its avatar-facing edge is the creature's own visual edge plus the gap,
+ * which is the distance the host sizes the window by.
  */
 export const BigAvatarSmallOptions: Story = {
   args: {
     phase: "hover",
     hovered: true,
-    avatarBox: COMPANION_SIZE_BOXES.huge,
-    optionsBox: COMPANION_SIZE_BOXES.small,
+    avatarBox: companionBoxFor("avatar", "huge"),
+    optionsBox: companionBoxFor("options", "small"),
   },
 };
 
@@ -280,16 +284,17 @@ export const BigAvatarSmallOptions: Story = {
  *
  * The surface scales its own box by the options size and the creature carries
  * the difference back down, so the pill and every control on it grow and the
- * creature does not. The gap is the smaller of the two objects' clearance
- * rather than the larger one's, so a small creature beside an enormous pill is
- * not separated from it by a chasm.
+ * creature does not. The pill still stands on the creature's visible bottom and
+ * so reaches well above its head. The gap is the smaller of the two objects'
+ * clearance rather than the larger one's, so a small creature beside an
+ * enormous pill is not separated from it by a chasm.
  */
 export const SmallAvatarBigOptions: Story = {
   args: {
     phase: "hover",
     hovered: true,
-    avatarBox: COMPANION_SIZE_BOXES.small,
-    optionsBox: COMPANION_SIZE_BOXES.huge,
+    avatarBox: companionBoxFor("avatar", "small"),
+    optionsBox: companionBoxFor("options", "huge"),
   },
 };
 
@@ -303,8 +308,8 @@ export const SmallAvatarBigOptions: Story = {
 export const RestingBigAvatarSmallOptions: Story = {
   args: {
     phase: "resting",
-    avatarBox: COMPANION_SIZE_BOXES.huge,
-    optionsBox: COMPANION_SIZE_BOXES.small,
+    avatarBox: companionBoxFor("avatar", "huge"),
+    optionsBox: companionBoxFor("options", "small"),
   },
 };
 
@@ -312,8 +317,8 @@ export const RestingBigAvatarSmallOptions: Story = {
 export const RestingSmallAvatarBigOptions: Story = {
   args: {
     phase: "resting",
-    avatarBox: COMPANION_SIZE_BOXES.small,
-    optionsBox: COMPANION_SIZE_BOXES.huge,
+    avatarBox: companionBoxFor("avatar", "small"),
+    optionsBox: companionBoxFor("options", "huge"),
   },
 };
 
@@ -603,17 +608,18 @@ export const AgainstTheRightEdge: Story = {
  * The flip with the two sizes pulling against each other, which is where a
  * mirrored anchor is easiest to get wrong.
  *
- * The pill is pinned by its right edge a gap off a creature more than twice its
- * height, and the two still share a bottom line. The creature holds the same
- * spot it holds growing rightward: what a flip moves is the pill.
+ * The pill is pinned by its right edge a gap off a creature several times its
+ * height, and its bottom still sits on the creature's visible bottom. The
+ * creature holds the same spot it holds growing rightward: what a flip moves is
+ * the pill.
  */
 export const BigAvatarAgainstTheRightEdge: Story = {
   args: {
     phase: "hover",
     hovered: true,
     growth: "left",
-    avatarBox: COMPANION_SIZE_BOXES.huge,
-    optionsBox: COMPANION_SIZE_BOXES.small,
+    avatarBox: companionBoxFor("avatar", "huge"),
+    optionsBox: companionBoxFor("options", "small"),
   },
   decorators: [againstTheRightEdge],
 };

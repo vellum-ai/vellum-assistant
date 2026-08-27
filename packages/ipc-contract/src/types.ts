@@ -739,11 +739,13 @@ export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
  * state. A continuous scale would be a layout nobody had ever looked at; five
  * steps are five layouts, each checkable in Storybook.
  *
- * `medium` is the default. `small` is the size the surface's layout is authored
- * at, which every other step scales from. `ridiculous` is the joke at the end
- * of the scale, and it is a real step rather than a gag drawn some other way:
- * every length on the surface is stated in `small`, so the largest step costs
- * one number here and is drawn by the same code as the other four.
+ * `medium` is the default. Every length on the surface is stated at 44 points
+ * and scaled from there, and which named step that is depends on the axis: it
+ * is `small` on the avatar's table and `medium` on the options' (see
+ * {@link COMPANION_OPTIONS_SIZE_BOXES}). `ridiculous` is the joke at the end of
+ * the scale, and it is a real step rather than a gag drawn some other way: the
+ * largest step costs one number per table and is drawn by the same code as the
+ * other four.
  */
 export const COMPANION_SIZES = [
   "small",
@@ -756,7 +758,7 @@ export const COMPANION_SIZES = [
 export type CompanionSize = (typeof COMPANION_SIZES)[number];
 
 /** The avatar's box in points, per named size. The scale is this over `small`. */
-export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
+export const COMPANION_AVATAR_SIZE_BOXES: Record<CompanionSize, number> = {
   small: 44,
   medium: 66,
   large: 88,
@@ -767,6 +769,29 @@ export const COMPANION_SIZE_BOXES: Record<CompanionSize, number> = {
   // display is too short for it, so the oversize step lands on paths the other
   // four already take near an edge.
   ridiculous: 220,
+};
+
+/**
+ * The options pill's box in points, per named size.
+ *
+ * One notch below the creature's table at every step, because a control strip
+ * and a mascot are not read at the same size: the creature is a character on
+ * the desktop and wants to be seen, and the pill is a row of controls that
+ * wants to be reachable. The same name on both axes should leave the pill
+ * comfortably shorter than the creature holding it out.
+ *
+ * The pill is authored at 44 and {@link companionScaleFor} still divides by
+ * {@link COMPANION_BASE_AVATAR_BOX}, so these are scales of that one layout:
+ * `small` is that layout at 32/44 and `medium` is it at 1:1. Nothing here is a
+ * second set of dimensions, which is what keeps the five steps five drawings of
+ * the same surface.
+ */
+export const COMPANION_OPTIONS_SIZE_BOXES: Record<CompanionSize, number> = {
+  small: 32,
+  medium: 44,
+  large: 66,
+  huge: 88,
+  ridiculous: 110,
 };
 
 /**
@@ -786,8 +811,9 @@ export const DEFAULT_COMPANION_SIZE: CompanionSize = "medium";
  * The two things on the surface a user sizes, sized separately.
  *
  * An avatar big enough to read from across the room does not mean a pill that
- * wide, and both axes take the same five steps ({@link COMPANION_SIZES}), so
- * there is one vocabulary and two answers rather than two scales to learn.
+ * wide, and both axes take the same five names ({@link COMPANION_SIZES}), so
+ * there is one vocabulary and two answers rather than two scales to learn. Each
+ * axis reads its own table, since the same name means a different box on each.
  * `avatar` sizes the creature, its glow and its bob; `options` sizes the pill,
  * the typing card, the call's body and the introduction's card.
  */
@@ -796,14 +822,39 @@ export const COMPANION_SIZE_AXES = ["avatar", "options"] as const;
 export type CompanionSizeAxis = (typeof COMPANION_SIZE_AXES)[number];
 
 /**
+ * The box one axis draws a named size at.
+ *
+ * The one place a name becomes a number, so nothing downstream has to remember
+ * which of the two tables its axis reads. Names are what the menus offer and
+ * what the store keeps; boxes are what the geometry is done in.
+ */
+export const companionBoxFor = (
+  axis: CompanionSizeAxis,
+  size: CompanionSize,
+): number =>
+  axis === "avatar"
+    ? COMPANION_AVATAR_SIZE_BOXES[size]
+    : COMPANION_OPTIONS_SIZE_BOXES[size];
+
+/**
  * The avatar's box the companion's layout is authored at, and the size every
  * other length in that layout is stated in.
  *
- * The scale is the box in {@link COMPANION_SIZE_BOXES} over this one. The
- * renderer draws at this size and scales the whole surface by that factor, so
- * the two processes never hold two sets of dimensions.
+ * The scale is the box in either size table over this one. The renderer draws
+ * at this size and scales the whole surface by that factor, so the two
+ * processes never hold two sets of dimensions.
  */
-export const COMPANION_BASE_AVATAR_BOX = COMPANION_SIZE_BOXES.small;
+export const COMPANION_BASE_AVATAR_BOX = COMPANION_AVATAR_SIZE_BOXES.small;
+
+/**
+ * The creature's artwork inside that box, which is inset on every side.
+ *
+ * The visible creature rather than the box around it. The box is bigger than
+ * the drawing so the glow has somewhere to fall off into and the bob has
+ * somewhere to rise into, and `CompanionSurface` draws both the still and the
+ * composed avatar at this size so nothing moves when one replaces the other.
+ */
+export const COMPANION_BASE_AVATAR_IMAGE = 28;
 
 /**
  * Room the pill's shadow and the avatar's glow paint outside their own boxes,
@@ -863,6 +914,19 @@ export const companionScaleFor = (box: number): number =>
   box / COMPANION_BASE_AVATAR_BOX;
 
 /**
+ * How far below the avatar's centre the pill's bottom sits, for a given avatar
+ * box.
+ *
+ * The creature's visible bottom rather than its box's. The box runs past the
+ * artwork on every side to hold the glow and the bob's slack, so a pill lined
+ * up with the box reads as sitting below the creature rather than beside it.
+ * The bob lifts the creature off this line and returns to it, which is what
+ * makes the line the thing the eye keeps coming back to.
+ */
+export const companionBaselineFor = (avatarBox: number): number =>
+  (COMPANION_BASE_AVATAR_IMAGE / 2) * companionScaleFor(avatarBox);
+
+/**
  * That gap for a given pair of boxes.
  *
  * Scaled by the smaller of the two, because the gap is breathing room and the
@@ -910,13 +974,14 @@ export const companionPadFor = (
  * somewhere other than where main believes it is.
  *
  * What has to clear that edge depends on which way the card grows, because the
- * pill's bottom edge is the avatar's: growing up, the near side holds the
- * avatar's own half box and nothing else; growing down, the pill stands on that
- * line and reaches a whole options box back past it, which pokes above a
- * smaller creature. The larger of the two is taken so the answer is the same
- * either way, since a flip moves the canvas rather than resizing it, and a near
- * edge that changed with the direction would shift the avatar by the
- * difference.
+ * pill stands on the creature's baseline ({@link companionBaselineFor}) rather
+ * than on its box: growing up, the near side holds the avatar's own half box,
+ * which runs below that line and is where the glow paints; growing down, the
+ * pill stands on the baseline and reaches a whole options box back past it,
+ * which pokes above a smaller creature. The larger of the two is taken so the
+ * answer is the same either way, since a flip moves the canvas rather than
+ * resizing it, and a near edge that changed with the direction would shift the
+ * avatar by the difference.
  *
  * The far edge is {@link companionCardSideFor}, which the renderer never has to
  * state: `100%` names the canvas there, and main sizes it.
@@ -925,7 +990,7 @@ export const companionNearEdgeFor = (
   avatarBox: number,
   optionsBox: number,
 ): number =>
-  Math.max(avatarBox / 2, optionsBox - avatarBox / 2) +
+  Math.max(avatarBox / 2, optionsBox - companionBaselineFor(avatarBox)) +
   companionPadFor(avatarBox, optionsBox);
 
 /**
@@ -933,10 +998,10 @@ export const companionNearEdgeFor = (
  * into, for a given pair of boxes.
  *
  * The far half of {@link companionNearEdgeFor}, taken over both growths for the
- * same reason. Growing up, the card stands on the avatar's bottom line and
- * rises its whole height from there; growing down, its composer row holds that
- * line and the rest of the card falls away below it. The avatar's own half box
- * is the floor under both, for a creature taller than the card beside it.
+ * same reason. Growing up, the card stands on the creature's baseline and rises
+ * its whole height from there; growing down, its composer row holds that line
+ * and the rest of the card falls away below it. The avatar's own half box is
+ * the floor under both, for a creature taller than the card beside it.
  *
  * Only main consumes this: the renderer names that edge with `100%` and lets
  * main size the canvas. It lives here to sit beside the constants it reads.
@@ -946,11 +1011,12 @@ export const companionCardSideFor = (
   optionsBox: number,
 ): number => {
   const scale = companionScaleFor(optionsBox);
+  const baseline = companionBaselineFor(avatarBox);
   return (
     Math.max(
-      COMPANION_BASE_CARD_HEIGHT * scale - avatarBox / 2,
+      COMPANION_BASE_CARD_HEIGHT * scale - baseline,
       (COMPANION_BASE_CARD_HEIGHT - COMPANION_BASE_AVATAR_BOX) * scale +
-        avatarBox / 2,
+        baseline,
       avatarBox / 2,
     ) + companionPadFor(avatarBox, optionsBox)
   );
@@ -1146,8 +1212,8 @@ export interface CompanionSurfaceState {
    * The avatar's box in points, which is the creature's whole scale.
    *
    * Numbers rather than the named sizes, because a name is a lookup both sides
-   * would then have to hold the same copy of. See {@link COMPANION_SIZE_BOXES},
-   * and {@link COMPANION_SIZE_AXES} for why there are two of them.
+   * would then have to hold the same copy of. See {@link companionBoxFor}, and
+   * {@link COMPANION_SIZE_AXES} for why there are two of them.
    */
   avatarBox: number;
   /**
