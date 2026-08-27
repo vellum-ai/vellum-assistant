@@ -85,6 +85,20 @@ describe("AttachmentPreviewModal content loading", () => {
     );
   });
 
+  test("routes a generic-MIME name with a trailing space to the text preview", async () => {
+    // The shared extension parser trims, so classification and preview routing
+    // read the same extension for a name a picker padded with whitespace.
+    const text = "notes body";
+    renderModal({
+      ...ATTACHMENT,
+      filename: "notes.txt ",
+      mimeType: "application/octet-stream",
+      previewUrl: `data:text/plain;base64,${btoa(text)}`,
+    });
+
+    expect(await screen.findByText(text)).toBeDefined();
+  });
+
   test("shows a clear message for rehydrated attachments and never fetches", () => {
     renderModal({ ...ATTACHMENT, id: "rehydrated:abc" });
 

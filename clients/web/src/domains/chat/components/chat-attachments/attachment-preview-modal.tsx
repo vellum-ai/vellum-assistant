@@ -22,7 +22,7 @@ import {
   formatAttachmentSize,
 } from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
-import { baseMimeType } from "@/domains/chat/utils/mime-sniff";
+import { baseMimeType, extensionOf } from "@/domains/chat/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useTranslation } from "@/i18n";
@@ -51,14 +51,6 @@ const TEXT_PREVIEW_APPLICATION_MIMES = new Set([
   "application/javascript",
   "application/xml",
 ]);
-
-const getExtension = (filename: string): string => {
-  const dot = filename.lastIndexOf(".");
-  if (dot === -1 || dot === filename.length - 1) {
-    return "";
-  }
-  return filename.slice(dot + 1).toLowerCase();
-};
 
 interface AttachmentPreviewModalProps {
   open: boolean;
@@ -283,7 +275,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   const isImage = kind === "image";
   const isVideo = kind === "video";
   const isPdf = kind === "pdf";
-  const extension = getExtension(attachment.filename);
+  const extension = extensionOf(attachment.filename);
   // Route by MIME first (text/* and the JSON/JS/XML application types), then
   // fall back to the file extension for uploads that arrive as
   // application/octet-stream. PDF/image/video branches above already win for
