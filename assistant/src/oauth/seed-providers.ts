@@ -183,20 +183,14 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
-    // Deliberately NOT synced to the manifest's 28-scope bot list.
-    //
-    // This provider's flow persists the user token, not the bot token: Slack
-    // nests it under `authed_user`, `exchangeCodeForTokens` prefers it, and the
-    // bot token is used once for the welcome DM and then dropped. Because
-    // `grantedScopes` is stored from `authed_user.scope`, credential-health
-    // compares this list against a user-token grant. A bot scope can never
-    // appear there, and `missing_scopes` is a hard failure that disables the
-    // provider's tools, so a scope added here permanently breaks the
-    // connection rather than prompting anyone to re-consent.
-    //
-    // Socket Mode installs are the path that needs the wider set. They compare
-    // the live `x-oauth-scopes` header against SLACK_REQUIRED_BOT_SCOPES in
-    // channel-readiness-service.ts, which reads what the token actually has.
+    // Bounded by what a user-token grant can satisfy, not by the Socket Mode
+    // manifest's bot list. This flow persists the `authed_user` token
+    // (`exchangeCodeForTokens`) and stores `authed_user.scope` as
+    // `grantedScopes`, which credential-health compares against this list.
+    // A bot-only scope never appears in that grant, and `missing_scopes` is a
+    // hard failure that disables the provider's tools. The wider bot set
+    // belongs to Socket Mode installs, which verify the live `x-oauth-scopes`
+    // header against SLACK_REQUIRED_BOT_SCOPES in channel-readiness-service.ts.
     defaultScopes: [
       "channels:join",
       "channels:read",
@@ -214,14 +208,10 @@ export const PROVIDER_SEED_DATA: Record<
       "reactions:write",
     ],
     availableScopes: "https://api.slack.com/scopes",
-    // Do NOT narrow this to the manifest's read-only user list. On this
-    // provider's flow Slack returns a user token under `authed_user`, and
-    // `exchangeCodeForTokens` persists that in preference to the bot token
-    // (see `security/oauth2.ts`). The stored connection therefore acts as the
-    // installer for every call, writes included, so dropping `chat:write`,
-    // `im:write` or `reactions:write` here would leave a fresh connection
-    // unable to post. The read-only user set in the manifest is safe only
-    // because a Socket Mode install keeps a separate bot token alongside it.
+    // Carries write scopes because the persisted `authed_user` token is the
+    // only credential this flow stores, so it acts as the installer for every
+    // call including `chat.postMessage`. The manifest's user list is read-only
+    // instead, since a Socket Mode install keeps a bot token beside it.
     authorizeParams: {
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
