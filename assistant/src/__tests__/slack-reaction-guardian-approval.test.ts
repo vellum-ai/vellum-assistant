@@ -117,7 +117,11 @@ function reaction(opts: {
       guardianPrincipalId: opts.principal ?? PRINCIPAL,
     },
     conversationId: "guardian-conv",
-    callbackData: `reaction:${opts.emoji}`,
+    reaction: {
+      op: "added" as const,
+      emoji: opts.emoji,
+      targetMessageId: opts.reactedMessageTs ?? "",
+    },
     reactedMessageTs: opts.reactedMessageTs,
     channelDeliveryContext: {
       replyCallbackUrl: "https://gateway.test/deliver",

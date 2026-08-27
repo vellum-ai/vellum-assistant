@@ -243,6 +243,7 @@ describe("channel inbound disk pressure gate", () => {
         content: "reaction:thumbsup",
         actorExternalId: "slack-user-1",
         callbackData: "reaction:thumbsup",
+        sourceMetadata: { messageId: "1700000000.1" },
         replyCallbackUrl: "https://gateway.test/deliver/slack",
       }),
     );
