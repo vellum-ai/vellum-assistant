@@ -809,6 +809,16 @@ export function ChatComposer({
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;
+  // Words already spoken are content the composer does not hold yet, so a
+  // live dictation session makes the send slot pressable on its own: Send
+  // there means "finish, then send", and `useComposerSubmit` awaits the
+  // transcript before it reads the draft (LUM-3432). Without this the send
+  // arrow stays disabled -- or cedes the slot to voice mode -- for the whole
+  // of an empty-composer dictation, which is most of them. Deliberately not
+  // folded into `canSendMessageContent`: the busy row's stop/send swap below
+  // is about a draft that is ready to queue right now, and a session still
+  // being spoken is not that.
+  const canSendOrFinishDictation = canSendMessageContent || isVoiceActive;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -843,7 +853,7 @@ export function ChatComposer({
     showVoiceInput &&
     Boolean(assistantId) &&
     supportsLiveVoice &&
-    !canSendMessageContent &&
+    !canSendOrFinishDictation &&
     !isLiveVoiceActive;
 
   // Mobile lifts the access and profile triggers out of the action row into a
@@ -1148,13 +1158,19 @@ export function ChatComposer({
   ) : null;
 
   const sendBlocked =
-    sendDisabled || attachmentsUploadingCount > 0 || !canSendMessageContent;
+    sendDisabled || attachmentsUploadingCount > 0 || !canSendOrFinishDictation;
 
-  // macOS parity: the send button is hidden during recording and while
-  // transcription is being processed. Only the voice button (mic / stop /
-  // spinner) is shown. Otherwise the send slot holds voice mode until there is
-  // something to send, at which point the send arrow takes over.
-  const sendSlot = isVoiceActive ? null : showVoiceModeInSendSlot ? (
+  // The send arrow stays through a dictation session, where pressing it means
+  // "finish, then send": `useComposerSubmit` ends the session and waits for
+  // the transcript before it reads the draft (LUM-3432). It used to be hidden
+  // for the whole session (macOS parity), which left the mic button as the
+  // only control on the row and no gesture at all for ending dictation and
+  // sending in one move -- while Enter stayed live and sent whatever stale
+  // draft was in the box. The two controls now divide the job: the mic stops
+  // and leaves the words in the composer, the arrow stops and sends them.
+  // Otherwise the slot holds voice mode until there is something to send, at
+  // which point the send arrow takes over.
+  const sendSlot = showVoiceModeInSendSlot ? (
     // Session entry point: once a session starts here the slot gives way to
     // the send arrow and the bar above the card owns stopping. Disabled while
     // dictation is active or a live-voice session already runs elsewhere, so a
@@ -1175,7 +1191,7 @@ export function ChatComposer({
       onMouseDown={rowPressGuard}
       disabled={sendBlocked}
       title={
-        sendDisabled || !canSendMessageContent
+        sendDisabled || !canSendOrFinishDictation
           ? t("chatComposer.typeToSend")
           : attachmentsUploadingCount > 0
             ? t("chatComposer.uploadingAttachments")
@@ -1471,6 +1487,7 @@ export function ChatComposer({
               attachmentsUploadingCount,
               cmdEnterMode,
               hasStagedContext,
+              dictationInFlight: isVoiceActive,
             },
           );
           if (decision === "ignore") {
