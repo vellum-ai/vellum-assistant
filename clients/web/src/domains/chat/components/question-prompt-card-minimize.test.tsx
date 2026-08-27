@@ -608,6 +608,22 @@ describe("QuestionPromptCard width", () => {
     expect(headerLayout()).toBe("inline");
   });
 
+  test("only a card that can be dragged takes selection away from a thumb", () => {
+    setPointer(true);
+    renderCard();
+
+    // Narrow, the gesture competes with a long-press, so selection stands down.
+    const header = document.querySelector<HTMLElement>("[data-header]")!;
+    expect(header.className).toContain("select-none");
+
+    setCardWidth(ROOMY_PX);
+
+    // Roomy the card holds still, so a long-press on the question is free.
+    expect(
+      document.querySelector<HTMLElement>("[data-header]")!.className,
+    ).not.toContain("select-none");
+  });
+
   test("the header reflows without remounting what it sits above", () => {
     renderCard();
     const before = collapsibleRegion();

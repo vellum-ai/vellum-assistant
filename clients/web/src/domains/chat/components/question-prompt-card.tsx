@@ -376,9 +376,11 @@ export function QuestionPromptBody({
           // beside a narrow one, where the question can wrap to several lines,
           // it belongs level with the first of them.
           !stackedHeader && (isCompact ? "items-start" : "items-center"),
-          // Only where a drag can start: elsewhere this would take away the
-          // ability to select the question text and give nothing back.
-          isTouch && "select-none",
+          // Only where a drag can actually start, which is the same pair of
+          // conditions the gesture and `touch-action` read. A roomy card holds
+          // still under a thumb, so suppressing selection there would cost a
+          // long-press on the question and give nothing back.
+          isTouch && isCompact && "select-none",
         )}
       >
         {hasMetaCluster && (
