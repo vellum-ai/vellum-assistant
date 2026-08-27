@@ -521,6 +521,151 @@ describe("the companion surface's anchor in the canvas", () => {
 });
 
 /**
+ * The surface with the creature and the controls sized apart.
+ *
+ * The page's wrapper is scaled by the options size, so everything here is
+ * stated in those units and the creature carries the difference between the two
+ * boxes itself. What has to hold is that the pill still sits a gap off the
+ * creature's *visual* edge and still shares its bottom line, whichever of the
+ * two is the larger, because that edge and that line are what the host places
+ * the window by.
+ */
+describe("the companion surface at two sizes", () => {
+  /**
+   * The pair the layout is authored at, which every other case here is read
+   * against: it has to come out exactly where one size put it.
+   */
+  test("draws the authored pair exactly as a single size does", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={44} optionsBox={44} />,
+    );
+    expect(surfaceOf(container).style.left).toBe("calc(50% + 34px)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 24px)");
+    expect(avatarOf(container).style.top).toBe("calc(100% - 46px)");
+    expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
+  });
+
+  /** 55 to a huge creature's edge, then the gap the smaller of the two earns. */
+  test("steps the pill off a larger creature's own edge", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={110} optionsBox={44} />,
+    );
+    expect(surfaceOf(container).style.left).toBe("calc(50% + 67px)");
+  });
+
+  /**
+   * The same rule the other way round, read in the pill's own units: 22 points
+   * to the creature's edge and 12 of gap, at a scale of two and a half.
+   */
+  test("steps it off a smaller creature by the same rule", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={44} optionsBox={110} />,
+    );
+    expect(surfaceOf(container).style.left).toBe("calc(50% + 13.6px)");
+  });
+
+  test("mirrors that step when the pill grows the other way", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="hover"
+        growth="left"
+        avatarBox={110}
+        optionsBox={44}
+      />,
+    );
+    expect(surfaceOf(container).style.right).toBe("calc(50% + 67px)");
+  });
+
+  /**
+   * Bottom-flush against a creature that is not the pill's size: the near edge
+   * is 115 at this pair and the creature's bottom is 55 in from its centre, so
+   * the pill's bottom lands 60 from the canvas edge.
+   */
+  test("keeps the pill's bottom on a larger creature's bottom", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={110} optionsBox={44} />,
+    );
+    expect(avatarOf(container).style.top).toBe("calc(100% - 115px)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 60px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+  });
+
+  test("keeps it on a smaller creature's bottom too", () => {
+    const { container } = render(
+      <CompanionSurface phase="hover" avatarBox={44} optionsBox={110} />,
+    );
+    expect(avatarOf(container).style.top).toBe("calc(100% - 59.2px)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 50.4px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+  });
+
+  test("anchors both against the canvas's top edge when the card grows down", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="hover"
+        cardGrowth="down"
+        avatarBox={110}
+        optionsBox={44}
+      />,
+    );
+    expect(avatarOf(container).style.top).toBe("115px");
+    expect(surfaceOf(container).style.top).toBe("170px");
+  });
+
+  /**
+   * The card growing downward starts on its composer row's top line, which is
+   * one options box above the creature's bottom whatever the creature's size.
+   */
+  test("drops the card from the composer row's own line", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="typing"
+        cardGrowth="down"
+        avatarBox={44}
+        optionsBox={110}
+      />,
+    );
+    expect(surfaceOf(container).style.top).toBe("24px");
+    expect(surfaceOf(container).style.transform).toBe("none");
+  });
+
+  /**
+   * The creature's own node carries the difference and nothing else does. It
+   * has to be that node rather than the wrapper below it, which owns the bob's
+   * `transform`: two transforms on one node leave one of them out.
+   */
+  test("scales the creature by the difference between the two boxes", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarBox={110} optionsBox={44} />,
+    );
+    expect(avatarOf(container).style.transform).toBe(
+      "translate(-50%, -50%) scale(2.5)",
+    );
+    expect(
+      avatarOf(container).querySelector(".companion-avatar-bob"),
+    ).not.toBeNull();
+  });
+
+  test("scales it down the same way beside a larger pill", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarBox={44} optionsBox={110} />,
+    );
+    expect(avatarOf(container).style.transform).toBe(
+      "translate(-50%, -50%) scale(0.4)",
+    );
+  });
+
+  /** With the two agreeing the wrapper has done all of it, at any size. */
+  test("leaves the creature unscaled when the two agree", () => {
+    const { container } = render(
+      <CompanionSurface phase="resting" avatarBox={110} optionsBox={110} />,
+    );
+    expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
+    expect(avatarOf(container).style.top).toBe("calc(100% - 46px)");
+  });
+});
+
+/**
  * The idle row's verbs, which are drawn one at a time under the pointer.
  *
  * **The behaviour is a stylesheet, so these hold its contract rather than its

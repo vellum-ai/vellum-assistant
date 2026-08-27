@@ -21,7 +21,7 @@ import type {
   Ref,
 } from "react";
 
-import { COMPANION_NEAR_EDGE, companionGapFor } from "@vellumai/ipc-contract";
+import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
   CompanionCharacter,
   CompanionTurn,
@@ -35,6 +35,7 @@ import { MarkdownMessage } from "@vellumai/design-library";
 import { openCompanionLink } from "@/runtime/companion-surface";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
@@ -44,14 +45,22 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * beside it, and unfurling the same way while a call runs.
  *
  * **Two elements, and the mascot is the fixed point.** The creature and the
- * pill are siblings with {@link GAP} between them rather than one box holding
- * the other. The avatar holds one point in the canvas in every state, which is
- * the point the host positions this window around, so the surface reads as one
+ * pill are siblings with a gap between them rather than one box holding the
+ * other. The avatar holds one point in the canvas in every state, which is the
+ * point the host positions this window around, so the surface reads as one
  * object changing shape rather than a series of different objects and the eye
  * and the cursor always have the same target to aim at. The pill hangs off it:
  * its avatar-facing edge sits the avatar's half box plus the gap from that
  * point, and its bottom edge sits on the avatar's bottom, so the two keep one
  * baseline whatever the pill is carrying. Only the pill's `width` animates.
+ *
+ * **Two sizes, and the creature carries the difference.** The host publishes a
+ * box for the avatar and a box for the pill, and the page around this scales
+ * the whole canvas by the second, so every length below is stated once at the
+ * size the layout is authored at. The creature is scaled again inside that by
+ * the ratio between the two boxes, and the handful of distances measured from
+ * its edge (the gap, the near edge, its own half box) are worked out from the
+ * contract's helpers and divided back into these units.
  *
  * **Growth needs clearance on the side it runs into**: the gap, and then a body
  * that reaches 316px at its widest. A circle parked against the right edge does
@@ -175,21 +184,9 @@ const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
  */
 const WATCHING_RING_ACCENT = "#ff9f45";
 
-// The avatar is a fixed 44px disc in every state; only the pill beside it
-// changes. That is what makes this one surface expanding rather than three
-// surfaces that happen to share a colour, and it is the property to protect as
-// the states gain content.
-const AVATAR_BOX = 44;
-
-/**
- * The room between the avatar's edge and the pill.
- *
- * Read from the contract rather than stated here, because main sizes the canvas
- * to hold the same distance: what decides how wide the window has to be is the
- * pill's reach past the avatar, and a second copy of the number is a pill drawn
- * further out than the room main left for it.
- */
-const GAP = companionGapFor(AVATAR_BOX, AVATAR_BOX);
+// The box every length on this surface is stated in: the pill's own height, and
+// the creature's at the size the two agree on.
+const BASE_BOX = COMPANION_BASE_AVATAR_BOX;
 
 /**
  * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
@@ -348,6 +345,26 @@ export interface CompanionSurfaceProps {
   onHoverEnd?: () => void;
   /** Which way the pill grows. See {@link CompanionSurfaceGrowth}. */
   growth?: CompanionSurfaceGrowth;
+  /**
+   * The creature's box in points, which is the avatar's whole scale.
+   *
+   * Its own size rather than the surface's, because the two are chosen
+   * separately: a mascot big enough to read from across the room is not a pill
+   * that wide. Defaulted to the size the layout is authored at, which is what
+   * Storybook draws and what the host publishes for a surface nobody has
+   * resized.
+   */
+  avatarBox?: number;
+  /**
+   * The pill's box in points, which is the scale of everything that is not the
+   * creature.
+   *
+   * The page's wrapper is already scaled by this, so what it is for here is
+   * converting back: a distance the host and this side have to agree on is
+   * worked out in points from the contract's helpers and divided by this scale
+   * on its way into a style, so both ends are the same expression.
+   */
+  optionsBox?: number;
   /**
    * Which way the card grows, and with it which edge of the canvas the avatar
    * is anchored to. See {@link CompanionSurfaceCardGrowth}.
@@ -623,6 +640,8 @@ export function CompanionSurface({
   onHoverStart,
   onHoverEnd,
   growth = "right",
+  avatarBox = COMPANION_BASE_AVATAR_BOX,
+  optionsBox = COMPANION_BASE_AVATAR_BOX,
   cardGrowth = "up",
   rootRef,
   avatarRef,
@@ -701,19 +720,27 @@ export function CompanionSurface({
       ? 0
       : (contentWidth ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
 
+  // The distances everything below is placed by, in points, and the one
+  // conversion into the units this layout is stated in. Shared with
+  // `CompanionIntro`, whose card hangs off the same edge by the same amount.
+  const { inUnits, avatarRel, avatarHalf, gap, nearEdge } = companionLayoutFor(
+    avatarBox,
+    optionsBox,
+  );
+
   /**
-   * A line in the canvas, given how far it sits from the avatar's centre.
+   * A line in the canvas, given how far in points it sits from the avatar's
+   * centre.
    *
    * The canvas is *not* symmetric about the avatar: the card's height is
-   * reserved on whichever side it grows into, so the avatar sits
-   * `COMPANION_NEAR_EDGE` from the other edge, and that edge is the one worth
-   * anchoring to. `100%` names the canvas without this side having to know how
-   * tall main made it.
+   * reserved on whichever side it grows into, so the avatar sits the near edge
+   * from the other one, and that edge is the one worth anchoring to. `100%`
+   * names the canvas without this side having to know how tall main made it.
    */
   const lineAt = (offset: number): string =>
     cardGrowth === "up"
-      ? `calc(100% - ${COMPANION_NEAR_EDGE - offset}px)`
-      : `${COMPANION_NEAR_EDGE + offset}px`;
+      ? `calc(100% - ${inUnits(nearEdge - offset)}px)`
+      : `${inUnits(nearEdge + offset)}px`;
 
   // **The avatar never moves.** It holds one spot in the canvas, which is the
   // spot the host positions this window around, and the pill hangs off one side
@@ -728,8 +755,8 @@ export function CompanionSurface({
   // and direction check against is not.
   const placement: CSSProperties =
     growth === "left"
-      ? { right: `calc(50% + ${AVATAR_BOX / 2 + GAP}px)` }
-      : { left: `calc(50% + ${AVATAR_BOX / 2 + GAP}px)` };
+      ? { right: `calc(50% + ${inUnits(avatarHalf + gap)}px)` }
+      : { left: `calc(50% + ${inUnits(avatarHalf + gap)}px)` };
 
   // The card growing downward draws its composer row first, so the row starts
   // on the avatar's top line and the card falls away from it; everything else
@@ -746,8 +773,9 @@ export function CompanionSurface({
     // pressed. Which way the card stacks is the host's call: parked by the Dock
     // a card growing down would grow off the bottom of the screen, and at the
     // top of the display a card growing up has nowhere to be (see
-    // `CompanionSurfaceCardGrowth`).
-    top: lineAt(dropsFromTheRow ? -(AVATAR_BOX / 2) : AVATAR_BOX / 2),
+    // `CompanionSurfaceCardGrowth`). The row is one options box tall, so a card
+    // growing downward starts exactly that far above the line.
+    top: lineAt(dropsFromTheRow ? avatarHalf - optionsBox : avatarHalf),
     transform: dropsFromTheRow ? "none" : "translateY(-100%)",
     // Settles rather than overshoots. A surface on screen all day should not
     // bounce every time the pointer crosses it.
@@ -942,13 +970,16 @@ export function CompanionSurface({
           <span
             className="pointer-events-auto absolute"
             style={{
-              width: GAP,
-              height: AVATAR_BOX,
+              width: inUnits(gap),
+              // The pill's own row, on the pill's own line: the strip is what
+              // the pointer crosses between the two, so it is as tall as what
+              // it leads to rather than as tall as the creature it leaves.
+              height: BASE_BOX,
               ...(growth === "left"
-                ? { right: `calc(50% + ${AVATAR_BOX / 2}px)` }
-                : { left: `calc(50% + ${AVATAR_BOX / 2}px)` }),
-              top: lineAt(0),
-              transform: "translateY(-50%)",
+                ? { right: `calc(50% + ${inUnits(avatarHalf)}px)` }
+                : { left: `calc(50% + ${inUnits(avatarHalf)}px)` }),
+              top: lineAt(avatarHalf),
+              transform: "translateY(-100%)",
             }}
             aria-hidden
           />
@@ -970,7 +1001,16 @@ export function CompanionSurface({
           style={{
             left: "50%",
             top: lineAt(0),
-            transform: "translate(-50%, -50%)",
+            // Centred on the point the host put the window around, then scaled
+            // about that centre by whatever the creature's own size asks for
+            // beyond the scale the page has already applied. Omitted where the
+            // two boxes agree, which is the surface every other length here is
+            // authored for. On this node rather than the one below it: the bob
+            // owns a `transform` of its own, and two transforms on one node
+            // silently leave one of them out.
+            transform: `translate(-50%, -50%)${
+              avatarRel === 1 ? "" : ` scale(${avatarRel})`
+            }`,
           }}
           elementRef={avatarRef}
           onMouseEnter={onHoverStart}

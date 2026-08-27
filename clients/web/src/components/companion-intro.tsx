@@ -1,7 +1,6 @@
 import {
+  COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
-  COMPANION_NEAR_EDGE,
-  companionGapFor,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
@@ -11,6 +10,7 @@ import type { CSSProperties, Ref } from "react";
 
 import { useTranslation } from "@/i18n";
 
+import { companionLayoutFor } from "@/components/companion-layout";
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
@@ -42,17 +42,6 @@ import type {
  * moving it, and moving it would have meant re-deciding growth and placement in
  * the main process for a card that is on screen once in an install's life.
  */
-
-/** The avatar's box the layout is authored at, as `CompanionSurface` has it. */
-const AVATAR_BOX = 44;
-
-/**
- * The room between the avatar's edge and the card, which is the same room the
- * surface leaves between the avatar and its pill. One number from the contract
- * rather than one per neighbour, so everything hanging off the creature sits
- * the same distance from it.
- */
-const AVATAR_GAP = companionGapFor(AVATAR_BOX, AVATAR_BOX);
 
 /**
  * The card's width, fixed rather than measured.
@@ -148,6 +137,16 @@ export interface CompanionIntroProps {
   growth?: CompanionSurfaceGrowth;
   /** Which side of the avatar has the canvas to hold the card. */
   cardGrowth?: CompanionSurfaceCardGrowth;
+  /**
+   * The creature's box and the pill's, in points, as `CompanionSurface` takes
+   * them.
+   *
+   * The card hangs off the creature's edge and steps off it by the same gap the
+   * pill does, so it needs the same two numbers the surface does. Defaulted to
+   * the size the layout is authored at, which is what Storybook draws.
+   */
+  avatarBox?: number;
+  optionsBox?: number;
   /** The assistant's avatar colour, for the progress dots. */
   accentHex?: string;
   /**
@@ -177,6 +176,8 @@ export function CompanionIntro({
   beat,
   growth = "right",
   cardGrowth = "up",
+  avatarBox = COMPANION_BASE_AVATAR_BOX,
+  optionsBox = COMPANION_BASE_AVATAR_BOX,
   accentHex,
   assistantName,
   cardRef,
@@ -187,14 +188,27 @@ export function CompanionIntro({
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY_KEYS[beat];
 
+  // The same derivation `CompanionSurface` places the pill by, so the card and
+  // the pill hang off the creature by exactly the same amount.
+  const { inUnits, avatarHalf, gap, nearEdge } = companionLayoutFor(
+    avatarBox,
+    optionsBox,
+  );
+  const avatarHalfUnits = inUnits(avatarHalf);
+  // The creature's half box and then the same room the surface leaves between
+  // the avatar and its pill, so everything hanging off the creature sits the
+  // same distance from it.
+  const stepOff = inUnits(avatarHalf + gap);
+  const nearEdgeUnits = inUnits(nearEdge);
+
   // Hung off the avatar's own edge, which is the point the host positioned this
   // window around and the point the pill is measured from too. Not off the
   // pill: that box changes width from beat to beat as controls are spotlighted,
   // and a card pinned to it would slide about while being read.
   const placement: CSSProperties =
     growth === "left"
-      ? { right: "50%", marginRight: -(AVATAR_BOX / 2) }
-      : { left: "50%", marginLeft: -(AVATAR_BOX / 2) };
+      ? { right: "50%", marginRight: -avatarHalfUnits }
+      : { left: "50%", marginLeft: -avatarHalfUnits };
 
   // The vertical half: sit against the canvas edge the avatar is near, then
   // step off the avatar by its own half box plus the gap. `100%` names the
@@ -203,12 +217,12 @@ export function CompanionIntro({
   const anchor: CSSProperties =
     cardGrowth === "up"
       ? {
-          top: `calc(100% - ${COMPANION_NEAR_EDGE}px)`,
-          transform: `translateY(calc(-100% - ${AVATAR_BOX / 2 + AVATAR_GAP}px))`,
+          top: `calc(100% - ${nearEdgeUnits}px)`,
+          transform: `translateY(calc(-100% - ${stepOff}px))`,
         }
       : {
-          top: COMPANION_NEAR_EDGE,
-          transform: `translateY(${AVATAR_BOX / 2 + AVATAR_GAP}px)`,
+          top: nearEdgeUnits,
+          transform: `translateY(${stepOff}px)`,
         };
 
   return (
