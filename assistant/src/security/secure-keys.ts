@@ -156,6 +156,21 @@ export function setCesClient(client: CesClient | undefined): void {
     "CES client updated; resetting resolved credential backend cache",
   );
   _cesClientListener?.(client);
+  void attachCredentialRecordBackend(client);
+}
+
+async function attachCredentialRecordBackend(
+  client: CesClient | undefined,
+): Promise<void> {
+  const { CesRpcRecordBackend } = await import("./ces-rpc-record-backend.js");
+  const { setCredentialRecordBackend } = await import(
+    "../tools/credentials/metadata-store.js"
+  );
+  if (!client) {
+    setCredentialRecordBackend(undefined);
+    return;
+  }
+  setCredentialRecordBackend(new CesRpcRecordBackend(client));
 }
 
 /**
@@ -377,6 +392,10 @@ export async function attemptCesReconnection(
       const newClient = await _cesReconnect!();
       if (newClient) {
         setCesClient(newClient);
+        const { hydrateCredentialRecordsFromCes } = await import(
+          "../tools/credentials/metadata-store.js"
+        );
+        await hydrateCredentialRecordsFromCes();
         log.info("CES reconnection successful — credential backend restored");
         return true;
       }

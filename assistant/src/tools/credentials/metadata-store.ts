@@ -1,23 +1,32 @@
 /**
  * Credential metadata store.
  *
- * Thin wrapper around the portable StaticCredentialMetadataStore from
- * @vellumai/credential-storage. Wires in the platform-specific data
- * directory and preserves the existing module-level API so that call
- * sites throughout the assistant daemon do not need to change.
+ * Production: CES owns identity + policy records. This module keeps a
+ * synchronous in-process cache so existing call sites stay sync, and
+ * write-through to CES when a record backend is injected.
  *
- * OAuth-specific fields (expiresAt, grantedScopes, oauth2TokenUrl,
- * oauth2ClientId, oauth2TokenEndpointAuthMethod, hasRefreshToken) are now
- * exclusively managed by the SQLite oauth-store and have been removed
- * from this interface as of v5.
+ * Tests: `_setMetadataPath` keeps the file-backed store.
+ *
+ * On hydrate, any leftover workspace `metadata.json` is copied into CES
+ * (overwriting CES rows so workspace migrations that ran before CES
+ * connect win). The file is deleted after CES lists those records back.
  */
 
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
+import {
+  credentialKey,
+  StaticCredentialMetadataStore,
+} from "@vellumai/credential-storage";
+import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
 
+import type { CredentialRecordBackend } from "../../security/ces-rpc-record-backend.js";
+import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
+
+const log = getLogger("credential-metadata-store");
 
 /**
  * CredentialMetadata extends the shared StaticCredentialRecord with
@@ -43,20 +52,151 @@ export interface CredentialMetadata {
 // Singleton store instance
 // ---------------------------------------------------------------------------
 
-/**
- * Lazily initialised store instance. The path is determined on first access
- * (or overridden via `_setMetadataPath` for tests).
- */
 let _store: StaticCredentialMetadataStore | undefined;
 let _overridePath: string | null = null;
+let _recordBackend: CredentialRecordBackend | undefined;
+
+function defaultMetadataPath(): string {
+  return join(getDataDir(), "credentials", "metadata.json");
+}
 
 function getStore(): StaticCredentialMetadataStore {
   if (!_store) {
-    const path =
-      _overridePath ?? join(getDataDir(), "credentials", "metadata.json");
+    const path = _overridePath ?? defaultMetadataPath();
     _store = new StaticCredentialMetadataStore(path);
   }
   return _store;
+}
+
+function toRecord(metadata: CredentialMetadata): CredentialRecord {
+  return {
+    credentialId: metadata.credentialId,
+    service: metadata.service,
+    field: metadata.field,
+    allowedTools: metadata.allowedTools,
+    allowedDomains: metadata.allowedDomains,
+    usageDescription: metadata.usageDescription,
+    alias: metadata.alias,
+    injectionTemplates: metadata.injectionTemplates,
+    createdAt: metadata.createdAt,
+    updatedAt: metadata.updatedAt,
+  };
+}
+
+async function persistRecord(metadata: CredentialMetadata): Promise<void> {
+  if (!_recordBackend || _overridePath) {
+    return;
+  }
+  const account = credentialKey(metadata.service, metadata.field);
+  const ok = await _recordBackend.set(account, toRecord(metadata));
+  if (!ok) {
+    log.warn(
+      { service: metadata.service, field: metadata.field },
+      "Failed to persist credential record to CES",
+    );
+  }
+}
+
+/** Await CES write-through for a record already in the local cache. */
+export async function persistCredentialMetadata(
+  metadata: CredentialMetadata,
+): Promise<void> {
+  await persistRecord(metadata);
+}
+
+export function setCredentialRecordBackend(
+  backend: CredentialRecordBackend | undefined,
+): void {
+  _recordBackend = backend;
+}
+
+/**
+ * Load CES records into the in-process cache. If a leftover workspace
+ * metadata.json exists, it is uploaded to CES first (source of truth for
+ * this boot). The file is deleted only after CES lists those records back.
+ */
+export async function hydrateCredentialRecordsFromCes(): Promise<void> {
+  if (!_recordBackend || _overridePath) {
+    return;
+  }
+  if (!_recordBackend.isAvailable()) {
+    log.warn("CES record backend unavailable; leaving metadata.json in place");
+    return;
+  }
+
+  const filePath = defaultMetadataPath();
+  let localRecords: CredentialMetadata[] = [];
+  if (existsSync(filePath)) {
+    const fileStore = new StaticCredentialMetadataStore(filePath);
+    localRecords = fileStore.list() as CredentialMetadata[];
+    if (localRecords.length > 0) {
+      const results = await _recordBackend.bulkSet(
+        localRecords.map((record) => ({
+          account: credentialKey(record.service, record.field),
+          record: toRecord(record),
+        })),
+      );
+      const imported =
+        results.length === localRecords.length &&
+        results.every((entry) => entry.ok);
+      if (!imported) {
+        log.warn(
+          { expected: localRecords.length, results },
+          "CES import of metadata.json incomplete; keeping the workspace file",
+        );
+        getStore().useMemory(localRecords);
+        return;
+      }
+    }
+  }
+
+  const remote = await _recordBackend.list();
+  if (remote === null) {
+    log.warn(
+      "CES record list failed; keeping leftover metadata.json and existing cache",
+    );
+    if (localRecords.length > 0) {
+      getStore().useMemory(localRecords);
+    }
+    return;
+  }
+
+  if (localRecords.length > 0) {
+    const remoteAccounts = new Set(remote.map((entry) => entry.account));
+    const confirmed = localRecords.every((record) =>
+      remoteAccounts.has(credentialKey(record.service, record.field)),
+    );
+    if (!confirmed) {
+      log.warn(
+        {
+          local: localRecords.length,
+          remote: remote.length,
+        },
+        "CES list is missing imported metadata.json rows; keeping the workspace file",
+      );
+      getStore().useMemory(localRecords);
+      return;
+    }
+  }
+
+  if (existsSync(filePath)) {
+    try {
+      rmSync(filePath, { force: true });
+      log.info(
+        { count: localRecords.length },
+        "Retired workspace credential metadata.json after CES import",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to delete workspace metadata.json");
+    }
+  }
+
+  const store = getStore();
+  store.useMemory(remote.map((entry) => entry.record));
+  log.info(
+    { count: remote.length },
+    "Hydrated credential records from CES",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +229,9 @@ export function upsertCredentialMetadata(
     injectionTemplates?: CredentialInjectionTemplate[] | null;
   },
 ): CredentialMetadata {
-  return getStore().upsert(service, field, policy) as CredentialMetadata;
+  const record = getStore().upsert(service, field, policy) as CredentialMetadata;
+  void persistRecord(record);
+  return record;
 }
 
 /**
@@ -127,13 +269,16 @@ export function deleteCredentialMetadata(
   service: string,
   field: string,
 ): boolean {
-  return getStore().delete(service, field);
+  const deleted = getStore().delete(service, field);
+  if (deleted && _recordBackend && !_overridePath) {
+    void _recordBackend.delete(credentialKey(service, field));
+  }
+  return deleted;
 }
 
 /** @internal Test-only: override the metadata file path. */
 export function _setMetadataPath(path: string | null): void {
   _overridePath = path;
-  // Reset the store so it picks up the new path
   if (_store) {
     if (path) {
       _store.setPath(path);

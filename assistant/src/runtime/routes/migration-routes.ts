@@ -44,6 +44,7 @@ import {
 } from "../../security/secure-keys.js";
 import {
   getCredentialMetadata,
+  persistCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -122,10 +123,10 @@ const PLATFORM_CREDENTIAL_PREFIX = credentialKey("vellum", "");
  * `platform_user_id`, which it resolves from the hatching user and
  * organization. A signed-in client may additionally (re)assert some of them
  * on teleport / local→managed transfer. Either set of writes can race with
- * the import — the CES write survives (separate volume), but the metadata
+ * the import. The CES write survives (separate volume), but the catalog
  * upsert may be clobbered by the in-place clear / atomic swap. After every
- * import we reconcile metadata.json against CES so any field CES already holds
- * a value for gets a matching metadata entry.
+ * import we reconcile credential records against CES secret values so any
+ * field CES already holds a value for gets a matching record.
  */
 const VELLUM_PLATFORM_IDENTITY_FIELDS = [
   "platform_base_url",
@@ -138,8 +139,8 @@ const VELLUM_PLATFORM_IDENTITY_FIELDS = [
 
 /**
  * Idempotent post-import reconciliation: for each vellum:* field, if CES
- * has a value but metadata.json doesn't list it, upsert the entry. Pure
- * add-only — never deletes anything. Safe to run whether or not Django's
+ * has a secret value but no credential record, upsert the record. Pure
+ * add-only: never deletes anything. Safe to run whether or not Django's
  * post-hatch provisioning has completed (missing CES values are skipped).
  *
  * Exported for direct unit-testing.
@@ -156,10 +157,11 @@ export async function reconcileVellumMetadataFromCes(warningSink: {
       if (getCredentialMetadata("vellum", field)) {
         continue;
       }
-      upsertCredentialMetadata("vellum", field, {});
+      const metadata = upsertCredentialMetadata("vellum", field, {});
+      await persistCredentialMetadata(metadata);
       log.info(
         { field },
-        "Reconciled vellum:* metadata entry from CES after import",
+        "Reconciled vellum:* credential record from CES after import",
       );
     } catch (err) {
       warningSink.warnings.push(
@@ -997,9 +999,22 @@ export async function handleMigrationImport(
       );
     }
 
-    // Reconcile vellum:* metadata against CES so the gateway's
-    // readServiceCredentials can still find platform identity values even
-    // if Django's post-hatch provisioning raced with the import.
+    try {
+      const { hydrateCredentialRecordsFromCes } = await import(
+        "../../tools/credentials/metadata-store.js"
+      );
+      await hydrateCredentialRecordsFromCes();
+    } catch (err) {
+      result.report.warnings.push(
+        `Failed to import credential records into CES: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    // Reconcile vellum:* records against CES secret values so platform
+    // identity fields survive an import that raced with post-hatch
+    // provisioning.
     await reconcileVellumMetadataFromCes(result.report);
 
     // Invalidate in-process config cache so imported settings.json takes effect
@@ -1584,12 +1599,9 @@ async function runGcsImport(
     result.report.warnings.push(...credentialImportWarningSink.warnings);
   }
 
-  // Reconcile vellum:* metadata against CES so the gateway's
-  // readServiceCredentials can still find platform identity values even
-  // if Django's post-hatch provisioning raced with the streaming import
-  // (its metadata upsert may have landed in the backup-dir copy that the
-  // swap pushed aside, while its CES write survived on the separate
-  // volume).
+  // Reconcile vellum:* records against CES secret values so platform
+  // identity fields survive a streaming import that raced with post-hatch
+  // provisioning (the CES write survives on a separate volume).
   await reconcileVellumMetadataFromCes(result.report);
 
   // streamCommitImport already invalidated config + trust caches inside its

@@ -1,4 +1,5 @@
 import { apiKeyToCredentialsMigration } from "./002-api-keys-to-credentials.js";
+import { importWorkspaceMetadataMigration } from "./003-import-workspace-metadata.js";
 import { noOpMigration } from "./001-no-op.js";
 import type { CesMigration } from "./types.js";
 
@@ -12,4 +13,5 @@ import type { CesMigration } from "./types.js";
 export const CES_MIGRATIONS: CesMigration[] = [
   noOpMigration,
   apiKeyToCredentialsMigration,
+  importWorkspaceMetadataMigration,
 ];

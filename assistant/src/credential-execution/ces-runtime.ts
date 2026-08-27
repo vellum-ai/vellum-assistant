@@ -180,6 +180,10 @@ export async function startCes(config: AssistantConfig): Promise<void> {
         "CES client injected into credential resolver at startup; credential reads route through CES RPC",
       );
       setCesClient(client);
+      const { hydrateCredentialRecordsFromCes } = await import(
+        "../tools/credentials/metadata-store.js"
+      );
+      await hydrateCredentialRecordsFromCes();
     } else {
       // The handshake lost the startup race, so provider init proceeds on the
       // direct credential store. Still inject the CES client into the resolver
@@ -188,7 +192,13 @@ export async function startCes(config: AssistantConfig): Promise<void> {
       // the process.
       injectCesClientWhenReady(cesResult.clientPromise, {
         getCesClient: getSecureKeysCesClient,
-        setCesClient,
+        setCesClient: (readyClient) => {
+          setCesClient(readyClient);
+          void import("../tools/credentials/metadata-store.js").then(
+            ({ hydrateCredentialRecordsFromCes }) =>
+              hydrateCredentialRecordsFromCes(),
+          );
+        },
       });
     }
   }

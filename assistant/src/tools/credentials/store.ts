@@ -161,6 +161,8 @@ export async function storeCredentialValue(
     allowedDomains: input.allowedDomains,
     injectionTemplates: input.injectionTemplates,
   });
+  const { persistCredentialMetadata } = await import("./metadata-store.js");
+  await persistCredentialMetadata(metadata);
   const { syncManualTokenConnection } =
     await import("../../oauth/manual-token-connection.js");
   await syncManualTokenConnection(service);
