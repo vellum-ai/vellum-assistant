@@ -144,6 +144,19 @@ describe("useVoiceCamera: which cameras get a flash control", () => {
     expect(setFlashModeSpy).not.toHaveBeenCalled();
   });
 
+  test("offers nothing on a camera that reported only part of the cycle", async () => {
+    // The control's whole contract is the three-mode cycle, and a mode the
+    // probe did not name is a mode the bridge refuses. Rather than reach for
+    // the persisted preference and hope, a camera that cannot do all three is
+    // not offered the control at all.
+    useVoicePrefsStore.setState({ flashMode: "on" });
+    getFlashModesSpy.mockImplementation(async () => ["off", "auto"]);
+    await openNativeCamera();
+
+    expect(flashAvailable()).toBe(false);
+    expect(setFlashModeSpy).not.toHaveBeenCalled();
+  });
+
   test("offers nothing on a camera that has only a lamp", async () => {
     // A torch is a separate, one-way state from the photo flash, so a camera
     // offering only that has nothing this control can drive.

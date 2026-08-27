@@ -48,7 +48,9 @@
  *    reads the supported-mode list without a null check, and that list is null
  *    on a camera with no flash unit, so a speculative set throws out of the
  *    bridge. Every camera is probed on arrival, and every flip lands on a
- *    different camera, so every flip re-probes.
+ *    different camera, so every flip re-probes. The control is offered only on
+ *    a camera that reported the whole cycle, which is what makes every mode it
+ *    can then send one the probe already named.
  * 3. **Leave the plugin as it was found.** The plugin instance is app-global
  *    and shared with the composer's capture overlay
  *    (`chat-attachments/camera-capture-overlay.tsx`), and neither platform
@@ -69,7 +71,7 @@ import {
   startNativeVoiceCamera,
   stopNativeVoiceCamera,
 } from "@/runtime/native-voice-camera";
-import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { useVoicePrefsStore, type FlashMode } from "@/stores/voice-prefs-store";
 
 /** Which way the camera points. `environment` is the rear/world-facing one. */
 export type VoiceCameraFacing = "environment" | "user";
@@ -98,14 +100,22 @@ const VIEWFINDER_IDEAL_WIDTH = 1920;
 const VIEWFINDER_IDEAL_HEIGHT = 1080;
 
 /**
- * The probe answers that mean this camera can actually fire a flash.
+ * The modes the control cycles through, and so the modes a camera has to report
+ * before the control is offered on it at all.
  *
- * A camera with no flash unit answers with an empty list, and one that has only
- * a lamp answers `["torch"]`, so the presence of a real capture-flash mode is
- * the whole test. `torch` is never offered (see `FlashMode`), and `red-eye`
- * exists in the plugin's type union with nothing behind it on iOS.
+ * The whole set rather than any of it, for two reasons. A camera that reported
+ * only part of the cycle could not honor the cycle, and requiring all three is
+ * what makes every `setFlashMode` this module sends a mode the probe just
+ * reported, which is the rule the Android implementation punishes breaking.
+ * Both platforms report the three together for a camera with a flash unit and
+ * none of them for a camera without one, so in practice this reads as "does
+ * this camera have a flash".
+ *
+ * `torch` is never one of them: a camera with only a lamp answers `["torch"]`,
+ * and iOS models the lamp as a separate one-way state from the capture flash.
+ * `red-eye` sits in the plugin's type union with nothing behind it on iOS.
  */
-const CAPTURE_FLASH_MODES = ["on", "auto"];
+const CYCLED_FLASH_MODES: FlashMode[] = ["off", "auto", "on"];
 
 /**
  * The "this camera cannot flash" answer, as one shared value.
@@ -575,7 +585,7 @@ export function useVoiceCamera(
 
   const flashAvailable =
     native &&
-    CAPTURE_FLASH_MODES.some((mode) => supportedFlashModes.includes(mode));
+    CYCLED_FLASH_MODES.every((mode) => supportedFlashModes.includes(mode));
 
   // Put the user's preference on whatever camera can take it, and take it back
   // off the moment one cannot.
