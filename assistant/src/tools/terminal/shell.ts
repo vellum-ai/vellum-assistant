@@ -327,6 +327,7 @@ export const shellTool = {
         env,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
+        windowsHide: true,
       });
 
       const killTree = buildKillTree(child, {
@@ -548,6 +549,7 @@ export const shellTool = {
         env,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
+        windowsHide: true,
       });
 
       const killTree = buildKillTree(child, {

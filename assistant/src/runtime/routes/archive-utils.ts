@@ -25,7 +25,12 @@ export async function createTarGz(
     const { stdout } = await execFileAsync(
       "tar",
       ["czf", "-", "-C", staging, "."],
-      { maxBuffer: maxBytes, timeout: 30_000, encoding: "buffer" },
+      {
+        maxBuffer: maxBytes,
+        timeout: 30_000,
+        encoding: "buffer",
+        windowsHide: true,
+      },
     );
     const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);

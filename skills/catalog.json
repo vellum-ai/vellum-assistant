@@ -905,7 +905,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-27T19:44:57.000Z"
+      "updatedAt": "2026-08-27T20:51:21.000Z"
     },
     {
       "id": "start-the-day",
@@ -1384,6 +1384,31 @@
         }
       },
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "windows-automation",
+      "name": "windows-automation",
+      "description": "Automate native Windows apps and system interactions with PowerShell, documented COM APIs, and Microsoft UI Automation through the Windows host executor. Use for launching or inspecting desktop apps, opening Windows Settings, controlling scriptable Microsoft Office apps, and interacting with native UI when no direct CLI or API is available.",
+      "metadata": {
+        "emoji": "🪟",
+        "vellum": {
+          "category": "system",
+          "display-name": "Windows Automation",
+          "platforms": [
+            "windows"
+          ],
+          "activation-hints": [
+            "Interacting with native Windows apps or system settings",
+            "Automating Microsoft Office desktop apps via PowerShell or COM",
+            "Inspecting or controlling a desktop app through Microsoft UI Automation"
+          ],
+          "avoid-when": [
+            "The task can be completed in the sandbox or through a direct CLI or API"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants on Windows",
+      "updatedAt": "2026-08-27T22:43:52.000Z"
     }
   ]
 }

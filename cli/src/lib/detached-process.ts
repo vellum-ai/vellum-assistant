@@ -50,6 +50,7 @@ export async function relaunchDetached(
   const child = spawn(process.execPath, spawnArgs, {
     detached: true,
     stdio: ["ignore", fd, fd],
+    windowsHide: true,
   });
   if (typeof fd === "number") {
     closeSync(fd);

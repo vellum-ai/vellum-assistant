@@ -74,6 +74,7 @@ export async function captureUpgradeFailureLogs(
           {
             encoding: "utf8",
             maxBuffer: 10 * 1024 * 1024, // 10 MB
+            windowsHide: true,
           },
         );
         const output = [result.stdout, result.stderr].filter(Boolean).join("");

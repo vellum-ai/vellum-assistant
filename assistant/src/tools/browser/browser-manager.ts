@@ -268,6 +268,7 @@ class BrowserManager {
             {
               stdout: "pipe",
               stderr: "pipe",
+              windowsHide: true,
             },
           );
           const timeoutMs = 300_000;

@@ -1,4 +1,10 @@
-import { BrowserWindow, app, shell, systemPreferences } from "electron";
+import {
+  BrowserWindow,
+  Notification,
+  app,
+  shell,
+  systemPreferences,
+} from "electron";
 import { z } from "zod";
 
 import type {
@@ -49,6 +55,7 @@ export const configureWindowsPermissionsNative = (
 
 const nativeStatusSchema = z.object({
   microphone: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
+  screen: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
   speechRecognition: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
   notifications: z.enum(SYSTEM_PERMISSION_STATUSES).optional(),
 });
@@ -105,6 +112,13 @@ const allWindowsWebContents = () =>
 
 class WindowsPermissionsService {
   private lastStateJson: string | null = null;
+  // Probe result plus the native status seen when probing. Dropped when the
+  // native status changes or the window regains focus, since the per-app
+  // toggle is invisible to the helper and the user may have changed it.
+  private notificationProbe: {
+    status: SystemPermissionStatus;
+    nativeStatus: SystemPermissionStatus | undefined;
+  } | null = null;
 
   async state(): Promise<SystemPermissionsState> {
     const native = await this.readNativeStatuses();
@@ -119,9 +133,20 @@ class WindowsPermissionsService {
     return state;
   }
 
-  // Windows has no programmatic permission prompt for desktop apps; the
-  // only request path is the matching Settings page.
-  request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem> {
+  // Windows has no programmatic permission prompt for desktop apps except
+  // notifications, which are probed by showing one. Everything else can only
+  // be changed from the matching Settings page.
+  async request(
+    kind: SystemPermissionKind,
+  ): Promise<SystemPermissionStateItem> {
+    if (kind === "notifications") {
+      const native = await this.readNativeStatuses();
+      this.notificationProbe = {
+        status: await this.probeNotifications(),
+        nativeStatus: native.notifications,
+      };
+      return (await this.refresh())[kind];
+    }
     return this.openSettings(kind);
   }
 
@@ -135,6 +160,11 @@ class WindowsPermissionsService {
       await shell.openExternal(uri);
     }
     return (await this.refresh())[kind];
+  }
+
+  refreshOnFocus(): Promise<SystemPermissionsState> {
+    this.notificationProbe = null;
+    return this.refresh();
   }
 
   quitAndReopen(): void {
@@ -160,24 +190,72 @@ class WindowsPermissionsService {
     kind: SystemPermissionKind,
     native: Partial<Record<SystemPermissionKind, SystemPermissionStatus>>,
   ): SystemPermissionStateItem {
-    const status = native[kind] ?? this.fallbackStatus(kind);
+    const status = this.readStatus(kind, native);
+    const settled = status === "granted" || status === "restricted";
     return {
       kind,
       status,
-      canRequest: false,
+      canRequest: kind === "notifications" && !settled,
       canOpenSettings: kind in SETTINGS_URIS && status !== "granted",
       requiresRestart: false,
     };
   }
 
-  private fallbackStatus(kind: SystemPermissionKind): SystemPermissionStatus {
+  private readStatus(
+    kind: SystemPermissionKind,
+    native: Partial<Record<SystemPermissionKind, SystemPermissionStatus>>,
+  ): SystemPermissionStatus {
     if (NOT_APPLICABLE_KINDS.has(kind)) {
       return "not-applicable";
     }
+    const probe = this.notificationProbe;
+    if (
+      kind === "notifications" &&
+      probe &&
+      probe.nativeStatus === native.notifications
+    ) {
+      return probe.status;
+    }
+    if (native[kind]) {
+      return native[kind];
+    }
+    // Screen is deliberately absent: Electron reports it as always granted
+    // on Windows, so only the helper's consent-store read is trusted.
     if (kind === "microphone") {
       return mapMediaStatus(systemPreferences.getMediaAccessStatus(kind));
     }
     return "unknown";
+  }
+
+  private probeNotifications(): Promise<SystemPermissionStatus> {
+    if (!Notification.isSupported()) {
+      return Promise.resolve("restricted");
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (status: SystemPermissionStatus) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(status);
+      };
+      const timeout = setTimeout(() => settle("unknown"), 30_000);
+      timeout.unref?.();
+
+      const notification = new Notification({
+        title: "Vellum",
+        body: "Notifications are enabled.",
+      });
+      notification.once("show", () => settle("granted"));
+      notification.once("failed", () => settle("denied"));
+      try {
+        notification.show();
+      } catch {
+        settle("unknown");
+      }
+    });
   }
 
   private broadcastIfChanged(state: SystemPermissionsState): void {
@@ -242,7 +320,7 @@ const permissionsFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     );
 
     app.on("browser-window-focus", () => {
-      void service.refresh();
+      void service.refreshOnFocus();
     });
   },
 };

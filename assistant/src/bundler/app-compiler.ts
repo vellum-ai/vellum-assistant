@@ -497,6 +497,7 @@ export async function runCompile(
     stdout: "pipe",
     stderr: "pipe",
     env: { ...process.env, NODE_PATH: nodePath },
+    windowsHide: true,
   });
 
   await proc.exited;

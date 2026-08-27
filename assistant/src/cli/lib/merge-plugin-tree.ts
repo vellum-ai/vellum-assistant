@@ -205,6 +205,7 @@ async function threeWayMergeFile(
         encoding: "buffer",
         timeout: MERGE_TIMEOUT_MS,
         maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
       });
       return { content: stdout, conflicted: false, binaryConflicted: false };
     } catch (err) {

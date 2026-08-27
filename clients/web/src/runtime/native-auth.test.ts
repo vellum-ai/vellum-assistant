@@ -46,6 +46,12 @@ mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => ({ ok: true, data: { user: { id: "user-1" } } }),
 }));
 
+const refreshSession = mock(async () => true);
+mock.module("@/stores/auth-store", () => ({
+  useAuthStore: { getState: () => ({ refreshSession }) },
+  whenPlatformSessionSettled: async () => {},
+}));
+
 const {
   clearStaleNativeCheckoutStash,
   resolveNativePostAuthDestination,
@@ -184,9 +190,22 @@ describe("resolveNativePostAuthDestination", () => {
 
 describe("startAuthFlow on Electron", () => {
   const windowWithBridge = window as { vellum?: unknown };
+  const originalLocation = Object.getOwnPropertyDescriptor(window, "location");
+
+  beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { href: "app://vellum.ai/assistant/welcome" },
+    });
+  });
 
   afterEach(() => {
     delete windowWithBridge.vellum;
+    useResolvedAssistantsStore.setState({ assistants: [] });
+    if (originalLocation) {
+      Object.defineProperty(window, "location", originalLocation);
+    }
   });
 
   test("a bridge without auth.startOAuth rejects instead of falling into the loopback flow", async () => {
@@ -214,6 +233,41 @@ describe("startAuthFlow on Electron", () => {
 
     expect(startOAuth).toHaveBeenCalledTimes(1);
     expect(startOAuth).toHaveBeenCalledWith({ intent: "login" });
+  });
+
+  test("refreshes the account before choosing the post-login destination", async () => {
+    const startOAuth = mock(() =>
+      Promise.resolve({ sessionToken: "session-token" }),
+    );
+    windowWithBridge.vellum = {
+      platform: "electron",
+      auth: { startOAuth },
+      menu: { setPlatformSession: async () => {} },
+    };
+    refreshSession.mockImplementationOnce(async () => {
+      useResolvedAssistantsStore.setState({
+        assistants: [
+          {
+            id: "asst-1",
+            hatchedAt: new Date(
+              Date.now() - ONBOARDED_HATCH_AGE_MS,
+            ).toISOString(),
+            isLocal: false,
+            isPlatformHosted: true,
+            isPaired: false,
+          },
+        ],
+      });
+      return true;
+    });
+
+    await startAuthFlow("workos", "/account/provider/callback", {
+      returnTo: routes.onboarding.hosting,
+      intent: "login",
+    });
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(window.location.href).toBe(routes.assistant);
   });
 });
 

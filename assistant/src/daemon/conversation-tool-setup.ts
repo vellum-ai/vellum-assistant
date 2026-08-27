@@ -8,6 +8,7 @@
 
 import type { AssistantEvent } from "../api/index.js";
 import {
+  type ClientOs,
   type HostProxyCapability,
   parseClientOs,
   supportsHostProxy,
@@ -433,8 +434,7 @@ export function createToolExecutor(
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
-      clientOs:
-        parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ?? undefined,
+      clientOs: resolveTurnClientOs(ctx).clientOs,
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
@@ -713,14 +713,14 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Windows parity gate: skill tools may declare `supported_client_os`; drop
- * them when the turn's client OS (or pinned OS for wakes) is not listed.
+ * Host OS of the client driving this turn. The Electron renderer reports
+ * `interface: "web"` and carries the real OS in `clientOs`, so this prefers
+ * the frozen per-turn value and only falls back to a desktop transport.
  */
-function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
-  const supportedClientOs = getTool(name)?.supportedClientOs;
-  if (!supportedClientOs) {
-    return true;
-  }
+function resolveTurnClientOs(ctx: Conversation): {
+  clientOs: ClientOs | undefined;
+  transportInterface: Conversation["transportInterface"];
+} {
   const pin = ctx.toolContextPin;
   const transportInterface = pin
     ? pin.transportInterface
@@ -731,6 +731,19 @@ function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
       (transportInterface === "macos" || transportInterface === "windows"
         ? transportInterface
         : undefined));
+  return { clientOs, transportInterface };
+}
+
+/**
+ * Windows parity gate: skill tools may declare `supported_client_os`; drop
+ * them when the turn's client OS (or pinned OS for wakes) is not listed.
+ */
+function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
+  const supportedClientOs = getTool(name)?.supportedClientOs;
+  if (!supportedClientOs) {
+    return true;
+  }
+  const { clientOs, transportInterface } = resolveTurnClientOs(ctx);
   return supportsClientOsForSkillTool(supportedClientOs, name, {
     clientOs,
     transportInterface,
@@ -871,7 +884,8 @@ export function isToolActiveForContext(
   if (PLATFORM_TOOL_NAMES.has(name)) {
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
-    return channelCapabilities?.clientOS === "macos" && !hasNoClient;
+    const { clientOs } = resolveTurnClientOs(ctx);
+    return (clientOs === "macos" || clientOs === "windows") && !hasNoClient;
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;

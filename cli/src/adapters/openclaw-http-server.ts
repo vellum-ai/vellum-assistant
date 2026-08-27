@@ -51,11 +51,13 @@ const server = http.createServer(async (req, res) => {
         encoding: "utf-8",
         timeout: 120000,
         env: npmEnv,
+        windowsHide: true,
       });
       const child = spawn("vellum-openclaw-adapter", [], {
         detached: true,
         stdio: "ignore",
         env: npmEnv,
+        windowsHide: true,
       });
       child.unref();
       const responseBody = JSON.stringify({
@@ -91,6 +93,7 @@ const server = http.createServer(async (req, res) => {
         encoding: "utf-8",
         timeout: 10000,
         env: execEnv,
+        windowsHide: true,
       });
       const health = JSON.parse(output.trim()) as Record<string, unknown>;
       const result: Record<string, unknown> = {
@@ -108,6 +111,7 @@ const server = http.createServer(async (req, res) => {
             encoding: "utf-8",
             timeout: 10000,
             env: execEnv,
+            windowsHide: true,
           });
           result.message = `${result.message}\n\nGateway Status:\n${gatewayOutput.trim()}`;
         } catch (gatewayErr) {
@@ -138,6 +142,7 @@ const server = http.createServer(async (req, res) => {
             encoding: "utf-8",
             timeout: 10000,
             env: execEnv,
+            windowsHide: true,
           });
           result.message = `${result.message}\n\nGateway Status:\n${gatewayOutput.trim()}`;
         } catch (gatewayErr) {

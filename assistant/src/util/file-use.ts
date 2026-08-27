@@ -48,7 +48,10 @@ type ExecFileRunner = (
 ) => Promise<ExecFileResult>;
 
 const runExecFile: ExecFileRunner = async (command, args, options) => {
-  const { stdout } = await execFileAsync(command, args, options);
+  const { stdout } = await execFileAsync(command, args, {
+    ...options,
+    windowsHide: true,
+  });
   return { stdout };
 };
 

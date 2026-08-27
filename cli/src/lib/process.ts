@@ -118,6 +118,7 @@ export function isVellumProcess(
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     return isVellumCommandLine(output);
   } catch {
@@ -446,6 +447,7 @@ export async function stopOrphanedDaemonProcesses(
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     });
   } catch {
     return false;

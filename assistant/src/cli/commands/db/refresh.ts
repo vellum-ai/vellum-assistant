@@ -48,6 +48,7 @@ function findHoldingPids(paths: string[]): number[] {
         encoding: "utf8",
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
       });
       for (const line of output.trim().split("\n")) {
         const pid = parseInt(line, 10);

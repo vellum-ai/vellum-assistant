@@ -77,7 +77,7 @@ function getMacOSPlatformUUID(): string | null {
   try {
     const output = execSync(
       "ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}'",
-      { encoding: "utf-8", timeout: 5000 },
+      { encoding: "utf-8", timeout: 5000, windowsHide: true },
     ).trim();
     const uuid = output.replace(/"/g, "");
     return uuid.length > 0 ? uuid : null;
@@ -316,7 +316,9 @@ function isUnreachableGatewayError(error: unknown): boolean {
   );
 }
 
-function classifyRefreshThrownError(error: unknown): GuardianTokenRefreshResult {
+function classifyRefreshThrownError(
+  error: unknown,
+): GuardianTokenRefreshResult {
   if (isTimeoutLikeError(error)) {
     return {
       ok: false,

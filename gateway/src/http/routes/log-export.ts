@@ -145,7 +145,7 @@ export function createLogExportHandler(config: GatewayConfig) {
       const archivePath = `${stagingDir}.tar.gz`;
       const tarProc = Bun.spawn(
         ["/usr/bin/tar", "czf", archivePath, "-C", stagingDir, "."],
-        { stdout: "pipe", stderr: "pipe" },
+        { stdout: "pipe", stderr: "pipe", windowsHide: true },
       );
       const tarExit = await tarProc.exited;
       if (tarExit !== 0) {
@@ -381,7 +381,7 @@ async function collectDaemonExport(
 
   const extractProc = Bun.spawn(
     ["/usr/bin/tar", "xzf", tarGzPath, "-C", destDir],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const extractExit = await extractProc.exited;
   if (extractExit !== 0) {
@@ -451,7 +451,7 @@ async function collectCesExport(
 
   const extractProc = Bun.spawn(
     ["/usr/bin/tar", "xzf", tarGzPath, "-C", destDir],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const extractExit = await extractProc.exited;
   if (extractExit !== 0) {

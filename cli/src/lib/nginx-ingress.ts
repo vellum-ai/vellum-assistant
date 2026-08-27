@@ -415,6 +415,7 @@ export function getNginxVersion(): string | null {
   const result = spawnSync(nginxBin(), ["-v"], {
     encoding: "utf-8",
     timeout: 5_000,
+    windowsHide: true,
   });
   if (result.error || result.status !== 0) return null;
   const output = `${result.stderr || ""}${result.stdout || ""}`.trim();
@@ -464,6 +465,7 @@ function isIngressNginxProcess(pid: number, paths: IngressPaths): boolean {
         encoding: "utf-8",
         timeout: 3000,
         stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
       },
     ).trim();
     return (
@@ -604,7 +606,7 @@ export function startIngressNginx(opts: {
   const child = spawn(
     nginxBin(),
     ["-p", paths.dir, "-c", paths.confPath, "-g", "daemon off;"],
-    { detached: true, stdio: ["ignore", fd, fd] },
+    { detached: true, stdio: ["ignore", fd, fd], windowsHide: true },
   );
   closeSync(fd);
 
