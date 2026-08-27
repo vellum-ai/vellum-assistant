@@ -154,7 +154,7 @@ describe("evictConversationsForReload", () => {
 
     const result = await getOrCreateConversation("stale-parent");
 
-    expect(result).toBe(parent);
+    expect(result as unknown).toBe(parent);
     expect(parent.disposed).toBe(false);
     expect(abortedParents).toEqual([]);
   });
