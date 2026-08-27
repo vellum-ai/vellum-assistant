@@ -18,7 +18,13 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import type {
@@ -98,11 +104,14 @@ function skillQueryKey() {
   }).queryKey;
 }
 
-function renderPanel(client: QueryClient = makeQueryClient()): QueryClient {
+function renderPanel(
+  client: QueryClient = makeQueryClient(),
+  onClose: () => void = () => {},
+): QueryClient {
   render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <SkillDetailPanel skillId={SKILL_ID} onClose={() => {}} />
+        <SkillDetailPanel skillId={SKILL_ID} onClose={onClose} />
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -169,5 +178,23 @@ describe("SkillDetailPanel skill query states", () => {
       expect(screen.getByText(ERROR_COPY)).toBeTruthy();
     });
     expect(screen.queryByText(SKILL_DESCRIPTION)).toBeNull();
+  });
+
+  test("Go to Skill closes the panel on hand-off to the dedicated page", async () => {
+    // The dedicated page supersedes the in-place panel. Leaving the panel's
+    // store state set would re-render it from stale state on the return trip
+    // to the conversation, as a dead drawer if the skill was removed there.
+    let closed = 0;
+    renderPanel(makeQueryClient(), () => {
+      closed += 1;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(SKILL_DESCRIPTION)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Go to Skill"));
+
+    expect(closed).toBe(1);
   });
 });
