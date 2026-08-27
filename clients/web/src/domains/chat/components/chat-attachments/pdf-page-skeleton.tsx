@@ -20,11 +20,19 @@ interface PdfPageSkeletonProps {
    * canvases moves nothing.
    */
   aspectRatio?: number;
+  /**
+   * Width constraint, which the caller owns because the same placeholder
+   * stands in for pages at very different sizes: the chat column and the
+   * fullscreen modal cap a viewport-relative width, while the document
+   * drawer is a few hundred pixels wide and its pages fill it.
+   */
+  className?: string;
 }
 
 /** Page-shaped placeholder for a PDF that is being fetched and parsed. */
 export function PdfPageSkeleton({
   aspectRatio,
+  className,
 }: PdfPageSkeletonProps): ReactNode {
   const { t } = useTranslation("chat");
   return (
@@ -32,7 +40,7 @@ export function PdfPageSkeleton({
       as="span"
       role="status"
       aria-label={t("pdfPageSkeleton.loadingPdf")}
-      className="block w-[90vw] max-w-[800px] rounded"
+      className={`block rounded ${className ?? "w-full"}`}
       style={{ aspectRatio: aspectRatio ?? DEFAULT_PAGE_ASPECT_RATIO }}
     />
   );

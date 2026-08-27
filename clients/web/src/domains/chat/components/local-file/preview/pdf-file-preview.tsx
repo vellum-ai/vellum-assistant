@@ -28,9 +28,11 @@ export function PdfFilePreview({ blob }: PdfFilePreviewProps): ReactNode {
   }
 
   return (
-    // PdfPreview sizes its canvases for the fullscreen modal (90vw); pin them
-    // to the drawer's width instead.
-    <span className="block w-full [&_canvas]:w-full!">
+    // PdfPreview sizes its canvases and its loading placeholder for the
+    // fullscreen modal (90vw); pin both to the drawer's width instead, or
+    // the placeholder overflows a drawer a few hundred pixels wide and then
+    // snaps smaller the moment the first canvas replaces it.
+    <span className="block w-full [&_[data-slot=skeleton]]:w-full! [&_canvas]:w-full!">
       <PdfPreview url={url} />
     </span>
   );
