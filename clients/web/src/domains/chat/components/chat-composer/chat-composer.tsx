@@ -1668,6 +1668,8 @@ export function ChatComposer({
                   <ChatAttachmentsStrip
                     attachments={attachments}
                     onRemove={removeAttachment}
+                    tileImages={isMobile}
+                    pressGuard={rowPressGuard}
                   />
                   {isMobile ? (
                     <>
