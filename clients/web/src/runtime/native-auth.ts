@@ -311,9 +311,9 @@ export function getSessionTokenFromCookies(): string | null {
  * Post-auth destination for the native (Capacitor/Electron) flows. Delegates
  * the signup checkout-stash + destination decision to the shared
  * `resolveSignupCheckoutDestination`. A first-run signup routes through
- * consent (privacy) first. An already-onboarded assistant skips privacy and
- * research. A login keeps its `returnTo` unless that target is the first-run
- * funnel and the assistant is already onboarded.
+ * consent (privacy) first. An already-onboarded assistant skips hosting,
+ * privacy, and research. A login keeps its `returnTo` unless that target is
+ * the first-run funnel and the assistant is already onboarded.
  */
 export function resolveNativePostAuthDestination(
   intent: string | undefined,
@@ -348,6 +348,7 @@ function isFirstRunOnboardingReturnTo(
   }
   const pathname = returnTo.split(/[?#]/)[0] ?? returnTo;
   return (
+    pathname === routes.onboarding.hosting ||
     pathname === routes.onboarding.privacy ||
     pathname === routes.onboarding.research
   );
