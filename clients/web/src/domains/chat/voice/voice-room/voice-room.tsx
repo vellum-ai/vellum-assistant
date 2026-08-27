@@ -136,6 +136,7 @@ import {
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   liveVoiceSurfaceLabel,
+  liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
@@ -148,11 +149,15 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
+import { CAMERA_SCRIM_BOTTOM, CAMERA_SCRIM_TOP } from "./camera-mode-paint";
+import { CameraStatusPill } from "./camera-status-pill";
 import { useActiveConnectSurface } from "./use-active-connect-surface";
+import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
 import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
@@ -197,6 +202,17 @@ const AVATAR_SIZE = 220;
  * top-right exit and the bottom control row sit on the same rhythm.
  */
 const CORNER_GAP = "1.25rem";
+
+/**
+ * Ceiling on the camera status pill, which is centred on the same line as the
+ * top-right minimize control and grows in both directions from there. A
+ * configured assistant name is arbitrarily long, so without this the pill runs
+ * under that control and off a phone-width room. Each side gives up the corner
+ * chrome's own offset, the control's 3rem box, and a gap so the two never
+ * touch; a percentage resolves against the room, which is what the pill has to
+ * fit inside.
+ */
+const CAMERA_PILL_MAX_WIDTH = `calc(100% - 2 * (max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.5rem))`;
 
 /**
  * The flash button's accessible name, per state.
@@ -516,6 +532,26 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     useVoiceRoomCamera(assistantId, viewfinderRef);
   const cameraOpen = camera.open;
 
+  // Camera mode's own status readout. Gated on the camera so the user-speaking
+  // poll inside the hook only runs while something renders its dot, and the
+  // name is resolved the way the first-run card resolves it.
+  const cameraVoiceState = useCameraVoiceState(
+    state,
+    assistantAudioActive,
+    cameraOpen,
+  );
+  // The same decision as `stateLabel`, taken as a catalog key so the pill's
+  // word reaches a Spanish or Russian reader in their own language.
+  const cameraStatusKey = liveVoiceSurfaceLabelKey(
+    state,
+    reconnecting,
+    assistantAudioActive,
+    muted,
+  );
+  const assistantName = useResolvedAssistantsStore.use
+    .assistants()
+    .find((a) => a.id === assistantId)?.name;
+
   // The flash. A preference rather than a session setting, because the reason
   // someone turns it on (a dark room, a phone that under-exposes) outlives the
   // call it was turned on in. `useVoiceCamera` puts it on the camera; the room
@@ -743,6 +779,37 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         />
       ) : null}
 
+      {/* Legibility scrims for the two bands the camera chrome lives in.
+
+          The chrome over a viewfinder has no background it can count on: the
+          status pill's own glass holds up over most frames, but a white wall
+          under the top band or a bright sky under the bottom one takes the
+          whole row with it. A gradient darkens just enough at the edges to
+          keep it readable and fades to nothing before the middle of the frame,
+          which is the part the user is aiming.
+
+          Above the feed (`z-[2]`) and below the chrome (`z-10`), and inert:
+          they cover the shutter and the control row, so anything else would
+          swallow every press in the bottom third. Rendered for the native
+          preview too, which sits behind the transparent web view and needs the
+          scrim just as much. */}
+      {cameraOpen ? (
+        <>
+          <div
+            aria-hidden
+            data-testid="voice-room-scrim-top"
+            className="pointer-events-none absolute inset-x-0 top-0 z-[3] h-[22%]"
+            style={{ background: CAMERA_SCRIM_TOP }}
+          />
+          <div
+            aria-hidden
+            data-testid="voice-room-scrim-bottom"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[38%]"
+            style={{ background: CAMERA_SCRIM_BOTTOM }}
+          />
+        </>
+      ) : null}
+
       {/* Optional live transcript, rendered into the room's two text zones —
           the user's speech above the eyes, the assistant's below. Pref-gated
           (the captions control above) and absolutely positioned in the margins
@@ -792,6 +859,36 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           data-testid="voice-room-grabber"
           className="pointer-events-none absolute left-1/2 top-2 z-10 h-1 w-9 -translate-x-1/2 rounded-full bg-[var(--room-fg-muted)] opacity-60"
         />
+      ) : null}
+
+      {/* Camera mode's status readout: what the camera is doing, and what the
+          session is doing. Top-centre, on the same offset the corner chrome
+          uses, so it shares a line with the minimize control instead of
+          floating on a rhythm of its own; that offset already clears the
+          sheet's grabber.
+
+          Camera-only. With the viewfinder closed the room says all of this
+          through the look itself (the avatar's visual, the state caption, the
+          bands), and a pill repeating it would be a second answer to a question
+          nobody asked. */}
+      {cameraOpen ? (
+        <div
+          data-testid="camera-status-pill-slot"
+          className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
+          style={{
+            top: fullscreen
+              ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
+              : CORNER_GAP,
+            maxWidth: CAMERA_PILL_MAX_WIDTH,
+          }}
+        >
+          <CameraStatusPill
+            voiceState={cameraVoiceState}
+            statusLabel={cameraStatusKey ? t(cameraStatusKey) : ""}
+            assistantName={assistantName}
+            muted={muted}
+          />
+        </div>
       ) : null}
 
       {/* Top-right: minimize, alone.
@@ -1144,13 +1241,24 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
 
       {/* Screen readers get session-state changes here; the avatar is the
           visual channel, so this stays off-screen. */}
-      <div aria-live="polite" className="sr-only">
-        {/* A muted `listening` already reads as "Muted", so prefixing it again
-            would announce "Muted — Muted". The assistant's own phases still
+      <div
+        aria-live="polite"
+        className="sr-only"
+        data-testid="voice-room-state-announcer"
+      >
+        {/* The status pill is the announcer while the camera is open, and it
+            says the same label with the mode attached, so this region stands
+            down rather than reading the state twice. It takes the mute prefix
+            below with it, on the same rule.
+
+            A muted `listening` already reads as "Muted", so prefixing it again
+            would announce "Muted. Muted". The assistant's own phases still
             need the prefix: "Thinking…" alone would not say the mic is off. */}
-        {muted && state !== "listening"
-          ? t("voiceRoom.mutedState", { state: stateLabel })
-          : stateLabel}
+        {cameraOpen
+          ? ""
+          : muted && state !== "listening"
+            ? t("voiceRoom.mutedState", { state: stateLabel })
+            : stateLabel}
       </div>
     </motion.div>
   );

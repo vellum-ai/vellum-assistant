@@ -434,6 +434,28 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* Camera-mode status dot: the 5px mark in the voice room's status pill,
+ * breathing while a voice is live (the user talking, or the assistant
+ * answering). Long on, short dip: a hard on/off blink at this size reads as a
+ * fault light over a camera feed. The component also holds it static via
+ * useReducedMotion; the media query is defense-in-depth for callers that
+ * don't, and pins the dot lit rather than mid-dip. */
+@keyframes camera-status-blink {
+  0%, 60% { opacity: 1; }
+  80%, 100% { opacity: 0.25; }
+}
+
+.camera-status-blink {
+  animation: camera-status-blink 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-status-blink {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */

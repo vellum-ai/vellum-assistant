@@ -1711,6 +1711,123 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()?.className).toContain("z-[2]");
   });
 
+  test("the status pill and the scrims come up with the camera and go with it", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the look already narrates the session, so the pill would be a
+    // second answer to a question nobody asked.
+    expect(screen.queryByTestId("camera-status-pill")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-top")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo",
+    );
+    // Centred on the minimize control's own line, so the room hands it a
+    // ceiling that keeps a long assistant name clear of that corner.
+    expect(
+      screen.getByTestId("camera-status-pill-slot").getAttribute("style"),
+    ).toContain("max-width");
+    // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
+    // bottom scrim lies over the shutter and the whole control row.
+    const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");
+    expect(bottomScrim.className).toContain("z-[3]");
+    expect(bottomScrim.className).toContain("pointer-events-none");
+    expect(screen.getByTestId("voice-room-scrim-top").className).toContain(
+      "pointer-events-none",
+    );
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.queryByTestId("camera-status-pill")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
+  });
+
+  test("the pill is the only announcer of voice state while the camera is open", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the room's own live region carries the label (the "…"-suffixed
+    // one, distinct from the caption's un-suffixed text).
+    const announcer = () => screen.getByTestId("voice-room-state-announcer");
+    expect(announcer().textContent).toBe("Listening…");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the pill says it with the mode attached, and the old region stands
+    // down, so a screen reader hears the state once rather than twice.
+    expect(announcer().textContent).toBe("");
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo. Listening…",
+    );
+  });
+
+  test("the pill keeps the muted prefix the standing-down region carried", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    const announcer = () => screen.getByTestId("voice-room-state-announcer");
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "thinking", muted: true });
+    });
+
+    // Closed: the room prefixes the phases the session does not relabel.
+    expect(announcer().textContent).toBe("Muted. Thinking…");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the region stands down, so the pill has to carry the mic's state or
+    // it is lost for the rest of the phase.
+    expect(announcer().textContent).toBe("");
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo. Muted. Thinking…",
+    );
+  });
+
+  test("the pill carries the session's own label, not a fixed listening word", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // A phase the mic cannot take speech in. Saying "Listening" here would tell
+    // the user to keep talking into a session that is tearing itself down.
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "ending" });
+    });
+
+    const pill = () => screen.getByTestId("camera-status-pill");
+    expect(pill().textContent).toContain("Ending…");
+    expect(pill().textContent).not.toContain("Listening");
+
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "connecting", reconnecting: true });
+    });
+
+    expect(pill().textContent).toContain("Reconnecting…");
+  });
+
   test("the controls take a scrim once they sit over the feed", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();

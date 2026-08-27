@@ -19,6 +19,7 @@ import {
   LIVE_VOICE_STATE_LABELS,
   liveVoiceStateLabel,
   liveVoiceSurfaceLabel,
+  liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
   restoreVoiceRoom,
@@ -30,6 +31,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { toVoiceAvatarVisual } from "@/domains/chat/voice/voice-room/voice-avatar-state";
+import enChat from "@/i18n/locales/en/chat.json";
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
@@ -305,6 +307,43 @@ describe("liveVoiceSurfaceLabel", () => {
     expect(liveVoiceSurfaceLabel("connecting", true, false, true)).toBe(
       "Reconnecting…",
     );
+  });
+});
+
+describe("liveVoiceSurfaceLabelKey", () => {
+  /**
+   * The key and the English label are the same decision, so a surface that
+   * translates the key cannot say a different thing from the surfaces that read
+   * the label. The catalog is the other half of that: a key whose English copy
+   * had drifted would translate into a word the room never shows.
+   */
+  test("keys the copy the English label reads out", () => {
+    const cases: [LiveVoiceSessionState, boolean, boolean, boolean][] = [
+      ["connecting", false, false, false],
+      ["connecting", true, false, false],
+      ["listening", false, false, false],
+      ["listening", false, false, true],
+      ["transcribing", false, false, false],
+      ["thinking", false, false, false],
+      ["speaking", false, true, false],
+      ["speaking", false, false, false],
+      ["ending", false, false, false],
+    ];
+
+    for (const [state, reconnecting, audio, muted] of cases) {
+      const key = liveVoiceSurfaceLabelKey(state, reconnecting, audio, muted);
+      expect(key).not.toBeNull();
+      const slot = key!.replace("liveVoiceStatus.", "");
+      expect(liveVoiceSurfaceLabel(state, reconnecting, audio, muted)).toBe(
+        enChat.liveVoiceStatus[slot as keyof typeof enChat.liveVoiceStatus],
+      );
+    }
+  });
+
+  /** Hosts unmount their voice UI in these phases, so there is no word to key. */
+  test("keys nothing for the phases that carry no word", () => {
+    expect(liveVoiceSurfaceLabelKey("idle", false, false, false)).toBeNull();
+    expect(liveVoiceSurfaceLabelKey("failed", false, false, false)).toBeNull();
   });
 });
 

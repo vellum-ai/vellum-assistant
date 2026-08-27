@@ -240,6 +240,14 @@
     "shutter": "Tomar foto",
     "title": "Tomar una foto"
   },
+  "cameraStatusPill": {
+    "announcePhotoMutedSpeaking": "Foto. Silenciado. {name} está hablando",
+    "announcePhotoMutedStatus": "Foto. Silenciado. {status}",
+    "announcePhotoSpeaking": "Foto. {name} está hablando",
+    "announcePhotoStatus": "Foto. {status}",
+    "photo": "Foto",
+    "yourAssistant": "Tu asistente"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },
@@ -767,6 +775,15 @@
   },
   "liveVoiceButton": {
     "startVoiceMode": "Iniciar el modo de voz"
+  },
+  "liveVoiceStatus": {
+    "connecting": "Conectando…",
+    "ending": "Finalizando…",
+    "listening": "Escuchando…",
+    "muted": "Silenciado",
+    "reconnecting": "Reconectando…",
+    "speaking": "Hablando…",
+    "thinking": "Pensando…"
   },
   "llmCallErrorCard": {
     "chipCode": "Código",

@@ -139,6 +139,14 @@
     "syntheticYield": "Пауза · сжатие не уместило следующий шаг",
     "unrecognizedCall": "Неизвестный вызов"
   },
+  "cameraStatusPill": {
+    "announcePhotoMutedSpeaking": "Фото. Без звука. {name} говорит",
+    "announcePhotoMutedStatus": "Фото. Без звука. {status}",
+    "announcePhotoSpeaking": "Фото. {name} говорит",
+    "announcePhotoStatus": "Фото. {status}",
+    "photo": "Фото",
+    "yourAssistant": "Ваш ассистент"
+  },
   "channelReferenceChip": {
     "heading": "Ссылка на сообщение из {channel}",
     "headingWithSender": "Ссылка на сообщение {sender} в {channel}",
@@ -346,6 +354,15 @@
     "unknown": "Голосовой режим уже активен в другом месте.",
     "web": "Голосовой режим уже активен в другой вкладке браузера.",
     "windows": "Голосовой режим уже активен в приложении для Windows."
+  },
+  "liveVoiceStatus": {
+    "connecting": "Подключение…",
+    "ending": "Завершение…",
+    "listening": "Слушаю…",
+    "muted": "Без звука",
+    "reconnecting": "Переподключение…",
+    "speaking": "Говорит…",
+    "thinking": "Думает…"
   },
   "llmCallErrorCard": {
     "chipCode": "Код",
