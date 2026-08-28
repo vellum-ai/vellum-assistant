@@ -1399,18 +1399,37 @@ async function runWebInterface(
         const filePath = path.join(distDir, relPath);
         const file = Bun.file(filePath);
         if (await file.exists()) {
-          return new Response(file);
+          // Everything under dist/assets/ carries a content hash in its
+          // filename, so it can be cached forever: a new build references new
+          // filenames. Without this header the WebView is free to revalidate
+          // or re-fetch every chunk on every lazy-route navigation. Unhashed
+          // files (public/ copies) must revalidate instead.
+          const cacheControl = relPath.startsWith("assets/")
+            ? "public, max-age=31536000, immutable"
+            : "no-cache";
+          return new Response(file, {
+            headers: { "Cache-Control": cacheControl },
+          });
         }
       }
       return new Response(indexHtml, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          // The HTML names the current build's hashed chunks and embeds the
+          // server's config snippet; a cached copy would pin a stale build
+          // (or stale flags) across an assistant update.
+          "Cache-Control": "no-cache",
+        },
       });
     }
 
     // SPA fallback for /account/* routes (login, callback, etc.)
     if (pathname.startsWith("/account/")) {
       return new Response(indexHtml, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
       });
     }
 
