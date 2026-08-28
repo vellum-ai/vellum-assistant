@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   decideWorkerSlot,
+  escalationAuthorised,
   resolveWorkerCommand,
   workerKindSignature,
   type WorkerProcessStatus,
@@ -233,5 +234,41 @@ describe("decideWorkerSlot", () => {
 
   test("never signals when the process table could not be read", () => {
     expect(decide(null)).toEqual({ action: "adopt", pid: WORKER });
+  });
+});
+
+// Escalation happens after an awaited SIGTERM grace, so the PID alone cannot
+// carry identity across it: the orphan may exit mid-wait and the OS may hand
+// its PID to a stranger. SIGKILL is authorised only while the command line
+// still reads as this worker.
+describe("escalationAuthorised", () => {
+  const signature = ["src/schedule/worker.ts"];
+
+  test("still this worker: escalation proceeds", () => {
+    expect(
+      escalationAuthorised(
+        "bun --smol run /app/runtime/0.10.11/src/schedule/worker.ts",
+        signature,
+      ),
+    ).toBe(true);
+  });
+
+  test("orphan exited and PID reused by a stranger: never SIGKILL", () => {
+    expect(escalationAuthorised("/usr/bin/postgres -D /data", signature)).toBe(
+      false,
+    );
+  });
+
+  test("orphan exited, PID unclaimed: reads as gone", () => {
+    expect(escalationAuthorised(null, signature)).toBe(false);
+  });
+
+  test("PID reused by a different worker kind: never SIGKILL", () => {
+    expect(
+      escalationAuthorised(
+        "bun --smol run /app/runtime/0.10.11/src/monitoring/worker.ts",
+        signature,
+      ),
+    ).toBe(false);
   });
 });
