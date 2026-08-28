@@ -66,9 +66,50 @@ const BUN_ARGV0 = /^bun(\.exe)?$/i;
 /** The daemon entry script, as a whole trailing path segment pair. */
 const DAEMON_ENTRY_ARG = /(^|\/)daemon\/main\.(ts|js)$/;
 
-/** Strip surrounding quotes a Windows command line puts around a path. */
-function argvToken(raw: string): string {
-  return raw.replace(/^["']|["']$/g, "").replaceAll("\\", "/");
+/**
+ * Split a command line into argv, keeping quoted paths whole.
+ *
+ * Splitting on whitespace first would shred the ordinary Windows install path
+ * `"C:\\Program Files\\Vellum\\...\\vellum-daemon.exe"` into `"C:\\Program` and
+ * make the packaged daemon unrecognisable, which is the very install this
+ * recovery path exists for. Separators are normalised per token so a caller
+ * can take a basename either way.
+ */
+function tokenizeCommandLine(command: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  let started = false;
+
+  for (const ch of command) {
+    if (quote !== null) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) {
+        tokens.push(current);
+        current = "";
+        started = false;
+      }
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  if (started) {
+    tokens.push(current);
+  }
+  return tokens.map((token) => token.replaceAll("\\", "/"));
 }
 
 /**
@@ -90,7 +131,7 @@ export function isDaemonCommand(command: string | null): boolean {
   if (command == null) {
     return false;
   }
-  const tokens = command.trim().split(/\s+/).filter(Boolean).map(argvToken);
+  const tokens = tokenizeCommandLine(command);
   const argv0 = tokens[0]?.split("/").pop() ?? "";
   if (PACKAGED_DAEMON_ARGV0.test(argv0)) {
     return true;

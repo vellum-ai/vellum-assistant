@@ -15,9 +15,42 @@ describe("isDaemonCommand", () => {
     ).toBe(true);
   });
 
-  test("packaged daemon as argv0, including a quoted Windows path", () => {
+  test("packaged daemon as argv0", () => {
     expect(isDaemonCommand("/Applications/Vellum/vellum-daemon")).toBe(true);
-    expect(isDaemonCommand('"C:\\App\\vellum-daemon.exe" --serve')).toBe(true);
+  });
+
+  // The ordinary Windows install path contains a space, so splitting on
+  // whitespace before honouring quotes would yield argv0 "Program" and make
+  // the packaged daemon invisible to the recovery path this predicate serves.
+  test("packaged Windows daemon under an install path containing spaces", () => {
+    expect(
+      isDaemonCommand(
+        '"C:\\Program Files\\Vellum\\resources\\cli-runtime\\vellum-daemon.exe"',
+      ),
+    ).toBe(true);
+    expect(
+      isDaemonCommand(
+        '"C:\\Program Files\\Vellum\\resources\\cli-runtime\\vellum-daemon.exe" --serve',
+      ),
+    ).toBe(true);
+  });
+
+  test("quoted bun entry-script argument under a path containing spaces", () => {
+    expect(
+      isDaemonCommand(
+        '"C:\\Program Files\\bun\\bun.exe" run "C:\\Program Files\\Vellum\\src\\daemon\\main.ts"',
+      ),
+    ).toBe(true);
+  });
+
+  // POSIX joins argv with spaces, so an entry path containing a space arrives
+  // pre-split; the tail token still carries the entry, which is what matches.
+  test("unquoted POSIX entry path containing a space", () => {
+    expect(
+      isDaemonCommand(
+        "/home/mary/.bun/bin/bun run /home/Mary Jane/runtime/src/daemon/main.ts",
+      ),
+    ).toBe(true);
   });
 
   // process.title rewrites the source daemon's argv on Linux.
