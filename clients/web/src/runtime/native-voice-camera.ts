@@ -26,6 +26,14 @@ function setPreviewVisible(visible: boolean): void {
   );
 }
 
+/**
+ * Counts every start and stop, so a start whose refusal arrives late can tell
+ * that the visibility is not its to clean: when a stop and a replacement
+ * start run while the refusal is on the bridge, hiding the preview here would
+ * hide the replacement's, with its camera live behind an opaque canvas.
+ */
+let visibilityEpoch = 0;
+
 /** Start the native preview, or return false when this shell cannot provide it. */
 export async function startNativeVoiceCamera(
   facing: NativeVoiceCameraFacing,
@@ -34,6 +42,7 @@ export async function startNativeVoiceCamera(
     return false;
   }
 
+  const epoch = ++visibilityEpoch;
   setPreviewVisible(true);
   const started = await callNativeVoice(async () => {
     await CameraPreview.start({
@@ -46,7 +55,7 @@ export async function startNativeVoiceCamera(
     });
     return true;
   }, false);
-  if (!started) {
+  if (!started && epoch === visibilityEpoch) {
     setPreviewVisible(false);
   }
   return started;
@@ -54,6 +63,7 @@ export async function startNativeVoiceCamera(
 
 /** Stop the native preview. Safe when the plugin is absent or already stopped. */
 export async function stopNativeVoiceCamera(): Promise<void> {
+  visibilityEpoch += 1;
   setPreviewVisible(false);
   await callNativeVoice(async () => {
     await CameraPreview.stop();
