@@ -473,6 +473,7 @@
     "toolLabel": "Herramienta:"
   },
   "contactActions": {
+    "recordCancelFailed": "No se pudo descartar el formulario. Inténtalo de nuevo.",
     "recordSaveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo.",
     "saveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo."
   },

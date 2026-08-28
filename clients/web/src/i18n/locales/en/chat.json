@@ -473,6 +473,7 @@
     "toolLabel": "Tool:"
   },
   "contactActions": {
+    "recordCancelFailed": "Failed to dismiss the form. Please try again.",
     "recordSaveFailed": "Failed to save the contact. Please try again.",
     "saveFailed": "Failed to save contact. Please try again."
   },

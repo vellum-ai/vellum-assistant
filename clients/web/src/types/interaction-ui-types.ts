@@ -82,6 +82,12 @@ export interface PendingContactRecordRequestState {
   currentDisplayName?: string;
   /** The target's channels, shown on a delete confirmation. */
   channels?: Array<{ type: string; address: string }>;
+  /**
+   * The conversation that was on screen when this form arrived. The form
+   * itself carries no conversation, so this is the only turn a dismissal has
+   * any business ending, and only while it is still the active one.
+   */
+  originConversationId?: string | null;
   displayName?: string;
   notes?: string;
   label?: string;

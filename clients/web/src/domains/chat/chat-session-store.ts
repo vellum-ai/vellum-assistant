@@ -514,7 +514,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
     // Reset all per-conversation state atomically.
     useTurnStore.getState().resetTurn();
-    useInteractionStore.getState().resetAll();
+    useInteractionStore
+      .getState()
+      .resetAll({ assistantChanged: isAssistantSwitch });
     if (isAssistantSwitch) {
       // Assistant changed — old message bubbles leave the DOM, revoke blob URLs.
       useComposerStore.getState().fullReset();

@@ -43,15 +43,20 @@ const CONTACT_PROMPT_TIMEOUT_MS = 300_000;
 const CONTACT_PROMPT_MAX_TIMEOUT_MS = 3_600_000;
 
 /**
- * How long a claimed form is held while its write settles (30s).
+ * How long a claimed form is held while its write settles (3 min).
  *
  * Claiming means somebody answered, so the original deadline stops applying:
  * letting it fire mid-write would report a timeout to the caller while the
  * write went on to commit, and for a delete that is a contact removed after
- * the command said nothing happened. The wait is still bounded, so a gateway
- * that dies mid-write cannot park the caller forever.
+ * the command said nothing happened.
+ *
+ * The budget has to clear the gateway's whole write, not one call of it. Its
+ * IPC calls bound at 30s each and a delete makes three in sequence (mirror
+ * probe, mirror delete, then the resolve back), so anything at or near 30s
+ * expires a write that is still legitimately in progress. Bounded all the
+ * same, so a gateway that dies mid-write cannot park the caller forever.
  */
-const CONTACT_PROMPT_SETTLE_MS = 30_000;
+const CONTACT_PROMPT_SETTLE_MS = 180_000;
 
 const TimeoutMsParam = z
   .number()
@@ -104,11 +109,20 @@ function expireContactPrompt(
 ): void {
   pendingContactPrompts.delete(requestId);
   pending.resolve({ ok: false, error });
-  broadcastMessage({
-    type: "contact_form_closed",
-    requestId,
-    reason: "timed_out",
-  });
+  announceFormClosed(requestId, "timed_out");
+}
+
+/**
+ * Tell every client a form is over.
+ *
+ * The form went to all of them, so one client answering leaves the others
+ * holding a card that would now be refused. This is what takes those down.
+ */
+function announceFormClosed(
+  requestId: string,
+  reason: "answered" | "cancelled" | "timed_out",
+): void {
+  broadcastMessage({ type: "contact_form_closed", requestId, reason });
 }
 
 /**
@@ -147,6 +161,11 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
       address,
     });
   }
+
+  // Retire the card everywhere it is showing, not just on the client that
+  // answered. An error here covers a dismissal and a failed write alike: the
+  // form is over either way, and the caller is the one told why.
+  announceFormClosed(requestId, error ? "cancelled" : "answered");
 
   log.info({ requestId, contactId }, "Contact prompt resolved");
   return { resolved: true };

@@ -19,8 +19,12 @@ import { z } from "zod";
 export const ContactFormClosedEventSchema = z.object({
   type: z.literal("contact_form_closed"),
   requestId: z.string(),
-  /** Why it closed. Only "timed_out" today; answered forms close themselves. */
-  reason: z.enum(["timed_out"]),
+  /**
+   * Why it closed. Every client saw the form, so every client needs to know:
+   * "answered" and "cancelled" retire the card on the clients that did not
+   * answer it, and "timed_out" retires it on all of them.
+   */
+  reason: z.enum(["answered", "cancelled", "timed_out"]),
 });
 
 export type ContactFormClosedEvent = z.infer<

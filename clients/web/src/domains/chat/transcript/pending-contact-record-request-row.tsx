@@ -1,6 +1,6 @@
 /**
  * Renders a `ContactRecordCard` inline in the transcript by reading
- * interaction-store state directly — no render-prop relay from the parent.
+ * interaction-store state directly, with no render-prop relay from the parent.
  */
 
 import {

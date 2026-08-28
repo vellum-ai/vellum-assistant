@@ -84,6 +84,27 @@ describe("contacts_record_prompt", () => {
     });
 
     expect(await pending).toEqual({ ok: true, contactId: "ct_new" });
+
+    // Every client saw this form, so every client is told it is over.
+    expect(
+      broadcasts.find((b) => b.type === "contact_form_closed"),
+    ).toMatchObject({ reason: "answered" });
+  });
+
+  test("a dismissal closes the form on the clients that did not dismiss it", async () => {
+    const pending = recordPrompt.handler({
+      body: { operation: "create", displayName: "Alice" },
+    }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequestId();
+
+    resolvePrompt.handler({
+      body: { requestId, error: "Cancelled by user" },
+    });
+    await pending;
+
+    expect(
+      broadcasts.find((b) => b.type === "contact_form_closed"),
+    ).toMatchObject({ requestId, reason: "cancelled" });
   });
 
   test("carries the gateway's error back to the caller", async () => {

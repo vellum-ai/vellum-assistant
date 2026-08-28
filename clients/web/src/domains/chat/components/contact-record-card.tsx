@@ -132,7 +132,7 @@ export function ContactRecordCard({
       </div>
 
       {accepted ? (
-        // typography: off-scale — inline status badge, not prose
+        // typography: off-scale, an inline status badge rather than prose
 
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
           <CheckCircle size={16} />

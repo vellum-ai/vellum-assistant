@@ -218,6 +218,7 @@
     "profileSwitchFallback": "Не удалось сменить профиль. Повторите попытку."
   },
   "contactActions": {
+    "recordCancelFailed": "Не удалось закрыть форму. Попробуйте ещё раз.",
     "recordSaveFailed": "Не удалось сохранить контакт. Попробуйте ещё раз."
   },
   "contactPromptCard": {

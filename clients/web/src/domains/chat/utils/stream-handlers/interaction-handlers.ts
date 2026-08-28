@@ -161,6 +161,7 @@ export function handleContactRecordRequest(
   ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRecordRequest({
     requestId: event.requestId,
+    originConversationId: ctx.streamContext?.conversationId ?? null,
     operation: event.operation,
     contactId: event.contactId,
     currentDisplayName: event.currentDisplayName,
@@ -179,6 +180,19 @@ export function handleContactRecordRequest(
  */
 export function handleContactFormClosed(event: ContactFormClosedEvent): void {
   const store = useInteractionStore.getState();
+
+  // The client that answered is already showing its own confirmation, which
+  // dismisses itself a moment later. Cutting that short would swap a "saved"
+  // for a card vanishing mid-read.
+  const showingOwnResult =
+    (store.contactRequestAccepted &&
+      store.pendingContactRequest?.requestId === event.requestId) ||
+    (store.contactRecordRequestAccepted &&
+      store.pendingContactRecordRequest?.requestId === event.requestId);
+  if (showingOwnResult) {
+    return;
+  }
+
   store.dismissContactRequestIfMatches(event.requestId);
   store.dismissContactRecordRequestIfMatches(event.requestId);
 }

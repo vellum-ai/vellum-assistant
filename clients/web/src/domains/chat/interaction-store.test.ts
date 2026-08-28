@@ -500,6 +500,25 @@ describe("prompt slots: the shared invariant", () => {
       useInteractionStore.getState().resetAll();
       expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
     });
+
+    it("drops them on an assistant switch, where the form does not belong", () => {
+      useInteractionStore.getState().showContactRecordRequest({
+        requestId: "r-global",
+        operation: "create",
+      });
+      useInteractionStore
+        .getState()
+        .showContactRequest({ requestId: "r-address" });
+
+      useInteractionStore.getState().resetAll({ assistantChanged: true });
+
+      // The form was raised by the other assistant's daemon; answering it
+      // against this one would post to a gateway that never heard of it.
+      expect(
+        useInteractionStore.getState().pendingContactRecordRequest,
+      ).toBeNull();
+      expect(useInteractionStore.getState().pendingContactRequest).toBeNull();
+    });
   });
 
   for (const kind of KINDS) {

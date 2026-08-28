@@ -222,27 +222,49 @@ export async function handleContactRecordSubmit(values: {
  * Dismiss a proposed contact record write. Tells the gateway so the parked
  * command returns now instead of waiting out its timeout on a form nobody is
  * going to answer.
+ *
+ * The card stays until the dismissal is accepted. Taking it down first would
+ * leave a failed cancel with nothing to retry from, and the command parked
+ * anyway.
  */
-export function handleContactRecordCancel(): void {
+export async function handleContactRecordCancel(): Promise<void> {
   const request = useInteractionStore.getState().pendingContactRecordRequest;
   if (!request) {
     return;
   }
+
+  const ctx = useStreamStore.getState().streamContext;
+  if (ctx) {
+    const result = await submitContactRecord(
+      ctx.assistantId,
+      request.requestId,
+      { cancelled: true },
+    );
+    if (!result.ok) {
+      captureSubmissionRejection("cancel_contact_record", result);
+      reportSubmissionFailure(
+        "contactRecordRequest",
+        request.requestId,
+        "contactActions.recordCancelFailed",
+      );
+      return;
+    }
+  }
+
   useInteractionStore
     .getState()
     .dismissContactRecordRequestIfMatches(request.requestId);
 
-  const ctx = useStreamStore.getState().streamContext;
-  if (ctx) {
-    void submitContactRecord(ctx.assistantId, request.requestId, {
-      cancelled: true,
-    }).catch((err: unknown) => {
-      captureError(err, { context: "cancel_contact_record" });
-    });
+  // This form carries no conversation, so the only turn a dismissal may end is
+  // the one that was on screen when it arrived, and only while that is still
+  // where the guardian is. Ending whatever happens to be active would error an
+  // unrelated turn that is still running.
+  const activeConversationId =
+    useConversationStore.getState().activeConversationId;
+  if (
+    request.originConversationId &&
+    request.originConversationId === activeConversationId
+  ) {
+    endTurn({ conversationId: activeConversationId, reason: "error" });
   }
-
-  endTurn({
-    conversationId: useConversationStore.getState().activeConversationId,
-    reason: "error",
-  });
 }
