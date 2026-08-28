@@ -114,17 +114,40 @@ export function setCredentialRecordBackend(
  * If `list()` fails or leftover accounts are missing, the file stays.
  */
 export async function adoptCesCredentialRecords(): Promise<void> {
+  try {
+    await adoptCesCredentialRecordsInner();
+  } catch (err) {
+    log.warn(
+      { err },
+      "CES record adopt failed; keeping leftover metadata.json",
+    );
+  }
+}
+
+async function adoptCesCredentialRecordsInner(): Promise<void> {
   if (!_recordBackend || _overridePath) {
     return;
   }
-  if (!_recordBackend.isAvailable()) {
+  let available = false;
+  try {
+    available = _recordBackend.isAvailable();
+  } catch {
+    available = false;
+  }
+  if (!available) {
     log.warn("CES record backend unavailable; leaving leftover metadata.json in place");
     return;
   }
 
-  const leftoverPath = defaultMetadataPath();
-  let leftoverAccounts: string[] | null = null;
-  if (existsSync(leftoverPath)) {
+  let leftoverPath: string | undefined;
+  try {
+    leftoverPath = defaultMetadataPath();
+  } catch {
+    leftoverPath = undefined;
+  }
+
+  let leftoverAccounts: string[] = [];
+  if (leftoverPath && existsSync(leftoverPath)) {
     try {
       const leftoverStore = new StaticCredentialMetadataStore(leftoverPath);
       leftoverStore.assertWritable();
@@ -135,8 +158,6 @@ export async function adoptCesCredentialRecords(): Promise<void> {
       log.warn("Leftover metadata.json is unreadable; keeping the workspace file");
       return;
     }
-  } else {
-    leftoverAccounts = [];
   }
 
   const remote = await _recordBackend.list();
@@ -159,7 +180,7 @@ export async function adoptCesCredentialRecords(): Promise<void> {
     return;
   }
 
-  if (existsSync(leftoverPath)) {
+  if (leftoverPath && existsSync(leftoverPath)) {
     try {
       rmSync(leftoverPath, { force: true });
       log.info(
@@ -174,6 +195,18 @@ export async function adoptCesCredentialRecords(): Promise<void> {
 
   getStore().useMemory(remote.map((entry) => entry.record));
   log.info({ count: remote.length }, "Adopted credential records from CES");
+}
+
+/**
+ * Serialize the in-process catalog for vbundle export.
+ * Used when leftover workspace `metadata.json` has been retired.
+ */
+export function serializeCredentialMetadataCatalog(): Uint8Array {
+  const payload = {
+    version: 5,
+    credentials: listCredentialMetadata(),
+  };
+  return new TextEncoder().encode(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
 // ---------------------------------------------------------------------------

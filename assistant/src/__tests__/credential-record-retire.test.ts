@@ -186,6 +186,16 @@ describe("CES credential record retire", () => {
     );
   });
 
+  test("adopt does not throw when CES isAvailable throws", async () => {
+    const backend = makeBackend();
+    backend.isAvailable = () => {
+      throw new Error("CES boom");
+    };
+    setCredentialRecordBackend(backend);
+
+    await adoptCesCredentialRecords();
+  });
+
   test("upsert after adopt write-throughs to CES without recreating leftover metadata.json", async () => {
     const leftoverRecord: CredentialRecord = {
       credentialId: "cred-leftover",
