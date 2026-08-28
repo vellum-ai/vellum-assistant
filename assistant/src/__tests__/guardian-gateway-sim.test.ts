@@ -87,4 +87,33 @@ describe("guardian gateway sim: decision arbitration contract", () => {
     expect(sim.getRequest("done")?.status).toBe("approved");
     expect(sim.deliveries.find((d) => d.id === "d1")?.status).toBe("sent");
   });
+
+  test("a withdrawn delivery keeps its receipt through the expire flip", async () => {
+    const sim = createGuardianGatewaySim();
+    sim.seedRequest({ id: "exp", kind: "access_request", status: "pending" });
+    sim.seedDelivery({
+      id: "kept",
+      requestId: "exp",
+      destinationChannel: "telegram",
+      destinationChatId: "chat-1",
+      status: "withdrawn",
+    });
+    sim.seedDelivery({
+      id: "flipped",
+      requestId: "exp",
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+      status: "sent",
+    });
+
+    await sim.module.expireGuardianRequest("exp");
+
+    expect(sim.getRequest("exp")?.status).toBe("expired");
+    expect(sim.deliveries.find((d) => d.id === "kept")?.status).toBe(
+      "withdrawn",
+    );
+    expect(sim.deliveries.find((d) => d.id === "flipped")?.status).toBe(
+      "expired",
+    );
+  });
 });

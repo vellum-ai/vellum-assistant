@@ -358,7 +358,9 @@ export function createGuardianGatewaySim() {
     row.status = "expired";
     row.updatedAt = Date.now();
     for (const delivery of deliveries) {
-      if (delivery.requestId === id) {
+      // A withdrawn row is the daemon's per-surface receipt; the gateway
+      // preserves it through the bulk flip.
+      if (delivery.requestId === id && delivery.status !== "withdrawn") {
         delivery.status = "expired";
         delivery.updatedAt = Date.now();
       }

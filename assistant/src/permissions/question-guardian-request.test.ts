@@ -21,7 +21,7 @@ const bridgeMock = mock((_params: Record<string, unknown>) =>
   Promise.resolve({ bridged: true as const, signalId: "req-1" }),
 );
 const withdrawCardsMock = mock((_params: Record<string, unknown>) =>
-  Promise.resolve(),
+  Promise.resolve({ complete: true }),
 );
 
 let trustContext: TrustContext | undefined;
