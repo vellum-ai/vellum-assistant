@@ -156,6 +156,103 @@ function formatContactDetail(
   return lines.join("\n");
 }
 
+/** Default wait for the guardian to answer a form, matching the daemon park. */
+const CONTACT_FORM_TIMEOUT_MS = 310_000;
+
+interface ContactRecordPromptBody {
+  operation: "create" | "update" | "delete";
+  contactId?: string;
+  currentDisplayName?: string;
+  displayName?: string;
+  notes?: string;
+  label?: string;
+  description?: string;
+}
+
+/**
+ * Read a contact before proposing a write against it, so a bad id fails here
+ * rather than after the guardian has answered a form about the wrong person.
+ * The read is the gateway-relayed one, so it reflects the source of truth.
+ */
+async function readContactForPrompt(
+  id: string,
+  cmd: Command,
+): Promise<ContactWithChannels | null> {
+  const r = await cliIpcCall<{ ok: boolean; contact: ContactWithChannels }>(
+    "getContact",
+    { pathParams: { id } },
+  );
+  if (!r.ok) {
+    exitFromIpcResult(
+      r as { ok: false; error?: string; statusCode?: number },
+      cmd,
+    );
+    return null;
+  }
+  return r.result!.contact;
+}
+
+/**
+ * Park on the guardian's answer to a contact-record form, then report what was
+ * actually written. The submitted values can differ from the proposed ones, so
+ * the result is re-read rather than echoed back from the request.
+ */
+async function runRecordPrompt(
+  body: ContactRecordPromptBody,
+  timeout: string | undefined,
+  cmd: Command,
+): Promise<void> {
+  const timeoutMs = timeout ? parseInt(timeout, 10) : CONTACT_FORM_TIMEOUT_MS;
+  const r = await cliIpcCall<{
+    ok: boolean;
+    error?: string;
+    contactId?: string;
+  }>("contacts_record_prompt", { body }, { timeoutMs });
+
+  if (!r.ok) {
+    return exitFromIpcResult(
+      r as { ok: false; error?: string; statusCode?: number },
+      cmd,
+    );
+  }
+
+  if (!r.result?.ok) {
+    writeError(cmd, r.result?.error ?? "Contact form failed");
+    process.exitCode = 1;
+    return;
+  }
+
+  const contactId = r.result.contactId;
+
+  if (body.operation === "delete") {
+    const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
+    if (shouldOutputJson(cmd)) {
+      writeOutput(cmd, { ok: true, deleted: true, contactId });
+    } else {
+      process.stdout.write(`Deleted contact: ${deleted} (${body.contactId})\n`);
+    }
+    return;
+  }
+
+  if (!contactId) {
+    writeError(cmd, "Contact form returned no contact id");
+    process.exitCode = 1;
+    return;
+  }
+
+  const written = await readContactForPrompt(contactId, cmd);
+  if (!written) {
+    return;
+  }
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { ok: true, contact: written });
+  } else {
+    const verb = body.operation === "create" ? "Created" : "Updated";
+    process.stdout.write(`${verb} contact:\n`);
+    process.stdout.write(formatContactDetail(written) + "\n");
+  }
+}
+
 export function registerContactsCommand(program: Command): void {
   registerCommand(program, {
     name: contactsHelp.name,
@@ -247,6 +344,104 @@ export function registerContactsCommand(program: Command): void {
                 "\n",
             );
           }
+        },
+      );
+
+      // -----------------------------------------------------------------------
+      // create / update / delete
+      //
+      // Each opens a form in the guardian's app and blocks on their answer.
+      // The daemon writes nothing: the guardian's client posts the confirmed
+      // record straight to the gateway, so an unattended assistant cannot
+      // change the contact graph.
+      // -----------------------------------------------------------------------
+
+      subcommand(contacts, "create").action(
+        async (
+          opts: {
+            name?: string;
+            notes?: string;
+            label?: string;
+            description?: string;
+            timeout?: string;
+          },
+          cmd: Command,
+        ) => {
+          await runRecordPrompt(
+            {
+              operation: "create",
+              displayName: opts.name,
+              notes: opts.notes,
+              label: opts.label,
+              description: opts.description,
+            },
+            opts.timeout,
+            cmd,
+          );
+        },
+      );
+
+      subcommand(contacts, "update").action(
+        async (
+          id: string,
+          opts: {
+            name?: string;
+            notes?: string;
+            label?: string;
+            description?: string;
+            timeout?: string;
+          },
+          cmd: Command,
+        ) => {
+          if (!opts.name && opts.notes === undefined) {
+            writeError(
+              cmd,
+              "At least one of --name or --notes must be provided",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const current = await readContactForPrompt(id, cmd);
+          if (!current) {
+            return;
+          }
+          await runRecordPrompt(
+            {
+              operation: "update",
+              contactId: id,
+              currentDisplayName: current.displayName,
+              displayName: opts.name,
+              notes: opts.notes,
+              label: opts.label,
+              description: opts.description,
+            },
+            opts.timeout,
+            cmd,
+          );
+        },
+      );
+
+      subcommand(contacts, "delete").action(
+        async (
+          id: string,
+          opts: { label?: string; description?: string; timeout?: string },
+          cmd: Command,
+        ) => {
+          const current = await readContactForPrompt(id, cmd);
+          if (!current) {
+            return;
+          }
+          await runRecordPrompt(
+            {
+              operation: "delete",
+              contactId: id,
+              currentDisplayName: current.displayName,
+              label: opts.label,
+              description: opts.description,
+            },
+            opts.timeout,
+            cmd,
+          );
         },
       );
 

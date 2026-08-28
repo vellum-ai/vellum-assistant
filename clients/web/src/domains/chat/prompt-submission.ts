@@ -41,7 +41,8 @@ export type PromptKind =
   | "confirmation"
   | "question"
   | "secret"
-  | "contactRequest";
+  | "contactRequest"
+  | "contactRecordRequest";
 
 /** The prompt currently on screen for `kind`, if any. */
 function promptOnScreen(kind: PromptKind): { requestId: string } | null {
@@ -55,6 +56,8 @@ function promptOnScreen(kind: PromptKind): { requestId: string } | null {
       return state.pendingSecret;
     case "contactRequest":
       return state.pendingContactRequest;
+    case "contactRecordRequest":
+      return state.pendingContactRecordRequest;
   }
 }
 

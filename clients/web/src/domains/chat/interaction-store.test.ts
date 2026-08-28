@@ -429,6 +429,7 @@ describe("prompt slots: the shared invariant", () => {
     "question",
     "secret",
     "contactRequest",
+    "contactRecordRequest",
   ];
 
   /**
@@ -444,6 +445,10 @@ describe("prompt slots: the shared invariant", () => {
       useInteractionStore.getState().showSecret({ requestId }),
     contactRequest: (requestId) =>
       useInteractionStore.getState().showContactRequest({ requestId }),
+    contactRecordRequest: (requestId) =>
+      useInteractionStore
+        .getState()
+        .showContactRecordRequest({ requestId, operation: "create" }),
   };
   const RETIRE: Record<PromptKind, (requestId: string) => void> = {
     confirmation: (requestId) =>
@@ -454,6 +459,10 @@ describe("prompt slots: the shared invariant", () => {
       useInteractionStore.getState().dismissSecretIfMatches(requestId),
     contactRequest: (requestId) =>
       useInteractionStore.getState().dismissContactRequestIfMatches(requestId),
+    contactRecordRequest: (requestId) =>
+      useInteractionStore
+        .getState()
+        .dismissContactRecordRequestIfMatches(requestId),
   };
 
   for (const kind of KINDS) {

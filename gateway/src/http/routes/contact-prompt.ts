@@ -1,15 +1,14 @@
 /**
- * Gateway HTTP handler for the contact prompt submission endpoint.
+ * Gateway HTTP handlers for the two contact-form submission endpoints.
  *
- * POST /v1/contacts/prompt/submit
+ * POST /v1/contacts/prompt/submit   an address the guardian typed (binds a channel)
+ * POST /v1/contacts/record/submit   a contact record the guardian confirmed
  *
- * Called by the client after the user fills in a contact address in response
- * to a `contact_request` broadcast from the daemon. This route:
- *   1. Validates the submitted contact info.
- *   2. Upserts the contact + channel gateway-first via ContactStore.upsertContact
- *      (gateway DB is the source of truth; assistant DB is a best-effort mirror).
- *   3. Calls daemon IPC `resolve_contact_prompt` to unblock the waiting CLI.
- *   4. Returns { accepted: true } to the client.
+ * Both are the second half of the same rail: the daemon parks a CLI call and
+ * broadcasts a form, the guardian submits it in their app, and the client
+ * posts here. The daemon never writes contacts; the gateway does, then calls
+ * `resolve_contact_prompt` to unblock the parked call. A write reaching this
+ * file therefore always carries a human's submit behind it.
  *
  * Auth: edge (same as all ingress contact routes).
  */
@@ -25,6 +24,11 @@ import {
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
 import { canonicalizeInboundIdentity } from "../../verification/identity.js";
+import {
+  ContactRecordNativeError,
+  deleteContactCore,
+  upsertContactRecordCore,
+} from "./contacts-control-plane-proxy.js";
 
 const log = getLogger("contact-prompt");
 
@@ -66,6 +70,14 @@ interface ContactPromptSubmitBody {
   channelType: string;
   role?: "guardian" | "trusted-contact" | "unknown";
   displayName?: string;
+  /**
+   * Whether the guardian left the "mark verified" box checked. The CLI's
+   * `--verify` only pre-checks it; this is the answer that decides the write,
+   * so what the form showed is what gets attested. Omitted by clients older
+   * than the checkbox, which fall back to the parked flag (see
+   * {@link promptWantsVerify}).
+   */
+  verify?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +237,7 @@ export async function handleContactPromptSubmit(
         channelId,
         channelType,
         address: normalizedAddress,
+        verify: body.verify,
       });
     }
 
@@ -393,6 +406,7 @@ export async function handleContactPromptSubmit(
     channelId,
     channelType,
     address: normalizedAddress,
+    verify: body.verify,
   });
 }
 
@@ -414,7 +428,18 @@ async function channelResolutionError(requestId: string): Promise<Response> {
  * return { accepted: true }. IPC failures are best-effort — they only mean the
  * CLI may time out, not that the write failed.
  */
-async function promptWantsVerify(requestId: string): Promise<boolean> {
+async function promptWantsVerify(
+  requestId: string,
+  submitted: boolean | undefined,
+): Promise<boolean> {
+  // The checkbox is the answer. `--verify` only pre-checks it, so a guardian
+  // who unchecks the box must not get a verified channel.
+  if (typeof submitted === "boolean") {
+    return submitted;
+  }
+  // Client older than the checkbox: fall back to the parked flag, which is how
+  // this worked before the box existed. Read out of band because that client
+  // has no field to echo it back in.
   try {
     const result = await ipcCallAssistant("contact_prompt_flags", {
       body: { requestId },
@@ -435,9 +460,10 @@ async function resolveContactPrompt(args: {
   channelId: string;
   channelType: string;
   address: string;
+  verify: boolean | undefined;
 }): Promise<Response> {
   const { requestId, contactId, channelId, channelType, address } = args;
-  if (await promptWantsVerify(requestId)) {
+  if (await promptWantsVerify(requestId, args.verify)) {
     const verified = await getStore().markChannelVerified(channelId);
     if (!verified) {
       log.warn(
@@ -486,4 +512,148 @@ async function notifyDaemonResolveError(
       "contact-prompt-submit: resolve_contact_prompt error notification failed",
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Record submissions (create / update / delete)
+// ---------------------------------------------------------------------------
+
+interface ContactRecordSubmitBody {
+  requestId: string;
+  operation?: "create" | "update" | "delete";
+  contactId?: string;
+  displayName?: string;
+  notes?: string | null;
+  /** The guardian dismissed the form. Unblocks the CLI instead of writing. */
+  cancelled?: boolean;
+}
+
+/**
+ * POST /v1/contacts/record/submit
+ *
+ * The record half of the contact-form rail: the guardian confirmed (and may
+ * have edited) a create, update, or delete the assistant proposed. Writes it,
+ * then unblocks the parked CLI call.
+ *
+ * The submitted operation is trusted as posted rather than checked against the
+ * parked proposal. A caller who can reach this route can already reach
+ * `POST /v1/contacts` and `DELETE /v1/contacts/:id` at the same edge auth, so
+ * a readback would buy no privilege, only a round trip.
+ */
+export async function handleContactRecordSubmit(
+  req: Request,
+): Promise<Response> {
+  let body: ContactRecordSubmitBody;
+  try {
+    body = (await req.json()) as ContactRecordSubmitBody;
+  } catch {
+    return Response.json(
+      { accepted: false, error: "Invalid JSON body" },
+      { status: 400 },
+    );
+  }
+
+  const { requestId, operation, contactId } = body;
+
+  if (!requestId || typeof requestId !== "string") {
+    return Response.json(
+      { accepted: false, error: "requestId is required" },
+      { status: 400 },
+    );
+  }
+
+  // Dismissal is a real answer: resolve the parked call now rather than
+  // leaving the CLI to time out on a form nobody is going to submit.
+  if (body.cancelled === true) {
+    await notifyDaemonResolveError(requestId, "Cancelled by user");
+    return Response.json({ accepted: true });
+  }
+
+  if (
+    operation !== "create" &&
+    operation !== "update" &&
+    operation !== "delete"
+  ) {
+    return Response.json(
+      {
+        accepted: false,
+        error: 'operation must be one of: "create", "update", "delete"',
+      },
+      { status: 400 },
+    );
+  }
+
+  if (operation !== "create" && (!contactId || typeof contactId !== "string")) {
+    return Response.json(
+      { accepted: false, error: `contactId is required to ${operation}` },
+      { status: 400 },
+    );
+  }
+
+  // A non-string displayName (an explicit null included) reads as omitted, so
+  // upsertContactRecordCore preserves an existing name rather than writing the
+  // value through to the NOT NULL display_name column.
+  const displayName =
+    typeof body.displayName === "string" ? body.displayName : undefined;
+
+  try {
+    if (operation === "delete") {
+      await deleteContactCore(contactId!);
+      log.info({ requestId, contactId }, "contact-record-submit: deleted");
+      return await resolveRecordPrompt(requestId, contactId!);
+    }
+
+    const { contact } = await upsertContactRecordCore({
+      id: operation === "update" ? contactId : undefined,
+      displayName,
+      notes: body.notes,
+    });
+    const writtenId = contact.id as string;
+    log.info(
+      { requestId, contactId: writtenId, operation },
+      "contact-record-submit: wrote contact record",
+    );
+    return await resolveRecordPrompt(requestId, writtenId);
+  } catch (err) {
+    if (err instanceof ContactRecordNativeError) {
+      await notifyDaemonResolveError(requestId, err.message);
+      return Response.json(
+        { accepted: false, error: err.message },
+        { status: err.statusCode },
+      );
+    }
+    log.error({ err, requestId, operation }, "contact-record-submit: failed");
+    await notifyDaemonResolveError(requestId, "Contact write failed");
+    return Response.json(
+      { accepted: false, error: "Contact write failed" },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * Unblock the parked CLI call after a record write. There is no channel to
+ * report, so only the contact id crosses back.
+ */
+async function resolveRecordPrompt(
+  requestId: string,
+  contactId: string,
+): Promise<Response> {
+  try {
+    const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
+      body: { requestId, contactId },
+    });
+    if ((ipcResult as { resolved?: boolean }).resolved === false) {
+      log.warn(
+        { requestId, contactId },
+        "contact-record-submit: resolve_contact_prompt found no pending prompt; CLI may time out",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, requestId, contactId },
+      "contact-record-submit: resolve_contact_prompt IPC failed; CLI may time out",
+    );
+  }
+  return Response.json({ accepted: true });
 }

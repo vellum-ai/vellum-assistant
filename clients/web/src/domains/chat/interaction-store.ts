@@ -19,6 +19,7 @@ import type { PromptKind } from "@/domains/chat/prompt-submission";
 import type {
   PendingSecretState,
   PendingConfirmationState,
+  PendingContactRecordRequestState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingAcpConnectState,
@@ -54,7 +55,9 @@ export interface InteractionState {
   pendingConfirmation: PendingConfirmationState | null;
 
   pendingContactRequest: PendingContactRequestState | null;
+  pendingContactRecordRequest: PendingContactRecordRequestState | null;
   contactRequestAccepted: boolean;
+  contactRecordRequestAccepted: boolean;
 
   pendingQuestion: PendingQuestionState | null;
   /**
@@ -192,6 +195,9 @@ export interface InteractionActions {
   showContactRequest: (payload: PendingContactRequestState) => void;
   dismissContactRequestIfMatches: (requestId: string) => void;
   acceptContactRequest: () => void;
+  showContactRecordRequest: (payload: PendingContactRecordRequestState) => void;
+  dismissContactRecordRequestIfMatches: (requestId: string) => void;
+  acceptContactRecordRequest: () => void;
 
   // Question
   showQuestion: (payload: PendingQuestionState) => void;
@@ -261,6 +267,7 @@ const INITIAL_STATE: InteractionState = {
     question: null,
     secret: null,
     contactRequest: null,
+    contactRecordRequest: null,
   },
   pendingSecret: null,
   secretSaved: false,
@@ -268,7 +275,9 @@ const INITIAL_STATE: InteractionState = {
   pendingConfirmation: null,
 
   pendingContactRequest: null,
+  pendingContactRecordRequest: null,
   contactRequestAccepted: false,
+  contactRecordRequestAccepted: false,
 
   pendingQuestion: null,
   questionRevision: 0,
@@ -296,6 +305,7 @@ export function hasActiveInteraction(state: InteractionState): boolean {
     state.pendingSecret !== null ||
     state.pendingConfirmation !== null ||
     state.pendingContactRequest !== null ||
+    state.pendingContactRecordRequest !== null ||
     state.pendingQuestion !== null
   );
 }
@@ -415,6 +425,26 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   },
 
   acceptContactRequest: () => set({ contactRequestAccepted: true }),
+
+  // ----- Contact record request -----
+  showContactRecordRequest: (payload) =>
+    set({
+      pendingContactRecordRequest: payload,
+      contactRecordRequestAccepted: false,
+    }),
+
+  dismissContactRecordRequestIfMatches: (requestId) => {
+    const { pendingContactRecordRequest } = get();
+    if (
+      !pendingContactRecordRequest ||
+      pendingContactRecordRequest.requestId !== requestId
+    ) {
+      return;
+    }
+    set({ pendingContactRecordRequest: null });
+  },
+
+  acceptContactRecordRequest: () => set({ contactRecordRequestAccepted: true }),
 
   // ----- Question -----
   showQuestion: (payload) =>

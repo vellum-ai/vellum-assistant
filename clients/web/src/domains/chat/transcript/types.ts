@@ -17,6 +17,7 @@ export type TranscriptItemKind =
   | "pendingSecret"
   | "pendingConfirmation"
   | "pendingContactRequest"
+  | "pendingContactRecordRequest"
   | "surface"
   | "ephemeralMeta"
   | "onboardingChoice"
@@ -69,6 +70,15 @@ export interface PendingContactRequestItem extends TranscriptItemBase {
   role?: string;
 }
 
+/**
+ * A proposed contact record write awaiting the guardian. The row reads the
+ * form's contents from the interaction store, so only the id is carried here.
+ */
+export interface PendingContactRecordRequestItem extends TranscriptItemBase {
+  kind: "pendingContactRecordRequest";
+  requestId: string;
+}
+
 export interface SurfaceItem extends TranscriptItemBase {
   kind: "surface";
   surface: Surface;
@@ -105,6 +115,7 @@ export type TranscriptItem =
   | PendingSecretItem
   | PendingConfirmationItem
   | PendingContactRequestItem
+  | PendingContactRecordRequestItem
   | SurfaceItem
   | EphemeralMetaItem
   | OnboardingChoiceItem

@@ -5,6 +5,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ConfirmationRequestEvent,
+  ContactRecordRequestEvent,
   ContactRequestEvent,
   InteractionResolvedEvent,
   QuestionRequestEvent,
@@ -148,6 +149,24 @@ export function handleContactRequest(
     label: event.label,
     description: event.description,
     role: event.role,
+    verify: event.verify,
+  });
+}
+
+export function handleContactRecordRequest(
+  event: ContactRecordRequestEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.turnActions.onContactRequest();
+  useInteractionStore.getState().showContactRecordRequest({
+    requestId: event.requestId,
+    operation: event.operation,
+    contactId: event.contactId,
+    currentDisplayName: event.currentDisplayName,
+    displayName: event.displayName,
+    notes: event.notes,
+    label: event.label,
+    description: event.description,
   });
 }
 

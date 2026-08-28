@@ -70,6 +70,8 @@ export function useTranscriptData({
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+  const pendingContactRecordRequest =
+    useInteractionStore.use.pendingContactRecordRequest();
 
   // --- Sanitise -----------------------------------------------------------
   const sanitizedMessages = useMemo(
@@ -135,6 +137,9 @@ export function useTranscriptData({
               role: pendingContactRequest.role,
             }
           : null,
+        pendingContactRecordRequest: pendingContactRecordRequest
+          ? { requestId: pendingContactRecordRequest.requestId }
+          : null,
         isThinking: showThinking,
         turnActive,
         thinkingLabel,
@@ -149,6 +154,7 @@ export function useTranscriptData({
       pendingConfirmation,
       pendingConfirmationAttachedToToolCall,
       pendingContactRequest,
+      pendingContactRecordRequest,
       showThinking,
       turnActive,
       thinkingLabel,

@@ -29,6 +29,11 @@ export const ContactRequestEventSchema = z.object({
   label: z.string().optional(),
   description: z.string().optional(),
   role: z.string().optional(),
+  /**
+   * Initial state of the form's "mark verified" checkbox, from the CLI's
+   * `--verify`. What the guardian submits is what gets attested.
+   */
+  verify: z.boolean().optional(),
 });
 
 export type ContactRequestEvent = z.infer<typeof ContactRequestEventSchema>;

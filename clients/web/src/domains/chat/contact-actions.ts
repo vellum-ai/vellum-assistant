@@ -18,7 +18,10 @@ import {
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
-import { submitContactPrompt } from "@/domains/chat/api/interactions";
+import {
+  submitContactPrompt,
+  submitContactRecord,
+} from "@/domains/chat/api/interactions";
 
 /**
  * Submit the contact address/channel to the daemon.
@@ -27,6 +30,7 @@ import { submitContactPrompt } from "@/domains/chat/api/interactions";
 export async function handleContactPromptSubmit(
   address: string,
   channelType: string,
+  verify: boolean,
 ): Promise<void> {
   const { pendingContactRequest, submittingByKind } =
     useInteractionStore.getState();
@@ -61,6 +65,8 @@ export async function handleContactPromptSubmit(
       address,
       channelType,
       pendingContactRequest.role,
+      undefined,
+      verify,
     );
     if (!result.ok) {
       captureSubmissionRejection("submit_contact_prompt", result);
@@ -107,6 +113,134 @@ export function handleContactPromptCancel(): void {
   if (requestId) {
     useInteractionStore.getState().dismissContactRequestIfMatches(requestId);
   }
+  endTurn({
+    conversationId: useConversationStore.getState().activeConversationId,
+    reason: "error",
+  });
+}
+
+/**
+ * Submit the guardian's answer to a proposed contact record write. The values
+ * posted are the ones on the form, which the guardian may have edited.
+ */
+export async function handleContactRecordSubmit(values: {
+  displayName: string;
+  notes: string;
+}): Promise<void> {
+  const { pendingContactRecordRequest, submittingByKind } =
+    useInteractionStore.getState();
+  if (
+    !pendingContactRecordRequest ||
+    submittingByKind.contactRecordRequest ===
+      pendingContactRecordRequest.requestId
+  ) {
+    return;
+  }
+  useInteractionStore
+    .getState()
+    .claimSubmission(
+      "contactRecordRequest",
+      pendingContactRecordRequest.requestId,
+    );
+  useChatSessionStore.getState().setError(null);
+
+  const ctx = useStreamStore.getState().streamContext;
+  if (!ctx) {
+    useChatSessionStore
+      .getState()
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    useInteractionStore
+      .getState()
+      .releaseSubmission(
+        "contactRecordRequest",
+        pendingContactRecordRequest.requestId,
+      );
+    return;
+  }
+
+  const { operation, contactId } = pendingContactRecordRequest;
+
+  try {
+    const result = await submitContactRecord(
+      ctx.assistantId,
+      pendingContactRecordRequest.requestId,
+      operation === "delete"
+        ? { operation, contactId }
+        : {
+            operation,
+            contactId,
+            displayName: values.displayName,
+            notes: values.notes,
+          },
+    );
+    if (!result.ok) {
+      captureSubmissionRejection("submit_contact_record", result);
+      reportSubmissionFailure(
+        "contactRecordRequest",
+        pendingContactRecordRequest.requestId,
+        "contactActions.recordSaveFailed",
+      );
+      useInteractionStore
+        .getState()
+        .releaseSubmission(
+          "contactRecordRequest",
+          pendingContactRecordRequest.requestId,
+        );
+      return;
+    }
+
+    useInteractionStore.getState().acceptContactRecordRequest();
+    useInteractionStore
+      .getState()
+      .releaseSubmission(
+        "contactRecordRequest",
+        pendingContactRecordRequest.requestId,
+      );
+    const savedRequestId = pendingContactRecordRequest.requestId;
+    setTimeout(() => {
+      useInteractionStore
+        .getState()
+        .dismissContactRecordRequestIfMatches(savedRequestId);
+    }, 1500);
+  } catch (err) {
+    captureError(err, { context: "submit_contact_record" });
+    reportSubmissionFailure(
+      "contactRecordRequest",
+      pendingContactRecordRequest.requestId,
+      "contactActions.recordSaveFailed",
+    );
+    useInteractionStore
+      .getState()
+      .releaseSubmission(
+        "contactRecordRequest",
+        pendingContactRecordRequest.requestId,
+      );
+  }
+}
+
+/**
+ * Dismiss a proposed contact record write. Tells the gateway so the parked
+ * command returns now instead of waiting out its timeout on a form nobody is
+ * going to answer.
+ */
+export function handleContactRecordCancel(): void {
+  const request = useInteractionStore.getState().pendingContactRecordRequest;
+  if (!request) {
+    return;
+  }
+  useInteractionStore
+    .getState()
+    .dismissContactRecordRequestIfMatches(request.requestId);
+
+  const ctx = useStreamStore.getState().streamContext;
+  if (ctx) {
+    void submitContactRecord(ctx.assistantId, request.requestId, {
+      cancelled: true,
+    }).catch((err: unknown) => {
+      captureError(err, { context: "cancel_contact_record" });
+    });
+  }
+
   endTurn({
     conversationId: useConversationStore.getState().activeConversationId,
     reason: "error",

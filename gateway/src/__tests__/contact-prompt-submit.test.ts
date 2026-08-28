@@ -243,6 +243,66 @@ describe("handleContactPromptSubmit", () => {
     expect(flags[0].body.requestId).toBe("req-verify");
   });
 
+  test("submitted verify:true attests without reading the parked flag", async () => {
+    seedGuardian();
+    // The parked flag says no. The form says yes, and the form is the answer.
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_flags") {
+        return { resolved: true, verify: false };
+      }
+      return { resolved: true };
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-box-checked",
+        address: "+12025550143",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const channel = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "+12025550143"))
+      .get();
+    expect(channel!.verifiedVia).toBe("manual");
+    expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
+  });
+
+  test("submitted verify:false leaves the channel unverified even when the command asked for --verify", async () => {
+    seedGuardian();
+    // The guardian unchecked the box the command pre-checked. Their answer wins.
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_flags") {
+        return { resolved: true, verify: true };
+      }
+      return { resolved: true };
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-box-unchecked",
+        address: "+12025550144",
+        channelType: "imessage",
+        role: "guardian",
+        verify: false,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const channel = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "+12025550144"))
+      .get();
+    expect(channel!.verifiedVia).toBeNull();
+    expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
+  });
+
   test("guardian prompt — reuses channel already bound to guardian", async () => {
     const now = Date.now();
     seedGuardian();

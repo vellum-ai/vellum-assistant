@@ -473,6 +473,7 @@
     "toolLabel": "Tool:"
   },
   "contactActions": {
+    "recordSaveFailed": "Failed to save the contact. Please try again.",
     "saveFailed": "Failed to save contact. Please try again."
   },
   "contactPromptCard": {
@@ -481,8 +482,25 @@
     "contactSaved": "Contact saved",
     "dismiss": "Dismiss",
     "enterAddress": "Enter {channel} address",
+    "markVerified": "Mark this address verified",
+    "markVerifiedHelp": "A verified address is allowed to message your assistant.",
     "save": "Save",
     "saving": "Saving…"
+  },
+  "contactRecordCard": {
+    "cancel": "Cancel",
+    "contactDeleted": "Contact deleted",
+    "contactSaved": "Contact saved",
+    "createTitle": "Add a contact",
+    "delete": "Delete",
+    "deleteTitle": "Delete {name}?",
+    "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
+    "dismiss": "Dismiss",
+    "namePlaceholder": "Name",
+    "notesPlaceholder": "Notes (optional)",
+    "save": "Save",
+    "saving": "Saving…",
+    "updateTitle": "Update {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "Clear Context",

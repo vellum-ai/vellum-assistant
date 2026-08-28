@@ -60,6 +60,30 @@ export interface PendingContactRequestState {
   label?: string;
   description?: string;
   role?: string;
+  /**
+   * Initial state of the "mark verified" checkbox. The guardian's answer is
+   * submitted with the address, so an unchecked box leaves the channel
+   * unverified no matter what the command proposed.
+   */
+  verify?: boolean;
+}
+
+/**
+ * A contact record write (create, update, delete) the assistant proposed and
+ * the guardian has not answered yet. The proposed values seed the form; what
+ * the guardian submits is what gets written.
+ */
+export interface PendingContactRecordRequestState {
+  requestId: string;
+  operation: "create" | "update" | "delete";
+  /** Target of an update or delete. Absent on create. */
+  contactId?: string;
+  /** The target's current name, so the form can show what is changing. */
+  currentDisplayName?: string;
+  displayName?: string;
+  notes?: string;
+  label?: string;
+  description?: string;
 }
 
 export interface PendingQuestionState {

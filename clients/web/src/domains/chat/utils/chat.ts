@@ -60,6 +60,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // the wire payload has no `conversationId` and the conversation gate
   // would drop it.
   "contact_request",
+  // Same for the record form: the CLI can propose a contact write from a
+  // settings or skill flow with no conversation binding.
+  "contact_record_request",
   // Subagent lifecycle events route by `subagentId` into the global subagent
   // store, not by the parent stream's `conversationId`. They carry
   // `parentConversationId` (spawn) or nothing (`subagent_status_changed`) at the

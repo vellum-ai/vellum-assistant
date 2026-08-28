@@ -1,7 +1,13 @@
 import { CheckCircle, Loader2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { Button, Card, Input, Typography } from "@vellumai/design-library";
+import {
+  Button,
+  Card,
+  Checkbox,
+  Input,
+  Typography,
+} from "@vellumai/design-library";
 import { useTranslation } from "@/i18n";
 
 export interface ContactPromptCardProps {
@@ -13,10 +19,11 @@ export interface ContactPromptCardProps {
     label?: string;
     description?: string;
     role?: string;
+    verify?: boolean;
   };
   isSubmitting: boolean;
   accepted: boolean;
-  onSubmit: (address: string, channelType: string) => void;
+  onSubmit: (address: string, channelType: string, verify: boolean) => void;
   onCancel: () => void;
 }
 
@@ -31,6 +38,9 @@ export function ContactPromptCard({
   // Render sites must key this card by `requestId` so a new contact_request
   // remounts it and re-runs this initializer instead of keeping stale state.
   const [address, setAddress] = useState(contactRequest.defaultValue ?? "");
+  // The command only proposes this. What the guardian submits is what gets
+  // attested, so the box has to be theirs to uncheck.
+  const [verify, setVerify] = useState(contactRequest.verify === true);
   const canSubmit = address.trim().length > 0 && !isSubmitting && !accepted;
 
   // Derive a sensible channelType from the hint (free text → normalised key).
@@ -41,7 +51,7 @@ export function ContactPromptCard({
     if (!canSubmit) {
       return;
     }
-    onSubmit(address.trim(), channelType);
+    onSubmit(address.trim(), channelType, verify);
   }
 
   return (
@@ -96,6 +106,13 @@ export function ContactPromptCard({
             disabled={isSubmitting}
             autoFocus
           />
+          <Checkbox
+            checked={verify}
+            onCheckedChange={(next) => setVerify(next === true)}
+            disabled={isSubmitting}
+            label={t("contactPromptCard.markVerified")}
+            helperText={t("contactPromptCard.markVerifiedHelp")}
+          />
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -113,7 +130,9 @@ export function ContactPromptCard({
                 isSubmitting ? <Loader2 className="animate-spin" /> : undefined
               }
             >
-              {isSubmitting ? t("contactPromptCard.saving") : t("contactPromptCard.save")}
+              {isSubmitting
+                ? t("contactPromptCard.saving")
+                : t("contactPromptCard.save")}
             </Button>
           </div>
         </form>

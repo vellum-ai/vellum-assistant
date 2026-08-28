@@ -9,7 +9,7 @@ import type { GatewayRouteDefinition } from "./types.js";
  * These schemas are the codegen source of truth for the operations that
  * exist ONLY on the gateway (they have no daemon HTTP counterpart, so they
  * are absent from the daemon SDK): contact upsert, contact delete,
- * contact-prompt submit, and manual channel verify. Clients consume them
+ * contact-prompt submit, contact-record submit, and manual channel verify. Clients consume them
  * through the generated gateway SDK, which emits assistant-scoped
  * `/v1/assistants/{assistant_id}/...` URLs — but both deployment boundaries
  * strip the scope before the gateway routes the request (Django's
@@ -18,7 +18,7 @@ import type { GatewayRouteDefinition } from "./types.js";
  * in this spec.
  *
  * The handlers live in `contacts-control-plane-proxy.ts` (upsert, delete,
- * verify) and `contact-prompt.ts` (prompt submit); this module is
+ * verify) and `contact-prompt.ts` (prompt and record submit); this module is
  * intentionally schema-only so `scripts/generate-openapi.ts` can import it
  * without pulling in DB or IPC dependencies.
  */
@@ -129,6 +129,31 @@ const ContactPromptSubmitRequestSchema = z.object({
   channelType: z.string(),
   role: z.string().optional(),
   displayName: z.string().optional(),
+  verify: z
+    .boolean()
+    .optional()
+    .describe(
+      "The form's 'mark verified' checkbox as the guardian left it. Omit only from clients that predate the checkbox; the parked command's flag is then used instead.",
+    ),
+});
+
+const ContactRecordSubmitRequestSchema = z.object({
+  requestId: z
+    .string()
+    .describe("The contact_record_request id broadcast by the daemon"),
+  operation: z
+    .enum(["create", "update", "delete"])
+    .optional()
+    .describe("Required unless cancelled is true"),
+  contactId: z.string().optional().describe("Required to update or delete"),
+  displayName: z.string().optional(),
+  notes: z.string().nullable().optional(),
+  cancelled: z
+    .boolean()
+    .optional()
+    .describe(
+      "The guardian dismissed the form. Unblocks the waiting command without writing.",
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -170,6 +195,20 @@ export const ROUTES: GatewayRouteDefinition[] = [
       "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
     tags: ["contacts"],
     requestBody: ContactPromptSubmitRequestSchema,
+    responseBody: z.object({
+      accepted: z.boolean(),
+      error: z.string().optional(),
+    }),
+  },
+  {
+    path: "/v1/contacts/record/submit",
+    method: "post",
+    operationId: "contactsRecordSubmit",
+    summary: "Submit a contact-record form",
+    description:
+      "Completes a daemon-broadcast contact_record_request: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command via daemon IPC. A cancelled submission unblocks it without writing.",
+    tags: ["contacts"],
+    requestBody: ContactRecordSubmitRequestSchema,
     responseBody: z.object({
       accepted: z.boolean(),
       error: z.string().optional(),

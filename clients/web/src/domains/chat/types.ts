@@ -86,6 +86,7 @@ export interface PendingContactRequestState {
   label?: string;
   description?: string;
   role?: string;
+  verify?: boolean;
 }
 
 export interface PendingQuestionState {

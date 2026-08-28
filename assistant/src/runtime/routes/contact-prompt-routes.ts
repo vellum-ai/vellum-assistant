@@ -1,20 +1,26 @@
 /**
- * IPC route for the `contacts/prompt` CLI command.
+ * IPC routes for the contact forms the guardian fills in their app.
  *
- * Flow:
- *   1. CLI calls `contacts/prompt` IPC route with optional channel/role hints.
- *   2. Daemon broadcasts a `contact_request` to all connected clients.
- *   3. Client shows a contact address input form.
- *   4. User enters an address; client POSTs to the gateway's
- *      `POST /v1/contacts/prompt` HTTP route.
- *   5. Gateway upserts the contact + channel (gateway owns all contact writes).
- *   6. If the prompt was opened with --verify, the gateway reads
- *      `contact_prompt_flags` and attests the new channel.
- *   7. Gateway calls daemon IPC `resolve_contact_prompt` with the new contact info.
- *   8. Daemon resolves the pending promise; `contacts/prompt` IPC returns to CLI.
+ * Two commands park on this rail:
+ *   - `contacts/prompt` collects a channel address and binds a channel.
+ *   - `contacts/record-prompt` confirms a contact record write the assistant
+ *     proposed (create, update, delete). No channel is touched.
  *
- * The daemon only broadcasts the prompt and waits. It never writes contacts.
- * All writes go through the gateway.
+ * Flow, identical for both:
+ *   1. CLI calls the IPC route with what the assistant proposes.
+ *   2. Daemon broadcasts a `contact_request` / `contact_record_request` to all
+ *      connected clients and parks the call.
+ *   3. Client shows the form. The guardian edits and submits, or dismisses.
+ *   4. Client POSTs to the gateway (`/v1/contacts/prompt/submit` or
+ *      `/v1/contacts/record/submit`).
+ *   5. Gateway performs the write (gateway owns all contact writes), attesting
+ *      the channel when the guardian left the verify box checked.
+ *   6. Gateway calls daemon IPC `resolve_contact_prompt`.
+ *   7. Daemon resolves the pending promise and the CLI call returns.
+ *
+ * The daemon only broadcasts and waits. It never writes contacts. That is what
+ * makes these commands guardian-gated: with no human at a form, nothing is
+ * written, and the call times out.
  */
 
 import { v4 as uuid } from "uuid";
@@ -130,8 +136,41 @@ const ContactPromptParams = z.object({
     .boolean()
     .optional()
     .describe(
-      "When true, submitting the address also marks the channel verified. Same attest as Contacts Verify me.",
+      "Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an unchecked box leaves the channel unverified.",
     ),
+});
+
+const ContactRecordPromptParams = z.object({
+  operation: z
+    .enum(["create", "update", "delete"])
+    .describe("Which record write the guardian is being asked to confirm."),
+  contactId: z
+    .string()
+    .optional()
+    .describe("Target contact. Required for update and delete."),
+  currentDisplayName: z
+    .string()
+    .optional()
+    .describe(
+      "The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned facts are not read here.",
+    ),
+  displayName: z
+    .string()
+    .optional()
+    .describe(
+      "Proposed name, prefilled into the form. The guardian can edit it.",
+    ),
+  notes: z
+    .string()
+    .optional()
+    .describe(
+      "Proposed notes, prefilled into the form. The guardian can edit them.",
+    ),
+  label: z.string().optional().describe("Display label shown in the form."),
+  description: z
+    .string()
+    .optional()
+    .describe("Longer description shown in the form."),
 });
 
 const ContactPromptFlagsParams = z.object({
@@ -179,11 +218,69 @@ async function handleContactPrompt({
       label,
       description,
       role,
+      // The checkbox's initial state. Carried in the broadcast so the form can
+      // show what submitting will do; the client's answer is what the gateway
+      // acts on.
+      verify: verify === true,
     });
 
     log.info(
       { requestId, channel, role, verify: verify === true },
       "Contact prompt broadcast",
+    );
+  });
+}
+
+/**
+ * Park a proposed contact-record write until the guardian answers the form.
+ *
+ * The daemon writes nothing. It broadcasts the proposal and waits for the
+ * gateway to report what the guardian actually submitted, which may differ
+ * from what was proposed or may be a dismissal.
+ */
+async function handleContactRecordPrompt({
+  body = {},
+}: RouteHandlerArgs): Promise<ContactPromptResult> {
+  const {
+    operation,
+    contactId,
+    currentDisplayName,
+    displayName,
+    notes,
+    label,
+    description,
+  } = ContactRecordPromptParams.parse(body);
+
+  if (operation !== "create" && !contactId) {
+    return { ok: false, error: `contactId is required to ${operation}` };
+  }
+
+  const requestId = uuid();
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingContactPrompts.delete(requestId);
+      log.warn({ requestId, operation }, "Contact record prompt timed out");
+      resolve({ ok: false, error: "Prompt timed out" });
+    }, CONTACT_PROMPT_TIMEOUT_MS);
+
+    pendingContactPrompts.set(requestId, { resolve, timer, verify: false });
+
+    broadcastMessage({
+      type: "contact_record_request",
+      requestId,
+      operation,
+      contactId,
+      currentDisplayName,
+      displayName,
+      notes,
+      label,
+      description,
+    });
+
+    log.info(
+      { requestId, operation, contactId },
+      "Contact record prompt broadcast",
     );
   });
 }
@@ -227,6 +324,26 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       channelId: z.string().optional(),
       channelType: z.string().optional(),
       address: z.string().optional(),
+    }),
+  },
+  {
+    operationId: "contacts_record_prompt",
+    endpoint: "contacts/record-prompt",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handleContactRecordPrompt,
+    summary: "Ask the guardian to confirm a contact record write",
+    description:
+      "Broadcasts a contact_record_request to connected clients and waits for the guardian to submit the form. The gateway owns the write and notifies the daemon via resolve_contact_prompt IPC. Nothing is written if nobody answers.",
+    tags: ["contacts"],
+    requestBody: ContactRecordPromptParams,
+    responseBody: z.object({
+      ok: z.boolean(),
+      error: z.string().optional(),
+      contactId: z.string().optional(),
     }),
   },
   {
