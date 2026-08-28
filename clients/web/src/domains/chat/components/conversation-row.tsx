@@ -249,10 +249,7 @@ export function ConversationRow({
         badgeBare
         trailingAction={
           showsEllipsis ? (
-            <ConversationActionsMenu
-              {...menuProps}
-              targetsActiveConversation={isActiveConversation}
-            />
+            <ConversationActionsMenu {...menuProps} shortcuts={shortcuts} />
           ) : undefined
         }
         className={cn(

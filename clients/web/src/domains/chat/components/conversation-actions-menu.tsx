@@ -25,10 +25,7 @@ import {
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
-import {
-  useConversationMenuShortcuts,
-  type ConversationMenuShortcuts,
-} from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
+import { type ConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import { useTranslation, type TFunction } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -286,7 +283,10 @@ export function renderConversationMenuItems({
         leftIcon={<READ_ICON size={14} />}
         onSelect={onMarkUnread}
         disabled={isMarkUnreadDisabled}
-        shortcut={shortcuts.markUnread}
+        // A dimmed row that still draws a key claims an action it will not
+        // perform, and the binding itself has no matching guard, so the row
+        // and the keypress would disagree.
+        shortcut={isMarkUnreadDisabled ? undefined : shortcuts.markUnread}
       >
         {t("conversationActions.markUnread")}
       </Primitive.Item>
@@ -850,11 +850,12 @@ export function ConversationActionsSheet({
 
 export interface ConversationActionsMenuProps extends ConversationMenuItemsProps {
   /**
-   * Whether this menu belongs to the conversation the bound commands act on.
-   * The pin, mark-unread, and pop-out shortcuts target the active
-   * conversation, so only that conversation's menu may advertise them.
+   * Bindings to advertise, resolved by the caller. The pin, mark-unread, and
+   * pop-out commands act on the active conversation, so only that
+   * conversation's menu may pass any: omitted means the menu advertises
+   * nothing, which is the safe default for a caller that has not decided.
    */
-  targetsActiveConversation?: boolean;
+  shortcuts?: ConversationMenuShortcuts;
 
   /**
    * Override the default hover-revealed ellipsis button with a custom
@@ -874,10 +875,9 @@ export function ConversationActionsMenu({
   side = "right",
   align = "start",
   sideOffset = 4,
-  targetsActiveConversation = false,
+  shortcuts = {},
   ...itemProps
 }: ConversationActionsMenuProps) {
-  const shortcuts = useConversationMenuShortcuts(targetsActiveConversation);
   const isTouchMobile = useTouchMobile();
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
