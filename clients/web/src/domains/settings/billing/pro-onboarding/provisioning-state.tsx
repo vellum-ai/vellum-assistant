@@ -475,10 +475,9 @@ type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 /**
  * The credits chip's strings, where no amount may render: each side names its
  * bundle by catalog label, the no-bundle side reads as the "No extra usage"
- * sentinel, and a side the catalog can't label is left unstated: an unstated
- * from-side just drops the arrow, an unstated to-side drops the whole chip
- * rather than asserting a bundle it cannot name. The row label reads "Usage"
- * so the chip never introduces credits as a concept.
+ * sentinel, and a from-side the catalog can't label is left unstated, dropping
+ * the arrow. The row label reads "Usage" so the chip never introduces credits
+ * as a concept.
  */
 function creditsChipContent(
   credits: CreditsChange | null,
@@ -488,14 +487,10 @@ function creditsChipContent(
     return null;
   }
   const noExtraUsage = t("provisioningState.noExtraUsage");
-  const to = credits.toLabel === null ? noExtraUsage : credits.toLabel;
-  if (to == null) {
-    return null;
-  }
   return {
     label: t("provisioningState.usageLabel"),
     from: credits.fromLabel === null ? noExtraUsage : credits.fromLabel,
-    to,
+    to: credits.toLabel === null ? noExtraUsage : credits.toLabel,
   };
 }
 

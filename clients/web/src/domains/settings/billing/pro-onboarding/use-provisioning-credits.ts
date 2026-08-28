@@ -9,17 +9,19 @@ import { findCreditTier } from "@/lib/billing/credit-tiers";
 /**
  * The two sides of a credit bundle change, each as the catalog label the chip
  * renders ("Mighty Usage", the Stripe product name, so it matches the invoice
- * line). `null` marks the explicit no-bundle side, worded by the caller;
- * `undefined` a bundle the catalog can't label, which the chip leaves unstated.
+ * line). `null` marks the explicit no-bundle side, worded by the caller; an
+ * `undefined` from-side is a bundle the catalog can't label, which the chip
+ * leaves unstated. An unwordable to-side drops the chip, so the hooks return
+ * null instead of a change.
  */
 export interface CreditsChange {
   fromLabel: string | null | undefined;
-  toLabel: string | null | undefined;
+  toLabel: string | null;
 }
 
 /**
  * The credit tiers an in-place plan change moves between. `null` on either side
- * is the explicit "No extra credits" choice.
+ * is the explicit no-bundle choice.
  */
 export interface CreditTierChange {
   fromTier: CreditTierEnum | null;
@@ -45,8 +47,8 @@ function useProPlan(enabled: boolean): ProPlan | undefined {
 }
 
 /**
- * The catalog label for a tier. A null tier is the explicit "No extra credits"
- * choice (`null` here), and a tier the catalog doesn't list has no label to give
+ * The catalog label for a tier. A null tier is the explicit no-bundle choice
+ * (`null` here), and a tier the catalog doesn't list has no label to give
  * (`undefined`): a key like `credits_115` carries no wording to fall back to.
  */
 function creditTierLabel(
@@ -98,8 +100,7 @@ export function useProvisioningCredits(
  * The bundle labels an in-place plan change moves between. Both endpoints come
  * from the tiers the plans page captured before the change landed, so the chip
  * states the move rather than the outcome. Returns null when no credit change is
- * threaded and when the catalog can't word the to-side, and the chip is omitted;
- * an unwordable from-side is left unstated instead. Display-only.
+ * threaded or the catalog can't word the to-side. Display-only.
  */
 export function useResizeCreditsChange(
   change: CreditTierChange | null | undefined,

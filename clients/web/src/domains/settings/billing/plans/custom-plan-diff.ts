@@ -29,11 +29,8 @@ import {
 export const NO_EXTRA_CREDITS = "__none__";
 export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 
-/**
- * Fallback wording for the no-bundle sentinel when a caller supplies no
- * `noBundleLabel`. The modal always passes its translated copy.
- */
-export const NO_CREDITS_LABEL = "No extra credits";
+/** Fallback wording when a caller supplies no `noBundleLabel`. */
+const NO_CREDITS_LABEL = "No extra credits";
 
 /**
  * Sentinel for the baseline machine. `MachineTierEnum` names only the paid

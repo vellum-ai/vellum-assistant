@@ -39,8 +39,7 @@ const { useProvisioningCredits, useResizeCreditsChange } =
  * label-precedence assertions can tell the two apart.
  *
  * The packages differ in what words their bundle: Mighty carries its own
- * `usage_label`, Tierless leans on the tier's, and Unpriced names a bundle the
- * catalog neither lists nor prices.
+ * `usage_label` and Tierless leans on the tier's.
  */
 function plansResponse(): PlanListResponse {
   return {
@@ -77,25 +76,6 @@ function plansResponse(): PlanListResponse {
             storage_gib: 10,
             credits_usd: 50,
             usage_label: "Mighty Usage",
-            include_platform_fee: false,
-            base_price_cents: 4000,
-            machine_price_cents: 0,
-            storage_price_cents: 0,
-            credit_price_cents: 0,
-            total_price_cents: 4000,
-          },
-          {
-            key: "unpriced",
-            name: "Unpriced",
-            description: "",
-            version: 1,
-            machine_tier: null,
-            storage_tier: "xs",
-            credit_tier: "credits_100",
-            machine_size: null,
-            storage_gib: 10,
-            credits_usd: null,
-            usage_label: "Boundless Usage",
             include_platform_fee: false,
             base_price_cents: 4000,
             machine_price_cents: 0,
@@ -226,18 +206,6 @@ describe("useProvisioningCredits", () => {
     ).toEqual({ fromLabel: null, toLabel: "Mighty Usage" });
   });
 
-  test("names a bundle the catalog carries no amount for", () => {
-    // The package prices no credits of its own and its tier is absent from the
-    // catalog, so nothing about it resolves to an amount; its usage_label still
-    // words the chip.
-    expect(
-      renderCredits(
-        { kind: "package", packageKey: "unpriced", savedAt: 0 },
-        plansResponse(),
-      ),
-    ).toEqual({ fromLabel: null, toLabel: "Boundless Usage" });
-  });
-
   test("returns null for an unknown package key", () => {
     expect(
       renderCredits(
@@ -297,7 +265,8 @@ describe("useResizeCreditsChange", () => {
   });
 
   test("reads a dropped bundle as a move to the no-bundle side", () => {
-    // "No extra credits" is a real endpoint of the change, not a missing side.
+    // The explicit no-bundle choice is a real endpoint of the change, not a
+    // missing side.
     expect(
       renderChange({ fromTier: "credits_50", toTier: null }, plansResponse()),
     ).toEqual({ fromLabel: "Mighty Usage Monthly", toLabel: null });

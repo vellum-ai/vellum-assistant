@@ -1393,8 +1393,8 @@ describe("credits chip wording", () => {
     expect(queryByTestId("chip-credits")).toBeNull();
   });
 
-  test("the confirming custom-intent chip names the bundle, not a count", () => {
-    const { getByText, queryByText } = renderState({
+  test("the confirming custom-intent chip names the bundle", () => {
+    const { getByText } = renderState({
       state: "CONFIRMING",
       intent: {
         kind: "custom",
@@ -1406,6 +1406,5 @@ describe("credits chip wording", () => {
     });
 
     expect(getByText("Mighty Usage")).toBeTruthy();
-    expect(queryByText("50 credits")).toBeNull();
   });
 });

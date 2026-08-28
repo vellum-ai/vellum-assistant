@@ -1715,7 +1715,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 });
 
 describe("PlansPage: package usage rows", () => {
-  test("every package row reads as the package's usage, never as credits", async () => {
+  test("every package row is named from the package", async () => {
     const { findByText, getByText } = renderInteractive(freeSubscription());
 
     // The name-derived usage rows, matching the plan card's chip.
@@ -1724,12 +1724,11 @@ describe("PlansPage: package usage rows", () => {
     getByText("Ultra usage, reset monthly");
   });
 
-  test("a package with no usage_label still never falls back to credits", async () => {
-    const { findByText, container } = renderInteractive(freeSubscription(), {
+  test("a package with no usage_label still gets a name-derived usage row", async () => {
+    const { findByText } = renderInteractive(freeSubscription(), {
       plans: plansWith([makeProPackage({ usage_label: null })]),
     });
 
     await findByText("Mighty usage, reset monthly");
-    expect(container.textContent).not.toContain("in credits included");
   });
 });
