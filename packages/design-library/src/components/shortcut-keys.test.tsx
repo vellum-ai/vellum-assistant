@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   ShortcutKeys,
+  acceleratorToAriaKeyShortcuts,
   detectShortcutPlatform,
   formatAcceleratorHint,
   parseAccelerator,
@@ -12,14 +13,14 @@ import {
 describe("parseAccelerator", () => {
   test("maps modifiers to macOS symbols", () => {
     expect(parseAccelerator("CmdOrCtrl+Shift+N", "mac")).toEqual([
-      "\u2318",
       "\u21e7",
+      "\u2318",
       "N",
     ]);
     expect(parseAccelerator("Command+Control+Alt+K", "mac")).toEqual([
-      "\u2318",
       "\u2303",
       "\u2325",
+      "\u2318",
       "K",
     ]);
   });
@@ -47,6 +48,55 @@ describe("parseAccelerator", () => {
 
   test("returns an empty array for an empty accelerator", () => {
     expect(parseAccelerator("", "mac")).toEqual([]);
+  });
+
+  test("writes macOS modifiers in the Apple order, not the accelerator's", () => {
+    // Apple Style Guide: Control, Option, Shift, Command. The accelerator is a
+    // binding, so every spelling of one shortcut has to render identically.
+    const spellings = [
+      "Control+Alt+Shift+Cmd+K",
+      "Cmd+Shift+Alt+Control+K",
+      "Shift+Control+Cmd+Alt+K",
+    ];
+    for (const spelling of spellings) {
+      expect(parseAccelerator(spelling, "mac")).toEqual([
+        "\u2303",
+        "\u2325",
+        "\u21e7",
+        "\u2318",
+        "K",
+      ]);
+    }
+  });
+
+  test("leads with the Windows key, then Ctrl, Alt, Shift", () => {
+    expect(parseAccelerator("Shift+Alt+Control+Super+K", "windows")).toEqual([
+      "Win",
+      "Ctrl",
+      "Alt",
+      "Shift",
+      "K",
+    ]);
+  });
+
+  test("orders CmdOrCtrl by what it resolves to on the host", () => {
+    // It ranks last on macOS as Command and second on Windows as Ctrl, so the
+    // same accelerator sorts differently per platform.
+    expect(parseAccelerator("CmdOrCtrl+Shift+K", "mac")).toEqual([
+      "\u21e7",
+      "\u2318",
+      "K",
+    ]);
+    expect(parseAccelerator("CmdOrCtrl+Shift+K", "windows")).toEqual([
+      "Ctrl",
+      "Shift",
+      "K",
+    ]);
+  });
+
+  test("keeps the key last even when it sorts before a modifier", () => {
+    expect(parseAccelerator("A+Shift", "mac")).toEqual(["\u21e7", "A"]);
+    expect(parseAccelerator("CmdOrCtrl+", "mac")).toEqual(["\u2318", "+"]);
   });
 
   test("maps tokens to text labels on Windows", () => {
@@ -98,10 +148,36 @@ describe("detectShortcutPlatform", () => {
 describe("formatAcceleratorHint", () => {
   test("runs glyphs together on mac and plus-joins labels on Windows", () => {
     expect(formatAcceleratorHint("CmdOrCtrl+Shift+O", "mac")).toBe(
-      "\u2318\u21e7O",
+      "\u21e7\u2318O",
     );
     expect(formatAcceleratorHint("CmdOrCtrl+Shift+O", "windows")).toBe(
       "Ctrl+Shift+O",
+    );
+  });
+});
+
+describe("acceleratorToAriaKeyShortcuts", () => {
+  test("announces modifiers in the same order the row draws them", () => {
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Shift+P", "mac")).toBe(
+      "Shift+Meta+P",
+    );
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Shift+P", "windows")).toBe(
+      "Control+Shift+P",
+    );
+  });
+
+  test("is stable across spellings of one binding", () => {
+    expect(acceleratorToAriaKeyShortcuts("Shift+CmdOrCtrl+P", "mac")).toBe(
+      acceleratorToAriaKeyShortcuts("CmdOrCtrl+Shift+P", "mac"),
+    );
+  });
+
+  test("uses UI Events key values rather than glyphs", () => {
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Up", "mac")).toBe(
+      "Meta+ArrowUp",
+    );
+    expect(acceleratorToAriaKeyShortcuts("Alt+Return", "windows")).toBe(
+      "Alt+Enter",
     );
   });
 });

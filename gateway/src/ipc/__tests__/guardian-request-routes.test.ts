@@ -424,21 +424,23 @@ describe("guardian_requests_expire", () => {
 });
 
 describe("guardian_requests_expire_interaction_bound", () => {
-  test("expires interaction-bound kinds unconditionally, persistent kinds only past deadline", async () => {
+  test("expires interaction-bound kinds unconditionally, never persistent kinds", async () => {
     const toolApproval = await createRequest({
       kind: "tool_approval",
       toolName: "bash",
     });
     const pendingQuestion = await createRequest({ kind: "pending_question" });
     const freshAccess = await createRequest({ expiresAt: FUTURE() });
+    // Past-deadline persistent rows wait for the sweep, which owns their
+    // card-withdrawal and requester-notice fan-out.
     const staleAccess = await createRequest({ expiresAt: PAST() });
 
     expect(await call(METHODS.expireInteractionBound, {})).toEqual({
-      expired: 3,
+      expired: 2,
     });
     expect(getRequestRow(toolApproval.id)?.status).toBe("expired");
     expect(getRequestRow(pendingQuestion.id)?.status).toBe("expired");
-    expect(getRequestRow(staleAccess.id)?.status).toBe("expired");
+    expect(getRequestRow(staleAccess.id)?.status).toBe("pending");
     expect(getRequestRow(freshAccess.id)?.status).toBe("pending");
   });
 

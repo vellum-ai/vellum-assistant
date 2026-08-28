@@ -44,7 +44,7 @@ const HINTED_SECTIONS = [
     id: "actions",
     label: "Actions",
     items: [
-      { id: "new", title: "New Conversation", shortcutHint: "⌘⇧O" },
+      { id: "new", title: "New Conversation", shortcutHint: "⇧⌘O" },
       { id: "library", title: "Library" },
     ],
   },
@@ -85,7 +85,9 @@ function keyboardHints(): string[] {
   const itemHints = Array.from(dialog.querySelectorAll("span"))
     .filter((el) => el.children.length === 0)
     .map((el) => el.textContent ?? "")
-    .filter((text) => text.startsWith("⌘"));
+    // Any modifier glyph, not Command specifically: a hint leads with the
+    // first modifier in the platform's order, which for ⇧⌘O is Shift.
+    .filter((text) => /[\u2318\u2303\u2325\u21e7]/.test(text));
   return [...caps, ...itemHints];
 }
 
@@ -394,7 +396,7 @@ describe("CommandPalette keyboard hints", () => {
 
     renderHintedPalette();
 
-    expect(keyboardHints()).toEqual(["⌘K", "⌘⇧O"]);
+    expect(keyboardHints()).toEqual(["⌘K", "⇧⌘O"]);
   });
 
   test("keeps the hints on a narrow window that still has a keyboard", () => {
@@ -406,7 +408,7 @@ describe("CommandPalette keyboard hints", () => {
     renderHintedPalette();
 
     expect(screen.getByRole("dialog", { name: "Search" })).toBeTruthy();
-    expect(keyboardHints()).toEqual(["⌘K", "⌘⇧O"]);
+    expect(keyboardHints()).toEqual(["⌘K", "⇧⌘O"]);
   });
 
   test("drops the hints on a roomy touch device that cannot press them", () => {

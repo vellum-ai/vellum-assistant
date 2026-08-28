@@ -16253,14 +16253,14 @@ paths:
               type: object
               properties:
                 botToken:
-                  type: string
                   description: Slack bot token
-                appToken:
                   type: string
+                appToken:
                   description: Slack app-level token
-              required:
-                - botToken
-                - appToken
+                  type: string
+                userToken:
+                  description: Slack user token, for reading channels the bot is not in
+                  type: string
       responses:
         "200":
           description: Successful response
