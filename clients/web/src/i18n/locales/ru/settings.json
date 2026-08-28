@@ -1265,7 +1265,6 @@
     "usageBalancePctUsed": "использовано {pct}%",
     "usageBalanceTitle": "Баланс использования",
     "usageChip": "Использование {name}, сброс каждый месяц",
-    "usageIncludedChip": "Входит {label}",
     "viewAllPlans": "Все планы"
   },
   "planCardContent": {

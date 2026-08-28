@@ -1273,7 +1273,6 @@
     "usageBalancePctUsed": "已使用 {pct}%",
     "usageBalanceTitle": "使用余额",
     "usageChip": "{name} 使用量，每月重置",
-    "usageIncludedChip": "包含 {label}",
     "viewAllPlans": "查看所有套餐"
   },
   "planCardContent": {
