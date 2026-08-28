@@ -175,11 +175,14 @@ function parseFormTimeout(
   if (raw === undefined) {
     return CONTACT_FORM_DEFAULT_TIMEOUT_MS;
   }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  // The whole token has to be digits: parseInt takes a valid prefix, so
+  // "1e3" would pass as 1 and "100.5" as 100, quietly giving a form a
+  // fraction of the wait it was asked for.
+  const parsed = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     writeError(
       cmd,
-      `Invalid --timeout "${raw}": expected a positive number of milliseconds`,
+      `Invalid --timeout "${raw}": expected a positive whole number of milliseconds`,
     );
     process.exitCode = 1;
     return null;

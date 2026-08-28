@@ -124,7 +124,7 @@ const UpsertContactRequestSchema = z.object({
 const ContactPromptSubmitRequestSchema = z.object({
   requestId: z
     .string()
-    .describe("The contact_request id broadcast by the daemon"),
+    .describe("The contact_request id broadcast by the assistant"),
   address: z.string(),
   channelType: z.string(),
   role: z.string().optional(),
@@ -140,7 +140,7 @@ const ContactPromptSubmitRequestSchema = z.object({
 const ContactRecordSubmitRequestSchema = z.object({
   requestId: z
     .string()
-    .describe("The contact_record_request id broadcast by the daemon"),
+    .describe("The contact_record_request id broadcast by the assistant"),
   operation: z
     .enum(["create", "update", "delete"])
     .optional()
@@ -192,7 +192,7 @@ export const ROUTES: GatewayRouteDefinition[] = [
     operationId: "contactsPromptSubmit",
     summary: "Submit a contact-prompt address",
     description:
-      "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+      "Completes a contact_request the assistant broadcast: writes the contact and channel gateway-first, then unblocks the waiting prompt.",
     tags: ["contacts"],
     requestBody: ContactPromptSubmitRequestSchema,
     responseBody: z.object({
@@ -206,7 +206,7 @@ export const ROUTES: GatewayRouteDefinition[] = [
     operationId: "contactsRecordSubmit",
     summary: "Submit a contact-record form",
     description:
-      "Completes a daemon-broadcast contact_record_request: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command via daemon IPC. A cancelled submission unblocks it without writing.",
+      "Completes a contact_record_request the assistant broadcast: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command. A cancelled submission unblocks it without writing.",
     tags: ["contacts"],
     requestBody: ContactRecordSubmitRequestSchema,
     responseBody: z.object({

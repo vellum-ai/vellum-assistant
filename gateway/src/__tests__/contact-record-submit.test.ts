@@ -40,6 +40,9 @@ const claimedForms = new Set<string>();
 const ipcMock = mock(
   async (method: string, options?: { body?: Record<string, unknown> }) => {
     if (method === "contact_prompt_claim") {
+      if (claimThrows) {
+        throw new Error("socket closed");
+      }
       const requestId = options?.body?.requestId as string;
       if (!openForms.has(requestId)) {
         return { claimed: false, reason: "unknown" };
@@ -59,6 +62,9 @@ function openForm(requestId: string): string {
   openForms.add(requestId);
   return requestId;
 }
+
+/** Make the next claim attempt fail the way an unreachable assistant does. */
+let claimThrows = false;
 
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
@@ -122,6 +128,7 @@ beforeEach(() => {
   ipcMock.mockClear();
   openForms = new Set<string>();
   claimedForms.clear();
+  claimThrows = false;
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
@@ -542,6 +549,37 @@ describe("contact record submit", () => {
       .where(eq(gwContacts.id, "c-dismissed-first"))
       .get();
     expect(row!.displayName).toBe("Alice");
+  });
+
+  test("an unreachable assistant fails the submission rather than swallowing it", async () => {
+    claimThrows = true;
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-unreachable"),
+        operation: "create",
+        displayName: "Alice",
+      }),
+    );
+
+    // 503 rather than a duplicate-success: the client keeps its card, because
+    // nothing reached the form and the command is still waiting.
+    expect(res.status).toBe(503);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+  });
+
+  test("an unreachable assistant fails a dismissal too", async () => {
+    claimThrows = true;
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-cancel-unreachable"),
+        cancelled: true,
+      }),
+    );
+
+    expect(res.status).toBe(503);
+    expect(callsFor("resolve_contact_prompt")).toHaveLength(0);
   });
 
   test("an unknown operation is rejected", async () => {

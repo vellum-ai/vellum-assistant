@@ -1329,7 +1329,7 @@
         "operationId": "contactsPromptSubmit",
         "summary": "Submit a contact-prompt address",
         "tags": ["contacts"],
-        "description": "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+        "description": "Completes a contact_request the assistant broadcast: writes the contact and channel gateway-first, then unblocks the waiting prompt.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1339,7 +1339,7 @@
                 "properties": {
                   "requestId": {
                     "type": "string",
-                    "description": "The contact_request id broadcast by the daemon"
+                    "description": "The contact_request id broadcast by the assistant"
                   },
                   "address": { "type": "string" },
                   "channelType": { "type": "string" },
@@ -1380,7 +1380,7 @@
         "operationId": "contactsRecordSubmit",
         "summary": "Submit a contact-record form",
         "tags": ["contacts"],
-        "description": "Completes a daemon-broadcast contact_record_request: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command via daemon IPC. A cancelled submission unblocks it without writing.",
+        "description": "Completes a contact_record_request the assistant broadcast: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command. A cancelled submission unblocks it without writing.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1390,7 +1390,7 @@
                 "properties": {
                   "requestId": {
                     "type": "string",
-                    "description": "The contact_record_request id broadcast by the daemon"
+                    "description": "The contact_record_request id broadcast by the assistant"
                   },
                   "operation": {
                     "description": "Required unless cancelled is true",

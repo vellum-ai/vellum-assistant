@@ -158,6 +158,26 @@ describe("contacts record prompts", () => {
     );
   });
 
+  test.each(["1e3", "100.5", "300000ms", "abc", "-5"])(
+    "a timeout of %p is refused rather than partly parsed",
+    async (raw) => {
+      // parseInt takes a valid prefix, so "1e3" would otherwise become a 1ms
+      // form: open and shut before anyone could answer it.
+      await runAssistantCommand(
+        "contacts",
+        "create",
+        "--name",
+        "Alice",
+        "--timeout",
+        raw,
+      );
+
+      expect(
+        calls.some((c) => c.operationId === "contacts_record_prompt"),
+      ).toBe(false);
+    },
+  );
+
   test("a timeout past the ceiling is refused before the guardian is bothered", async () => {
     await runAssistantCommand(
       "contacts",
@@ -166,21 +186,6 @@ describe("contacts record prompts", () => {
       "Alice",
       "--timeout",
       "99999999",
-    );
-
-    expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(
-      false,
-    );
-  });
-
-  test("a nonsense timeout is refused before the guardian is bothered", async () => {
-    await runAssistantCommand(
-      "contacts",
-      "create",
-      "--name",
-      "Alice",
-      "--timeout",
-      "-5",
     );
 
     expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(

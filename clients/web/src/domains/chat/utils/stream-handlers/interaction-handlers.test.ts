@@ -25,6 +25,7 @@ const {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
+  handleContactFormClosed,
   handleInteractionResolved,
 } = await import("@/domains/chat/utils/stream-handlers/interaction-handlers");
 
@@ -376,5 +377,83 @@ describe("handleContactRequest", () => {
     expect(ctx.turnActions.onContactRequest).toHaveBeenCalled();
     const state = useInteractionStore.getState();
     expect(state.pendingContactRequest).toMatchObject({ requestId: "ctc-1" });
+  });
+});
+
+describe("handleContactFormClosed", () => {
+  beforeEach(() => {
+    useInteractionStore.setState(useInteractionStore.getInitialState(), true);
+  });
+
+  function raiseRecordForm(requestId: string) {
+    useInteractionStore
+      .getState()
+      .showContactRecordRequest({ requestId, operation: "create" });
+  }
+
+  it("retires the card on a client that did not answer", () => {
+    raiseRecordForm("r1");
+
+    handleContactFormClosed({
+      type: "contact_form_closed",
+      requestId: "r1",
+      reason: "answered",
+    });
+
+    expect(
+      useInteractionStore.getState().pendingContactRecordRequest,
+    ).toBeNull();
+  });
+
+  it("leaves the answering client's confirmation up, even mid-submit", () => {
+    raiseRecordForm("r1");
+    useInteractionStore
+      .getState()
+      .claimSubmission("contactRecordRequest", "r1");
+
+    // The gateway resolves the form before its HTTP response returns, so this
+    // can arrive while the submission is still on the wire.
+    handleContactFormClosed({
+      type: "contact_form_closed",
+      requestId: "r1",
+      reason: "answered",
+    });
+
+    expect(
+      useInteractionStore.getState().pendingContactRecordRequest?.requestId,
+    ).toBe("r1");
+  });
+
+  it("retires a failed form on the client that submitted it", () => {
+    raiseRecordForm("r1");
+    useInteractionStore
+      .getState()
+      .claimSubmission("contactRecordRequest", "r1");
+
+    // A write that failed closes the form server-side, so the card has nothing
+    // left to submit to and must not stay up offering to retry.
+    handleContactFormClosed({
+      type: "contact_form_closed",
+      requestId: "r1",
+      reason: "cancelled",
+    });
+
+    expect(
+      useInteractionStore.getState().pendingContactRecordRequest,
+    ).toBeNull();
+  });
+
+  it("ignores a closure for a form this client is not showing", () => {
+    raiseRecordForm("r1");
+
+    handleContactFormClosed({
+      type: "contact_form_closed",
+      requestId: "other",
+      reason: "timed_out",
+    });
+
+    expect(
+      useInteractionStore.getState().pendingContactRecordRequest?.requestId,
+    ).toBe("r1");
   });
 });

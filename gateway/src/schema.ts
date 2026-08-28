@@ -1544,7 +1544,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Submit a contact record in response to a prompt",
           description:
-            "Authenticated gateway endpoint that accepts the create, update, or delete a guardian confirmed in the contact-record form the daemon broadcast. Writes the contact record (display name and notes only, never a channel), then notifies the daemon to unblock the waiting CLI call. A `cancelled: true` body resolves the waiting call without writing.",
+            "Authenticated gateway endpoint that accepts the create, update, or delete a guardian confirmed in the contact-record form the assistant broadcast. Writes the contact record (display name and notes only, never a channel), then notifies the assistant to unblock the waiting CLI call. A `cancelled: true` body resolves the waiting call without writing.",
           operationId: "contactsRecordSubmitPost",
           security: [{ BearerAuth: [] }],
           requestBody: {

@@ -175,27 +175,30 @@ export function handleContactRecordRequest(
 }
 
 /**
- * Retire whichever contact form the daemon just closed. Without this the card
- * stays up offering to submit an answer the gateway would refuse, because the
- * form it names is no longer pending.
+ * Retire whichever contact form has closed. A closed form accepts no
+ * submission, so a card left up offers an answer the gateway would refuse.
+ *
+ * A successful answer is the exception: the client that gave it is either
+ * mid-submit or already showing its confirmation, which retires itself a
+ * moment later, and cutting that short swaps a "saved" for a card vanishing
+ * mid-read. The ordering makes this reachable rather than theoretical, since
+ * the gateway resolves the form, and so broadcasts this, before its own HTTP
+ * response returns. A form that closed any other way is retired everywhere,
+ * including on the client whose write failed: its card has nothing left to
+ * submit to.
  */
 export function handleContactFormClosed(event: ContactFormClosedEvent): void {
   const store = useInteractionStore.getState();
 
-  // The client that answered owns this card's ending: it is either mid-submit
-  // or already showing its confirmation, which dismisses itself a moment
-  // later. Cutting that short would swap a "saved" for a card vanishing
-  // mid-read. The in-flight case is not hypothetical: the gateway resolves the
-  // form (which broadcasts this event) before its own HTTP response returns,
-  // so this can arrive first.
-  const owned =
-    ((store.contactRequestAccepted ||
+  const answeredHere =
+    event.reason === "answered" &&
+    (((store.contactRequestAccepted ||
       store.submittingByKind.contactRequest === event.requestId) &&
       store.pendingContactRequest?.requestId === event.requestId) ||
-    ((store.contactRecordRequestAccepted ||
-      store.submittingByKind.contactRecordRequest === event.requestId) &&
-      store.pendingContactRecordRequest?.requestId === event.requestId);
-  if (owned) {
+      ((store.contactRecordRequestAccepted ||
+        store.submittingByKind.contactRecordRequest === event.requestId) &&
+        store.pendingContactRecordRequest?.requestId === event.requestId));
+  if (answeredHere) {
     return;
   }
 

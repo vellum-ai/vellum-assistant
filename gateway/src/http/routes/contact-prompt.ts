@@ -572,9 +572,9 @@ export async function handleContactRecordSubmit(
     if (!cancelClaim.claimed) {
       log.info(
         { requestId, reason: cancelClaim.reason },
-        "contact-record-submit: dismissal lost the claim, leaving the answer in flight alone",
+        "contact-record-submit: dismissal did not get the claim",
       );
-      return Response.json({ accepted: true, duplicate: true });
+      return lostClaimResponse(cancelClaim.reason);
     }
     await notifyDaemonResolveError(requestId, "Cancelled by user");
     return Response.json({ accepted: true });
@@ -612,28 +612,11 @@ export async function handleContactRecordSubmit(
   // overwrite the answer the guardian actually gave on the first.
   const claim = await claimPrompt(requestId);
   if (!claim.claimed) {
-    if (claim.reason === "already_claimed") {
-      // Somebody already answered. Report success without writing: their
-      // answer stands, and this client has nothing to fix.
-      log.info(
-        { requestId, operation },
-        "contact-record-submit: form already answered, ignoring duplicate",
-      );
-      return Response.json({ accepted: true, duplicate: true });
-    }
-    // No such form: it expired or was already resolved, so nothing is waiting
-    // on this write and nobody asked for it.
     log.warn(
       { requestId, operation, reason: claim.reason },
-      "contact-record-submit: no pending form for this submission",
+      "contact-record-submit: submission did not get the claim",
     );
-    return Response.json(
-      {
-        accepted: false,
-        error: "This request is no longer waiting for an answer",
-      },
-      { status: 409 },
-    );
+    return lostClaimResponse(claim.reason);
   }
 
   try {
@@ -675,9 +658,11 @@ export async function handleContactRecordSubmit(
 /**
  * Ask the daemon to claim this form for the caller.
  *
- * A transport failure is treated as a lost claim: the daemon holds the waiting
- * call, so if it cannot be reached the write has nobody to report to and is
- * better not made.
+ * A transport failure is a lost claim rather than a granted one: the daemon
+ * holds the waiting call, so a write it cannot hear about has nobody to report
+ * to. `unreachable` is kept distinct from the daemon's own answers, because a
+ * caller that cannot be reached says nothing about whether the form was
+ * already answered.
  */
 async function claimPrompt(
   requestId: string,
@@ -694,6 +679,34 @@ async function claimPrompt(
     );
     return { claimed: false, reason: "unreachable" };
   }
+}
+
+/**
+ * The response for a claim the caller did not get.
+ *
+ * A competing claim is success from this client's side: the form it was
+ * showing has been answered, and there is nothing for it to fix. Anything else
+ * is a failure it needs to see, so its card stays and can be retried: an
+ * unreachable assistant means the submission never landed, and an unknown form
+ * means nothing is waiting for one.
+ */
+function lostClaimResponse(reason: string | undefined): Response {
+  if (reason === "already_claimed") {
+    return Response.json({ accepted: true, duplicate: true });
+  }
+  if (reason === "unreachable") {
+    return Response.json(
+      { accepted: false, error: "Could not reach the assistant" },
+      { status: 503 },
+    );
+  }
+  return Response.json(
+    {
+      accepted: false,
+      error: "This request is no longer waiting for an answer",
+    },
+    { status: 409 },
+  );
 }
 
 /**

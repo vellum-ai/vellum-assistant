@@ -79,8 +79,8 @@ const pendingContactPrompts = new Map<string, PendingContactPrompt>();
 /**
  * End a form that nobody answered in time, and tell the clients showing it.
  *
- * Without the broadcast the card stays up offering to submit an answer the
- * gateway will now refuse, since the form it names is no longer pending.
+ * Without the broadcast the card stays up offering an answer the gateway
+ * would refuse: a form that has closed accepts no submission.
  */
 function expireContactPrompt(
   requestId: string,
