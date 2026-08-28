@@ -39,7 +39,6 @@ import {
   BROWSER_STATUS_MODES,
   type BrowserStatusMode,
   CDP_INSPECT_STATUS_DISCOVERY_CODE,
-  EXTENSION_STATUS_ERROR_MARKER,
 } from "./browser-status-constants.js";
 import {
   formatAxSnapshot,
@@ -2485,10 +2484,9 @@ function modeTradeoffs(mode: StatusCheckMode): string[] {
   return MODE_TRADEOFFS[mode];
 }
 
-function extensionSetupActions(): string[] {
+function extensionConnectionActions(): string[] {
   return [
-    "Install the Vellum Assistant Chrome extension from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
-    "Open the extension and pair with your assistant.",
+    "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
   ];
 }
 
@@ -2517,39 +2515,14 @@ function extractDiscoveryCodes(error: CdpError): string[] {
   return dedupeStrings(codes);
 }
 
-function containsTokenCaseInsensitive(text: string, token: string): boolean {
-  return text.toLowerCase().includes(token.toLowerCase());
-}
-
 function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
   const actions: string[] = [];
-  const message = error.message.toLowerCase();
   const discoveryCodes = extractDiscoveryCodes(error).map((c) =>
     c.toLowerCase(),
   );
 
   if (mode === BROWSER_STATUS_MODE.EXTENSION) {
-    actions.push(...extensionSetupActions());
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.NATIVE_MESSAGING_HOST,
-      )
-    ) {
-      actions.push(
-        "Reinstall the native messaging host manifest and confirm it allows this extension ID.",
-      );
-    }
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.HTTP_401,
-      )
-    ) {
-      actions.push(
-        "Re-pair the extension so it refreshes its local relay credential.",
-      );
-    }
+    actions.push(...extensionConnectionActions());
   }
 
   if (mode === BROWSER_STATUS_MODE.CDP_INSPECT) {
@@ -2641,7 +2614,7 @@ async function checkExtensionModeStatus(
       autoCandidate,
       summary:
         "Extension mode is unavailable: no Chrome Extension is connected.",
-      userActions: extensionSetupActions(),
+      userActions: extensionConnectionActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: { transport: "extension-ws" },
     };
