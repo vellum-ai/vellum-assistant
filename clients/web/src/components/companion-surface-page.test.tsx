@@ -5,7 +5,7 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 
@@ -44,6 +44,7 @@ const resetState = () => {
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
+  STATE.turns = [];
   delete STATE.character;
 };
 
@@ -412,7 +413,12 @@ describe("dragging the companion surface", () => {
       const canvas = canvasOf(container);
 
       fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-      fireEvent.mouseDown(pinned[half], { screenX: 500, screenY: 500 });
+      fireEvent.pointerDown(pinned[half], {
+        button: 0,
+        pointerId: 1,
+        screenX: 500,
+        screenY: 500,
+      });
       fireEvent.mouseMove(canvas, {
         clientX: 120,
         clientY: 120,
@@ -438,7 +444,12 @@ describe("dragging the companion surface", () => {
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -468,7 +479,12 @@ describe("dragging the companion surface", () => {
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -497,7 +513,12 @@ describe("dragging the companion surface", () => {
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -517,11 +538,230 @@ describe("dragging the companion surface", () => {
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseUp(canvas);
     fireEvent.click(avatar);
 
     expect(activateMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The window is moved a message at a time, so it trails the hand, and a flick
+   * outruns it far enough to carry the pointer past the canvas edge, which sits
+   * a pad's width off the creature on the side the card does not grow into.
+   * Handing the desktop back there would drop the grab under a button that is
+   * still down.
+   */
+  test("keeps the drag alive when the pointer leaves the canvas mid-press", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 520,
+      screenY: 500,
+      buttons: 1,
+    });
+    expect(moveByMock.mock.calls).toEqual([[20, 0]]);
+    moveByMock.mockClear();
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseLeave(canvas);
+
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(false);
+    expect(moveByMock).not.toHaveBeenCalled();
+
+    // Still the same grab, so the next frame moves the window by its own travel
+    // rather than starting over from wherever the pointer reappeared.
+    fireEvent.mouseMove(canvas, {
+      clientX: 900,
+      clientY: 900,
+      screenX: 560,
+      screenY: 530,
+      buttons: 1,
+    });
+
+    expect(moveByMock.mock.calls).toEqual([[40, 30]]);
+  });
+
+  test("takes pointer capture on a left press and not on a right-click", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+    const capture = spyOn(pill, "setPointerCapture").mockImplementation(
+      () => undefined,
+    );
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 7,
+      screenX: 500,
+      screenY: 500,
+    });
+
+    expect(capture.mock.calls).toEqual([[7]]);
+
+    // A right-press opens the menu, which takes the pointer for as long as it
+    // is up. Capturing it here would hold a grab nothing ever releases.
+    fireEvent.pointerDown(pill, {
+      button: 2,
+      pointerId: 8,
+      screenX: 500,
+      screenY: 500,
+    });
+
+    expect(capture.mock.calls).toEqual([[7]]);
+  });
+
+  test("still hands the desktop back on a leave that follows the release", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 540,
+      screenY: 500,
+      buttons: 1,
+    });
+    fireEvent.mouseUp(canvas);
+    fireEvent.mouseLeave(canvas);
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  /**
+   * Capture retargets the click to whatever holds it, so a press that armed the
+   * drag from a control is a click that control never sees. The surface's own
+   * controls stop the press, but the card draws the assistant's markdown and
+   * the copy affordance on a code block belongs to the design library.
+   */
+  test("a press on a control the card's markdown draws is not a grab", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+    const capture = spyOn(pill, "setPointerCapture").mockImplementation(
+      () => undefined,
+    );
+
+    // The turns are drawn on the card Type opens, and only once the exchange on
+    // it is this composer's own: send a message, then let the reply arrive the
+    // way main pushes it.
+    const type = Array.from(pill.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "Type",
+    );
+    fireEvent.click(type as HTMLElement);
+    const field = await waitFor(() => {
+      const found = container.querySelector("input");
+      if (!found) {
+        throw new Error("Expected the composer field to render");
+      }
+      return found;
+    });
+    fireEvent.change(field, { target: { value: "hello" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    STATE.turns = [
+      { role: "assistant", text: "Try this:\n\n```ts\nconst a = 1;\n```" },
+    ];
+    pushState();
+
+    const copy = await waitFor(() => {
+      const found = pill.querySelector<HTMLElement>("[data-copy-control]");
+      if (!found) {
+        throw new Error("Expected the code block's copy control to render");
+      }
+      return found;
+    });
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(copy, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 540,
+      screenY: 520,
+      buttons: 1,
+    });
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(moveByMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The host can take the pointer away mid-drag, which releases the capture and
+   * sends no `mouseup` after it. Nothing else reports that press: a leave that
+   * came while the drag was live deferred to it and does not come again, so
+   * the cancel has to end the drag and hand the desktop back by itself.
+   */
+  test("ends the drag and gives the desktop back when the host takes the pointer away", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 520,
+      screenY: 500,
+      buttons: 1,
+    });
+    expect(moveByMock.mock.calls).toEqual([[20, 0]]);
+    moveByMock.mockClear();
+    setInteractiveMock.mockClear();
+
+    // The pointer is off the canvas with the button down, so the leave defers
+    // to the drag and the window stays clickable for it.
+    fireEvent.mouseLeave(canvas);
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(false);
+
+    fireEvent.pointerCancel(canvas);
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+
+    fireEvent.mouseMove(canvas, {
+      clientX: 900,
+      clientY: 900,
+      screenX: 560,
+      screenY: 530,
+      buttons: 1,
+    });
+
+    expect(moveByMock).not.toHaveBeenCalled();
   });
 });
 
@@ -1012,7 +1252,12 @@ describe("the companion's own menu", () => {
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
     // button 2 is the right button; the drag arms only on the left.
-    fireEvent.mouseDown(pill, { button: 2, screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 2,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,

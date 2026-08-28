@@ -246,6 +246,31 @@
     "shutter": "Tomar foto",
     "title": "Tomar una foto"
   },
+  "cameraError": {
+    "captureFailed": "No se pudo tomar esa foto.",
+    "deviceInUse": "Otra aplicación está usando la cámara.",
+    "noDevice": "No se encontró ninguna cámara.",
+    "notDelivered": "Reconectando. Toma esa foto de nuevo.",
+    "permissionDenied": "El acceso a la cámara está desactivado para Vellum.",
+    "refused": "Tu asistente todavía no puede recibir fotos.",
+    "storeFailed": "No se pudo añadir esa foto a la conversación.",
+    "unknown": "No se pudo abrir la cámara.",
+    "unsupported": "Este dispositivo no puede abrir una cámara.",
+    "uploadFailed": "No se pudo enviar esa foto."
+  },
+  "cameraStatusPill": {
+    "announceLive": "En vivo. {status}",
+    "announceLiveMuted": "En vivo. Silenciado. {status}",
+    "announceLiveMutedSpeaking": "En vivo. Silenciado. {name} está hablando",
+    "announceLiveSpeaking": "En vivo. {name} está hablando",
+    "announcePhoto": "Foto. {status}",
+    "announcePhotoMuted": "Foto. Silenciado. {status}",
+    "announcePhotoMutedSpeaking": "Foto. Silenciado. {name} está hablando",
+    "announcePhotoSpeaking": "Foto. {name} está hablando",
+    "live": "En vivo",
+    "photo": "Foto",
+    "yourAssistant": "Tu asistente"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tareas"
   },
@@ -773,6 +798,15 @@
   },
   "liveVoiceButton": {
     "startVoiceMode": "Iniciar el modo de voz"
+  },
+  "liveVoiceStatus": {
+    "connecting": "Conectando…",
+    "ending": "Finalizando…",
+    "listening": "Escuchando…",
+    "muted": "Silenciado",
+    "reconnecting": "Reconectando…",
+    "speaking": "Hablando…",
+    "thinking": "Pensando…"
   },
   "llmCallErrorCard": {
     "chipCode": "Código",
@@ -1609,6 +1643,10 @@
     "closeCamera": "Cerrar la cámara",
     "endSessionAria": "Finalizar la sesión de voz",
     "endSessionTooltip": "Finalizar sesión",
+    "flashAuto": "Flash automático",
+    "flashAutoBadge": "A",
+    "flashOff": "Flash desactivado",
+    "flashOn": "Flash activado",
     "flipCamera": "Voltear la cámara",
     "minimizeAria": "Minimizar la sala de voz",
     "minimizeTooltip": "Minimizar (la sesión sigue activa)",

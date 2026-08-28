@@ -687,7 +687,12 @@ export function useLiveVoice(
       // room would cover whatever the user minimized it to look at. A fresh
       // start (attempt 0) always reopens in the room.
       const wasRoomMinimized = store.roomMinimized;
-      store.reset();
+      // The same logical voice entry continues across a mid-session reconnect
+      // and across a pre-ready connect retry alike, so the session generation
+      // holds and a photo upload spanning either gap still lands.
+      store.reset({
+        sessionContinues: isReconnect || initialConnectAttemptRef.current > 0,
+      });
       store.setState("connecting");
       // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
       // already bumped (> 0) by the transport `closed` handler, so relabel the
@@ -879,10 +884,12 @@ export function useLiveVoice(
           // next utterance. Speech resuming inside a HELD utterance (semantic
           // endpointing suppressed the boundary) re-fires speech_started for
           // the same utterance — its finalized transcript prefix must stay.
+          const s = useLiveVoiceStore.getState();
           if (!session.utteranceOpen) {
-            useLiveVoiceStore.getState().clearUserTranscripts();
+            s.clearUserTranscripts();
           }
           session.utteranceOpen = true;
+          s.setUtteranceOpen(true);
           flushPlaybackToListening(session);
         }),
         client.on("utteranceEnd", () => {
@@ -890,27 +897,30 @@ export function useLiveVoice(
             return;
           }
           session.utteranceOpen = false;
+          const s = useLiveVoiceStore.getState();
+          s.setUtteranceOpen(false);
           // End of user speech: stamp the client-heard latency start; the
           // response's first tts_audio consumes it (see
           // beginAssistantAudioIfNeeded). Manual mode stamps at the
           // ptt_release send instead (see releasePushToTalk).
           session.speechEndedAtMs = performance.now();
           // Server VAD closed the utterance; its transcription is finishing.
-          useLiveVoiceStore.getState().setState("transcribing");
+          s.setState("transcribing");
         }),
         client.on("utteranceDiscarded", () => {
           if (!live() || !session.handsFree) {
             return;
           }
           session.utteranceOpen = false;
-          // The discarded utterance never becomes a turn — drop its
+          const s = useLiveVoiceStore.getState();
+          s.setUtteranceOpen(false);
+          // The discarded utterance never becomes a turn: drop its
           // end-of-speech stamp so it can't pair with a later turn's audio.
           session.speechEndedAtMs = null;
           // The closed utterance had no usable speech (noise/cough); return
           // to listening. A discarded utterance never reaches `thinking`
           // (empty finals stay in `transcribing`), so any other state belongs
           // to a newer turn and is left alone.
-          const s = useLiveVoiceStore.getState();
           if (s.state === "transcribing") {
             s.setState("listening");
           }

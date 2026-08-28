@@ -246,6 +246,31 @@
     "shutter": "Take photo",
     "title": "Take a photo"
   },
+  "cameraError": {
+    "captureFailed": "Couldn't take that photo.",
+    "deviceInUse": "Another app is using the camera.",
+    "noDevice": "No camera found.",
+    "notDelivered": "Reconnecting. Take that one again.",
+    "permissionDenied": "Camera access is off for Vellum.",
+    "refused": "Your assistant can't receive photos yet.",
+    "storeFailed": "Couldn't add that photo to the conversation.",
+    "unknown": "Couldn't open the camera.",
+    "unsupported": "This device can't open a camera.",
+    "uploadFailed": "Couldn't send that photo."
+  },
+  "cameraStatusPill": {
+    "announceLive": "Live. {status}",
+    "announceLiveMuted": "Live. Muted. {status}",
+    "announceLiveMutedSpeaking": "Live. Muted. {name} speaking",
+    "announceLiveSpeaking": "Live. {name} speaking",
+    "announcePhoto": "Photo. {status}",
+    "announcePhotoMuted": "Photo. Muted. {status}",
+    "announcePhotoMutedSpeaking": "Photo. Muted. {name} speaking",
+    "announcePhotoSpeaking": "Photo. {name} speaking",
+    "live": "Live",
+    "photo": "Photo",
+    "yourAssistant": "Your assistant"
+  },
   "cardSurface": {
     "tasksProgress": "{completed} / {total} tasks"
   },
@@ -773,6 +798,15 @@
   },
   "liveVoiceButton": {
     "startVoiceMode": "Start voice mode"
+  },
+  "liveVoiceStatus": {
+    "connecting": "Connecting…",
+    "ending": "Ending…",
+    "listening": "Listening…",
+    "muted": "Muted",
+    "reconnecting": "Reconnecting…",
+    "speaking": "Speaking…",
+    "thinking": "Thinking…"
   },
   "llmCallErrorCard": {
     "chipCode": "Code",
@@ -1609,6 +1643,10 @@
     "closeCamera": "Close camera",
     "endSessionAria": "End voice session",
     "endSessionTooltip": "End session",
+    "flashAuto": "Flash auto",
+    "flashAutoBadge": "A",
+    "flashOff": "Flash off",
+    "flashOn": "Flash on",
     "flipCamera": "Flip camera",
     "minimizeAria": "Minimize voice room",
     "minimizeTooltip": "Minimize (session keeps going)",

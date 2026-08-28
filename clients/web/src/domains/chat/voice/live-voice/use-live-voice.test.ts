@@ -1299,6 +1299,36 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
   });
 
+  test("the session generation holds across a retryable reconnect", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    const generation = useLiveVoiceStore.getState().sessionGeneration;
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same logical session is continuing: a photo upload that began
+    // before the blip must still deliver to it (see `attachLiveVoiceImage`).
+    expect(useLiveVoiceStore.getState().sessionGeneration).toBe(generation);
+  });
+
   test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {
     const h = renderController();
     // Ready echoes manual — an older daemon ignored turnDetection.
@@ -1526,6 +1556,72 @@ describe("utterance_discarded", () => {
       });
     });
     expect(h.view.result.current.state).toBe("thinking");
+  });
+});
+
+/**
+ * The VAD boundary the controller publishes. Session-local until a surface
+ * needed it: the camera-mode status pill renders it as "the user is talking",
+ * so the boundary the session acts on and the one the dot draws are one fact.
+ */
+describe("published utterance boundary", () => {
+  test("opens on speech_started and closes on utterance_end", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("closes on an utterance the server discarded", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 3,
+      });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("stays closed for a manual session, which has no server VAD", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("does not survive the session that opened it", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
   });
 });
 
@@ -3086,6 +3182,38 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     });
     expect(h.view.result.current.state).toBe("listening");
     expect(h.view.result.current.error).toBeNull();
+  });
+
+  test("the session generation holds across a pre-ready retry", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startConnecting(h);
+    const generation = useLiveVoiceStore.getState().sessionGeneration;
+
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    await act(async () => {
+      await sleep(30);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same voice entry is still the one connecting: a photo pressed
+    // before the blip must still deliver once the retry readies (see
+    // `attachLiveVoiceImage`).
+    expect(useLiveVoiceStore.getState().sessionGeneration).toBe(generation);
   });
 
   test("surfaces failed once the initial-connect retry budget is exhausted", async () => {

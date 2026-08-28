@@ -45,9 +45,13 @@ const runVerbatim = (executable: string, argLine: string): void => {
   }
 };
 
-const assertRegistered = (key: string): void => {
+const isRegistered = (key: string): boolean => {
   const result = spawnSync("reg", ["query", key], { stdio: "ignore" });
-  if (result.status !== 0) {
+  return result.status === 0;
+};
+
+const assertRegistered = (key: string): void => {
+  if (!isRegistered(key)) {
     fail(`Expected registry key is missing: ${key}`);
   }
 };
@@ -126,19 +130,23 @@ const main = async (): Promise<void> => {
     path.join(appData, name, "logs", "vellum.log"),
     path.join(appData, `${name}-${env}`, "logs", "vellum.log"),
   ]);
+  const protocolKey = `HKCU\\Software\\Classes\\${scheme}`;
   let logFile: string | undefined;
-  for (let waited = 0; waited < 120_000 && !logFile; waited += 2_000) {
+  for (let waited = 0; waited < 120_000; waited += 2_000) {
     await sleep(2_000);
-    logFile = logCandidates.find((candidate) => existsSync(candidate));
+    logFile ??= logCandidates.find((candidate) => existsSync(candidate));
+    if (child.exitCode !== null) {
+      fail(`App exited early with code ${child.exitCode}`);
+    }
+    if (logFile && isRegistered(protocolKey)) {
+      break;
+    }
   }
   if (!logFile) {
     fail(`App produced no log file at ${logCandidates.join(" or ")}`);
     return;
   }
-  if (child.exitCode !== null) {
-    fail(`App exited early with code ${child.exitCode}`);
-  }
-  assertRegistered(`HKCU\\Software\\Classes\\${scheme}`);
+  assertRegistered(protocolKey);
   console.log(`App is running with logs at ${logFile}`);
   spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
     stdio: "inherit",

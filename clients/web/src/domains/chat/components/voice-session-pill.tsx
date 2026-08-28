@@ -108,8 +108,8 @@ const ROW_HEIGHT_CLASS = "h-11";
 
 export interface VoiceSessionPillProps {
   /**
-   * The session's activity label (e.g. "Listening…", see
-   * `LIVE_VOICE_STATE_LABELS`). Not painted: announced to assistive tech
+   * The session's activity label (e.g. "Listening…", resolved by the host
+   * from `liveVoiceSurfaceLabelKey`). Not painted: announced to assistive tech
    * through an `sr-only` live region, since the surface is wordless.
    */
   primaryLabel: string;

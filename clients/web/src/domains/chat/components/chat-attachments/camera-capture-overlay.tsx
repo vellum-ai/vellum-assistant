@@ -62,6 +62,8 @@ import { SwitchCamera, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { CameraShutter } from "@/domains/chat/voice/camera-shutter";
+import { CAMERA_SCRIM_BOTTOM } from "@/domains/chat/voice/voice-room/camera-mode-paint";
 import { useVoiceCamera } from "@/domains/chat/voice/voice-room/voice-camera";
 import { VoiceRoomControl } from "@/domains/chat/voice/voice-room/voice-room-control";
 import {
@@ -89,7 +91,7 @@ export function CameraCaptureOverlay({
   const { t } = useTranslation("chat");
   const surfaceRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { captureFrame, error, flipCamera, native, open, openCamera } =
+  const { captureFrame, error, flipCamera, flipping, native, open, openCamera } =
     useVoiceCamera(videoRef);
   const [capturing, setCapturing] = useState(false);
 
@@ -242,6 +244,24 @@ export function CameraCaptureOverlay({
           />
         )}
 
+        {/* Legibility scrim for the band the shutter sits in.
+
+            The shutter carries no fill of its own: it is a white ring around a
+            white core, which is invisible against a bright wall unless
+            something behind it gives way. The room darkens the same band for
+            the same reason, and shares the gradient so the two surfaces cannot
+            drift. Inert, since it lies over the controls, and it covers only
+            the bottom band so the part the user is aiming stays untouched.
+
+            The floor is the room's too: 38% of a short window stops above the
+            shutter, leaving the control it exists for sitting on bare frame. */}
+        <div
+          aria-hidden
+          data-testid="camera-deep-link-scrim"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[max(38%,15rem)]"
+          style={{ background: CAMERA_SCRIM_BOTTOM }}
+        />
+
         {/* First tabbable control in the box, so one Tab off the dialog is the
             way out of here. */}
         <div
@@ -251,7 +271,7 @@ export function CameraCaptureOverlay({
           <VoiceRoomControl
             label={t("cameraDeepLink.close")}
             onClick={close}
-            overMedia
+            surface="media"
             data-testid="camera-deep-link-close"
           >
             <X className="size-5" />
@@ -262,37 +282,22 @@ export function CameraCaptureOverlay({
           className="absolute inset-x-0 z-10 flex items-center justify-center"
           style={{ bottom: `calc(2rem + ${SAFE_AREA_BOTTOM})` }}
         >
-          <button
-            type="button"
+          <CameraShutter
             onClick={() => void takePhoto()}
-            disabled={!open || capturing}
-            aria-label={t("cameraDeepLink.shutter")}
-            data-testid="camera-deep-link-shutter"
-            className={cn(
-              "flex size-16 items-center justify-center rounded-full border-4 transition",
-              // Video is the only thing this is ever seen against, and the
-              // frame can be any brightness, so the white ring sits on a dark
-              // fill and a dark outer hairline: one edge or the other separates
-              // it at both extremes. Matches the voice room's shutter for the
-              // same reason.
-              "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-              capturing || !open ? "opacity-60" : "hover:bg-black/45",
-            )}
-          >
-            <span
-              className={cn(
-                "rounded-full bg-white transition-all",
-                capturing ? "size-6" : "size-11",
-              )}
-            />
-          </button>
+            ariaLabel={t("cameraDeepLink.shutter")}
+            capturing={capturing}
+            // Also held off while a flip swaps the capture, as in the voice
+            // room: the viewfinder stays up with nothing behind it, and a
+            // press there would close the overlay on a manufactured failure.
+            disabled={!open || capturing || flipping}
+            testId="camera-deep-link-shutter"
+          />
 
           <div className="absolute right-8">
             <VoiceRoomControl
               label={t("cameraDeepLink.flip")}
               onClick={() => void flipCamera()}
-              overMedia
+              surface="media"
               data-testid="camera-deep-link-flip"
             >
               <SwitchCamera className="size-5" />

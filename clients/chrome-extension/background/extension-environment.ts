@@ -132,3 +132,15 @@ export function cloudUrlsForEnvironment(env: ExtensionEnvironment): CloudUrls {
       };
   }
 }
+
+/**
+ * Web-app path for creating the first cloud assistant. Platform users hatch
+ * here. The hatching route gate sends unconsented users through privacy first.
+ * The chooser is not used: its create action is local-client only.
+ */
+export const CREATE_ASSISTANT_WEB_PATH = '/assistant/onboarding/hatching';
+
+/** Environment-specific URL that opens the web app's hatching entry. */
+export function createFirstAssistantUrl(env: ExtensionEnvironment): string {
+  return `${cloudUrlsForEnvironment(env).webBaseUrl}${CREATE_ASSISTANT_WEB_PATH}`;
+}
