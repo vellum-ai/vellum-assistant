@@ -366,7 +366,6 @@ export const ResourceAndEntitlementWalls: Story = {
                   SUPER_PACKAGE,
                   "Super usage, reset monthly",
                 )}
-                specsWrap
                 footer={
                   <Button
                     variant="primary"

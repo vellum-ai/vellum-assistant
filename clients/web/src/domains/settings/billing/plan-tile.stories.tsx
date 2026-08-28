@@ -149,7 +149,6 @@ export const CurrentFree: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: freePlanSpecs(),
-    specsWrap: true,
     footer: <UsageBalancePanel ratio={0.68} />,
   },
 };
@@ -169,7 +168,6 @@ export const CurrentPaid: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: packageSpecs(MIGHTY, usageChip(MIGHTY.name)),
-    specsWrap: true,
     footer: <UsageBalancePanel ratio={0.42} />,
   },
 };
@@ -201,7 +199,6 @@ export const CurrentPaidNoUsageReading: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: packageSpecs(MIGHTY, usageChip(MIGHTY.name)),
-    specsWrap: true,
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
   },
 };
@@ -241,7 +238,6 @@ export const NextPlan: Story = {
     name: SUPER.name,
     tag: NEXT_PLAN_TAG,
     specs: packageSpecs(SUPER, usageChip(SUPER.name)),
-    specsWrap: true,
     footer: upgradeCta(),
   },
 };
@@ -267,6 +263,9 @@ export const NextPlanPending: Story = {
  * below the `lg` breakpoint: select `Mobile` in the viewport toolbar to see
  * that treatment, since the Canvas holds a desktop width regardless of window
  * size.
+ *
+ * The current tile carries the Usage Balance bar, which is what a subscription
+ * with a usage reading shows; `CurrentPaidNoUsageReading` has the price row.
  */
 export const SideBySide: Story = {
   parameters: {
@@ -284,8 +283,7 @@ export const SideBySide: Story = {
           nameTestId="plan-card-name"
           tag={CURRENT_TAG}
           specs={packageSpecs(MIGHTY, usageChip(MIGHTY.name))}
-          specsWrap
-          footer={priceFooter(priceLabelFromCents(MIGHTY.total_price_cents))}
+          footer={<UsageBalancePanel ratio={0.42} />}
         />
         <PlanTile
           theme={inverted}
@@ -294,7 +292,6 @@ export const SideBySide: Story = {
           name={SUPER.name}
           tag={NEXT_PLAN_TAG}
           specs={packageSpecs(SUPER, usageChip(SUPER.name))}
-          specsWrap
           footer={upgradeCta()}
         />
       </div>

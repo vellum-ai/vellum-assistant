@@ -291,7 +291,6 @@ function RecommendedUpgrade({
           recommended,
           t("planCard.usageChip", { name: recommended.name }),
         )}
-        specsWrap
         footer={
           <Button
             variant="primary"
@@ -567,7 +566,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             nameTestId="plan-card-name"
             tag={<Tag tone="info">{t("planCard.current")}</Tag>}
             specs={currentSpecs}
-            specsWrap
             footer={currentFooter}
           />
           <RecommendedUpgrade

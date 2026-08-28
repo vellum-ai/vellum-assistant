@@ -32,10 +32,8 @@ export interface PlanSpec {
   /** Render the chip as a wrap-capable pill for long summary labels. */
   multiline?: boolean;
   /**
-   * Give the chip a full-width row of its own instead of letting it flow in the
-   * wrapping row beside the short chips. The plan card lays its chips out as a
-   * wrapping row (`PlanTile`'s `specsWrap`), so this takes effect there; the
-   * vertical stack gives every chip its own row and ignores it.
+   * Give the chip a full-width row of its own instead of letting it flow in
+   * the wrapping row beside the short chips.
    */
   ownRow?: boolean;
 }
@@ -62,8 +60,7 @@ export function machineLabel(pkg: ProPackage | null): string {
  * its own mapping).
  *
  * The machine and storage chips are short enough to sit side by side; the
- * credits chip and the extras are sentences, so they take a row each wherever
- * the chips are laid out as a wrapping row.
+ * credits chip and the extras are sentences, so they take a row each.
  *
  * `usageLabel` is the localized credits chip text, supplied by the caller
  * because this pure module has no `t()`.
