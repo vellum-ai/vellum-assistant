@@ -148,6 +148,7 @@ export function ChannelSetupPanel({
         </div>
       ) : payload.channel === "slack" ? (
         <SlackSetupWizard
+          assistantId={payload.assistantId}
           assistantName={payload.assistantName}
           onSave={(bot, app) =>
             saveSlack.mutate({ botToken: bot, appToken: app })
@@ -157,6 +158,7 @@ export function ChannelSetupPanel({
         />
       ) : payload.channel === "telegram" ? (
         <TelegramSetupWizard
+          assistantId={payload.assistantId}
           assistantName={payload.assistantName}
           saveStatus={saveTelegram.status}
           saveError={saveTelegram.error?.message ?? null}
@@ -164,6 +166,7 @@ export function ChannelSetupPanel({
         />
       ) : payload.channel === "discord" ? (
         <DiscordSetupWizard
+          assistantId={payload.assistantId}
           saveStatus={saveDiscord.status}
           saveError={saveDiscord.error?.message ?? null}
           onSave={(botToken) => saveDiscord.mutate(botToken)}

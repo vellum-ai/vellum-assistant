@@ -730,11 +730,13 @@ describe("createLiveVoiceWebsocketHandler — revocation", () => {
   // suites run without a DB; the revocation check is fail-open when the DB is
   // absent, so they upgrade as before.)
   let testRoot: string;
+  let savedSecurityDir: string | undefined;
 
   beforeEach(async () => {
     const { mkdtempSync, mkdirSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
+    savedSecurityDir = process.env.GATEWAY_SECURITY_DIR;
     testRoot = mkdtempSync(join(tmpdir(), "live-voice-revocation-"));
     mkdirSync(join(testRoot, "protected"), { recursive: true });
     process.env.GATEWAY_SECURITY_DIR = join(testRoot, "protected");
@@ -745,7 +747,11 @@ describe("createLiveVoiceWebsocketHandler — revocation", () => {
   afterEach(async () => {
     const { resetGatewayDb } = await import("../db/connection.js");
     resetGatewayDb();
-    delete process.env.GATEWAY_SECURITY_DIR;
+    if (savedSecurityDir === undefined) {
+      delete process.env.GATEWAY_SECURITY_DIR;
+    } else {
+      process.env.GATEWAY_SECURITY_DIR = savedSecurityDir;
+    }
     const { rmSync } = await import("node:fs");
     try {
       rmSync(testRoot, { recursive: true, force: true });

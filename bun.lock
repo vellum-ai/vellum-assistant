@@ -363,6 +363,7 @@
       "dependencies": {
         "@vellumai/assistant-client": "workspace:*",
         "@vellumai/ces-client": "workspace:*",
+        "@vellumai/environments": "workspace:*",
         "@vellumai/gateway-client": "workspace:*",
         "@vellumai/ipc-server-utils": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",

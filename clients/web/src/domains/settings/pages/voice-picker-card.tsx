@@ -16,6 +16,7 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { DetailCard } from "@/components/detail-card";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -29,7 +30,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 export function VoicePickerCard() {
   const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
-  const { available, voices, currentModel } =
+  const { available, settled, voices, currentModel } =
     useManagedVoiceSelection(assistantId);
   const current = voices.find((v) => v.model === currentModel) ?? voices[0];
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -41,6 +42,23 @@ export function VoicePickerCard() {
   const voiceTitle = assistantName
     ? t("voicePickerCard.titleWithName", { name: assistantName })
     : t("voicePickerCard.title");
+
+  // The title needs nothing from the daemon, so the card holds its heading
+  // through the wait and only the body below it changes. `available` reads
+  // false while the answer is in flight as well as once it is a no, so drawing
+  // either outcome now claims a provider choice the user may not have made.
+  if (!settled) {
+    return (
+      <DetailCard title={voiceTitle}>
+        <Skeleton
+          as="span"
+          role="status"
+          aria-label={t("voicePickerCard.loadingAria")}
+          className="block h-9 w-48"
+        />
+      </DetailCard>
+    );
+  }
 
   if (available && current) {
     return (

@@ -141,8 +141,88 @@ const displayToken = (token: string, platform: ShortcutPlatform): string => {
   return modifiers[lower] ?? keys[lower] ?? token.toUpperCase();
 };
 
+type ModifierId = "control" | "alt" | "shift" | "command";
+
 /**
- * Parse an Electron accelerator into the display label for each key cap.
+ * Which modifier a token names, independent of the spelling the accelerator
+ * used. `"platform"` is the `CmdOrCtrl` family, which is a different modifier
+ * on each host and so cannot be ranked until the platform is known.
+ */
+const MODIFIER_IDS: Record<string, ModifierId | "platform"> = {
+  command: "command",
+  cmd: "command",
+  super: "command",
+  meta: "command",
+  commandorcontrol: "platform",
+  cmdorctrl: "platform",
+  control: "control",
+  ctrl: "control",
+  alt: "alt",
+  option: "alt",
+  altgr: "alt",
+  shift: "shift",
+};
+
+/**
+ * The order each platform writes its modifiers in, which is a convention of
+ * the platform rather than of the accelerator that happened to be typed.
+ *
+ * macOS is fixed at Control, Option, Shift, Command by the
+ * [Apple Style Guide](https://support.apple.com/guide/applestyleguide/welcome/web),
+ * so `⇧⌘N` is correct and `⌘⇧N` is not, and Windows leads with the Windows
+ * key then Ctrl, Alt, Shift per
+ * [Microsoft's keyboard UX guidance](https://learn.microsoft.com/en-us/windows/win32/uxguide/inter-keyboard).
+ */
+const MODIFIER_ORDER: Record<ShortcutPlatform, readonly ModifierId[]> = {
+  mac: ["control", "alt", "shift", "command"],
+  windows: ["command", "control", "alt", "shift"],
+};
+
+const modifierId = (
+  token: string,
+  platform: ShortcutPlatform,
+): ModifierId | null => {
+  const id = MODIFIER_IDS[token.toLowerCase()];
+  if (id === undefined) {
+    return null;
+  }
+  if (id === "platform") {
+    return platform === "mac" ? "command" : "control";
+  }
+  return id;
+};
+
+/**
+ * Put an accelerator's tokens in the order the platform writes them: modifiers
+ * first in the platform's fixed order, then the key. An accelerator is a
+ * binding rather than a rendering, so `"CmdOrCtrl+Shift+N"` and
+ * `"Shift+CmdOrCtrl+N"` are the same shortcut and have to read the same way.
+ */
+const orderTokens = (
+  tokens: string[],
+  platform: ShortcutPlatform,
+): string[] => {
+  const order = MODIFIER_ORDER[platform];
+  const modifiers: string[] = [];
+  const keys: string[] = [];
+  for (const token of tokens) {
+    if (modifierId(token, platform)) {
+      modifiers.push(token);
+    } else {
+      keys.push(token);
+    }
+  }
+  modifiers.sort(
+    (a, b) =>
+      order.indexOf(modifierId(a, platform)!) -
+      order.indexOf(modifierId(b, platform)!),
+  );
+  return [...modifiers, ...keys];
+};
+
+/**
+ * Parse an Electron accelerator into the display label for each key cap, in
+ * the order the platform writes them.
  * Exported so non-visual consumers (tests, aria labels) can reuse the mapping.
  * `platform` defaults to the detected host.
  */
@@ -150,17 +230,100 @@ export const parseAccelerator = (
   accelerator: string,
   platform: ShortcutPlatform = detectShortcutPlatform(),
 ): string[] =>
-  tokenize(accelerator).map((token) => displayToken(token, platform));
+  orderTokens(tokenize(accelerator), platform).map((token) =>
+    displayToken(token, platform),
+  );
 
 /**
  * Compact inline form for tooltips and hints: glyphs run together on macOS
- * (`⌘⇧N`), text labels are `+`-joined on Windows (`Ctrl+Shift+N`).
+ * (`⇧⌘N`), text labels are `+`-joined on Windows (`Ctrl+Shift+N`).
  */
 export const formatAcceleratorHint = (
   accelerator: string,
   platform: ShortcutPlatform = detectShortcutPlatform(),
 ): string =>
   parseAccelerator(accelerator, platform).join(platform === "mac" ? "" : "+");
+
+/**
+ * Modifier names [`aria-keyshortcuts`](https://www.w3.org/TR/wai-aria-1.2/#aria-keyshortcuts)
+ * takes, which are the UI Events modifier key values rather than the glyphs a
+ * menu draws. `CmdOrCtrl` resolves per platform exactly as the glyphs do, so
+ * what a screen reader announces matches what the row shows.
+ */
+const ARIA_MODIFIERS: Record<ShortcutPlatform, Record<string, string>> = {
+  mac: {
+    command: "Meta",
+    cmd: "Meta",
+    commandorcontrol: "Meta",
+    cmdorctrl: "Meta",
+    super: "Meta",
+    meta: "Meta",
+    control: "Control",
+    ctrl: "Control",
+    alt: "Alt",
+    option: "Alt",
+    altgr: "AltGraph",
+    shift: "Shift",
+  },
+  windows: {
+    command: "Meta",
+    cmd: "Meta",
+    commandorcontrol: "Control",
+    cmdorctrl: "Control",
+    super: "Meta",
+    meta: "Meta",
+    control: "Control",
+    ctrl: "Control",
+    alt: "Alt",
+    option: "Alt",
+    altgr: "AltGraph",
+    shift: "Shift",
+  },
+};
+
+/** Named keys as their UI Events `KeyboardEvent.key` values. */
+const ARIA_KEYS: Record<string, string> = {
+  up: "ArrowUp",
+  down: "ArrowDown",
+  left: "ArrowLeft",
+  right: "ArrowRight",
+  return: "Enter",
+  enter: "Enter",
+  space: "Space",
+  backspace: "Backspace",
+  delete: "Delete",
+  escape: "Escape",
+  esc: "Escape",
+  tab: "Tab",
+  pageup: "PageUp",
+  pagedown: "PageDown",
+  home: "Home",
+  end: "End",
+  plus: "+",
+};
+
+/**
+ * The `aria-keyshortcuts` value for an accelerator: `"CmdOrCtrl+Shift+P"`
+ * becomes `"Meta+Shift+P"` on macOS and `"Control+Shift+P"` on Windows.
+ *
+ * Menus draw the glyph form and hide it from assistive tech, so this is the
+ * only channel through which a screen reader learns the binding. Derived from
+ * the same accelerator the glyphs come from, so the two cannot disagree.
+ */
+export const acceleratorToAriaKeyShortcuts = (
+  accelerator: string,
+  platform: ShortcutPlatform = detectShortcutPlatform(),
+): string =>
+  orderTokens(tokenize(accelerator), platform)
+    .map((token) => {
+      const lower = token.toLowerCase();
+      return (
+        ARIA_MODIFIERS[platform][lower] ??
+        ARIA_KEYS[lower] ??
+        token.toUpperCase()
+      );
+    })
+    .join("+");
 
 export interface ShortcutKeysProps extends ComponentProps<"span"> {
   /** Electron accelerator string, e.g. `"CmdOrCtrl+Shift+N"`. */

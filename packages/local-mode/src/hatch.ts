@@ -1,8 +1,19 @@
 import { spawn } from "node:child_process";
 
+import {
+  DAEMON_READINESS_WINDOW_MS,
+  DAEMON_STOP_TIMEOUT_MS,
+  HOST_WRAPPER_LONG_HEADROOM_MS,
+} from "./lifecycle-budgets";
 import type { CliInvocation } from "./util";
 
-const HATCH_TIMEOUT_MS = 120_000;
+// A hatch whose daemon comes up but never becomes ready spends the readiness
+// window first, then rolls back through the full daemon stop, so the wrapper
+// has to cover both plus the gateway and CES cleanup that follows.
+const HATCH_TIMEOUT_MS =
+  DAEMON_READINESS_WINDOW_MS +
+  DAEMON_STOP_TIMEOUT_MS +
+  HOST_WRAPPER_LONG_HEADROOM_MS;
 // Docker hatches pull images and wait up to 5 min for container readiness.
 const DOCKER_HATCH_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -85,7 +96,11 @@ export function runHatch(
     });
 
     child.on("error", (err) => {
-      finish({ ok: false, status: 500, error: `Failed to spawn CLI: ${err.message}` });
+      finish({
+        ok: false,
+        status: 500,
+        error: `Failed to spawn CLI: ${err.message}`,
+      });
     });
   });
 }

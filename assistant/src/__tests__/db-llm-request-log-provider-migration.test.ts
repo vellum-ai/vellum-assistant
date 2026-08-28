@@ -10,8 +10,6 @@ import {
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-const originalBunTest = process.env.BUN_TEST;
-
 import { getSqliteFrom } from "../persistence/db-connection.js";
 import { migrateLlmRequestLogProvider } from "../persistence/migrations/184-llm-request-log-provider.js";
 import * as schema from "../persistence/schema/index.js";
@@ -48,7 +46,6 @@ function bootstrapPreProviderLlmRequestLogs(raw: Database): void {
 
 describe("llm_request_logs provider migration", () => {
   beforeEach(() => {
-    process.env.BUN_TEST = "0";
     resetDbForTesting();
   });
 
@@ -57,11 +54,6 @@ describe("llm_request_logs provider migration", () => {
   });
 
   afterAll(() => {
-    if (originalBunTest === undefined) {
-      delete process.env.BUN_TEST;
-    } else {
-      process.env.BUN_TEST = originalBunTest;
-    }
     resetDbForTesting();
   });
 
