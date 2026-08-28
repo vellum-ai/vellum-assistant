@@ -380,10 +380,15 @@ ${proxyBlock}
       rewrite ^ /assistant/__remote-index.html last;
     }
 
+    # The shell and the unhashed files beside it revalidate rather than
+    # refusing storage: they carry no credential, and nginx serves them from
+    # disk with a validator, so a repeat load costs a 304 instead of the whole
+    # document. __config is the exception below: it is returned inline, so
+    # nginx attaches no validator for a revalidation to match against.
     location = /assistant/__remote-index.html {
       internal;
       alias ${nginxQuoted(indexHtmlPath, "remote web ingress index path")};
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = /assistant/__config {
@@ -401,7 +406,7 @@ ${proxyBlock}
     location ^~ /assistant/ {
       alias ${nginxQuoted(webDistDir, "web dist path")};
       try_files $uri $uri/ /assistant/__remote-index.html;
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = / {

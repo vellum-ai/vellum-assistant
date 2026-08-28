@@ -271,6 +271,19 @@ describe("buildIngressNginxConfig", () => {
     );
   });
 
+  test("revalidates the shell and forbids storing only the inline config", () => {
+    expect(remoteConf).toContain(
+      `location = /assistant/__remote-index.html {\n      internal;\n      alias "/tmp/vellum web/dist/index.html";\n      add_header Cache-Control "no-cache";`,
+    );
+    expect(remoteConf).toContain(
+      `location ^~ /assistant/ {\n      alias "/tmp/vellum web/dist/";\n      try_files $uri $uri/ /assistant/__remote-index.html;\n      add_header Cache-Control "no-cache";`,
+    );
+    // Only the inline __config return, which nginx gives no validator, still
+    // refuses storage. A second no-store means a revalidating location
+    // regressed to re-sending its whole body on every load.
+    expect(remoteConf.match(/no-store/g)).toHaveLength(1);
+  });
+
   test("serves remote web config for the SPA", () => {
     expect(remoteConf).toContain("location = /assistant/__config {");
     expect(remoteConf).toContain("default_type application/json;");
