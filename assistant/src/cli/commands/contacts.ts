@@ -205,6 +205,7 @@ interface ContactRecordPromptBody {
   contactId?: string;
   currentDisplayName?: string;
   currentNotes?: string;
+  expectedUpdatedAt?: number;
   channels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
@@ -253,6 +254,7 @@ async function runRecordPrompt(
     ok: boolean;
     error?: string;
     contactId?: string;
+    notesSaved?: boolean;
   }>(
     "contacts_record_prompt",
     { body: { ...body, timeoutMs } },
@@ -273,6 +275,12 @@ async function runRecordPrompt(
   }
 
   const contactId = r.result.contactId;
+  // Notes are stored apart from the rest of the record, so they can be the one
+  // part that does not land. Say so rather than letting the printed contact
+  // imply the guardian's notes were dropped on purpose.
+  if (r.result.notesSaved === false) {
+    writeError(cmd, "The contact was saved, but its notes were not");
+  }
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
@@ -514,6 +522,10 @@ export function registerContactsCommand(program: Command): void {
                 type: ch.type,
                 address: ch.address,
               })),
+              // The confirmation shows this snapshot. If the contact moves
+              // while it is open, the write refuses rather than deleting on
+              // the strength of a picture that no longer holds.
+              expectedUpdatedAt: Number(current.updatedAt) || undefined,
               label: opts.label,
               description: opts.description,
             },

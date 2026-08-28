@@ -856,7 +856,13 @@ export async function upsertContactRecordCore(params: {
   contactId?: string;
   displayName?: string;
   notes?: string | null;
-}): Promise<{ ok: true; created: boolean; contact: Record<string, unknown> }> {
+}): Promise<{
+  ok: true;
+  created: boolean;
+  contact: Record<string, unknown>;
+  /** Whether submitted notes reached the mirror. Undefined when none were. */
+  notesSaved?: boolean;
+}> {
   const id = params.contactId?.trim() || undefined;
   const displayName = params.displayName?.trim();
 
@@ -902,11 +908,30 @@ export async function upsertContactRecordCore(params: {
   // `role` and `principalId` are not inputs here. upsertContact preserves an
   // existing contact's pair and defaults a new one to ("contact", null), so
   // this path can neither mint nor rebind a guardian.
-  const { contact, created } = await new ContactStore().upsertContact({
+  const store = new ContactStore();
+  const { contact, created } = await store.upsertContact({
     id,
     displayName,
     notes: params.notes,
   });
+
+  // Notes live only in the assistant mirror, and that write is best-effort:
+  // upsertContact logs a mirror failure and returns as if it had worked. The
+  // name is in the gateway row either way, so a lost mirror write is a partial
+  // outcome rather than a failed one, and the caller is told which it got.
+  // Read back from the mirror rather than trusting the returned shape, which
+  // falls back to echoing the input when the read-back itself fails.
+  let notesSaved: boolean | undefined;
+  if (params.notes !== undefined) {
+    const stored = await store.getContactWithInfo(contact.id).catch(() => null);
+    notesSaved = (stored?.notes ?? "") === (params.notes ?? "");
+    if (!notesSaved) {
+      log.error(
+        { contactId: contact.id },
+        "upsert_contact_record: notes did not reach the assistant mirror",
+      );
+    }
+  }
 
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
@@ -916,7 +941,7 @@ export async function upsertContactRecordCore(params: {
     { contactId: contact.id, created },
     "upsert_contact_record: handled natively",
   );
-  return { ok: true, created, contact: toContactPayload(contact) };
+  return { ok: true, created, contact: toContactPayload(contact), notesSaved };
 }
 
 /**

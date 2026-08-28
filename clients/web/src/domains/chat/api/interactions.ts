@@ -190,6 +190,7 @@ export async function submitContactRecord(
         contactId?: string;
         displayName?: string;
         notes?: string;
+        expectedUpdatedAt?: number;
       }
     | { cancelled: true },
 ): Promise<SubmitSecretResponseResult> {

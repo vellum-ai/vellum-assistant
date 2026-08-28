@@ -42,6 +42,12 @@ export const ContactRecordRequestEventSchema = z.object({
   channels: z
     .array(z.object({ type: z.string(), address: z.string() }))
     .optional(),
+  /**
+   * When the target last changed. Submitted back with a delete so a contact
+   * that gained a channel while the form was open is not removed on the
+   * strength of a confirmation that never showed it.
+   */
+  expectedUpdatedAt: z.number().optional(),
   /** Proposed name, prefilled into the form. */
   displayName: z.string().optional(),
   /** Proposed notes, prefilled into the form. */

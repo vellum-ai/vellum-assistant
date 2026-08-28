@@ -61,6 +61,11 @@ export interface ContactPromptResult {
   address?: string;
   /** Whether the channel is attested, as the guardian's checkbox left it. */
   verified?: boolean;
+  /**
+   * Whether submitted notes reached storage. Absent when none were submitted.
+   * False means the contact was written without them.
+   */
+  notesSaved?: boolean;
 }
 
 interface PendingContactPrompt {
@@ -121,6 +126,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
     channelType,
     address,
     verified,
+    notesSaved,
     error,
   } = body as {
     requestId: string;
@@ -129,6 +135,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
     channelType?: string;
     address?: string;
     verified?: boolean;
+    notesSaved?: boolean;
     error?: string;
   };
   const pending = pendingContactPrompts.get(requestId);
@@ -150,6 +157,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
       channelType,
       address,
       verified,
+      notesSaved,
     });
   }
 
@@ -229,6 +237,12 @@ const ContactRecordPromptParams = z.object({
     .optional()
     .describe(
       "The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show what access is about to be lost.",
+    ),
+  expectedUpdatedAt: z
+    .number()
+    .optional()
+    .describe(
+      "When the target last changed, resolved by the caller. Submitted back with a delete so a contact that changed while the form was open is not removed against a stale confirmation.",
     ),
   displayName: z
     .string()
@@ -328,6 +342,7 @@ async function handleContactRecordPrompt({
     currentDisplayName,
     currentNotes,
     channels,
+    expectedUpdatedAt,
     displayName,
     notes,
     label,
@@ -361,6 +376,7 @@ async function handleContactRecordPrompt({
       currentDisplayName,
       currentNotes,
       channels,
+      expectedUpdatedAt,
       displayName,
       notes,
       label,
@@ -478,6 +494,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       ok: z.boolean(),
       error: z.string().optional(),
       contactId: z.string().optional(),
+      notesSaved: z.boolean().optional(),
     }),
   },
   {

@@ -168,6 +168,7 @@ export function handleContactRecordRequest(
     currentDisplayName: event.currentDisplayName,
     currentNotes: event.currentNotes,
     channels: event.channels,
+    expectedUpdatedAt: event.expectedUpdatedAt,
     displayName: event.displayName,
     notes: event.notes,
     label: event.label,

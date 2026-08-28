@@ -558,6 +558,8 @@ interface ContactRecordSubmitBody {
   contactId?: string;
   displayName?: string;
   notes?: string | null;
+  /** What the contact's `updatedAt` was when the confirmation was built. */
+  expectedUpdatedAt?: number;
   /** The guardian dismissed the form. Unblocks the CLI instead of writing. */
   cancelled?: boolean;
 }
@@ -659,12 +661,30 @@ export async function handleContactRecordSubmit(
 
   try {
     if (operation === "delete") {
+      // The confirmation named this contact's channels as they stood when it
+      // was built. A channel added since (an invite redeemed, say) would be
+      // cascaded away by a guardian who never saw it, so a contact that moved
+      // is refused rather than deleted against a stale picture.
+      if (typeof body.expectedUpdatedAt === "number") {
+        const current = getGatewayDb()
+          .select({ updatedAt: gwContacts.updatedAt })
+          .from(gwContacts)
+          .where(eq(gwContacts.id, contactId!))
+          .get();
+        if (current && current.updatedAt !== body.expectedUpdatedAt) {
+          throw new ContactRecordNativeError(
+            "This contact changed while the form was open. Check it and try again.",
+            409,
+            "STALE_CONFIRMATION",
+          );
+        }
+      }
       await deleteContactCore(contactId!);
       log.info({ requestId, contactId }, "contact-record-submit: deleted");
       return await resolveRecordPrompt(requestId, contactId!, claim.settleMs);
     }
 
-    const { contact } = await upsertContactRecordCore({
+    const { contact, notesSaved } = await upsertContactRecordCore({
       operation,
       contactId: operation === "update" ? contactId : undefined,
       displayName,
@@ -675,7 +695,12 @@ export async function handleContactRecordSubmit(
       { requestId, contactId: writtenId, operation },
       "contact-record-submit: wrote contact record",
     );
-    return await resolveRecordPrompt(requestId, writtenId, claim.settleMs);
+    return await resolveRecordPrompt(
+      requestId,
+      writtenId,
+      claim.settleMs,
+      notesSaved,
+    );
   } catch (err) {
     if (err instanceof ContactRecordNativeError) {
       await reportFailure(requestId, err.message, claim.settleMs);
@@ -861,7 +886,12 @@ async function resolveRecordPrompt(
   requestId: string,
   contactId: string,
   settleMs: number | undefined,
+  notesSaved?: boolean,
 ): Promise<Response> {
-  await reportResolution(requestId, { requestId, contactId }, settleMs);
+  await reportResolution(
+    requestId,
+    { requestId, contactId, notesSaved },
+    settleMs,
+  );
   return Response.json({ accepted: true });
 }

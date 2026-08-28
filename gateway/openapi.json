@@ -1415,6 +1415,10 @@
                   "notes": {
                     "anyOf": [{ "type": "string" }, { "type": "null" }]
                   },
+                  "expectedUpdatedAt": {
+                    "description": "The contact's updatedAt when the confirmation was built. A delete is refused if the contact changed since.",
+                    "type": "number"
+                  },
                   "cancelled": {
                     "description": "The guardian dismissed the form. Unblocks the waiting command without writing.",
                     "type": "boolean"

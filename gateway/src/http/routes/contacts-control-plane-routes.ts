@@ -125,10 +125,7 @@ const ContactPromptSubmitRequestSchema = z.object({
   requestId: z
     .string()
     .describe("The contact_request id broadcast by the assistant"),
-  address: z
-    .string()
-    .optional()
-    .describe("Required unless cancelled is true"),
+  address: z.string().optional().describe("Required unless cancelled is true"),
   channelType: z
     .string()
     .optional()
@@ -160,6 +157,12 @@ const ContactRecordSubmitRequestSchema = z.object({
   contactId: z.string().optional().describe("Required to update or delete"),
   displayName: z.string().optional(),
   notes: z.string().nullable().optional(),
+  expectedUpdatedAt: z
+    .number()
+    .optional()
+    .describe(
+      "The contact's updatedAt when the confirmation was built. A delete is refused if the contact changed since.",
+    ),
   cancelled: z
     .boolean()
     .optional()

@@ -206,7 +206,11 @@ export async function handleContactRecordSubmit(values: {
       ctx.assistantId,
       pendingContactRecordRequest.requestId,
       operation === "delete"
-        ? { operation, contactId }
+        ? {
+            operation,
+            contactId,
+            expectedUpdatedAt: pendingContactRecordRequest.expectedUpdatedAt,
+          }
         : {
             operation,
             contactId,

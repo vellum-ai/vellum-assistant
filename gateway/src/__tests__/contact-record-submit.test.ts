@@ -57,6 +57,31 @@ const ipcMock = mock(
       resolveFailures -= 1;
       throw new Error("socket closed");
     }
+    if (method === "contacts_mirror_upsert_full") {
+      if (mirrorWritesFail) {
+        throw new Error("mirror unavailable");
+      }
+      const body = options?.body as
+        { contactId?: string; notes?: string | null } | undefined;
+      if (body?.contactId && body.notes !== undefined) {
+        mirroredNotes.set(body.contactId, body.notes);
+      }
+      return { ok: true };
+    }
+    if (method === "contacts_info_batch") {
+      const body = options?.body as { contactIds?: string[] } | undefined;
+      return {
+        infos: (body?.contactIds ?? [])
+          .filter((id) => mirroredNotes.has(id))
+          .map((id) => ({
+            contactId: id,
+            notes: mirroredNotes.get(id) ?? null,
+            userFile: null,
+            contactType: "human",
+            assistantMetadata: null,
+          })),
+      };
+    }
     return { resolved: true, exists: false };
   },
 );
@@ -72,6 +97,16 @@ let claimThrows = false;
 
 /** How many resolve attempts fail before one is allowed through. */
 let resolveFailures = 0;
+
+/**
+ * The assistant-side mirror, which is where notes actually live. Modelled
+ * rather than stubbed away: a write that reports success without reaching it
+ * is exactly the case worth testing.
+ */
+let mirroredNotes = new Map<string, string | null>();
+
+/** Drop mirror writes, as an unreachable mirror op would. */
+let mirrorWritesFail = false;
 
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
@@ -137,6 +172,8 @@ beforeEach(() => {
   claimedForms.clear();
   claimThrows = false;
   resolveFailures = 0;
+  mirroredNotes = new Map<string, string | null>();
+  mirrorWritesFail = false;
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
@@ -168,6 +205,52 @@ describe("contact record submit", () => {
     const resolved = resolveCall();
     expect(resolved.body.requestId).toBe("req-create");
     expect(resolved.body.contactId).toBe(row!.id);
+  });
+
+  test("notes that reach the mirror are reported as saved", async () => {
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-notes-ok"),
+        operation: "create",
+        displayName: "Alice",
+        notes: "Dentist",
+      }),
+    );
+
+    expect(resolveCall().body.notesSaved).toBe(true);
+  });
+
+  test("notes lost to a failed mirror write are reported as unsaved", async () => {
+    // Notes live only in the mirror and that write is best-effort, so the name
+    // can land while they do not. The command is told which it got rather than
+    // being told everything worked.
+    mirrorWritesFail = true;
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-notes-lost"),
+        operation: "create",
+        displayName: "Alice",
+        notes: "Dentist",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // The contact itself is in the gateway row, so it exists.
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    expect(resolveCall().body.notesSaved).toBe(false);
+  });
+
+  test("a write with no notes says nothing about them", async () => {
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-no-notes"),
+        operation: "create",
+        displayName: "Alice",
+      }),
+    );
+
+    expect(resolveCall().body.notesSaved).toBeUndefined();
   });
 
   test("create binds no channel", async () => {
@@ -453,6 +536,63 @@ describe("contact record submit", () => {
         .get(),
     ).toBeUndefined();
     expect(resolveCall().body.contactId).toBe("c-2");
+  });
+
+  test("delete refuses a contact that changed while the form was open", async () => {
+    seedContact("c-moved", "Alice");
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-moved"))
+      .get();
+
+    // The confirmation listed the channels this contact had when it opened. A
+    // channel added since would be cascaded away by a guardian who never saw
+    // it, so the delete is refused rather than taken on trust.
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-stale-delete"),
+        operation: "delete",
+        contactId: "c-moved",
+        expectedUpdatedAt: row!.updatedAt - 1000,
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-moved"))
+        .get(),
+    ).toBeDefined();
+  });
+
+  test("delete proceeds when the contact is as the confirmation showed it", async () => {
+    seedContact("c-unmoved", "Alice");
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-unmoved"))
+      .get();
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-fresh-delete"),
+        operation: "delete",
+        contactId: "c-unmoved",
+        expectedUpdatedAt: row!.updatedAt,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(gwContacts)
+        .where(eq(gwContacts.id, "c-unmoved"))
+        .get(),
+    ).toBeUndefined();
   });
 
   test("delete refuses the guardian contact", async () => {
