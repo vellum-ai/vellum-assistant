@@ -41,7 +41,6 @@ import {
   CDP_INSPECT_STATUS_DISCOVERY_CODE,
   CHROME_EXTENSION_INSTALL_HINT,
   CHROME_WEB_STORE_INSTALL_URL,
-  EXTENSION_STATUS_ERROR_MARKER,
 } from "./browser-status-constants.js";
 import {
   formatAxSnapshot,
@@ -2488,10 +2487,10 @@ function modeTradeoffs(mode: StatusCheckMode): string[] {
   return MODE_TRADEOFFS[mode];
 }
 
-function extensionSetupActions(): string[] {
+function extensionConnectionActions(): string[] {
   return [
     CHROME_EXTENSION_INSTALL_HINT,
-    "Open the extension and pair with your assistant.",
+    "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
   ];
 }
 
@@ -2520,49 +2519,14 @@ function extractDiscoveryCodes(error: CdpError): string[] {
   return dedupeStrings(codes);
 }
 
-function containsTokenCaseInsensitive(text: string, token: string): boolean {
-  return text.toLowerCase().includes(token.toLowerCase());
-}
-
 function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
   const actions: string[] = [];
-  const message = error.message.toLowerCase();
   const discoveryCodes = extractDiscoveryCodes(error).map((c) =>
     c.toLowerCase(),
   );
 
   if (mode === BROWSER_STATUS_MODE.EXTENSION) {
-    actions.push(...extensionSetupActions());
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.UNAUTHORIZED_ORIGIN,
-      )
-    ) {
-      actions.push(
-        "Ensure this extension ID is present in chrome-extension-allowlist.local.json in $GATEWAY_SECURITY_DIR and restart the assistant.",
-      );
-    }
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.NATIVE_MESSAGING_HOST,
-      )
-    ) {
-      actions.push(
-        "Reinstall the native messaging host manifest and confirm it allows this extension ID.",
-      );
-    }
-    if (
-      containsTokenCaseInsensitive(
-        message,
-        EXTENSION_STATUS_ERROR_MARKER.HTTP_401,
-      )
-    ) {
-      actions.push(
-        "Re-pair the extension so it refreshes its local relay credential.",
-      );
-    }
+    actions.push(...extensionConnectionActions());
   }
 
   if (mode === BROWSER_STATUS_MODE.CDP_INSPECT) {
@@ -2654,7 +2618,7 @@ async function checkExtensionModeStatus(
       autoCandidate,
       summary:
         "Extension mode is unavailable: no Chrome Extension is connected.",
-      userActions: extensionSetupActions(),
+      userActions: extensionConnectionActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: { transport: "extension-ws" },
     };

@@ -227,7 +227,7 @@ export function CompanionIntro({
       // The card is not a drag handle. Everything else on this surface is, and
       // a press that both read a sentence and flung the pill across the desktop
       // would be the one interaction here nobody could undo.
-      onMouseDown={(event) => {
+      onPointerDown={(event) => {
         event.stopPropagation();
       }}
     >
