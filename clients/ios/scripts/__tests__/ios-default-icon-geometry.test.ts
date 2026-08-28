@@ -12,7 +12,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getCharacterComponents } from "../../../../assistant/src/avatar/character-components.js";
+import { getCharacterComponents } from "../../../../packages/avatar-catalog/src/index.js";
 
 const IOS_APP_DIR = join(import.meta.dir, "../../App");
 

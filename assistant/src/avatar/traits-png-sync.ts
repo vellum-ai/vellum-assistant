@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getCharacterComponents } from "@vellumai/avatar-catalog";
 import {
   AVATAR_IMAGE_FILENAME,
   AVATAR_TRAITS_FILENAME,
@@ -11,7 +12,6 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getAvatarDir } from "../util/platform.js";
 import { renderCharacterAscii } from "./ascii-renderer.js";
-import { getCharacterComponents } from "./character-components.js";
 import { renderCharacterPng } from "./png-renderer.js";
 import { isResvgAvailable } from "./resvg-lazy.js";
 

@@ -43,6 +43,7 @@
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
     "@slack/types": "2.22.0",
+    "@vellumai/avatar-catalog": "workspace:*",
     "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/credential-storage": "workspace:*",
@@ -87,6 +88,7 @@
     "node": ">=20.12.0"
   },
   "bundledDependencies": [
+    "@vellumai/avatar-catalog",
     "@vellumai/avatar-manifest",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",

@@ -307,7 +307,7 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 
 - `App/App/AppIcon.icon/` is an Icon Composer bundle: a solid `#4C9B50`
   background (the `green` entry in the avatar palette in
-  `assistant/src/avatar/character-components.ts`) with the `quirky` eye
+  `packages/avatar-catalog`) with the `quirky` eye
   pair from that same library centred on top, spanning half the icon
   width. The six paths in `Assets/eyes.svg` are copied verbatim out of
   `getCharacterComponents().eyeStyles`, keeping the icon and the in-app

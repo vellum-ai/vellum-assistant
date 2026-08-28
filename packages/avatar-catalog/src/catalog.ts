@@ -1,43 +1,18 @@
-interface BodyShapeDefinition {
-  id: string;
-  viewBox: { width: number; height: number };
-  faceCenter: { x: number; y: number };
-  svgPath: string;
-}
-
-interface EyePathDefinition {
-  svgPath: string;
-  color: string; // hex e.g. "#F2F2F2"
-}
-
-interface EyeStyleDefinition {
-  id: string;
-  sourceViewBox: { width: number; height: number };
-  eyeCenter: { x: number; y: number };
-  paths: EyePathDefinition[];
-}
-
-interface ColorDefinition {
-  id: string;
-  hex: string; // e.g. "#4C9B50"
-}
-
-interface FaceCenterOverride {
-  bodyShape: string;
-  eyeStyle: string;
-  faceCenter: { x: number; y: number };
-}
-
-interface CharacterComponents {
-  bodyShapes: BodyShapeDefinition[];
-  eyeStyles: EyeStyleDefinition[];
-  colors: ColorDefinition[];
-  faceCenterOverrides: FaceCenterOverride[];
-}
+import { AVATAR_COLORS } from "./colors.js";
+import type { CharacterComponents } from "./types.js";
 
 const SCLERA = "#F2F2F2";
 const PUPIL = "#1A1A1A";
 
+/**
+ * Every body shape, eye style, and face-centre override an avatar can be
+ * composed from, plus the palette re-exposed on `colors`.
+ *
+ * This is the single definition. The daemon serves it over
+ * `/avatar/character-components`; clients that must compose an avatar before
+ * the daemon answers (a hatching screen, a chooser card) import it directly
+ * so no copy has to be kept in step with this one.
+ */
 export function getCharacterComponents(): CharacterComponents {
   return {
     bodyShapes: [
@@ -369,14 +344,7 @@ export function getCharacterComponents(): CharacterComponents {
       },
     ],
 
-    colors: [
-      { id: "green", hex: "#4C9B50" },
-      { id: "orange", hex: "#E9642F" },
-      { id: "pink", hex: "#DB4B77" },
-      { id: "purple", hex: "#A665C9" },
-      { id: "teal", hex: "#0E9B8B" },
-      { id: "yellow", hex: "#E9C91A" },
-    ],
+    colors: AVATAR_COLORS,
 
     faceCenterOverrides: [
       // Ghost body — shift non-native eyes from y=167 -> y=200
