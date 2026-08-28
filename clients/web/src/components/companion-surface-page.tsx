@@ -446,9 +446,12 @@ export function CompanionSurfacePage() {
       }}
       onPointerCancel={() => {
         // The capture goes with the pointer when the host takes it, so nothing
-        // more reports this press, and the leave defers to a live drag. This is
-        // what ends one the host took away.
+        // more reports this press, and a leave that deferred to the drag may
+        // never arrive. Give the desktop back the way a leave does; a pointer
+        // still on the pill re-arms it on its next move.
         dragRef.current = null;
+        setHovered(false);
+        setInteractive(false);
       }}
       onMouseLeave={() => {
         // A leave is not a release. A drag can carry the pointer off the canvas

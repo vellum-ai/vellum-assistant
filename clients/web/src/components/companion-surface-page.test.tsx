@@ -717,10 +717,11 @@ describe("dragging the companion surface", () => {
 
   /**
    * The host can take the pointer away mid-drag, which releases the capture and
-   * sends no `mouseup` after it. Nothing else reports that press: the leave
-   * defers to a live drag, so the cancel is the only thing left to end it.
+   * sends no `mouseup` after it. Nothing else reports that press: a leave that
+   * came while the drag was live deferred to it and does not come again, so
+   * the cancel has to end the drag and hand the desktop back by itself.
    */
-  test("ends the drag when the host takes the pointer away", async () => {
+  test("ends the drag and gives the desktop back when the host takes the pointer away", async () => {
     const { container } = render(<CompanionSurfacePage />);
     const { pill } = await pinSurface(container);
     const canvas = canvasOf(container);
@@ -741,9 +742,14 @@ describe("dragging the companion surface", () => {
     });
     expect(moveByMock.mock.calls).toEqual([[20, 0]]);
     moveByMock.mockClear();
+    setInteractiveMock.mockClear();
+
+    // The pointer is off the canvas with the button down, so the leave defers
+    // to the drag and the window stays clickable for it.
+    fireEvent.mouseLeave(canvas);
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(false);
 
     fireEvent.pointerCancel(canvas);
-    fireEvent.mouseLeave(canvas);
 
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
 
