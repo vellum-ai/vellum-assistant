@@ -77,16 +77,22 @@ export async function resolveSlackAuth(
       // granted no user scopes leaves a bot token there instead, which is the
       // same thing the next line falls back to, so the wrong guess costs
       // nothing.
-      if (getConnectionByProvider("slack")) {
-        try {
+      //
+      // Everything here is best-effort, including the lookup. Holding a bot
+      // token means this branch can always answer, so it must not start
+      // depending on the database being reachable and migrated: reading
+      // `oauth_connections` before migrations settle raises "no such table",
+      // and a connection that resolves but is revoked or unrefreshable throws
+      // in the same way. Neither is a reason to fail a resolve the bot token
+      // already satisfies.
+      try {
+        if (getConnectionByProvider("slack")) {
           return await resolveOAuthConnection("slack", {
             account: opts.account,
           });
-        } catch {
-          // A connection that cannot be resolved (revoked, unrefreshable,
-          // missing platform prerequisites) must not take messaging down with
-          // it. The bot token below still serves every read it can.
         }
+      } catch {
+        // Fall through to the bot token, which serves every read it can.
       }
       return botToken;
     }

@@ -10,8 +10,14 @@ mock.module("../../../../security/secure-keys.js", () => ({
 }));
 
 let connectionByProvider: Record<string, { id: string } | undefined> = {};
+let connectionLookupError: Error | null = null;
 mock.module("../../../../oauth/oauth-store.js", () => ({
-  getConnectionByProvider: (provider: string) => connectionByProvider[provider],
+  getConnectionByProvider: (provider: string) => {
+    if (connectionLookupError) {
+      throw connectionLookupError;
+    }
+    return connectionByProvider[provider];
+  },
   isProviderConnected: async () => false,
 }));
 
@@ -35,6 +41,7 @@ const USER_KEY = "credential/slack_channel/user_token";
 beforeEach(() => {
   secureKeys.clear();
   connectionByProvider = {};
+  connectionLookupError = null;
   oauthConnection = null;
   resolveOAuthCalls.length = 0;
 });
@@ -79,6 +86,16 @@ describe("resolveSlackAuth", () => {
     expect(await resolveSlackAuth("user")).toBe("xoxp-user");
     // Resolved from the credential store, so the connection is never touched.
     expect(resolveOAuthCalls).toEqual([]);
+  });
+
+  test("a failing connection lookup degrades to the bot token", async () => {
+    // Holding a bot token means this branch can always answer, so it must not
+    // depend on the database being reachable and migrated. Reading
+    // `oauth_connections` before migrations settle raises "no such table".
+    secureKeys.set(BOT_KEY, "xoxb-bot");
+    connectionLookupError = new Error("no such table: oauth_connections");
+
+    expect(await resolveSlackAuth("user")).toBe("xoxb-bot");
   });
 
   test("an unresolvable OAuth connection degrades to the bot token", async () => {
