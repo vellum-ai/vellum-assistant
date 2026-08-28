@@ -281,18 +281,11 @@ export async function resolveProcessState(
 /**
  * SIGKILL ceiling for stopping the assistant daemon.
  *
- * The daemon's graceful shutdown fires plugin shutdown hooks, commits the
- * workspace, flushes telemetry, SIGTERMs the worker processes it owns
- * (schedule, route host, resource monitor, memory jobs), and folds the SQLite
- * WAL back into the database. Those steps run near the end of the sequence, so
- * a short grace period kills the daemon before it reaches them: the workers
- * reparent to init and keep running on that runtime version, and an
- * interrupted checkpoint costs a multi-minute WAL recovery on the next start.
- *
- * A ceiling, not a delay. `stopProcess` returns as soon as the process exits,
- * so this only applies to a daemon that is genuinely wedged.
+ * Defined in `@vellumai/local-mode` because the host wrappers that spawn these
+ * commands derive their own timeouts from it: a wrapper that expires first
+ * kills the CLI before this ceiling is ever reached.
  */
-export const DAEMON_STOP_TIMEOUT_MS = 120_000;
+export { DAEMON_STOP_TIMEOUT_MS } from "@vellumai/local-mode";
 
 /**
  * Stop a process by PID: SIGTERM, wait up to `timeoutMs`, then SIGKILL if still alive.
