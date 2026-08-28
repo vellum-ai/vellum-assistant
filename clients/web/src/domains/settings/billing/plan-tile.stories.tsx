@@ -290,6 +290,7 @@ export const SideBySide: Story = {
           specs={packageSpecs(MIGHTY, {
             usageLabel: usageChip(MIGHTY.name),
           })}
+          specsWrap
           footer={priceFooter(priceLabelFromCents(MIGHTY.total_price_cents))}
         />
         <PlanTile
@@ -301,6 +302,7 @@ export const SideBySide: Story = {
           specs={packageSpecs(SUPER, {
             usageLabel: usageChip(SUPER.name),
           })}
+          specsWrap
           footer={upgradeCta()}
         />
       </div>
