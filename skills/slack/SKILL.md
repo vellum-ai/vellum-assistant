@@ -10,7 +10,22 @@ metadata:
     display-name: "Slack"
 ---
 
-You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request --provider slack_channel` -- there are no dedicated Slack tools. Use relative Slack API method paths such as `/chat.postMessage`; the provider supplies the Slack host.
+You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via `assistant oauth request` -- there are no dedicated Slack tools. Use relative Slack API method paths such as `/chat.postMessage`; the provider supplies the Slack host.
+
+## Which provider to pass
+
+Two Slack credentials can exist, and they are not interchangeable:
+
+| Provider        | What it is                                     | Acts as       |
+| --------------- | ---------------------------------------------- | ------------- |
+| `slack_channel` | The bot, set up through the Slack setup wizard | the assistant |
+| `slack`         | An OAuth connection the user authorized        | the user      |
+
+**Use `slack_channel` when it is configured.** Every example below assumes it, it is the common case, and anything posted has to come from the bot rather than from the person.
+
+**Fall back to `slack`** where there is no bot, which is what a workspace looks like when someone connects Slack as an integration without running the setup wizard. Reads and searches work the same, but anything it posts arrives as the user, so say that before posting.
+
+`oauth status` reports which credentials exist. Passing a provider that holds none fails with a not-configured error rather than falling back on its own.
 
 ## Resolution Scripts
 
