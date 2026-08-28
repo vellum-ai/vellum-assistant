@@ -48,6 +48,12 @@ export function canonicalizePathThroughExistingParent(path: string): string {
 /** Lazily computed: is this process a `bun test` run? */
 let isTestProcess: boolean | undefined;
 
+/**
+ * True when this process is a `bun test` run. Computed once and cached for
+ * the process lifetime, so a runtime flip of NODE_ENV or BUN_TEST does not
+ * change the answer. Test-mode behavior toggles that must observe such
+ * flips read the env directly instead of calling this.
+ */
 export function isBunTestProcess(): boolean {
   isTestProcess ??=
     process.env.NODE_ENV === "test" ||
