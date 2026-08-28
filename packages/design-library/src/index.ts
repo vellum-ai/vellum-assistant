@@ -283,6 +283,7 @@ export {
 export { cn } from "./utils/cn";
 export type { CustomPropertyStyle } from "./utils/custom-property-style";
 export { initInputModality } from "./utils/input-modality";
+export { writeSelectionClipboard } from "./utils/selection-clipboard";
 export {
   PANEL_ITEM_WASH,
   panelItemWashStyle,

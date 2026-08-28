@@ -161,7 +161,10 @@ export function MessageHoverActions({
   }, [content]);
 
   return (
+    // The timestamp and these controls are chrome, not message content: a
+    // selection that overshoots onto them still copies as the message alone.
     <div
+      data-copy-exclude
       className={`flex items-center gap-0.5 ${
         role === "user" ? "justify-end" : "justify-start"
       }`}

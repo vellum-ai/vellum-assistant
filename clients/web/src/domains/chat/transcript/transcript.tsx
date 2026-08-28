@@ -6,8 +6,11 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  type ClipboardEvent as ReactClipboardEvent,
   type ReactNode,
 } from "react";
+
+import { writeSelectionClipboard } from "@vellumai/design-library";
 
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn";
 import { resolveResponseArtifacts } from "@/domains/chat/transcript/resolve-response-artifacts";
@@ -156,6 +159,32 @@ export interface TranscriptHandle {
     showScrollToLatest: boolean;
     shouldLoadOlder: boolean;
   };
+}
+
+/**
+ * Copy the selected transcript as semantic HTML and markdown.
+ *
+ * The browser's own `text/html` flavor inlines the computed style of every
+ * selected node, so a transcript copied out of the app pastes into Gmail or
+ * Outlook carrying the chat's own background color, text color, and font
+ * size. Its `text/plain` flavor is a flat dump that drops every marker the
+ * reader could see.
+ *
+ * The handler sits on the scroll container rather than on each message
+ * because one assistant turn is several sibling blocks (prose, diagrams,
+ * tool cards) and a drag over "the message" routinely covers more than the
+ * rendered markdown. `MarkdownMessage` keeps its own handler for the
+ * selection that stays inside one message; whichever runs first wins, and
+ * both write the same flavors.
+ */
+function handleTranscriptCopy(event: ReactClipboardEvent<HTMLDivElement>) {
+  if (
+    !event.defaultPrevented &&
+    event.clipboardData &&
+    writeSelectionClipboard(event.clipboardData, event.currentTarget)
+  ) {
+    event.preventDefault();
+  }
 }
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
@@ -331,6 +360,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         key={conversationId}
         ref={scrollRef}
         data-testid="transcript-scroll-container"
+        onCopy={handleTranscriptCopy}
         className={`flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none] ${
           hideIdleScrollbar
             ? "[&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
@@ -424,6 +454,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
               {rest.renderAvatar && (
                 <div
                   data-latest-assistant-avatar="true"
+                  data-copy-exclude
                   className="flex justify-start pl-1 pt-3 pb-2"
                 >
                   {rest.renderAvatar()}
