@@ -3184,6 +3184,38 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(h.view.result.current.error).toBeNull();
   });
 
+  test("the session generation holds across a pre-ready retry", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startConnecting(h);
+    const generation = useLiveVoiceStore.getState().sessionGeneration;
+
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    await act(async () => {
+      await sleep(30);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same voice entry is still the one connecting: a photo pressed
+    // before the blip must still deliver once the retry readies (see
+    // `attachLiveVoiceImage`).
+    expect(useLiveVoiceStore.getState().sessionGeneration).toBe(generation);
+  });
+
   test("surfaces failed once the initial-connect retry budget is exhausted", async () => {
     // A single-attempt budget: one retry, then the next failure surfaces.
     const h = renderController({ reconnectBackoffMs: [20] });
