@@ -551,6 +551,53 @@ describe("useVoiceCamera: a flip the bridge never answers", () => {
   });
 });
 
+describe("useVoiceCamera: an open superseded while the bridge starts it", () => {
+  test("leaves the reopened camera to its own acquire", async () => {
+    // A close lands while the bridge is still starting the camera, and a
+    // reopen follows before that start comes back. The close's release posts
+    // the stop that separates the two starts on the bridge, so the superseded
+    // start has nothing left to clean up: a stop of its own would be posted
+    // after the reopen's start and tear down the preview the hook is
+    // reporting open.
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+
+    render(<Probe />);
+    await press("open");
+    await press("close");
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    const secondStart = deferredCall<boolean>();
+    startSpy.mockImplementation(secondStart.answer);
+    await press("open");
+    expect(startSpy).toHaveBeenCalledTimes(2);
+
+    await settle(() => firstStart.resolve(true));
+    await settle(() => secondStart.resolve(true));
+
+    // The close's stop stays the only one, and the reopened camera is live
+    // enough to answer its own capability probe.
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+  });
+
+  test("stops the camera nothing owns when only a close follows", async () => {
+    // The other half of the discipline: with no reopen behind it, the
+    // superseded start is the last owner standing, and the stop it posts
+    // after resolving is the one guaranteed to land after the start does.
+    const slowStart = deferredCall<boolean>();
+    startSpy.mockImplementation(slowStart.answer);
+
+    render(<Probe />);
+    await press("open");
+    await press("close");
+
+    await settle(() => slowStart.resolve(true));
+
+    expect(stopSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
 /** A bridge call the test decides the timing of, not the microtask queue. */
 function deferredCall<T>() {
   let resolve: (value: T) => void = () => {};

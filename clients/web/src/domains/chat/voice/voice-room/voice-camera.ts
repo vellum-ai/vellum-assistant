@@ -410,7 +410,16 @@ export function useVoiceCamera(
         sourceRef.current = "native-pending";
         const started = await startNativeVoiceCamera(nextFacing);
         if (epoch !== acquireEpochRef.current) {
-          if (started) {
+          // A canceled start still owns what it started, unless something
+          // newer holds a claim. The release that canceled this acquire posts
+          // a stop of its own, but that stop can reach the native side before
+          // this start finishes there and stop nothing, which is hardware
+          // left live with no owner; stopping here closes that hole. When
+          // `sourceRef` carries a newer acquire's claim the opposite holds:
+          // that acquire's start sits behind this one on the bridge, and an
+          // unscoped stop posted now lands after it, tearing down the very
+          // preview it is installing.
+          if (started && sourceRef.current === null) {
             await stopNativeVoiceCamera();
           }
           return "aborted";
