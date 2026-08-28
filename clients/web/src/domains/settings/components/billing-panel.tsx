@@ -10,7 +10,6 @@ import {
   organizationsBillingSummaryRetrieveQueryKey,
   useOrganizationsBillingSummaryCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -48,7 +47,6 @@ function formatCreditsShort(value: string): string {
 export function BillingPanel() {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
-  const obscureCredits = useObscureCredits();
 
   const { data, isLoading, isError } = useQuery(
     organizationsBillingSummaryRetrieveOptions(),
@@ -140,10 +138,9 @@ export function BillingPanel() {
     if (!summary) {
       return null;
     }
-    // Under the flag the tile names only the credit bought or earned on top
-    // of the usage grants; the bar on the Plan tile measures those.
+    // The tile names only the credit bought or earned on top of the usage
+    // grants; the bar on the Plan tile measures those.
     const shown = displayedCreditsUsd(
-      obscureCredits,
       summary.effective_balance,
       summary.available_usage_balance,
     );
