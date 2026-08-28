@@ -39,6 +39,7 @@ type ElementProps = {
 
 let paymentElementProps: ElementProps | null = null;
 let addressElementProps: ElementProps | null = null;
+let elementsProps: { options?: Record<string, unknown> } | null = null;
 let confirmSetupCalls: Record<string, unknown>[] = [];
 
 const fakeElements = { __tag: "fake-elements" };
@@ -50,7 +51,13 @@ const fakeStripe = {
 };
 
 mock.module("@stripe/react-stripe-js", () => ({
-  Elements: ({ children }: { children: ReactNode }) => children,
+  Elements: (props: {
+    children: ReactNode;
+    options?: Record<string, unknown>;
+  }) => {
+    elementsProps = props;
+    return props.children;
+  },
   PaymentElement: (props: ElementProps) => {
     paymentElementProps = props;
     return <div />;
@@ -68,6 +75,7 @@ mock.module("@stripe/stripe-js", () => ({
   loadStripe: () => Promise.resolve(null),
 }));
 
+import { STRIPE_FONTS } from "@/domains/settings/billing/stripe-appearance";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as runtimeBrowser from "@/runtime/browser";
@@ -159,6 +167,7 @@ function fireOnLoadError(props: ElementProps | null): void {
 beforeEach(() => {
   paymentElementProps = null;
   addressElementProps = null;
+  elementsProps = null;
   confirmSetupCalls = [];
   nativeAndroid = false;
   openedUrl = null;
@@ -208,6 +217,15 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
     expect(paymentElementProps?.options?.fields).toEqual({
       billingDetails: { name: "never", address: "never" },
     });
+  });
+
+  test("themes Elements from the shared token-driven appearance builder", async () => {
+    await renderModalWithForm();
+
+    const options = elementsProps?.options as
+      { appearance?: Record<string, unknown>; fonts?: unknown } | undefined;
+    expect(options?.appearance?.labels).toBe("floating");
+    expect(options?.fonts).toEqual(STRIPE_FONTS);
   });
 
   test("keeps Save disabled until BOTH the PaymentElement and AddressElement report ready", async () => {
