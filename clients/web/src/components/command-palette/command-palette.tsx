@@ -28,6 +28,7 @@ import { CommandPaletteItem } from "@/components/command-palette/command-palette
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
+import { useCommandShortcut } from "@/hooks/use-command-shortcut";
 import { usePointerCoarse } from "@/utils/pointer";
 
 // z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
@@ -62,7 +63,8 @@ export interface CommandPaletteItemData {
   subtitle?: string;
   /** Longer match excerpt rendered as a second line under the title. */
   snippet?: string;
-  shortcutHint?: ReactNode;
+  /** Electron accelerator for this command's binding on this host. */
+  shortcut?: string;
 }
 
 export interface CommandPaletteSection {
@@ -197,6 +199,13 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   // a convertible whose keyboard comes off has to stop advertising ⌘K without
   // a reload, and a tablet docked into one has to start.
   const pointerCoarse = usePointerCoarse();
+  // The cap advertises the binding that opens this palette, so it comes from
+  // the same resolver every other hint does rather than a literal that a
+  // rebind would leave stale.
+  const paletteAccelerator = useCommandShortcut("commandPalette");
+  const paletteShortcutHint = paletteAccelerator
+    ? formatAcceleratorHint(paletteAccelerator)
+    : null;
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -307,7 +316,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             tintColor="var(--content-tertiary)"
           />
         )
-      ) : showKeyboardHints ? (
+      ) : showKeyboardHints && paletteShortcutHint ? (
         <kbd
           className={
             isWindowSurface
@@ -315,7 +324,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
               : "shrink-0 rounded-md border border-[var(--border-base)] bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default text-[var(--content-tertiary)]"
           }
         >
-          {formatAcceleratorHint("CmdOrCtrl+K")}
+          {paletteShortcutHint}
         </kbd>
       ) : null}
       {useMobileLayout ? (
@@ -379,9 +388,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   subtitle={item.subtitle}
                   snippet={item.snippet}
                   highlightTokens={highlightTokens}
-                  shortcutHint={
-                    showKeyboardHints ? item.shortcutHint : undefined
-                  }
+                  shortcut={showKeyboardHints ? item.shortcut : undefined}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}
                   surface={surface}

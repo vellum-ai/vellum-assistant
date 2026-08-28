@@ -202,6 +202,22 @@ describe("ShortcutKeys", () => {
     expect(html).toContain(">Ctrl<");
   });
 
+  test("the inline variant draws the compact hint in one element", () => {
+    const html = renderToStaticMarkup(
+      createElement(ShortcutKeys, {
+        accelerator: "CmdOrCtrl+Shift+N",
+        platform: "mac",
+        variant: "inline",
+      }),
+    );
+    // One span, no key caps: the caps form is for a surface where the binding
+    // is the subject of the row.
+    expect(html).not.toContain("<kbd");
+    expect(html).toContain('data-slot="shortcut-keys"');
+    expect(html).toContain('data-variant="inline"');
+    expect(html).toContain("\u21e7\u2318N");
+  });
+
   test("renders nothing for a disabled (empty) binding", () => {
     const html = renderToStaticMarkup(
       createElement(ShortcutKeys, { accelerator: "" }),

@@ -44,7 +44,7 @@ const HINTED_SECTIONS = [
     id: "actions",
     label: "Actions",
     items: [
-      { id: "new", title: "New Conversation", shortcutHint: "⇧⌘O" },
+      { id: "new", title: "New Conversation", shortcut: "CmdOrCtrl+Shift+O" },
       { id: "library", title: "Library" },
     ],
   },
@@ -82,12 +82,13 @@ function keyboardHints(): string[] {
   const caps = Array.from(dialog.querySelectorAll("kbd")).map(
     (el) => el.textContent ?? "",
   );
-  const itemHints = Array.from(dialog.querySelectorAll("span"))
-    .filter((el) => el.children.length === 0)
-    .map((el) => el.textContent ?? "")
-    // Any modifier glyph, not Command specifically: a hint leads with the
-    // first modifier in the platform's order, which for ⇧⌘O is Shift.
-    .filter((text) => /[\u2318\u2303\u2325\u21e7]/.test(text));
+  // Queried by slot rather than by scanning text: the previous version looked
+  // for spans whose text began with a modifier glyph, which silently dropped a
+  // hint the moment modifier order changed and left the assertion comparing
+  // against a list with the chord missing.
+  const itemHints = Array.from(
+    dialog.querySelectorAll('[data-slot="shortcut-keys"]'),
+  ).map((el) => el.textContent ?? "");
   return [...caps, ...itemHints];
 }
 

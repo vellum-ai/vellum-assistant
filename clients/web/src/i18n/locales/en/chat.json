@@ -94,6 +94,7 @@
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
     "navAria": "Assistant navigation",
+    "search": "Search",
     "searchShortcut": "Search ({shortcut})"
   },
   "assistantSwitcher": {

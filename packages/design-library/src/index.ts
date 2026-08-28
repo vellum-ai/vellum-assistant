@@ -275,6 +275,7 @@ export {
 export { ListRow, type ListRowProps } from "./components/list-row";
 export {
   ShortcutKeys,
+  acceleratorToAriaKeyShortcuts,
   detectShortcutPlatform,
   formatAcceleratorHint,
   parseAccelerator,

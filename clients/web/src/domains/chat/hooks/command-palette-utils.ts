@@ -18,9 +18,9 @@ import type { CommandPaletteSection } from "@/components/command-palette/command
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 
 /**
- * Hints for the actions that have a keyboard shortcut on this host. Resolved
- * by the caller so this stays a pure function of its inputs; a command with no
- * shortcut here passes `undefined` and renders none.
+ * Accelerators for the actions bound on this host. Resolved by the caller so
+ * this stays a pure function of its inputs; a command with no binding passes
+ * `undefined` and renders none.
  */
 export interface ActionShortcutHints {
   newConversation?: string;
@@ -31,7 +31,7 @@ export interface ActionShortcutHints {
 /** Build the static "Actions" section with keyboard shortcuts. */
 export function buildActionsSection(
   assistantName: string,
-  hints: ActionShortcutHints = {},
+  shortcuts: ActionShortcutHints = {},
 ): CommandPaletteSection {
   return {
     id: "actions",
@@ -41,19 +41,19 @@ export function buildActionsSection(
         id: "action-new-conversation",
         icon: SquarePen,
         title: "New Conversation",
-        shortcutHint: hints.newConversation,
+        shortcut: shortcuts.newConversation,
       },
       {
         id: "action-current-conversation",
         icon: Monitor,
         title: "Current Conversation",
-        shortcutHint: hints.currentConversation,
+        shortcut: shortcuts.currentConversation,
       },
       {
         id: "action-settings",
         icon: Settings,
         title: "Settings",
-        shortcutHint: hints.openSettings,
+        shortcut: shortcuts.openSettings,
       },
       { id: "action-library", icon: LayoutGrid, title: "Library" },
       { id: "action-intelligence", icon: Globe, title: assistantName },

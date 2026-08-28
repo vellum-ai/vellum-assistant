@@ -68,14 +68,14 @@ describe("buildActionsSection", () => {
 
   test("places each hint on its own action and omits the rest", () => {
     const section = buildActionsSection("Assistants", {
-      newConversation: "A",
-      openSettings: "B",
+      newConversation: "CmdOrCtrl+N",
+      openSettings: "CmdOrCtrl+,",
     });
     const hints = Object.fromEntries(
-      section.items.map((item) => [item.id, item.shortcutHint]),
+      section.items.map((item) => [item.id, item.shortcut]),
     );
-    expect(hints["action-new-conversation"]).toBe("A");
-    expect(hints["action-settings"]).toBe("B");
+    expect(hints["action-new-conversation"]).toBe("CmdOrCtrl+N");
+    expect(hints["action-settings"]).toBe("CmdOrCtrl+,");
     // Absent on this host, so the row shows none rather than a stale default.
     expect(hints["action-current-conversation"]).toBeUndefined();
     expect(hints["action-library"]).toBeUndefined();

@@ -1,4 +1,7 @@
-import { formatAcceleratorHint } from "@vellumai/design-library";
+import {
+  acceleratorToAriaKeyShortcuts,
+  formatAcceleratorHint,
+} from "@vellumai/design-library";
 import { Search, X } from "lucide-react";
 import {
   useCallback,
@@ -36,6 +39,7 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { useCommandShortcut } from "@/hooks/use-command-shortcut";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
@@ -149,15 +153,26 @@ function SearchButton() {
   const handleClick = useCallback(() => {
     toggle();
   }, [toggle]);
-  const label = t("assistantSideMenu.searchShortcut", {
-    shortcut: formatAcceleratorHint("CmdOrCtrl+K"),
-  });
+  const accelerator = useCommandShortcut("commandPalette");
+  // The glyphs belong in the tooltip a sighted user reads, not in the
+  // accessible name, where they are announced as their character names. A
+  // screen reader gets the plain label and the binding through
+  // `aria-keyshortcuts`.
+  const label = t("assistantSideMenu.search");
+  const tooltip = accelerator
+    ? t("assistantSideMenu.searchShortcut", {
+        shortcut: formatAcceleratorHint(accelerator),
+      })
+    : label;
   return (
     <Button
       variant="ghost"
       iconOnly={<Search />}
       aria-label={label}
-      title={label}
+      aria-keyshortcuts={
+        accelerator ? acceleratorToAriaKeyShortcuts(accelerator) : undefined
+      }
+      title={tooltip}
       className={`pointer-events-auto ${NATIVE_MOBILE_BARE_ICON_BUTTON}`}
       onClick={handleClick}
     />

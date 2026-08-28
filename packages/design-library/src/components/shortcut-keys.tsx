@@ -304,7 +304,9 @@ const ARIA_KEYS: Record<string, string> = {
 
 /**
  * The `aria-keyshortcuts` value for an accelerator: `"CmdOrCtrl+Shift+P"`
- * becomes `"Meta+Shift+P"` on macOS and `"Control+Shift+P"` on Windows.
+ * becomes `"Shift+Meta+P"` on macOS and `"Control+Shift+P"` on Windows,
+ * modifiers in the platform's order so the announced binding reads the same
+ * way as the drawn one.
  *
  * Menus draw the glyph form and hide it from assistive tech, so this is the
  * only channel through which a screen reader learns the binding. Derived from
@@ -330,16 +332,43 @@ export interface ShortcutKeysProps extends ComponentProps<"span"> {
   accelerator: string;
   /** Key-cap vocabulary; defaults to the detected host. */
   platform?: ShortcutPlatform;
+  /**
+   * `"caps"` draws one boxed key per token, for a surface where the binding is
+   * the subject of the row (the Keyboard Shortcuts settings, where it is also
+   * being edited). `"inline"` draws the compact glyph run a dense row has space
+   * for, which is what a menu or a palette wants beside a command's name.
+   */
+  variant?: "caps" | "inline";
 }
 
 export function ShortcutKeys({
   accelerator,
   platform,
   className,
+  variant = "caps",
   ref,
   ...rest
 }: ShortcutKeysProps) {
   const caps = parseAccelerator(accelerator, platform);
+
+  if (variant === "inline") {
+    return (
+      <span
+        {...rest}
+        ref={ref}
+        data-slot="shortcut-keys"
+        data-variant="inline"
+        className={cn(
+          "text-body-small-default tracking-wide",
+          "text-[color:var(--content-tertiary)]",
+          className,
+        )}
+      >
+        {formatAcceleratorHint(accelerator, platform)}
+      </span>
+    );
+  }
+
   return (
     <span
       {...rest}
