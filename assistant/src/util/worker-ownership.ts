@@ -57,8 +57,24 @@ export function classifyWorkerOwnership(
   return "foreign";
 }
 
-/** Entrypoint the daemon is exec'd with, including inside a container. */
-const DAEMON_ENTRYPOINT_MARKER = "daemon/main";
+/**
+ * Command lines that identify an assistant daemon, running from source
+ * (`.../daemon/main.ts`) or as the packaged binary.
+ */
+const DAEMON_PROCESS_PATTERN = /vellum-daemon|[\\/]daemon[\\/]main/;
+
+/**
+ * Whether `pid` is a live assistant daemon.
+ *
+ * For a worker with exactly one legitimate owner, "is the owner alive" is not
+ * the same question as "does some process still hold that PID". The OS recycles
+ * PIDs, and a recycled owner PID would otherwise leave a stranded worker
+ * looking owned, and therefore untouchable, indefinitely.
+ */
+export function isDaemonProcess(pid: number): boolean {
+  const command = readRawProcessCommand(pid);
+  return command != null && DAEMON_PROCESS_PATTERN.test(command);
+}
 
 /**
  * Whether PID 1 is an assistant daemon rather than an init process.
@@ -70,10 +86,7 @@ const DAEMON_ENTRYPOINT_MARKER = "daemon/main";
  * reclaimable. Unreadable means false, which keeps the reclaiming behaviour.
  */
 export function pid1OwnsWorkers(): boolean {
-  if (process.pid === 1) {
-    return true;
-  }
-  return readRawProcessCommand(1)?.includes(DAEMON_ENTRYPOINT_MARKER) ?? false;
+  return process.pid === 1 || isDaemonProcess(1);
 }
 
 /**

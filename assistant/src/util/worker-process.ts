@@ -25,6 +25,7 @@ import { findProcessRow, type ProcessTableRow } from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
 import {
   classifyWorkerOwnership,
+  isDaemonProcess,
   pid1OwnsWorkers,
 } from "./worker-ownership.js";
 
@@ -338,9 +339,15 @@ export type WorkerSlotDecision =
  *
  * `reclaim` is the only outcome that signals a process, and it requires two
  * independent things to agree: the command line marks the process as this
- * worker, and parentage says nobody live owns it. A missing row, an unreadable
+ * worker, and parentage says no daemon owns it. A missing row, an unreadable
  * command line, and a command line that does not match all fall back to
  * `adopt`, so an uncertain answer never costs a process its life.
+ *
+ * `isOwnerAlive` is the caller's definition of a legitimate owner. These
+ * workers have exactly one, the daemon, so passing a plain liveness probe
+ * would let a recycled owner PID keep a stranded worker looking owned forever.
+ * The embed worker passes a liveness probe instead, because two processes may
+ * each legitimately run one of its workers.
  */
 export function decideWorkerSlot(
   status: WorkerProcessStatus,
@@ -387,7 +394,7 @@ function inspectWorkerSlot(
     status.pid != null ? findProcessRow(status.pid) : null,
     signature,
     process.pid,
-    isProcessAlive,
+    isDaemonProcess,
     pid1OwnsWorkers,
   );
 }

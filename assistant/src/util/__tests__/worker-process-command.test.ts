@@ -179,11 +179,21 @@ describe("decideWorkerSlot", () => {
     );
   });
 
-  test("adopts a worker another live process owns", () => {
+  // `isOwnerAlive` is "is the owner a daemon", not "does that PID exist". These
+  // workers have exactly one legitimate owner, so a recycled owner PID must not
+  // keep a stranded worker looking owned.
+  test("adopts a worker a live daemon owns", () => {
     expect(decide({ pid: WORKER, ppid: 777, command: ours }, alive)).toEqual({
       action: "adopt",
       pid: WORKER,
     });
+  });
+
+  test("reclaims a worker whose owner PID was recycled to a non-daemon", () => {
+    const ownerIsNotADaemon = () => false;
+    expect(
+      decide({ pid: WORKER, ppid: 777, command: previous }, ownerIsNotADaemon),
+    ).toEqual({ action: "reclaim", pid: WORKER });
   });
 
   // In a container the daemon is PID 1, so a worker parented to 1 is a live
