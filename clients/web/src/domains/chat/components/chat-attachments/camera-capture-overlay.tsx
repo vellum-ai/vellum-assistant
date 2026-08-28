@@ -91,7 +91,7 @@ export function CameraCaptureOverlay({
   const { t } = useTranslation("chat");
   const surfaceRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { captureFrame, error, flipCamera, native, open, openCamera } =
+  const { captureFrame, error, flipCamera, flipping, native, open, openCamera } =
     useVoiceCamera(videoRef);
   const [capturing, setCapturing] = useState(false);
 
@@ -286,7 +286,10 @@ export function CameraCaptureOverlay({
             onClick={() => void takePhoto()}
             ariaLabel={t("cameraDeepLink.shutter")}
             capturing={capturing}
-            disabled={!open || capturing}
+            // Also held off while a flip swaps the capture, as in the voice
+            // room: the viewfinder stays up with nothing behind it, and a
+            // press there would close the overlay on a manufactured failure.
+            disabled={!open || capturing || flipping}
             testId="camera-deep-link-shutter"
           />
 
