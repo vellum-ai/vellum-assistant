@@ -41,10 +41,10 @@ export function paymentMethodCards(
       id: "primary",
       brand: config.payment_method_brand,
       last4: config.payment_method_last4,
-      // The config payload carries no expiry, so the card-on-file row in the
-      // modal renders brand and last4 alone.
-      expMonth: null,
-      expYear: null,
+      // `?? null` because a platform deployment older than the expiry fields
+      // omits the keys entirely rather than sending them null.
+      expMonth: config.payment_method_exp_month ?? null,
+      expYear: config.payment_method_exp_year ?? null,
     },
   ];
 }
@@ -168,6 +168,8 @@ export function PaymentMethodsCard() {
             key={card.id}
             brand={card.brand}
             last4={card.last4}
+            expMonth={card.expMonth}
+            expYear={card.expYear}
             onUpdateCard={openPaymentModal}
             actionsDisabled={returnPending}
           />
@@ -204,6 +206,7 @@ export function PaymentMethodsCard() {
         }}
         mode={pmModal?.mode ?? "add"}
         cardOnFile={pmModal?.cardOnFile ?? null}
+        billingAddress={config?.billing_address ?? null}
         initialOutcome={outcome}
         onSavedOptimistic={syncPaymentMethodSaved}
       />

@@ -19,6 +19,10 @@
  *    a saved card on the success panel alone, a failure back into the form in
  *    the mode the saved card calls for. The failure waits for the config query
  *    to settle, so it cannot be pinned to add mode by a still-pending one.
+ *  - The card expiry and the saved billing address come from the platform
+ *    config: the row and the modal's card on file show the expiry, the modal
+ *    is seeded with the address, and a platform deployment that omits the
+ *    keys renders with nulls instead.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
@@ -46,7 +50,10 @@ import type {
   SetupIntentOutcome,
 } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import * as sdkGen from "@/generated/api/sdk.gen";
-import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
+import type {
+  AutoTopUpConfigResponse,
+  BillingAddress,
+} from "@/generated/api/types.gen";
 
 let retrieveResponse: AutoTopUpConfigResponse;
 let retrieveShouldFail = false;
@@ -155,6 +162,33 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
   payment_method_brand: "visa",
   payment_method_last4: "4242",
 };
+
+const BILLING_ADDRESS: BillingAddress = {
+  line1: "100 Example Ave",
+  line2: null,
+  city: "Springfield",
+  state: "CA",
+  postal_code: "94000",
+  country: "US",
+};
+
+const WITH_EXPIRY_AND_ADDRESS: AutoTopUpConfigResponse = {
+  ...DISABLED_WITH_CARD,
+  payment_method_exp_month: 4,
+  payment_method_exp_year: 2042,
+  billing_address: BILLING_ADDRESS,
+};
+
+/** A platform deployment older than the fields omits the keys entirely. */
+function withoutPlatformExpiryAndAddress(
+  config: AutoTopUpConfigResponse,
+): AutoTopUpConfigResponse {
+  const legacy: Record<string, unknown> = { ...config };
+  delete legacy.payment_method_exp_month;
+  delete legacy.payment_method_exp_year;
+  delete legacy.billing_address;
+  return legacy as AutoTopUpConfigResponse;
+}
 
 function makeClient(config?: AutoTopUpConfigResponse) {
   const client = new QueryClient({
@@ -526,6 +560,53 @@ describe("PaymentMethodsCard redirect return", () => {
   });
 });
 
+describe("PaymentMethodsCard expiry and billing address", () => {
+  test("shows the expiry on the saved card row", () => {
+    retrieveResponse = { ...WITH_EXPIRY_AND_ADDRESS };
+    const { getByTestId } = render(wrap(WITH_EXPIRY_AND_ADDRESS));
+
+    const row = getByTestId("payment-method-row");
+    expect(row.textContent).toContain("Ending in 4242");
+    expect(row.textContent).toContain("\u00b7 04 / 42");
+  });
+
+  test("hands the modal the expiry and the saved billing address", () => {
+    retrieveResponse = { ...WITH_EXPIRY_AND_ADDRESS };
+    const { getByTestId } = render(wrap(WITH_EXPIRY_AND_ADDRESS));
+
+    fireEvent.click(getByTestId("payment-method-update"));
+
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: 4,
+      expYear: 2042,
+    });
+    expect(lastPmModalProps().billingAddress).toEqual(BILLING_ADDRESS);
+  });
+
+  test("renders with nulls when the platform omits the keys", () => {
+    const legacy = withoutPlatformExpiryAndAddress(WITH_EXPIRY_AND_ADDRESS);
+    retrieveResponse = { ...legacy };
+    const { getByTestId } = render(wrap(legacy));
+
+    const row = getByTestId("payment-method-row");
+    expect(row.textContent).toContain("Ending in 4242");
+    expect(row.textContent).not.toContain("\u00b7");
+
+    fireEvent.click(getByTestId("payment-method-update"));
+
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
+    expect(lastPmModalProps().billingAddress).toBeNull();
+  });
+});
+
 /**
  * The backend stores at most one payment method and has no list endpoint, so
  * the multi-card shape is only reachable through the pure helper.
@@ -539,6 +620,18 @@ describe("paymentMethodCards", () => {
         last4: "4242",
         expMonth: null,
         expYear: null,
+      },
+    ]);
+  });
+
+  test("reads the expiry the platform sends", () => {
+    expect(paymentMethodCards(WITH_EXPIRY_AND_ADDRESS)).toEqual([
+      {
+        id: "primary",
+        brand: "visa",
+        last4: "4242",
+        expMonth: 4,
+        expYear: 2042,
       },
     ]);
   });

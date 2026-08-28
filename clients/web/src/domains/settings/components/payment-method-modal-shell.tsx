@@ -10,7 +10,10 @@
 import { Loader2, X } from "lucide-react";
 import { type ReactNode } from "react";
 
-import { brandLabel } from "@/domains/settings/utils/payment-method-brand";
+import {
+  brandLabel,
+  cardExpiryLabel,
+} from "@/domains/settings/utils/payment-method-brand";
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -227,13 +230,7 @@ function CardOnFileRow({ card }: { card: CardOnFile }) {
   // An unknown brand leaves the chip blank rather than abbreviating the
   // generic fallback label into something that reads as a brand.
   const chip = brandName?.slice(0, 4) ?? null;
-  const expiry =
-    card.expMonth != null && card.expYear != null
-      ? t("autoTopUpPaymentMethodModal.cardOnFileExpiry", {
-          month: String(card.expMonth).padStart(2, "0"),
-          year: String(card.expYear).slice(-2),
-        })
-      : null;
+  const expiry = cardExpiryLabel(t, card.expMonth, card.expYear);
 
   return (
     <div

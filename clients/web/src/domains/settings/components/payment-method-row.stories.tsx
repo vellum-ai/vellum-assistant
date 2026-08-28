@@ -30,3 +30,11 @@ type Story = StoryObj<typeof meta>;
  * reads as "Visa", the last four digits, and the Replace card action.
  */
 export const Default: Story = {};
+
+/**
+ * The platform knows the card's expiry, so it trails the last four digits in
+ * the same `MM / YY` form the modal's card-on-file row uses.
+ */
+export const WithExpiry: Story = {
+  args: { expMonth: 4, expYear: 2042 },
+};
