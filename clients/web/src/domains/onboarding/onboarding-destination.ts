@@ -9,6 +9,26 @@ import { routes } from "@/utils/routes";
 export const SKIP_RESEARCH_PARAM = "skip_research";
 
 /**
+ * Query param marking a funnel walk that is provisioning a NEW assistant. Set
+ * by every handoff into the privacy screen that provisions: the hosting
+ * screen's cloud Continue, the api-key screen, and the retry off-ramp on a
+ * failed managed hatch.
+ *
+ * `alreadyOnboarded` is a fact about assistants that already exist, so it can
+ * never answer for the one this walk is about to create. The privacy route
+ * guard and the post-consent destination both defer to this marker rather than
+ * skipping a hatch the user explicitly asked for.
+ */
+export const NEW_ASSISTANT_PARAM = "new_assistant";
+
+/** Whether a funnel URL carries the {@link NEW_ASSISTANT_PARAM} marker. */
+export function isNewAssistantFunnel(
+  searchParams: Pick<URLSearchParams, "get">,
+): boolean {
+  return searchParams.get(NEW_ASSISTANT_PARAM) === "1";
+}
+
+/**
  * Whether this build may skip the research/personality funnel after consent.
  * True everywhere except a production `VITE_SENTRY_ENVIRONMENT` so local, dev,
  * and staging can drop into chat without walking the research steps.
@@ -75,7 +95,8 @@ export function withSkipResearch(
  *   hatching here would leave the research flow with no assistant to adopt.
  * - **Already onboarded** (hatched at least a week ago) → `/assistant`. The
  *   assistant is already provisioned and past research, including in
- *   production.
+ *   production. Yields to a walk that is provisioning a new assistant: that
+ *   one does not exist yet, so no existing assistant's age answers for it.
  * - **Skip to chat** (non-production) → hatching as well. There is no research
  *   form, so the hatch screen provisions, then hands off to chat.
  */
@@ -83,6 +104,7 @@ export function onboardingDestinationAfterConsent({
   isLocalHatch,
   skipResearch = false,
   alreadyOnboarded = false,
+  newAssistant = false,
   env = import.meta.env.VITE_SENTRY_ENVIRONMENT,
 }: {
   /** A local-hosting onboarding that must run the foreground local hatch. */
@@ -97,10 +119,17 @@ export function onboardingDestinationAfterConsent({
    * research on every build, including production.
    */
   alreadyOnboarded?: boolean;
+  /**
+   * This walk is provisioning a new assistant (see {@link NEW_ASSISTANT_PARAM}),
+   * so it must reach a hatch rather than short-circuit to an existing one.
+   */
+  newAssistant?: boolean;
   /** Build environment; defaults to `VITE_SENTRY_ENVIRONMENT`. */
   env?: string;
 }): string {
-  if (alreadyOnboarded) {
+  // `isLocalHatch` counts as provisioning on its own: it names a foreground
+  // hatch that has to run, marker or not.
+  if (alreadyOnboarded && !newAssistant && !isLocalHatch) {
     return routes.assistant;
   }
   if (skipResearch && canSkipOnboardingResearch(env)) {

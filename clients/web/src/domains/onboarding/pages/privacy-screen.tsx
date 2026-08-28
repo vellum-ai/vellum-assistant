@@ -15,6 +15,7 @@ import {
 import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
 import {
   canSkipOnboardingResearch,
+  isNewAssistantFunnel,
   onboardingDestinationAfterConsent,
   withSkipResearch,
 } from "@/domains/onboarding/onboarding-destination";
@@ -134,6 +135,7 @@ export function PrivacyScreen() {
       isLocalHatch,
       skipResearch,
       alreadyOnboarded,
+      newAssistant: isNewAssistantFunnel(searchParams),
     });
     const onboardingNext = skipResearch
       ? withSkipResearch(`${destination}${qs ? `?${qs}` : ""}`)

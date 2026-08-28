@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  NEW_ASSISTANT_PARAM,
   SKIP_RESEARCH_PARAM,
   canSkipOnboardingResearch,
+  isNewAssistantFunnel,
   onboardingDestinationAfterConsent,
   shouldSkipResearchAfterHatch,
   withSkipResearch,
@@ -75,6 +77,28 @@ describe("onboardingDestinationAfterConsent", () => {
         env: "production",
       }),
     ).toBe(routes.assistant);
+  });
+
+  test("a new-assistant walk hatches even when another assistant is onboarded", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: false,
+        alreadyOnboarded: true,
+        newAssistant: true,
+        env: "production",
+      }),
+    ).toBe(routes.onboarding.research);
+    expect(
+      onboardingDestinationAfterConsent({
+        isLocalHatch: true,
+        alreadyOnboarded: true,
+        newAssistant: true,
+        env: "production",
+      }),
+    ).toBe(routes.onboarding.hatching);
+  });
+
+  test("a local hatch outranks the already-onboarded shortcut without the marker", () => {
     expect(
       onboardingDestinationAfterConsent({
         isLocalHatch: true,
@@ -82,7 +106,19 @@ describe("onboardingDestinationAfterConsent", () => {
         alreadyOnboarded: true,
         env: "staging",
       }),
-    ).toBe(routes.assistant);
+    ).toBe(routes.onboarding.hatching);
+  });
+});
+
+describe("isNewAssistantFunnel", () => {
+  test("true only when the marker is set to 1", () => {
+    expect(
+      isNewAssistantFunnel(new URLSearchParams(`${NEW_ASSISTANT_PARAM}=1`)),
+    ).toBe(true);
+    expect(isNewAssistantFunnel(new URLSearchParams())).toBe(false);
+    expect(
+      isNewAssistantFunnel(new URLSearchParams(`${NEW_ASSISTANT_PARAM}=0`)),
+    ).toBe(false);
   });
 });
 

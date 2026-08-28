@@ -1,6 +1,9 @@
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
-import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import {
+  isNewAssistantFunnel,
+  onboardingDestinationAfterConsent,
+} from "@/domains/onboarding/onboarding-destination";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { routes } from "@/utils/routes";
 
@@ -630,19 +633,23 @@ function allowSetupRoutes(
   // Research stays reachable on demand (replay); only the automatic privacy
   // entry is bounced. A paid hatch riding on `returnTo` is resumed so a
   // purchased resize is not dropped.
+  //
+  // A walk that is provisioning a new assistant is exempt. `alreadyOnboarded`
+  // is `.some()` over every resolved assistant, so without the exemption one
+  // week-old entry bounces the whole provisioning funnel to `/assistant`, which
+  // `requireAuth` sends back to the chooser the walk started from.
   if (path === routes.onboarding.privacy && state.alreadyOnboarded) {
     const qIdx = pathnameWithSearch.indexOf("?");
-    const returnTo =
-      qIdx >= 0
-        ? new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).get(
-            "returnTo",
-          )
-        : null;
-    const paidReturn = postCheckoutHatchReturnTo(returnTo);
-    if (paidReturn) {
-      return { action: "redirect", to: paidReturn };
+    const params = new URLSearchParams(
+      qIdx >= 0 ? pathnameWithSearch.slice(qIdx + 1) : "",
+    );
+    if (!isNewAssistantFunnel(params)) {
+      const paidReturn = postCheckoutHatchReturnTo(params.get("returnTo"));
+      if (paidReturn) {
+        return { action: "redirect", to: paidReturn };
+      }
+      return { action: "redirect", to: routes.assistant };
     }
-    return { action: "redirect", to: routes.assistant };
   }
 
   return enforceFunnelConsent(state, path, pathnameWithSearch);
