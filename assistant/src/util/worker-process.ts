@@ -19,8 +19,12 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getCurrentLogFilePath } from "./logger.js";
+import { getCurrentLogFilePath, getLogger } from "./logger.js";
+import { isProcessAlive } from "./process-liveness.js";
+import { readRawProcessCommand } from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
+
+const log = getLogger("worker-process");
 
 export interface WorkerProcessStatus {
   status: "running" | "not_running";
@@ -135,22 +139,100 @@ interface WorkerCommandRuntime {
   executableExists: (path: string) => boolean;
 }
 
-export function resolveWorkerCommand(
-  entry: URL,
-  packagedEntry: PackagedWorkerEntry | undefined,
-  runtime: WorkerCommandRuntime = {
+function defaultWorkerCommandRuntime(): WorkerCommandRuntime {
+  return {
     platform: process.platform,
     execPath: process.execPath,
     executableExists: existsSync,
-  },
-): string[] {
+  };
+}
+
+/**
+ * How a packaged Windows runtime spawns this worker, or null when the worker
+ * runs from source. Only packaged Windows runtimes ship the executable.
+ */
+function packagedWorkerSpawn(
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime,
+): { executable: string; entry: PackagedWorkerEntry } | null {
   if (runtime.platform === "win32" && packagedEntry) {
     const executable = join(dirname(runtime.execPath), "vellum-worker.exe");
     if (runtime.executableExists(executable)) {
-      return [executable, packagedEntry];
+      return { executable, entry: packagedEntry };
     }
   }
+  return null;
+}
+
+export function resolveWorkerCommand(
+  entry: URL,
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime = defaultWorkerCommandRuntime(),
+): string[] {
+  const packaged = packagedWorkerSpawn(packagedEntry, runtime);
+  if (packaged) {
+    return [packaged.executable, packaged.entry];
+  }
   return ["bun", "--smol", "run", fileURLToPath(entry)];
+}
+
+/**
+ * The filesystem path a spawned worker shows in the process table: the
+ * packaged executable, or the source entry script.
+ *
+ * Each runtime version installs under its own directory, so this path is
+ * unique to the install that would spawn the worker. That makes it the
+ * identity test in {@link classifyWorkerRuntime} for whether a worker already
+ * holding the PID file belongs to this runtime or to a predecessor's.
+ */
+export function workerInstallPath(
+  entry: URL,
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime = defaultWorkerCommandRuntime(),
+): string {
+  return (
+    packagedWorkerSpawn(packagedEntry, runtime)?.executable ??
+    fileURLToPath(entry)
+  );
+}
+
+/**
+ * Which runtime a live process holding a worker's PID file belongs to.
+ *
+ *   - `current`: running the executable or entry script this install would
+ *     spawn, so it is this runtime's worker and can be reused.
+ *   - `foreign-runtime`: a worker process from a different install. A daemon
+ *     that dies without completing its shutdown leaves its workers reparented
+ *     to init, still holding the PID file; the next daemon reads that file and
+ *     would otherwise adopt a worker running a different version's code
+ *     against a database this version has since migrated.
+ *   - `unknown`: the command line is unreadable, or names no worker at all
+ *     because the OS reused the PID for something else. Never signalled.
+ */
+export type WorkerRuntimeIdentity = "current" | "foreign-runtime" | "unknown";
+
+/**
+ * A command line that belongs to some worker of ours, whichever install it
+ * came from: a source entry (`.../<kind>/worker.ts`) or the packaged
+ * executable. Guards the kill in {@link spawnWorkerProcess} so a PID the OS
+ * has recycled for an unrelated process is left alone.
+ */
+const WORKER_COMMAND_PATTERN =
+  /[\\/]worker\.ts(?:\s|$)|vellum-worker(?:\.exe)?(?:\s|$)/;
+
+export function classifyWorkerRuntime(
+  liveCommand: string | null,
+  installPath: string,
+): WorkerRuntimeIdentity {
+  if (!liveCommand) {
+    return "unknown";
+  }
+  if (liveCommand.includes(installPath)) {
+    return "current";
+  }
+  return WORKER_COMMAND_PATTERN.test(liveCommand)
+    ? "foreign-runtime"
+    : "unknown";
 }
 
 type WorkerReadyOutcome = "ready" | "exited" | "timeout";
@@ -194,13 +276,66 @@ async function waitForWorkerPidFile(
   return existsSync(pidPath) ? "ready" : "timeout";
 }
 
+/** How long a worker from a previous runtime gets to exit after SIGTERM. */
+const FOREIGN_WORKER_STOP_TIMEOUT_MS = 5_000;
+
+/** Poll interval while waiting for a stopped worker to exit. */
+const FOREIGN_WORKER_POLL_INTERVAL_MS = 100;
+
+/**
+ * Stop a worker left behind by a previous runtime and release its PID file.
+ *
+ * Escalates to SIGKILL because the worker is running a different version's
+ * shutdown path, which this process cannot make assumptions about. The PID
+ * file is unlinked here rather than left to the worker: its own cleanup runs
+ * only on the graceful path, and {@link waitForWorkerPidFile} reads any
+ * existing file as the replacement's readiness signal, so a surviving file
+ * would resolve the spawn to the PID just killed.
+ */
+async function stopForeignRuntimeWorker(
+  pid: number,
+  pidPath: string,
+  workerLabel: string,
+): Promise<void> {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Exited between the probe and the signal.
+  }
+
+  const deadline = Date.now() + FOREIGN_WORKER_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    await Bun.sleep(FOREIGN_WORKER_POLL_INTERVAL_MS);
+  }
+  if (isProcessAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  try {
+    unlinkSync(pidPath);
+  } catch {
+    // Best-effort: the worker may have cleaned up its own file on SIGTERM.
+  }
+
+  log.warn(
+    { pid, pidPath },
+    `${workerLabel} from a previous runtime was stopped so this runtime can start its own`,
+  );
+}
+
 /**
  * Spawn a worker entry script as a background process and wait for it to
  * report readiness by writing its PID file. `opts.detached` (default `true`)
  * controls process parentage — see {@link SpawnWorkerProcessOptions}.
  *
- * If a worker is already running (per the PID file), returns its PID with
- * `alreadyRunning: true` rather than spawning a second one. Throws
+ * If this runtime's worker is already running (per the PID file), returns its
+ * PID with `alreadyRunning: true` rather than spawning a second one. A PID
+ * file naming a worker from a *different* install is not reused: that worker
+ * is stopped first, then replaced. See {@link classifyWorkerRuntime}. Throws
  * {@link WorkerProcessSpawnError} if the child crashes during startup or
  * never writes its PID file within the wait window.
  */
@@ -222,7 +357,14 @@ export async function spawnWorkerProcess(args: {
 
   const current = probeWorkerPidFile(args.pidPath);
   if (current.status === "running" && current.pid != null) {
-    return { pid: current.pid, alreadyRunning: true };
+    const identity = classifyWorkerRuntime(
+      readRawProcessCommand(current.pid),
+      workerInstallPath(args.entry, args.packagedEntry),
+    );
+    if (identity !== "foreign-runtime") {
+      return { pid: current.pid, alreadyRunning: true };
+    }
+    await stopForeignRuntimeWorker(current.pid, args.pidPath, args.workerLabel);
   }
 
   // Pipe the worker's stderr into the same daily log file the daemon writes
