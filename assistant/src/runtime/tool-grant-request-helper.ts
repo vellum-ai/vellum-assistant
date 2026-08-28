@@ -11,6 +11,8 @@
  * - Notification routing goes through emitNotificationSignal().
  */
 
+import { isGuardianRequestExpired } from "@vellumai/gateway-client";
+
 import {
   createGuardianRequest,
   listGuardianRequestsOrEmpty,
@@ -124,8 +126,10 @@ export async function createOrReuseToolGrantRequest(
     kind: "tool_grant_request",
     toolName,
   });
+  // Past-deadline rows never dedupe: see the access-request helper's note.
   const dedupeMatch = existing.find(
     (r) =>
+      !isGuardianRequestExpired(r) &&
       r.inputDigest === inputDigest &&
       r.guardianExternalUserId === binding.guardianExternalUserId,
   );
