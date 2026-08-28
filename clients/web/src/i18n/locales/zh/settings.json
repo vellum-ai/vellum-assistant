@@ -926,9 +926,7 @@
     "title": "语言模型"
   },
   "listeningLanguageCard": {
-    "automaticNote": "您的语音服务会自动检测语言。",
     "change": "更改",
-    "loadingAria": "正在加载识别语言",
     "subtitle": "您与助手对话的语言。从您下一次语音输入开始生效。",
     "title": "听力语言"
   },
@@ -2153,6 +2151,7 @@
     "interruptSensitivityLabel": "打断灵敏度",
     "interruptSensitivityLow": "低",
     "interruptSensitivityMedium": "中",
+    "loadingAria": "正在加载语音设置",
     "microphoneAriaLabel": "麦克风",
     "microphoneFallbackLabel": "麦克风 {index}",
     "microphoneSubtitle": "用于听写和语音对话的输入设备。",
@@ -2175,7 +2174,6 @@
     "shortcutChordHint": "按住一个修饰键（Cmd、Ctrl、Option 或 Shift）并按下任意键。",
     "shortcutConflict": "已被 {command} 使用",
     "speechServicesBannerLink": "在“模型与服务”中设置",
-    "speechServicesBannerLoading": "正在加载语音服务状态",
     "speechServicesBannerPrompt": "想为 STT 或 TTS 使用您自己的 API 密钥，或设置自定义语音吗？",
     "systemDefault": "系统默认",
     "turnDetectionDescription": "语音模型决定您何时结束说话，而不是上面的暂停计时器。",

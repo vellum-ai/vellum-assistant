@@ -931,9 +931,7 @@
     "title": "Modelo de lenguaje"
   },
   "listeningLanguageCard": {
-    "automaticNote": "Tu proveedor de voz detecta el idioma automáticamente.",
     "change": "Cambiar",
-    "loadingAria": "Cargando el idioma de escucha",
     "subtitle": "El idioma en el que hablas con tu asistente. Se aplica a partir de tu próximo turno hablado.",
     "title": "Idioma de escucha"
   },
@@ -2158,6 +2156,7 @@
     "interruptSensitivityLabel": "Sensibilidad a interrupciones",
     "interruptSensitivityLow": "Baja",
     "interruptSensitivityMedium": "Media",
+    "loadingAria": "Cargando la configuración de voz",
     "microphoneAriaLabel": "Micrófono",
     "microphoneFallbackLabel": "Micrófono {index}",
     "microphoneSubtitle": "Qué dispositivo de entrada se usa para dictado y conversaciones de voz.",
@@ -2180,7 +2179,6 @@
     "shortcutChordHint": "Mantén pulsado un modificador (Cmd, Ctrl, Opción o Mayús) y pulsa una tecla.",
     "shortcutConflict": "Ya lo usa {command}",
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
-    "speechServicesBannerLoading": "Cargando el estado de los servicios de voz",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",
     "turnDetectionDescription": "El modelo de voz decide cuándo has terminado, en lugar del temporizador de pausa de arriba.",

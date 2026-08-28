@@ -919,9 +919,7 @@
     "title": "Языковая модель"
   },
   "listeningLanguageCard": {
-    "automaticNote": "Ваш речевой сервис определяет язык автоматически.",
     "change": "Сменить",
-    "loadingAria": "Загрузка языка распознавания",
     "subtitle": "Язык речи для ассистента. Применится со следующего сообщения с голосом.",
     "title": "Язык прослушивания"
   },
@@ -2143,6 +2141,7 @@
     "interruptSensitivityLabel": "Чувствительность к перебиванию",
     "interruptSensitivityLow": "Низкая",
     "interruptSensitivityMedium": "Средняя",
+    "loadingAria": "Загрузка настроек голоса",
     "microphoneAriaLabel": "Микрофон",
     "microphoneFallbackLabel": "Микрофон {index}",
     "microphoneSubtitle": "Какое устройство ввода используется для диктовки и голосовых разговоров.",
@@ -2164,7 +2163,6 @@
     "shortcutChordHint": "Удержание модификатора (Cmd, Ctrl, Option или Shift) и нажатие клавиши.",
     "shortcutConflict": "Уже занято: {command}",
     "speechServicesBannerLink": "Настройка в «Модели и сервисы»",
-    "speechServicesBannerLoading": "Загрузка состояния речевых сервисов",
     "speechServicesBannerPrompt": "Свой API-ключ для STT или TTS или свой голос?",
     "systemDefault": "Системный по умолчанию",
     "turnDetectionDescription": "Модель распознавания речи сама решает, когда вы закончили, вместо таймера паузы выше.",

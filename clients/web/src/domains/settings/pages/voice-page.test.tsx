@@ -31,12 +31,10 @@ import { MemoryRouter } from "react-router";
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "asst-test",
 }));
-// Mutable for the same reason as `languageSelection` below: the banner's slot
-// behaviour is about moving between these states, not about any one of them.
 const voiceSelection = {
   available: false,
   settled: true,
-  voices: [] as unknown[],
+  voices: [] as { model: string; description: string }[],
   currentModel: "",
   selectModel: () => {},
   selecting: false,
@@ -74,18 +72,13 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // A fresh element per call, not one reused: React compares elements by
-  // identity and skips the subtree when the same object comes back, which
-  // would leave a re-render reading the hook stubs as they were.
-  const tree = () => (
+  return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <VoiceSections />
       </MemoryRouter>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
-  const utils = render(tree());
-  return { ...utils, rerenderPage: () => utils.rerender(tree()) };
 }
 
 beforeEach(() => {
@@ -414,111 +407,52 @@ describe("VoiceSections voice mode shortcut", () => {
   });
 });
 
-describe("VoiceSections speech-services banner slot", () => {
-  /**
-   * The slot is the fix: the banner is optional, so a placeholder that only
-   * exists while the answer is in flight would trade a shift down for a shift
-   * up whenever the answer turns out to be no. These assert the reserved line
-   * survives all three states, which is the property the page's stability
-   * actually rests on.
-   */
-  function bannerSlot(container: HTMLElement): HTMLElement | null {
-    return container.querySelector(".min-h-5");
-  }
+describe("VoiceSections loading gate", () => {
+  const captionsToggle = () =>
+    screen.queryByRole("switch", { name: "Show the words you say" });
+  const placeholder = () =>
+    screen.queryByRole("status", { name: "Loading voice settings" });
 
-  test("holds the line, and shows a labelled placeholder, before the answer arrives", () => {
+  test("an unsettled voice answer holds every card back", () => {
     voiceSelection.settled = false;
-    const { container } = renderPage();
 
-    expect(bannerSlot(container)).not.toBeNull();
-    expect(
-      screen.getByLabelText("Loading speech services status"),
-    ).toBeTruthy();
+    renderPage();
+
+    expect(placeholder()).not.toBeNull();
+    expect(captionsToggle()).toBeNull();
   });
 
-  test("keeps the line once the answer is no, so nothing below moves up", () => {
-    voiceSelection.settled = false;
-    const { container, rerenderPage } = renderPage();
-    expect(bannerSlot(container)).not.toBeNull();
-
-    // The transition that the first version of this fix got wrong: settling
-    // into "not available" must not collapse the space it was holding.
-    voiceSelection.settled = true;
-    voiceSelection.available = false;
-    rerenderPage();
-
-    // The slot itself, not page-wide copy: `VoicePickerCard` renders the BYO
-    // note in this same state, and that note points at Models & Services too.
-    const slot = bannerSlot(container);
-    expect(slot).not.toBeNull();
-    expect(slot?.textContent).toBe("");
-    expect(
-      screen.queryByLabelText("Loading speech services status"),
-    ).toBeNull();
-  });
-
-  test("fills the same line once the answer is yes", () => {
-    voiceSelection.settled = false;
-    const { container, rerenderPage } = renderPage();
-
-    voiceSelection.settled = true;
-    voiceSelection.available = true;
-    rerenderPage();
-
-    expect(bannerSlot(container)).not.toBeNull();
-    expect(
-      screen.queryByLabelText("Loading speech services status"),
-    ).toBeNull();
-  });
-});
-
-describe("VoiceSections listening-language card stability", () => {
-  /**
-   * The card is present in every outcome, so the Captions section below it
-   * does not move once the provider answer lands. Asserting the card count
-   * rather than its contents is deliberate: what the page's stability rests
-   * on is that a row neither appears nor disappears.
-   */
-  // The card's own heading, which `DetailCard` renders in every state. A
-  // structural selector would be worse here: `DetailCard` carries no stable
-  // hook, so a wrong one matches nothing and the assertions pass vacuously.
-  function listeningCards(): number {
-    return screen.queryAllByText("Listening language").length;
-  }
-
-  test("holds its row from unresolved through to available", () => {
+  test("an unsettled language answer holds them back too", () => {
     languageSelection.settled = false;
-    languageSelection.available = false;
-    const { rerenderPage } = renderPage();
 
-    const whileLoading = listeningCards();
-    expect(whileLoading).toBe(1);
-    expect(screen.getByLabelText("Loading listening language")).toBeTruthy();
+    renderPage();
 
-    languageSelection.settled = true;
-    languageSelection.available = true;
-    rerenderPage();
-
-    expect(listeningCards()).toBe(whileLoading);
-    expect(screen.queryByLabelText("Loading listening language")).toBeNull();
-    expect(screen.getByText("Change")).toBeTruthy();
+    expect(placeholder()).not.toBeNull();
+    expect(captionsToggle()).toBeNull();
   });
 
-  test("holds its row when the provider picks the language itself", () => {
-    languageSelection.settled = false;
-    const { rerenderPage } = renderPage();
-    const whileLoading = listeningCards();
-    expect(whileLoading).toBe(1);
+  test("both answers in renders the cards and drops the placeholder", () => {
+    renderPage();
 
-    languageSelection.settled = true;
-    languageSelection.available = false;
-    rerenderPage();
+    expect(placeholder()).toBeNull();
+    expect(captionsToggle()).not.toBeNull();
+  });
 
-    expect(listeningCards()).toBe(whileLoading);
-    expect(
-      screen.getByText(
-        "Your speech provider detects the language automatically.",
-      ),
-    ).toBeTruthy();
+  test("the section headings keep their place across the swap", () => {
+    // The point of gating here: the scaffolding is identical in both states,
+    // so only the card bodies change when the answers land.
+    voiceSelection.settled = false;
+    renderPage();
+    const headings = ["Output", "Input", "Captions"];
+    for (const h of headings) {
+      expect(screen.queryAllByText(h)).toHaveLength(1);
+    }
+
+    cleanup();
+    voiceSelection.settled = true;
+    renderPage();
+    for (const h of headings) {
+      expect(screen.queryAllByText(h)).toHaveLength(1);
+    }
   });
 });

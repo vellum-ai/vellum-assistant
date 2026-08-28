@@ -27,6 +27,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 import { DetailCard } from "@/components/detail-card";
 import { useTranslation } from "@/i18n";
@@ -101,6 +102,19 @@ export function VoicePage() {
 
 export function VoiceSections() {
   const { t } = useTranslation("settings");
+  const assistantId = useActiveAssistantId();
+  const { settled: voiceSettled } = useManagedVoiceSelection(assistantId);
+  const { settled: languageSettled } = useSttLanguageSelection(assistantId);
+
+  // One gate for the page, because every capability answer below comes from
+  // the same daemon config query. Each card reads `available`, which is false
+  // while the answer is in flight as well as after a no, so a card deciding
+  // for itself states a provider choice the user may not have made and then
+  // corrects it. Resolving here keeps the page to a single step and leaves
+  // each card free to render the one outcome it knows to be true.
+  if (!voiceSettled || !languageSettled) {
+    return <VoiceSectionsSkeleton />;
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -141,33 +155,12 @@ export function VoiceSections() {
  */
 function SpeechServicesBanner() {
   const { t } = useTranslation("settings");
-  const { available, settled } = useManagedVoiceSelection(
-    useActiveAssistantId(),
-  );
+  const { available } = useManagedVoiceSelection(useActiveAssistantId());
 
-  // A slot that always holds one line, rather than a placeholder that appears
-  // and then collapses. The banner is optional, so reserving space only while
-  // the answer is in flight trades a shift down for a shift up whenever the
-  // answer is no. Holding the line through all three states, loading, shown,
-  // and absent, leaves the sections below it still in every case.
-  return (
-    <div className="min-h-5">
-      {!settled ? (
-        <Skeleton
-          as="span"
-          role="status"
-          aria-label={t("voicePage.speechServicesBannerLoading")}
-          className="mx-1 block h-5 w-2/3 max-w-sm"
-        />
-      ) : available ? (
-        <SpeechServicesBannerContent />
-      ) : null}
-    </div>
-  );
-}
+  if (!available) {
+    return null;
+  }
 
-function SpeechServicesBannerContent() {
-  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
@@ -181,6 +174,46 @@ function SpeechServicesBannerContent() {
       </Link>
     </div>
   );
+}
+
+/**
+ * Stand-in while the daemon answers which speech capabilities this assistant
+ * has. Built from the same {@link VoiceSection} scaffolding as the real page
+ * so the headings keep their position and only the card bodies change.
+ */
+function VoiceSectionsSkeleton() {
+  const { t } = useTranslation("settings");
+
+  return (
+    <div
+      className="flex flex-col gap-8"
+      role="status"
+      aria-label={t("voicePage.loadingAria")}
+    >
+      <VoiceSection
+        heading={t("voicePage.sectionOutputHeading")}
+        description={t("voicePage.sectionOutputDescription")}
+      >
+        <CardSkeleton />
+      </VoiceSection>
+
+      <VoiceSection
+        heading={t("voicePage.sectionInputHeading")}
+        description={t("voicePage.sectionInputDescription")}
+      >
+        <CardSkeleton />
+        <CardSkeleton />
+      </VoiceSection>
+
+      <VoiceSection heading={t("voicePage.sectionCaptionsHeading")}>
+        <CardSkeleton />
+      </VoiceSection>
+    </div>
+  );
+}
+
+function CardSkeleton() {
+  return <Skeleton className="h-20 w-full rounded-xl" />;
 }
 
 function VoiceSection({

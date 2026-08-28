@@ -931,9 +931,7 @@
     "title": "Language Model"
   },
   "listeningLanguageCard": {
-    "automaticNote": "Your speech provider detects the language automatically.",
     "change": "Change",
-    "loadingAria": "Loading listening language",
     "subtitle": "The language you speak to your assistant. Applies from your next spoken turn.",
     "title": "Listening language"
   },
@@ -2158,6 +2156,7 @@
     "interruptSensitivityLabel": "Interrupt sensitivity",
     "interruptSensitivityLow": "Low",
     "interruptSensitivityMedium": "Medium",
+    "loadingAria": "Loading voice settings",
     "microphoneAriaLabel": "Microphone",
     "microphoneFallbackLabel": "Microphone {index}",
     "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
@@ -2180,7 +2179,6 @@
     "shortcutChordHint": "Hold a modifier (Cmd, Ctrl, Option, or Shift) and press a key.",
     "shortcutConflict": "Already used by {command}",
     "speechServicesBannerLink": "Set it up in Models & Services",
-    "speechServicesBannerLoading": "Loading speech services status",
     "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
     "systemDefault": "System Default",
     "turnDetectionDescription": "The speech model decides when you have finished, instead of the pause timer above.",
