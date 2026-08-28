@@ -54,6 +54,8 @@ let readFails = false;
  */
 /** Whether the daemon reports the submitted notes as having reached storage. */
 let notesSaved: boolean | undefined;
+/** Whether the daemon reports that nothing the guardian submitted landed. */
+let nothingWritten: boolean | undefined;
 
 const baseIpcImplementation = async (
   operationId: string,
@@ -69,7 +71,7 @@ const baseIpcImplementation = async (
   }
   return {
     ok: true,
-    result: { ok: true, contactId: contact.id, notesSaved },
+    result: { ok: true, contactId: contact.id, notesSaved, nothingWritten },
   };
 };
 
@@ -95,6 +97,7 @@ describe("contacts record prompts", () => {
     contactForRead = contact;
     readFails = false;
     notesSaved = undefined;
+    nothingWritten = undefined;
     // Global and sticky: the failure-path cases below set it, and a later test
     // asserting success would otherwise read their exit code as its own.
     // Cleared to 0 rather than undefined, which does not reset it.
@@ -232,18 +235,29 @@ describe("contacts record prompts", () => {
     expect(process.exitCode).toBeFalsy();
   });
 
-  test("a notes-only update that loses its notes exits nonzero", async () => {
-    // The notes were the whole requested change, so losing them means nothing
-    // the caller asked for happened. A zero exit would tell a script otherwise.
+  test("an update that wrote nothing exits nonzero", async () => {
+    // The guardian submits only what they changed, so a proposed name they
+    // left at its stored value never reaches the write. Whether anything
+    // landed is the gateway's to report, not this command's to infer.
     notesSaved = false;
+    nothingWritten = true;
 
-    await runAssistantCommand("contacts", "update", "ct_1", "--notes", "Moved");
+    await runAssistantCommand(
+      "contacts",
+      "update",
+      "ct_1",
+      "--name",
+      "Alice",
+      "--notes",
+      "Moved",
+    );
 
     expect(process.exitCode).toBe(1);
   });
 
   test("a rename that loses its notes still succeeds, since the rename landed", async () => {
     notesSaved = false;
+    nothingWritten = false;
 
     await runAssistantCommand(
       "contacts",

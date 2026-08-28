@@ -681,12 +681,13 @@ export async function handleContactRecordSubmit(
       return await resolveRecordPrompt(requestId, contactId!, settleDeadline);
     }
 
-    const { contact, notesSaved } = await upsertContactRecordCore({
-      operation,
-      contactId: operation === "update" ? contactId : undefined,
-      displayName,
-      notes: body.notes,
-    });
+    const { contact, notesSaved, nothingWritten } =
+      await upsertContactRecordCore({
+        operation,
+        contactId: operation === "update" ? contactId : undefined,
+        displayName,
+        notes: body.notes,
+      });
     const writtenId = contact.id as string;
     log.info(
       { requestId, contactId: writtenId, operation },
@@ -697,6 +698,7 @@ export async function handleContactRecordSubmit(
       writtenId,
       settleDeadline,
       notesSaved,
+      nothingWritten,
     );
   } catch (err) {
     if (err instanceof ContactRecordNativeError) {
@@ -884,10 +886,11 @@ async function resolveRecordPrompt(
   contactId: string,
   deadline: number,
   notesSaved?: boolean,
+  nothingWritten?: boolean,
 ): Promise<Response> {
   await reportResolution(
     requestId,
-    { requestId, contactId, notesSaved },
+    { requestId, contactId, notesSaved, nothingWritten },
     deadline,
   );
   return Response.json({ accepted: true });

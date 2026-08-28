@@ -254,6 +254,7 @@ async function runRecordPrompt(
     error?: string;
     contactId?: string;
     notesSaved?: boolean;
+    nothingWritten?: boolean;
   }>(
     "contacts_record_prompt",
     { body: { ...body, timeoutMs } },
@@ -275,12 +276,11 @@ async function runRecordPrompt(
 
   const contactId = r.result.contactId;
   // Notes are stored apart from the rest of the record, so they can be the one
-  // part that does not land. When they were the whole requested change, losing
-  // them means nothing the caller asked for happened, and a zero exit would
-  // tell a script otherwise.
+  // part that does not land. Whether that leaves nothing behind is the
+  // gateway's to say: the guardian submits only the fields they changed, so
+  // what this command proposed is no guide to what was written.
   const notesLost = r.result.notesSaved === false;
-  const nothingWritten =
-    notesLost && body.operation === "update" && body.displayName === undefined;
+  const nothingWritten = r.result.nothingWritten === true;
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;

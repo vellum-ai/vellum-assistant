@@ -66,6 +66,8 @@ export interface ContactPromptResult {
    * False means the contact was written without them.
    */
   notesSaved?: boolean;
+  /** Whether nothing the submission asked for landed. */
+  nothingWritten?: boolean;
 }
 
 interface PendingContactPrompt {
@@ -127,6 +129,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
     address,
     verified,
     notesSaved,
+    nothingWritten,
     error,
   } = body as {
     requestId: string;
@@ -136,6 +139,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
     address?: string;
     verified?: boolean;
     notesSaved?: boolean;
+    nothingWritten?: boolean;
     error?: string;
   };
   const pending = pendingContactPrompts.get(requestId);
@@ -158,6 +162,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
       address,
       verified,
       notesSaved,
+      nothingWritten,
     });
   }
 
@@ -503,6 +508,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       error: z.string().optional(),
       contactId: z.string().optional(),
       notesSaved: z.boolean().optional(),
+      nothingWritten: z.boolean().optional(),
     }),
   },
   {

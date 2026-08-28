@@ -274,6 +274,41 @@ describe("contact record submit", () => {
     expect(resolveCall().body.notesSaved).toBe(false);
   });
 
+  test("an update carrying only lost notes reports that nothing was written", async () => {
+    seedContact("c-notes-only", "Alice");
+    mirrorWritesFail = true;
+
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-nothing-written"),
+        operation: "update",
+        contactId: "c-notes-only",
+        notes: "Moved",
+      }),
+    );
+
+    // The guardian submitted notes and nothing else, and they did not land.
+    expect(resolveCall().body.nothingWritten).toBe(true);
+  });
+
+  test("an update that also renamed reports something written", async () => {
+    seedContact("c-renamed", "Alice");
+    mirrorWritesFail = true;
+
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-something-written"),
+        operation: "update",
+        contactId: "c-renamed",
+        displayName: "Alice Chen",
+        notes: "Moved",
+      }),
+    );
+
+    // The name is in the gateway row, so part of the submission landed.
+    expect(resolveCall().body.nothingWritten).toBe(false);
+  });
+
   test("a write with no notes says nothing about them", async () => {
     await handleContactRecordSubmit(
       makeRequest({

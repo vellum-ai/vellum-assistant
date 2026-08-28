@@ -6683,6 +6683,8 @@ paths:
                     type: string
                   notesSaved:
                     type: boolean
+                  nothingWritten:
+                    type: boolean
                 required:
                   - ok
                 additionalProperties: false

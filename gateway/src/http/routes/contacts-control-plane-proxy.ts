@@ -864,6 +864,13 @@ export async function upsertContactRecordCore(params: {
   contact: Record<string, unknown>;
   /** Whether submitted notes reached the mirror. Undefined when none were. */
   notesSaved?: boolean;
+  /**
+   * Whether nothing the submission asked for landed. Only the notes can fail
+   * on their own, so this is true when they were the whole submission and did
+   * not reach storage. Decided here rather than by the caller, which sees what
+   * was proposed and not what the guardian submitted.
+   */
+  nothingWritten?: boolean;
 }> {
   const id = params.contactId?.trim() || undefined;
   const displayName = params.displayName?.trim();
@@ -975,7 +982,13 @@ export async function upsertContactRecordCore(params: {
     { contactId: contact.id, created },
     "upsert_contact_record: handled natively",
   );
-  return { ok: true, created, contact: toContactPayload(contact), notesSaved };
+  return {
+    ok: true,
+    created,
+    contact: toContactPayload(contact),
+    notesSaved,
+    nothingWritten: notesSaved === false && displayName === undefined,
+  };
 }
 
 /**
