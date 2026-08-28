@@ -34,7 +34,7 @@ mock.module("@/runtime/hotkeys", () => ({
   },
 }));
 
-const { commandAccelerator, resetCommandShortcutsForTest } =
+const { commandAccelerator, __resetCommandShortcutsForTesting } =
   await import("@/hooks/use-command-shortcut");
 
 function hotkey(key: string, accelerator: string): ResolvedHotkey {
@@ -59,7 +59,7 @@ afterEach(() => {
   electron = false;
   hotkeys = [];
   changeListener = null;
-  resetCommandShortcutsForTest();
+  __resetCommandShortcutsForTesting();
 });
 
 describe("in a browser", () => {
