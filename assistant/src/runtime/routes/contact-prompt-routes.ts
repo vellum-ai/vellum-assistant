@@ -238,12 +238,7 @@ const ContactRecordPromptParams = z.object({
     .describe(
       "The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show what access is about to be lost.",
     ),
-  expectedUpdatedAt: z
-    .number()
-    .optional()
-    .describe(
-      "When the target last changed, resolved by the caller. Submitted back with a delete so a contact that changed while the form was open is not removed against a stale confirmation.",
-    ),
+
   displayName: z
     .string()
     .optional()
@@ -342,7 +337,6 @@ async function handleContactRecordPrompt({
     currentDisplayName,
     currentNotes,
     channels,
-    expectedUpdatedAt,
     displayName,
     notes,
     label,
@@ -376,7 +370,6 @@ async function handleContactRecordPrompt({
       currentDisplayName,
       currentNotes,
       channels,
-      expectedUpdatedAt,
       displayName,
       notes,
       label,

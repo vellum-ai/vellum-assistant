@@ -6646,11 +6646,6 @@ paths:
                     required:
                       - type
                       - address
-                expectedUpdatedAt:
-                  description:
-                    When the target last changed, resolved by the caller. Submitted back with a delete so a contact that
-                    changed while the form was open is not removed against a stale confirmation.
-                  type: number
                 displayName:
                   description: Proposed name, prefilled into the form. The guardian can edit it.
                   type: string

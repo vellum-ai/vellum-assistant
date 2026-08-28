@@ -146,6 +146,22 @@ function resolveCall(): { body: Record<string, unknown> } {
   return calls[0];
 }
 
+function seedChannel(contactId: string, type: string, address: string): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(gwContactChannels)
+    .values({
+      id: `${contactId}-${type}`,
+      contactId,
+      type,
+      address,
+      isPrimary: false,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
 function seedContact(
   id: string,
   displayName: string,
@@ -538,23 +554,21 @@ describe("contact record submit", () => {
     expect(resolveCall().body.contactId).toBe("c-2");
   });
 
-  test("delete refuses a contact that changed while the form was open", async () => {
+  test("delete refuses a contact that gained a channel while the form was open", async () => {
     seedContact("c-moved", "Alice");
-    const row = getGatewayDb()
-      .select()
-      .from(gwContacts)
-      .where(eq(gwContacts.id, "c-moved"))
-      .get();
+    seedChannel("c-moved", "email", "alice@example.com");
+    // An invite redeemed after the confirmation was built reparents a channel
+    // onto this contact, which deleting would cascade away. It reads as a
+    // channel the guardian never saw, whatever the contact row's timestamp
+    // says, because reassignment does not touch that row.
+    seedChannel("c-moved", "telegram", "12345");
 
-    // The confirmation listed the channels this contact had when it opened. A
-    // channel added since would be cascaded away by a guardian who never saw
-    // it, so the delete is refused rather than taken on trust.
     const res = await handleContactRecordSubmit(
       makeRequest({
         requestId: openForm("req-stale-delete"),
         operation: "delete",
         contactId: "c-moved",
-        expectedUpdatedAt: row!.updatedAt - 1000,
+        expectedChannels: [{ type: "email", address: "alice@example.com" }],
       }),
     );
 
@@ -568,20 +582,17 @@ describe("contact record submit", () => {
     ).toBeDefined();
   });
 
-  test("delete proceeds when the contact is as the confirmation showed it", async () => {
+  test("delete proceeds when the channels are as the confirmation showed them", async () => {
     seedContact("c-unmoved", "Alice");
-    const row = getGatewayDb()
-      .select()
-      .from(gwContacts)
-      .where(eq(gwContacts.id, "c-unmoved"))
-      .get();
+    seedChannel("c-unmoved", "email", "alice@example.com");
 
     const res = await handleContactRecordSubmit(
       makeRequest({
         requestId: openForm("req-fresh-delete"),
         operation: "delete",
         contactId: "c-unmoved",
-        expectedUpdatedAt: row!.updatedAt,
+        // Address case is not a change: the ACL keys channels case-insensitively.
+        expectedChannels: [{ type: "email", address: "Alice@Example.com" }],
       }),
     );
 

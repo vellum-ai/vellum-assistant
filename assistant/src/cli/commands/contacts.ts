@@ -205,7 +205,6 @@ interface ContactRecordPromptBody {
   contactId?: string;
   currentDisplayName?: string;
   currentNotes?: string;
-  expectedUpdatedAt?: number;
   channels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
@@ -276,11 +275,8 @@ async function runRecordPrompt(
 
   const contactId = r.result.contactId;
   // Notes are stored apart from the rest of the record, so they can be the one
-  // part that does not land. Say so rather than letting the printed contact
-  // imply the guardian's notes were dropped on purpose.
-  if (r.result.notesSaved === false) {
-    writeError(cmd, "The contact was saved, but its notes were not");
-  }
+  // part that does not land.
+  const notesLost = r.result.notesSaved === false;
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
@@ -311,16 +307,25 @@ async function runRecordPrompt(
   const written = read.ok ? read.result?.contact : undefined;
 
   if (shouldOutputJson(cmd)) {
-    writeOutput(
-      cmd,
-      written ? { ok: true, contact: written } : { ok: true, contactId },
-    );
-  } else if (written) {
+    // One object, whatever happened: a second one saying otherwise reads as a
+    // failure to anything parsing this, and a retried create makes a duplicate.
+    writeOutput(cmd, {
+      ok: true,
+      ...(written ? { contact: written } : { contactId }),
+      ...(notesLost ? { notesSaved: false } : {}),
+    });
+    return;
+  }
+
+  if (written) {
     process.stdout.write(`${verb} contact:\n`);
     process.stdout.write(formatContactDetail(written) + "\n");
   } else {
     process.stdout.write(`${verb} contact: ${contactId}\n`);
     writeError(cmd, "Could not read the contact back to display it");
+  }
+  if (notesLost) {
+    writeError(cmd, "The contact was saved, but its notes were not");
   }
 }
 
@@ -522,10 +527,6 @@ export function registerContactsCommand(program: Command): void {
                 type: ch.type,
                 address: ch.address,
               })),
-              // The confirmation shows this snapshot. If the contact moves
-              // while it is open, the write refuses rather than deleting on
-              // the strength of a picture that no longer holds.
-              expectedUpdatedAt: Number(current.updatedAt) || undefined,
               label: opts.label,
               description: opts.description,
             },

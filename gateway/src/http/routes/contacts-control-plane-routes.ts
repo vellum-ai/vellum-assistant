@@ -157,11 +157,11 @@ const ContactRecordSubmitRequestSchema = z.object({
   contactId: z.string().optional().describe("Required to update or delete"),
   displayName: z.string().optional(),
   notes: z.string().nullable().optional(),
-  expectedUpdatedAt: z
-    .number()
+  expectedChannels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
     .optional()
     .describe(
-      "The contact's updatedAt when the confirmation was built. A delete is refused if the contact changed since.",
+      "The channels the delete confirmation listed. The delete is refused if the contact's channels changed since.",
     ),
   cancelled: z
     .boolean()

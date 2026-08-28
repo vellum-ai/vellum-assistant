@@ -1415,9 +1415,17 @@
                   "notes": {
                     "anyOf": [{ "type": "string" }, { "type": "null" }]
                   },
-                  "expectedUpdatedAt": {
-                    "description": "The contact's updatedAt when the confirmation was built. A delete is refused if the contact changed since.",
-                    "type": "number"
+                  "expectedChannels": {
+                    "description": "The channels the delete confirmation listed. The delete is refused if the contact's channels changed since.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": { "type": "string" },
+                        "address": { "type": "string" }
+                      },
+                      "required": ["type", "address"]
+                    }
                   },
                   "cancelled": {
                     "description": "The guardian dismissed the form. Unblocks the waiting command without writing.",

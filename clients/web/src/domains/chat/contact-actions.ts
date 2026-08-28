@@ -209,7 +209,9 @@ export async function handleContactRecordSubmit(values: {
         ? {
             operation,
             contactId,
-            expectedUpdatedAt: pendingContactRecordRequest.expectedUpdatedAt,
+            // The channels this confirmation listed, so a contact that gained
+            // one since is refused rather than cascaded away unseen.
+            expectedChannels: pendingContactRecordRequest.channels,
           }
         : {
             operation,
@@ -234,18 +236,23 @@ export async function handleContactRecordSubmit(values: {
       return;
     }
 
-    useInteractionStore
-      .getState()
-      .acceptContactRecordRequestIfMatches(
-        pendingContactRecordRequest.requestId,
-      );
-    useInteractionStore
-      .getState()
-      .releaseSubmission(
-        "contactRecordRequest",
-        pendingContactRecordRequest.requestId,
-      );
     const savedRequestId = pendingContactRecordRequest.requestId;
+    useInteractionStore
+      .getState()
+      .releaseSubmission("contactRecordRequest", savedRequestId);
+
+    if (result.duplicate) {
+      // Another client answered this form first, so none of these values were
+      // written. Retire the card without claiming it saved anything.
+      useInteractionStore
+        .getState()
+        .dismissContactRecordRequestIfMatches(savedRequestId);
+      return;
+    }
+
+    useInteractionStore
+      .getState()
+      .acceptContactRecordRequestIfMatches(savedRequestId);
     setTimeout(() => {
       useInteractionStore
         .getState()

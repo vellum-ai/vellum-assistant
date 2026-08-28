@@ -190,10 +190,10 @@ export async function submitContactRecord(
         contactId?: string;
         displayName?: string;
         notes?: string;
-        expectedUpdatedAt?: number;
+        expectedChannels?: Array<{ type: string; address: string }>;
       }
     | { cancelled: true },
-): Promise<SubmitSecretResponseResult> {
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
     const { error, response } = await assistantContactsRecordSubmit({
       path: { assistant_id: assistantId },
@@ -210,7 +210,14 @@ export async function submitContactRecord(
         transient: false,
       };
     }
-    return { ok: true };
+    // Somebody else answered this form first. The request succeeded in the
+    // sense that nothing is wrong, but none of these values were written, so
+    // the caller must not present them as saved.
+    const body = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as { duplicate?: boolean } | null;
+    return { ok: true, duplicate: body?.duplicate === true };
   } catch (err) {
     return {
       ok: false,

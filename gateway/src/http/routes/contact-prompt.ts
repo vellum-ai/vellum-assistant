@@ -558,8 +558,8 @@ interface ContactRecordSubmitBody {
   contactId?: string;
   displayName?: string;
   notes?: string | null;
-  /** What the contact's `updatedAt` was when the confirmation was built. */
-  expectedUpdatedAt?: number;
+  /** The channels the delete confirmation listed. */
+  expectedChannels?: Array<{ type: string; address: string }>;
   /** The guardian dismissed the form. Unblocks the CLI instead of writing. */
   cancelled?: boolean;
 }
@@ -661,19 +661,22 @@ export async function handleContactRecordSubmit(
 
   try {
     if (operation === "delete") {
-      // The confirmation named this contact's channels as they stood when it
-      // was built. A channel added since (an invite redeemed, say) would be
-      // cascaded away by a guardian who never saw it, so a contact that moved
-      // is refused rather than deleted against a stale picture.
-      if (typeof body.expectedUpdatedAt === "number") {
-        const current = getGatewayDb()
-          .select({ updatedAt: gwContacts.updatedAt })
-          .from(gwContacts)
-          .where(eq(gwContacts.id, contactId!))
-          .get();
-        if (current && current.updatedAt !== body.expectedUpdatedAt) {
+      // Deleting cascades the contact's channels, and the confirmation listed
+      // the ones it had when the form opened. Compare against that list rather
+      // than a row version: a channel arriving by invite redemption reparents
+      // the channel and leaves `contacts.updated_at` untouched, which is
+      // exactly the case worth catching.
+      if (Array.isArray(body.expectedChannels)) {
+        const shown = channelKeySet(body.expectedChannels);
+        const current = channelKeySet(
+          getStore().getChannelsForContact(contactId!),
+        );
+        const unchanged =
+          shown.size === current.size &&
+          [...shown].every((k) => current.has(k));
+        if (!unchanged) {
           throw new ContactRecordNativeError(
-            "This contact changed while the form was open. Check it and try again.",
+            "This contact's channels changed while the form was open. Check it and try again.",
             409,
             "STALE_CONFIRMATION",
           );
@@ -763,6 +766,15 @@ function isChannelVerified(contactId: string, channelId: string): boolean {
     );
     return false;
   }
+}
+
+/** Channels as a comparable set, keyed the way the ACL keys them. */
+function channelKeySet(
+  channels: Array<{ type: string; address: string }>,
+): Set<string> {
+  return new Set(
+    channels.map((ch) => `${ch.type}\u0000${ch.address.toLowerCase()}`),
+  );
 }
 
 /** Fallback settle window when a claim did not carry one. */

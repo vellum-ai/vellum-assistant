@@ -90,8 +90,7 @@ export interface PendingContactRecordRequestState {
   currentNotes?: string;
   /** The target's channels, shown on a delete confirmation. */
   channels?: Array<{ type: string; address: string }>;
-  /** When the target last changed, submitted back with a delete. */
-  expectedUpdatedAt?: number;
+
   /**
    * The conversation that was on screen when this form arrived. The form
    * itself carries no conversation, so this is the only turn a dismissal has
