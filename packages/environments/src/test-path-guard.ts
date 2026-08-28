@@ -12,8 +12,8 @@
  * assertion therefore lives in production code, where it fires no matter how
  * the test process was launched.
  *
- * assistant/src/__tests__/assert-not-live-db.ts keeps its own copy of the
- * containment walk: test machinery must not import production dependencies.
+ * assistant/src/__tests__/assert-not-live-db.ts keeps its own containment
+ * check: test machinery must not import production dependencies.
  */
 
 import { realpathSync } from "node:fs";

@@ -400,8 +400,8 @@ export function getProcPidPath(name: string): string {
 // real, non-temp directory: production code exercised by a test would then
 // read and destructively write live state. The containment assertion is
 // shared with the gateway via @vellumai/environments/test-path-guard;
-// src/__tests__/assert-not-live-db.ts keeps its own copy of the containment
-// walk because test machinery must not import production dependencies.
+// src/__tests__/assert-not-live-db.ts keeps its own containment check
+// because test machinery must not import production dependencies.
 
 function assertTestPathIsEphemeral(dir: string): void {
   assertEphemeralInTests(dir, {
