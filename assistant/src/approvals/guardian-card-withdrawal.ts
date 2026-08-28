@@ -119,23 +119,30 @@ export async function withdrawGuardianRequestCards(
   for (const delivery of deliveries) {
     try {
       if (delivery.destinationChannel === "vellum") {
-        withdrawVellumCard(
-          request,
-          delivery,
-          status,
-          originChannel,
-          decidedAction,
-        );
+        if (
+          !withdrawVellumCard(
+            request,
+            delivery,
+            status,
+            originChannel,
+            decidedAction,
+          )
+        ) {
+          complete = false;
+        }
       } else if (delivery.destinationChannel === "slack") {
         await withdrawSlackCard(request, delivery, status, decidedAction);
       } else if (delivery.destinationChannel === "telegram") {
-        await withdrawTelegramCard(
+        const telegram = await withdrawTelegramCard(
           delivery,
           status,
           originChannel,
           decidedAction,
           hasOriginGuardianReply ?? false,
         );
+        if (!telegram.complete) {
+          complete = false;
+        }
       } else if (delivery.destinationChannel === "discord") {
         await withdrawDiscordCard(delivery, status, decidedAction);
       }
@@ -177,24 +184,26 @@ function withdrawVellumCard(
   status: GuardianRequestStatus,
   originChannel: string | undefined,
   decidedAction: ApprovalAction | undefined,
-): void {
+): boolean {
   if (!delivery.destinationConversationId) {
-    return;
+    return true;
   }
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
   if (!surfaceId) {
-    return;
+    return true;
   }
   const summary = resolveDecisionStatusWord(status, decidedAction);
+  // A false here is a failed durable write: after a reload the persisted
+  // block would revert to a pending, clickable card, so it must hold the
+  // expiry sweep's receipt back and be retried.
   if (originChannel === "vellum") {
-    markSurfaceCompleted(
+    return markSurfaceCompleted(
       { conversationId: delivery.destinationConversationId },
       surfaceId,
       summary,
     );
-    return;
   }
-  completeSurfaceAndNotify(
+  return completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
     summary,
@@ -265,11 +274,11 @@ async function withdrawTelegramCard(
   originChannel: string | undefined,
   decidedAction: ApprovalAction | undefined,
   hasOriginGuardianReply: boolean,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   if (!delivery.destinationChatId || !delivery.destinationMessageId) {
-    return;
+    return { complete: true };
   }
-  await withdrawTelegramApprovalCard({
+  return withdrawTelegramApprovalCard({
     chatId: delivery.destinationChatId,
     messageId: delivery.destinationMessageId,
     status,

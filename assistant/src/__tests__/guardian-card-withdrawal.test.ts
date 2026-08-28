@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const completeSurfaceAndNotify = mock(() => {});
-const markSurfaceCompleted = mock(() => {});
+const completeSurfaceAndNotify = mock(() => true);
+const markSurfaceCompleted = mock(() => true);
 mock.module("../daemon/conversation-surfaces.js", () => ({
   completeSurfaceAndNotify,
   markSurfaceCompleted,
@@ -20,7 +20,7 @@ mock.module("../messaging/providers/discord/withdraw.js", () => ({
 }));
 
 const withdrawTelegramApprovalCard = mock(
-  async (_params: Record<string, unknown>) => {},
+  async (_params: Record<string, unknown>) => ({ complete: true }),
 );
 mock.module("../messaging/providers/telegram-bot/withdraw.js", () => ({
   withdrawTelegramApprovalCard,
@@ -438,8 +438,65 @@ describe("withdrawGuardianRequestCards", () => {
       "Denied",
     );
   });
-});
 
+  test("a Telegram keyboard that stayed live holds the completeness back", async () => {
+    // The nested boolean is the whole receipt: clearInlineKeyboard already
+    // reports the failed edit, and dropping it once made the sweep confirm
+    // an expiry while the card's buttons stayed actionable.
+    const req = makeRequest({ sourceChannel: "telegram" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+      destinationMessageId: "9",
+    });
+    withdrawTelegramApprovalCard.mockResolvedValueOnce({ complete: false });
+
+    const result = await withdrawGuardianRequestCards({
+      request: req,
+      status: "expired",
+    });
+
+    expect(result.complete).toBe(false);
+  });
+
+  test("a failed in-app persistence write holds the completeness back", async () => {
+    // markSurfaceCompleted's false means the persisted block reverts to a
+    // pending, clickable card on the next reload; the broadcast still goes
+    // out, but the caller's receipt must wait for a durable write.
+    const req = makeRequest();
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+    completeSurfaceAndNotify.mockReturnValueOnce(false);
+
+    const result = await withdrawGuardianRequestCards({
+      request: req,
+      status: "expired",
+    });
+
+    expect(result.complete).toBe(false);
+  });
+
+  test("a surface that succeeded on retry reports complete", async () => {
+    const req = makeRequest({ sourceChannel: "telegram" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+      destinationMessageId: "9",
+    });
+
+    const result = await withdrawGuardianRequestCards({
+      request: req,
+      status: "expired",
+    });
+
+    expect(result.complete).toBe(true);
+  });
+});
 describe("recordApprovalCardDelivery", () => {
   beforeEach(() => {
     bridgeState.reset();

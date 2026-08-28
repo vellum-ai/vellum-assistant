@@ -19,7 +19,7 @@
  *
  * Never throws; `complete` reports whether the side effects actually ran,
  * because the sweep confirms a request's expiry (the status CAS) only after
- * they did — a failed notice left the requester untold, so it must keep the
+ * they did: a failed notice left the requester untold, so it must keep the
  * row pending and retryable rather than vanish into a log line. A request
  * with no deliverable route or no requester chat reports complete: there is
  * nothing a retry could ever deliver.
