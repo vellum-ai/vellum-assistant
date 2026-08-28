@@ -33,8 +33,24 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-prompt-routes");
 
-/** Timeout for waiting on the user to submit the contact form (5 min). */
+/** Default wait for the user to submit the contact form (5 min). */
 const CONTACT_PROMPT_TIMEOUT_MS = 300_000;
+
+/**
+ * Ceiling on a caller-supplied wait (1 hour), so a bad value cannot park an
+ * entry in {@link pendingContactPrompts} indefinitely.
+ */
+const CONTACT_PROMPT_MAX_TIMEOUT_MS = 3_600_000;
+
+const TimeoutMsParam = z
+  .number()
+  .int()
+  .positive()
+  .max(CONTACT_PROMPT_MAX_TIMEOUT_MS)
+  .optional()
+  .describe(
+    "How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is what ends the wait. Defaults to 300000.",
+  );
 
 // ---------------------------------------------------------------------------
 // Pending contact prompts
@@ -144,6 +160,7 @@ const ContactPromptParams = z.object({
     .describe(
       "Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an unchecked box leaves the channel unverified.",
     ),
+  timeoutMs: TimeoutMsParam,
 });
 
 const ContactRecordPromptParams = z.object({
@@ -183,6 +200,7 @@ const ContactRecordPromptParams = z.object({
     .string()
     .optional()
     .describe("Longer description shown in the form."),
+  timeoutMs: TimeoutMsParam,
 });
 
 const ContactPromptFlagsParams = z.object({
@@ -204,6 +222,7 @@ async function handleContactPrompt({
     description,
     role,
     verify,
+    timeoutMs,
   } = ContactPromptParams.parse(body);
 
   const requestId = uuid();
@@ -213,7 +232,7 @@ async function handleContactPrompt({
       pendingContactPrompts.delete(requestId);
       log.warn({ requestId }, "Contact prompt timed out");
       resolve({ ok: false, error: "Prompt timed out" });
-    }, CONTACT_PROMPT_TIMEOUT_MS);
+    }, timeoutMs ?? CONTACT_PROMPT_TIMEOUT_MS);
 
     pendingContactPrompts.set(requestId, {
       resolve,
@@ -262,6 +281,7 @@ async function handleContactRecordPrompt({
     notes,
     label,
     description,
+    timeoutMs,
   } = ContactRecordPromptParams.parse(body);
 
   if (operation !== "create" && !contactId) {
@@ -275,7 +295,7 @@ async function handleContactRecordPrompt({
       pendingContactPrompts.delete(requestId);
       log.warn({ requestId, operation }, "Contact record prompt timed out");
       resolve({ ok: false, error: "Prompt timed out" });
-    }, CONTACT_PROMPT_TIMEOUT_MS);
+    }, timeoutMs ?? CONTACT_PROMPT_TIMEOUT_MS);
 
     pendingContactPrompts.set(requestId, { resolve, timer, verify: false });
 

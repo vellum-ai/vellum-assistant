@@ -30,7 +30,9 @@ interface ContactWithChannels {
   displayName: string;
   role?: string;
   contactType: string;
-  notes?: string;
+  // Nullable on the wire (`contactSchema`, and the gateway's ContactRead):
+  // a contact with no notes reads as null, not as an absent field.
+  notes?: string | null;
   principalId?: string;
   createdAt: string | number;
   updatedAt: string | number;
@@ -157,7 +159,38 @@ function formatContactDetail(
 }
 
 /** Default wait for the guardian to answer a form, matching the daemon park. */
-const CONTACT_FORM_TIMEOUT_MS = 310_000;
+const CONTACT_FORM_TIMEOUT_MS = 300_000;
+
+/**
+ * Extra time the CLI waits beyond the form's own deadline, so the daemon's
+ * timer is what ends the wait. Giving up on the socket first would report a
+ * failure while the form stayed open, and a guardian answering it later would
+ * write something the caller was told had not happened.
+ */
+const CONTACT_FORM_TRANSPORT_BUFFER_MS = 10_000;
+
+/**
+ * Parse `--timeout`, which bounds how long the form stays open. Returns null
+ * (after reporting) when the value is not a positive number of milliseconds.
+ */
+function parseFormTimeout(
+  raw: string | undefined,
+  cmd: Command,
+): number | null {
+  if (raw === undefined) {
+    return CONTACT_FORM_TIMEOUT_MS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    writeError(
+      cmd,
+      `Invalid --timeout "${raw}": expected a positive number of milliseconds`,
+    );
+    process.exitCode = 1;
+    return null;
+  }
+  return parsed;
+}
 
 interface ContactRecordPromptBody {
   operation: "create" | "update" | "delete";
@@ -203,12 +236,19 @@ async function runRecordPrompt(
   timeout: string | undefined,
   cmd: Command,
 ): Promise<void> {
-  const timeoutMs = timeout ? parseInt(timeout, 10) : CONTACT_FORM_TIMEOUT_MS;
+  const timeoutMs = parseFormTimeout(timeout, cmd);
+  if (timeoutMs === null) {
+    return;
+  }
   const r = await cliIpcCall<{
     ok: boolean;
     error?: string;
     contactId?: string;
-  }>("contacts_record_prompt", { body }, { timeoutMs });
+  }>(
+    "contacts_record_prompt",
+    { body: { ...body, timeoutMs } },
+    { timeoutMs: timeoutMs + CONTACT_FORM_TRANSPORT_BUFFER_MS },
+  );
 
   if (!r.ok) {
     return exitFromIpcResult(
@@ -415,8 +455,9 @@ export function registerContactsCommand(program: Command): void {
               // Seed the form's notes field with what the contact already has,
               // so a name-only edit does not show an empty box the guardian
               // then submits over their notes. `??` keeps an explicit
-              // `--notes ""` as the deliberate clear it is.
-              notes: opts.notes ?? current.notes,
+              // `--notes ""` as the deliberate clear it is, and collapses the
+              // null a notes-less contact reads as into an omitted field.
+              notes: opts.notes ?? current.notes ?? undefined,
               label: opts.label,
               description: opts.description,
             },
@@ -475,7 +516,10 @@ export function registerContactsCommand(program: Command): void {
           },
           cmd: Command,
         ) => {
-          const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : 310_000;
+          const timeoutMs = parseFormTimeout(opts.timeout, cmd);
+          if (timeoutMs === null) {
+            return;
+          }
           const r = await cliIpcCall<ContactPromptResult>(
             "contacts_prompt",
             {
@@ -487,9 +531,10 @@ export function registerContactsCommand(program: Command): void {
                 label: opts.label,
                 description: opts.description,
                 verify: opts.verify === true,
+                timeoutMs,
               },
             },
-            { timeoutMs },
+            { timeoutMs: timeoutMs + CONTACT_FORM_TRANSPORT_BUFFER_MS },
           );
 
           if (!r.ok) {

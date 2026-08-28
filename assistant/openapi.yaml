@@ -6560,6 +6560,13 @@ paths:
                     Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an
                     unchecked box leaves the channel unverified.
                   type: boolean
+                timeoutMs:
+                  description:
+                    How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is
+                    what ends the wait. Defaults to 300000.
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 3600000
       responses:
         "200":
           description: Successful response
@@ -6642,6 +6649,13 @@ paths:
                 description:
                   description: Longer description shown in the form.
                   type: string
+                timeoutMs:
+                  description:
+                    How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is
+                    what ends the wait. Defaults to 300000.
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 3600000
               required:
                 - operation
       responses:

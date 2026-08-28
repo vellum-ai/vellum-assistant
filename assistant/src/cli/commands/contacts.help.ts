@@ -123,8 +123,8 @@ Examples:
         {
           flags: "--timeout <ms>",
           description:
-            "How long to wait for the guardian to submit (ms). Defaults to match the server-side form timeout.",
-          defaultValue: String(310_000),
+            "How long the form stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
         },
       ],
       helpText: `
@@ -168,8 +168,8 @@ Examples:
         {
           flags: "--timeout <ms>",
           description:
-            "How long to wait for the guardian to submit (ms). Defaults to match the server-side form timeout.",
-          defaultValue: String(310_000),
+            "How long the form stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
         },
       ],
       helpText: `
@@ -206,8 +206,8 @@ Examples:
         {
           flags: "--timeout <ms>",
           description:
-            "How long to wait for the guardian to confirm (ms). Defaults to match the server-side form timeout.",
-          defaultValue: String(310_000),
+            "How long the confirmation stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
         },
       ],
       helpText: `
@@ -263,8 +263,8 @@ Examples:
         {
           flags: "--timeout <ms>",
           description:
-            "How long to wait for the user to submit (ms). Defaults to match the server-side prompt timeout.",
-          defaultValue: String(310_000),
+            "How long the form stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
         },
         {
           flags: "--verify",

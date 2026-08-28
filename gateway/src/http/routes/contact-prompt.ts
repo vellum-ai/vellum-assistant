@@ -563,8 +563,19 @@ export async function handleContactRecordSubmit(
   }
 
   // Dismissal is a real answer: resolve the parked call now rather than
-  // leaving the CLI to time out on a form nobody is going to submit.
+  // leaving the CLI to time out on a form nobody is going to submit. It takes
+  // the same claim as a write, because one client dismissing while another is
+  // mid-submit would otherwise tell the caller nothing happened while the
+  // other answer was still on its way to the database.
   if (body.cancelled === true) {
+    const cancelClaim = await claimPrompt(requestId);
+    if (!cancelClaim.claimed) {
+      log.info(
+        { requestId, reason: cancelClaim.reason },
+        "contact-record-submit: dismissal lost the claim, leaving the answer in flight alone",
+      );
+      return Response.json({ accepted: true, duplicate: true });
+    }
     await notifyDaemonResolveError(requestId, "Cancelled by user");
     return Response.json({ accepted: true });
   }

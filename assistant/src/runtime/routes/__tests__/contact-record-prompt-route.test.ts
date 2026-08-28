@@ -165,6 +165,21 @@ describe("contacts_record_prompt", () => {
     });
   });
 
+  test("the caller's timeout is what closes the form", async () => {
+    const pending = recordPrompt.handler({
+      body: { operation: "create", displayName: "Alice", timeoutMs: 60 },
+    }) as Promise<Record<string, unknown>>;
+
+    // A form that outlived the command that opened it could still be answered,
+    // writing something the caller was already told had failed.
+    expect(await pending).toEqual({ ok: false, error: "Prompt timed out" });
+
+    // And it is gone, so a late answer has nothing to claim.
+    expect(
+      claimPrompt.handler({ body: { requestId: parkedRequestId() } }),
+    ).toEqual({ claimed: false, reason: "unknown" });
+  });
+
   test("a resolve for an unknown request is ignored", () => {
     expect(
       resolvePrompt.handler({

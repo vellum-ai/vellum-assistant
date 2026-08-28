@@ -439,6 +439,65 @@ describe("contact record submit", () => {
     expect(resolveCall().body.error).toBe("Cancelled by user");
   });
 
+  test("a dismissal cannot cancel a submission that already has the claim", async () => {
+    seedContact("c-dismiss", "Alice");
+    const requestId = openForm("req-dismiss-race");
+
+    // One client is mid-submit and holds the claim.
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId,
+        operation: "update",
+        contactId: "c-dismiss",
+        displayName: "Alice Chen",
+      }),
+    );
+
+    // Another dismisses the same broadcast. Reporting "cancelled" here would
+    // tell the caller nothing happened while the write was already committing.
+    ipcMock.mockClear();
+    const dismissed = await handleContactRecordSubmit(
+      makeRequest({ requestId, cancelled: true }),
+    );
+
+    expect(dismissed.status).toBe(200);
+    expect(await dismissed.json()).toEqual({ accepted: true, duplicate: true });
+    expect(callsFor("resolve_contact_prompt")).toHaveLength(0);
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-dismiss"))
+      .get();
+    expect(row!.displayName).toBe("Alice Chen");
+  });
+
+  test("a dismissal that wins the claim blocks a later submission", async () => {
+    seedContact("c-dismissed-first", "Alice");
+    const requestId = openForm("req-dismissed-first");
+
+    await handleContactRecordSubmit(
+      makeRequest({ requestId, cancelled: true }),
+    );
+    expect(resolveCall().body.error).toBe("Cancelled by user");
+
+    const late = await handleContactRecordSubmit(
+      makeRequest({
+        requestId,
+        operation: "update",
+        contactId: "c-dismissed-first",
+        displayName: "Alice Chen",
+      }),
+    );
+
+    expect(late.status).toBe(200);
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-dismissed-first"))
+      .get();
+    expect(row!.displayName).toBe("Alice");
+  });
+
   test("an unknown operation is rejected", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({
