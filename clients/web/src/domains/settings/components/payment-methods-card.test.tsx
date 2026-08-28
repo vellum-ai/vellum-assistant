@@ -12,6 +12,9 @@
  *  - The mode and card on file are captured when the modal opens, so the
  *    config the save itself writes back into the query cache cannot turn an
  *    in-flight add into a replace or restate the card being replaced.
+ *  - A 3DS redirect return replays its outcome into a freshly opened modal:
+ *    a saved card on the success panel alone, a failure back into the form in
+ *    the mode the saved card calls for.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
@@ -24,9 +27,20 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 
-import type { AutoTopUpPaymentMethodModalProps } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { useState } from "react";
+
+import type {
+  AutoTopUpPaymentMethodModalProps,
+  SetupIntentOutcome,
+} from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
@@ -62,6 +76,24 @@ function lastPmModalProps(): AutoTopUpPaymentMethodModalProps {
   }
   return pmModalProps;
 }
+
+// Stands in for the 3DS redirect-return hook. It owns the outcome in state
+// like the real one does, so clearing it on close is what keeps the modal
+// shut rather than the absence of a re-render.
+let returnedOutcome: SetupIntentOutcome | null = null;
+let clearOutcomeCalls = 0;
+mock.module("@/domains/settings/hooks/use-setup-intent-return", () => ({
+  useSetupIntentReturn: () => {
+    const [outcome, setOutcome] = useState(returnedOutcome);
+    return {
+      outcome,
+      clearOutcome: () => {
+        clearOutcomeCalls += 1;
+        setOutcome(null);
+      },
+    };
+  },
+}));
 
 import * as orgReadyModule from "@/hooks/use-is-org-ready";
 
@@ -147,6 +179,8 @@ beforeEach(() => {
   retrieveShouldFail = false;
   orgReadiness = "ready";
   pmModalProps = null;
+  returnedOutcome = null;
+  clearOutcomeCalls = 0;
 });
 
 afterEach(cleanup);
@@ -349,6 +383,54 @@ describe("PaymentMethodsCard modal wiring", () => {
       expMonth: null,
       expYear: null,
     });
+  });
+});
+
+describe("PaymentMethodsCard redirect return", () => {
+  test("replays a saved outcome into the modal on the success panel alone", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    returnedOutcome = {
+      kind: "saved",
+      card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+    };
+    const { container } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      container.querySelector('[data-testid="pm-modal-stub"]'),
+    ).not.toBeNull();
+    expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
+    expect(lastPmModalProps().mode).toBe("add");
+    expect(lastPmModalProps().cardOnFile).toBeNull();
+  });
+
+  test("replays an error outcome into replace mode with the card on file", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    returnedOutcome = { kind: "error", message: "Your card was declined." };
+    render(wrap(DISABLED_WITH_CARD));
+
+    expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
+  });
+
+  test("closing clears the outcome and leaves the modal shut", () => {
+    returnedOutcome = { kind: "saved", card: null };
+    const { container } = render(wrap(DISABLED_CONFIG));
+
+    act(() => {
+      lastPmModalProps().onClose();
+    });
+
+    expect(clearOutcomeCalls).toBe(1);
+    expect(lastPmModalProps().open).toBe(false);
+    expect(lastPmModalProps().initialOutcome).toBeNull();
+    expect(container.querySelector('[data-testid="pm-modal-stub"]')).toBeNull();
   });
 });
 
