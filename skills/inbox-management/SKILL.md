@@ -104,7 +104,10 @@ Create a recurring schedule via `schedule_create`:
 - Default: `0 */3 * * 1-5` (every 3 hours on weekdays)
 - Message: `"Load the inbox-management skill and run the inbox management pipeline."`
 - Mode: `execute`
+- Pin `inference_profile: "cost-optimized"` so runs use the cheap utility profile, not the chat model
 - Set `reuse_conversation: true` for context accumulation across runs
+
+If an inbox-management schedule already exists, pin `cost-optimized` on it with `schedule_update` instead of creating a second schedule.
 
 Confirm cadence with user. Overnight: urgent-scan only.
 
