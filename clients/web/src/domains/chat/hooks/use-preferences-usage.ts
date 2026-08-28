@@ -92,3 +92,8 @@ export function usePreferencesUsage(
     usingExtraCredits: spent && hasWalletCredit && !routeSkipsWallet,
   };
 }
+
+/** The credits row stands in for the usage panel when there is no reading. */
+export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
+  return usage == null;
+}

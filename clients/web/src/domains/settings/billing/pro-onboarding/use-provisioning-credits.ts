@@ -11,8 +11,7 @@ import { findCreditTier } from "@/lib/billing/credit-tiers";
  * renders ("Mighty Usage", the Stripe product name, so it matches the invoice
  * line). `null` marks the explicit no-bundle side, worded by the caller; an
  * `undefined` from-side is a bundle the catalog can't label, which the chip
- * leaves unstated. An unwordable to-side drops the chip, so the hooks return
- * null instead of a change.
+ * leaves unstated.
  */
 export interface CreditsChange {
   fromLabel: string | null | undefined;

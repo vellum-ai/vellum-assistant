@@ -22,7 +22,10 @@ export interface PlanTileProps {
   tag: ReactNode;
   /** The tile's spec chips; omitted entirely when null or empty. */
   specs?: PlanSpec[] | null;
-  /** Bottom slot (price row or CTA), pinned to the tile's bottom edge. */
+  /**
+   * Bottom slot (usage balance, price row, or CTA), pinned to the tile's
+   * bottom edge.
+   */
   footer?: ReactNode;
   testId?: string;
   className?: string;
@@ -31,8 +34,9 @@ export interface PlanTileProps {
 /**
  * One tile in the billing "Plan" section's side-by-side comparison: tag,
  * creature avatar and plan name, spec chips, and a bottom slot. Renders both
- * the current-plan tile (inherited theme, price footer) and the next-plan
- * tile (inverted theme scope, upgrade CTA footer).
+ * the current-plan tile (inherited theme, usage balance footer, or the price
+ * row when there is no reading) and the next-plan tile (inverted theme scope,
+ * upgrade CTA footer).
  */
 export function PlanTile({
   theme,

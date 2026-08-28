@@ -263,9 +263,6 @@ export const NextPlanPending: Story = {
  * below the `lg` breakpoint: select `Mobile` in the viewport toolbar to see
  * that treatment, since the Canvas holds a desktop width regardless of window
  * size.
- *
- * The current tile carries the Usage Balance bar, which is what a subscription
- * with a usage reading shows; `CurrentPaidNoUsageReading` has the price row.
  */
 export const SideBySide: Story = {
   parameters: {

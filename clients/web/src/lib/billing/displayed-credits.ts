@@ -13,7 +13,6 @@
 
 import { parseUsd } from "@/lib/billing/parse-usd";
 
-/** Clamped at zero; passes the balance through when no grant figure lands. */
 export function displayedCreditsUsd(
   balance: string,
   availableUsageBalance: string | null | undefined,
