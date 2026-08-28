@@ -213,6 +213,12 @@ export const ROUTES: GatewayRouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
       error: z.string().optional(),
+      duplicate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Another client answered this form first. Nothing is wrong, but none of this submission's values were written.",
+        ),
     }),
   },
   {
@@ -227,6 +233,12 @@ export const ROUTES: GatewayRouteDefinition[] = [
     responseBody: z.object({
       accepted: z.boolean(),
       error: z.string().optional(),
+      duplicate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Another client answered this form first. Nothing is wrong, but none of this submission's values were written.",
+        ),
     }),
   },
   {

@@ -195,7 +195,7 @@ export async function submitContactRecord(
     | { cancelled: true },
 ): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
-    const { error, response } = await assistantContactsRecordSubmit({
+    const { data, error, response } = await assistantContactsRecordSubmit({
       path: { assistant_id: assistantId },
       body: { requestId, ...input },
       throwOnError: false,
@@ -213,11 +213,7 @@ export async function submitContactRecord(
     // Somebody else answered this form first. The request succeeded in the
     // sense that nothing is wrong, but none of these values were written, so
     // the caller must not present them as saved.
-    const body = (await response
-      .clone()
-      .json()
-      .catch(() => null)) as { duplicate?: boolean } | null;
-    return { ok: true, duplicate: body?.duplicate === true };
+    return { ok: true, duplicate: data?.duplicate === true };
   } catch (err) {
     return {
       ok: false,
@@ -310,7 +306,7 @@ export async function submitContactPrompt(
   verify?: boolean,
 ): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
-    const { error, response } = await assistantContactsPromptSubmit({
+    const { data, error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
       body: { requestId, address, channelType, role, displayName, verify },
       throwOnError: false,
@@ -327,11 +323,7 @@ export async function submitContactPrompt(
     }
     // Somebody else answered this form first: nothing is wrong, but none of
     // these values were written, so the caller must not present them as saved.
-    const body = (await response
-      .clone()
-      .json()
-      .catch(() => null)) as { duplicate?: boolean } | null;
-    return { ok: true, duplicate: body?.duplicate === true };
+    return { ok: true, duplicate: data?.duplicate === true };
   } catch (err) {
     return {
       ok: false,
