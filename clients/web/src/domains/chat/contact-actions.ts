@@ -16,6 +16,8 @@ import {
   reportSubmissionFailure,
 } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { supportsContactFormCancellation } from "@/lib/backwards-compat/contact-form-cancellation";
+
 import {
   cancelContactPrompt,
   submitContactPrompt,
@@ -131,6 +133,15 @@ export async function handleContactPromptCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
+  if (!supportsContactFormCancellation()) {
+    // This assistant's submit route requires an address and rejects a
+    // dismissal, so the card comes down locally and its command waits out its
+    // own timeout, as it always has on that version.
+    useInteractionStore
+      .getState()
+      .dismissContactRequestIfMatches(request.requestId);
+    return;
+  }
   if (!ctx) {
     // Nothing was sent, so the command is still parked. Reporting this as a
     // dismissal would take away the only thing that could retry it.
@@ -289,6 +300,13 @@ export async function handleContactRecordCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
+  if (!supportsContactFormCancellation()) {
+    // An assistant that cannot raise this form cannot be asked to close one.
+    useInteractionStore
+      .getState()
+      .dismissContactRecordRequestIfMatches(request.requestId);
+    return;
+  }
   if (!ctx) {
     // Nothing was sent, so the command is still parked. Reporting this as a
     // dismissal would take away the only thing that could retry it.

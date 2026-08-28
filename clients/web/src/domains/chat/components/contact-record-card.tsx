@@ -90,7 +90,10 @@ export function ContactRecordCard({
     }
     onSubmit({
       displayName: trimmedName === storedName.trim() ? undefined : trimmedName,
-      notes: notes === storedNotes ? undefined : notes,
+      // A proposal the command made explicitly goes back whether or not it
+      // matches: the stored value it would be compared against is missing
+      // when the contact's notes could not be read.
+      notes: request.notesProposed || notes !== storedNotes ? notes : undefined,
     });
   }
 

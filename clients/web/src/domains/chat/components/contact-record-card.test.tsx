@@ -214,6 +214,34 @@ describe("ContactRecordCard", () => {
     });
   });
 
+  test("an explicitly proposed note is submitted even when it matches", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "update",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          currentNotes: "",
+          notes: "",
+          notesProposed: true,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // `--notes ""` is a request to clear them. Comparison alone cannot tell
+    // that from notes the read could not see, which also arrive as empty.
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: undefined,
+      notes: "",
+    });
+  });
+
   test("an empty name cannot be submitted", () => {
     render(
       <ContactRecordCard

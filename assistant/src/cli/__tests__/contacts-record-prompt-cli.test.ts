@@ -56,8 +56,6 @@ let readFails = false;
 let notesSaved: boolean | undefined;
 /** Whether the daemon reports that nothing the guardian submitted landed. */
 let nothingWritten: boolean | undefined;
-/** Contacts the list read can see, including any the gateway never recorded. */
-let listedContacts: Array<Record<string, unknown>> = [];
 
 const baseIpcImplementation = async (
   operationId: string,
@@ -67,12 +65,10 @@ const baseIpcImplementation = async (
   calls.push({ operationId, options, callOptions });
   if (operationId === "getContact") {
     if (readFails) {
-      return { ok: false, error: "socket closed" };
+      // 404-shaped, as a gateway-backed read reports a contact it cannot see.
+      return { ok: false, error: "Contact not found", statusCode: 404 };
     }
     return { ok: true, result: { ok: true, contact: contactForRead } };
-  }
-  if (operationId === "listContacts") {
-    return { ok: true, result: { contacts: listedContacts } };
   }
   return {
     ok: true,
@@ -103,7 +99,6 @@ describe("contacts record prompts", () => {
     readFails = false;
     notesSaved = undefined;
     nothingWritten = undefined;
-    listedContacts = [];
     // Global and sticky: the failure-path cases below set it, and a later test
     // asserting success would otherwise read their exit code as its own.
     // Cleared to 0 rather than undefined, which does not reset it.
@@ -303,22 +298,26 @@ describe("contacts record prompts", () => {
     expect(calls[0]!.operationId).toBe("getContact");
   });
 
-  test("delete reaches the confirmation for a contact only the mirror has", async () => {
-    // A dual-write gap leaves contacts the gateway read cannot see, which
-    // `contacts list` still surfaces and the delete supports removing.
-    //
-    // The other side of this branch, an id nothing knows about, has no test:
-    // it ends in `exitFromIpcResult`, which calls `process.exit` and takes the
-    // test runner with it.
+  test("delete reaches the confirmation for a contact the read cannot see", async () => {
+    // A dual-write gap leaves contacts in the assistant mirror that this
+    // gateway-backed read misses. `contacts list --query` surfaces them and
+    // the delete supports removing them, so refusing here would strand an id
+    // the guardian can see.
     readFails = true;
-    listedContacts = [{ ...contact, id: "ct_orphan", displayName: "Orphan" }];
 
     await runAssistantCommand("contacts", "delete", "ct_orphan");
 
     const body = recordPromptBody();
     expect(body.operation).toBe("delete");
-    expect(body.currentDisplayName).toBe("Orphan");
+    expect(body.contactId).toBe("ct_orphan");
+    // Nothing to show but the id, and no channels to compare against.
+    expect(body.channels).toEqual([]);
   });
+
+  // The refusing side of that branch (an update against a contact the read
+  // cannot see, or a delete for an id nothing knows about) has no test: it
+  // ends in `exitFromIpcResult`, which calls `process.exit` and takes the test
+  // runner with it.
 
   test("update refuses when neither --name nor --notes is given", async () => {
     await runAssistantCommand("contacts", "update", "ct_1");

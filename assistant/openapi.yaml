@@ -6652,6 +6652,11 @@ paths:
                 notes:
                   description: Proposed notes, prefilled into the form. The guardian can edit them.
                   type: string
+                notesProposed:
+                  description:
+                    Whether the caller asked for these notes explicitly, so the form submits them even when they match what is
+                    stored.
+                  type: boolean
                 label:
                   description: Display label shown in the form.
                   type: string

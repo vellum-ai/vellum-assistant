@@ -179,6 +179,7 @@ export function handleContactRecordRequest(
     channels: event.channels,
     displayName: event.displayName,
     notes: event.notes,
+    notesProposed: event.notesProposed,
     label: event.label,
     description: event.description,
   });

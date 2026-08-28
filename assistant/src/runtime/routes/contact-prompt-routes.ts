@@ -256,6 +256,12 @@ const ContactRecordPromptParams = z.object({
     .describe(
       "Proposed notes, prefilled into the form. The guardian can edit them.",
     ),
+  notesProposed: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the caller asked for these notes explicitly, so the form submits them even when they match what is stored.",
+    ),
   label: z.string().optional().describe("Display label shown in the form."),
   description: z
     .string()
@@ -344,6 +350,7 @@ async function handleContactRecordPrompt({
     channels,
     displayName,
     notes,
+    notesProposed,
     label,
     description,
     timeoutMs,
@@ -392,6 +399,7 @@ async function handleContactRecordPrompt({
       channels,
       displayName,
       notes,
+      notesProposed,
       label,
       description,
     });

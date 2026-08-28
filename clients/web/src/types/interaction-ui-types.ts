@@ -87,6 +87,8 @@ export interface PendingContactRecordRequestState {
 
   displayName?: string;
   notes?: string;
+  /** Whether the caller asked for these notes explicitly. */
+  notesProposed?: boolean;
   label?: string;
   description?: string;
 }

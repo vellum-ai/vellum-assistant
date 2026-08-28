@@ -47,6 +47,13 @@ export const ContactRecordRequestEventSchema = z.object({
   displayName: z.string().optional(),
   /** Proposed notes, prefilled into the form. */
   notes: z.string().optional(),
+  /**
+   * Whether the caller asked for these notes explicitly. A proposal that
+   * happens to match what is stored is still a change the guardian confirmed,
+   * and an unreadable mirror reports stored notes as empty, so the form cannot
+   * tell "clear them" from "nothing to do" by comparison alone.
+   */
+  notesProposed: z.boolean().optional(),
   label: z.string().optional(),
   description: z.string().optional(),
 });

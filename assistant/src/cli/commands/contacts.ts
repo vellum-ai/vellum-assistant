@@ -208,6 +208,7 @@ interface ContactRecordPromptBody {
   channels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
+  notesProposed?: boolean;
   label?: string;
   description?: string;
 }
@@ -220,6 +221,15 @@ interface ContactRecordPromptBody {
 async function readContactForPrompt(
   id: string,
   cmd: Command,
+  /**
+   * Whether a contact the read cannot see should still reach the form. A
+   * dual-write gap can leave a contact in the assistant mirror that this
+   * gateway-backed read misses, and deleting one of those is supported, so a
+   * delete carries on with a bare record rather than refusing an id the
+   * guardian can see. An update cannot: it needs the stored values to know
+   * what the guardian actually changed.
+   */
+  allowUnreadable = false,
 ): Promise<ContactWithChannels | null> {
   const r = await cliIpcCall<{ ok: boolean; contact: ContactWithChannels }>(
     "getContact",
@@ -228,20 +238,16 @@ async function readContactForPrompt(
   if (r.ok) {
     return r.result!.contact;
   }
-
-  // A dual-write gap can leave a contact in the assistant mirror that the
-  // gateway never recorded. `contacts list` surfaces those and deleting one is
-  // supported, so a gateway-backed read missing it is not the same as it not
-  // existing: fall back to the list, which sees them.
-  const listed = await cliIpcCall<{ contacts: ContactWithChannels[] }>(
-    "listContacts",
-    {},
-  );
-  const orphan = listed.ok
-    ? listed.result?.contacts.find((c) => c.id === id)
-    : undefined;
-  if (orphan) {
-    return orphan;
+  if (allowUnreadable && r.statusCode === 404) {
+    return {
+      id,
+      displayName: id,
+      contactType: "human",
+      createdAt: 0,
+      updatedAt: 0,
+      interactionCount: null,
+      channels: [],
+    };
   }
 
   exitFromIpcResult(
@@ -533,6 +539,10 @@ export function registerContactsCommand(program: Command): void {
               // `--notes ""` as the deliberate clear it is, and collapses the
               // null a notes-less contact reads as into an omitted field.
               notes: opts.notes ?? current.notes ?? undefined,
+              // An explicit --notes is a change the guardian confirms, even
+              // when it matches what is stored: comparison alone cannot tell
+              // that from stored notes the read could not see.
+              notesProposed: opts.notes !== undefined,
               label: opts.label,
               description: opts.description,
             },
@@ -548,7 +558,7 @@ export function registerContactsCommand(program: Command): void {
           opts: { label?: string; description?: string; timeout?: string },
           cmd: Command,
         ) => {
-          const current = await readContactForPrompt(id, cmd);
+          const current = await readContactForPrompt(id, cmd, true);
           if (!current) {
             return;
           }
