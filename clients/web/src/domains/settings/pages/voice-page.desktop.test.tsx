@@ -1,3 +1,5 @@
+import type { UseManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import type { UseSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 /**
  * The desktop-host voice mode shortcut card.
  *
@@ -22,16 +24,19 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "asst-test",
 }));
 mock.module("@/components/speech/use-managed-voice-selection", () => ({
-  useManagedVoiceSelection: () => ({
+  useManagedVoiceSelection: (): UseManagedVoiceSelection => ({
     available: false,
+    isByok: false,
+    settled: true,
     voices: [],
     currentModel: "",
+    defaultModel: "",
     selectModel: () => {},
     selecting: false,
   }),
 }));
 mock.module("@/components/speech/use-stt-language-selection", () => ({
-  useSttLanguageSelection: () => ({
+  useSttLanguageSelection: (): UseSttLanguageSelection => ({
     available: false,
     currentCode: "multi",
     configuredProviderId: "deepgram",

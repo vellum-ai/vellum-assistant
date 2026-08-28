@@ -33,14 +33,22 @@ const realNginxIngress = { ...(await import("../lib/nginx-ingress.js")) };
 const realRetireArchive = { ...(await import("../lib/retire-archive.js")) };
 
 const stopProcessByPidFileMock = mock(
-  async (_pidFile: string, _label: string): Promise<boolean> => true,
+  async (
+    _pidFile: string,
+    _label: string,
+    _extraCleanupFiles?: string[],
+    _timeoutMs?: number,
+  ): Promise<boolean> => true,
 );
+
+const { DAEMON_STOP_TIMEOUT_MS } = realProcess;
 const stopOrphanedDaemonProcessesMock = mock(
   async (_excludePids?: ReadonlySet<string>): Promise<boolean> => false,
 );
 const stopIngressNginxMock = mock(async (): Promise<boolean> => false);
 
 mock.module("../lib/process.js", () => ({
+  ...realProcess,
   stopProcessByPidFile: stopProcessByPidFileMock,
   stopOrphanedDaemonProcesses: stopOrphanedDaemonProcessesMock,
 }));
@@ -151,6 +159,29 @@ describe("retireLocal — CES sibling stop", () => {
       ([, label]) => label === "gateway",
     );
     expect(gatewayStopCall).toBeDefined();
+  });
+
+  // The daemon stops its own worker processes (schedule, route host, resource
+  // monitor, memory jobs) near the end of a long shutdown sequence. The 2s
+  // default in stopProcess would SIGKILL it first, stranding those workers as
+  // orphans that outlive the runtime that spawned them.
+  test("gives the daemon its full stop budget, not the default grace", async () => {
+    const entry = makeEntry("test-assistant");
+    await retireLocal("test-assistant", entry, {
+      progress: () => {},
+      log: () => {},
+      warn: () => {},
+      error: () => {},
+    });
+
+    const daemonStopCall = stopProcessByPidFileMock.mock.calls.find(
+      ([, label]) => label === "daemon",
+    );
+    expect(daemonStopCall?.[3]).toBe(DAEMON_STOP_TIMEOUT_MS);
+    // The budget is only meaningful if it outlasts the daemon's own 30s
+    // force-exit, which is what it is derived from. Anything at or below that
+    // kills the daemon before it can fold the WAL and hand off on its way out.
+    expect(DAEMON_STOP_TIMEOUT_MS).toBeGreaterThan(30_000);
   });
 
   test("CES stop is a no-op when ces.pid is absent", async () => {

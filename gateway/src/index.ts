@@ -241,9 +241,6 @@ import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
-import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
-import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
-import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
@@ -408,17 +405,12 @@ async function main() {
     configFile: configFileCache,
   });
 
-  // ── Avatar sync ──
-  const avatarChannelSyncer = new AvatarChannelSyncer();
-  const avatarSyncWatcher = new AvatarSyncWatcher(avatarChannelSyncer);
-
   // ── Integration readiness flags ──
   // Track whether each integration has valid credentials so route
   // preconditions can gate requests synchronously. Updated by the
   // credential watcher callback whenever credentials change.
   let telegramReady = false;
   let whatsappReady = false;
-  let slackReady = false;
   let vellumReady = false;
   let velayStartRequested = false;
 
@@ -2725,9 +2717,6 @@ async function main() {
       whatsappCreds?.phone_number_id && whatsappCreds?.access_token
     );
 
-    const slackCreds = event.credentials.get("slack_channel");
-    slackReady = !!(slackCreds?.bot_token && slackCreds?.app_token);
-
     const vellumCreds = event.credentials.get("vellum");
     vellumReady = !!(
       vellumCreds?.platform_base_url &&
@@ -2781,15 +2770,6 @@ async function main() {
           "Failed to restart Slack Socket Mode after credential change",
         );
       });
-
-      if (slackReady) {
-        avatarChannelSyncer.register(new SlackAvatarSyncer(credentialCache));
-        avatarChannelSyncer.syncToChannel("slack").catch((err) => {
-          log.warn({ err }, "Initial Slack avatar sync failed");
-        });
-      } else {
-        avatarChannelSyncer.unregister("slack");
-      }
     }
 
     if (changed.has("twilio")) {
@@ -2865,10 +2845,6 @@ async function main() {
   // effects during the initial poll. Stale Velay-owned ingress is already
   // cleared before those side effects can register external callbacks.
   await credentialWatcher.start();
-
-  // Start watching avatar directory for changes after credential watcher
-  // so channel syncers are already registered before the first file event.
-  avatarSyncWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
@@ -3037,7 +3013,6 @@ async function main() {
     backupWorkerHandle.stop();
     credentialWatcher.stop();
     configFileWatcher.stop();
-    avatarSyncWatcher.stop();
     featureFlagWatcher.stop();
     remoteFeatureFlagSync.stop();
     // Stop the timer and flush any buffered auth-fallback counts before exit.

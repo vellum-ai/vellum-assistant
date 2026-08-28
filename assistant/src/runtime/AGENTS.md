@@ -190,18 +190,30 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
 - **`slackMeta`** is the per-row key describing what a row is in its Slack
   conversation: `channelTs` for the row's own id, `threadTs` for its thread,
   `reaction.targetChannelTs` for the message a reaction was attached to, plus
-  Slack's own file markers and timezone labels. Every channel-path reader goes
-  through it today.
+  Slack's own file markers and timezone labels. Most channel-path readers
+  still go through it directly; the lookups in `persistence/delivery-crud.ts`
+  read through `readProviderMetadata` instead, which serves this envelope and
+  the neutral shape below from one call.
 - **`providerMeta`** is the channel-neutral counterpart of that key
-  (`messaging/provider-message-metadata.ts`): `conversationExternalId`,
-  `messageId`, `threadId`, `actorExternalId`, `eventKind` and
-  `reaction.targetMessageId`, deliberately the same vocabulary the inbound
-  wire uses in `InboundEventBase`, so a channel that can describe itself at
-  ingress can describe its stored rows without a translation of its own.
-  Writable by any channel, including one this repo has no code for. `readProviderMetadata` reads it and maps `slackMeta` onto it.
-  **Nothing writes or reads it yet**; it is the home a new channel should use
-  rather than inventing a sixth key, and existing readers move onto it as
-  channels adopt it.
+  (`messaging/provider-message-metadata.ts`): `source`,
+  `conversationExternalId`, `messageId`, `threadId`, `actorExternalId`,
+  `eventKind`, the `reaction` sub-key, and the `editedAt` / `deletedAt`
+  marks. Deliberately the same vocabulary the inbound wire uses in
+  `InboundEventBase`, so a channel that can describe itself at ingress can
+  describe its stored rows without a translation of its own. Writable by any
+  channel, including one this repo has no code for, which is why a new
+  channel belongs here rather than in a sixth key of its own.
+
+  Every channel except Slack writes it: a reaction row carries the whole
+  shape (`inbound-stages/reaction-intercept.ts`), and an edit or a delete
+  stamps `editedAt` / `deletedAt` onto whatever the row already said about
+  itself through `mergeProviderMessageMetadata`
+  (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`). Slack
+  keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
+  onto this shape on read, so the channel-agnostic readers in
+  `persistence/delivery-crud.ts` (thread evidence, and finding the
+  conversation that holds a given provider message id) serve both without a
+  per-channel branch.
 
 ### Channel verification: gateway-owned
 

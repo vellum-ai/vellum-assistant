@@ -174,6 +174,7 @@ export function ChannelPanel({
         ) : (
           <SlackChannelCard>
             <SlackSetupWizard
+              assistantId={assistantId}
               assistantName={assistantName}
               onSave={onSaveSlackConfig}
               saveStatus={slackSaveStatus}
@@ -212,6 +213,7 @@ export function ChannelPanel({
       case "telegram-token":
         return (
           <TelegramSetupWizard
+            assistantId={assistantId}
             assistantName={assistantName}
             saveStatus={telegramSaveStatus}
             saveError={telegramSaveError}
@@ -221,6 +223,7 @@ export function ChannelPanel({
       case "discord-token":
         return (
           <DiscordSetupWizard
+            assistantId={assistantId}
             saveStatus={discordSaveStatus}
             saveError={discordSaveError}
             onSave={onSaveDiscordToken}

@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 
+import {
+  DAEMON_STOP_TIMEOUT_MS,
+  HOST_WRAPPER_HEADROOM_MS,
+} from "./lifecycle-budgets";
 import type { CliInvocation } from "./util";
 
-// The CLI's `sleep` command uses a 120s SIGKILL ceiling for the assistant
-// daemon (WAL checkpoint can be slow on large databases) plus 7s for the
-// gateway drain window. The wrapper timeout must sit above that total so a
-// slow-but-succeeding sleep isn't killed and misreported as a timeout.
-const SLEEP_TIMEOUT_MS = 150_000;
+const SLEEP_TIMEOUT_MS = DAEMON_STOP_TIMEOUT_MS + HOST_WRAPPER_HEADROOM_MS;
 
 export type SleepResult =
   | { ok: true }
