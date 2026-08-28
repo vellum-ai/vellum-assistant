@@ -231,8 +231,18 @@ interface ActionMenuItemProps {
    * label rather than carry anything the label omits.
    */
   description?: ReactNode;
-  /** Keyboard shortcut hint. Pointer surfaces only, since a sheet has no keys. */
-  shortcut?: ReactNode;
+  /**
+   * Electron accelerator for the row's binding, e.g. `"CmdOrCtrl+Shift+P"`.
+   * Draws the glyph hint and announces the binding from the one value. Pointer
+   * surfaces only, since a sheet has no keys.
+   */
+  shortcut?: string;
+  /**
+   * Right-aligned trailing content that is not a keyboard shortcut: a status
+   * glyph, secondary hint text. Anchored presentation only; the sheet row has
+   * no trailing column.
+   */
+  trailing?: ReactNode;
   /**
    * `"destructive"` paints the row in the negative system colour, for an action
    * that deletes or discards. A tone rather than a caller-supplied class, so
@@ -267,6 +277,7 @@ function Item({
   label,
   description,
   shortcut,
+  trailing,
   tone = "default",
   disabled = false,
   onSelect,
@@ -311,6 +322,7 @@ function Item({
     <Menu.Item
       leftIcon={Icon ? <Icon size={14} /> : undefined}
       shortcut={shortcut}
+      trailing={trailing}
       disabled={disabled}
       className={cn(
         "whitespace-nowrap",

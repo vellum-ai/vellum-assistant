@@ -7,6 +7,7 @@ const meta: Meta<typeof TelegramSetupWizard> = {
   title: "Contacts/TelegramSetupWizard",
   component: TelegramSetupWizard,
   args: {
+    assistantId: "asst_story",
     assistantName: "Example Assistant",
   },
   // 400px matches the drawer this renders in: `chat-content-layout.tsx` mounts

@@ -104,7 +104,10 @@ Create a recurring schedule via `schedule_create`:
 - Default: `0 */3 * * 1-5` (every 3 hours on weekdays)
 - Message: `"Load the inbox-management skill and run the inbox management pipeline."`
 - Mode: `execute`
+- Pin `inference_profile: "cost-optimized"` so runs use the cheap utility profile, not the chat model
 - Set `reuse_conversation: true` for context accumulation across runs
+
+If an inbox-management schedule already exists, pin `cost-optimized` on it with `schedule_update` instead of creating a second schedule. The pipeline also re-pins on every run, so already-enabled jobs pick this up without repeating setup.
 
 Confirm cadence with user. Overnight: urgent-scan only.
 
@@ -122,7 +125,20 @@ Confirm the user wants drafts generated. Some prefer flag-only forever.
 
 Each step is silent unless something qualifies for interrupt. Run these in order.
 
-### Step 0: Missed-run check & resume
+### Step 0: Pin cheap profile, then missed-run check & resume
+
+**Pin `cost-optimized` if needed.** This run may already be on the chat model. Before the rest of the pipeline, re-pin the inbox-management schedule so later fires stay cheap. Idempotent: no-op when already pinned or no matching schedule exists.
+
+```sh
+assistant schedules list --json | jq -r '
+  .schedules[]
+  | select(.message == "Load the inbox-management skill and run the inbox management pipeline.")
+  | select(.inferenceProfile != "cost-optimized")
+  | .id
+' | while read -r id; do
+  [ -n "$id" ] && assistant schedules update "$id" --profile cost-optimized
+done
+```
 
 **Resume interrupted runs first.** Before starting a new pipeline pass, check `bun run scripts/gmail-runs.ts list`. If the most recent run has `status: "interrupted"`, resume it via `bun run scripts/gmail-archive.ts archive --resume "<run-id>"` before proceeding. Also run `bun run scripts/gmail-runs.ts prune` to clean up logs older than 30 days.
 

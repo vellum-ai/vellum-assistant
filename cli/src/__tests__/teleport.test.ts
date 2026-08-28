@@ -325,6 +325,7 @@ mock.module("../lib/docker.js", () => ({
 const stopProcessByPidFileMock = mock(async () => true);
 
 mock.module("../lib/process.js", () => ({
+  ...realProcess,
   stopProcessByPidFile: stopProcessByPidFileMock,
 }));
 

@@ -937,7 +937,7 @@ export function ComposerSettingsMenu({
             ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
             : ""
         }
-        shortcut={
+        trailing={
           isActive ? (
             <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
           ) : undefined
@@ -966,7 +966,7 @@ export function ComposerSettingsMenu({
             ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
             : ""
         }
-        shortcut={
+        trailing={
           isActive ? (
             <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
           ) : undefined
