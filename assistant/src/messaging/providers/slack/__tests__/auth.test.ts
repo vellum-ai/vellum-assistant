@@ -55,6 +55,41 @@ describe("resolveSlackAuth", () => {
   test("user intent falls back to the bot token without a user token", async () => {
     secureKeys.set(BOT_KEY, "xoxb-bot");
     expect(await resolveSlackAuth("user")).toBe("xoxb-bot");
+    // No connection row, so the OAuth rung is skipped rather than probed.
+    expect(resolveOAuthCalls).toEqual([]);
+  });
+
+  test("user intent takes the OAuth connection over the bot token", async () => {
+    // Both are the installer's own token. Degrading to the bot here would
+    // drop `search.messages`, which a bot token cannot call, while a usable
+    // user token sat in the connection.
+    secureKeys.set(BOT_KEY, "xoxb-bot");
+    connectionByProvider["slack"] = { id: "conn-1" };
+    oauthConnection = { accessToken: "xoxp-oauth" };
+
+    expect((await resolveSlackAuth("user")) as unknown).toBe(oauthConnection);
+  });
+
+  test("the pasted user token still wins over an OAuth connection", async () => {
+    secureKeys.set(BOT_KEY, "xoxb-bot");
+    secureKeys.set(USER_KEY, "xoxp-user");
+    connectionByProvider["slack"] = { id: "conn-1" };
+    oauthConnection = { accessToken: "xoxp-oauth" };
+
+    expect(await resolveSlackAuth("user")).toBe("xoxp-user");
+    // Resolved from the credential store, so the connection is never touched.
+    expect(resolveOAuthCalls).toEqual([]);
+  });
+
+  test("an unresolvable OAuth connection degrades to the bot token", async () => {
+    // A revoked or unrefreshable connection must not take messaging down: the
+    // bot token still serves every read it can.
+    secureKeys.set(BOT_KEY, "xoxb-bot");
+    connectionByProvider["slack"] = { id: "conn-1" };
+    oauthConnection = null; // the mock throws for this
+
+    expect(await resolveSlackAuth("user")).toBe("xoxb-bot");
+    expect(resolveOAuthCalls).toHaveLength(1);
   });
 
   test("resolves the refreshing OAuth connection for legacy installs", async () => {

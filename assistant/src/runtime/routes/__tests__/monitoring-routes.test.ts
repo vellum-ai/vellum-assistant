@@ -4,7 +4,7 @@
  * The route handlers run inside the daemon and own the monitor process. We mock
  * monitoring-control, the config loader, and the sample ring buffer so the
  * tests assert handler behaviour:
- *   - start spawns as a daemon child (detached:false) and throws on spawn
+ *   - start spawns the worker and throws on spawn
  *     failure.
  *   - stop signals the monitor (a runtime pause — the daemon respawns it at
  *     the next boot).
@@ -19,7 +19,7 @@ import { getMonitoringPidPath } from "../../../util/platform.js";
 class FakeSpawnError extends Error {}
 
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
-let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
+let spawnArgs: Array<{ terminateOnTimeout?: boolean } | undefined> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
 let monitoringProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
@@ -29,7 +29,6 @@ let latestSample: ResourceSample | null = null;
 mock.module("../../../monitoring/control.js", () => ({
   MonitoringWorkerSpawnError: FakeSpawnError,
   spawnMonitoringWorkerProcess: async (opts: {
-    detached?: boolean;
     terminateOnTimeout?: boolean;
   }) => {
     spawnArgs.push(opts);
@@ -71,7 +70,7 @@ describe("monitoring_start", () => {
 
     const res = await handler("monitoring_start")();
 
-    expect(spawnArgs).toEqual([{ detached: false, terminateOnTimeout: true }]);
+    expect(spawnArgs).toEqual([{ terminateOnTimeout: true }]);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,

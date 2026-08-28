@@ -3,7 +3,7 @@
  *
  * The handlers run inside the daemon and manage the route host process. We mock
  * the route host control surface so the tests assert handler behaviour:
- *   - start spawns as a daemon child (detached:false) and throws on failure.
+ *   - start spawns the worker and throws on failure.
  *   - stop signals the host and reports its prior state.
  *   - status reports the host process liveness.
  */
@@ -15,7 +15,7 @@ import { getProcPidPath } from "../../../util/platform.js";
 class FakeSpawnError extends Error {}
 
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
-let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
+let spawnArgs: Array<{ terminateOnTimeout?: boolean } | undefined> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
@@ -24,7 +24,6 @@ let workerProbe: { status: "running" | "not_running"; pid?: number } = {
 mock.module("../../../routes/control.js", () => ({
   RouteHostSpawnError: FakeSpawnError,
   spawnRouteHostWorkerProcess: async (opts: {
-    detached?: boolean;
     terminateOnTimeout?: boolean;
   }) => {
     spawnArgs.push(opts);
@@ -57,7 +56,7 @@ describe("routes_worker_start", () => {
 
     const res = await handler("routes_worker_start")();
 
-    expect(spawnArgs).toEqual([{ detached: false }]);
+    expect(spawnArgs).toEqual([undefined]);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,

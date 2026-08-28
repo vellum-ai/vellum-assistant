@@ -1,12 +1,17 @@
 import { BrowserWindow } from "electron";
 
-import type { VellumCommand } from "@vellumai/ipc-contract";
+import {
+  DEFAULT_ACCELERATORS,
+  type VellumCommand,
+} from "@vellumai/ipc-contract";
 
 import { capabilityToken } from "./capability-registry";
 
 export type { VellumCommand };
 
 export type VellumCommandKind = VellumCommand["kind"];
+
+export { DEFAULT_ACCELERATORS };
 
 export interface HotkeySettingsProvider {
   read: () => Record<string, string>;
@@ -43,65 +48,12 @@ export const readHotkeyOverrides = (): Record<string, string> => ({
   ...hotkeySettings.read(),
 });
 
-export const writeHotkeyOverrides = (
-  hotkeys: Record<string, string>,
-): void => {
+export const writeHotkeyOverrides = (hotkeys: Record<string, string>): void => {
   hotkeySettings.write(hotkeys);
 };
 
-export const onHotkeyOverridesChange = (
-  listener: () => void,
-): (() => void) => hotkeySettings.subscribe(listener);
-
-/**
- * Default accelerators per command.
- *
- * Populated lazily at menu-build time by merging with `settings.hotkeys`
- * (rather than via the electron-store schema `default` block, which would
- * clobber user overrides on schema migration).
- */
-export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
-  newConversation: "CmdOrCtrl+N",
-  currentConversation: "CmdOrCtrl+Shift+N",
-  markCurrentUnread: "CmdOrCtrl+Shift+U",
-  togglePinConversation: "CmdOrCtrl+Shift+P",
-  openSettings: "CmdOrCtrl+,",
-  shareFeedback: "",
-  find: "CmdOrCtrl+F",
-  markAllRead: "",
-  login: "",
-  logout: "",
-  rePair: "",
-  sidebarToggle: "CmdOrCtrl+\\",
-  home: "CmdOrCtrl+Shift+H",
-  popOut: "CmdOrCtrl+P",
-  previousConversation: "CmdOrCtrl+Up",
-  nextConversation: "CmdOrCtrl+Down",
-  commandPalette: "CmdOrCtrl+K",
-  openConversation: "",
-  openLibrary: "",
-  openIdentity: "",
-  navigateBack: "",
-  navigateForward: "",
-  zoomIn: "",
-  zoomOut: "",
-  actualSize: "",
-  selectAssistant: "",
-  chooseAssistant: "",
-  createAssistant: "",
-  retireAssistant: "",
-  removePairedAssistant: "",
-  quickInputSubmit: "",
-  startVoice: "",
-  toggleVoice: "",
-  companionSubmit: "",
-  toggleWatch: "",
-  answerWatchRetro: "",
-  cancelDictation: "",
-  replayOnboarding: "",
-  replayHatchFailure: "",
-  openComponentGallery: "",
-};
+export const onHotkeyOverridesChange = (listener: () => void): (() => void) =>
+  hotkeySettings.subscribe(listener);
 
 /**
  * Commands whose accelerators are registered as Electron `globalShortcut`s

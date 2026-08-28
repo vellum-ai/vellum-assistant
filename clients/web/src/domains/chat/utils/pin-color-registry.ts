@@ -10,7 +10,7 @@
  * or absent id resolves to no tint, which is also what an uncoloured pin
  * stores.
  *
- * Sourced from the bundled copy of the character components rather than
+ * Sourced from the bundled copy of the avatar palette rather than
  * `useAssistantAvatar`, because a sidebar row paints on first render and the
  * picker opens inside a context menu. Neither can wait on a fetch.
  */
@@ -18,7 +18,7 @@
 import type { CSSProperties } from "react";
 import { panelItemWashStyle } from "@vellumai/design-library";
 
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
 
 /**
  * The name each colour is announced by, as a catalog key rather than the
@@ -63,7 +63,7 @@ export function pinColorNameKey(
  * choice, and the omission is loud enough to fix because the colour simply
  * does not appear.
  */
-export const PIN_COLORS: readonly PinColor[] = BUNDLED_COMPONENTS.colors.filter(
+export const PIN_COLORS: readonly PinColor[] = BUNDLED_COLORS.filter(
   (color): color is PinColor => color.id in COLOR_NAME_KEYS,
 );
 

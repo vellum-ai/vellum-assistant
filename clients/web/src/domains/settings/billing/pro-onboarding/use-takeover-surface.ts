@@ -6,7 +6,7 @@ import {
 } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
 import {
@@ -103,15 +103,16 @@ export function useTakeoverSurface(
   const effectiveCustomImageUrl = drawnStash ? null : customImageUrl;
   const ready = liveSettled || stashUsable;
 
+  const drawnPalette = effectiveComponents
+    ? effectiveComponents.colors
+    : BUNDLED_COLORS;
   const accent =
     resolveAvatarAccentHex(effectiveComponents, effectiveTraits) ??
     // ChatAvatar draws from `components ?? bundled`, so the surface tints from
     // the same source it does — the first bundled color when the query settles
     // with none — and matches whatever creature is on screen instead of falling
     // through to neutral.
-    (effectiveCustomImageUrl
-      ? null
-      : ((effectiveComponents ?? BUNDLED_COMPONENTS).colors?.[0]?.hex ?? null));
+    (effectiveCustomImageUrl ? null : (drawnPalette?.[0]?.hex ?? null));
 
   return {
     tintHex: ready && accent ? avatarSurfaceHex(accent) : SURFACE_GROUND,
