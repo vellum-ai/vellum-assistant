@@ -57,22 +57,48 @@ export function classifyWorkerOwnership(
   return "foreign";
 }
 
-/**
- * Command lines that identify an assistant daemon, running from source
- * (`.../daemon/main.ts`) or as the packaged binary.
- */
-const DAEMON_PROCESS_PATTERN = /vellum-daemon|[\\/]daemon[\\/]main/;
+/** The packaged daemon binary, with or without a Windows extension. */
+const PACKAGED_DAEMON_ARGV0 = /^vellum-daemon(\.exe)?$/i;
+
+/** The runtime the source daemon is launched under. */
+const BUN_ARGV0 = /^bun(\.exe)?$/i;
+
+/** The daemon entry script, as a whole trailing path segment pair. */
+const DAEMON_ENTRY_ARG = /(^|\/)daemon\/main\.(ts|js)$/;
+
+/** Strip surrounding quotes a Windows command line puts around a path. */
+function argvToken(raw: string): string {
+  return raw.replace(/^["']|["']$/g, "").replaceAll("\\", "/");
+}
 
 /**
- * Whether a command line belongs to an assistant daemon.
+ * Whether a command line is an assistant daemon, judged by argv shape rather
+ * than by substring.
  *
- * For a worker with exactly one legitimate owner, "is the owner alive" is not
- * the same question as "does some process still hold that PID". The OS recycles
- * PIDs, and a recycled owner PID would otherwise leave a stranded worker
- * looking owned, and therefore untouchable, indefinitely.
+ * Two accepted shapes: the packaged binary as argv0 (which also covers the
+ * source daemon once `process.title` rewrites its argv), or bun as argv0 with
+ * the daemon entry script among its arguments.
+ *
+ * The shape matters because this authorises an irreversible signal. A
+ * substring test would accept any command line that merely mentions a
+ * `daemon/main` path, so an unrelated service, an editor, or a test runner
+ * holding a recycled PID would qualify. `cli/src/lib/orphan-detection.test.ts`
+ * already pins that exact collision (`node /opt/unrelated-service/daemon/main.ts`)
+ * as something we must not claim.
  */
 export function isDaemonCommand(command: string | null): boolean {
-  return command != null && DAEMON_PROCESS_PATTERN.test(command);
+  if (command == null) {
+    return false;
+  }
+  const tokens = command.trim().split(/\s+/).filter(Boolean).map(argvToken);
+  const argv0 = tokens[0]?.split("/").pop() ?? "";
+  if (PACKAGED_DAEMON_ARGV0.test(argv0)) {
+    return true;
+  }
+  if (!BUN_ARGV0.test(argv0)) {
+    return false;
+  }
+  return tokens.slice(1).some((token) => DAEMON_ENTRY_ARG.test(token));
 }
 
 /**
