@@ -166,8 +166,11 @@ export function useCommandShortcutHint(
   return accelerator ? formatAcceleratorHint(accelerator) : undefined;
 }
 
-/** Reset the module cache. Test seam; not part of the runtime contract. */
-export function resetCommandShortcutsForTest(): void {
+/**
+ * Reset the module cache. Test seam, named with the `__…ForTesting` prefix
+ * the app uses to mark one; not part of the runtime contract.
+ */
+export function __resetCommandShortcutsForTesting(): void {
   catalog = [];
   revision = 0;
   started = false;
