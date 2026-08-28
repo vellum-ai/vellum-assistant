@@ -178,7 +178,10 @@ describe("retireLocal — CES sibling stop", () => {
       ([, label]) => label === "daemon",
     );
     expect(daemonStopCall?.[3]).toBe(DAEMON_STOP_TIMEOUT_MS);
-    expect(DAEMON_STOP_TIMEOUT_MS).toBeGreaterThan(60_000);
+    // The budget is only meaningful if it outlasts the daemon's own 30s
+    // force-exit, which is what it is derived from. Anything at or below that
+    // kills the daemon before it can fold the WAL and hand off on its way out.
+    expect(DAEMON_STOP_TIMEOUT_MS).toBeGreaterThan(30_000);
   });
 
   test("CES stop is a no-op when ces.pid is absent", async () => {

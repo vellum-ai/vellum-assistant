@@ -223,14 +223,15 @@ describe("sleep command", () => {
     }
 
     expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(3);
-    // The assistant stop passes a generous 120s grace so the daemon's WAL
-    // checkpoint completes before any SIGKILL (default 2s would truncate it).
+    // The assistant stop passes the daemon's own shutdown budget plus a margin,
+    // so its WAL checkpoint completes before any SIGKILL (the default 2s grace
+    // would truncate it).
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       1,
       join(assistantRootDir, "workspace", "vellum.pid"),
       "assistant",
       undefined,
-      120_000,
+      45_000,
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       2,

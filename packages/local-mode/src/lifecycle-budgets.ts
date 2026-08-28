@@ -13,18 +13,18 @@
 /**
  * SIGKILL ceiling for stopping the assistant daemon.
  *
- * The daemon's graceful shutdown fires plugin shutdown hooks, commits the
- * workspace, flushes telemetry, SIGTERMs the worker processes it owns
- * (schedule, route host, resource monitor, memory jobs), and folds the SQLite
- * WAL back into the database. Those steps run near the end of the sequence, so
- * a short grace period kills the daemon before it reaches them: the workers
- * reparent to init and keep running on that runtime version, and an
- * interrupted checkpoint costs a multi-minute WAL recovery on the next start.
+ * Derived from the daemon's own budget rather than guessed. Its shutdown arms
+ * a 30s force-exit timer; when that fires it hands the SQLite WAL fold to a
+ * detached subprocess that outlives `process.exit` and then exits. So a daemon
+ * whose event loop still runs is gone within 30s with its WAL folded, and a
+ * daemon whose event loop is blocked never fires that timer at all, which no
+ * amount of extra waiting changes. Waiting past the daemon's own ceiling plus
+ * a margin therefore buys nothing and only delays the SIGKILL.
  *
  * A ceiling, not a delay. The CLI returns as soon as the process exits, so
  * this only applies to a daemon that is genuinely wedged.
  */
-export const DAEMON_STOP_TIMEOUT_MS = 120_000;
+export const DAEMON_STOP_TIMEOUT_MS = 45_000;
 
 /**
  * Headroom a host wrapper allows on top of {@link DAEMON_STOP_TIMEOUT_MS} for
