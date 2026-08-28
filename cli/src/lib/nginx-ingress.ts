@@ -180,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 6;
+export const EDGE_TEMPLATE_VERSION = 6;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and

@@ -73,6 +73,7 @@ import {
   buildRemoteWebIndexHtml,
   cloudWebHubUrl,
   ensureTunnelEdge,
+  EDGE_TEMPLATE_VERSION,
   startRemoteWebIngress,
   stopContainerTunnelEdge,
   stopIngressNginx,
@@ -760,7 +761,9 @@ const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
  * Mirror of the SPA config fingerprint the edge records in its ingress state
  * (sha256 over the edge template version and the injected config JSON). Pins
  * both the injected config shape and the hash format; assumes the
- * production-pinned environment. `template` tracks `EDGE_TEMPLATE_VERSION`.
+ * production-pinned environment. The version itself is imported rather than
+ * mirrored: bumping it is the correct response to any template edit, so a
+ * copy here would fail every such edit without naming a defect.
  */
 function spaConfigHash(
   opts: { assistantName?: string; assistantId?: string } = {},
@@ -768,7 +771,7 @@ function spaConfigHash(
   return createHash("sha256")
     .update(
       JSON.stringify({
-        template: 5,
+        template: EDGE_TEMPLATE_VERSION,
         config: {
           mode: "remote-gateway",
           apiBaseUrl: "/v1",
