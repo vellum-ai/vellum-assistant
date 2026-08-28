@@ -16,6 +16,8 @@
 import type { Decorator } from "@storybook/react-vite";
 import type { CSSProperties, ReactNode } from "react";
 
+import { cn } from "@vellumai/design-library";
+
 import { CameraShutter, type CameraShutterProps } from "./camera-shutter";
 import {
   CameraFlashControl,
@@ -123,6 +125,13 @@ export interface CameraRowSceneProps {
   shutter?: CameraShutterProps;
   /** The flash control to its left. Defaults to auto, the state with the badge. */
   flash?: Pick<CameraFlashControlProps, "mode" | "ariaLabel">;
+  /**
+   * The width the row is read at. On its own it takes a phone's, which is what
+   * the flanking offsets were drawn against; a composed screen passes `w-full`
+   * instead, since in the app the row is as wide as the room it sits in and
+   * the flanks ride that edge rather than a fixed one.
+   */
+  className?: string;
 }
 
 /**
@@ -138,9 +147,15 @@ export interface CameraRowSceneProps {
 export function CameraRowScene({
   shutter = ROW_SHUTTER,
   flash,
+  className,
 }: CameraRowSceneProps) {
   return (
-    <div className="relative flex w-[390px] items-center justify-center">
+    <div
+      className={cn(
+        "relative flex w-[390px] items-center justify-center",
+        className,
+      )}
+    >
       <CameraFlashControl
         {...ROW_FLASH}
         {...flash}
