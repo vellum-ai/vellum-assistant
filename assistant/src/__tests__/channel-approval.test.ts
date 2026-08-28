@@ -16,7 +16,7 @@ describe("parseCallbackData", () => {
     expect(result).not.toBeNull();
     expect(result!.action).toBe(expectedAction);
     expect(result!.requestId).toBe("req-123");
-    expect(result!.source).toBe("telegram_button");
+    expect(result!.source).toBe("button");
   });
 
   test.each<[string, string]>([
@@ -33,12 +33,19 @@ describe("parseCallbackData", () => {
     },
   );
 
-  test("parses slack source channel", () => {
-    const result = parseCallbackData("apr:req-789:approve_once", "slack");
-    expect(result).not.toBeNull();
-    expect(result!.action).toBe("approve_once");
-    expect(result!.requestId).toBe("req-789");
-    expect(result!.source).toBe("slack_button");
+  test("every channel's button press attributes as the button modality", () => {
+    for (const channel of ["slack", "telegram", "whatsapp", "discord"]) {
+      const result = parseCallbackData("apr:req-789:approve_once", channel);
+      expect(result).not.toBeNull();
+      expect(result!.action).toBe("approve_once");
+      expect(result!.requestId).toBe("req-789");
+      expect(result!.source).toBe("button");
+    }
+  });
+
+  test("an in-app surface press attributes as vellum_surface", () => {
+    const result = parseCallbackData("apr:req-789:approve_once", "vellum");
+    expect(result!.source).toBe("vellum_surface");
   });
 
   test("returns null for unknown action", () => {

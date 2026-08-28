@@ -79,9 +79,6 @@ export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
   const containerRef = useRef<HTMLSpanElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
-  // What the document holds, against `numPages` which is what MAX_PAGES
-  // allows: the gap is what the reader is not being shown.
-  const [totalPages, setTotalPages] = useState(0);
   // Width/height of page 1, stamped onto each canvas as it mounts so the box
   // holds a page's shape before anything is drawn into it: a canvas has no
   // intrinsic size until `renderPage` runs, so the row would otherwise
@@ -104,7 +101,6 @@ export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
       setFailed(false);
       setPdf(null);
       setNumPages(0);
-      setTotalPages(0);
       placeholderAspectRatio.current = null;
       renderedPages.current.clear();
 
@@ -144,7 +140,6 @@ export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
         placeholderAspectRatio.current = height > 0 ? width / height : null;
         setPdf(doc);
         setNumPages(Math.min(doc.numPages, MAX_PAGES));
-        setTotalPages(doc.numPages);
       } catch {
         if (!cancelled) {
           setFailed(true);
@@ -298,7 +293,9 @@ export function PdfPreview({ url, className, errorFallback }: PdfPreviewProps) {
           style={{ height: "auto" }}
         />
       ))}
-      {totalPages > numPages && (
+      {/* `numPages` is what MAX_PAGES allows; the proxy knows what the
+          document actually holds, and the gap is what is not being shown. */}
+      {pdf !== null && pdf.numPages > numPages && (
         <PreviewTruncationNotice as="span">
           {t("pdfPreview.pageCapNotice", { count: numPages })}
         </PreviewTruncationNotice>

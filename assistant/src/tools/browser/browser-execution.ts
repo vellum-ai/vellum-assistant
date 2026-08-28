@@ -39,6 +39,8 @@ import {
   BROWSER_STATUS_MODES,
   type BrowserStatusMode,
   CDP_INSPECT_STATUS_DISCOVERY_CODE,
+  CHROME_EXTENSION_INSTALL_HINT,
+  CHROME_WEB_STORE_INSTALL_URL,
 } from "./browser-status-constants.js";
 import {
   formatAxSnapshot,
@@ -295,6 +297,7 @@ export function parseBrowserMode(
 const REMEDIATION_HINTS: Record<string, string[]> = {
   // Extension backend
   "extension:transport_error": [
+    CHROME_EXTENSION_INSTALL_HINT,
     "Ensure the Vellum browser extension is installed and enabled, or that the macOS desktop client is running for host browser proxy mode.",
     "For extension mode: check that the extension WebSocket connection is active (extension popup → status).",
     "For macOS host browser proxy: verify the desktop client is running and has an active SSE connection to the assistant.",
@@ -334,11 +337,11 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
     "Ensure Chrome on the user's machine is on version 146 or higher (chrome://settings/help).",
     'Ensure "Allow remote debugging for this browser instance" is toggled on at chrome://inspect/#remote-debugging.',
     "Verify the desktop client is running and has an active SSE connection to the assistant.",
-    "Installing the Vellum Chrome extension is the preferred path and avoids the debug-port requirement.",
+    `Installing the Vellum Chrome extension is the preferred path and avoids the debug-port requirement: ${CHROME_WEB_STORE_INSTALL_URL}`,
   ],
   "host-bridge:transport_error": [
     "The desktop client could not reach Chrome's remote-debugging endpoint on the user's machine.",
-    "Ensure Chrome is running with remote debugging enabled, or install the Vellum Chrome extension (preferred).",
+    `Ensure Chrome is running with remote debugging enabled, or install the Vellum Chrome extension (preferred): ${CHROME_WEB_STORE_INSTALL_URL}`,
     "Verify the desktop client is running and connected.",
   ],
   // Local/Playwright backend

@@ -4,7 +4,8 @@ import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_SIZES,
-  COMPANION_SIZE_BOXES,
+  companionBoxFor,
+  companionCardSideFor,
   companionNearEdgeFor,
   companionScaleFor,
   type CompanionSize,
@@ -289,10 +290,12 @@ const BIG_CREATURE = geometryFor("huge", "small");
 const BIG_OPTIONS = geometryFor("small", "huge");
 
 /**
- * The part of the base reach the geometry does not publish: the pill's widest.
- * Bound to the contract for the cases that are about it rather than the sum.
+ * The part of the base reach the geometry does not publish: the pill's widest,
+ * at the options size {@link GEOMETRY} is drawn in. Bound to the contract for
+ * the cases that are about it rather than the sum.
  */
-const MAX_PILL_WIDTH = COMPANION_BASE_MAX_PILL_WIDTH;
+const MAX_PILL_WIDTH =
+  COMPANION_BASE_MAX_PILL_WIDTH * companionScaleFor(GEOMETRY.optionsBox);
 
 /**
  * The growth direction is the only rule in the companion window worth testing
@@ -348,11 +351,17 @@ describe("growthFor", () => {
   /**
    * The room is measured from the avatar's centre while the pill starts at the
    * avatar's edge, so the half box is the difference between fitting and
-   * clipping. 340pt on the right clears the gap and the widest body and still
-   * cuts the controls off.
+   * clipping. Room enough for the gap and the widest body still cuts the
+   * controls off.
    */
   test("flips when only the avatar's half box is missing on the right", () => {
-    expect(growthFor(DISPLAY.width - 340, DISPLAY, GEOMETRY)).toBe("left");
+    expect(
+      growthFor(
+        DISPLAY.width - (NEEDED - GEOMETRY.avatarBox / 2),
+        DISPLAY,
+        GEOMETRY,
+      ),
+    ).toBe("left");
   });
 
   test("measures against the display's own origin, not the screen's", () => {
@@ -648,11 +657,11 @@ describe("geometryFor", () => {
       CompanionSize,
       { maxReach: number; canvasWidth: number; canvasHeight: number }
     > = {
-      small: { maxReach: 350, canvasWidth: 748, canvasHeight: 338 },
-      medium: { maxReach: 525, canvasWidth: 1122, canvasHeight: 507 },
-      large: { maxReach: 700, canvasWidth: 1496, canvasHeight: 676 },
-      huge: { maxReach: 875, canvasWidth: 1870, canvasHeight: 845 },
-      ridiculous: { maxReach: 1750, canvasWidth: 3740, canvasHeight: 1690 },
+      small: { maxReach: 261, canvasWidth: 570, canvasHeight: 267 },
+      medium: { maxReach: 361, canvasWidth: 794, canvasHeight: 374 },
+      large: { maxReach: 536, canvasWidth: 1168, canvasHeight: 547 },
+      huge: { maxReach: 711, canvasWidth: 1542, canvasHeight: 720 },
+      ridiculous: { maxReach: 930, canvasWidth: 2100, canvasHeight: 1035 },
     };
     for (const size of COMPANION_SIZES) {
       const { maxReach, canvasWidth, canvasHeight } = geometryFor(size, size);
@@ -668,7 +677,7 @@ describe("geometryFor", () => {
   test("takes the creature's box from the avatar axis alone", () => {
     for (const options of COMPANION_SIZES) {
       expect(geometryFor("large", options).avatarBox).toBe(
-        COMPANION_SIZE_BOXES.large,
+        companionBoxFor("avatar", "large"),
       );
     }
   });
@@ -680,30 +689,48 @@ describe("geometryFor", () => {
   test("takes the pill's box from the options axis alone", () => {
     for (const avatar of COMPANION_SIZES) {
       expect(geometryFor(avatar, "large").optionsBox).toBe(
-        COMPANION_SIZE_BOXES.large,
+        companionBoxFor("options", "large"),
       );
     }
   });
 
   /**
-   * The two-box distances are the one-box ones wherever there is only one size,
-   * which is what makes the second axis a widening rather than a second
-   * geometry to keep in step.
+   * The two sides of the avatar at each step, as the numbers they come to.
+   *
+   * Not one scale times the authored pair: a name is a creature and a pill a
+   * notch apart, so the two sides move at different rates and each step is its
+   * own canvas. The authored pair is stated first, since each of these is that
+   * one layout scaled.
    */
-  test("reduces to the single-scale canvas when the axes agree", () => {
-    // The two sides at the base size, which the whole layout is authored
-    // around: the creature and its shadow below, the card's height above.
+  test("states both sides of the avatar at every named step", () => {
+    // The pill's bottom sits 14 under the avatar's centre, so its top stands
+    // 30 over it where the creature's box reaches only 22, and the card rises
+    // its whole height off that same line. Both sides then take the pad.
     expect(
       companionNearEdgeFor(
         COMPANION_BASE_AVATAR_BOX,
         COMPANION_BASE_AVATAR_BOX,
       ),
-    ).toBe(46);
+    ).toBe(54);
+    expect(
+      companionCardSideFor(
+        COMPANION_BASE_AVATAR_BOX,
+        COMPANION_BASE_AVATAR_BOX,
+      ),
+    ).toBe(300);
+    const sides: Record<
+      CompanionSize,
+      { riseAbove: number; dropBelow: number }
+    > = {
+      small: { riseAbove: 221, dropBelow: 46 },
+      medium: { riseAbove: 305, dropBelow: 69 },
+      large: { riseAbove: 455, dropBelow: 92 },
+      huge: { riseAbove: 605, dropBelow: 115 },
+      ridiculous: { riseAbove: 805, dropBelow: 230 },
+    };
     for (const size of COMPANION_SIZES) {
-      const geometry = geometryFor(size, size);
-      const scale = companionScaleFor(geometry.avatarBox);
-      expect(geometry.dropBelow).toBe(46 * scale);
-      expect(geometry.riseAbove).toBe(292 * scale);
+      const { riseAbove, dropBelow } = geometryFor(size, size);
+      expect({ riseAbove, dropBelow }).toEqual(sides[size]);
     }
   });
 
@@ -717,14 +744,21 @@ describe("geometryFor", () => {
 
   /**
    * The canvas is a window size, and a window cannot be a fraction of a point.
-   * The offsets are not rounded, because they are arithmetic on the way to a
-   * position that is.
+   * The two offsets are whole points too, and the width is even: the avatar
+   * sits on the canvas's centre line and on the line between the offsets, so a
+   * fraction anywhere here stands the creature on a half point that a resize
+   * cannot land back on. The options axis is where this bites, since its
+   * smaller steps are not whole multiples of the box the layout is authored at.
    */
   test("gives every size a whole-point canvas", () => {
     for (const size of COMPANION_SIZES) {
       const geometry = geometryFor(size, size);
       expect(Number.isInteger(geometry.canvasWidth)).toBe(true);
       expect(Number.isInteger(geometry.canvasHeight)).toBe(true);
+      expect(Number.isInteger(geometry.riseAbove)).toBe(true);
+      expect(Number.isInteger(geometry.dropBelow)).toBe(true);
+      expect(Number.isInteger(geometry.maxReach)).toBe(true);
+      expect(geometry.canvasWidth % 2).toBe(0);
     }
   });
 
@@ -774,31 +808,32 @@ describe("geometryFor with the two axes apart", () => {
    *
    * The width is where the gap rule shows: the gap is breathing room, so the
    * smaller of the two boxes decides how much of it there is, and the creature
-   * below takes the base gap rather than the chasm its own scale would ask for,
-   * which would put its reach at 401. The two heights are the two sides of the
-   * avatar: the near edge clears the creature's bottom and the pill's top
-   * alike, and the far edge clears the card growing either way.
+   * below takes its small pill's gap rather than the chasm its own scale would
+   * ask for, which would put its reach at 315. The two heights are the two
+   * sides of the avatar: the near edge clears the creature's box and the pill's
+   * top alike, and the far edge clears the card growing either way.
    */
   test("holds the pill, the card and the creature at each mix", () => {
-    // An enormous creature's half box, the base gap, and a base-width pill.
+    // An enormous creature's half box, the gap its small pill earns, and that
+    // pill at its widest.
     expect(BIG_CREATURE).toEqual({
       avatarBox: 110,
-      optionsBox: 44,
-      maxReach: 383,
-      canvasWidth: 886,
-      riseAbove: 361,
+      optionsBox: 32,
+      maxReach: 294,
+      canvasWidth: 708,
+      riseAbove: 274,
       dropBelow: 115,
-      canvasHeight: 476,
+      canvasHeight: 389,
     });
-    // A base half box, the same gap, and a pill two and a half times as wide.
+    // A base half box, the base gap, and a pill twice as wide.
     expect(BIG_OPTIONS).toEqual({
       avatarBox: 44,
-      optionsBox: 110,
-      maxReach: 824,
-      canvasWidth: 1768,
-      riseAbove: 763,
-      dropBelow: 148,
-      canvasHeight: 911,
+      optionsBox: 88,
+      maxReach: 666,
+      canvasWidth: 1428,
+      riseAbove: 614,
+      dropBelow: 122,
+      canvasHeight: 736,
     });
   });
 
@@ -821,8 +856,13 @@ describe("geometryFor with the two axes apart", () => {
    * display gets there.
    */
   test("still grows the designed way where neither side can hold the pill", () => {
+    const enormousOptions = geometryFor("small", "ridiculous");
     expect(
-      growthFor(DISPLAY.width - BIG_OPTIONS.maxReach + 1, DISPLAY, BIG_OPTIONS),
+      growthFor(
+        DISPLAY.width - enormousOptions.maxReach + 1,
+        DISPLAY,
+        enormousOptions,
+      ),
     ).toBe("right");
   });
 });

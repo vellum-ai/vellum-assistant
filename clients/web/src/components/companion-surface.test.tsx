@@ -464,14 +464,16 @@ describe("the companion surface's anchor in the canvas", () => {
   });
 
   /**
-   * The avatar's bottom line is the fixed point. The pill's bottom sits on it,
-   * which at this size puts the pill's own centre on the avatar's centre too,
-   * and the mascot never moves whichever way the pill or the card grows.
+   * The creature's visible bottom is the fixed point. The pill's bottom sits on
+   * it rather than on the avatar's box, which runs a further 8 points down to
+   * hold the glow, and the mascot never moves whichever way the pill or the
+   * card grows.
    */
-  test("sits the pill's bottom on the avatar's bottom", () => {
+  test("sits the pill's bottom on the creature's visible bottom", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
-    // 46 from the canvas edge to the avatar's centre, 22 further to its bottom.
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 24px)");
+    // 54 from the canvas edge to the avatar's centre, 14 further to the bottom
+    // of the 28pt artwork inside its 44pt box.
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 40px)");
     expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
   });
 
@@ -480,15 +482,15 @@ describe("the companion surface's anchor in the canvas", () => {
    * down, so the row's bottom is the avatar's bottom either way and the card
    * hangs off it in whichever direction the host picked.
    */
-  test("hangs the card off the avatar's line when it grows up", () => {
+  test("hangs the card off the creature's line when it grows up", () => {
     const { container } = render(<CompanionSurface phase="typing" />);
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 24px)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 40px)");
     expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
   });
 
   /**
    * The whole column against the other edge: the avatar sits on the canvas's
-   * top line, the pill keeps its bottom on the avatar's, and the card falls
+   * top line, the pill keeps its bottom on the creature's, and the card falls
    * away from the row instead of hanging off it. The column reverses for the
    * reason the row does when the pill grows left: the row holding the avatar's
    * line has to end up against the avatar, and the conversation stacks away
@@ -498,7 +500,7 @@ describe("the companion surface's anchor in the canvas", () => {
     const { container: resting } = render(
       <CompanionSurface phase="resting" cardGrowth="down" />,
     );
-    expect(avatarOf(resting).style.top).toBe("46px");
+    expect(avatarOf(resting).style.top).toBe("54px");
 
     const { container: hover } = render(
       <CompanionSurface phase="hover" cardGrowth="down" />,
@@ -544,7 +546,7 @@ describe("the companion surface's anchor in the canvas", () => {
     for (const phase of PHASES) {
       const { container } = render(<CompanionSurface phase={phase} />);
       expect(avatarOf(container).style.left).toBe("50%");
-      expect(avatarOf(container).style.top).toBe("calc(100% - 46px)");
+      expect(avatarOf(container).style.top).toBe("calc(100% - 54px)");
       expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
       cleanup();
     }
@@ -625,9 +627,9 @@ describe("the companion surface at two sizes", () => {
 
   /**
    * 55 to a huge creature's edge, then the gap the smaller of the two earns.
-   * Bottom-flush with it as well: the near edge is 115 at this pair and the
-   * creature's bottom is 55 in from its centre, so the pill's bottom lands 60
-   * from the canvas edge.
+   * On its visible bottom as well: the near edge is 115 at this pair and the
+   * artwork stops 35 in from the centre, so the pill's bottom lands 80 from the
+   * canvas edge.
    */
   test("steps the pill off a larger creature's edge and onto its bottom", () => {
     const { container } = render(
@@ -635,22 +637,22 @@ describe("the companion surface at two sizes", () => {
     );
     expect(surfaceOf(container).style.left).toBe("calc(50% + 67px)");
     expect(avatarOf(container).style.top).toBe("calc(100% - 115px)");
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 60px)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 80px)");
     expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
   });
 
   /**
    * The same rules the other way round, read in the pill's own units: 22 points
    * to the creature's edge and 12 of gap, at a scale of two and a half, and the
-   * pill's bottom on the creature's own bottom as before.
+   * pill's bottom on the creature's visible bottom the same way.
    */
   test("steps it off a smaller creature and onto its bottom too", () => {
     const { container } = render(
       <CompanionSurface phase="hover" avatarBox={44} optionsBox={110} />,
     );
     expect(surfaceOf(container).style.left).toBe("calc(50% + 13.6px)");
-    expect(avatarOf(container).style.top).toBe("calc(100% - 59.2px)");
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 50.4px)");
+    expect(avatarOf(container).style.top).toBe("calc(100% - 62.4px)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 56.8px)");
     expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
   });
 
@@ -676,12 +678,12 @@ describe("the companion surface at two sizes", () => {
       />,
     );
     expect(avatarOf(container).style.top).toBe("115px");
-    expect(surfaceOf(container).style.top).toBe("170px");
+    expect(surfaceOf(container).style.top).toBe("150px");
   });
 
   /**
    * The card growing downward starts on its composer row's top line, which is
-   * one options box above the creature's bottom whatever the creature's size.
+   * one options box above the creature's baseline whatever the creature's size.
    */
   test("drops the card from the composer row's own line", () => {
     const { container } = render(
@@ -726,7 +728,7 @@ describe("the companion surface at two sizes", () => {
       <CompanionSurface phase="resting" avatarBox={110} optionsBox={110} />,
     );
     expect(avatarOf(container).style.transform).toBe("translate(-50%, -50%)");
-    expect(avatarOf(container).style.top).toBe("calc(100% - 46px)");
+    expect(avatarOf(container).style.top).toBe("calc(100% - 54px)");
   });
 });
 

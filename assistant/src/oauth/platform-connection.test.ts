@@ -102,6 +102,41 @@ describe("PlatformOAuthConnection", () => {
     expect(result.body).toEqual(upstreamBody);
   });
 
+  test("encodes a Buffer request body as base64 in the proxy envelope", async () => {
+    const binary = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
+    ]);
+
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
+        const parsed = JSON.parse(init?.body as string);
+        expect(parsed.request.body).toBe(binary.toString("base64"));
+        expect(parsed.request.body_encoding).toBe("base64");
+        expect(parsed.request.headers["Content-Type"]).toBe("application/pdf");
+
+        return new Response(
+          JSON.stringify({
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: { id: "file-123" },
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      client,
+    });
+    await conn.request({
+      method: "POST",
+      path: "/upload/drive/v3/files",
+      headers: { "Content-Type": "application/pdf" },
+      body: binary,
+    });
+  });
+
   test("decodes base64 binary proxy bodies into a Buffer", async () => {
     const binary = Buffer.from([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,

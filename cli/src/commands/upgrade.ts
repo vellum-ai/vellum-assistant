@@ -6,8 +6,10 @@ import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
+  formatAssistantLookupError,
   getActiveAssistant,
   loadAllAssistants,
+  lookupAssistantByIdentifier,
   saveAssistantEntry,
   type AssistantEntry,
 } from "../lib/assistant-config";
@@ -42,6 +44,7 @@ import {
   restoreBackup,
 } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
@@ -89,9 +92,14 @@ interface UpgradeArgs {
   force: boolean;
 }
 
+// Flags that consume the following argv token as a value, rather than a
+// boolean switch. Passed to `parseAssistantTargetArg` so an unquoted
+// multi-word display name is not truncated at a flag's value.
+const UPGRADE_FLAGS_WITH_VALUES = ["--version"];
+
 function parseArgs(): UpgradeArgs {
   const args = process.argv.slice(3);
-  let name: string | null = null;
+  const name = parseAssistantTargetArg(args, UPGRADE_FLAGS_WITH_VALUES) ?? null;
   let version: string | null = null;
   let latest = false;
   let prepare = false;
@@ -166,7 +174,8 @@ function parseArgs(): UpgradeArgs {
     } else if (arg === "--force") {
       force = true;
     } else if (!arg.startsWith("-")) {
-      name = arg;
+      // Positional token, part of a possibly multi-word display name.
+      // Collected up front via `parseAssistantTargetArg` above.
     } else {
       console.error(`Error: Unknown option '${arg}'.`);
       emitCliError("UNKNOWN", `Unknown option '${arg}'`);
@@ -202,22 +211,22 @@ function parseArgs(): UpgradeArgs {
 
 /**
  * Resolve which assistant to target for the upgrade command. Priority:
- * 1. Explicit name argument
+ * 1. Explicit name argument (exact assistant ID wins over a display-name
+ *    match; a unique display-name match resolves; an ambiguous display
+ *    name is an error listing the matching IDs)
  * 2. Active assistant set via `vellum use`
  * 3. Sole assistant (when exactly one exists)
  */
 function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
   if (nameArg) {
-    const entry = findAssistantByName(nameArg);
-    if (!entry) {
-      console.error(`No assistant found with name '${nameArg}'.`);
-      emitCliError(
-        "ASSISTANT_NOT_FOUND",
-        `No assistant found with name '${nameArg}'.`,
-      );
+    const result = lookupAssistantByIdentifier(nameArg);
+    if (result.status !== "found") {
+      const msg = formatAssistantLookupError(nameArg, result);
+      console.error(msg);
+      emitCliError("ASSISTANT_NOT_FOUND", msg);
       process.exit(1);
     }
-    return entry;
+    return result.entry;
   }
 
   const active = getActiveAssistant();
@@ -1518,7 +1527,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     const installResult = spawnSync(
       "bun",
       ["install", "-g", `vellum@${stripVersionPrefix(latestTag)}`],
-      { stdio: "inherit" },
+      { stdio: "inherit", windowsHide: true },
     );
     if (installResult.error || installResult.status !== 0) {
       const detail =
@@ -1542,6 +1551,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`🚀 Re-running upgrade with updated CLI...\n`);
     const reexecResult = spawnSync("vellum", reexecArgs, {
       stdio: "inherit",
+      windowsHide: true,
     });
     process.exit(reexecResult.status ?? 1);
   }

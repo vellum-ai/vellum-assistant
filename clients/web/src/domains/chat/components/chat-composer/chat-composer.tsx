@@ -40,16 +40,14 @@ import {
   useIsCompactComposerWidth,
 } from "@/domains/chat/components/chat-composer/composer-compact";
 import {
+  COMPOSER_MOBILE_RADIUS_CLASS,
+  COMPOSER_RADIUS_CLASS,
   MOBILE_CONTROL_CLASS,
   MOBILE_GHOST_WASH_CLASS,
   MOBILE_GLYPH_CLASS,
   preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
-import {
-  COMPOSER_MOBILE_RADIUS_CLASS,
-  COMPOSER_RADIUS_CLASS,
-  VoiceComposerBar,
-} from "@/domains/chat/components/chat-composer/voice-composer-bar";
+import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import { useSupportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import {
@@ -1032,8 +1030,8 @@ export function ChatComposer({
     : undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
-  // panel elsewhere, both from the live-voice bar's module: the bar stacks on
-  // this card and has to wear whichever corner it is showing. The banner
+  // panel elsewhere, both shared with the live-voice bar: it stacks on this
+  // card and has to wear whichever corner the card is showing. The banner
   // variants stay literal, since a bottom-only corner is not the same class.
   const cardShapeClass = isMobile
     ? hasBillingBanner
@@ -1668,6 +1666,8 @@ export function ChatComposer({
                   <ChatAttachmentsStrip
                     attachments={attachments}
                     onRemove={removeAttachment}
+                    tileImages={isMobile}
+                    pressGuard={rowPressGuard}
                   />
                   {isMobile ? (
                     <>

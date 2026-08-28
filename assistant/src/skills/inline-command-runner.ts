@@ -125,6 +125,7 @@ export async function runInlineCommand(
         cwd: workingDir,
         env,
         stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

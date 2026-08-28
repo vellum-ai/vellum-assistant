@@ -135,7 +135,7 @@ If identity was skipped → swap the last two lines for:
 
 **No tokens after creating the app.** Slack shows both under **Your app credentials** in the "your app is ready" modal, collapsed behind a toggle — expand it. If that panel is missing entirely, the app was created from a template (**AI agent**, **Starter app**, **Blank app**) rather than **From a manifest**; scopes will be wrong too, so start over from Step 1. Do not hand-edit scopes.
 
-**Calls fail with `missing_scope` even though setup succeeded.** Slack sometimes installs an app carrying only a fraction of the manifest's scopes — a live install produced 2 of 18. `auth.test` still passes, so a green connection check does not prove the scopes arrived. Confirm by reading the `x-oauth-scopes` response header on any Slack API call and comparing it against the scopes in the manifest.
+**Calls fail with `missing_scope` even though setup succeeded.** Slack sometimes installs an app carrying only a fraction of the manifest's scopes. `auth.test` still passes, so a green connection check does not prove the scopes arrived. Confirm by reading the `x-oauth-scopes` response header on any Slack API call and comparing it against the scopes in the manifest.
 
 To fix, in this order:
 

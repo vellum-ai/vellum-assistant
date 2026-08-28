@@ -54,6 +54,7 @@ import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
+import { getUserAppDataDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getOriginClientId,
@@ -73,13 +74,25 @@ const log = getLogger("app-management-routes");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getSharedAppsDir(): string {
-  return join(
+function getSharedAppsDirs(): string[] {
+  const canonical = join(
+    getUserAppDataDir(),
+    "vellum-assistant",
+    "shared-apps",
+  );
+  const legacy = join(
     homedir(),
     "Library",
     "Application Support",
     "vellum-assistant",
     "shared-apps",
+  );
+  return legacy === canonical ? [canonical] : [canonical, legacy];
+}
+
+function resolveSharedAppDir(appUuid: string, dirs: string[]): string | null {
+  return (
+    dirs.find((dir) => existsSync(join(dir, `${appUuid}-meta.json`))) ?? null
   );
 }
 
@@ -218,13 +231,9 @@ function getAppDataResult(
   }
 }
 
-function listSharedApps(): Array<Record<string, unknown>> {
-  const dir = getSharedAppsDir();
-  if (!existsSync(dir)) {
-    return [];
-  }
-
-  const files = readdirSync(dir).filter((f) => f.endsWith("-meta.json"));
+function listSharedApps(
+  dirs = getSharedAppsDirs(),
+): Array<Record<string, unknown>> {
   const apps: Array<{
     uuid: string;
     name: string;
@@ -240,43 +249,54 @@ function listSharedApps(): Array<Record<string, unknown>> {
     contentId?: string;
     forked?: boolean;
   }> = [];
+  const seen = new Set<string>();
 
-  for (const file of files) {
-    try {
-      const raw = readFileSync(join(dir, file), "utf-8");
-      const meta = JSON.parse(raw);
-
-      let version: string | undefined;
-      let contentId: string | undefined;
-      const manifestPath = join(dir, meta.uuid, "manifest.json");
-      if (existsSync(manifestPath)) {
-        try {
-          const manifestRaw = readFileSync(manifestPath, "utf-8");
-          const manifest = JSON.parse(manifestRaw);
-          version = manifest.version;
-          contentId = manifest.content_id;
-        } catch {
-          // ignore malformed manifest
+  for (const dir of dirs) {
+    if (!existsSync(dir)) {
+      continue;
+    }
+    const files = readdirSync(dir).filter((f) => f.endsWith("-meta.json"));
+    for (const file of files) {
+      try {
+        const raw = readFileSync(join(dir, file), "utf-8");
+        const meta = JSON.parse(raw);
+        if (seen.has(meta.uuid)) {
+          continue;
         }
-      }
 
-      apps.push({
-        uuid: meta.uuid,
-        name: meta.name,
-        description: meta.description,
-        icon: meta.icon,
-        preview: meta.preview,
-        entry: meta.entry,
-        trustTier: meta.trustTier,
-        signerDisplayName: meta.signerDisplayName,
-        bundleSizeBytes: meta.bundleSizeBytes ?? 0,
-        installedAt: meta.installedAt,
-        version,
-        contentId,
-        forked: meta.forked,
-      });
-    } catch {
-      log.warn({ file }, "Failed to read shared app metadata file");
+        let version: string | undefined;
+        let contentId: string | undefined;
+        const manifestPath = join(dir, meta.uuid, "manifest.json");
+        if (existsSync(manifestPath)) {
+          try {
+            const manifestRaw = readFileSync(manifestPath, "utf-8");
+            const manifest = JSON.parse(manifestRaw);
+            version = manifest.version;
+            contentId = manifest.content_id;
+          } catch {
+            // ignore malformed manifest
+          }
+        }
+
+        apps.push({
+          uuid: meta.uuid,
+          name: meta.name,
+          description: meta.description,
+          icon: meta.icon,
+          preview: meta.preview,
+          entry: meta.entry,
+          trustTier: meta.trustTier,
+          signerDisplayName: meta.signerDisplayName,
+          bundleSizeBytes: meta.bundleSizeBytes ?? 0,
+          installedAt: meta.installedAt,
+          version,
+          contentId,
+          forked: meta.forked,
+        });
+        seen.add(meta.uuid);
+      } catch {
+        log.warn({ file }, "Failed to read shared app metadata file");
+      }
     }
   }
 
@@ -314,6 +334,7 @@ function listSharedApps(): Array<Record<string, unknown>> {
 
 function forkSharedApp(
   appUuid: string,
+  dirs = getSharedAppsDirs(),
 ):
   | { success: true; appId: string; name: string }
   | { success: false; error: string } {
@@ -326,12 +347,11 @@ function forkSharedApp(
     return { success: false, error: "Invalid UUID" };
   }
 
-  const dir = getSharedAppsDir();
-  const metaFile = join(dir, `${appUuid}-meta.json`);
-
-  if (!existsSync(metaFile)) {
+  const dir = resolveSharedAppDir(appUuid, dirs);
+  if (!dir) {
     return { success: false, error: "Shared app not found" };
   }
+  const metaFile = join(dir, `${appUuid}-meta.json`);
 
   const metaRaw = readFileSync(metaFile, "utf-8");
   const meta = JSON.parse(metaRaw);
@@ -390,6 +410,19 @@ function forkSharedApp(
   }
 
   return { success: true, appId: newApp.id, name: newApp.name };
+}
+
+export function _listSharedAppsForTests(
+  dirs: string[],
+): Array<Record<string, unknown>> {
+  return listSharedApps(dirs);
+}
+
+export function _resolveSharedAppDirForTests(
+  appUuid: string,
+  dirs: string[],
+): string | null {
+  return resolveSharedAppDir(appUuid, dirs);
 }
 
 async function openBundle(filePath: string): Promise<Record<string, unknown>> {

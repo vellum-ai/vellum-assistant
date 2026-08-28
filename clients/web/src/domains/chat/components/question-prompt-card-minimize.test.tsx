@@ -1,11 +1,14 @@
 /**
- * Tests for the `QuestionPromptCard` minimized state (LUM-3390).
+ * Tests for the `QuestionPromptCard` collapse (LUM-3390) and the width that
+ * decides whether it is offered at all.
  *
- * The card sits between the transcript and the composer, so at full height it
- * covers the message it is asking about. Minimizing has to put the options out
+ * The card sits between the transcript and the composer, so on a narrow card it
+ * covers the message it is asking about. Collapsing has to put the options out
  * of reach as well as out of sight: a collapsed row still answers a click and
  * still takes a hotkey unless something says otherwise, and either would submit
- * an answer the user never saw.
+ * an answer the user never saw. A card wide enough to sit beside the transcript
+ * has nothing to collapse for and offers no control to do it with, which makes
+ * "wide and collapsed" a state the card must never reach.
  *
  * The gesture itself is covered in `use-question-card-minimize.test.ts`; these
  * cover what the card does with it.
@@ -70,16 +73,85 @@ function setPointer(coarse: boolean): void {
   });
 }
 
+/**
+ * happy-dom ships a `ResizeObserver` whose methods do nothing, and no layout
+ * engine behind `getBoundingClientRect`, so a card here measures zero and reads
+ * as narrow. That is the useful default: the roomy layout is the one that needs
+ * room proven. Width changes are driven by holding the observer's own callback
+ * and calling it, rather than by remounting the card, because the collapse
+ * state lives in `useState` and a remount would reset it and pass the
+ * auto-expand assertions for the wrong reason.
+ */
+interface StubbedObserver {
+  callback: ResizeObserverCallback;
+  targets: Set<Element>;
+}
+
+const resizeObservers = new Set<StubbedObserver>();
+let originalResizeObserver: typeof ResizeObserver;
+
+function installResizeObserver(): void {
+  originalResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    private entry: StubbedObserver;
+    constructor(callback: ResizeObserverCallback) {
+      this.entry = { callback, targets: new Set() };
+      resizeObservers.add(this.entry);
+    }
+    observe(target: Element) {
+      this.entry.targets.add(target);
+    }
+    unobserve(target: Element) {
+      this.entry.targets.delete(target);
+    }
+    disconnect() {
+      resizeObservers.delete(this.entry);
+    }
+  } as unknown as typeof ResizeObserver;
+}
+
+/**
+ * Report `px` as every observed element's inline size. Other components in the
+ * tree build their own observers, so each is notified about its own target
+ * rather than whichever was constructed last.
+ */
+function setCardWidth(px: number): void {
+  act(() => {
+    for (const observer of resizeObservers) {
+      for (const target of observer.targets) {
+        observer.callback(
+          [
+            {
+              target,
+              borderBoxSize: [{ inlineSize: px, blockSize: 0 }],
+            } as unknown as ResizeObserverEntry,
+          ],
+          {} as ResizeObserver,
+        );
+      }
+    }
+  });
+}
+
+/** Comfortably past the release band, so a narrow card becomes roomy. */
+const ROOMY_PX = 800;
+/** Comfortably below the threshold, so a roomy card becomes narrow again. */
+const CRAMPED_PX = 380;
+
 beforeEach(() => {
   pointerIsCoarse = false;
   mediaListeners.clear();
   installMatchMedia();
+  resizeObservers.clear();
+  installResizeObserver();
 });
 
 afterEach(() => {
   cleanup();
   pointerIsCoarse = false;
   mediaListeners.clear();
+  resizeObservers.clear();
+  globalThis.ResizeObserver = originalResizeObserver;
 });
 
 function renderCard(
@@ -101,10 +173,9 @@ function renderCard(
 }
 
 /**
- * Whichever control currently carries the collapse state. Expanded that is the
- * header chevron; minimized it is the summary itself, which is named by its own
- * contents rather than a label, so `aria-expanded` is what identifies it in
- * both states.
+ * The collapse chevron, which a narrow card carries in both states and a roomy
+ * card carries in neither. `aria-expanded` is what identifies it, since its
+ * label changes with the direction it points.
  */
 function toggleButton(): HTMLElement {
   const control = document.querySelector<HTMLElement>("[aria-expanded]");
@@ -114,10 +185,13 @@ function toggleButton(): HTMLElement {
   return control;
 }
 
+function queryToggleButton(): HTMLElement | null {
+  return document.querySelector<HTMLElement>("[aria-expanded]");
+}
+
 /**
  * The text a screen reader would reach, which is not the same as the text in
- * the DOM: both halves of the header crossfade stay mounted at zero height, and
- * so does the whole collapsed body.
+ * the DOM: the collapsed body stays mounted at zero height.
  */
 function accessibleText(root: Element): string {
   const out: string[] = [];
@@ -179,54 +253,55 @@ function swipeDown(): void {
   fireEvent.touchEnd(surface, { changedTouches: at(300) });
 }
 
-function collapsibleRegion(): HTMLElement {
-  const id = toggleButton().getAttribute("aria-controls");
-  expect(id).toBeTruthy();
-  const region = document.getElementById(id!);
-  expect(region).not.toBeNull();
-  return region!;
+/** How the header is arranged: a meta row of its own, or one line with it. */
+function headerLayout(): string | null {
+  return (
+    document.querySelector<HTMLElement>("[data-header]")?.dataset.header ?? null
+  );
 }
 
-describe("QuestionPromptCard minimize", () => {
-  test("renders expanded, with the minimize control open", () => {
+/** The region the chevron collapses, addressed without going through it. */
+function collapsibleRegion(): HTMLElement {
+  const el = document.querySelector<HTMLElement>(
+    '[data-slot="question-card-body"]',
+  );
+  if (!el) {
+    throw new Error("the card rendered no collapsible body");
+  }
+  return el;
+}
+
+describe("QuestionPromptCard collapse", () => {
+  test("renders expanded, with the collapse control open", () => {
     renderCard();
 
     expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
     expect(toggleButton().getAttribute("aria-label")).toBe("Minimize question");
+    expect(toggleButton().getAttribute("aria-controls")).toBe(
+      collapsibleRegion().id,
+    );
     expect(
       screen.getByText("Pick the most useful starting point."),
     ).toBeDefined();
     expect(collapsibleRegion().hasAttribute("inert")).toBe(false);
   });
 
-  test("the minimize button collapses the body and swaps in a summary", () => {
-    renderCard();
+  test("the chevron collapses the body and leaves the header standing", () => {
+    const { container } = renderCard();
 
     fireEvent.click(toggleButton());
 
     expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
-    // The question itself stays: it is what the summary row is a summary of.
-    expect(
-      screen.getByText("What should we build first for MarkOne?"),
-    ).toBeDefined();
-    expect(screen.getByText(/4 options/)).toBeDefined();
-  });
-
-  test("the summary line is announced only once the body it stands in for is gone", () => {
-    const { container } = renderCard();
-
-    expect(accessibleText(container)).not.toContain("4 options");
+    // Both header lines survive the collapse: they are what a collapsed card
+    // is, rather than a stand-in for it.
+    expect(accessibleText(container)).toContain(
+      "What should we build first for MarkOne?",
+    );
     expect(accessibleText(container)).toContain(
       "Pick the most useful starting point.",
     );
-
-    fireEvent.click(toggleButton());
-
-    expect(accessibleText(container)).toContain("4 options");
-    expect(accessibleText(container)).not.toContain(
-      "Pick the most useful starting point.",
-    );
-    // The options go with it: a row read out here is one the user cannot see.
+    // The options go with the body: a row read out here is one the user
+    // cannot see.
     expect(accessibleText(container)).not.toContain("Choose the ideal clients");
   });
 
@@ -238,12 +313,14 @@ describe("QuestionPromptCard minimize", () => {
     expect(collapsibleRegion().hasAttribute("inert")).toBe(true);
   });
 
-  test("tapping a minimized card's header reopens it", () => {
+  test("tapping a collapsed card's header reopens it", () => {
     renderCard();
 
     fireEvent.click(toggleButton());
     expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
 
+    // The whole header is the target, so a thumb has more than the chevron to
+    // land on.
     fireEvent.click(
       screen.getByText("What should we build first for MarkOne?"),
     );
@@ -251,7 +328,7 @@ describe("QuestionPromptCard minimize", () => {
     expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
   });
 
-  test("tapping an expanded card's header does not minimize it", () => {
+  test("tapping an expanded card's header does not collapse it", () => {
     renderCard();
 
     fireEvent.click(
@@ -261,7 +338,7 @@ describe("QuestionPromptCard minimize", () => {
     expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
   });
 
-  test("option hotkeys stop answering once the card is minimized", () => {
+  test("option hotkeys stop answering once the card is collapsed", () => {
     const submitted: QuestionResponseEntry[][] = [];
     renderCard({ onSubmitAll: (r) => submitted.push(r) });
 
@@ -277,125 +354,123 @@ describe("QuestionPromptCard minimize", () => {
     expect(submitted).toHaveLength(1);
   });
 
-  test("Escape still closes a minimized card", () => {
+  test("Escape closes the card in every state it has", () => {
     let closed = 0;
     renderCard({ onClose: () => (closed += 1) });
 
     fireEvent.click(toggleButton());
     fireEvent.keyDown(window, { key: "Escape" });
-
     expect(closed).toBe(1);
+
+    fireEvent.click(toggleButton());
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(closed).toBe(2);
+
+    // Roomy, where it is the only way out the card offers at all.
+    setCardWidth(ROOMY_PX);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(closed).toBe(3);
   });
 
-  test("the pager leaves with the rows it pages between", () => {
+  test("the pager stays behind when the rows it pages between leave", () => {
     renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
-
-    expect(
-      screen.queryByRole("button", { name: "Next question" }),
-    ).not.toBeNull();
 
     fireEvent.click(toggleButton());
 
-    expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
+    // Paging a collapsed card changes the question its header shows, which is
+    // the one thing still on screen to change.
+    expect(
+      screen.queryByRole("button", { name: "Next question" }),
+    ).not.toBeNull();
   });
 
-  test("a batch announces its position rather than drawing it", () => {
-    // The pager offers movement without saying where from, and the header has
-    // a wrapped question to fit on a phone. The count is carried by a status
-    // line a reader hears and a screen does not show.
+  test("a batch draws its position and announces every change to it", () => {
     renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
     const status = screen.getByRole("status");
     expect(status.textContent).toBe("1 of 2");
-    expect(status.className).toContain("sr-only");
+    // Drawn, not hidden from sight and read only to a screen reader.
+    expect(status.className).not.toContain("sr-only");
 
     fireEvent.click(screen.getByRole("button", { name: "Next question" }));
 
-    // A live region, so paging is heard rather than only reachable.
+    // A live region, so paging is heard rather than only seen.
     expect(screen.getByRole("status").textContent).toBe("2 of 2");
   });
 
-  test("a minimized batch has no position to report", () => {
+  test("a collapsed batch still reports its position", () => {
     renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
 
     fireEvent.click(toggleButton());
 
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("1 of 2");
   });
 
-  test("a single question announces no position at all", () => {
+  test("a single question reports no position at all", () => {
     renderCard();
 
     expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Next question" })).toBeNull();
   });
 
-  test("a minimized card keeps no chevron of its own", () => {
-    const { container } = renderCard({ onClose: () => {} });
+  test("a collapsed card keeps one chevron, turned the other way", () => {
+    renderCard();
 
     fireEvent.click(toggleButton());
 
+    expect(toggleButton().tagName).toBe("BUTTON");
+    expect(toggleButton().getAttribute("aria-label")).toBe("Reopen question");
     expect(
-      Array.from(container.querySelectorAll("button")).filter((button) => {
+      Array.from(document.querySelectorAll("button")).filter((button) => {
         const label = button.getAttribute("aria-label");
         return label === "Minimize question" || label === "Reopen question";
       }),
-    ).toHaveLength(0);
-    // What reopens the card is the summary itself, not a second chevron
-    // pointing the other way.
-    expect(toggleButton().tagName).not.toBe("BUTTON");
+    ).toHaveLength(1);
   });
 
-  test("a minimized card is announced as the question it stands for", () => {
-    renderCard();
+  test("the chevron says which question it reopens", () => {
+    const { container } = renderCard();
 
     fireEvent.click(toggleButton());
 
-    // Descendants of a `role="button"` are flattened into its accessible name,
-    // so an `aria-label` here would trade the question and the option count for
-    // a generic phrase and a reader would lose both. Name-from-content is what
-    // keeps them, and it is the whole reason the label is absent.
-    expect(
-      screen.getByRole("button", {
-        name: /What should we build first for MarkOne\?.*4 options/,
-      }),
-    ).toBeDefined();
+    // Its own label says what the press does. The question is header content
+    // rather than part of that name, so a reader landing on the control would
+    // otherwise have no idea which question it stands for.
+    const describedBy = toggleButton().getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    const description = container.ownerDocument.getElementById(describedBy!);
+    expect(description?.textContent).toBe(
+      "What should we build first for MarkOne?",
+    );
   });
 
-  test("the keyboard reopens a minimized card", () => {
+  test("the chevron is a real button, so the browser owns its keystrokes", () => {
     renderCard();
+
+    // `fireEvent.keyDown` does not synthesize the activation click a browser
+    // gives a real button, so the guarantee worth pinning here is that this is
+    // one, rather than an element that has to hand-roll Enter and Space.
+    expect(toggleButton().tagName).toBe("BUTTON");
 
     fireEvent.click(toggleButton());
     expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
-
-    // The summary is a `role="button"` div, so it handles the keystrokes a
-    // real button would have taken care of on its own.
-    fireEvent.keyDown(toggleButton(), { key: "Enter" });
-
-    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
-
-    fireEvent.click(toggleButton());
-    fireEvent.keyDown(toggleButton(), { key: " " });
-
-    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
   });
 
-  test("focus follows the control that replaces the one it was on", () => {
+  test("the chevron keeps focus across a collapse and back", () => {
     renderCard();
 
-    const chevron = toggleButton();
-    chevron.focus();
-    fireEvent.click(chevron);
-
-    // The chevron has just unmounted. Left alone, focus would land on the
-    // document body and the next Tab would restart from the top of the page.
+    toggleButton().focus();
     expect(document.activeElement).toBe(toggleButton());
 
-    fireEvent.keyDown(toggleButton(), { key: "Enter" });
+    fireEvent.click(toggleButton());
 
-    // And back: the summary keeps the DOM node but loses its role and tab
-    // stop, so focus has to move to the chevron that took over from it.
+    // One button across both states, so the DOM keeps focus on it rather than
+    // dropping to the body and restarting the next Tab from the top of the
+    // page.
     expect(document.activeElement).toBe(toggleButton());
-    expect(toggleButton().tagName).toBe("BUTTON");
+
+    fireEvent.click(toggleButton());
+    expect(document.activeElement).toBe(toggleButton());
   });
 
   test("mounting does not pull focus into the card", () => {
@@ -418,21 +493,6 @@ describe("QuestionPromptCard minimize", () => {
     expect(document.activeElement).not.toBe(toggleButton());
   });
 
-  test("a swipe carries focus when it is the focused control being retired", () => {
-    // The hybrid keyboard-and-touch case: focus has been tabbed onto the
-    // chevron, and a thumb then swipes the card shut underneath it. The
-    // chevron unmounts, so focus has to land on what replaced it.
-    setPointer(true);
-    renderCard();
-    toggleButton().focus();
-    expect(document.activeElement).toBe(toggleButton());
-
-    swipeDown();
-
-    expect(toggleButton().getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(toggleButton());
-  });
-
   test("the hotkey badges follow the pointer changing under a mounted card", () => {
     // The pointer read is subscribed rather than sampled once, so a convertible
     // folding into tablet mode reaches a card that is already on screen.
@@ -447,5 +507,133 @@ describe("QuestionPromptCard minimize", () => {
 
     setPointer(false);
     expect(hotkeyBadges(container)).not.toHaveLength(0);
+  });
+});
+
+describe("QuestionPromptCard width", () => {
+  test("a roomy card offers no collapse, beside a pager that stays", () => {
+    // Batched, so the cluster the chevron sits in is on screen either way and
+    // the chevron leaving is the chevron's own doing.
+    renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
+    expect(queryToggleButton()).not.toBeNull();
+
+    setCardWidth(ROOMY_PX);
+
+    expect(queryToggleButton()).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Next question" }),
+    ).not.toBeNull();
+    expect(collapsibleRegion().hasAttribute("inert")).toBe(false);
+  });
+
+  test("a roomy single question carries no header controls at all", () => {
+    renderCard();
+    expect(queryToggleButton()).not.toBeNull();
+
+    setCardWidth(ROOMY_PX);
+
+    expect(queryToggleButton()).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Previous question" }),
+    ).toBeNull();
+  });
+
+  test("a card collapsed while narrow opens once it has the room", () => {
+    const { container } = renderCard();
+
+    fireEvent.click(toggleButton());
+    expect(collapsibleRegion().hasAttribute("inert")).toBe(true);
+
+    setCardWidth(ROOMY_PX);
+
+    // Nothing left to reopen it with, so it cannot stay shut.
+    expect(collapsibleRegion().hasAttribute("inert")).toBe(false);
+    expect(accessibleText(container)).toContain("Choose the ideal clients");
+  });
+
+  test("a card held open by its width does not spring shut when the room goes", () => {
+    renderCard();
+
+    fireEvent.click(toggleButton());
+    setCardWidth(ROOMY_PX);
+    setCardWidth(CRAMPED_PX);
+
+    expect(toggleButton().getAttribute("aria-expanded")).toBe("true");
+    expect(collapsibleRegion().hasAttribute("inert")).toBe(false);
+  });
+
+  test("a swipe cannot collapse a roomy card", () => {
+    setPointer(true);
+    renderCard();
+    setCardWidth(ROOMY_PX);
+
+    swipeDown();
+
+    expect(queryToggleButton()).toBeNull();
+    expect(collapsibleRegion().hasAttribute("inert")).toBe(false);
+  });
+
+  test("a roomy card leaves vertical panning to the browser", () => {
+    renderCard();
+    // A narrow card claims the axis it drags on, or the browser can cancel the
+    // touch stream mid-gesture and the collapse commits nothing.
+    expect(dragSurface().className).toContain("touch-action");
+
+    setCardWidth(ROOMY_PX);
+
+    // Roomy it drags on no axis, so holding the declaration would only stop a
+    // finger that wanted to scroll the transcript.
+    expect(dragSurface().className).not.toContain("touch-action");
+  });
+
+  test("a lone chevron rides on the question's line rather than a row of its own", () => {
+    // With no pager to carry, a meta row would be a whole line holding one
+    // 24px control, pushing the question down for nothing.
+    renderCard();
+    expect(headerLayout()).toBe("inline");
+
+    fireEvent.click(toggleButton());
+    expect(headerLayout()).toBe("inline");
+  });
+
+  test("a pager earns the meta row it sits on", () => {
+    renderCard({ entries: [ENTRY, { ...ENTRY, id: "q2" }] });
+
+    expect(headerLayout()).toBe("stacked");
+
+    // Until the card is roomy enough to put the whole cluster beside the
+    // question.
+    setCardWidth(ROOMY_PX);
+    expect(headerLayout()).toBe("inline");
+  });
+
+  test("only a card that can be dragged takes selection away from a thumb", () => {
+    setPointer(true);
+    renderCard();
+
+    // Narrow, the gesture competes with a long-press, so selection stands down.
+    const header = document.querySelector<HTMLElement>("[data-header]")!;
+    expect(header.className).toContain("select-none");
+
+    setCardWidth(ROOMY_PX);
+
+    // Roomy the card holds still, so a long-press on the question is free.
+    expect(
+      document.querySelector<HTMLElement>("[data-header]")!.className,
+    ).not.toContain("select-none");
+  });
+
+  test("the header reflows without remounting what it sits above", () => {
+    renderCard();
+    const before = collapsibleRegion();
+
+    setCardWidth(ROOMY_PX);
+    setCardWidth(CRAMPED_PX);
+
+    // The collapse eases on `grid-template-rows`, which a freshly mounted node
+    // has no previous value to interpolate from. A reflow that remounted this
+    // one would make the next collapse jump instead of run.
+    expect(collapsibleRegion()).toBe(before);
   });
 });

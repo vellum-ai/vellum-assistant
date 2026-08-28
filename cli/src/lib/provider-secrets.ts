@@ -243,6 +243,11 @@ export function inferProviderFromModel(model: string): string | undefined {
   if (model.startsWith("poolside/")) {
     return "poolside";
   }
+  if (model === "qwen/qwen3-8b") {
+    // The only qwen/* ID the Vellum hosted provider carries; the rest are
+    // OpenRouter's.
+    return "vellum";
+  }
   if (model.includes("/")) {
     return "openrouter";
   }

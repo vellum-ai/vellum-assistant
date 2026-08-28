@@ -36,6 +36,8 @@ ARGUMENTS:
 
 OPTIONS:
     --conversation <id>  Continue an existing conversation instead of starting one
+    --say <message>      Take this one turn, speak the reply, then exit. For
+                         scripts and triggers: no prompt, no terminal needed.
     --no-audio           Print replies without speaking them
     --help               Show this help
 
@@ -51,11 +53,13 @@ DESCRIPTION:
     Ctrl+C interrupts the assistant mid-reply. Ctrl+D, or Ctrl+C when nothing
     is being spoken, ends the session.
 
-    Local and self-hosted assistants only. Vellum cloud assistants authenticate
-    with a session token, which the voice endpoint does not accept.
+    Works with local, self-hosted, and Vellum cloud assistants. A cloud
+    assistant needs a platform login ('vellum login'); the session is
+    authorized per-connection from it.
 
 EXAMPLES:
     vellum voice
+    vellum voice my-assistant --say "i just got back to my desk"
     vellum voice my-assistant
     vellum voice my-assistant --no-audio
     vellum voice --conversation conv_01H8XK3
@@ -73,8 +77,22 @@ export async function voice(): Promise<void> {
   // the daemon accepts any non-empty conversation id, so a swallowed option
   // would open a conversation named after the flag it ate.
   const conversationId = extractValueFlag(args, "conversation");
+  // One turn, then exit. Extracted before the assistant target is parsed so a
+  // multi-word message is never mistaken for a display name.
+  const sayText = extractValueFlag(args, "say");
   const assistantArg = parseAssistantTargetArg(args);
   const audioEnabled = !args.includes("--no-audio");
+
+  if (sayText !== undefined && sayText.trim().length === 0) {
+    console.error("Error: --say needs a message.");
+    process.exit(1);
+  }
+  if (sayText !== undefined && sayText.length > MAX_TEXT_TURN_CHARS) {
+    console.error(
+      `Error: --say is ${sayText.length} characters, limit is ${MAX_TEXT_TURN_CHARS}.`,
+    );
+    process.exit(1);
+  }
 
   let connection;
   try {
@@ -91,16 +109,33 @@ export async function voice(): Promise<void> {
   const client = new CliLiveVoiceClient({
     url: connection.url,
     token: connection.token,
+    tokenTransport: connection.tokenTransport,
     ...(conversationId ? { conversationId } : {}),
   });
 
-  await runSession({ client, player, reference: connection.reference });
+  await runSession({
+    client,
+    player,
+    reference: connection.reference,
+    ...(sayText !== undefined ? { sayText } : {}),
+  });
 }
 
-interface SessionDeps {
+/** Exported for tests. Not part of the command's public surface. */
+export interface SessionDeps {
   client: CliLiveVoiceClient;
   player: PcmPlayer | null;
   reference: string;
+  /**
+   * Take this one turn and exit, instead of opening a prompt.
+   *
+   * The session ends only once the reply has finished *speaking*, which is why
+   * this cannot be approximated by piping a line into the interactive prompt:
+   * stdin reaches EOF the instant the line is read, readline closes, and the
+   * session is torn down while the turn is still in flight. That race is
+   * winnable on a fast local assistant and reliably lost over velay.
+   */
+  sayText?: string;
 }
 
 /**
@@ -110,7 +145,12 @@ interface SessionDeps {
  * failure. The exit code is set on the way out rather than thrown, so a failed
  * session prints one line instead of a stack.
  */
-function runSession({ client, player, reference }: SessionDeps): Promise<void> {
+export function runSession({
+  client,
+  player,
+  reference,
+  sayText,
+}: SessionDeps): Promise<void> {
   return new Promise<void>((resolve) => {
     let rl: Interface | null = null;
     // True from the moment a turn is sent until its reply has been spoken.
@@ -162,6 +202,14 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
         process.stdout.write(chalk.dim(note));
       }
       process.stdout.write("\n");
+      if (sayText !== undefined) {
+        // The reply has been spoken to the end (`turnDone` waits on the
+        // player before calling this), so there is nothing left to stay open
+        // for. Ending here also frees the assistant's single live-voice slot
+        // rather than holding it for a timeout to reclaim.
+        client.end();
+        return;
+      }
       rl?.resume();
       rl?.prompt();
     };
@@ -177,6 +225,29 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       turnInFlight && (activeTurnId === null || activeTurnId === turnId);
 
     client.on("ready", (frame) => {
+      if (sayText !== undefined) {
+        if (!client.supportsTextInput) {
+          finish(
+            `${reference} does not accept typed turns. Upgrade it with ` +
+              `'vellum upgrade' and try again.`,
+          );
+          client.end();
+          return;
+        }
+        console.log(
+          chalk.dim(`Connected to ${reference}. ${describePlayback(player)}.`),
+        );
+        console.log(`Conversation: ${chalk.dim(frame.conversationId)}\n`);
+        if (!client.sendText(sayText)) {
+          finish("Message not sent, the session is closed.");
+          client.end();
+          return;
+        }
+        turnInFlight = true;
+        activeTurnId = null;
+        return;
+      }
+
       if (!client.supportsTextInput) {
         // The `ready` echo is the only reliable signal. A daemon that predates
         // typed turns answers every `text` frame with `unknown_type`, so
@@ -310,7 +381,13 @@ function runSession({ client, player, reference }: SessionDeps): Promise<void> {
       // back at the last byte instead would make Ctrl+C quit the session while
       // the assistant is still talking, and let the next turn start a second
       // player over the top of the first.
-      void player?.finish().then(() => endTurn());
+      //
+      // `player` is null under `--no-audio`, and optional chaining on its own
+      // would short-circuit the whole expression in that case, skipping
+      // `.then()` and leaving `endTurn()` uncalled. `?? Promise.resolve()`
+      // keeps a promise on the left of `.then` either way, so the turn always
+      // ends whether or not there is a player to wait on.
+      void (player?.finish() ?? Promise.resolve()).then(() => endTurn());
     });
 
     client.on("turnCancelled", (turnId) => {

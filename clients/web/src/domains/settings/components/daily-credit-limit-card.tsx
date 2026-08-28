@@ -245,7 +245,7 @@ export function DailyCreditLimitCard() {
 
         {enabled && (
           <>
-            <div className="flex flex-wrap items-start gap-3">
+            <div className="flex flex-wrap items-start gap-2">
               <div className="w-60 max-w-full">
                 <Input
                   type="number"
@@ -265,10 +265,10 @@ export function DailyCreditLimitCard() {
                 />
               </div>
               {/*
-               * `pt-[18px]` aligns the button with the input box (12px label +
+               * `pt-[20px]` centres the button against the input box (12px label +
                * 6px gap before the input starts), matching the sibling cards.
                */}
-              <div className="flex shrink-0 items-center gap-2 pt-[18px]">
+              <div className="flex shrink-0 items-center gap-2 pt-[20px]">
                 <Button
                   variant="primary"
                   onClick={handleSave}

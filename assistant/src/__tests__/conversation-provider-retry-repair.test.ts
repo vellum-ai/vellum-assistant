@@ -73,19 +73,6 @@ mock.module("../memory/archive-store.js", () => ({
   insertCompactionEpisode: () => {},
 }));
 
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
-
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     estimateInputTokens() {

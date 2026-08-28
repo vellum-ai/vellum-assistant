@@ -90,7 +90,7 @@ export function Notice({
       role={role}
       data-slot="notice"
       className={cn(
-        "relative flex w-full gap-3 rounded-lg p-3",
+        "relative flex w-full gap-3 rounded-md p-3",
         alignTop ? "items-start" : "items-center",
         "text-[color:var(--content-default)]",
         toneClasses.container,

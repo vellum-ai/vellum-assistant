@@ -100,7 +100,7 @@ export function PreferencesUsagePanel({
         )}
       </div>
       {exhausted ? (
-        <div className="flex min-h-8 items-center justify-between gap-2 rounded-lg bg-[var(--system-negative-weak)] px-2 py-1">
+        <div className="flex min-h-8 items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
           <Typography
             as="span"
             variant="body-medium-default"

@@ -53,6 +53,13 @@ type EventName = keyof LiveVoiceClientEvents;
 export interface CliLiveVoiceClientOptions {
   readonly url: string;
   readonly token: string;
+  /**
+   * Where the credential goes. `header` is the gateway's `Authorization:
+   * Bearer` (the local and self-hosted path); `query` means the URL already
+   * carries the token velay reads, and no header is sent. Defaults to `header`
+   * so existing callers keep the gateway behaviour.
+   */
+  readonly tokenTransport?: "header" | "query";
   readonly conversationId?: string;
   /** Override the socket factory (tests). */
   readonly webSocketFactory?: (url: string, token: string) => WebSocket;
@@ -118,7 +125,11 @@ export class CliLiveVoiceClient {
     try {
       ws = this.options.webSocketFactory
         ? this.options.webSocketFactory(this.options.url, this.options.token)
-        : openAuthenticatedSocket(this.options.url, this.options.token);
+        : openAuthenticatedSocket(
+            this.options.url,
+            this.options.token,
+            this.options.tokenTransport ?? "header",
+          );
     } catch (err) {
       this.fail(
         err instanceof Error
@@ -340,7 +351,17 @@ export class CliLiveVoiceClient {
  * process listings, shell history, and gateway access logs, and this token is
  * the bound guardian's.
  */
-function openAuthenticatedSocket(url: string, token: string): WebSocket {
+function openAuthenticatedSocket(
+  url: string,
+  token: string,
+  transport: "header" | "query",
+): WebSocket {
+  // velay reads the credential from the query string and no headers at all,
+  // and the URL it was given already carries it. Sending a bearer header there
+  // would authenticate nothing and put a single-use token in a second place.
+  if (transport === "query") {
+    return new WebSocket(url) as WebSocket;
+  }
   return new WebSocket(url, {
     headers: { Authorization: `Bearer ${token}` },
   } as unknown as string[]) as WebSocket;

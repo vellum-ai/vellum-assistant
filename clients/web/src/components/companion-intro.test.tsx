@@ -30,15 +30,16 @@ const offCanvasBottom = (top: string): number => {
  * Where the introduction's card lands beside the surface it is describing.
  *
  * Every beat but the first holds the pill open, so the card and the pill are on
- * screen together, and the pill is bottom-flush with the creature rather than
- * centred on it. A card that only cleared the creature would be drawn over the
- * controls it is captioning wherever the pill is the taller of the two.
+ * screen together, and the pill stands on the creature's visible bottom rather
+ * than being centred on it. A card that only cleared the creature would be
+ * drawn over the controls it is captioning wherever the pill is the taller of
+ * the two.
  */
 describe("the companion introduction's clearance", () => {
   /**
    * A small creature under a large pill, which is the pair that separates the
-   * two rules: the creature reaches 22 points above its centre and the pill
-   * 88, so a step off the creature alone lands the card inside the pill.
+   * two rules: the creature's box reaches 22 points above its centre and the
+   * pill 96, so a step off the creature alone lands the card inside the pill.
    */
   test("clears a pill that stands taller than the creature", () => {
     const { container: surface } = render(
@@ -88,8 +89,9 @@ describe("the companion introduction's clearance", () => {
       />,
     );
 
-    // The step down for 44 under 110 is the creature's half box plus the gap,
-    // 22 + 12 points, over the 2.5 scale the options box leaves the canvas at.
+    // The step down for 44 under 110 is the creature's own box below the
+    // baseline, so its half box plus the gap: 22 + 12 points, over the 2.5
+    // scale the options box leaves the canvas at.
     expect(cardOf(container).style.transform).toBe("translateY(13.6px)");
   });
 });

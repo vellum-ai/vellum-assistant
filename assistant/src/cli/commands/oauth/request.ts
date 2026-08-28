@@ -5,9 +5,10 @@ import type { Command } from "commander";
 import { exitFromIpcResult } from "../../../ipc/cli-client.js";
 import {
   findContentTypeHeader,
+  parseRequestBodyBytes,
   parseRequestBodyData,
 } from "../../../util/oauth-request-body.js";
-import { readStdinSync } from "../../../util/read-stdin.js";
+import { readStdinBytesSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -49,8 +50,8 @@ function parseHeader(raw: string): [string, string] {
  *
  * A non-JSON `Content-Type` keeps the payload as the exact string the caller
  * gave, so multipart, XML, and form-encoded bodies reach the provider
- * unchanged. Files are read as UTF-8 text, so a body that is not valid UTF-8
- * (a raw image, an archive) cannot travel through this flag.
+ * unchanged. Files and stdin are read as raw bytes: valid UTF-8 stays text
+ * (or JSON), and anything else travels as a Buffer.
  */
 export function readBodyData(
   data: string,
@@ -59,12 +60,12 @@ export function readBodyData(
   const contentType = findContentTypeHeader(headers);
 
   if (data === "@-") {
-    return parseRequestBodyData(readStdinSync(), contentType);
+    return parseRequestBodyBytes(readStdinBytesSync(), contentType);
   }
 
   if (data.startsWith("@")) {
     const filePath = data.slice(1);
-    return parseRequestBodyData(readFileSync(filePath, "utf-8"), contentType);
+    return parseRequestBodyBytes(readFileSync(filePath), contentType);
   }
 
   return parseRequestBodyData(data, contentType);
@@ -90,7 +91,7 @@ export function registerRequestCommand(oauth: Command): void {
     )
     .option(
       "-d, --data <data>",
-      "Request body: inline JSON, @filename, or @- for stdin. Sent raw when Content-Type is not JSON",
+      "Request body: inline JSON, @filename, or @- for stdin. Sent raw when Content-Type is not JSON. Files keep their original bytes, including binary",
     )
     .option("-G, --get", "Force GET; body data becomes query params")
     .option("-I, --head", "Send a HEAD request")

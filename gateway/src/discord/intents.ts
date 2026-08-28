@@ -19,8 +19,12 @@ export const DISCORD_INTENTS = {
   GUILD_PRESENCES: 1 << 8,
   /** `MESSAGE_CREATE` / `MESSAGE_UPDATE` / `MESSAGE_DELETE` in guild channels. */
   GUILD_MESSAGES: 1 << 9,
+  /** `MESSAGE_REACTION_*` events in guild channels. */
+  GUILD_MESSAGE_REACTIONS: 1 << 10,
   /** The same message events, in DM channels. */
   DIRECT_MESSAGES: 1 << 12,
+  /** The same reaction events, in DM channels. */
+  DIRECT_MESSAGE_REACTIONS: 1 << 13,
   /** PRIVILEGED. Populates `content` / `embeds` / `attachments` / `components`. */
   MESSAGE_CONTENT: 1 << 15,
 } as const;
@@ -51,11 +55,19 @@ export const DISCORD_INTENTS = {
  * privileged, and DMs are inside the content exemption, so it costs nothing
  * that `MESSAGE_CONTENT` would. Which DMs are acted on is `admit.ts`'s
  * decision, not this bitmask's.
+ *
+ * The two reaction intents deliver `MESSAGE_REACTION_ADD` / `_REMOVE`, which
+ * carry a guardian's approval-by-reaction on an approval card and the
+ * reaction annotations recorded on stored messages. Neither is privileged,
+ * and a reaction dispatch carries an emoji and ids but no message content,
+ * so they leave the no-`MESSAGE_CONTENT` posture untouched.
  */
 export const DISCORD_GATEWAY_INTENTS =
   DISCORD_INTENTS.GUILDS |
   DISCORD_INTENTS.GUILD_MESSAGES |
-  DISCORD_INTENTS.DIRECT_MESSAGES;
+  DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS |
+  DISCORD_INTENTS.DIRECT_MESSAGES |
+  DISCORD_INTENTS.DIRECT_MESSAGE_REACTIONS;
 
 /** Intents Discord gates behind a portal toggle and, past a size threshold, approval. */
 export const PRIVILEGED_DISCORD_INTENTS = [

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -166,7 +166,7 @@ export function AddCredentialModal({
     >
       <Modal.Content size="sm">
         <form onSubmit={handleSave}>
-          <Modal.Header icon={KeyRound}>
+          <Modal.Header>
             <Modal.Title>{t("addCredentialModal.title")}</Modal.Title>
             <Modal.Description>
               {t("addCredentialModal.description")}

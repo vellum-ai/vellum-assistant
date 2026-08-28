@@ -157,6 +157,7 @@ function runProcessTableCommand(
     cmd: command,
     stdout: "pipe",
     stderr: "ignore",
+    windowsHide: true,
   });
   if (result.exitCode !== 0) {
     throw new Error(
@@ -173,6 +174,7 @@ async function runProcessTableCommandAsync(
   const { stdout } = await execFileAsync(command[0], command.slice(1), {
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
+    windowsHide: true,
   });
   return parser(stdout);
 }

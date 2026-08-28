@@ -241,7 +241,7 @@ describe("handleChannelDecision", () => {
     const mockConv = conversationMocks.get("conv-1") as Conversation;
     const decision: ApprovalDecisionResult = {
       action: "reject",
-      source: "telegram_button",
+      source: "button",
     };
 
     const result = handleChannelDecision("conv-1", decision);
@@ -261,7 +261,7 @@ describe("handleChannelDecision", () => {
     const newerMock = conversationMocks.get("conv-1") as Conversation;
     const decision: ApprovalDecisionResult = {
       action: "approve_once",
-      source: "telegram_button",
+      source: "button",
       requestId: "req-newer",
     };
 
@@ -280,7 +280,7 @@ describe("handleChannelDecision", () => {
     registerPendingConfirmation("req-1", "conv-1", "shell");
     const decision: ApprovalDecisionResult = {
       action: "approve_once",
-      source: "telegram_button",
+      source: "button",
       requestId: "req-missing",
     };
 

@@ -177,6 +177,7 @@ export async function handleLogExportRoute(
     const proc = spawnSync("tar", ["czf", "-", "-C", staging, "."], {
       maxBuffer: MAX_LOG_BYTES * 2, // allow headroom for tar overhead
       timeout: 30_000,
+      windowsHide: true,
     });
 
     if (proc.status !== 0) {

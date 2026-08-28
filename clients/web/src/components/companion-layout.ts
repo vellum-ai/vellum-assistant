@@ -1,4 +1,5 @@
 import {
+  companionBaselineFor,
   companionGapFor,
   companionNearEdgeFor,
   companionScaleFor,
@@ -138,6 +139,15 @@ export interface CompanionLayout {
   avatarRel: number;
   /** Half the creature's box, which is what everything beside it steps off from. */
   avatarHalf: number;
+  /**
+   * How far below the creature's centre its artwork stops, which is the line
+   * the pill's bottom sits on.
+   *
+   * Shorter than {@link CompanionLayout.avatarHalf}: the box runs past the
+   * drawing to hold the glow and the bob's slack, and it is the drawing the eye
+   * lines the pill up with.
+   */
+  baseline: number;
   /** The room the creature keeps from anything drawn beside it. */
   gap: number;
   /** The one conversion into the units the layout is stated in. */
@@ -164,9 +174,9 @@ export interface CompanionLayout {
   /**
    * How far past the avatar's centre the introduction's card starts, in points.
    *
-   * Its own distance rather than the pill's, because the pill is bottom-flush
-   * with the creature rather than centred on it: a card stepped off the
-   * creature alone lands inside a pill that stands taller than the creature.
+   * Its own distance rather than the pill's, because the pill stands on the
+   * creature's baseline rather than being centred on it: a card stepped off the
+   * creature alone lands inside a pill that reaches past the creature's box.
    */
   introStepOff: (cardGrowth: CompanionCardGrowth) => number;
 }
@@ -187,19 +197,22 @@ export function companionLayoutFor(
 ): CompanionLayout {
   const scale = companionScaleFor(optionsBox);
   const avatarHalf = avatarBox / 2;
+  const baseline = companionBaselineFor(avatarBox);
   const gap = companionGapFor(avatarBox, optionsBox);
   const nearEdge = companionNearEdgeFor(avatarBox, optionsBox);
   const inUnits = (points: number): number => points / scale;
-  // What is drawn beside the creature, measured from the creature's centre.
-  // The pill is bottom-flush with the avatar, so downward the two stop on the
-  // same line and upward the pill reaches a whole options box back past it,
-  // which stands above a creature smaller than the pill.
-  const reachUp = Math.max(avatarHalf, optionsBox - avatarHalf);
-  const reachDown = avatarHalf;
+  // One rule read on each side: whichever of the creature's box and the pill
+  // reaches further from the centre. The pill's bottom is the creature's
+  // baseline, so downward it reaches that baseline and upward it reaches a
+  // whole options box back past it, and the creature's own half box is what
+  // stands there when the creature is the larger.
+  const reachUp = Math.max(avatarHalf, optionsBox - baseline);
+  const reachDown = Math.max(avatarHalf, baseline);
   return {
     scale,
     avatarRel: avatarBox / optionsBox,
     avatarHalf,
+    baseline,
     gap,
     inUnits,
     lineAt: (cardGrowth, offset) =>

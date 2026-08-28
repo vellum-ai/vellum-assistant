@@ -19,7 +19,7 @@ import {
   ServicesSchema,
 } from "../../config/schemas/services.js";
 import type { OAuthConnectionRequest } from "../../oauth/connection.js";
-import { jsonSafeOAuthBody } from "../../oauth/connection.js";
+import { isBinaryOAuthBody, jsonSafeOAuthBody } from "../../oauth/connection.js";
 import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
@@ -42,6 +42,7 @@ import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js"
 import { getLogger } from "../../util/logger.js";
 import {
   findContentTypeHeader,
+  parseRequestBodyBytes,
   parseRequestBodyData,
 } from "../../util/oauth-request-body.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
@@ -729,7 +730,8 @@ async function handleToken({ body = {} }: RouteHandlerArgs) {
 /**
  * Resolve a raw `data` string into a request body. A non-JSON Content-Type
  * keeps the payload as the caller's exact string so multipart and other
- * byte-sensitive payloads survive; files are read as UTF-8 text.
+ * byte-sensitive payloads survive. Files are read as raw bytes: valid UTF-8
+ * stays text, and anything else stays a Buffer.
  */
 function readBodyData(data: string, contentType: string | undefined): unknown {
   if (data === "@-") {
@@ -744,7 +746,7 @@ function readBodyData(data: string, contentType: string | undefined): unknown {
 
   if (data.startsWith("@")) {
     const filePath = data.slice(1);
-    return parseRequestBodyData(readFileSync(filePath, "utf-8"), contentType);
+    return parseRequestBodyBytes(readFileSync(filePath), contentType);
   }
 
   return parseRequestBodyData(data, contentType);
@@ -760,6 +762,8 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
     parsed_data?: unknown;
     /** Raw data string (for direct API callers, not the CLI). */
     data?: string;
+    /** When set to base64, `parsed_data` / `data` is a base64 string of raw bytes. */
+    body_encoding?: "base64";
     force_get?: boolean;
     head?: boolean;
     account?: string;
@@ -864,7 +868,15 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
         : undefined;
 
   if (resolvedData !== undefined) {
-    const rawBody = resolvedData;
+    let rawBody = resolvedData;
+    if (b.body_encoding === "base64") {
+      if (typeof rawBody !== "string") {
+        throw new BadRequestError(
+          "body_encoding=base64 requires a string body",
+        );
+      }
+      rawBody = Buffer.from(rawBody, "base64");
+    }
 
     if (b.force_get) {
       if (typeof rawBody === "string") {
@@ -882,7 +894,8 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       } else if (
         rawBody !== null &&
         typeof rawBody === "object" &&
-        !Array.isArray(rawBody)
+        !Array.isArray(rawBody) &&
+        !isBinaryOAuthBody(rawBody)
       ) {
         for (const [key, value] of Object.entries(
           rawBody as Record<string, unknown>,

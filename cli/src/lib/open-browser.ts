@@ -12,7 +12,11 @@ export function openBrowser(url: string): void {
     platform === "win32"
       ? ["/c", "start", '""', url.replace(/&/g, "^&")]
       : [url];
-  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+  const child = spawn(cmd, args, {
+    stdio: "ignore",
+    detached: true,
+    windowsHide: true,
+  });
   child.on("error", () => {
     // Silently ignore — the user can still copy the URL from the console.
   });

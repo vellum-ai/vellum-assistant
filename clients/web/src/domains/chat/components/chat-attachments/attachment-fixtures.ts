@@ -22,6 +22,27 @@ export const SAMPLE_PREVIEWS: string[] = [
 ];
 
 /**
+ * A non-square preview: three bands along the long edge. Dropped into a square
+ * tile, `object-cover` eats most of the outer two, which is the crop a tile
+ * story is there to show.
+ */
+export function makeSamplePreview(width: number, height: number): string {
+  const landscape = width > height;
+  const band = (landscape ? width : height) / 3;
+  const bands = [0, 1, 2]
+    .map((index) => {
+      const fill = `hsl(196 58% ${34 + index * 16}%)`;
+      const offset = index * band;
+      return landscape
+        ? `<rect x="${offset}" y="0" width="${band}" height="${height}" fill="${fill}"/>`
+        : `<rect x="0" y="${offset}" width="${width}" height="${band}" fill="${fill}"/>`;
+    })
+    .join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${bands}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+/**
  * A display attachment with sensible PNG defaults. Pass `overrides` for the
  * fields a test actually cares about.
  */

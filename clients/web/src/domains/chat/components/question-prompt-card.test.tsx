@@ -11,7 +11,7 @@ describe("QuestionPromptCard — single entry", () => {
     () => {},
   );
   test.todo(
-    "hides the pagination counter for a single entry but still renders disabled chevrons + X",
+    "renders neither a counter nor a pager for a single entry",
     () => {},
   );
   test.todo(
@@ -63,12 +63,7 @@ describe("QuestionPromptCard — single entry", () => {
   test.todo("`s` hotkey auto-submits a skip on single-entry batches", () => {});
 });
 
-describe("QuestionPromptCard — close (X) button", () => {
-  test.todo(
-    "does not render the close button when onClose is omitted",
-    () => {},
-  );
-  test.todo("fires onClose on click without invoking onSubmitAll", () => {});
+describe("QuestionPromptCard: dismissal", () => {
   test.todo(
     "Escape closes the card when no text is typed and onClose is supplied",
     () => {},
@@ -81,10 +76,8 @@ describe("QuestionPromptCard — close (X) button", () => {
     "Escape with typed text clears the input WITHOUT firing onClose",
     () => {},
   );
-  test.todo(
-    "disables the close button while a response is submitting",
-    () => {},
-  );
+  test.todo("Escape does nothing when onClose is omitted", () => {});
+  test.todo("Escape is inert while a response is submitting", () => {});
 });
 
 describe("QuestionPromptCard — paginated batch", () => {

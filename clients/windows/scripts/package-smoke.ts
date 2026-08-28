@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
+import { CLI_RUNTIME_ENTRIES } from "../src/main/cli-installer";
 import { argValue } from "./cli-args";
 
 /** Installs, launches, verifies, and uninstalls a packaged NSIS artifact. */
@@ -84,10 +85,14 @@ const main = async (): Promise<void> => {
   const appExe = path.join(installDir, `${productName}.exe`);
   assertExists(appExe, "App executable");
   const resources = path.join(installDir, "resources");
+  for (const entry of CLI_RUNTIME_ENTRIES) {
+    assertExists(
+      path.join(resources, "cli-runtime", entry),
+      `CLI runtime entry ${entry}`,
+    );
+  }
   for (const [relative, label] of [
     ["web-dist/index.html", "Web renderer bundle"],
-    ["cli-runtime/vellum.exe", "CLI runtime"],
-    ["cli-runtime/bun.exe", "Bun runtime"],
     ["cli-runtime/runtime.json", "Runtime manifest"],
     [`native-helper/${arch}/Vellum.WindowsHelper.exe`, "Native helper"],
     ["preview-handler/Vellum.PreviewHandler.dll", "Preview handler DLL"],
@@ -102,6 +107,16 @@ const main = async (): Promise<void> => {
   });
   if (bunVersion.status !== 0 || !bunVersion.stdout.trim()) {
     fail(`Packaged Bun runtime failed to execute for ${arch}`);
+  }
+  const packagedCli = path.join(resources, "cli-runtime", "vellum.exe");
+  const cliVersion = spawnSync(packagedCli, ["--version"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (cliVersion.status !== 0 || !cliVersion.stdout.trim()) {
+    fail(
+      `Packaged CLI failed to execute for ${arch}: ${cliVersion.stderr.trim()}`,
+    );
   }
   assertRegistered("HKCU\\Software\\Classes\\.vellum");
 

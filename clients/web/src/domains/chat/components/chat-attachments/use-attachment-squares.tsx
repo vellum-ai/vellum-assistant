@@ -18,7 +18,7 @@
  * and place `renderSquare(att, index)` inside whatever container they need.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
@@ -26,6 +26,7 @@ import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { useFailedPreviewIds } from "@/domains/chat/components/chat-attachments/use-failed-preview-ids";
 
 interface UseAttachmentSquaresOptions {
   attachments: DisplayAttachment[];
@@ -56,21 +57,16 @@ export function useAttachmentSquares({
   attachments,
   assistantId,
 }: UseAttachmentSquaresOptions): UseAttachmentSquaresResult {
-  const [failedImageIds, setFailedImageIds] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const markImageFailed = useCallback((id: string) => {
-    setFailedImageIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-  }, []);
+  const { failedIds, markFailed: markImageFailed } = useFailedPreviewIds();
 
   const displayAttachments = useMemo(
     () =>
-      failedImageIds.size === 0
+      failedIds.size === 0
         ? attachments
         : attachments.map((att) =>
-            failedImageIds.has(att.id) ? { ...att, previewUrl: null } : att,
+            failedIds.has(att.id) ? { ...att, previewUrl: null } : att,
           ),
-    [attachments, failedImageIds],
+    [attachments, failedIds],
   );
 
   const { openPreview, previewModal } = useAttachmentPreview(

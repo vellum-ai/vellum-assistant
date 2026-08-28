@@ -3,6 +3,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   mock,
   setSystemTime,
   test,
@@ -66,14 +67,30 @@ function makeQueue(
   return queue;
 }
 
+const FROZEN_NOW = new Date("2026-01-01T00:00:00.000Z").getTime();
+
+/**
+ * Flush already-queued microtasks. Fake timers stop the clock but not the
+ * promise chain `enqueue` appends onto, so the PATCH work a timer kicks off
+ * lands here.
+ */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 5));
+  for (let i = 0; i < 20; i += 1) {
+    await Promise.resolve();
   }
+}
+
+/** Advance `Date.now()` and the queue's `setTimeout` handles together. */
+async function elapse(ms: number): Promise<void> {
+  setSystemTime(new Date(Date.now() + ms));
+  jest.advanceTimersByTime(ms);
+  await settle();
 }
 
 describe("createPlatformPatchQueue", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
+    setSystemTime(new Date(FROZEN_NOW));
     patches = [];
     builds = 0;
     respond = () => new Response("{}", { status: 200 });
@@ -85,6 +102,8 @@ describe("createPlatformPatchQueue", () => {
     for (const queue of queues) {
       queue.dispose();
     }
+    jest.useRealTimers();
+    setSystemTime();
   });
 
   test("PATCHes once and dedups an unchanged key", async () => {
@@ -203,21 +222,16 @@ describe("createPlatformPatchQueue", () => {
       saveSyncedKey: (synced) => saved.push(synced),
     });
     const start = Date.now();
-    setSystemTime(new Date(start));
-    try {
-      queue.enqueue("a");
-      await settle();
-      setSystemTime(new Date(start + 999));
-      queue.enqueue("a");
-      await settle();
-      setSystemTime(new Date(start + 1000));
-      queue.enqueue("a");
-      await settle();
-      queue.enqueue("a");
-      await settle();
-    } finally {
-      setSystemTime();
-    }
+    queue.enqueue("a");
+    await settle();
+    setSystemTime(new Date(start + 999));
+    queue.enqueue("a");
+    await settle();
+    setSystemTime(new Date(start + 1000));
+    queue.enqueue("a");
+    await settle();
+    queue.enqueue("a");
+    await settle();
 
     expect(patches).toHaveLength(2);
     expect(saved.map((s) => s.syncedAt)).toEqual([start, start + 1000]);
@@ -243,14 +257,12 @@ describe("createPlatformPatchQueue", () => {
     await settle();
     expect(patches).toHaveLength(1);
 
-    await new Promise((r) => setTimeout(r, 300));
-    await settle();
+    await elapse(300);
     expect(patches).toHaveLength(2);
     expect(builds).toBe(2);
 
     queue.dispose();
-    await new Promise((r) => setTimeout(r, 300));
-    await settle();
+    await elapse(300);
     expect(patches).toHaveLength(2);
   });
 
@@ -266,8 +278,7 @@ describe("createPlatformPatchQueue", () => {
     await settle();
     expect(patches).toHaveLength(0);
 
-    await new Promise((r) => setTimeout(r, 300));
-    await settle();
+    await elapse(300);
     expect(patches).toHaveLength(1);
   });
 
@@ -279,12 +290,10 @@ describe("createPlatformPatchQueue", () => {
     expect(patches).toHaveLength(1);
 
     respond = () => new Response("{}", { status: 200 });
-    await new Promise((r) => setTimeout(r, 100));
-    await settle();
+    await elapse(100);
     expect(patches).toHaveLength(2);
 
-    await new Promise((r) => setTimeout(r, 100));
-    await settle();
+    await elapse(100);
     queue.enqueue("a");
     await settle();
     expect(patches).toHaveLength(2);
@@ -301,8 +310,7 @@ describe("createPlatformPatchQueue", () => {
     queue.enqueue("a");
     await settle();
     mockClient = makeClient();
-    await new Promise((r) => setTimeout(r, 100));
-    await settle();
+    await elapse(100);
 
     expect(patches).toHaveLength(1);
   });
@@ -312,14 +320,11 @@ describe("createPlatformPatchQueue", () => {
     respond = () => new Response("nope", { status: 500 });
     queue.enqueue("a");
     await settle();
-    await new Promise((r) => setTimeout(r, 50));
-    await settle();
-    await new Promise((r) => setTimeout(r, 50));
-    await settle();
+    await elapse(50);
+    await elapse(50);
     expect(patches).toHaveLength(3);
 
-    await new Promise((r) => setTimeout(r, 100));
-    await settle();
+    await elapse(100);
     expect(patches).toHaveLength(3);
   });
 
@@ -332,12 +337,10 @@ describe("createPlatformPatchQueue", () => {
     await settle();
     expect(patches.map((p) => p.body.value)).toEqual(["a", "b"]);
 
-    await new Promise((r) => setTimeout(r, 100));
-    await settle();
+    await elapse(100);
     expect(patches.map((p) => p.body.value)).toEqual(["a", "b", "b"]);
 
-    await new Promise((r) => setTimeout(r, 100));
-    await settle();
+    await elapse(100);
     expect(patches).toHaveLength(3);
   });
 
@@ -347,8 +350,7 @@ describe("createPlatformPatchQueue", () => {
     queue.enqueue("a");
     await settle();
     queue.dispose();
-    await new Promise((r) => setTimeout(r, 300));
-    await settle();
+    await elapse(300);
 
     expect(patches).toHaveLength(1);
   });

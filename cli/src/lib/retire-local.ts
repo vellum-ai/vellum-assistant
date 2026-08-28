@@ -211,6 +211,7 @@ export async function retireLocal(
   const child = spawn(archiveCommand.command, archiveCommand.args, {
     stdio: "ignore",
     detached: true,
+    windowsHide: true,
     ...(archiveCommand.env
       ? { env: { ...process.env, ...archiveCommand.env } }
       : {}),

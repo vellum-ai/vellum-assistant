@@ -22,7 +22,7 @@ import { arch, homedir, platform } from "node:os";
 import { basename, join } from "node:path";
 
 import { getLogger } from "./logger.js";
-import { getBinDir } from "./platform.js";
+import { getBinDir, isWindows } from "./platform.js";
 
 const log = getLogger("bun-runtime");
 
@@ -81,19 +81,31 @@ export function findBun(): string | undefined {
     return process.execPath;
   }
 
+  const exe = isWindows() ? "bun.exe" : "bun";
+
   // 2. Previously downloaded copy
-  const downloaded = join(getBinDir(), "bun");
+  const downloaded = join(getBinDir(), exe);
   if (existsSync(downloaded)) {
     return downloaded;
   }
 
   // 3. Common install locations
   const home = homedir();
-  for (const p of [
-    join(home, ".bun", "bin", "bun"),
-    "/opt/homebrew/bin/bun",
-    "/usr/local/bin/bun",
-  ]) {
+  const candidates = isWindows()
+    ? [
+        join(home, ".bun", "bin", exe),
+        join(
+          process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"),
+          "bun",
+          exe,
+        ),
+      ]
+    : [
+        join(home, ".bun", "bin", exe),
+        "/opt/homebrew/bin/bun",
+        "/usr/local/bin/bun",
+      ];
+  for (const p of candidates) {
     if (existsSync(p)) {
       return p;
     }
@@ -108,13 +120,20 @@ export function findBun(): string | undefined {
   return undefined;
 }
 
+/** Escape a string for a PowerShell single-quoted literal. */
+function psQuote(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 /**
  * Download a pinned bun release into the given directory.
  * Returns the absolute path to the downloaded binary.
  */
 async function downloadBun(installDir: string): Promise<string> {
-  const os = platform();
-  const cpu = arch() === "arm64" ? "aarch64" : arch();
+  const win = isWindows();
+  const os = win ? "windows" : platform();
+  // Bun ships no Windows ARM64 build; the x64 one runs under emulation.
+  const cpu = win ? "x64" : arch() === "arm64" ? "aarch64" : arch();
   const target = `${os}-${cpu}`;
   const url = `https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-${target}.zip`;
 
@@ -135,9 +154,18 @@ async function downloadBun(installDir: string): Promise<string> {
 
   try {
     const proc = Bun.spawn({
-      cmd: ["unzip", "-o", tmpZip, "-d", installDir],
+      cmd: win
+        ? [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `Expand-Archive -LiteralPath '${psQuote(tmpZip)}' -DestinationPath '${psQuote(installDir)}' -Force`,
+          ]
+        : ["unzip", "-o", tmpZip, "-d", installDir],
       stdout: "ignore",
       stderr: "pipe",
+      windowsHide: true,
     });
     await proc.exited;
     if (proc.exitCode !== 0) {
@@ -146,8 +174,9 @@ async function downloadBun(installDir: string): Promise<string> {
     }
 
     // Move binary from bun-{target}/bun to installDir/bun
-    const extractedBun = join(installDir, `bun-${target}`, "bun");
-    const finalPath = join(installDir, "bun");
+    const exe = win ? "bun.exe" : "bun";
+    const extractedBun = join(installDir, `bun-${target}`, exe);
+    const finalPath = join(installDir, exe);
     if (existsSync(extractedBun)) {
       // Remove old binary first to avoid "Text file busy" on some systems
       if (existsSync(finalPath)) {
@@ -164,7 +193,9 @@ async function downloadBun(installDir: string): Promise<string> {
       );
     }
 
-    chmodSync(finalPath, 0o755);
+    if (!win) {
+      chmodSync(finalPath, 0o755);
+    }
 
     log.info({ path: finalPath }, "Bun binary downloaded successfully");
     return finalPath;

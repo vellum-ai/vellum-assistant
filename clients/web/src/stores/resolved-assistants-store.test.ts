@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  setSystemTime,
+} from "bun:test";
 
 import {
   assistantsValidForOrg,
@@ -6,6 +13,11 @@ import {
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
+import {
+  AVATAR_SUPERSEDE_WINDOW_MS,
+  markAvatarSuperseded,
+  resetAvatarSupersedeForTests,
+} from "@/lib/avatar-supersede";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 
@@ -396,6 +408,41 @@ describe("setFromApi connectability", () => {
     expect(
       useResolvedAssistantsStore.getState().assistants[0].avatarUrl,
     ).toBeUndefined();
+  });
+
+  describe("inside the supersede window", () => {
+    afterEach(() => {
+      setSystemTime();
+      resetAvatarSupersedeForTests();
+    });
+
+    it("setFromApi and upsertFromApi keep a superseded row's avatarUrl null until the window passes", () => {
+      markAvatarSuperseded("asst-a");
+      const entries = [
+        apiEntry({ id: "asst-a", avatar_url: "https://cdn.example/old.png" }),
+        apiEntry({ id: "asst-b", avatar_url: "https://cdn.example/b.png" }),
+      ];
+      useResolvedAssistantsStore.getState().setFromApi(entries);
+      let byId = new Map(
+        useResolvedAssistantsStore.getState().assistants.map((a) => [a.id, a]),
+      );
+      expect(byId.get("asst-a")?.avatarUrl).toBeNull();
+      expect(byId.get("asst-b")?.avatarUrl).toBe("https://cdn.example/b.png");
+
+      useResolvedAssistantsStore.getState().upsertFromApi(entries[0]);
+      expect(
+        useResolvedAssistantsStore
+          .getState()
+          .assistants.find((a) => a.id === "asst-a")?.avatarUrl,
+      ).toBeNull();
+
+      setSystemTime(new Date(Date.now() + AVATAR_SUPERSEDE_WINDOW_MS));
+      useResolvedAssistantsStore.getState().setFromApi(entries);
+      byId = new Map(
+        useResolvedAssistantsStore.getState().assistants.map((a) => [a.id, a]),
+      );
+      expect(byId.get("asst-a")?.avatarUrl).toBe("https://cdn.example/old.png");
+    });
   });
 
   it("clearAvatarUrl nulls one row's avatarUrl and leaves the rest", () => {

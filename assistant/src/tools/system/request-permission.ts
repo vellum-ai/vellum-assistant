@@ -25,7 +25,7 @@ const PERMISSION_TYPES = [
 
 type PermissionType = (typeof PERMISSION_TYPES)[number];
 
-const SETTINGS_URLS: Record<PermissionType, string> = {
+const MACOS_SETTINGS_URLS: Record<PermissionType, string> = {
   full_disk_access:
     "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
   accessibility:
@@ -45,6 +45,21 @@ const SETTINGS_URLS: Record<PermissionType, string> = {
   camera:
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
 };
+
+// Only the pages the Windows desktop client can route through its
+// permissions bridge; other kinds have no in-app remediation there yet.
+const WINDOWS_SETTINGS_URLS: Partial<Record<PermissionType, string>> = {
+  screen_recording: "ms-settings:privacy-graphicscaptureprogrammatic",
+  microphone: "ms-settings:privacy-microphone",
+};
+
+export const resolveSystemPermissionSettingsUrl = (
+  permType: PermissionType,
+  clientOs: string | undefined,
+): string | undefined =>
+  clientOs === "windows"
+    ? WINDOWS_SETTINGS_URLS[permType]
+    : MACOS_SETTINGS_URLS[permType];
 
 const FRIENDLY_NAMES: Record<PermissionType, string> = {
   full_disk_access: "Full Disk Access",
@@ -68,7 +83,7 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
 export const requestSystemPermissionInputSchema = z.looseObject({
   permission_type: z
     .enum(PERMISSION_TYPES)
-    .describe("The macOS system permission to request"),
+    .describe("The system permission (macOS or Windows) to request"),
   activity: z
     .string()
     .describe(
@@ -81,7 +96,7 @@ export const requestSystemPermissionInputSchema = z.looseObject({
 export const requestSystemPermissionTool = {
   name: "request_system_permission",
   description:
-    "Request a macOS system permission via System Settings. " +
+    "Request a system permission via macOS System Settings or Windows Settings. " +
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
     "Do not explain how to open System Settings manually - this tool handles it with a clickable button.",
   category: "system",
@@ -94,7 +109,7 @@ export const requestSystemPermissionTool = {
 
   async execute(
     input: Record<string, unknown>,
-    _context: ToolContext,
+    context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const parsed = requestSystemPermissionInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -103,7 +118,16 @@ export const requestSystemPermissionTool = {
     const permType = parsed.data.permission_type;
 
     const friendly = FRIENDLY_NAMES[permType];
-    const settingsUrl = SETTINGS_URLS[permType];
+    const settingsUrl = resolveSystemPermissionSettingsUrl(
+      permType,
+      context.clientOs,
+    );
+    if (!settingsUrl) {
+      return {
+        content: `${friendly} cannot be requested in-app on ${context.clientOs}. Ask the user to check the matching Privacy page in Windows Settings.`,
+        isError: true,
+      };
+    }
 
     return {
       content: [

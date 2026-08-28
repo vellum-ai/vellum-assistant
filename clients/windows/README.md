@@ -111,18 +111,26 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run pack        # runtime + native helper + preview handler + electron-vite build + electron-builder --win (NSIS)
+bun run pack        # runtime + native helper + preview handler + electron-builder --win (NSIS)
 bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 ```
 
 `pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
 `build:preview-handler`) before `electron-builder`, so the Explorer preview
 handler DLL that `electron-builder.config.cjs` requires is always present.
+The builder rebuilds the Electron main and preload entrypoints immediately
+before collecting app files, including when it is invoked directly.
 
 `build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
 is used when its sha256 matches `scripts/bun-release.ts`, otherwise the
 matching GitHub release is downloaded and verified. Bump the pins there when
 the Bun version changes.
+
+`build:preview-handler` installs its manifest dependencies before invoking
+MSBuild. It resolves vcpkg from `VCPKG_ROOT`, the local Vellum build-tools
+checkout, or `PATH`, in that order. The checkout must contain full Git history
+for the manifest's pinned dependency baseline. The Visual Studio-bundled vcpkg
+may be too old for that baseline.
 
 Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
 runs the same steps per architecture, then install-, launch-, and

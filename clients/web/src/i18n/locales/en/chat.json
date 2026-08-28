@@ -128,6 +128,12 @@
     "previewAria": "Preview of {filename}",
     "previousAttachmentAria": "Previous attachment"
   },
+  "attachmentTile": {
+    "cancelUpload": "Cancel upload of {filename}",
+    "preview": "Preview {filename}",
+    "remove": "Remove {filename}",
+    "uploading": "Uploading {filename}"
+  },
   "backgroundTaskDetailPanel": {
     "closeDetail": "Close task detail",
     "command": "Command",
@@ -1203,9 +1209,8 @@
     "submitFailed": "Failed to submit response. Please try again."
   },
   "questionPromptCard": {
-    "closeQuestionAria": "Close question",
+    "expandAria": "Reopen question",
     "minimizeAria": "Minimize question",
-    "minimizedSummary": "{count, plural, one {# option} other {# options}} · Tap to reopen",
     "nextQuestionAria": "Next question",
     "optionAria": "Option {number}: {label}",
     "previousQuestionAria": "Previous question",
@@ -1216,7 +1221,7 @@
     "skipped": "Skipped",
     "skippedHint": "Skipped - pick an option to override",
     "typeDifferentAnswerAria": "Type a different answer",
-    "typeSomethingElsePlaceholder": "Type something else"
+    "typeSomethingElsePlaceholder": "Something else"
   },
   "queuedMessagesDrawer": {
     "cancelAll": "Cancel all",

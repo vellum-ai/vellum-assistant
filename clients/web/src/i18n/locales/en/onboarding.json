@@ -4,7 +4,6 @@
     "back": "Back",
     "forward": "Forward",
     "cancel": "Cancel",
-    "start": "Start",
     "add": "Add",
     "adding": "Adding…",
     "connect": "Connect",
@@ -30,7 +29,8 @@
   "privacyScreen": {
     "title": "Before You Start",
     "body": "Choose your privacy preferences. You can update these anytime in the Settings.",
-    "skipToChat": "Skip to chat"
+    "start": "Start Onboarding",
+    "skipToChat": "Skip to the Assistant"
   },
   "hostingScreen": {
     "title": "Hosting",

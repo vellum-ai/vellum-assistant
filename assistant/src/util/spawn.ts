@@ -29,6 +29,7 @@ export function spawnWithTimeout(
     const proc = Bun.spawn(cmd, {
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
       env: {
         ...process.env,
         PATH: [

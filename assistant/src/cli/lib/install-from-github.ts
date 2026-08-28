@@ -36,7 +36,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { delimiter, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -46,7 +46,12 @@ import {
   stripPreservedUserState,
 } from "../../plugins/plugin-tree-walk.js";
 import { ensureBun } from "../../util/bun-runtime.js";
-import { getWorkspacePluginsDir } from "../../util/platform.js";
+import {
+  addToPathEnv,
+  getExtraToolPathDirs,
+  getWorkspacePluginsDir,
+  isWindows,
+} from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
   type DependencyInstaller,
@@ -1254,23 +1259,23 @@ export const defaultPostinstallRunner: PostinstallRunner = async ({
     timeout: POSTINSTALL_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,
     env: pluginPostinstallEnv(bun),
+    windowsHide: true,
   });
 };
 
 function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
+  const systemDirs = isWindows()
+    ? [process.env.SystemRoot ?? "C:\\Windows"]
+    : [...getExtraToolPathDirs(), "/usr/bin", "/bin"];
   const env: NodeJS.ProcessEnv = {
-    PATH: [
-      dirname(bun),
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-    ]
-      .filter(Boolean)
-      .join(":"),
+    PATH: [dirname(bun), ...systemDirs].join(delimiter),
   };
-  if (process.env.HOME) {
-    env.HOME = process.env.HOME;
+  for (const key of isWindows()
+    ? ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "SystemRoot"]
+    : ["HOME"]) {
+    if (process.env[key]) {
+      env[key] = process.env[key];
+    }
   }
   return env;
 }
@@ -1373,6 +1378,7 @@ export const defaultGitRunner: GitRunner = async (args, opts) => {
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: 64 * 1024 * 1024,
     env: pluginGitEnv(),
+    windowsHide: true,
   });
   return { stdout };
 };
@@ -1385,12 +1391,7 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
     }
   }
   env.GIT_TERMINAL_PROMPT = "0";
-  const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
-  const current = (env.PATH ?? "").split(":").filter(Boolean);
-  const missing = extraPaths.filter((p) => !current.includes(p));
-  if (missing.length > 0) {
-    env.PATH = [...current, ...missing].join(":");
-  }
+  addToPathEnv(env, getExtraToolPathDirs(), "back");
   return env;
 }
 

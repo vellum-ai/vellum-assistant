@@ -140,6 +140,18 @@ function compiledSibling(name: string): string {
   return join(dirname(process.execPath), executableName(name, platform()));
 }
 
+function envWithCompiledRuntimeNodePath(
+  env: Record<string, string>,
+): Record<string, string> {
+  if (!isCompiledCli()) {
+    return env;
+  }
+  return {
+    ...env,
+    NODE_PATH: join(dirname(process.execPath), "node_modules"),
+  };
+}
+
 function resolveBunExecutable(): string {
   if (!isCompiledCli()) {
     return process.execPath;
@@ -266,6 +278,7 @@ export function ensureLocalRuntime(
     cwd: installDir,
     stdio: "inherit",
     env: envWithBunPath(process.env),
+    windowsHide: true,
   });
 
   if (result.error || result.status !== 0) {
@@ -517,6 +530,7 @@ function ensureBunInstalled(): void {
     execFileSync(resolveBunExecutable(), ["--version"], {
       stdio: "pipe",
       env: envWithBunPath(process.env),
+      windowsHide: true,
     });
     return;
   } catch {
@@ -555,6 +569,7 @@ function ensureBunInstalled(): void {
       stdio: "pipe",
       timeout: 60_000,
       env: installEnv,
+      windowsHide: true,
     });
     console.log("   Bun installed successfully");
   } catch {
@@ -832,6 +847,7 @@ async function startDaemonFromSource(
     ? spawn(bunPath, ["run", daemonMainPath], {
         stdio: "inherit",
         env: spawnEnv,
+        windowsHide: true,
       })
     : (() => {
         const daemonLogFd = openLogFile("hatch.log");
@@ -1170,7 +1186,12 @@ function findPidListeningOnPort(port: number): number | undefined {
     const output = execFileSync(
       "lsof",
       ["-iTCP:" + port, "-sTCP:LISTEN", "-t"],
-      { encoding: "utf-8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] },
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      },
     ).trim();
     // lsof -t may return multiple PIDs (one per line); take the first.
     const pid = parseInt(output.split("\n")[0], 10);
@@ -1645,6 +1666,7 @@ export async function startLocalDaemon(
         }
       }
       applyDaemonEnvOverrides(daemonEnv, resources, options);
+      const daemonSpawnEnv = envWithCompiledRuntimeNodePath(daemonEnv);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
@@ -1655,7 +1677,8 @@ export async function startLocalDaemon(
         ? spawn(daemonBinary, [], {
             cwd: dirname(daemonBinary),
             stdio: "inherit",
-            env: daemonEnv,
+            env: daemonSpawnEnv,
+            windowsHide: true,
           })
         : (() => {
             const daemonLogFd = openLogFile("hatch.log");
@@ -1664,7 +1687,7 @@ export async function startLocalDaemon(
               detached: true,
               stdio: ["ignore", "pipe", "pipe"],
               windowsHide: true,
-              env: daemonEnv,
+              env: daemonSpawnEnv,
             });
             pipeToLogFile(c, daemonLogFd, "daemon");
             c.unref();
@@ -1876,7 +1899,7 @@ export async function startGateway(
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-      env: gatewayEnv,
+      env: envWithCompiledRuntimeNodePath(gatewayEnv),
     });
     pipeToLogFile(gateway, gatewayLogFd, "gateway");
   } else {
@@ -1936,6 +1959,7 @@ function isNgrokProcess(pid: number): boolean {
       encoding: "utf-8",
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     return /ngrok/.test(output);
   } catch {
