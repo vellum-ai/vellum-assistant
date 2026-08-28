@@ -799,5 +799,14 @@
     "managedLabel": "Managed",
     "modeToggleAriaLabel": "Service mode",
     "yourOwnLabel": "Your Own"
+  },
+  "channelAvatarDownload": {
+    "previewAlt": "Your assistant's avatar",
+    "download": "Download avatar",
+    "prompt": {
+      "slack": "Download your assistant's avatar to upload as the app icon.",
+      "discord": "Download your assistant's avatar to upload as the bot icon.",
+      "telegram": "Download your assistant's avatar, then send it to BotFather with /setuserpic."
+    }
   }
 }

@@ -1,3 +1,4 @@
+import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { Button, Notice, Typography } from "@vellumai/design-library";
 
 import { Trans, useTranslation } from "@/i18n";
@@ -52,6 +53,8 @@ export function SlackSetupCreateStep({
           components={{ strong: <strong /> }}
         />
       </Notice>
+
+      <ChannelAvatarDownload channel="slack" />
 
       <Button
         type="button"

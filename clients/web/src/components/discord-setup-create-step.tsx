@@ -1,3 +1,4 @@
+import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { Button, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
@@ -44,6 +45,8 @@ export function DiscordSetupCreateStep({
       >
         {t("discordSetupCreateStep.intentsNote")}
       </Typography>
+
+      <ChannelAvatarDownload channel="discord" />
 
       <div className="flex gap-2">
         <Button type="button" variant="outlined" onClick={onOpenPortal}>
