@@ -2,10 +2,10 @@
  * Tests for the preferences menu's usage panel.
  *
  * The panel composes the subscription and the billing summary's usage-grant
- * figures behind the `obscure-credits` flag; the subscription is driven from
- * the SDK boundary the way the billing hook tests drive it. The wallet status
- * is mocked: the real hook needs the platform gate and the org store, neither
- * of which these tests stand up.
+ * figures; the subscription is driven from the SDK boundary the way the
+ * billing hook tests drive it. The wallet status is mocked: the real hook
+ * needs the platform gate and the org store, neither of which these tests
+ * stand up.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -59,17 +59,6 @@ mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
 }));
 
 const { PreferencesUsagePanel } = await import("./preferences-usage-panel");
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
-
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
 
 function proSubscription(): SubscriptionResponse {
   return {
@@ -128,11 +117,9 @@ beforeEach(() => {
   totalUsageBalance = null;
   byokRoute = false;
   balanceStatusOpts = undefined;
-  setObscureCredits(true);
 });
 
 afterEach(() => {
-  setObscureCredits(false);
   cleanup();
 });
 
@@ -181,14 +168,6 @@ describe("PreferencesUsagePanel", () => {
 
     await settle();
     expect(balanceStatusOpts).toEqual({ conversationId: null });
-  });
-
-  test("renders nothing while the flag is off", async () => {
-    setObscureCredits(false);
-    const { queryByTestId } = renderPanel();
-
-    await settle();
-    expect(queryByTestId("preferences-usage")).toBeNull();
   });
 
   test("renders nothing without managed billing to read", async () => {
