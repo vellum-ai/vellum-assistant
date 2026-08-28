@@ -207,7 +207,7 @@ async function gmailGet<T>(
       url,
       "--json",
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    { windowsHide: true, stdout: "pipe", stderr: "pipe" },
   );
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -233,6 +233,7 @@ async function gmailGet<T>(
 
 async function cli<T>(args: string[]): Promise<T> {
   const proc = Bun.spawn(["assistant", ...args], {
+    windowsHide: true,
     stdout: "pipe",
     stderr: "pipe",
   });

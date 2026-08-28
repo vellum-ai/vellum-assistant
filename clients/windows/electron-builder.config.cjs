@@ -90,6 +90,7 @@ const resolveSigning = () => {
             const result = spawnSync(command, {
               shell: true,
               stdio: "inherit",
+              windowsHide: true,
             });
             if (result.status !== 0) {
               throw new Error(
@@ -109,6 +110,7 @@ const runBun = (args, label) => {
   const result = spawnSync("bun", args, {
     cwd: __dirname,
     stdio: "inherit",
+    windowsHide: true,
   });
   if (result.status !== 0) {
     throw new Error(`${label} failed (exit ${result.status})`);

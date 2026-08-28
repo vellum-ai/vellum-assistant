@@ -153,7 +153,11 @@ async function requestWithProvider<T>(
 
     let proc: ReturnType<typeof Bun.spawn>;
     try {
-      proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+      proc = Bun.spawn(args, {
+        windowsHide: true,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
     } catch (err) {
       throw new Error(
         `Failed to spawn assistant oauth request: ${err instanceof Error ? err.message : String(err)}`,

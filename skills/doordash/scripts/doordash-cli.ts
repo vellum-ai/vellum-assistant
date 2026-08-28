@@ -58,7 +58,9 @@ async function runChromeCommand(
 ): Promise<Record<string, unknown>> {
   let stdout: string;
   try {
-    ({ stdout } = await execFileAsync("assistant", args));
+    ({ stdout } = await execFileAsync("assistant", args, {
+      windowsHide: true,
+    }));
   } catch (err: unknown) {
     // Node's ExecFileException includes stdout/stderr from the child process
     const execErr = err as {

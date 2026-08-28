@@ -37,6 +37,7 @@ const runVerbatim = (executable: string, argLine: string): void => {
     {
       stdio: "inherit",
       windowsVerbatimArguments: true,
+      windowsHide: true,
       timeout: 10 * 60 * 1000,
     },
   );
@@ -46,7 +47,10 @@ const runVerbatim = (executable: string, argLine: string): void => {
 };
 
 const isRegistered = (key: string): boolean => {
-  const result = spawnSync("reg", ["query", key], { stdio: "ignore" });
+  const result = spawnSync("reg", ["query", key], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
   return result.status === 0;
 };
 
@@ -125,7 +129,10 @@ const main = async (): Promise<void> => {
   assertRegistered("HKCU\\Software\\Classes\\.vellum");
 
   console.log(`Launching ${appExe}`);
-  const child = spawn(appExe, [], { stdio: "ignore" });
+  const child = spawn(appExe, [], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
   const logCandidates = [productName, packageName].flatMap((name) => [
     path.join(appData, name, "logs", "vellum.log"),
     path.join(appData, `${name}-${env}`, "logs", "vellum.log"),
@@ -150,6 +157,7 @@ const main = async (): Promise<void> => {
   console.log(`App is running with logs at ${logFile}`);
   spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
     stdio: "inherit",
+    windowsHide: true,
   });
   await sleep(3_000);
 

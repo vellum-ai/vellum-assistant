@@ -26,6 +26,7 @@ async function storeVellum(): Promise<void> {
   ];
 
   const proc = Bun.spawn(["assistant", ...args], {
+    windowsHide: true,
     stdout: "inherit",
     stderr: "inherit",
   });

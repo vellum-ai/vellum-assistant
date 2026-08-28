@@ -73,6 +73,7 @@ if (velRunning) {
 const child = spawn("bun", ["run", downstreamScript], {
   stdio: "inherit",
   env,
+  windowsHide: true,
 });
 child.once("error", (err) => {
   console.error(`[dev] failed to spawn ${downstreamScript}:`, err);
