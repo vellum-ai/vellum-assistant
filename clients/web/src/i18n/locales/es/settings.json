@@ -931,7 +931,9 @@
     "title": "Modelo de lenguaje"
   },
   "listeningLanguageCard": {
+    "automaticNote": "Tu proveedor de voz detecta el idioma automáticamente.",
     "change": "Cambiar",
+    "loadingAria": "Cargando el idioma de escucha",
     "subtitle": "El idioma en el que hablas con tu asistente. Se aplica a partir de tu próximo turno hablado.",
     "title": "Idioma de escucha"
   },

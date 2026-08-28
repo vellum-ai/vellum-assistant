@@ -26,6 +26,8 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
+import { Typography } from "@vellumai/design-library";
 
 import { DetailCard } from "@/components/detail-card";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -39,6 +41,7 @@ export function ListeningLanguageCard() {
   const assistantId = useActiveAssistantId();
   const {
     available,
+    settled,
     currentCode,
     configuredProviderId,
     selectLanguage,
@@ -46,8 +49,38 @@ export function ListeningLanguageCard() {
   } = useSttLanguageSelection(assistantId);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  if (!available) {
-    return null;
+  // The card is always here, the way `VoicePickerCard` beside it always is:
+  // its body carries the picker, a placeholder, or the reason there is no
+  // picker. Returning null for a provider that chooses its own language
+  // would move everything below this row once the answer lands, and holding
+  // an empty card instead would leave a hole; saying why is both stable and
+  // more use than either.
+  const body = !settled ? (
+    <Skeleton
+      as="span"
+      role="status"
+      aria-label={t("listeningLanguageCard.loadingAria")}
+      className="block h-9 w-48"
+    />
+  ) : !available ? (
+    <Typography
+      as="p"
+      variant="body-medium-lighter"
+      className="text-[var(--content-tertiary)]"
+    >
+      {t("listeningLanguageCard.automaticNote")}
+    </Typography>
+  ) : null;
+
+  if (body !== null) {
+    return (
+      <DetailCard
+        title={t("listeningLanguageCard.title")}
+        subtitle={t("listeningLanguageCard.subtitle")}
+      >
+        {body}
+      </DetailCard>
+    );
   }
 
   return (

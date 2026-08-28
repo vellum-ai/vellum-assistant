@@ -926,7 +926,9 @@
     "title": "语言模型"
   },
   "listeningLanguageCard": {
+    "automaticNote": "您的语音服务会自动检测语言。",
     "change": "更改",
+    "loadingAria": "正在加载识别语言",
     "subtitle": "您与助手对话的语言。从您下一次语音输入开始生效。",
     "title": "听力语言"
   },

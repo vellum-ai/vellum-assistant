@@ -931,7 +931,9 @@
     "title": "Language Model"
   },
   "listeningLanguageCard": {
+    "automaticNote": "Your speech provider detects the language automatically.",
     "change": "Change",
+    "loadingAria": "Loading listening language",
     "subtitle": "The language you speak to your assistant. Applies from your next spoken turn.",
     "title": "Listening language"
   },

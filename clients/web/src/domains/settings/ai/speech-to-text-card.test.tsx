@@ -54,6 +54,10 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 let orgReady = false;
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
+  // "unavailable" rather than "resolving": these cases mean the org is not
+  // there, not that it is still arriving, and the difference decides whether
+  // a consumer reading `settled` treats the answer as final.
+  useOrgHeaderReadiness: () => (orgReady ? "ready" : "unavailable"),
 }));
 
 // Controllable daemon config the config-get query resolves to. `initialData`
@@ -102,9 +106,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { SpeechToTextCard } = await import(
-  "@/domains/settings/ai/speech-to-text-card"
-);
+const { SpeechToTextCard } =
+  await import("@/domains/settings/ai/speech-to-text-card");
 const { LS_STT_PROVIDER } = await import("@/utils/local-settings-keys");
 const { changeLocale } = await import("@/i18n");
 

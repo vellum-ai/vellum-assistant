@@ -92,6 +92,7 @@ beforeEach(() => {
   voiceSelection.available = false;
   voiceSelection.settled = true;
   languageSelection.available = false;
+  languageSelection.settled = true;
   languageSelection.currentCode = "multi";
   languageSelection.configuredProviderId = "deepgram";
   localStorage.clear();
@@ -468,5 +469,56 @@ describe("VoiceSections speech-services banner slot", () => {
     expect(
       screen.queryByLabelText("Loading speech services status"),
     ).toBeNull();
+  });
+});
+
+describe("VoiceSections listening-language card stability", () => {
+  /**
+   * The card is present in every outcome, so the Captions section below it
+   * does not move once the provider answer lands. Asserting the card count
+   * rather than its contents is deliberate: what the page's stability rests
+   * on is that a row neither appears nor disappears.
+   */
+  // The card's own heading, which `DetailCard` renders in every state. A
+  // structural selector would be worse here: `DetailCard` carries no stable
+  // hook, so a wrong one matches nothing and the assertions pass vacuously.
+  function listeningCards(): number {
+    return screen.queryAllByText("Listening language").length;
+  }
+
+  test("holds its row from unresolved through to available", () => {
+    languageSelection.settled = false;
+    languageSelection.available = false;
+    const { rerenderPage } = renderPage();
+
+    const whileLoading = listeningCards();
+    expect(whileLoading).toBe(1);
+    expect(screen.getByLabelText("Loading listening language")).toBeTruthy();
+
+    languageSelection.settled = true;
+    languageSelection.available = true;
+    rerenderPage();
+
+    expect(listeningCards()).toBe(whileLoading);
+    expect(screen.queryByLabelText("Loading listening language")).toBeNull();
+    expect(screen.getByText("Change")).toBeTruthy();
+  });
+
+  test("holds its row when the provider picks the language itself", () => {
+    languageSelection.settled = false;
+    const { rerenderPage } = renderPage();
+    const whileLoading = listeningCards();
+    expect(whileLoading).toBe(1);
+
+    languageSelection.settled = true;
+    languageSelection.available = false;
+    rerenderPage();
+
+    expect(listeningCards()).toBe(whileLoading);
+    expect(
+      screen.getByText(
+        "Your speech provider detects the language automatically.",
+      ),
+    ).toBeTruthy();
   });
 });
