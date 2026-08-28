@@ -190,20 +190,17 @@ export const TokenFormatValidation: Story = {
 };
 
 /**
- * Step 3, where the avatar card sits. The user is inside Slack's app page at
- * this point, which is the only place the app icon can be set, so this is
- * where the file is worth handing over.
+ * Step 4, where the avatar card sits. An app icon cannot be set until the app
+ * exists, and by this step the user is on its own screen collecting tokens.
  */
-export const CreateWithAvatar: Story = {
+export const ConnectWithAvatar: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
-    await userEvent.click(canvas.getByRole("button", { name: /^Next$/i }));
+    await goToConnect(canvasElement);
   },
 };
 
 /** The same step for an assistant with no avatar: the card is absent entirely. */
-export const CreateWithoutAvatar: Story = {
+export const ConnectWithoutAvatar: Story = {
   decorators: [withAvatar(false)],
-  play: CreateWithAvatar.play,
+  play: ConnectWithAvatar.play,
 };

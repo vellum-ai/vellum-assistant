@@ -166,14 +166,12 @@ export function SlackSetupWizard({
       )}
 
       {stepId === "create" && (
-        <SlackSetupCreateStep
-          assistantId={assistantId}
-          onContinue={handleContinueToConnect}
-        />
+        <SlackSetupCreateStep onContinue={handleContinueToConnect} />
       )}
 
       {stepId === "connect" && (
         <SlackSetupTokensStep
+          assistantId={assistantId}
           botToken={botToken}
           appToken={appToken}
           saveStatus={saveStatus}
