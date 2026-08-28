@@ -85,7 +85,9 @@ function keyboardHints(): string[] {
   const itemHints = Array.from(dialog.querySelectorAll("span"))
     .filter((el) => el.children.length === 0)
     .map((el) => el.textContent ?? "")
-    .filter((text) => text.startsWith("⌘"));
+    // Any modifier glyph, not Command specifically: a hint leads with the
+    // first modifier in the platform's order, which for ⇧⌘O is Shift.
+    .filter((text) => /[\u2318\u2303\u2325\u21e7]/.test(text));
   return [...caps, ...itemHints];
 }
 
