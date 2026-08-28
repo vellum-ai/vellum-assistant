@@ -683,12 +683,69 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // Whether the transcript on screen is still the one this send belongs to.
+      //
+      // A send can be entered after an await that began under a different
+      // conversation: the composer resolves a camera frame and reposts an
+      // edited message before calling in here, and the user is free to switch
+      // threads while either runs. The POST further down targets the conversation
+      // this call closed over, so the message is delivered either way. What does
+      // not travel with it is every store this function writes on the way: the
+      // turn phase, the interaction surfaces, and the transcript itself all
+      // describe the ONE conversation on screen, and a stale send writing into
+      // them dresses somebody else's thread up as this one's.
+      //
+      // Nothing is deferred by skipping them, because there is no equivalent
+      // work to do for the original conversation: `switchToConversation` resets
+      // the turn and interaction stores and blanks the session snapshot on
+      // every move, so reopening that thread re-derives its state from history
+      // and the live stream. The sidebar's own processing key is written
+      // against the conversation id further down and stays correct.
+      //
+      // Asked, never remembered. The user can switch at any point, the POST
+      // being the longest such window, so a snapshot taken here would be
+      // answering for a screen that has since changed. Every write reads it
+      // where it stands; the pre-POST ones all run in one synchronous stretch,
+      // so they see one another's answer regardless.
+      //
+      // Hoisted above the `/doctor` branch, which runs before this function's
+      // own null guard, so the two ids are checked here rather than relied on
+      // from a narrowing that a closure cannot carry. Every other caller runs
+      // past that guard, where both are non-null and the extra checks stand
+      // true.
+      const sendScopeIsCurrent = () =>
+        assistantId !== null &&
+        activeConversationId !== null &&
+        isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: assistantId,
+          requestConversationId: activeConversationId,
+        });
+
       // `/doctor <message>` navigates to the Doctor panel rather than starting
       // an assistant turn, parking the first message in a hand-off store so the
       // panel can auto-start a session and send it. Handled before the
       // conversation/disk-pressure guards below since it needs neither.
       const doctorPrompt = parseDoctorCommand(content);
       if (doctorPrompt !== null) {
+        // Dropped outright when its thread is no longer the one on screen.
+        // The composer serializes deliveries, so a `/doctor` typed behind a
+        // pending camera frame arrives whenever that frame resolves, and
+        // navigating then would take the window the user is now working in to
+        // a panel they did not ask for. A navigation intent from a context the
+        // user has abandoned is not deferred, it is dropped: nothing is parked
+        // either, since a hand-off prompt with no navigation behind it would
+        // surface unbidden on their next visit to the Doctor.
+        //
+        // Ahead of both branches, so neither half of the command can run
+        // without the other. A send that had no conversation of its own has no
+        // thread to have left, and keeps today's behavior.
+        if (activeConversationId !== null && !sendScopeIsCurrent()) {
+          return;
+        }
         // The Doctor is platform-hosted only. On a self-hosted assistant its
         // tab doesn't exist, so the command is disabled: clear the input and
         // surface a notice rather than sending "/doctor …" as a normal turn.
@@ -728,40 +785,6 @@ export function useSendMessage({
         });
         return;
       }
-      // Whether the transcript on screen is still the one this send belongs to.
-      //
-      // A send can be entered after an await that began under a different
-      // conversation: the composer resolves a camera frame and reposts an
-      // edited message before calling in here, and the user is free to switch
-      // threads while either runs. The POST below targets the conversation this
-      // call closed over, so the message is delivered either way. What does not
-      // travel with it is every store between here and that POST: the turn
-      // phase, the interaction surfaces, and the transcript itself all describe
-      // the ONE conversation on screen, and a stale send writing into them
-      // dresses somebody else's thread up as this one's.
-      //
-      // Nothing is deferred by skipping them, because there is no equivalent
-      // work to do for the original conversation: `switchToConversation` resets
-      // the turn and interaction stores and blanks the session snapshot on
-      // every move, so reopening that thread re-derives its state from history
-      // and the live stream. The sidebar's own processing key is written
-      // against the conversation id further down and stays correct.
-      //
-      // Asked, never remembered. The user can switch at any point, the POST
-      // below being the longest such window, so a snapshot taken here would be
-      // answering for a screen that has since changed. Every write reads it
-      // where it stands; the pre-POST ones all run in this same synchronous
-      // stretch, so they see one another's answer regardless.
-      const sendScopeIsCurrent = () =>
-        isAsyncChatScopeCurrent({
-          currentAssistantId:
-            useResolvedAssistantsStore.getState().activeAssistantId,
-          currentConversationId:
-            useConversationStore.getState().activeConversationId,
-          requestAssistantId: assistantId,
-          requestConversationId: activeConversationId,
-        });
-
       if (sendScopeIsCurrent()) {
         setError(null);
         setNotice(null);

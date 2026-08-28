@@ -22,12 +22,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
-import type { ReactNode } from "react";
+import { MemoryRouter, useLocation } from "react-router";
+import { useEffect, type ReactNode } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import {
   INITIAL_TURN_STATE,
@@ -74,6 +75,8 @@ const ACCEPTED_QUEUED = {
  */
 function draftFor(key: string): string {
   useComposerStore.setState({ input: "" });
+  useDoctorHandoffStore.setState({ pendingPrompt: null });
+  currentLocation = START_LOCATION;
   useComposerStore.getState().restoreDraftIfEmpty(key);
   return useComposerStore.getState().input;
 }
@@ -119,10 +122,29 @@ function postedConversationId(): unknown {
 }
 
 const queryClient = new QueryClient();
+
+/** Where the router currently stands, recorded rather than mocked. */
+let currentLocation = "";
+const START_LOCATION = "/assistant";
+
+function LocationProbe() {
+  const location = useLocation();
+  const here = `${location.pathname}${location.search}`;
+  // Recorded from an effect rather than during render: a render body may not
+  // write to anything outside itself.
+  useEffect(() => {
+    currentLocation = here;
+  }, [here]);
+  return null;
+}
+
 function Wrapper({ children }: { children: ReactNode }) {
   return (
-    <MemoryRouter>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <MemoryRouter initialEntries={[START_LOCATION]}>
+      <QueryClientProvider client={queryClient}>
+        {children}
+        <LocationProbe />
+      </QueryClientProvider>
     </MemoryRouter>
   );
 }
@@ -666,5 +688,71 @@ describe("useSendMessage: the reconciliation loop", () => {
     });
 
     expect(cancelReconciliation).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * `/doctor` leaves the conversation entirely: it parks a hand-off prompt and
+ * navigates the window to the Doctor panel. Delivered late, that is a command
+ * from a thread the user left taking over the one they are working in, so it is
+ * dropped rather than deferred.
+ */
+describe("useSendMessage: a late /doctor", () => {
+  test("neither navigates nor parks once its thread is behind the user", async () => {
+    useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
+    // What the user has since typed in the thread they moved to.
+    useComposerStore.setState({ input: "half a thought" });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("/doctor fix my profiles");
+    });
+
+    expect(currentLocation).toBe(START_LOCATION);
+    // Nothing half-ran: a parked prompt with no navigation would surface on
+    // the user's next manual visit to the Doctor, and the clear both branches
+    // do would wipe a composer that is no longer this send's.
+    expect(useDoctorHandoffStore.getState().pendingPrompt).toBeNull();
+    expect(useComposerStore.getState().input).toBe("half a thought");
+  });
+
+  test("a bare /doctor is dropped whole too", async () => {
+    // The prompt is empty, so only the navigation is on offer, and it is the
+    // half that does the hijacking.
+    useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("/doctor");
+    });
+
+    expect(currentLocation).toBe(START_LOCATION);
+  });
+
+  test("on its own thread it behaves as it always has", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("/doctor fix my profiles");
+    });
+
+    expect(currentLocation).not.toBe(START_LOCATION);
+    expect(currentLocation).toContain("tab=doctor");
+    expect(useDoctorHandoffStore.getState().pendingPrompt).toBe(
+      "fix my profiles",
+    );
+  });
+
+  test("the send never reaches the daemon either way", async () => {
+    // `/doctor` is resolved entirely on the client: no POST, on screen or off.
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("/doctor fix my profiles");
+    });
+
+    expect(capturedBody).toBeNull();
   });
 });
