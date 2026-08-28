@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { credentialKey } from "@vellumai/credential-storage";
 import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
@@ -69,6 +69,15 @@ function makeBackend(): CredentialRecordBackend & {
 }
 
 describe("CES credential record retire", () => {
+  beforeEach(() => {
+    setCredentialRecordBackend(undefined);
+    _setMetadataPath(null);
+    const leftover = leftoverPath();
+    if (existsSync(leftover)) {
+      rmSync(leftover, { force: true });
+    }
+  });
+
   afterEach(() => {
     setCredentialRecordBackend(undefined);
     _setMetadataPath(null);
