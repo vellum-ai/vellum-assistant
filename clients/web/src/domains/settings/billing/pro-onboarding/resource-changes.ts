@@ -13,12 +13,12 @@ export interface ResourceChange {
 }
 
 /**
- * The credits chip's pre-worded strings: monthly rates by default, bundle
- * names under `obscure-credits`, which also overrides the row label ("Usage")
- * and may leave the from-side unstated when the catalog can't word it.
+ * The credits chip's pre-worded strings: each side names its bundle, under the
+ * row label the caller supplies ("Usage"). The from-side is left unstated when
+ * the catalog can't word it.
  */
 export interface CreditsChipContent {
-  label?: string;
+  label: string;
   from?: string;
   to: string;
 }
@@ -106,7 +106,7 @@ export function buildResourceChanges(input: {
   if (credits != null) {
     changes.push({
       key: "credits",
-      label: credits.label ?? "Credits",
+      label: credits.label,
       from: credits.from,
       to: credits.to,
     });

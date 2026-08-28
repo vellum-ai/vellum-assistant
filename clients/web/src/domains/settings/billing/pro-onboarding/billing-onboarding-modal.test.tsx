@@ -178,11 +178,11 @@ function makeEnsureResponse(
   };
 }
 
-/** A credit tier the chip can price from the catalog rather than its key. */
-function creditTier(usd: number) {
+/** A credit tier the chip can name from the catalog rather than its key. */
+function creditTier(usd: number, label: string) {
   return {
     tier: `credits_${usd}`,
-    label: `$${usd} credits/mo`,
+    label,
     credits_usd: usd,
     price_cents: usd * 100,
     lookup_key: `credits_${usd}_key`,
@@ -203,7 +203,11 @@ function plansWithCredits(): PlanListResponse {
         included_features: [],
         machine_tiers: [],
         storage_tiers: [],
-        credit_tiers: [creditTier(25), creditTier(45), creditTier(50)],
+        credit_tiers: [
+          creditTier(25, "Mighty Usage"),
+          creditTier(45, "Super Usage"),
+          creditTier(50, "Extra Usage"),
+        ],
         packages: [],
       },
     ],
@@ -1219,7 +1223,7 @@ describe("BillingOnboardingModal — resize mode", () => {
     );
     // One credits surface: the chip is on screen for the whole wait, not held
     // back for the terminal phase.
-    expect(getByTestId("chip-credits").textContent).toContain("$25/mo");
+    expect(getByTestId("chip-credits").textContent).toContain("Mighty Usage");
 
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
@@ -1227,8 +1231,8 @@ describe("BillingOnboardingModal — resize mode", () => {
       timeout: 5000,
     });
     const chip = getByTestId("chip-credits");
-    expect(chip.textContent).toContain("$25/mo");
-    expect(chip.textContent).toContain("$50/mo");
+    expect(chip.textContent).toContain("Mighty Usage");
+    expect(chip.textContent).toContain("Extra Usage");
   });
 
   test("resize mode draws its from-sides from the captured context, not live actuals", async () => {
@@ -1737,8 +1741,8 @@ describe("BillingOnboardingModal (package downgrade)", () => {
       timeout: 5000,
     });
     const credits = getByTestId("chip-credits");
-    expect(credits.textContent).toContain("$45/mo");
-    expect(credits.textContent).toContain("$25/mo");
+    expect(credits.textContent).toContain("Super Usage");
+    expect(credits.textContent).toContain("Mighty Usage");
     expect(within(credits).getByTestId("chip-check")).toBeTruthy();
 
     const machine = getByTestId("chip-machine");
@@ -1797,7 +1801,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
       timeout: 5000,
     });
     expect(queryByTestId("chip-machine")).toBeNull();
-    expect(getByTestId("chip-credits").textContent).toContain("$25/mo");
+    expect(getByTestId("chip-credits").textContent).toContain("Mighty Usage");
   }, 20_000);
 
   test("Mighty → Super shows all three chips, storage pending until the grow lands", async () => {
@@ -1835,8 +1839,8 @@ describe("BillingOnboardingModal (package downgrade)", () => {
     expect(machine.textContent).toContain("Small");
     expect(machine.textContent).toContain("Medium");
     const credits = getByTestId("chip-credits");
-    expect(credits.textContent).toContain("$25/mo");
-    expect(credits.textContent).toContain("$45/mo");
+    expect(credits.textContent).toContain("Mighty Usage");
+    expect(credits.textContent).toContain("Super Usage");
 
     assistantResponse = makeAssistant("medium", 30);
     await client.invalidateQueries();
