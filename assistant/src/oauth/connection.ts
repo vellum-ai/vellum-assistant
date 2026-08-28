@@ -5,8 +5,9 @@ export interface OAuthConnectionRequest {
   headers?: Record<string, string>;
   /**
    * A string is forwarded to the provider verbatim under the caller's own
-   * `Content-Type` (multipart, XML, form-encoded). Anything else is
-   * JSON-serialized and sent as `application/json`.
+   * `Content-Type` (multipart, XML, form-encoded). A Buffer or Uint8Array
+   * is forwarded as raw bytes. Anything else is JSON-serialized and sent
+   * as `application/json`.
    */
   body?: unknown;
   /**

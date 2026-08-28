@@ -717,6 +717,27 @@ describe("POST oauth/request", () => {
     expect(req.body).toEqual({ title: "Sheet" });
   });
 
+  test("decodes a base64 request body into a Buffer", async () => {
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
+
+    await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://api.google.com/upload/drive/v3/files",
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          parsed_data: binary.toString("base64"),
+          body_encoding: "base64",
+        },
+      }),
+    );
+
+    const req = mockResolveRequests[0] as { body: unknown };
+    expect(Buffer.isBuffer(req.body)).toBe(true);
+    expect(Buffer.from(req.body as Uint8Array).equals(binary)).toBe(true);
+  });
+
   test("base64-encodes binary response bodies for the JSON envelope", async () => {
     const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
     mockResolveResponse = {

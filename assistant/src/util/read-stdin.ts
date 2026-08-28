@@ -25,3 +25,8 @@ export const STDIN_FD = 0;
 export function readStdinSync(encoding: BufferEncoding = "utf-8"): string {
   return readFileSync(STDIN_FD, encoding);
 }
+
+/** Read all data currently available on stdin as raw bytes. */
+export function readStdinBytesSync(): Buffer {
+  return readFileSync(STDIN_FD);
+}
