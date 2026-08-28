@@ -254,57 +254,6 @@ describe("RetryProvider fallback-route escalation", () => {
     },
   );
 
-  test("410 end-of-life (non-retryable) → falls back immediately", async () => {
-    const primary = failingProvider(
-      "baseten",
-      () =>
-        new ProviderError(
-          "The model 'example-model' has reached its end of life and is no longer available.",
-          "baseten",
-          410,
-        ),
-    );
-    const backup = backupProvider();
-    const route = makeRoute(backup.provider);
-    const wrapped = new RetryProvider(primary.provider, {
-      resolveFallbackRoute: route.resolveFallbackRoute,
-    });
-
-    const result = await wrapped.sendMessage(MESSAGES, {
-      config: { callSite: "mainAgent" },
-    });
-
-    expect(primary.calls()).toBe(1);
-    expect(route.calls()).toBe(1);
-    expect(result.model).toBe("backup-model");
-  });
-
-  test("410 with provider-classified reason model_not_found → falls back immediately", async () => {
-    const primary = failingProvider(
-      "baseten",
-      () =>
-        new ProviderError(
-          "The model 'example-model' has reached its end of life and is no longer available.",
-          "baseten",
-          410,
-          { reason: "model_not_found" },
-        ),
-    );
-    const backup = backupProvider();
-    const route = makeRoute(backup.provider);
-    const wrapped = new RetryProvider(primary.provider, {
-      resolveFallbackRoute: route.resolveFallbackRoute,
-    });
-
-    const result = await wrapped.sendMessage(MESSAGES, {
-      config: { callSite: "mainAgent" },
-    });
-
-    expect(primary.calls()).toBe(1);
-    expect(route.calls()).toBe(1);
-    expect(result.model).toBe("backup-model");
-  });
-
   test("404 model-not-found (non-retryable) → falls back immediately", async () => {
     const primary = failingProvider(
       "openai",

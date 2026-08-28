@@ -802,33 +802,6 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(true);
     });
 
-    it("classifies ProviderError with 410 as a non-retryable retired model", () => {
-      const err = new ProviderError(
-        "The AI provider rejected the request (HTTP 410): The model 'thinkingmachines/inkling' has reached its end of life on 2026-08-25T08:00:00Z and is no longer available.",
-        "baseten",
-        410,
-      );
-      const result = classifyConversationError(err, baseCtx);
-      expect(result.code).toBe("PROVIDER_API");
-      expect(result.retryable).toBe(false);
-      expect(result.errorCategory).toBe("provider_model_not_found");
-      expect(result.userMessage).toContain("Switch models");
-    });
-
-    it("classifies reason=model_not_found as a non-retryable retired model", () => {
-      const err = new ProviderError(
-        "Baseten API error (410): The model 'example-model' has reached its end of life and is no longer available.",
-        "baseten",
-        410,
-        { reason: "model_not_found" },
-      );
-      const result = classifyConversationError(err, baseCtx);
-      expect(result.code).toBe("PROVIDER_API");
-      expect(result.errorCategory).toBe("provider_model_not_found");
-      expect(result.retryable).toBe(false);
-      expect(result.userMessage).toContain("Settings → Models & Services");
-    });
-
     it("classifies ProviderError with 401 as PROVIDER_INVALID_KEY (non-retryable)", () => {
       // 401 means the upstream provider rejected the configured key
       // (vs. PROVIDER_NOT_CONFIGURED which is for a never-set key).

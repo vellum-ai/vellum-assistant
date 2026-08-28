@@ -453,9 +453,6 @@ function classifyCore(
     if (error.statusCode === 529) {
       return providerOverloadedClassification();
     }
-    if (error.statusCode === 410) {
-      return modelNotFoundClassification();
-    }
     if (error.statusCode >= 500) {
       return providerServerErrorClassification();
     }
@@ -676,7 +673,13 @@ function reasonToClassification(
         errorCategory: "provider_network_error",
       };
     case "model_not_found":
-      return modelNotFoundClassification();
+      return {
+        code: "PROVIDER_API",
+        userMessage:
+          "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
+        retryable: false,
+        errorCategory: "provider_model_not_found",
+      };
     case "model_restricted": {
       const detail = extractProviderDetail(args.message);
       const prefix = "This model isn't available on your current provider plan";
@@ -882,19 +885,6 @@ function providerServerErrorClassification(): Omit<
     userMessage: "The AI provider returned a server error.",
     retryable: true,
     errorCategory: "provider_server_error",
-  };
-}
-
-function modelNotFoundClassification(): Omit<
-  ClassifiedConversationError,
-  "debugDetails"
-> {
-  return {
-    code: "PROVIDER_API",
-    userMessage:
-      "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
-    retryable: false,
-    errorCategory: "provider_model_not_found",
   };
 }
 

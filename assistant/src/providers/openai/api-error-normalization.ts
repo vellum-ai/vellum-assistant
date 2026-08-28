@@ -72,10 +72,7 @@ export function deriveReason(
   }
 
   if (
-    status === 410 ||
-    /model .*(?:not found|does not exist|no longer available|end of life)/i.test(
-      haystack,
-    ) ||
+    /model .*(?:not found|does not exist)/i.test(haystack) ||
     /model_not_found/i.test(`${n.apiErrorCode ?? ""} ${n.apiErrorType ?? ""}`)
   ) {
     return "model_not_found";

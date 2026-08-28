@@ -378,22 +378,6 @@ describe("deriveReason", () => {
     ).toBe("model_not_found");
   });
 
-  test("410 Gone → model_not_found", () => {
-    expect(deriveReason(n({ message: "Gone" }), 410)).toBe("model_not_found");
-  });
-
-  test("end-of-life model prose → model_not_found", () => {
-    expect(
-      deriveReason(
-        n({
-          message:
-            "The model 'thinkingmachines/inkling' has reached its end of life on 2026-08-25T08:00:00Z and is no longer available.",
-        }),
-        410,
-      ),
-    ).toBe("model_not_found");
-  });
-
   test("vision-not-supported prose → vision_unsupported", () => {
     expect(
       deriveReason(

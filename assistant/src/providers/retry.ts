@@ -417,14 +417,14 @@ const MANAGED_PROXY_UNSUPPORTED_MODEL_PATTERN =
 
 /**
  * Whether the failure indicts one model rather than the upstream serving it: a
- * provider-classified `model_not_found`, a 404/410 with no definitive
+ * provider-classified `model_not_found`, a 404 with no definitive
  * classification, or the managed proxy's preflight 400 for a renamed/retired
  * model. As in `isRetryableError`, a provider-stamped semantic reason takes
  * precedence over the status fallback: a 404 whose classifier assigned a
  * definitive non-model reason (Anthropic, for example, stamps `bad_request` on
  * a 404 without a model signal) marks a deterministic request/routing failure
  * that a different model route would not fix. Only an absent or `unknown`
- * reason falls through to the raw 404/410 check. `model_restricted` is a
+ * reason falls through to the raw 404 check. `model_restricted` is a
  * credential/policy denial, not a missing model, so it is deliberately absent.
  */
 function isModelSpecificError(error: unknown): boolean {
@@ -435,7 +435,7 @@ function isModelSpecificError(error: unknown): boolean {
     return true;
   }
   if (
-    (error.statusCode === 404 || error.statusCode === 410) &&
+    error.statusCode === 404 &&
     (error.reason === undefined || error.reason === "unknown")
   ) {
     return true;
@@ -504,11 +504,7 @@ function fallbackErrorType(error: unknown, retriesExhausted: boolean): string {
     if (error.statusCode === 401 || error.statusCode === 403) {
       return "invalid_credentials";
     }
-    if (
-      error.statusCode === 404 ||
-      error.statusCode === 410 ||
-      error.statusCode === 400
-    ) {
+    if (error.statusCode === 404 || error.statusCode === 400) {
       return "model_not_found";
     }
   }
@@ -1412,7 +1408,7 @@ export class RetryProvider implements Provider {
               });
             // The probe's own error decides what stays remembered, not the
             // scope of the entry it was acquired under: an upstream that
-            // answers with a retired-model 404/410 has stopped being an outage,
+            // answers with a retired-model 404 has stopped being an outage,
             // and a model outage that turns into a 503 has stopped being about
             // the model.
             releaseRecoveryProbe(
