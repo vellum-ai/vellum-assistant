@@ -123,6 +123,18 @@ export async function handleContactPromptSubmit(
     );
   }
 
+  // Claim before writing anything, exactly as the record form does: the form
+  // went to every connected client, and an answer landing near the deadline
+  // must stop that deadline rather than race the write it started.
+  const claim = await claimPrompt(requestId);
+  if (!claim.claimed) {
+    log.warn(
+      { requestId, reason: claim.reason },
+      "contact-prompt-submit: submission did not get the claim",
+    );
+    return lostClaimResponse(claim.reason);
+  }
+
   const normalizedAddress =
     canonicalizeInboundIdentity(channelType, address) ?? address.trim();
   const effectiveDisplayName = displayName ?? normalizedAddress;
@@ -238,6 +250,7 @@ export async function handleContactPromptSubmit(
         channelType,
         address: normalizedAddress,
         verify: body.verify,
+        settleMs: claim.settleMs,
       });
     }
 
@@ -407,6 +420,7 @@ export async function handleContactPromptSubmit(
     channelType,
     address: normalizedAddress,
     verify: body.verify,
+    settleMs: claim.settleMs,
   });
 }
 
@@ -461,6 +475,7 @@ async function resolveContactPrompt(args: {
   channelType: string;
   address: string;
   verify: boolean | undefined;
+  settleMs: number | undefined;
 }): Promise<Response> {
   const { requestId, contactId, channelId, channelType, address } = args;
   // What the channel ends up as, not what was asked for: the guardian's box
@@ -484,7 +499,7 @@ async function resolveContactPrompt(args: {
   await reportResolution(
     requestId,
     { requestId, contactId, channelId, channelType, address, verified },
-    undefined,
+    args.settleMs,
   );
 
   return Response.json({ accepted: true });
@@ -574,7 +589,11 @@ export async function handleContactRecordSubmit(
       );
       return lostClaimResponse(cancelClaim.reason);
     }
-    await notifyDaemonResolveError(requestId, "Cancelled by user");
+    await reportResolution(
+      requestId,
+      { requestId, error: "Cancelled by user" },
+      cancelClaim.settleMs,
+    );
     return Response.json({ accepted: true });
   }
 

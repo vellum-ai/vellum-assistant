@@ -31,13 +31,25 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const ipcThrowOn = new Map<string, Error>();
 
+/**
+ * The gateway claims a form before writing, so every submission in this suite
+ * needs the claim granted unless the test is about losing it. Shared with the
+ * per-test overrides below so none of them can drop it by omission.
+ */
+function defaultIpcResponse(method: string): Record<string, unknown> {
+  if (method === "contact_prompt_claim") {
+    return { claimed: true, settleMs: 180_000 };
+  }
+  return { resolved: true };
+}
+
 const ipcMock = mock(async (method: string) => {
   const err = ipcThrowOn.get(method);
   if (err) {
     ipcThrowOn.delete(method);
     throw err;
   }
-  return { resolved: true };
+  return defaultIpcResponse(method);
 });
 
 // Spread the actual module so untouched exports (IpcHandlerError,
@@ -128,7 +140,7 @@ beforeEach(() => {
       ipcThrowOn.delete(method);
       throw err;
     }
-    return { resolved: true };
+    return defaultIpcResponse(method);
   });
   ipcThrowOn.clear();
 
@@ -208,7 +220,7 @@ describe("handleContactPromptSubmit", () => {
       if (method === "contact_prompt_flags") {
         return { resolved: true, verify: true };
       }
-      return { resolved: true };
+      return defaultIpcResponse(method);
     });
 
     const res = await handleContactPromptSubmit(
@@ -243,6 +255,34 @@ describe("handleContactPromptSubmit", () => {
     expect(flags[0].body.requestId).toBe("req-verify");
   });
 
+  test("a submission that loses the claim writes nothing", async () => {
+    seedGuardian();
+    // A second client answering the same broadcast, after the first already
+    // has the claim.
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_claim") {
+        return { claimed: false, reason: "already_claimed" };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-lost-claim",
+        address: "+12025550147",
+        channelType: "imessage",
+        role: "guardian",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ accepted: true, duplicate: true });
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expect(callsFor(ipcMock, "resolve_contact_prompt")).toHaveLength(0);
+  });
+
   test("submitted verify:true attests without reading the parked flag", async () => {
     seedGuardian();
     // The parked flag says no. The form says yes, and the form is the answer.
@@ -250,7 +290,7 @@ describe("handleContactPromptSubmit", () => {
       if (method === "contact_prompt_flags") {
         return { resolved: true, verify: false };
       }
-      return { resolved: true };
+      return defaultIpcResponse(method);
     });
 
     const res = await handleContactPromptSubmit(
@@ -314,7 +354,7 @@ describe("handleContactPromptSubmit", () => {
       if (method === "contact_prompt_flags") {
         return { resolved: true, verify: true };
       }
-      return { resolved: true };
+      return defaultIpcResponse(method);
     });
 
     const res = await handleContactPromptSubmit(
@@ -441,9 +481,8 @@ describe("handleContactPromptSubmit", () => {
     // No mirror op fired either — the conflict aborts before any upsert.
     expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
 
-    // IPC should have been called with an error so the CLI doesn't hang.
-    expect(ipcMock).toHaveBeenCalledTimes(1);
-
+    // The CLI is told, so it doesn't hang. Asserted by what was sent rather
+    // than by a call count, since claiming the form is a call of its own.
     const ipcCall = resolveCall(ipcMock);
     expect(typeof ipcCall.body.error).toBe("string");
 
