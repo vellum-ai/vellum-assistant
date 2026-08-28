@@ -20,13 +20,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath, getLogger } from "./logger.js";
-import {
-  classifyWorkerOwnership,
-  pid1OwnsMlWorkers as pid1OwnsWorkers,
-} from "./ml-worker-ownership.js";
 import { isProcessAlive } from "./process-liveness.js";
 import { findProcessRow, type ProcessTableRow } from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
+import {
+  classifyWorkerOwnership,
+  pid1OwnsWorkers,
+} from "./worker-ownership.js";
 
 const log = getLogger("worker-process");
 
@@ -255,6 +255,21 @@ const ORPHAN_STOP_TIMEOUT_MS = 5_000;
 const ORPHAN_STOP_POLL_INTERVAL_MS = 100;
 
 /**
+ * How long to wait for a SIGKILLed worker to actually disappear. Signal
+ * delivery and reaping are asynchronous, so a liveness probe taken straight
+ * after the kill can still see a process that is on its way out.
+ */
+const ORPHAN_KILL_CONFIRM_MS = 1_000;
+
+/** Poll until `pid` is gone or `timeoutMs` elapses. */
+async function waitForExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    await Bun.sleep(ORPHAN_STOP_POLL_INTERVAL_MS);
+  }
+}
+
+/**
  * Stop a worker orphaned by a previous owner and release its PID file.
  * Reports whether it actually exited.
  *
@@ -278,16 +293,14 @@ async function stopOrphanedWorker(
     // Exited between the probe and the signal.
   }
 
-  const deadline = Date.now() + ORPHAN_STOP_TIMEOUT_MS;
-  while (Date.now() < deadline && isProcessAlive(pid)) {
-    await Bun.sleep(ORPHAN_STOP_POLL_INTERVAL_MS);
-  }
+  await waitForExit(pid, ORPHAN_STOP_TIMEOUT_MS);
   if (isProcessAlive(pid)) {
     try {
       process.kill(pid, "SIGKILL");
     } catch {
       // Best-effort.
     }
+    await waitForExit(pid, ORPHAN_KILL_CONFIRM_MS);
   }
 
   if (isProcessAlive(pid)) {

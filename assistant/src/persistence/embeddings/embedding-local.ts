@@ -10,17 +10,17 @@ import { join } from "node:path";
 import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import {
-  classifyWorkerOwnership,
-  listWorkerProcesses,
-  pid1OwnsMlWorkers,
-} from "../../util/ml-worker-ownership.js";
-import {
   getEmbeddingModelsDir,
   getEmbedWorkerPidPath,
 } from "../../util/platform.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
 import { workerComputeEnv } from "../../util/worker-compute.js";
 import { workerMemoryEnv } from "../../util/worker-memory.js";
+import {
+  classifyWorkerOwnership,
+  listWorkerProcesses,
+  pid1OwnsWorkers,
+} from "../../util/worker-ownership.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
 import {
   type EmbeddingBackend,
@@ -779,7 +779,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         worker,
         process.pid,
         isProcessAlive,
-        pid1OwnsMlWorkers(),
+        pid1OwnsWorkers(),
       );
       if (ownership === "foreign") {
         continue;

@@ -64,7 +64,7 @@ describe("workerKindSignature", () => {
     const monitoring = new URL(
       "file:////app/runtime/0.11.7/src/monitoring/worker.ts",
     );
-    expect(workerKindSignature(schedule, "schedule", source)).not.toBe(
+    expect(workerKindSignature(schedule, "schedule", source)).not.toEqual(
       workerKindSignature(monitoring, "monitoring", source),
     );
   });

@@ -14,11 +14,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { getEmbedWorkerPidPath } from "../../../util/platform.js";
 import {
   classifyWorkerOwnership,
   listWorkerProcesses,
-} from "../../../util/ml-worker-ownership.js";
-import { getEmbedWorkerPidPath } from "../../../util/platform.js";
+} from "../../../util/worker-ownership.js";
 import { LocalEmbeddingBackend } from "../embedding-local.js";
 
 /** Reach past `private`, which is compile-time only, so tests drive real state. */

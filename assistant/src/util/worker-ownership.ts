@@ -69,7 +69,7 @@ const DAEMON_ENTRYPOINT_MARKER = "daemon/main";
  * systemd it is the system init, so both answer false and PID-1 orphans stay
  * reclaimable. Unreadable means false, which keeps the reclaiming behaviour.
  */
-export function pid1OwnsMlWorkers(): boolean {
+export function pid1OwnsWorkers(): boolean {
   if (process.pid === 1) {
     return true;
   }
