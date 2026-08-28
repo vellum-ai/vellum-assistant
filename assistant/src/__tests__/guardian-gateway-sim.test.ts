@@ -6,9 +6,9 @@ import "./test-preload.js";
 
 /**
  * Pins the simulator to the gateway's authorization-lifecycle contract.
- * Fifteen assistant suites prove behavior against this sim, so a sim that
- * models semantics the gateway no longer has lets them pass against a
- * production shape that does not exist.
+ * Fifteen assistant suites prove behavior against this sim, so a sim whose
+ * semantics drift from the gateway's lets them pass against a production
+ * shape that does not exist.
  */
 describe("guardian gateway sim: boot expiry contract", () => {
   test("expires only interaction-bound kinds, never persistent kinds", async () => {
