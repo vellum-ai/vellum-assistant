@@ -25,7 +25,6 @@ import {
   configGetOptions,
   ttsProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { isCapabilitySettled } from "@/components/speech/capability-settled";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import {
   useManagedVoices,
@@ -126,12 +125,17 @@ export function useManagedVoiceSelection(
   // Gated on config having actually arrived — an unfetched config reads as
   // "not managed", which would flash the BYO state on every mount.
   const isByok = enabled && !!daemonConfig && !isManaged;
-  const settled = isCapabilitySettled(
-    orgReadiness,
-    catalogLoading,
-    configLoading,
-    voicesLoading,
-  );
+  // "Nothing is in flight, and nothing is waiting to start." Each `isLoading`
+  // is false for a query that is disabled or has failed, so the states that
+  // never produce a picker (no assistant, an org that resolved to nothing, an
+  // old daemon, a catalog that failed or came back empty) settle rather than
+  // read as perpetually loading. `"resolving"` is the one wait not expressed as
+  // a query: it disables all three, and they'd otherwise look settled.
+  const settled =
+    orgReadiness !== "resolving" &&
+    !catalogLoading &&
+    !configLoading &&
+    !voicesLoading;
 
   const configuredModel =
     daemonTts?.providers?.vellum?.model ??

@@ -20,15 +20,12 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { TurnDetectionRow } from "@/domains/settings/pages/turn-detection-row";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
-import { VoiceSection } from "@/domains/settings/pages/voice-section";
-import { VoiceSectionsSkeleton } from "@/domains/settings/pages/voice-sections-skeleton";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
 import { useFnRegistrationStore } from "@/stores/fn-registration-store";
 import { useHotkeyRecorder } from "@/domains/settings/keyboard-shortcuts/use-hotkey-recorder";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
-import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 import { DetailCard } from "@/components/detail-card";
 import { useTranslation } from "@/i18n";
@@ -103,16 +100,6 @@ export function VoicePage() {
 
 export function VoiceSections() {
   const { t } = useTranslation("settings");
-  const assistantId = useActiveAssistantId();
-  const { settled: voiceSettled } = useManagedVoiceSelection(assistantId);
-  const { settled: languageSettled } = useSttLanguageSelection(assistantId);
-
-  // Gated here rather than per card: the answers share one daemon config
-  // query, so the page arrives in a single step, and a card that never renders
-  // unsettled cannot assert a provider choice the user may not have made.
-  if (!voiceSettled || !languageSettled) {
-    return <VoiceSectionsSkeleton />;
-  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -171,6 +158,32 @@ function SpeechServicesBanner() {
         <ArrowUpRight className="h-3 w-3" />
       </Link>
     </div>
+  );
+}
+
+function VoiceSection({
+  heading,
+  description,
+  children,
+}: {
+  heading: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-label-medium-default uppercase tracking-wide text-[var(--content-tertiary)]">
+          {heading}
+        </h2>
+        {description && (
+          <p className="text-body-small-default text-[var(--content-quiet)]">
+            {description}
+          </p>
+        )}
+      </div>
+      {children}
+    </section>
   );
 }
 

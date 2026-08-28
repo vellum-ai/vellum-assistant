@@ -2156,7 +2156,6 @@
     "interruptSensitivityLabel": "Interrupt sensitivity",
     "interruptSensitivityLow": "Low",
     "interruptSensitivityMedium": "Medium",
-    "loadingAria": "Loading voice settings",
     "microphoneAriaLabel": "Microphone",
     "microphoneFallbackLabel": "Microphone {index}",
     "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
@@ -2194,6 +2193,7 @@
   "voicePickerCard": {
     "changeButton": "Change",
     "creditsNote": "Uses Vellum credits, through providers like ElevenLabs and Deepgram.",
+    "loadingAria": "Loading voice",
     "title": "Voice",
     "titleWithName": "{name}'s Voice"
   },

@@ -510,6 +510,8 @@
   "credentialRow": {
     "addedMetadata": "添加于 {date}",
     "clickToRevealTitle": "点击显示",
+    "configureAriaLabel": "配置 {name}",
+    "configureButton": "配置",
     "copyFailedToast": "无法复制。请手动显示并复制。",
     "copyValueAriaLabel": "复制 {name} 的值",
     "copyValueTitle": "复制值",
@@ -2151,7 +2153,6 @@
     "interruptSensitivityLabel": "打断灵敏度",
     "interruptSensitivityLow": "低",
     "interruptSensitivityMedium": "中",
-    "loadingAria": "正在加载语音设置",
     "microphoneAriaLabel": "麦克风",
     "microphoneFallbackLabel": "麦克风 {index}",
     "microphoneSubtitle": "用于听写和语音对话的输入设备。",
@@ -2189,6 +2190,7 @@
   "voicePickerCard": {
     "changeButton": "更改",
     "creditsNote": "通过 ElevenLabs 和 Deepgram 等提供商使用 Vellum 积分。",
+    "loadingAria": "正在加载语音",
     "title": "语音",
     "titleWithName": "{name} 的语音"
   },

@@ -2141,7 +2141,6 @@
     "interruptSensitivityLabel": "Чувствительность к перебиванию",
     "interruptSensitivityLow": "Низкая",
     "interruptSensitivityMedium": "Средняя",
-    "loadingAria": "Загрузка настроек голоса",
     "microphoneAriaLabel": "Микрофон",
     "microphoneFallbackLabel": "Микрофон {index}",
     "microphoneSubtitle": "Какое устройство ввода используется для диктовки и голосовых разговоров.",
@@ -2178,6 +2177,7 @@
   "voicePickerCard": {
     "changeButton": "Сменить",
     "creditsNote": "Тратит кредиты Vellum через провайдеров вроде ElevenLabs и Deepgram.",
+    "loadingAria": "Загрузка голоса",
     "title": "Голос",
     "titleWithName": "Голос {name}"
   },

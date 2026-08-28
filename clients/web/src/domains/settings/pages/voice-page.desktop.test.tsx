@@ -38,7 +38,6 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 mock.module("@/components/speech/use-stt-language-selection", () => ({
   useSttLanguageSelection: (): UseSttLanguageSelection => ({
     available: false,
-    settled: true,
     currentCode: "multi",
     configuredProviderId: "deepgram",
     selectLanguage: () => {},

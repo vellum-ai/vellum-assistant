@@ -52,7 +52,6 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 // CI's bun), so its shape is swapped through this mutable seed instead.
 const languageSelection: UseSttLanguageSelection = {
   available: false,
-  settled: true,
   currentCode: "multi",
   configuredProviderId: "deepgram",
   selectLanguage: () => {},
@@ -94,7 +93,6 @@ beforeEach(() => {
   voiceSelection.available = false;
   voiceSelection.settled = true;
   languageSelection.available = false;
-  languageSelection.settled = true;
   languageSelection.currentCode = "multi";
   languageSelection.configuredProviderId = "deepgram";
   localStorage.clear();
@@ -416,81 +414,40 @@ describe("VoiceSections voice mode shortcut", () => {
   });
 });
 
-describe("VoiceSections loading gate", () => {
-  const captionsToggle = () =>
-    screen.queryByRole("switch", { name: "Show the words you say" });
-  const placeholder = () =>
-    screen.queryByRole("status", { name: "Loading voice settings" });
+describe("VoiceSections voice card while the answer is in flight", () => {
+  const byoNote = () => screen.queryByText(/provider you configured yourself/i);
+  const loading = () => screen.queryByRole("status", { name: "Loading voice" });
+  // The card is named after the assistant, so match the heading it always
+  // renders rather than one branch's copy.
+  const cardTitle = () => screen.queryAllByRole("heading", { name: "Voice" });
 
-  // Each section's own heading, in document order. Not matched by text, since
-  // a card title can repeat one ("Captions" names both the section and the
-  // card inside it), and not a bare `section` query, since DetailCard renders
-  // a section per card: only the page's sections are its direct children.
-  const sectionHeadings = (container: HTMLElement) =>
-    Array.from(container.firstElementChild?.children ?? [])
-      .filter((el) => el.tagName === "SECTION")
-      .map((section) => section.querySelector("h2")?.textContent);
-
-  test("an unsettled voice answer holds every card back", () => {
+  test("says nothing about the provider until the answer lands", () => {
     voiceSelection.settled = false;
 
     renderPage();
 
-    expect(placeholder()).not.toBeNull();
-    expect(captionsToggle()).toBeNull();
+    expect(loading()).not.toBeNull();
+    expect(byoNote()).toBeNull();
+    expect(cardTitle()).toHaveLength(1);
   });
 
-  test("an unsettled language answer holds them back too", () => {
-    languageSelection.settled = false;
-
-    renderPage();
-
-    expect(placeholder()).not.toBeNull();
-    expect(captionsToggle()).toBeNull();
-  });
-
-  test("both answers in renders the cards and drops the placeholder", () => {
-    renderPage();
-
-    expect(placeholder()).toBeNull();
-    expect(captionsToggle()).not.toBeNull();
-  });
-
-  test("both states are headed by the same sections in the same order", () => {
+  test("an unsettled answer that resolves to no falls back to the note", () => {
     voiceSelection.settled = false;
-    const loading = renderPage();
-    expect(sectionHeadings(loading.container)).toEqual([
-      "Output",
-      "Input",
-      "Captions",
-    ]);
+    const { rerenderPage } = renderPage();
+    const headingWhileLoading = screen.getByRole("heading", { name: "Voice" });
 
-    cleanup();
+    expect(byoNote()).toBeNull();
+
     voiceSelection.settled = true;
-    const ready = renderPage();
-    expect(sectionHeadings(ready.container)).toEqual([
-      "Output",
-      "Input",
-      "Captions",
-    ]);
-  });
-
-  test("the placeholder gives way to the cards in a single step", () => {
-    voiceSelection.settled = false;
-    languageSelection.settled = false;
-    const { rerenderPage, container } = renderPage();
-
-    expect(placeholder()).not.toBeNull();
-    expect(captionsToggle()).toBeNull();
-
-    // Both answers land together, which is what the shared config query gives:
-    // one flip from placeholder to page, not one per capability.
-    voiceSelection.settled = true;
-    languageSelection.settled = true;
     rerenderPage();
 
-    expect(placeholder()).toBeNull();
-    expect(captionsToggle()).not.toBeNull();
-    expect(sectionHeadings(container)).toEqual(["Output", "Input", "Captions"]);
+    expect(loading()).toBeNull();
+    expect(byoNote()).not.toBeNull();
+    // The very same node, not just an equal one: React kept the heading
+    // mounted and replaced only the body under it, which is what stops the
+    // card from moving when the answer lands.
+    expect(screen.getByRole("heading", { name: "Voice" })).toBe(
+      headingWhileLoading,
+    );
   });
 });
