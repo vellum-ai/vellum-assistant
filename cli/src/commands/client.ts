@@ -409,6 +409,20 @@ async function maybeHydratePlatformAssistantName(
 const SPA_BASE = "/assistant/";
 
 /**
+ * Cache policy for hashed build output under `dist/assets/`: the content hash
+ * is part of the filename, so a new build emits new names and a stored copy can
+ * never be stale.
+ */
+const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+/**
+ * Cache policy for everything whose name is stable across builds: the HTML
+ * shell and unhashed `public/` files. Storing is allowed, serving without
+ * revalidating is not, so an assistant update is never masked by a cached copy.
+ */
+const REVALIDATE_CACHE_CONTROL = "no-cache";
+
+/**
  * Locate the clients/web source directory for running the Vite dev server.
  * Only works from a source checkout (not npm-installed).
  */
@@ -1303,6 +1317,17 @@ async function runWebInterface(
     `<script>window.__VELLUM_CONFIG__=${configJson}${flagOverridesSnippet}</script></head>`,
   );
 
+  // The shell names this build's hashed chunks and carries the host's injected
+  // config snippet, so every route that falls back to it serves the same body
+  // under the same revalidating policy.
+  const spaShellResponse = () =>
+    new Response(indexHtml, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": REVALIDATE_CACHE_CONTROL,
+      },
+    });
+
   const fetchHandler: WebFetchHandler = async (req, server) => {
     const url = new URL(req.url);
     const { pathname } = url;
@@ -1399,38 +1424,21 @@ async function runWebInterface(
         const filePath = path.join(distDir, relPath);
         const file = Bun.file(filePath);
         if (await file.exists()) {
-          // Everything under dist/assets/ carries a content hash in its
-          // filename, so it can be cached forever: a new build references new
-          // filenames. Without this header the WebView is free to revalidate
-          // or re-fetch every chunk on every lazy-route navigation. Unhashed
-          // files (public/ copies) must revalidate instead.
-          const cacheControl = relPath.startsWith("assets/")
-            ? "public, max-age=31536000, immutable"
-            : "no-cache";
           return new Response(file, {
-            headers: { "Cache-Control": cacheControl },
+            headers: {
+              "Cache-Control": relPath.startsWith("assets/")
+                ? IMMUTABLE_CACHE_CONTROL
+                : REVALIDATE_CACHE_CONTROL,
+            },
           });
         }
       }
-      return new Response(indexHtml, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          // The HTML names the current build's hashed chunks and embeds the
-          // server's config snippet; a cached copy would pin a stale build
-          // (or stale flags) across an assistant update.
-          "Cache-Control": "no-cache",
-        },
-      });
+      return spaShellResponse();
     }
 
     // SPA fallback for /account/* routes (login, callback, etc.)
     if (pathname.startsWith("/account/")) {
-      return new Response(indexHtml, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-cache",
-        },
-      });
+      return spaShellResponse();
     }
 
     return new Response("Not Found", { status: 404 });
