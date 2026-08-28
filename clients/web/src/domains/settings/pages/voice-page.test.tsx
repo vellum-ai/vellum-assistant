@@ -74,17 +74,18 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  const tree = (
+  // A fresh element per call, not one reused: React compares elements by
+  // identity and skips the subtree when the same object comes back, which
+  // would leave a re-render reading the hook stubs as they were.
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <VoiceSections />
       </MemoryRouter>
     </QueryClientProvider>
   );
-  const utils = render(tree);
-  // Same tree, same client: re-rendering re-reads the mutable hook stubs, so
-  // a test can move between loading and settled the way the page does.
-  return { ...utils, rerenderPage: () => utils.rerender(tree) };
+  const utils = render(tree());
+  return { ...utils, rerenderPage: () => utils.rerender(tree()) };
 }
 
 beforeEach(() => {
