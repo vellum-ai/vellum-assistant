@@ -205,6 +205,7 @@ export const CurrentPaidNoUsageReading: Story = {
     specs: packageSpecs(MIGHTY, {
       usageLabel: usageChip(MIGHTY.name),
     }),
+    specsWrap: true,
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
   },
 };
@@ -246,6 +247,7 @@ export const NextPlan: Story = {
     specs: packageSpecs(SUPER, {
       usageLabel: usageChip(SUPER.name),
     }),
+    specsWrap: true,
     footer: upgradeCta(),
   },
 };
