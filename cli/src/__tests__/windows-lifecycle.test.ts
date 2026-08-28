@@ -119,10 +119,10 @@ test("reports a failed forced Windows process-tree termination", async () => {
 });
 
 test("treats a Unix exit before SIGKILL as a successful stop", async () => {
-  const signals: Array<NodeJS.Signals | number | undefined> = [];
+  const calls: Array<[number, NodeJS.Signals | number | undefined]> = [];
   const originalKill = process.kill.bind(process);
-  process.kill = ((_pid: number, signal?: NodeJS.Signals | number) => {
-    signals.push(signal);
+  process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+    calls.push([pid, signal]);
     if (signal === "SIGKILL") {
       throw Object.assign(new Error("no such process"), { code: "ESRCH" });
     }
@@ -131,7 +131,17 @@ test("treats a Unix exit before SIGKILL as a successful stop", async () => {
 
   try {
     expect(await stopProcess(4812, "test process", 0, "darwin")).toBeTrue();
-    expect(signals).toEqual([0, "SIGTERM", 0, "SIGKILL"]);
+    // Escalation targets the process group first (the negative PID), so a
+    // daemon's workers die with it, then falls back to the single PID for
+    // processes that lead no group. ESRCH on both means it exited on its
+    // own, which is a successful stop.
+    expect(calls).toEqual([
+      [4812, 0],
+      [4812, "SIGTERM"],
+      [4812, 0],
+      [-4812, "SIGKILL"],
+      [4812, "SIGKILL"],
+    ]);
   } finally {
     process.kill = originalKill;
   }
