@@ -104,8 +104,17 @@ export function PaymentMethodsCard() {
   // A 3DS redirect return lands on a freshly loaded page, so the mode the save
   // was started in is gone: a saved outcome shows the success panel alone, and
   // a failed one reopens the form in the mode the saved card calls for.
+  //
+  // That mode comes from the config query, so a failed outcome waits for it to
+  // settle. Snapshotting while it is still pending would read no cards, and
+  // the updater below preserves that snapshot: the replacement would replay
+  // under the Add title with no card-on-file row for the rest of the visit.
+  const configSettled = configQuery.isSuccess || configQuery.isError;
   useEffect(() => {
     if (outcome == null) {
+      return;
+    }
+    if (outcome.kind !== "saved" && !configSettled) {
       return;
     }
     setPmModal((current) => {
@@ -116,7 +125,7 @@ export function PaymentMethodsCard() {
         ? { mode: "add", cardOnFile: null }
         : modalSnapshotFor(cards);
     });
-  }, [outcome, cards]);
+  }, [outcome, cards, configSettled]);
 
   const renderBody = () => {
     // `isPending` rather than `isLoading`: the query idles with no data until

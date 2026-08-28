@@ -4,10 +4,11 @@
  * through Stripe.js, and stripped from the URL.
  *
  * Strategy: mock the shared Stripe client so `retrieveSetupIntent` is driven
- * from the test (a real one needs Stripe.js and a live intent), and mock the
- * saved-card sync so the confirm endpoint is not called. The real
- * `setupIntentIdFromClientSecret` is kept, so the id the sync is handed is
- * parsed the way it is in the app.
+ * from the test (a real one needs Stripe.js and a live intent), mock the
+ * saved-card sync so the confirm endpoint is not called, and mock the
+ * org-readiness gate so a test can hold the resolution the way a hydrating org
+ * store does. The real `setupIntentIdFromClientSecret` is kept, so the id the
+ * sync is handed is parsed the way it is in the app.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -68,6 +69,13 @@ mock.module("@/domains/settings/hooks/use-payment-method-saved-poll", () => ({
   usePaymentMethodSavedSync: () => syncPaymentMethodSaved,
 }));
 
+// Drives the org-header gate. The resolution confirms the SetupIntent
+// server-side, so it waits for the header source the billing queries wait for.
+let orgReady = true;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
+}));
+
 const { useSetupIntentReturn } = await import("./use-setup-intent-return");
 
 const RETURN_SEARCH =
@@ -109,6 +117,7 @@ beforeEach(() => {
   retrieveResult = { setupIntent: { status: "succeeded" } };
   syncCalls = [];
   syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
+  orgReady = true;
 });
 
 afterEach(cleanup);
@@ -177,6 +186,30 @@ describe("useSetupIntentReturn", () => {
     expect(result.current.outcome).toBeNull();
     expect(getStripePromiseCalls).toBe(0);
     expect(currentUrl(result)).toBe(STRIPPED_URL);
+  });
+
+  test("holds the resolution until the org header source is ready", async () => {
+    orgReady = false;
+    const { result, rerender } = renderAt(RETURN_SEARCH);
+
+    // The params are already off the URL, so a reload cannot replay them.
+    expect(currentUrl(result)).toBe(STRIPPED_URL);
+    expect(getStripePromiseCalls).toBe(0);
+    expect(retrieveCalls).toEqual([]);
+    expect(syncCalls).toEqual([]);
+    expect(result.current.outcome).toBeNull();
+
+    orgReady = true;
+    rerender();
+    await waitForOutcome(result);
+
+    expect(result.current.outcome).toEqual({
+      kind: "saved",
+      card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+    });
+    expect(getStripePromiseCalls).toBe(1);
+    expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
   });
 
   test("clearOutcome drops the resolved outcome", async () => {

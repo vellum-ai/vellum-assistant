@@ -14,7 +14,8 @@
  *    in-flight add into a replace or restate the card being replaced.
  *  - A 3DS redirect return replays its outcome into a freshly opened modal:
  *    a saved card on the success panel alone, a failure back into the form in
- *    the mode the saved card calls for.
+ *    the mode the saved card calls for. The failure waits for the config query
+ *    to settle, so it cannot be pinned to add mode by a still-pending one.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
@@ -46,16 +47,35 @@ import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
 let retrieveResponse: AutoTopUpConfigResponse;
 let retrieveShouldFail = false;
+// Set by `holdRetrieve()` to keep the config query in flight, so a test can
+// observe what the card does before the query has settled.
+let retrieveGate: Promise<void> | null = null;
+let releaseRetrieve: (() => void) | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingAutoTopUpRetrieve: () => {
-    if (retrieveShouldFail) {
-      return Promise.reject(new Error("org header missing"));
+  organizationsBillingAutoTopUpRetrieve: async () => {
+    if (retrieveGate != null) {
+      await retrieveGate;
     }
-    return Promise.resolve({ data: retrieveResponse, response: { ok: true } });
+    if (retrieveShouldFail) {
+      throw new Error("org header missing");
+    }
+    return { data: retrieveResponse, response: { ok: true } };
   },
 }));
+
+function holdRetrieve() {
+  retrieveGate = new Promise<void>((resolve) => {
+    releaseRetrieve = resolve;
+  });
+}
+
+function releaseHeldRetrieve() {
+  retrieveGate = null;
+  releaseRetrieve?.();
+  releaseRetrieve = null;
+}
 
 // Stub the Stripe setup modal: these tests assert only that it is
 // opened/closed and which mode and card on file it is handed.
@@ -177,6 +197,8 @@ async function settleConfigQuery(client: QueryClient) {
 beforeEach(() => {
   retrieveResponse = { ...DISABLED_CONFIG };
   retrieveShouldFail = false;
+  retrieveGate = null;
+  releaseRetrieve = null;
   orgReadiness = "ready";
   pmModalProps = null;
   returnedOutcome = null;
@@ -409,6 +431,34 @@ describe("PaymentMethodsCard redirect return", () => {
     render(wrap(DISABLED_WITH_CARD));
 
     expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
+  });
+
+  test("holds a failed outcome until the config query settles", async () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    returnedOutcome = { kind: "error", message: "Your card was declined." };
+    holdRetrieve();
+    const client = makeClient();
+    const { container } = render(wrapWith(client));
+
+    // Snapshotting here would read no cards and pin the modal to add mode.
+    expect(container.querySelector('[data-testid="pm-modal-stub"]')).toBeNull();
+
+    releaseHeldRetrieve();
+    await settleConfigQuery(client);
+
+    await waitFor(() => {
+      if (lastPmModalProps().open !== true) {
+        throw new Error("modal not opened after the config query settled");
+      }
+    });
     expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
     expect(lastPmModalProps().mode).toBe("replace");
     expect(lastPmModalProps().cardOnFile).toEqual({
