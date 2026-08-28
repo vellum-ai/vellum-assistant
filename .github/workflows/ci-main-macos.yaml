@@ -16,6 +16,7 @@ on:
       - 'packages/native-sidecar/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-catalog/**'
       - 'packages/avatar-manifest/**'
       - '.github/workflows/ci-main-macos.yaml'
 

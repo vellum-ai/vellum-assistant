@@ -18,6 +18,7 @@ on:
       - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-catalog/**'
       - 'packages/avatar-manifest/**'
       # The web LLM catalog parity test reads this file, so daemon-side catalog
       # regenerations must run the web tests on the PR that introduces drift.
