@@ -40,6 +40,7 @@ const PROD_ORIGIN = "chrome-extension://hphbdmpffeigpcdjkckleobjmhhokpne";
 const GUARDIAN_ID = "guardian-001";
 
 let testRoot: string;
+let savedSecurityDir: string | undefined;
 
 function makePairRequest(body?: Record<string, unknown>): Request {
   return new Request("http://localhost:7830/v1/pair", {
@@ -64,6 +65,7 @@ function activeTokens() {
 
 beforeEach(async () => {
   resetPairRateLimiterForTests();
+  savedSecurityDir = process.env.GATEWAY_SECURITY_DIR;
   testRoot = mkdtempSync(join(tmpdir(), "pair-device-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
@@ -103,7 +105,11 @@ beforeEach(async () => {
 
 afterEach(() => {
   resetGatewayDb();
-  delete process.env.GATEWAY_SECURITY_DIR;
+  if (savedSecurityDir === undefined) {
+    delete process.env.GATEWAY_SECURITY_DIR;
+  } else {
+    process.env.GATEWAY_SECURITY_DIR = savedSecurityDir;
+  }
   try {
     rmSync(testRoot, { recursive: true, force: true });
   } catch {

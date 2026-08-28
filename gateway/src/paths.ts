@@ -9,6 +9,8 @@
 import { join } from "node:path";
 import { homedir, userInfo } from "node:os";
 
+import { assertTestPathIsEphemeral } from "@vellumai/environments/test-path-guard";
+
 function safeUserInfoHomedir(): string {
   try {
     return userInfo().homedir;
@@ -42,6 +44,23 @@ export function getLegacyRootDir(): string {
 let warnedWorkspaceDir = false;
 let warnedSecurityDir = false;
 
+// In test processes both resolvers below must stay under os.tmpdir():
+// gateway code exercised by a test would otherwise read and write live state
+// (the gateway DB, the actor-token signing key, the backup key). The guard is
+// shared with the assistant in @vellumai/environments/test-path-guard; the
+// escape hatches are the same variables the DB-open guard in db/connection.ts
+// honors.
+
+const WORKSPACE_GUARD = {
+  allowEnvVar: "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS",
+  runHint: "Run tests from the gateway package root.",
+};
+
+const SECURITY_GUARD = {
+  allowEnvVar: "VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS",
+  runHint: "Run tests from the gateway package root.",
+};
+
 /**
  * Returns the workspace root for user-facing state.
  *
@@ -51,7 +70,10 @@ let warnedSecurityDir = false;
  */
 export function getWorkspaceDir(): string {
   const override = process.env.VELLUM_WORKSPACE_DIR?.trim();
-  if (override) return override;
+  if (override) {
+    assertTestPathIsEphemeral(override, WORKSPACE_GUARD);
+    return override;
+  }
   if (!warnedWorkspaceDir) {
     warnedWorkspaceDir = true;
     console.warn(
@@ -59,7 +81,9 @@ export function getWorkspaceDir(): string {
         "Set VELLUM_WORKSPACE_DIR explicitly in the entrypoint.",
     );
   }
-  return join(getLegacyRootDir(), "workspace");
+  const dir = join(getLegacyRootDir(), "workspace");
+  assertTestPathIsEphemeral(dir, WORKSPACE_GUARD);
+  return dir;
 }
 
 /**
@@ -71,7 +95,10 @@ export function getWorkspaceDir(): string {
  */
 export function getGatewaySecurityDir(): string {
   const override = process.env.GATEWAY_SECURITY_DIR?.trim();
-  if (override) return override;
+  if (override) {
+    assertTestPathIsEphemeral(override, SECURITY_GUARD);
+    return override;
+  }
   if (!warnedSecurityDir) {
     warnedSecurityDir = true;
     console.warn(
@@ -79,5 +106,7 @@ export function getGatewaySecurityDir(): string {
         "Set GATEWAY_SECURITY_DIR explicitly in the entrypoint.",
     );
   }
-  return join(getLegacyRootDir(), "protected");
+  const dir = join(getLegacyRootDir(), "protected");
+  assertTestPathIsEphemeral(dir, SECURITY_GUARD);
+  return dir;
 }

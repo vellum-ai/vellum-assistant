@@ -19,6 +19,8 @@ const DISCORD_PORTAL_URL = "https://discord.com/developers/applications";
 const WIZARD_STEP_IDS = ["create", "connect", "invite"] as const;
 
 export interface DiscordSetupWizardProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   onSave?: (botToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
@@ -34,6 +36,7 @@ export interface DiscordSetupWizardProps {
  * a single token rather than a pair.
  */
 export function DiscordSetupWizard({
+  assistantId,
   onSave,
   saveStatus = "idle",
   saveError = null,
@@ -86,6 +89,7 @@ export function DiscordSetupWizard({
     >
       {stepId === "create" && (
         <DiscordSetupCreateStep
+          assistantId={assistantId}
           onOpenPortal={handleOpenPortal}
           onContinue={handleContinueToConnect}
         />

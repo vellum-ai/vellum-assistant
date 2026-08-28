@@ -39,6 +39,7 @@ const ACTOR_SUB = "actor:self:guardian-001";
 const actorClaims = { sub: ACTOR_SUB } as TokenClaims;
 
 let testRoot: string;
+let savedSecurityDir: string | undefined;
 
 function insertTokenRecord(
   rawToken: string,
@@ -119,6 +120,7 @@ function insertGuardianContact() {
 }
 
 beforeEach(async () => {
+  savedSecurityDir = process.env.GATEWAY_SECURITY_DIR;
   testRoot = mkdtempSync(join(tmpdir(), "revocation-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
@@ -141,7 +143,11 @@ afterEach(() => {
   resetGatewayDb();
   resetGuardianIntegrityReporterForTesting();
   bustGuardianIntegrityCache();
-  delete process.env.GATEWAY_SECURITY_DIR;
+  if (savedSecurityDir === undefined) {
+    delete process.env.GATEWAY_SECURITY_DIR;
+  } else {
+    process.env.GATEWAY_SECURITY_DIR = savedSecurityDir;
+  }
   try {
     rmSync(testRoot, { recursive: true, force: true });
   } catch {

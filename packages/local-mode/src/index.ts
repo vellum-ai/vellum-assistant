@@ -18,6 +18,11 @@ export {
 } from "./util";
 export type { CliInvocation } from "./util";
 export {
+  DAEMON_STOP_TIMEOUT_MS,
+  HOST_WRAPPER_HEADROOM_MS,
+  HOST_WRAPPER_LONG_HEADROOM_MS,
+} from "./lifecycle-budgets";
+export {
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
   resolveConfigDir,

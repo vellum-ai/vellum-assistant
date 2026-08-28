@@ -279,6 +279,15 @@ export async function resolveProcessState(
 }
 
 /**
+ * SIGKILL ceiling for stopping the assistant daemon.
+ *
+ * Defined in `@vellumai/local-mode` because the host wrappers that spawn these
+ * commands derive their own timeouts from it: a wrapper that expires first
+ * kills the CLI before this ceiling is ever reached.
+ */
+export { DAEMON_STOP_TIMEOUT_MS } from "@vellumai/local-mode";
+
+/**
  * Stop a process by PID: SIGTERM, wait up to `timeoutMs`, then SIGKILL if still alive.
  * Returns true if the process was stopped, false if it wasn't alive or
  * termination failed.

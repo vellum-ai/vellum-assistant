@@ -7,7 +7,10 @@ import {
   validateSlackToken,
 } from "@/utils/slack-token-validation";
 
+import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 export interface SlackSetupTokensStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   botToken: string;
   appToken: string;
   saveStatus: MutationStatus;
@@ -22,8 +25,14 @@ export interface SlackSetupTokensStepProps {
  *
  * Slack mints the `xapp-` app token alongside the `xoxb-` bot token on Create
  * and Install, so both are collected here rather than across separate steps.
+ *
+ * The avatar card sits here rather than on the create step because an app icon
+ * cannot be set until the app exists: it is absent from the manifest schema,
+ * and the create step leaves the user in a modal for an app Slack has not made
+ * yet. By this step they are on the app's own screen.
  */
 export function SlackSetupTokensStep({
+  assistantId,
   botToken,
   appToken,
   saveStatus,
@@ -92,6 +101,8 @@ export function SlackSetupTokensStep({
         disabled={saveStatus === "pending"}
         fullWidth
       />
+
+      <ChannelAvatarDownload assistantId={assistantId} channel="slack" />
 
       <Button
         type="button"

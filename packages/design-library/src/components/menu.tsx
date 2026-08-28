@@ -4,6 +4,12 @@ import { type ComponentProps, type ReactNode, useRef } from "react";
 
 import { cn } from "../utils/cn";
 import { menuContentBase, menuItemBase } from "../utils/menu-styles";
+
+import {
+  MenuItemShortcut,
+  MenuItemTrailing,
+  menuItemShortcutProps,
+} from "./menu-item-aside";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
@@ -101,7 +107,19 @@ function Content({
 
 type ItemProps = ComponentProps<typeof DropdownMenuPrimitive.Item> & {
   readonly leftIcon?: ReactNode;
-  readonly shortcut?: ReactNode;
+  /**
+   * Electron accelerator for the row's binding, e.g. `"CmdOrCtrl+Shift+P"`.
+   * Draws the glyph hint and sets the item's `aria-keyshortcuts` from the one
+   * value, so what is shown and what is announced cannot disagree. Right
+   * aligned content that is not a binding belongs in `trailing`.
+   */
+  readonly shortcut?: string;
+  /**
+   * Right-aligned trailing content that is not a keyboard shortcut: a status
+   * glyph, secondary hint text. Unlike {@link ItemProps.shortcut} it stays in
+   * the accessible name.
+   */
+  readonly trailing?: ReactNode;
 };
 
 function Item({
@@ -109,6 +127,7 @@ function Item({
   children,
   leftIcon,
   shortcut,
+  trailing,
   ref,
   ...rest
 }: ItemProps) {
@@ -117,6 +136,7 @@ function Item({
       ref={ref}
       data-slot="menu-item"
       className={cn(menuItemBase, className)}
+      {...menuItemShortcutProps(shortcut)}
       {...rest}
     >
       {leftIcon ? (
@@ -129,10 +149,9 @@ function Item({
         </span>
       ) : null}
       <span className="flex-1 truncate">{children}</span>
+      {trailing ? <MenuItemTrailing>{trailing}</MenuItemTrailing> : null}
       {shortcut ? (
-        <span className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]">
-          {shortcut}
-        </span>
+        <MenuItemShortcut accelerator={shortcut} push={!trailing} />
       ) : null}
     </DropdownMenuPrimitive.Item>
   );
@@ -145,7 +164,8 @@ function Item({
 type CheckboxItemProps = ComponentProps<
   typeof DropdownMenuPrimitive.CheckboxItem
 > & {
-  readonly shortcut?: ReactNode;
+  /** Electron accelerator for the row's binding, e.g. `"CmdOrCtrl+Shift+P"`. */
+  readonly shortcut?: string;
 };
 
 function CheckboxItem({
@@ -162,6 +182,7 @@ function CheckboxItem({
       checked={checked}
       data-slot="menu-checkbox-item"
       className={cn(menuItemBase, "pl-7", className)}
+      {...menuItemShortcutProps(shortcut)}
       {...rest}
     >
       <span className="absolute left-1.5 flex h-4 w-4 items-center justify-center">
@@ -173,11 +194,7 @@ function CheckboxItem({
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       <span className="flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]">
-          {shortcut}
-        </span>
-      ) : null}
+      {shortcut ? <MenuItemShortcut accelerator={shortcut} /> : null}
     </DropdownMenuPrimitive.CheckboxItem>
   );
 }
@@ -199,7 +216,8 @@ function RadioGroup({ ref, ...rest }: RadioGroupProps) {
 }
 
 type RadioItemProps = ComponentProps<typeof DropdownMenuPrimitive.RadioItem> & {
-  readonly shortcut?: ReactNode;
+  /** Electron accelerator for the row's binding, e.g. `"CmdOrCtrl+Shift+P"`. */
+  readonly shortcut?: string;
 };
 
 function RadioItem({
@@ -214,6 +232,7 @@ function RadioItem({
       ref={ref}
       data-slot="menu-radio-item"
       className={cn(menuItemBase, "pl-7", className)}
+      {...menuItemShortcutProps(shortcut)}
       {...rest}
     >
       <span className="absolute left-1.5 flex h-4 w-4 items-center justify-center">
@@ -225,11 +244,7 @@ function RadioItem({
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       <span className="flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]">
-          {shortcut}
-        </span>
-      ) : null}
+      {shortcut ? <MenuItemShortcut accelerator={shortcut} /> : null}
     </DropdownMenuPrimitive.RadioItem>
   );
 }

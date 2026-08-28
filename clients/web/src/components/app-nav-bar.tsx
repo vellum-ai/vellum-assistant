@@ -189,9 +189,7 @@ export function AppNavBar({
             variant="outlined"
             iconOnly={isEditing ? <ChevronUp /> : <Pencil />}
             onClick={onEdit}
-            tooltip={
-              isEditing ? t("appNavBar.openApp") : t("appNavBar.edit")
-            }
+            tooltip={isEditing ? t("appNavBar.openApp") : t("appNavBar.edit")}
             aria-label={
               isEditing ? t("appNavBar.openApp") : t("appNavBar.edit")
             }
@@ -363,7 +361,7 @@ function ShareDeployMenuTrigger({
           <>
             <Menu.Item
               leftIcon={<Link2 size={14} />}
-              shortcut={t("appNavBar.copyLink")}
+              trailing={t("appNavBar.copyLink")}
               onSelect={() => onCopyDeployedLink?.()}
               className="whitespace-nowrap"
             >

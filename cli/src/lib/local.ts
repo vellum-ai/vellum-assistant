@@ -44,6 +44,7 @@ import {
 } from "./http-client.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
 import {
+  DAEMON_STOP_TIMEOUT_MS,
   type ProcessState,
   executableName,
   isProcessAlive,
@@ -1739,8 +1740,17 @@ export async function startLocalDaemon(
           console.log(
             "   Bundled assistant not healthy after 60s, falling back to source assistant...",
           );
-          // Kill the bundled daemon to avoid two processes competing for the same port
-          await stopProcessByPidFile(pidFile, "bundled daemon");
+          // Kill the bundled daemon to avoid two processes competing for the
+          // same port. It gets the full stop budget like any other daemon:
+          // failing the health probe does not mean it has nothing to flush, and
+          // a daemon still working through a long DB migration is exactly the
+          // one whose WAL checkpoint must not be interrupted.
+          await stopProcessByPidFile(
+            pidFile,
+            "bundled daemon",
+            undefined,
+            DAEMON_STOP_TIMEOUT_MS,
+          );
           daemonSpawn = watch
             ? await startDaemonWatchFromSource(
                 assistantIndex,
@@ -1982,7 +1992,12 @@ export async function stopLocalProcesses(
     ? join(resources.instanceDir, ".vellum")
     : join(homedir(), ".vellum");
   const daemonPidFile = getDaemonPidPath(resources);
-  await stopProcessByPidFile(daemonPidFile, "daemon");
+  await stopProcessByPidFile(
+    daemonPidFile,
+    "daemon",
+    undefined,
+    DAEMON_STOP_TIMEOUT_MS,
+  );
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Clipboard, Pencil, Trash2 } from "lucide-react";
+import { Clipboard, Pencil, Pin, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ContextMenu } from "./context-menu";
@@ -73,14 +73,14 @@ export const WithCheckboxItems: Story = {
           <ContextMenu.CheckboxItem
             checked={bold}
             onCheckedChange={setBold}
-            shortcut="⌘B"
+            shortcut="CmdOrCtrl+B"
           >
             Bold
           </ContextMenu.CheckboxItem>
           <ContextMenu.CheckboxItem
             checked={italic}
             onCheckedChange={setItalic}
-            shortcut="⌘I"
+            shortcut="CmdOrCtrl+I"
           >
             Italic
           </ContextMenu.CheckboxItem>
@@ -88,6 +88,57 @@ export const WithCheckboxItems: Story = {
       </ContextMenu.Root>
     );
   },
+};
+
+/** The item slots, driven from Controls so each one can be tried in isolation. */
+interface ItemSlotsArgs {
+  label: string;
+  /** Electron accelerator. Drives both the drawn hint and the announced binding. */
+  shortcut: string;
+  /** Right-aligned content that is not a shortcut. Stays in the accessible name. */
+  trailing: string;
+  showIcon: boolean;
+  disabled: boolean;
+}
+
+/**
+ * Mirrors `Menu`'s story of the same name: the two primitives render identical
+ * rows, so the slots have to look identical here too.
+ */
+export const ItemSlots: StoryObj<ItemSlotsArgs> = {
+  args: {
+    label: "Pin conversation",
+    shortcut: "CmdOrCtrl+Shift+P",
+    trailing: "",
+    showIcon: true,
+    disabled: false,
+  },
+  argTypes: {
+    label: { control: "text" },
+    shortcut: { control: "text" },
+    trailing: { control: "text" },
+    showIcon: { control: "boolean" },
+    disabled: { control: "boolean" },
+  },
+  render: (args) => (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger>
+        <div className="flex h-36 w-72 items-center justify-center rounded-lg border border-dashed border-[var(--border-base)] text-body-medium-lighter text-[var(--content-secondary)]">
+          Right-click to see the row
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Content>
+        <ContextMenu.Item
+          leftIcon={args.showIcon ? <Pin className="h-4 w-4" /> : undefined}
+          shortcut={args.shortcut || undefined}
+          trailing={args.trailing || undefined}
+          disabled={args.disabled}
+        >
+          {args.label}
+        </ContextMenu.Item>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
+  ),
 };
 
 export const WithSubmenu: Story = {
@@ -135,9 +186,7 @@ export const WithRadioItems: Story = {
             onValueChange={setAlignment}
           >
             <ContextMenu.RadioItem value="left">Left</ContextMenu.RadioItem>
-            <ContextMenu.RadioItem value="center">
-              Center
-            </ContextMenu.RadioItem>
+            <ContextMenu.RadioItem value="center">Center</ContextMenu.RadioItem>
             <ContextMenu.RadioItem value="right">Right</ContextMenu.RadioItem>
           </ContextMenu.RadioGroup>
         </ContextMenu.Content>

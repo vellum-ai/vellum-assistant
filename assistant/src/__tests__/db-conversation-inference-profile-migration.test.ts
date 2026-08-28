@@ -3,8 +3,6 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-const originalBunTest = process.env.BUN_TEST;
-
 import { _resetDisplayOrderMigrationForTests } from "../persistence/conversation-display-order-migration.js";
 import { _resetGroupMigrationForTests } from "../persistence/conversation-group-migration.js";
 import { getSqliteFrom } from "../persistence/db-connection.js";
@@ -68,12 +66,10 @@ function resetMigrationTestDb(): void {
 
 describe("conversation inference profile migration", () => {
   beforeEach(() => {
-    process.env.BUN_TEST = "0";
     resetMigrationTestDb();
   });
 
   afterAll(() => {
-    process.env.BUN_TEST = originalBunTest;
     resetMigrationTestDb();
   });
 
