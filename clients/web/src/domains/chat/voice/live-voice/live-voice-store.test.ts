@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  attachLiveVoiceImage,
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
@@ -516,6 +517,46 @@ describe("useLiveVoiceStore — session controls", () => {
     useLiveVoiceStore.getState().setControls(makeControlsSpies());
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().controls).toBeNull();
+  });
+});
+
+describe("attachLiveVoiceImage", () => {
+  test("delivers a photo pressed in the session that still runs", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
+    expect(controls.attachImage).toHaveBeenCalledWith("att-1");
+  });
+
+  test("refuses a photo pressed in a session that ended", () => {
+    // The upload outlives the session: the press happens in one session, the
+    // id arrives after a reset and a fresh session's controls are registered.
+    // The successor must not receive the predecessor's photo.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset();
+    const successor = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(successor);
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(false);
+    expect(successor.attachImage).not.toHaveBeenCalled();
+  });
+
+  test("survives a reconnect's republished controls within one session", () => {
+    // Reconnect attempts republish a fresh controls object without a reset,
+    // so the generation is what tells "same session, new transport" apart
+    // from "new session".
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    const republished = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(republished);
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
+    expect(republished.attachImage).toHaveBeenCalledWith("att-1");
   });
 });
 

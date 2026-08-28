@@ -315,6 +315,15 @@ export interface LiveVoiceState {
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
+   * Which session lifetime this is, counted across {@link LiveVoiceActions.reset}
+   * calls. It moves when a session tears down and never during one, reconnects
+   * included, so an async continuation that read it mid-session can tell that
+   * its session is over. `controls` cannot answer that question: reconnect
+   * attempts republish a fresh controls object within one session. Survives
+   * `reset()` the way `starter` does.
+   */
+  sessionGeneration: number;
+  /**
    * Session starter registered by the persistently mounted controller hook.
    * `null` only when no controller is mounted (e.g. outside the chat layout).
    * Mount-scoped, not session-scoped: {@link LiveVoiceActions.reset} leaves it
@@ -648,8 +657,14 @@ export function isLiveVoiceSessionOwnedBy(
 // Store
 // ---------------------------------------------------------------------------
 
-/** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
-const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
+/**
+ * Session-scoped fields restored by `reset()`. Excludes `starter`
+ * (mount-scoped) and `sessionGeneration` (monotonic across sessions).
+ */
+const INITIAL_SESSION_STATE: Omit<
+  LiveVoiceState,
+  "starter" | "sessionGeneration"
+> = {
   state: "idle",
   firstRunCardOpen: false,
   configNotice: null,
@@ -684,6 +699,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
+  sessionGeneration: 0,
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -733,7 +749,13 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ playbackProgressProvider }),
   fail: (message, recovery = null) =>
     set({ state: "failed", error: message, errorRecovery: recovery }),
-  reset: () => set({ ...INITIAL_SESSION_STATE }),
+  // The bump marks the session boundary for anything async that outlives the
+  // session, a photo upload above all (see `attachLiveVoiceImage`).
+  reset: () =>
+    set((s) => ({
+      ...INITIAL_SESSION_STATE,
+      sessionGeneration: s.sessionGeneration + 1,
+    })),
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
@@ -918,15 +940,24 @@ export function updateLiveVoiceSessionConfig(config: {
 
 /**
  * Hand the active session a photo the user took mid-call, by attachment id.
- * Returns whether it reached the session: false when no session exists or the
- * transport is mid-reconnect, which the caller must surface rather than treat
- * as sent. Module-level for the same stable-identity reasons as
- * {@link endLiveVoiceSession}.
+ * `sessionGeneration` is the generation read at the shutter press: the upload
+ * between press and delivery can outlive the session the photo was taken in,
+ * and a photo from an ended session fails here rather than landing in
+ * whichever session is current when the upload resolves. Returns whether it
+ * reached the pressed session: false when that session is over, when no
+ * session exists, or when the transport is mid-reconnect, which the caller
+ * must surface rather than treat as sent. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
  */
-export function attachLiveVoiceImage(attachmentId: string): boolean {
-  return (
-    useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false
-  );
+export function attachLiveVoiceImage(
+  attachmentId: string,
+  sessionGeneration: number,
+): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (state.sessionGeneration !== sessionGeneration) {
+    return false;
+  }
+  return state.controls?.attachImage(attachmentId) ?? false;
 }
 
 /**

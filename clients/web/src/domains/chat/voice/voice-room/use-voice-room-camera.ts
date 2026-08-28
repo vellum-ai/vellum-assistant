@@ -194,6 +194,9 @@ export function useVoiceRoomCamera(
     if (!assistantId || sending) {
       return;
     }
+    // The photo belongs to the session that is live at the press. Everything
+    // below can outlive that session, so delivery is pinned to it here.
+    const sessionGeneration = useLiveVoiceStore.getState().sessionGeneration;
     setSendError(null);
     setSending(true);
     let photoId: number | null = null;
@@ -231,11 +234,12 @@ export function useVoiceRoomCamera(
       }
 
       // The upload succeeding is not the photo arriving. A session that is
-      // mid-reconnect cannot take the id, and it is deliberately not queued
-      // across the gap (see `attachImage`), so the one thing that must not
+      // mid-reconnect cannot take the id, a session that ended must not hand
+      // it to whichever session runs now, and it is deliberately not queued
+      // across either gap (see `attachImage`), so the one thing that must not
       // happen is this returning quietly: the shutter has already fired and
       // the user would carry on talking to an assistant that cannot see it.
-      if (attachLiveVoiceImage(uploaded.id)) {
+      if (attachLiveVoiceImage(uploaded.id, sessionGeneration)) {
         setPhotoStatus(photoId, "sent");
       } else {
         setSendError("not-delivered");
