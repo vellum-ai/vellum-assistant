@@ -22,7 +22,7 @@
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
-import { DELIVERY_WITHDRAWN_STATUS } from "@vellumai/gateway-client";
+import { DELIVERY_STATUS } from "@vellumai/gateway-client";
 
 import {
   type GuardianRequestDeliveryWire,
@@ -124,7 +124,7 @@ export async function withdrawGuardianRequestCards(
 
   let complete = true;
   for (const delivery of deliveries) {
-    if (delivery.status === DELIVERY_WITHDRAWN_STATUS) {
+    if (delivery.status === DELIVERY_STATUS.withdrawn) {
       continue;
     }
     let withdrawn = false;
@@ -177,7 +177,7 @@ export async function withdrawGuardianRequestCards(
     }
     try {
       await updateGuardianRequestDelivery(delivery.id, {
-        status: DELIVERY_WITHDRAWN_STATUS,
+        status: DELIVERY_STATUS.withdrawn,
       });
     } catch (err) {
       // The card is gone but the receipt write failed: the retry round

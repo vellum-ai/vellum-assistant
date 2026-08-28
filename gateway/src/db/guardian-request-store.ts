@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm";
 
 import {
-  DELIVERY_WITHDRAWN_STATUS,
+  DELIVERY_STATUS,
   type GuardianRequestDeliveryWire,
   type GuardianRequestStatus,
   type GuardianRequestWire,
@@ -599,11 +599,11 @@ export function expireGuardianRequest(id: string): void {
     // durably ran; restamping it would erase which surfaces were actually
     // cleaned. Rows in any other state expire with the request.
     db.update(guardianRequestDeliveries)
-      .set({ status: "expired", updatedAt: now })
+      .set({ status: DELIVERY_STATUS.expired, updatedAt: now })
       .where(
         and(
           eq(guardianRequestDeliveries.requestId, id),
-          ne(guardianRequestDeliveries.status, DELIVERY_WITHDRAWN_STATUS),
+          ne(guardianRequestDeliveries.status, DELIVERY_STATUS.withdrawn),
         ),
       )
       .run();
@@ -637,7 +637,7 @@ export function createDelivery(
     destinationConversationId: params.destinationConversationId ?? null,
     destinationChatId: params.destinationChatId ?? null,
     destinationMessageId: params.destinationMessageId ?? null,
-    status: params.status ?? "pending",
+    status: params.status ?? DELIVERY_STATUS.pending,
     createdAt: now,
     updatedAt: now,
   };

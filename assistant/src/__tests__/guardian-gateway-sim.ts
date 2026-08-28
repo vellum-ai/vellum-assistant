@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  DELIVERY_STATUS,
   deriveGuardianRequestSourceType,
   isGuardianRequestExpired,
 } from "@vellumai/gateway-client";
@@ -360,7 +361,10 @@ export function createGuardianGatewaySim() {
     for (const delivery of deliveries) {
       // A withdrawn row is the daemon's per-surface receipt; the gateway
       // preserves it through the bulk flip.
-      if (delivery.requestId === id && delivery.status !== "withdrawn") {
+      if (
+        delivery.requestId === id &&
+        delivery.status !== DELIVERY_STATUS.withdrawn
+      ) {
         delivery.status = "expired";
         delivery.updatedAt = Date.now();
       }

@@ -202,12 +202,30 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
 } as const;
 
 /**
- * Delivery-row status once its approval card is durably withdrawn. Written
- * by the daemon's card withdrawal as its per-surface receipt; the gateway's
- * per-request expire preserves rows carrying it, and a retrying withdrawal
- * skips them.
+ * The delivery-row statuses this codebase writes and matches on.
+ *
+ * `GuardianRequestDeliverySchema.status` stays a plain `z.string()` rather
+ * than an enum built from these: the column is persisted, so a row written
+ * by a different build must still read rather than throw on parse. These
+ * constants exist so a call site names a value instead of spelling it, not
+ * to close the set.
+ *
+ * `pending` is the creation default; `sent` and `failed` carry the
+ * notification delivery result the recorder maps in; `expired` is stamped
+ * when the request itself expires; `withdrawn` is the daemon's per-surface
+ * receipt that a card was durably withdrawn, which the gateway's
+ * per-request expire preserves and a retrying withdrawal skips.
  */
-export const DELIVERY_WITHDRAWN_STATUS = "withdrawn";
+export const DELIVERY_STATUS = {
+  pending: "pending",
+  sent: "sent",
+  failed: "failed",
+  expired: "expired",
+  withdrawn: "withdrawn",
+} as const;
+
+export type DeliveryStatus =
+  (typeof DELIVERY_STATUS)[keyof typeof DELIVERY_STATUS];
 
 export type GuardianRequestsIpcMethod =
   (typeof GUARDIAN_REQUESTS_IPC_METHODS)[keyof typeof GUARDIAN_REQUESTS_IPC_METHODS];

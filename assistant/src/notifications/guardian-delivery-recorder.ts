@@ -20,6 +20,8 @@
  * read it back.
  */
 
+import { DELIVERY_STATUS } from "@vellumai/gateway-client";
+
 import {
   createGuardianRequestDelivery,
   type GuardianRequestDeliveryWire,
@@ -47,7 +49,7 @@ export interface ApprovalCardDeliveryAddress {
   chatId?: string;
   /** Channel-native message id (e.g. Slack `ts`) — the reaction/withdrawal key. */
   messageId?: string;
-  /** Initial delivery status (defaults to "pending"). */
+  /** Initial delivery status (defaults to `DELIVERY_STATUS.pending`). */
   status?: string;
 }
 
@@ -148,7 +150,10 @@ export async function recordGuardianRequestDeliveries(params: {
     if (deliveryId) {
       try {
         await updateGuardianRequestDelivery(deliveryId, {
-          status: result.status === "sent" ? "sent" : "failed",
+          status:
+            result.status === "sent"
+              ? DELIVERY_STATUS.sent
+              : DELIVERY_STATUS.failed,
         });
       } catch (err) {
         log.error(
