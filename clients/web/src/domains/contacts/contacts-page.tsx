@@ -682,6 +682,7 @@ export function ContactsPage({
           ) : (
             <ContactDetailView
               contact={optimisticContact}
+              assistantId={assistantId}
               savePending={updateMutation.isPending}
               deletePending={deleteMutation.isPending}
               verifyPending={

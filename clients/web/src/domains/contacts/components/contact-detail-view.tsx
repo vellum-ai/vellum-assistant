@@ -11,12 +11,15 @@ import {
   ContactPermissionsSection,
 } from "@/domains/contacts/components/contact-permissions-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import { ContactVoiceprintCard } from "@/domains/contacts/components/contact-voiceprint-card";
 import { isDraftContactName } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 import { useTranslation } from "@/i18n";
 
 interface ContactDetailViewProps {
   contact: ContactPayload;
+  /** Needed by the voice profile card, which calls daemon routes. */
+  assistantId?: string;
   savePending: boolean;
   deletePending: boolean;
   verifyPending?: boolean;
@@ -45,6 +48,7 @@ export function ContactDetailView(props: ContactDetailViewProps) {
 
 function ContactDetailViewInner({
   contact,
+  assistantId,
   savePending,
   deletePending,
   verifyPending,
@@ -203,6 +207,13 @@ function ContactDetailViewInner({
           onLinkAccount={onLinkAccount}
         />
       </DetailCard>
+
+      {assistantId ? (
+        <ContactVoiceprintCard
+          assistantId={assistantId}
+          contactId={contact.id}
+        />
+      ) : null}
 
       {canEditContactPermissions(contact) && onAutoApproveThresholdChange ? (
         <ContactPermissionsSection

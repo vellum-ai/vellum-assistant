@@ -1,0 +1,7 @@
+{
+  "sampleRate": 16000,
+  "samples": 47740,
+  "frames": 296,
+  "melBins": 80,
+  "source": "torchaudio.compliance.kaldi.fbank, hamming, 80 mel, 25/10ms"
+}

@@ -6083,6 +6083,145 @@ paths:
                   - ok
                   - contact
                 additionalProperties: false
+  /v1/contacts/{id}/voiceprints:
+    get:
+      operationId: contacts_by_id_voiceprints_get
+      summary: List a contact's voice profiles
+      tags:
+        - contacts
+        - voiceprints
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  voiceprints:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        contactId:
+                          type: string
+                        label:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        dim:
+                          type: number
+                        modelId:
+                          type: string
+                        clipCount:
+                          type: number
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - contactId
+                        - label
+                        - dim
+                        - modelId
+                        - clipCount
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - ok
+                  - voiceprints
+                additionalProperties: false
+    post:
+      operationId: contacts_by_id_voiceprints_post
+      summary: Enroll a contact's voice
+      description:
+        Embed one or more WAV clips and store their average as this contact's voice profile, replacing any existing
+        profile for the current model. More clips make a more durable profile.
+      tags:
+        - contacts
+        - voiceprints
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clips:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                  description: Base64-encoded WAV clips, at least 1.5s of speech each
+                label:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - clips
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  voiceprint:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      contactId:
+                        type: string
+                      label:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      dim:
+                        type: number
+                      modelId:
+                        type: string
+                      clipCount:
+                        type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                    required:
+                      - id
+                      - contactId
+                      - label
+                      - dim
+                      - modelId
+                      - clipCount
+                      - createdAt
+                      - updatedAt
+                    additionalProperties: false
+                required:
+                  - ok
+                  - voiceprint
+                additionalProperties: false
   /v1/contacts/invites:
     get:
       operationId: contacts_invites_get
@@ -6684,6 +6823,189 @@ paths:
                     - updatedAt
                     - channels
                   additionalProperties: false
+  /v1/contacts/voiceprints/{voiceprintId}:
+    delete:
+      operationId: contacts_voiceprints_by_voiceprintId_delete
+      summary: Delete a voice profile
+      tags:
+        - contacts
+        - voiceprints
+      parameters:
+        - name: voiceprintId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+    patch:
+      operationId: contacts_voiceprints_by_voiceprintId_patch
+      summary: Rename a voice profile
+      tags:
+        - contacts
+        - voiceprints
+      parameters:
+        - name: voiceprintId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - label
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  voiceprint:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      contactId:
+                        type: string
+                      label:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      dim:
+                        type: number
+                      modelId:
+                        type: string
+                      clipCount:
+                        type: number
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                    required:
+                      - id
+                      - contactId
+                      - label
+                      - dim
+                      - modelId
+                      - clipCount
+                      - createdAt
+                      - updatedAt
+                    additionalProperties: false
+                required:
+                  - ok
+                  - voiceprint
+                additionalProperties: false
+  /v1/contacts/voiceprints/identify:
+    post:
+      operationId: contacts_voiceprints_identify_post
+      summary: Identify a speaker from a clip
+      description:
+        Score a clip against every enrolled voice profile. Returns the full ranking and the best match if it clears
+        the threshold. This is a perceptual guess, never an authorization decision.
+      tags:
+        - contacts
+        - voiceprints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clip:
+                  type: string
+                  description: Base64-encoded WAV clip
+                threshold:
+                  type: number
+                  minimum: -1
+                  maximum: 1
+              required:
+                - clip
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  ranked:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        contactId:
+                          type: string
+                        displayName:
+                          type: string
+                        voiceprintId:
+                          type: string
+                        score:
+                          type: number
+                      required:
+                        - contactId
+                        - displayName
+                        - voiceprintId
+                        - score
+                      additionalProperties: false
+                  best:
+                    anyOf:
+                      - type: object
+                        properties:
+                          contactId:
+                            type: string
+                          displayName:
+                            type: string
+                          voiceprintId:
+                            type: string
+                          score:
+                            type: number
+                        required:
+                          - contactId
+                          - displayName
+                          - voiceprintId
+                          - score
+                        additionalProperties: false
+                      - type: "null"
+                  margin:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  threshold:
+                    type: number
+                required:
+                  - ok
+                  - ranked
+                  - best
+                  - margin
+                  - threshold
+                additionalProperties: false
   /v1/content-source:
     post:
       operationId: contentsource_post
