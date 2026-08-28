@@ -209,9 +209,8 @@ export function AgreementsCard({
   return (
     <section className={className} style={style}>
       <p className={SECTION_LABEL_CLASS}>{t("consentControls.agreements")}</p>
-      {/* Deliberately unwrapped: the agreements read as bare rows on the page
-          surface, so there is no Card here. The privacy toggles above keep
-          theirs. */}
+      {/* The agreements read as bare rows on the page surface, in contrast to
+          the privacy toggles, which sit in a card. */}
       <div className={`flex flex-col pl-2 ${electron ? "gap-3.5" : "gap-4"}`}>
         {showPrivacy && (
           <div className="flex flex-col gap-2">

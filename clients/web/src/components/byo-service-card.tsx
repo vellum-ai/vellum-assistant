@@ -17,9 +17,6 @@ export function ByoServiceCard({
 }: ByoServiceCardProps) {
   return (
     <DetailCard id={id} title={title} subtitle={subtitle}>
-      {/* No rule under the header: the heading and its subtitle carry the
-          separation on their own. The `mt-4` keeps the gap the rule used to
-          sit in. */}
       <div className="mt-4">{children}</div>
     </DetailCard>
   );

@@ -214,9 +214,8 @@ function Header({
           <Icon className="h-5 w-5 text-[var(--primary-base)]" />
         </span>
       )}
-      {/* The title/description column is unconditional: dropping `children`
-          straight into this row put the description beside the title instead
-          of under it whenever no icon was passed. */}
+      {/* Title and description share one column, so the row's `items-center`
+          positions the icon against the whole block. */}
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
