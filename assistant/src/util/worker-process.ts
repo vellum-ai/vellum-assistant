@@ -215,6 +215,17 @@ function normalizeSeparators(value: string): string {
   return value.replaceAll("\\", "/");
 }
 
+/** Whether a command line carries every fragment that marks this worker. */
+function matchesSignature(
+  command: string,
+  signature: readonly string[],
+): boolean {
+  const normalized = normalizeSeparators(command);
+  return signature.every((part) =>
+    normalized.includes(normalizeSeparators(part)),
+  );
+}
+
 /**
  * Fragments of a command line that together mark a process as this worker,
  * whichever install it came from. All must be present.
@@ -363,8 +374,7 @@ export function decideWorkerSlot(
   if (!row) {
     return { action: "adopt", pid: status.pid };
   }
-  const command = normalizeSeparators(row.command);
-  if (!signature.every((part) => command.includes(normalizeSeparators(part)))) {
+  if (!matchesSignature(row.command, signature)) {
     return { action: "adopt", pid: status.pid };
   }
   const ownership = classifyWorkerOwnership(
@@ -405,9 +415,17 @@ function inspectWorkerSlot(
   const commandOf = (pid: number): string | null =>
     table.find((row) => row.pid === pid)?.command ?? null;
 
+  const row = table.find((entry) => entry.pid === status.pid) ?? null;
+  if (row && !matchesSignature(row.command, signature)) {
+    log.info(
+      { pid: row.pid, pidPath },
+      "Worker PID file names a live process this runtime does not recognise as its worker; reusing it rather than signalling it",
+    );
+  }
+
   return decideWorkerSlot(
     status,
-    table.find((row) => row.pid === status.pid) ?? null,
+    row,
     signature,
     process.pid,
     (pid) => isDaemonCommand(commandOf(pid)),
