@@ -36,7 +36,6 @@ import {
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
-  isManagedRuntimeProxyBaseUrl,
   normalizedErrorText,
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
@@ -1248,9 +1247,6 @@ export class OpenAIChatCompletionsProvider implements Provider {
           this.providerLabel,
           error.status,
           normalized,
-          {
-            managedProxy: isManagedRuntimeProxyBaseUrl(this.client.baseURL),
-          },
         );
         const overflow = detectOpenAICompatibleContextOverflow(
           error,

@@ -2,12 +2,15 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import OpenAI from "openai";
 
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { migrateCreateProviderConnections } from "../../persistence/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../../persistence/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../../persistence/schema/index.js";
+import { ProviderError } from "../../util/errors.js";
+import { FireworksProvider } from "../fireworks/client.js";
 import { createAdapterFromConnection } from "../inference/adapter-factory.js";
 import type { Auth, ProviderConnection } from "../inference/auth.js";
 import type { ResolvedAuth } from "../inference/auth.js";
@@ -17,7 +20,49 @@ import {
   getConnection,
   listConnections,
 } from "../inference/connections.js";
+import type { Provider } from "../types.js";
 import { isVellumManagedConnection } from "../vellum-model-routing.js";
+
+const HOSTED_PREFLIGHT =
+  "Model 'qwen/qwen3-8b' is not yet supported on the Vellum hosted service.";
+
+function hostedPreflightError(): InstanceType<typeof OpenAI.APIError> {
+  return new OpenAI.APIError(
+    400,
+    { detail: HOSTED_PREFLIGHT },
+    HOSTED_PREFLIGHT,
+    new Headers(),
+  );
+}
+
+function unwrapAdapter(provider: Provider): object {
+  let current: object = provider;
+  while ("inner" in current && (current as { inner?: object }).inner) {
+    current = (current as { inner: object }).inner;
+  }
+  return current;
+}
+
+function stubChatCompletionsError(provider: object, error: unknown): void {
+  (provider as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async () => {
+          throw error;
+        },
+      },
+    },
+  };
+}
+
+async function sendAndCatch(provider: Provider): Promise<unknown> {
+  return provider
+    .sendMessage([{ role: "user", content: [{ type: "text", text: "hi" }] }])
+    .then(
+      () => null,
+      (error: unknown) => error,
+    );
+}
 
 function setupDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
@@ -93,6 +138,34 @@ describe("vellum connection routing", () => {
     );
     expect(adapter).not.toBeNull();
     expect(adapter?.name).toBe("vellum");
+  });
+
+  test("Vellum-managed fireworks override labels API errors as Vellum", async () => {
+    const adapter = createAdapterFromConnection(
+      vellumConnection,
+      resolvedAuth,
+      {
+        model: "qwen/qwen3-8b",
+        provider: "fireworks",
+      },
+    );
+    expect(adapter).not.toBeNull();
+    stubChatCompletionsError(unwrapAdapter(adapter!), hostedPreflightError());
+    const thrown = await sendAndCatch(adapter!);
+    expect(thrown).toBeInstanceOf(ProviderError);
+    expect((thrown as ProviderError).message).toBe(
+      `Vellum API error (400): ${HOSTED_PREFLIGHT}`,
+    );
+  });
+
+  test("direct FireworksProvider keeps the Fireworks error prefix", async () => {
+    const provider = new FireworksProvider("test-key", "qwen/qwen3-8b");
+    stubChatCompletionsError(provider, hostedPreflightError());
+    const thrown = await sendAndCatch(provider);
+    expect(thrown).toBeInstanceOf(ProviderError);
+    expect((thrown as ProviderError).message).toBe(
+      `Fireworks API error (400): ${HOSTED_PREFLIGHT}`,
+    );
   });
 });
 

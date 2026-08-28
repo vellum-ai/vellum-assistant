@@ -73,6 +73,8 @@ export interface AdapterCreateOpts {
   useNativeWebSearch: boolean;
   /** When true, the OpenAI adapter targets the Codex subscription endpoint. */
   codexSubscription?: boolean;
+  /** Overrides the vendor name in user-facing API error prefixes. */
+  providerLabel?: string;
 }
 
 type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
@@ -113,12 +115,14 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     baseURL,
     useNativeWebSearch,
     codexSubscription,
+    providerLabel,
   }) =>
     new OpenAIResponsesProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
       codexSubscription,
       ...(baseURL ? { baseURL } : {}),
+      ...(providerLabel ? { providerLabel } : {}),
     }),
   gemini: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new GeminiProvider(apiKey, model, {
@@ -134,10 +138,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
-  fireworks: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+  fireworks: ({ apiKey, model, streamTimeoutMs, baseURL, providerLabel }) =>
     new FireworksProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
+      ...(providerLabel ? { providerLabel } : {}),
     }),
   openrouter: ({ apiKey, model, streamTimeoutMs, useNativeWebSearch }) =>
     new OpenRouterProvider(apiKey, model, {
@@ -190,10 +195,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     new MinimaxProvider(apiKey, model, { streamTimeoutMs }),
   atlascloud: ({ apiKey, model, streamTimeoutMs }) =>
     new AtlasCloudProvider(apiKey, model, { streamTimeoutMs }),
-  together: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+  together: ({ apiKey, model, streamTimeoutMs, baseURL, providerLabel }) =>
     new TogetherProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
+      ...(providerLabel ? { providerLabel } : {}),
     }),
   baseten: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new BasetenProvider(apiKey, model, {
@@ -600,6 +606,9 @@ function buildConnectionAdapter(
     baseURL,
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
     codexSubscription,
+    ...(isVellumManagedConnection(connection)
+      ? { providerLabel: "Vellum" }
+      : {}),
   });
   if (!adapter) {
     return null;

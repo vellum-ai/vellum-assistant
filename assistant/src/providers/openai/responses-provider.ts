@@ -23,7 +23,6 @@ import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
-  isManagedRuntimeProxyBaseUrl,
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
@@ -667,9 +666,6 @@ export class OpenAIResponsesProvider implements Provider {
           this.providerLabel,
           error.status,
           normalized,
-          {
-            managedProxy: isManagedRuntimeProxyBaseUrl(this.client.baseURL),
-          },
         );
         const overflow = detectOpenAICompatibleContextOverflow(
           error,

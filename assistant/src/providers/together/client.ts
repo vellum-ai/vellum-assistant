@@ -4,6 +4,7 @@ export interface TogetherProviderOptions {
   apiKey?: string;
   baseURL?: string;
   streamTimeoutMs?: number;
+  providerLabel?: string;
 }
 
 const DEFAULT_TOGETHER_BASE_URL = "https://api.together.ai/v1";
@@ -23,7 +24,7 @@ export class TogetherProvider extends OpenAIChatCompletionsProvider {
     super(apiKey, model, {
       baseURL: options.baseURL?.trim() || DEFAULT_TOGETHER_BASE_URL,
       providerName: "together",
-      providerLabel: "Together AI",
+      providerLabel: options.providerLabel ?? "Together AI",
       streamTimeoutMs: options.streamTimeoutMs,
       // MiniMax M3 is a reasoning model; Together emits chain-of-thought via
       // `reasoning_content`, which the base provider parses into thinking

@@ -5,6 +5,7 @@ export interface FireworksProviderOptions {
   apiKey?: string;
   baseURL?: string;
   streamTimeoutMs?: number;
+  providerLabel?: string;
 }
 
 const DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1";
@@ -20,7 +21,7 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
     super(apiKey, model, {
       baseURL: options.baseURL?.trim() || DEFAULT_FIREWORKS_BASE_URL,
       providerName: "fireworks",
-      providerLabel: "Fireworks",
+      providerLabel: options.providerLabel ?? "Fireworks",
       streamTimeoutMs: options.streamTimeoutMs,
       // Fallback for models not declared in the catalog. Most Fireworks
       // chat-completions models only document `low|medium|high`; per-model
