@@ -127,8 +127,10 @@ const NO_FLASH_MODES: string[] = [];
 
 /**
  * The newest native start or stop any instance of this hook posted to the
- * bridge, corrected to "stop" when a start reports failure with nothing newer
- * behind it. Module-scoped because the native preview is one plugin instance
+ * bridge. A start that fails while it is the newest call posts a stop, both
+ * to correct the ledger and to clear any preview a canceled earlier start
+ * left running when it deferred cleanup to the calls behind it.
+ * Module-scoped because the native preview is one plugin instance
  * shared across hook instances (the room and the capture overlay), so a stale
  * start deciding whether its cleanup is safe cannot consult its own refs: the
  * newest call can belong to an instance it has never seen. When the newest
@@ -472,11 +474,15 @@ export function useVoiceCamera(
           return null;
         }
         sourceRef.current = null;
-        // A failed start raises nothing, so while it is still the ledger's
-        // newest call it stops reading as a live preview a stale sibling
-        // must spare.
+        // A failed start raises nothing itself, but an earlier canceled
+        // start may have resolved while this one was pending and deferred
+        // its cleanup here, trusting the newest call to own the hardware.
+        // While this failure is still the ledger's newest call, it posts the
+        // stop that clears any such survivor; on a bare failure the stop
+        // lands on stopped hardware and does nothing.
         if (nativeCallSeq === nativePreviewCallSeq) {
-          lastNativePreviewCall = "stop";
+          recordNativePreviewCall("stop");
+          void stopNativeVoiceCamera();
         }
       }
 

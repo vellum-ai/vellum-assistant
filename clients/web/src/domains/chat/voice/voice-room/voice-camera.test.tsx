@@ -645,6 +645,29 @@ describe("useVoiceCamera: an open superseded while the bridge starts it", () => 
     await waitFor(() => expect(flashAvailable()).toBe(true));
   });
 
+  test("a failed replacement start still clears a canceled start's survivor", async () => {
+    // Start A resolves after a close and a reopen, and defers its cleanup to
+    // the reopen's pending start B. When B then fails, B is the newest call
+    // and posts the stop that clears whatever A left running; nothing else
+    // owns a native source that would.
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+    render(<Probe />);
+    await press("open");
+    await press("close");
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    const secondStart = deferredCall<boolean>();
+    startSpy.mockImplementation(secondStart.answer);
+    await press("open");
+
+    await settle(() => firstStart.resolve(true));
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    await settle(() => secondStart.resolve(false));
+    expect(stopSpy).toHaveBeenCalledTimes(2);
+  });
+
   test("stops the camera nothing owns when only a close follows", async () => {
     // The other half of the discipline: with no reopen behind it, the
     // superseded start is the last owner standing, and the stop it posts
