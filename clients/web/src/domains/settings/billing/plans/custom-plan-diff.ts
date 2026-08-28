@@ -83,8 +83,8 @@ export function computeCustomPlanDiff(input: {
   creditChoice: CreditChoice | "";
   /**
    * Wording for the no-bundle sentinel's recap row (and its struck-through
-   * previous value). Defaults to the credits wording; the `obscure-credits`
-   * surfaces pass the localized `customPlanModal.noExtraUsage` copy instead.
+   * previous value). Defaults to the credits wording; the custom plan modal
+   * passes the localized `customPlanModal.noExtraUsage` copy instead.
    */
   noBundleLabel?: string;
 }): CustomPlanDiff {
