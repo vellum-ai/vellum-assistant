@@ -307,43 +307,86 @@ async function stopOrphanedWorker(
 }
 
 /**
- * What to do about the process the worker's PID file currently names.
+ * What to do about the process a worker's PID file currently names.
  *
- * Reuse it unless it is an orphan left by an owner that is gone: that is the
- * process a daemon replaced by a new version leaves behind, still holding the
- * PID file, still running the previous version's code. A process that is not
- * recognisably one of our workers is never signalled, because the OS may have
- * recycled the PID for something unrelated.
+ *   - `adopt`: reuse it. Either it is this process's own worker, or it belongs
+ *     to another live owner, or it is not recognisably one of our workers at
+ *     all and must never be signalled.
+ *   - `reclaim`: an orphan left by an owner that is gone. Stop it, then spawn.
+ *   - `spawn`: nothing is holding the slot.
+ */
+export type WorkerSlotDecision =
+  | { action: "adopt"; pid: number }
+  | { action: "reclaim"; pid: number }
+  | { action: "spawn" };
+
+/**
+ * The whole safety decision, with no IO, so every branch is testable.
+ *
+ * `reclaim` is the only outcome that signals a process, and it requires two
+ * independent things to agree: the command line marks the process as this
+ * worker, and parentage says nobody live owns it. A missing row, an unreadable
+ * command line, or a command line that does not match all falls back to
+ * `adopt`, which is the behaviour that predates any of this.
+ */
+export function decideWorkerSlot(
+  status: WorkerProcessStatus,
+  row: { pid: number; ppid: number; command: string } | null,
+  signature: readonly string[],
+  selfPid: number,
+  isOwnerAlive: (pid: number) => boolean,
+  pid1OwnsWorkers: boolean,
+): WorkerSlotDecision {
+  if (status.status !== "running" || status.pid == null) {
+    return { action: "spawn" };
+  }
+  if (!row) {
+    return { action: "adopt", pid: status.pid };
+  }
+  const command = normalizeSeparators(row.command);
+  if (!signature.every((part) => command.includes(normalizeSeparators(part)))) {
+    return { action: "adopt", pid: status.pid };
+  }
+  const ownership = classifyWorkerOwnership(
+    row,
+    selfPid,
+    isOwnerAlive,
+    pid1OwnsWorkers,
+  );
+  return ownership === "orphan"
+    ? { action: "reclaim", pid: status.pid }
+    : { action: "adopt", pid: status.pid };
+}
+
+/**
+ * Apply {@link decideWorkerSlot} to the live PID file, stopping an orphan when
+ * one holds the slot. Returns the PID to adopt, or null to spawn.
  */
 async function resolveExistingWorker(
   pidPath: string,
   signature: readonly string[],
   workerLabel: string,
 ): Promise<{ adopt: number } | null> {
-  const current = probeWorkerPidFile(pidPath);
-  if (current.status !== "running" || current.pid == null) {
-    return null;
-  }
-
-  const row = findProcessRow(current.pid);
-  const command = row ? normalizeSeparators(row.command) : "";
-  if (!row || !signature.every((part) => command.includes(part))) {
-    return { adopt: current.pid };
-  }
-
-  const ownership = classifyWorkerOwnership(
-    row,
+  const status = probeWorkerPidFile(pidPath);
+  const decision = decideWorkerSlot(
+    status,
+    status.pid != null ? findProcessRow(status.pid) : null,
+    signature,
     process.pid,
     isProcessAlive,
     pid1OwnsMlWorkers(),
   );
-  if (ownership !== "orphan") {
-    return { adopt: current.pid };
+
+  if (decision.action === "spawn") {
+    return null;
+  }
+  if (decision.action === "adopt") {
+    return { adopt: decision.pid };
   }
 
-  if (!(await stopOrphanedWorker(current.pid, pidPath, workerLabel))) {
+  if (!(await stopOrphanedWorker(decision.pid, pidPath, workerLabel))) {
     // Still running and beyond our reach. One stale worker beats two live ones.
-    return { adopt: current.pid };
+    return { adopt: decision.pid };
   }
 
   // A concurrent launcher may have brought up a replacement while we waited.
