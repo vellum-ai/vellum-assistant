@@ -14,7 +14,6 @@ import {
 } from "@/domains/onboarding/funnel-events";
 import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
 import {
-  NEW_ASSISTANT_PARAM,
   canSkipOnboardingResearch,
   isNewAssistantFunnel,
   onboardingDestinationAfterConsent,
@@ -110,16 +109,9 @@ export function PrivacyScreen() {
     }
 
     const hostingParam = searchParams.get("hosting");
-    const newAssistant = isNewAssistantFunnel(searchParams);
     const params = new URLSearchParams();
     if (hostingParam) {
       params.set("hosting", hostingParam);
-    }
-    // Carry the creation intent to whichever destination runs the managed
-    // hatch: without it the hatch defaults to `ensure` and hands back the org's
-    // existing assistant instead of the additional one the user asked for.
-    if (newAssistant) {
-      params.set(NEW_ASSISTANT_PARAM, "1");
     }
     // Carry the marketing plugin attribution forward so the research runner can
     // read it off the URL and pre-install that plugin (see `plugin-attribution`).
@@ -143,7 +135,7 @@ export function PrivacyScreen() {
       isLocalHatch,
       skipResearch,
       alreadyOnboarded,
-      newAssistant,
+      newAssistant: isNewAssistantFunnel(searchParams),
     });
     const onboardingNext = skipResearch
       ? withSkipResearch(`${destination}${qs ? `?${qs}` : ""}`)

@@ -30,7 +30,6 @@ import {
 import { onboardingProvider } from "@/domains/onboarding/provider-catalog";
 import {
   NEW_ASSISTANT_PARAM,
-  isNewAssistantFunnel,
   shouldSkipResearchAfterHatch,
 } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
@@ -174,9 +173,6 @@ export function HatchingScreen() {
   // (see `adopt-existing-assistant`): the assistant is provisioned on the
   // platform, so its purchased machine and storage are waited for.
   const managedHatch = hostingParam === "vellum-cloud";
-  // Provisioning an ADDITIONAL assistant: the managed hatch must run in
-  // `create` mode or `ensure` hands back the org's existing one.
-  const createMode = isNewAssistantFunnel(searchParams);
   // This hatch is the return leg of a completed checkout — only the
   // post-checkout funnel sets the param, and only for a billing landing
   // carrying Stripe's `session_id`. `managedHatch` is NOT a substitute: it
@@ -541,7 +537,6 @@ export function HatchingScreen() {
         if (!platformHatchPromise) {
           platformHatchPromise = hatchAssistant(
             pinnedVersion ? { version: pinnedVersion } : undefined,
-            createMode ? "create" : undefined,
           );
         }
         const result = await platformHatchPromise;
@@ -746,7 +741,6 @@ export function HatchingScreen() {
     };
   }, [
     attempt,
-    createMode,
     failParam,
     hatchTraits,
     managedHatch,
