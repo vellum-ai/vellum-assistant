@@ -59,6 +59,38 @@ const assertRegistered = (key: string): void => {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+const waitForVersionCommand = async (
+  executable: string,
+  label: string,
+): Promise<void> => {
+  let diagnostics = "not started";
+  for (let waited = 0; waited < 60_000; waited += 2_000) {
+    const result = spawnSync(executable, ["--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const output = result.stdout.trim();
+    if (result.status === 0 && output) {
+      if (waited > 0) {
+        console.log(
+          `${label} became runnable after ${waited / 2_000 + 1} attempts.`,
+        );
+      }
+      return;
+    }
+    diagnostics = [
+      `exit ${result.status ?? "not started"}`,
+      result.signal ? `signal ${result.signal}` : null,
+      result.error ? `spawn error: ${result.error.message}` : null,
+      result.stderr.trim() ? `stderr: ${result.stderr.trim()}` : null,
+    ]
+      .filter((detail): detail is string => detail !== null)
+      .join("; ");
+    await sleep(2_000);
+  }
+  fail(`${label} failed to execute (${diagnostics})`);
+};
+
 const main = async (): Promise<void> => {
   const arch = argValue("--arch") ?? "x64";
   const distDir = path.join(windowsDir, "dist");
@@ -105,23 +137,9 @@ const main = async (): Promise<void> => {
     assertExists(path.join(resources, relative), label);
   }
   const packagedBun = path.join(resources, "cli-runtime", "bun.exe");
-  const bunVersion = spawnSync(packagedBun, ["--version"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (bunVersion.status !== 0 || !bunVersion.stdout.trim()) {
-    fail(`Packaged Bun runtime failed to execute for ${arch}`);
-  }
+  await waitForVersionCommand(packagedBun, `Packaged Bun runtime for ${arch}`);
   const packagedCli = path.join(resources, "cli-runtime", "vellum.exe");
-  const cliVersion = spawnSync(packagedCli, ["--version"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (cliVersion.status !== 0 || !cliVersion.stdout.trim()) {
-    fail(
-      `Packaged CLI failed to execute for ${arch}: ${cliVersion.stderr.trim()}`,
-    );
-  }
+  await waitForVersionCommand(packagedCli, `Packaged CLI for ${arch}`);
   assertRegistered("HKCU\\Software\\Classes\\.vellum");
 
   console.log(`Launching ${appExe}`);
