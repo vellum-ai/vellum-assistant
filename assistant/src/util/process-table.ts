@@ -236,7 +236,7 @@ export async function listProcessTableAsync(
  * table cannot be read. Callers get `ppid` alongside the command line, so
  * ownership and identity can be decided from a single snapshot.
  */
-export function findProcessRow(pid: number): ProcessTableRow | null {
+function findProcessRow(pid: number): ProcessTableRow | null {
   try {
     return listProcessTable().find((row) => row.pid === pid) ?? null;
   } catch {
