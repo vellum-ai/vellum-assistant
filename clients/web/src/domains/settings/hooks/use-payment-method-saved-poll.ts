@@ -11,6 +11,25 @@ import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 export const PM_SAVED_POLL_INTERVAL_MS = 1500;
 export const PM_SAVED_MAX_POLL_MS = 20_000;
 
+export interface SavedPaymentMethod {
+  brand: string | null;
+  last4: string | null;
+  autoReloadEnabled: boolean;
+}
+
+export function savedFromConfig(
+  config: AutoTopUpConfigResponse | undefined,
+): SavedPaymentMethod | null {
+  if (config == null || !config.has_payment_method) {
+    return null;
+  }
+  return {
+    brand: config.payment_method_brand,
+    last4: config.payment_method_last4,
+    autoReloadEnabled: config.enabled,
+  };
+}
+
 /**
  * Returns the follow-up for `AutoTopUpPaymentMethodModal`'s
  * `onSavedOptimistic`: the `setup_intent.succeeded` webhook persists
@@ -34,9 +53,11 @@ export const PM_SAVED_MAX_POLL_MS = 20_000;
  *
  * If the webhook still hasn't landed at the timeout, the flipped config
  * stays put and the query's normal refetches reconcile with the server.
- * Always resolves.
+ * Always resolves: with the card a fresh response carried, or with null on
+ * timeout, since the cache then holds only the optimistic flip (or, when a
+ * card is being replaced, the previous card).
  */
-export function usePaymentMethodSavedPoll(): () => Promise<void> {
+export function usePaymentMethodSavedPoll(): () => Promise<SavedPaymentMethod | null> {
   const queryClient = useQueryClient();
 
   return async () => {
@@ -85,7 +106,7 @@ export function usePaymentMethodSavedPoll(): () => Promise<void> {
               undefined,
               refetched,
             );
-            return;
+            return savedFromConfig(refetched);
           }
         } catch {
           // sleep and retry
@@ -97,6 +118,8 @@ export function usePaymentMethodSavedPoll(): () => Promise<void> {
     } finally {
       unsubscribe();
     }
+
+    return null;
   };
 }
 
@@ -111,10 +134,13 @@ export function usePaymentMethodSavedPoll(): () => Promise<void> {
  * The poll stays as the fallback: when the confirm call fails for any reason
  * (the endpoint is unavailable on this server, or the request errors), the
  * webhook remains the durable writer and the poll waits for its write.
+ *
+ * Resolves with the saved card, from the confirm response or from whatever
+ * the fallback poll ended up with, and null when neither reports one.
  */
 export function usePaymentMethodSavedSync(): (args: {
   setupIntentId: string | null;
-}) => Promise<void> {
+}) => Promise<SavedPaymentMethod | null> {
   const queryClient = useQueryClient();
   const pollPaymentMethodSaved = usePaymentMethodSavedPoll();
   const { mutateAsync: confirmSetupIntent } = useMutation(
@@ -135,11 +161,11 @@ export function usePaymentMethodSavedSync(): (args: {
           undefined,
           config,
         );
-        return;
+        return savedFromConfig(config);
       } catch {
         // fall through to the poll below
       }
     }
-    await pollPaymentMethodSaved();
+    return pollPaymentMethodSaved();
   };
 }
