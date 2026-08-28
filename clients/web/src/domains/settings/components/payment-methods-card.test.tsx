@@ -1,13 +1,14 @@
 /**
  * Tests for the PaymentMethodsCard section:
- *  - Renders the payment-method row (brand, last4, Update Card) whenever a
+ *  - Renders the payment-method row (brand, last4, Replace card) whenever a
  *    card is on file (including while auto-reload is off) and a muted empty
  *    state otherwise.
  *  - The backend enforces a single payment method, so a saved card offers
- *    Update Card only (no Remove) and the "Add Payment Method" header button
+ *    Replace card only (no Remove) and the "Add Payment Method" header button
  *    appears only while no card is on file.
- *  - "Add Payment Method" and "Update Card" open the Stripe setup modal
- *    (stubbed here; the modal has its own tests).
+ *  - "Add Payment Method" and "Replace card" open the Stripe setup modal
+ *    (stubbed here; the modal has its own tests), in replace mode with the
+ *    card on file once one exists and in add mode otherwise.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
@@ -22,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
+import type { AutoTopUpPaymentMethodModalProps } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
@@ -38,14 +40,25 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
 }));
 
-// Stub the Stripe setup modal: these tests only assert it is opened/closed.
+// Stub the Stripe setup modal: these tests assert only that it is
+// opened/closed and which mode and card on file it is handed.
+let pmModalProps: AutoTopUpPaymentMethodModalProps | null = null;
 mock.module(
   "@/domains/settings/components/auto-top-up-payment-method-modal",
   () => ({
-    AutoTopUpPaymentMethodModal: ({ open }: { open: boolean }) =>
-      open ? <div data-testid="pm-modal-stub" /> : null,
+    AutoTopUpPaymentMethodModal: (props: AutoTopUpPaymentMethodModalProps) => {
+      pmModalProps = props;
+      return props.open ? <div data-testid="pm-modal-stub" /> : null;
+    },
   }),
 );
+
+function lastPmModalProps(): AutoTopUpPaymentMethodModalProps {
+  if (pmModalProps == null) {
+    throw new Error("AutoTopUpPaymentMethodModal was never rendered");
+  }
+  return pmModalProps;
+}
 
 import * as orgReadyModule from "@/hooks/use-is-org-ready";
 
@@ -107,12 +120,13 @@ beforeEach(() => {
   retrieveResponse = { ...DISABLED_CONFIG };
   retrieveShouldFail = false;
   orgReadiness = "ready";
+  pmModalProps = null;
 });
 
 afterEach(cleanup);
 
 describe("PaymentMethodsCard row and empty state", () => {
-  test("renders the saved card row with Update Card as the only action", () => {
+  test("renders the saved card row with Replace card as the only action", () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
     const { container } = render(wrap(ENABLED_WITH_CARD));
 
@@ -214,7 +228,7 @@ describe("PaymentMethodsCard modal wiring", () => {
     ).not.toBeNull();
   });
 
-  test("Update Card opens the setup modal", () => {
+  test("Replace card opens the setup modal", () => {
     retrieveResponse = { ...DISABLED_WITH_CARD };
     const { container, getByTestId } = render(wrap(DISABLED_WITH_CARD));
 
@@ -223,6 +237,26 @@ describe("PaymentMethodsCard modal wiring", () => {
     expect(
       container.querySelector('[data-testid="pm-modal-stub"]'),
     ).not.toBeNull();
+  });
+
+  test("opens in replace mode carrying the card on file", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    render(wrap(DISABLED_WITH_CARD));
+
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
+  });
+
+  test("opens in add mode with no card on file while none is saved", () => {
+    render(wrap(DISABLED_CONFIG));
+
+    expect(lastPmModalProps().mode).toBe("add");
+    expect(lastPmModalProps().cardOnFile).toBeNull();
   });
 });
 
@@ -233,7 +267,13 @@ describe("PaymentMethodsCard modal wiring", () => {
 describe("paymentMethodCards", () => {
   test("maps a saved card onto a single stably-keyed entry", () => {
     expect(paymentMethodCards(ENABLED_WITH_CARD)).toEqual([
-      { id: "primary", brand: "visa", last4: "4242" },
+      {
+        id: "primary",
+        brand: "visa",
+        last4: "4242",
+        expMonth: null,
+        expYear: null,
+      },
     ]);
   });
 

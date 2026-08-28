@@ -53,7 +53,7 @@ export function PaymentMethodRow({
         data-testid="payment-method-update"
         className="shrink-0"
       >
-        {t("paymentMethodRow.updateCard")}
+        {t("paymentMethodRow.replaceCard")}
       </Button>
     </div>
   );

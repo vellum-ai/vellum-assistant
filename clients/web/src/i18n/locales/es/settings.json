@@ -1260,8 +1260,8 @@
   },
   "paymentMethodRow": {
     "endingIn": "Termina en {last4}",
-    "savedCard": "Tarjeta guardada",
-    "updateCard": "Actualizar tarjeta"
+    "replaceCard": "Reemplazar tarjeta",
+    "savedCard": "Tarjeta guardada"
   },
   "paymentMethodsCard": {
     "addButton": "Añadir método de pago",

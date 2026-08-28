@@ -16,6 +16,8 @@ export interface PaymentMethodCardEntry {
   id: string;
   brand: string | null;
   last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
 }
 
 /**
@@ -34,6 +36,10 @@ export function paymentMethodCards(
       id: "primary",
       brand: config.payment_method_brand,
       last4: config.payment_method_last4,
+      // The config payload carries no expiry, so the card-on-file row in the
+      // modal renders brand and last4 alone.
+      expMonth: null,
+      expYear: null,
     },
   ];
 }
@@ -42,8 +48,8 @@ export function paymentMethodCards(
  * Settings → Billing "Payment Methods" section. Card management lives here;
  * the auto-reload toggle and its config stay in `AutoTopUpCard` (Credits
  * section). The backend enforces a single payment method, so once a card is
- * on file the only offered action is updating it (which replaces the card
- * via the same setup flow); Add appears only while no card exists.
+ * on file the only offered action is replacing it (the same setup flow, opened
+ * in `replace` mode); Add appears only while no card exists.
  */
 export function PaymentMethodsCard() {
   const { t } = useTranslation("settings");
@@ -55,6 +61,7 @@ export function PaymentMethodsCard() {
   const config = configQuery.data;
   const cards = paymentMethodCards(config);
   const showAddButton = config != null && cards.length === 0;
+  const [cardOnFile] = cards;
 
   const renderBody = () => {
     // `isPending` rather than `isLoading`: the query idles with no data until
@@ -119,6 +126,17 @@ export function PaymentMethodsCard() {
       <AutoTopUpPaymentMethodModal
         open={pmModalOpen}
         onClose={() => setPmModalOpen(false)}
+        mode={cardOnFile ? "replace" : "add"}
+        cardOnFile={
+          cardOnFile
+            ? {
+                brand: cardOnFile.brand,
+                last4: cardOnFile.last4,
+                expMonth: cardOnFile.expMonth,
+                expYear: cardOnFile.expYear,
+              }
+            : null
+        }
         onSavedOptimistic={syncPaymentMethodSaved}
       />
     </Card>

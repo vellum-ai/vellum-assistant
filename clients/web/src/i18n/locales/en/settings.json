@@ -1260,8 +1260,8 @@
   },
   "paymentMethodRow": {
     "endingIn": "Ending in {last4}",
-    "savedCard": "Saved card",
-    "updateCard": "Update Card"
+    "replaceCard": "Replace card",
+    "savedCard": "Saved card"
   },
   "paymentMethodsCard": {
     "addButton": "Add Payment Method",
