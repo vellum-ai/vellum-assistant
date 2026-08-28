@@ -272,8 +272,16 @@ export function workerKindSignature(
   ];
 }
 
-/** How long an orphaned worker gets to exit after SIGTERM. */
-const ORPHAN_STOP_TIMEOUT_MS = 5_000;
+/**
+ * How long an orphaned worker gets to exit after SIGTERM.
+ *
+ * Derived from the longest shutdown any worker can legitimately take, not
+ * picked. The memory worker reaps the ONNX embedding subprocess it owns before
+ * exiting and bounds that at `EMBEDDING_SHUTDOWN_BUDGET_MS + 1s`, so a shorter
+ * ceiling here would SIGKILL it mid-reap and strand the very subprocess that
+ * reap exists to collect. A test asserts this stays above that bound.
+ */
+export const ORPHAN_STOP_TIMEOUT_MS = 15_000;
 
 /** Poll interval while waiting for a stopped worker to exit. */
 const ORPHAN_STOP_POLL_INTERVAL_MS = 100;
