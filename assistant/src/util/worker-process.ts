@@ -19,8 +19,16 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getCurrentLogFilePath } from "./logger.js";
+import { getCurrentLogFilePath, getLogger } from "./logger.js";
+import {
+  classifyWorkerOwnership,
+  pid1OwnsMlWorkers as pid1OwnsWorkers,
+} from "./ml-worker-ownership.js";
+import { isProcessAlive } from "./process-liveness.js";
+import { findProcessRow, type ProcessTableRow } from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
+
+const log = getLogger("worker-process");
 
 export interface WorkerProcessStatus {
   status: "running" | "not_running";
@@ -135,20 +143,39 @@ interface WorkerCommandRuntime {
   executableExists: (path: string) => boolean;
 }
 
-export function resolveWorkerCommand(
-  entry: URL,
-  packagedEntry: PackagedWorkerEntry | undefined,
-  runtime: WorkerCommandRuntime = {
+function defaultWorkerCommandRuntime(): WorkerCommandRuntime {
+  return {
     platform: process.platform,
     execPath: process.execPath,
     executableExists: existsSync,
-  },
-): string[] {
+  };
+}
+
+/**
+ * How a packaged Windows runtime spawns this worker, or null when the worker
+ * runs from source. Only packaged Windows runtimes ship the executable.
+ */
+function packagedWorkerSpawn(
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime,
+): { executable: string; entry: PackagedWorkerEntry } | null {
   if (runtime.platform === "win32" && packagedEntry) {
     const executable = join(dirname(runtime.execPath), "vellum-worker.exe");
     if (runtime.executableExists(executable)) {
-      return [executable, packagedEntry];
+      return { executable, entry: packagedEntry };
     }
+  }
+  return null;
+}
+
+export function resolveWorkerCommand(
+  entry: URL,
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime = defaultWorkerCommandRuntime(),
+): string[] {
+  const packaged = packagedWorkerSpawn(packagedEntry, runtime);
+  if (packaged) {
+    return [packaged.executable, packaged.entry];
   }
   return ["bun", "--smol", "run", fileURLToPath(entry)];
 }
@@ -194,10 +221,200 @@ async function waitForWorkerPidFile(
   return existsSync(pidPath) ? "ready" : "timeout";
 }
 
+/** Path separators differ by platform; compare command lines on one form. */
+function normalizeSeparators(value: string): string {
+  return value.replaceAll("\\", "/");
+}
+
+/**
+ * Fragments of a command line that together mark a process as this worker,
+ * whichever install it came from. All must be present.
+ *
+ * This is a safety guard, not the ownership test. Ownership is decided by
+ * parentage; this only keeps us from signalling a process that happens to hold
+ * a recycled PID. Three trailing path segments are specific enough
+ * (`src/schedule/worker.ts`, `defaults/memory/worker.ts`) that an unrelated
+ * program running some other `worker.ts` does not match. Packaged workers all
+ * run one executable and are told apart by the subcommand, so the signature
+ * carries both: matching on the executable alone would let one packaged
+ * worker's slot reclaim another's process.
+ */
+export function workerKindSignature(
+  entry: URL,
+  packagedEntry: PackagedWorkerEntry | undefined,
+  runtime: WorkerCommandRuntime = defaultWorkerCommandRuntime(),
+): readonly string[] {
+  const packaged = packagedWorkerSpawn(packagedEntry, runtime);
+  if (packaged) {
+    // Matched as separate fragments rather than one adjacent string: a Windows
+    // command line may quote the executable path, so the two are not reliably
+    // neighbours.
+    return ["vellum-worker", packaged.entry];
+  }
+  return [
+    normalizeSeparators(fileURLToPath(entry))
+      .split("/")
+      .filter(Boolean)
+      .slice(-3)
+      .join("/"),
+  ];
+}
+
+/** How long an orphaned worker gets to exit after SIGTERM. */
+const ORPHAN_STOP_TIMEOUT_MS = 5_000;
+
+/** Poll interval while waiting for a stopped worker to exit. */
+const ORPHAN_STOP_POLL_INTERVAL_MS = 100;
+
+/**
+ * Stop a worker orphaned by a previous owner and release its PID file.
+ * Reports whether it actually exited.
+ *
+ * Escalates to SIGKILL because the orphan runs a different generation's
+ * shutdown path, which this process cannot make assumptions about. Signalling
+ * can still fail outright, most plausibly EPERM for a process owned by another
+ * user, so the PID file is released only once the process is confirmed gone:
+ * dropping it while the worker still runs would let the caller spawn a second
+ * one against the same workspace. The unlink is also identity-checked, since a
+ * concurrent launcher may already have replaced the worker and deleting that
+ * successor's entry would strand it.
+ */
+async function stopOrphanedWorker(
+  pid: number,
+  pidPath: string,
+  workerLabel: string,
+): Promise<boolean> {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // Exited between the probe and the signal.
+  }
+
+  const deadline = Date.now() + ORPHAN_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    await Bun.sleep(ORPHAN_STOP_POLL_INTERVAL_MS);
+  }
+  if (isProcessAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  if (isProcessAlive(pid)) {
+    log.warn(
+      { pid, pidPath },
+      `${workerLabel} orphaned by a previous owner could not be stopped; reusing it rather than running a second one`,
+    );
+    return false;
+  }
+
+  unlinkPidFileIfNames(pidPath, pid);
+  log.warn(
+    { pid, pidPath },
+    `${workerLabel} orphaned by a previous owner was stopped so this process can start its own`,
+  );
+  return true;
+}
+
+/**
+ * What to do about the process a worker's PID file currently names.
+ *
+ *   - `adopt`: reuse it. Either it is this process's own worker, or it belongs
+ *     to another live owner, or it is not recognisably one of our workers at
+ *     all and must never be signalled.
+ *   - `reclaim`: an orphan left by an owner that is gone. Stop it, then spawn.
+ *   - `spawn`: nothing is holding the slot.
+ */
+export type WorkerSlotDecision =
+  | { action: "adopt"; pid: number }
+  | { action: "reclaim"; pid: number }
+  | { action: "spawn" };
+
+/**
+ * The whole safety decision, with no IO, so every branch is testable.
+ *
+ * `reclaim` is the only outcome that signals a process, and it requires two
+ * independent things to agree: the command line marks the process as this
+ * worker, and parentage says nobody live owns it. A missing row, an unreadable
+ * command line, and a command line that does not match all fall back to
+ * `adopt`, so an uncertain answer never costs a process its life.
+ */
+export function decideWorkerSlot(
+  status: WorkerProcessStatus,
+  row: Pick<ProcessTableRow, "pid" | "ppid" | "command"> | null,
+  signature: readonly string[],
+  selfPid: number,
+  isOwnerAlive: (pid: number) => boolean,
+  pid1OwnsWorkers: () => boolean,
+): WorkerSlotDecision {
+  if (status.status !== "running" || status.pid == null) {
+    return { action: "spawn" };
+  }
+  if (!row) {
+    return { action: "adopt", pid: status.pid };
+  }
+  const command = normalizeSeparators(row.command);
+  if (!signature.every((part) => command.includes(normalizeSeparators(part)))) {
+    return { action: "adopt", pid: status.pid };
+  }
+  const ownership = classifyWorkerOwnership(
+    row,
+    selfPid,
+    isOwnerAlive,
+    pid1OwnsWorkers(),
+  );
+  return ownership === "orphan"
+    ? { action: "reclaim", pid: status.pid }
+    : { action: "adopt", pid: status.pid };
+}
+
+/**
+ * The slot decision for the worker at `pidPath`, made without yielding.
+ *
+ * Callers spawn inside their own synchronous prefix, so this stays sync: an
+ * `await` here would let a caller's next tick run before the child exists.
+ */
+function inspectWorkerSlot(
+  pidPath: string,
+  signature: readonly string[],
+): WorkerSlotDecision {
+  const status = probeWorkerPidFile(pidPath);
+  return decideWorkerSlot(
+    status,
+    status.pid != null ? findProcessRow(status.pid) : null,
+    signature,
+    process.pid,
+    isProcessAlive,
+    pid1OwnsWorkers,
+  );
+}
+
+/**
+ * Stop the orphan holding the slot, then report a PID to adopt instead of
+ * spawning: either the orphan itself when it could not be stopped, or a
+ * replacement a concurrent launcher brought up while we waited.
+ */
+async function reclaimWorkerSlot(
+  pid: number,
+  pidPath: string,
+  workerLabel: string,
+): Promise<number | null> {
+  if (!(await stopOrphanedWorker(pid, pidPath, workerLabel))) {
+    // Still running and beyond our reach. One stale worker beats two live ones.
+    return pid;
+  }
+  const replacement = probeWorkerPidFile(pidPath);
+  return replacement.status === "running" && replacement.pid != null
+    ? replacement.pid
+    : null;
+}
+
 /**
  * Spawn a worker entry script as a background process and wait for it to
  * report readiness by writing its PID file. `opts.detached` (default `true`)
- * controls process parentage — see {@link SpawnWorkerProcessOptions}.
+ * controls process parentage, see {@link SpawnWorkerProcessOptions}.
  *
  * If a worker is already running (per the PID file), returns its PID with
  * `alreadyRunning: true` rather than spawning a second one. Throws
@@ -220,9 +437,22 @@ export async function spawnWorkerProcess(args: {
   const pidPollIntervalMs = opts.pidPollIntervalMs ?? PID_FILE_POLL_INTERVAL_MS;
   const detached = opts.detached ?? true;
 
-  const current = probeWorkerPidFile(args.pidPath);
-  if (current.status === "running" && current.pid != null) {
-    return { pid: current.pid, alreadyRunning: true };
+  const decision = inspectWorkerSlot(
+    args.pidPath,
+    workerKindSignature(args.entry, args.packagedEntry),
+  );
+  if (decision.action === "adopt") {
+    return { pid: decision.pid, alreadyRunning: true };
+  }
+  if (decision.action === "reclaim") {
+    const adopted = await reclaimWorkerSlot(
+      decision.pid,
+      args.pidPath,
+      args.workerLabel,
+    );
+    if (adopted != null) {
+      return { pid: adopted, alreadyRunning: true };
+    }
   }
 
   // Pipe the worker's stderr into the same daily log file the daemon writes
@@ -319,21 +549,26 @@ export function stopWorkerProcess(pidPath: string): WorkerProcessStatus {
 // ---------------------------------------------------------------------------
 
 /**
- * Remove the worker PID file only while it still names this process. A
- * successor worker overwrites the file with its own PID at startup, so an
- * exiting predecessor that unlinked unconditionally would delete the
- * successor's entry — the liveness supervisor would then respawn a
- * duplicate and orphan the successor.
+ * Remove `pidPath` only while it still names `pid`.
+ *
+ * A successor worker overwrites the file with its own PID at startup, so an
+ * unconditional unlink would delete the successor's entry: the liveness
+ * supervisor would then respawn a duplicate and orphan the successor.
  */
-export function cleanupWorkerPidFile(pidPath: string): void {
+export function unlinkPidFileIfNames(pidPath: string, pid: number): void {
   try {
     const raw = readFileSync(pidPath, "utf-8").trim();
-    if (parseInt(raw, 10) === process.pid) {
+    if (parseInt(raw, 10) === pid) {
       unlinkSync(pidPath);
     }
   } catch {
-    // best-effort — a missing or unreadable file needs no cleanup
+    // best-effort: a missing or unreadable file needs no cleanup
   }
+}
+
+/** Release this process's own PID file on the way out. */
+export function cleanupWorkerPidFile(pidPath: string): void {
+  unlinkPidFileIfNames(pidPath, process.pid);
 }
 
 /**
