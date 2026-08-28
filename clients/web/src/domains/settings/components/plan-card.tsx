@@ -586,7 +586,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
               : t("planCard.manageSubscription")}
           </Button>
         </div>
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
           <PlanTile
             testId="plan-tile-current"
             tierKey={currentTier}

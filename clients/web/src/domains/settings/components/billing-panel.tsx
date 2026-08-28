@@ -209,11 +209,11 @@ export function BillingPanel() {
         </div>
         <div
           id={DAILY_CREDIT_LIMIT_ANCHOR_ID}
-          className="mt-6 scroll-mt-4 border-t border-[var(--border-base)] pt-6"
+          className="mt-6 scroll-mt-4 border-t border-[var(--border-subtle)] pt-6"
         >
           <DailyCreditLimitCard />
         </div>
-        <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+        <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
           <div className="flex flex-col gap-4">
             <Toggle
               checked={lowBalanceExpanded}

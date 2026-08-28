@@ -249,7 +249,7 @@ export function PrivacyScreen() {
             onClick={() => onAdvance(false)}
             className={electron ? undefined : "h-11 text-base"}
           >
-            {t("actions.start")}
+            {t("privacyScreen.start")}
           </Button>
           {showSkipToChat && (
             <Button
@@ -278,7 +278,7 @@ export function PrivacyScreen() {
            * running environment intact on web and native alike.
            */}
           <Button
-            variant="outlined"
+            variant="ghost"
             size="regular"
             fullWidth
             onClick={() =>

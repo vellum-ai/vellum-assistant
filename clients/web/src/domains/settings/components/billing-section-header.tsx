@@ -19,7 +19,7 @@ export function BillingSectionHeader({
   actions,
 }: BillingSectionHeaderProps) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="min-w-0">
         <Typography
           as="h2"

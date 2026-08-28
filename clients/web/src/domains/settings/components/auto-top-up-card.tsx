@@ -559,7 +559,7 @@ export function AutoTopUpCard() {
         <div className="overflow-hidden">
           <div className="mt-3 flex flex-col gap-3">
             {!bannerDismissed && (
-              <div className="flex h-8 items-center justify-between gap-3 rounded-lg bg-[var(--system-mid-weak)] px-2">
+              <div className="flex h-8 items-center justify-between gap-3 rounded-md bg-[var(--system-mid-weak)] px-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <Info
                     className="h-4 w-4 shrink-0 text-[var(--system-mid-strong)]"

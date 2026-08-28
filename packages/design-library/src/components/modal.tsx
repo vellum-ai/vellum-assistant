@@ -200,22 +200,24 @@ function Header({
   return (
     <div
       data-slot="modal-header"
-      className={cn("flex items-center gap-3 p-4 pr-10", className)}
+      // `pb-6` is the 24px gap between the header's last line (description, or
+      // title when there is none) and the body, which starts with no top
+      // padding of its own.
+      className={cn("flex items-center gap-3 p-4 pb-6 pr-10", className)}
       {...props}
     >
-      {Icon ? (
-        <>
-          <span
-            aria-hidden="true"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)]"
-          >
-            <Icon className="h-5 w-5 text-[var(--primary-base)]" />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-        </>
-      ) : (
-        children
+      {Icon && (
+        <span
+          aria-hidden="true"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--surface-base)]"
+        >
+          <Icon className="h-5 w-5 text-[var(--primary-base)]" />
+        </span>
       )}
+      {/* The title/description column is unconditional: dropping `children`
+          straight into this row put the description beside the title instead
+          of under it whenever no icon was passed. */}
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

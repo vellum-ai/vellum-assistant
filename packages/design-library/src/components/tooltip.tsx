@@ -92,7 +92,7 @@ function Content({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 rounded-md bg-[var(--primary-base)] px-2 py-1 shadow-[var(--shadow-popover)]",
+          "z-50 rounded-sm bg-[var(--primary-base)] px-2 py-1 shadow-[var(--shadow-popover)]",
           "text-body-small-default text-[color:var(--content-inset)]",
           // A sentence-length tooltip would otherwise render as one
           // unbroken line the width of its text. Capped so it wraps, and
