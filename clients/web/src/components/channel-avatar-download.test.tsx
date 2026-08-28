@@ -11,6 +11,7 @@
  *      beside a dead control is worse than no suggestion.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
@@ -18,6 +19,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
 
 import type { AvatarFileResult } from "@/assistant/avatar-api";
 
@@ -47,6 +49,16 @@ const { ChannelAvatarDownload } = await import(
   "@/components/channel-avatar-download"
 );
 
+/** A fresh cache per test, so one test's raster cannot satisfy the next. */
+function renderWithClient(ui: ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
   fetchAvatarImageUrlResult.mockClear();
   saveFile.mockClear();
@@ -60,7 +72,9 @@ afterEach(cleanup);
 
 describe("ChannelAvatarDownload", () => {
   test("saves the raster it previews", async () => {
-    render(<ChannelAvatarDownload assistantId="asst-1" channel="slack" />);
+    renderWithClient(
+      <ChannelAvatarDownload assistantId="asst-1" channel="slack" />,
+    );
 
     const image = await screen.findByRole("img");
     expect(image.getAttribute("src")).toBe("blob:avatar-raster");
@@ -75,7 +89,9 @@ describe("ChannelAvatarDownload", () => {
   });
 
   test("names the saved file rather than leaving the blob id", async () => {
-    render(<ChannelAvatarDownload assistantId="asst-1" channel="discord" />);
+    renderWithClient(
+      <ChannelAvatarDownload assistantId="asst-1" channel="discord" />,
+    );
 
     fireEvent.click(await screen.findByRole("button"));
 
@@ -86,7 +102,9 @@ describe("ChannelAvatarDownload", () => {
   });
 
   test("fetches the assistant it was given, not the active one", async () => {
-    render(<ChannelAvatarDownload assistantId="asst-panel" channel="slack" />);
+    renderWithClient(
+      <ChannelAvatarDownload assistantId="asst-panel" channel="slack" />,
+    );
 
     await waitFor(() => {
       expect(fetchAvatarImageUrlResult).toHaveBeenCalled();
@@ -97,7 +115,7 @@ describe("ChannelAvatarDownload", () => {
   test("renders nothing when the workspace has no raster", async () => {
     fetchAvatarImageUrlResult.mockResolvedValue({ status: "absent" });
 
-    const { container } = render(
+    const { container } = renderWithClient(
       <ChannelAvatarDownload assistantId="asst-1" channel="telegram" />,
     );
 

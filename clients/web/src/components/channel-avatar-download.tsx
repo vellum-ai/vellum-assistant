@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { fetchAvatarImageUrlResult } from "@/assistant/avatar-api";
 import { useTranslation } from "@/i18n";
@@ -21,6 +22,18 @@ const PROMPT_KEY = {
   discord: "channelAvatarDownload.prompt.discord",
   telegram: "channelAvatarDownload.prompt.telegram",
 } as const;
+
+/**
+ * Key for the avatar raster as a downloadable file, distinct from
+ * `avatarQueryKey`, which resolves an avatar for display and prefers traits.
+ * Exported so a story or test can seed the cache instead of reaching a daemon.
+ */
+export function avatarRasterQueryKey(assistantId: string) {
+  return ["assistantAvatarRaster", assistantId] as const;
+}
+
+/** Object URLs this query owns, so a refetch revokes the one it replaces. */
+const rasterUrls = new Map<string, string>();
 
 export interface ChannelAvatarDownloadProps {
   /**
@@ -63,41 +76,19 @@ export function ChannelAvatarDownload({
   channel,
 }: ChannelAvatarDownloadProps) {
   const { t } = useTranslation();
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  // Owned by this component so it never revokes a URL another cache rendered.
-  const urls = useRef(new Map<string, string>());
 
-  useEffect(() => {
-    const tracked = urls.current;
-    let active = true;
-
-    void fetchAvatarImageUrlResult(assistantId).then((result) => {
-      // A second assistant resolved mid-flight must not overwrite the first,
-      // and its URL would otherwise leak.
-      if (!active) {
-        if (result.status === "found") {
-          URL.revokeObjectURL(result.value);
-        }
-        return;
-      }
-      const next = result.status === "found" ? result.value : null;
-      trackBlobUrl(tracked, "avatar", next);
-      setImageUrl(next);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [assistantId]);
-
-  // Revoke on unmount only. Kept out of the fetch effect so a re-fetch does
-  // not tear down the URL that effect just stored.
-  useEffect(() => {
-    const tracked = urls.current;
-    return () => {
-      trackBlobUrl(tracked, "avatar", null);
-    };
-  }, []);
+  const { data: imageUrl } = useQuery<string | null>({
+    queryKey: avatarRasterQueryKey(assistantId),
+    queryFn: async () => {
+      const result = await fetchAvatarImageUrlResult(assistantId);
+      const url = result.status === "found" ? result.value : null;
+      // Tracked inside the fetch so a refetch revokes the URL it replaces
+      // rather than leaking one per render of the wizard.
+      trackBlobUrl(rasterUrls, assistantId, url);
+      return url;
+    },
+    staleTime: Infinity,
+  });
 
   const handleDownload = useCallback(async () => {
     if (!imageUrl) {
