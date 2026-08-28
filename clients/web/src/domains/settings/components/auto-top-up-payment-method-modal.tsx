@@ -52,11 +52,12 @@ export interface AutoTopUpPaymentMethodModalProps {
    *
    * May return a Promise; the modal awaits it before calling `onClose()` so
    * the parent re-renders against fresh data instead of briefly showing
-   * stale payment-method copy after a successful save.
+   * stale payment-method copy after a successful save. Any resolved value
+   * is ignored here.
    */
   onSavedOptimistic: (args: {
     setupIntentId: string | null;
-  }) => void | Promise<void>;
+  }) => void | Promise<unknown>;
 }
 
 /**
@@ -165,9 +166,7 @@ function AutoTopUpPaymentMethodModalContent({
     >
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title>
-            {t("autoTopUpPaymentMethodModal.title")}
-          </Modal.Title>
+          <Modal.Title>{t("autoTopUpPaymentMethodModal.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body className="min-h-[260px]">
           {!STRIPE_PK ? (
@@ -237,9 +236,7 @@ function MissingStripeKeyNotice() {
     );
   }, []);
   return (
-    <Notice tone="error">
-      {t("autoTopUpPaymentMethodModal.unavailable")}
-    </Notice>
+    <Notice tone="error">{t("autoTopUpPaymentMethodModal.unavailable")}</Notice>
   );
 }
 
