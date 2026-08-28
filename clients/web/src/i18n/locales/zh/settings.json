@@ -21,7 +21,7 @@
     "heroTitle": "您的助手，由您掌控",
     "loadPlansError": "未能加载套餐。请稍后重试。",
     "loadingPlans": "正在加载套餐...",
-    "machineDowngradeFeature": "您的助手将减少 CPU 和内存——它将调整为更小的计算配置文件。",
+    "machineDowngradeFeature": "您的助手将减少 CPU 和内存 - 它将调整为更小的计算配置文件。",
     "pickTiersError": "请选择机器和存储层级以继续。",
     "planUpdated": "套餐已更新。",
     "updateFailed": "未能更新套餐。请重试。",
@@ -414,7 +414,7 @@
     "startingSignIn": "正在启动登录...",
     "step1Idle": "1. 点击下方的“打开 ChatGPT 登录”以打开一个弹窗",
     "step1PasteUrl": "1. 点击“打开 ChatGPT 登录”以打开一个弹窗",
-    "step2": "2. 登录后，您将进入一个错误页面——这是预期行为",
+    "step2": "2. 登录后，您将进入一个错误页面 - 这是预期行为",
     "step3": "3. 从该页面的地址栏复制完整的 URL 并粘贴到下方",
     "tryAgain": "重试",
     "urlPlaceholder": "在此处粘贴回调 URL..."

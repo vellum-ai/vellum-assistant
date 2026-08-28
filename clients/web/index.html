@@ -138,6 +138,17 @@
       var LABELS = { es: "Cargando", zh: "正在加载", "zh-TW": "正在載入" };: add Traditional Chinese (zh-TW) localization catalog)
 
       function resolveLocale() {
+        var findCanonical = function (candidate) {
+          if (!candidate) return null;
+          var candLower = String(candidate).toLowerCase();
+          for (var j = 0; j < SUPPORTED_LOCALES.length; j++) {
+            if (SUPPORTED_LOCALES[j].toLowerCase() === candLower) {
+              return SUPPORTED_LOCALES[j];
+            }
+          }
+          return null;
+        };
+
         var stored = null;
         try {
           stored = window.localStorage.getItem("device:locale");
@@ -148,8 +159,11 @@
           // over: without it a Spanish host keeps the English label while the app
           // itself comes up in Spanish.
         }
-        if (stored && SUPPORTED_LOCALES.indexOf(stored) !== -1) {
-          return stored;
+        if (stored) {
+          var canonStored = findCanonical(stored);
+          if (canonStored) {
+            return canonStored;
+          }
         }
         var preferred = [];
         var nav = window.navigator;
@@ -159,16 +173,30 @@
           preferred = [nav.language];
         }
         for (var i = 0; i < preferred.length; i++) {
-          var tag = String(preferred[i]).trim().toLowerCase();
-          if (tag === "") {
+          var raw = String(preferred[i]).trim();
+          if (raw === "") {
             continue;
           }
-          if (SUPPORTED_LOCALES.indexOf(tag) !== -1) {
-            return tag;
+          var exact = findCanonical(raw);
+          if (exact) {
+            return exact;
           }
-          var base = tag.split("-")[0];
-          if (SUPPORTED_LOCALES.indexOf(base) !== -1) {
-            return base;
+          var lower = raw.toLowerCase();
+          if (
+            lower === "zh-hant" ||
+            lower.indexOf("zh-hant-") === 0 ||
+            lower === "zh-hk" ||
+            lower === "zh-mo"
+          ) {
+            var tw = findCanonical("zh-TW");
+            if (tw) {
+              return tw;
+            }
+          }
+          var base = lower.split("-")[0];
+          var baseExact = findCanonical(base);
+          if (baseExact) {
+            return baseExact;
           }
         }
         return "en";

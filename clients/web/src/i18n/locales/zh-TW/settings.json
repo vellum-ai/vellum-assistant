@@ -21,7 +21,7 @@
     "heroTitle": "您的助理，由您掌控",
     "loadPlansError": "無法載入方案。請稍後再試。",
     "loadingPlans": "正在載入方案...",
-    "machineDowngradeFeature": "您的助理將減少 CPU 和記憶體——它將調整為較小的運算設定檔。",
+    "machineDowngradeFeature": "您的助理將減少 CPU 和記憶體 - 它將調整為較小的運算設定檔。",
     "pickTiersError": "請選擇機器和儲存層級以繼續。",
     "planUpdated": "方案已更新。",
     "updateFailed": "無法更新方案。請再試一次。",
@@ -414,7 +414,7 @@
     "startingSignIn": "正在啟動登入...",
     "step1Idle": "1. 點擊下方的「開啟 ChatGPT 登入」以開啟彈出視窗",
     "step1PasteUrl": "1. 點擊「開啟 ChatGPT 登入」以開啟彈出視窗",
-    "step2": "2. 登入後，您將會進入錯誤頁面 — 這是預期行為",
+    "step2": "2. 登入後，您將會進入錯誤頁面 - 這是預期行為",
     "step3": "3. 從該頁面的網址列複製完整的 URL 並貼到下方",
     "tryAgain": "再試一次",
     "urlPlaceholder": "在此貼上回呼 URL..."

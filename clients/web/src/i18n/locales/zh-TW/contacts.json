@@ -129,7 +129,7 @@
     "verifyConfirmMessageContact": "這會將此聯絡人的 {channel} 頻道標記為已驗證。當他們透過此頻道聯絡時，您的助理將會辨識他們。",
     "verifyConfirmMessageGuardian": "這會將您的 {channel} 頻道標記為已驗證。當您透過此頻道聯絡時，您的助理將會辨識您。",
     "verifyAddressLabel": "地址",
-    "verifyAddressPlaceholder": "+15551234567",
+    "verifyAddressPlaceholder": "+12025550123",
     "verifyAddressMessageContact": "輸入此聯絡人在 {channel} 上使用的識別碼。當他們透過此頻道聯絡時，您的助理將會辨識他們。",
     "verifyAddressMessageGuardian": "輸入您在 {channel} 上使用的識別碼。當您透過此頻道聯絡時，您的助理將會辨識您。",
     "revokeConfirmTitle": "撤銷 {channel}",

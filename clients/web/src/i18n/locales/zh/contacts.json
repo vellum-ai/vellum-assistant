@@ -129,7 +129,7 @@
     "verifyConfirmMessageContact": "这将把此联系人的 {channel} 渠道标记为已验证。当他们通过此渠道联系您时，您的助手将识别他们。",
     "verifyConfirmMessageGuardian": "这将把您的 {channel} 渠道标记为已验证。当您通过此渠道联系时，您的助手将识别您。",
     "verifyAddressLabel": "地址",
-    "verifyAddressPlaceholder": "+15551234567",
+    "verifyAddressPlaceholder": "+12025550123",
     "verifyAddressMessageContact": "输入此联系人在 {channel} 上使用的标识符。当他们通过此渠道联系您时，您的助手将识别他们。",
     "verifyAddressMessageGuardian": "输入您在 {channel} 上使用的标识符。当您通过此渠道联系时，您的助手将识别您。",
     "revokeConfirmTitle": "撤销 {channel}",

@@ -790,7 +790,7 @@
     "verificationFailed": "验证失败",
     "verifiedTitle": "DNS 记录已验证。您的域名已准备好发送和接收电子邮件。",
     "verifyingDomain": "正在验证域名…",
-    "verifyingTitle": "DNS 记录已配置。正在等待电子邮件提供商验证它们——这通常需要几分钟。"
+    "verifyingTitle": "DNS 记录已配置。正在等待电子邮件提供商验证它们 - 这通常需要几分钟。"
   },
   "managedServicesBanner": {
     "body": "托管服务按量计费，并从您的 Vellum 账户余额中扣除。<link>查看定价</link>"
