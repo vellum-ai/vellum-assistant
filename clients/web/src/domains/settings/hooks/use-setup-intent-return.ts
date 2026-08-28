@@ -7,7 +7,7 @@ import {
 } from "@/domains/settings/billing/stripe-client";
 import type { SetupIntentOutcome } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { t } from "@/i18n";
 import { routes } from "@/utils/routes";
 
@@ -35,7 +35,7 @@ export function useSetupIntentReturn(): {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
-  const orgReady = useIsOrgReady();
+  const orgReadiness = useOrgHeaderReadiness();
 
   const [captured, setCaptured] = useState<CapturedReturn | null>(null);
   const [outcome, setOutcome] = useState<SetupIntentOutcome | null>(null);
@@ -68,10 +68,16 @@ export function useSetupIntentReturn(): {
   // A full-page 3DS return remounts the app, so the org store can still be
   // hydrating when the params are read. The server-side confirm below needs
   // `Vellum-Organization-Id`, and a headerless one is rejected and falls back
-  // to the 20-second webhook poll, so the resolution waits for the header
-  // source the same way the billing queries do.
+  // to the 20-second webhook poll, so the resolution waits out `"resolving"`
+  // exactly as the config query does. `"unavailable"` still resolves: the
+  // request fires and fails into the error outcome, rather than leaving the
+  // return unresolved for the rest of the visit.
   useEffect(() => {
-    if (captured == null || !orgReady || resolvedRef.current) {
+    if (
+      captured == null ||
+      orgReadiness === "resolving" ||
+      resolvedRef.current
+    ) {
       return;
     }
     resolvedRef.current = true;
@@ -114,7 +120,7 @@ export function useSetupIntentReturn(): {
         settleError(undefined);
       }
     })();
-  }, [captured, orgReady, syncPaymentMethodSaved]);
+  }, [captured, orgReadiness, syncPaymentMethodSaved]);
 
   const clearOutcome = useCallback(() => setOutcome(null), []);
 

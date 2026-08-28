@@ -18,6 +18,7 @@ import { MemoryRouter, useLocation } from "react-router";
 
 import * as savedSyncModule from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 
 // Keeps the real stripe-client below from injecting a Stripe.js script tag
 // into happy-dom when it is imported.
@@ -70,10 +71,10 @@ mock.module("@/domains/settings/hooks/use-payment-method-saved-poll", () => ({
 }));
 
 // Drives the org-header gate. The resolution confirms the SetupIntent
-// server-side, so it waits for the header source the billing queries wait for.
-let orgReady = true;
+// server-side, so it waits out `"resolving"` the way the config query does.
+let orgReadiness: OrgHeaderReadiness = "ready";
 mock.module("@/hooks/use-is-org-ready", () => ({
-  useIsOrgReady: () => orgReady,
+  useOrgHeaderReadiness: () => orgReadiness,
 }));
 
 const { useSetupIntentReturn } = await import("./use-setup-intent-return");
@@ -117,7 +118,7 @@ beforeEach(() => {
   retrieveResult = { setupIntent: { status: "succeeded" } };
   syncCalls = [];
   syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
-  orgReady = true;
+  orgReadiness = "ready";
 });
 
 afterEach(cleanup);
@@ -188,8 +189,8 @@ describe("useSetupIntentReturn", () => {
     expect(currentUrl(result)).toBe(STRIPPED_URL);
   });
 
-  test("holds the resolution until the org header source is ready", async () => {
-    orgReady = false;
+  test("holds the resolution while the org header source is resolving", async () => {
+    orgReadiness = "resolving";
     const { result, rerender } = renderAt(RETURN_SEARCH);
 
     // The params are already off the URL, so a reload cannot replay them.
@@ -199,7 +200,7 @@ describe("useSetupIntentReturn", () => {
     expect(syncCalls).toEqual([]);
     expect(result.current.outcome).toBeNull();
 
-    orgReady = true;
+    orgReadiness = "ready";
     rerender();
     await waitForOutcome(result);
 
@@ -210,6 +211,23 @@ describe("useSetupIntentReturn", () => {
     expect(getStripePromiseCalls).toBe(1);
     expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
     expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+  });
+
+  test("resolves rather than waiting when org resolution produced no org", async () => {
+    // `"unavailable"` never becomes `"ready"` on its own, so gating on it too
+    // would leave the return unresolved. The request fires and its failure
+    // reaches the user as the error outcome instead.
+    orgReadiness = "unavailable";
+    retrieveResult = { error: { message: "No such setupintent." } };
+
+    const { result } = renderAt(RETURN_SEARCH);
+    await waitForOutcome(result);
+
+    expect(result.current.outcome).toEqual({
+      kind: "error",
+      message: "No such setupintent.",
+    });
+    expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
   });
 
   test("clearOutcome drops the resolved outcome", async () => {
