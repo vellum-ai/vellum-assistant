@@ -28,6 +28,9 @@ export function VoiceSectionsSkeleton() {
         heading={t("voicePage.sectionInputHeading")}
         description={t("voicePage.sectionInputDescription")}
       >
+        {/* One per card the section always has. The listening-language card is
+            left out because it renders only for a provider that accepts one. */}
+        <CardSkeleton />
         <CardSkeleton />
         <CardSkeleton />
       </VoiceSection>

@@ -24,6 +24,7 @@ import {
   configGetOptions,
   sttProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { isCapabilitySettled } from "@/components/speech/capability-settled";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import {
   MULTI_DEFAULT_DAEMON_PROVIDERS,
@@ -83,12 +84,9 @@ export interface UseSttLanguageSelection {
    */
   available: boolean;
   /**
-   * "Nothing is in flight, and nothing is waiting to start." `available` is
-   * false both while the answer is still arriving and once it has arrived as
-   * no, so a caller showing one thing per outcome reads this to tell those
-   * apart: a placeholder while unsettled, then `available` picks between the
-   * control and whatever stands in for it. Mirrors `settled` on
-   * {@link useManagedVoiceSelection}.
+   * Every fetch behind `available` has concluded. A caller showing one thing
+   * per outcome holds a placeholder until this, then lets `available` pick.
+   * See {@link isCapabilitySettled}.
    */
   settled: boolean;
   /**
@@ -174,13 +172,11 @@ export function useSttLanguageSelection(
     failureMessage: "Couldn't change the language just now. Try again.",
   });
 
-  // Each `isLoading` reads false for a query that is disabled or has failed,
-  // so the states that never produce a picker (no assistant, an org that
-  // resolved to nothing, an old daemon) settle rather than read as
-  // perpetually loading. `"resolving"` is the one wait not expressed as a
-  // query: it disables both, and they would otherwise look settled.
-  const settled =
-    orgReadiness !== "resolving" && !catalogLoading && !configLoading;
+  const settled = isCapabilitySettled(
+    orgReadiness,
+    catalogLoading,
+    configLoading,
+  );
 
   return {
     available,

@@ -107,12 +107,9 @@ export function VoiceSections() {
   const { settled: voiceSettled } = useManagedVoiceSelection(assistantId);
   const { settled: languageSettled } = useSttLanguageSelection(assistantId);
 
-  // One gate for the page, because every capability answer below comes from
-  // the same daemon config query. Each card reads `available`, which is false
-  // while the answer is in flight as well as after a no, so a card deciding
-  // for itself states a provider choice the user may not have made and then
-  // corrects it. Resolving here keeps the page to a single step and leaves
-  // each card free to render the one outcome it knows to be true.
+  // Gated here rather than per card: the answers share one daemon config
+  // query, so the page arrives in a single step, and a card that never renders
+  // unsettled cannot assert a provider choice the user may not have made.
   if (!voiceSettled || !languageSettled) {
     return <VoiceSectionsSkeleton />;
   }
