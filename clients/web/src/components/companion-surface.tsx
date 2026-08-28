@@ -17,6 +17,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
   ReactNode,
   Ref,
 } from "react";
@@ -388,7 +389,7 @@ export interface CompanionSurfaceProps {
    * from reaching it. The gap between the two is not a handle: there is nothing
    * drawn in it to grab.
    */
-  onSurfaceMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onSurfacePointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   /**
    * Open the surface's own menu, which a right-click on the avatar or the pill
    * asks for.
@@ -634,7 +635,7 @@ export function CompanionSurface({
   cardGrowth = "up",
   rootRef,
   avatarRef,
-  onSurfaceMouseDown,
+  onSurfacePointerDown,
   onSurfaceContextMenu,
   spotlight,
   onTalk,
@@ -856,7 +857,7 @@ export function CompanionSurface({
               `flex h-11 items-center rounded-full ${growth === "left" ? "justify-end" : ""}`
         }`}
         style={style}
-        onMouseDown={onSurfaceMouseDown}
+        onPointerDown={onSurfacePointerDown}
         onContextMenu={onSurfaceContextMenu}
         ref={rootRef}
       >
@@ -961,7 +962,7 @@ export function CompanionSurface({
           }`,
         }}
         elementRef={avatarRef}
-        onMouseDown={onSurfaceMouseDown}
+        onPointerDown={onSurfacePointerDown}
         onContextMenu={onSurfaceContextMenu}
         onClick={onAvatarClick}
       />
@@ -1010,7 +1011,7 @@ function CompanionLink({
         }
       }}
       // A press on a link is not a grab, the way a press on a control is not.
-      onMouseDown={(event) => {
+      onPointerDown={(event) => {
         event.stopPropagation();
       }}
     >
@@ -1188,7 +1189,7 @@ function Composer({
         }}
         // A press in the field is not a drag, and the field wants the caret
         // that press would otherwise be stolen from.
-        onMouseDown={(event) => {
+        onPointerDown={(event) => {
           event.stopPropagation();
         }}
         className="min-w-0 flex-1 bg-transparent text-[12px] text-white/85 select-text placeholder:text-white/40 focus:outline-none"
@@ -1214,7 +1215,7 @@ function Composer({
             : t("companionSurface.send")
         }
         onClick={message === "" ? onCancel : send}
-        onMouseDown={(event) => {
+        onPointerDown={(event) => {
           event.stopPropagation();
         }}
         className="grid size-7 shrink-0 place-items-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20"
@@ -1258,7 +1259,7 @@ function Avatar({
   edge,
   style,
   elementRef,
-  onMouseDown,
+  onPointerDown,
   onContextMenu,
   onClick,
 }: {
@@ -1271,7 +1272,7 @@ function Avatar({
   edge?: ReactNode;
   style?: CSSProperties;
   elementRef?: Ref<HTMLDivElement>;
-  onMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onContextMenu?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onClick?: () => void;
 }) {
@@ -1289,7 +1290,7 @@ function Avatar({
       className="absolute grid size-11 cursor-grab place-items-center active:cursor-grabbing"
       style={style}
       ref={elementRef}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
@@ -1787,7 +1788,7 @@ function PillButton({
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
-      onMouseDown={(event) => {
+      onPointerDown={(event) => {
         event.stopPropagation();
       }}
       className={`group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
