@@ -281,7 +281,12 @@ const ARIA_MODIFIERS: Record<ShortcutPlatform, Record<string, string>> = {
   },
 };
 
-/** Named keys as their UI Events `KeyboardEvent.key` values. */
+/**
+ * Named keys as their UI Events `KeyboardEvent.key` values, for the ones an
+ * accelerator spells differently. Keys an accelerator already spells the UI
+ * Events way (`F5`, `Insert`, the punctuation keys) are absent and pass
+ * through untouched.
+ */
 const ARIA_KEYS: Record<string, string> = {
   up: "ArrowUp",
   down: "ArrowDown",
@@ -300,6 +305,26 @@ const ARIA_KEYS: Record<string, string> = {
   home: "Home",
   end: "End",
   plus: "+",
+  capslock: "CapsLock",
+  numlock: "NumLock",
+  scrolllock: "ScrollLock",
+  printscreen: "PrintScreen",
+  // The numpad keys announce as the character they produce.
+  num0: "0",
+  num1: "1",
+  num2: "2",
+  num3: "3",
+  num4: "4",
+  num5: "5",
+  num6: "6",
+  num7: "7",
+  num8: "8",
+  num9: "9",
+  numdec: ".",
+  numadd: "+",
+  numsub: "-",
+  nummult: "*",
+  numdiv: "/",
 };
 
 /**
@@ -312,6 +337,18 @@ const ARIA_KEYS: Record<string, string> = {
  * only channel through which a screen reader learns the binding. Derived from
  * the same accelerator the glyphs come from, so the two cannot disagree.
  */
+/**
+ * A key {@link ARIA_KEYS} does not name, as its UI Events value.
+ *
+ * A single character announces uppercase, which is what the attribute's own
+ * examples use. Anything longer is a named key an accelerator already spells
+ * the UI Events way, and uppercasing it would emit a value no assistive
+ * technology recognises. The drawn glyphs are hidden, so a mangled value here
+ * is the only thing a screen reader would have.
+ */
+const ariaKeyFallback = (token: string): string =>
+  token.length === 1 ? token.toUpperCase() : token;
+
 export const acceleratorToAriaKeyShortcuts = (
   accelerator: string,
   platform: ShortcutPlatform = detectShortcutPlatform(),
@@ -322,7 +359,7 @@ export const acceleratorToAriaKeyShortcuts = (
       return (
         ARIA_MODIFIERS[platform][lower] ??
         ARIA_KEYS[lower] ??
-        token.toUpperCase()
+        ariaKeyFallback(token)
       );
     })
     .join("+");

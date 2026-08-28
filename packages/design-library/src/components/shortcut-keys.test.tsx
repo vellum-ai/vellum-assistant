@@ -172,6 +172,31 @@ describe("acceleratorToAriaKeyShortcuts", () => {
     );
   });
 
+  test("names every key a rebind can produce, without shouting it", () => {
+    // The drawn glyphs are hidden, so this string is the only announcement.
+    // Uppercasing a named key emits a value no assistive tech recognises.
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Insert", "mac")).toBe(
+      "Meta+Insert",
+    );
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+F5", "mac")).toBe(
+      "Meta+F5",
+    );
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Capslock", "mac")).toBe(
+      "Meta+CapsLock",
+    );
+    // A numpad key announces the character it produces.
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+num7", "mac")).toBe(
+      "Meta+7",
+    );
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+numdec", "mac")).toBe(
+      "Meta+.",
+    );
+    // Punctuation is already its own key value.
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+[", "mac")).toBe("Meta+[");
+    // A single letter announces uppercase, matching the attribute's examples.
+    expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+a", "mac")).toBe("Meta+A");
+  });
+
   test("uses UI Events key values rather than glyphs", () => {
     expect(acceleratorToAriaKeyShortcuts("CmdOrCtrl+Up", "mac")).toBe(
       "Meta+ArrowUp",
