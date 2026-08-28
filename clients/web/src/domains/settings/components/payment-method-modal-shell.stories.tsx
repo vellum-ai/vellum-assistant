@@ -81,6 +81,8 @@ export const Saved: Story = {
     state: "saved",
     savedCard: { brand: "visa", last4: "1881" },
     autoReloadActive: true,
+    // The real modal stops rendering the fields once the card is saved.
+    children: null,
   },
 };
 
@@ -90,5 +92,6 @@ export const SavedGeneric: Story = {
     state: "saved",
     savedCard: null,
     autoReloadActive: false,
+    children: null,
   },
 };
