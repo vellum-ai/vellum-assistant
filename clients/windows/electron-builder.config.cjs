@@ -127,6 +127,9 @@ const buildElectronEntrypoints = () =>
 module.exports = {
   appId,
   productName,
+  toolsets: {
+    winCodeSign: "1.1.0",
+  },
   publish: {
     provider: "generic",
     url: `https://storage.googleapis.com/vellum-ai-${bucketEnv}-releases/win-electron/${targetArch}/`,
