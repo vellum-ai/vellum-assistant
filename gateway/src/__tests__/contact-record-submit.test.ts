@@ -257,6 +257,23 @@ describe("contact record submit", () => {
     expect(resolveCall().body.notesSaved).toBe(false);
   });
 
+  test("notes are unsaved when the mirror cannot be read back", async () => {
+    // An unreadable mirror reports null info, which for a requested clear
+    // looks exactly like success. Unknown is reported as not saved.
+    mirrorWritesFail = true;
+
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-notes-cleared"),
+        operation: "create",
+        displayName: "Alice",
+        notes: "",
+      }),
+    );
+
+    expect(resolveCall().body.notesSaved).toBe(false);
+  });
+
   test("a write with no notes says nothing about them", async () => {
     await handleContactRecordSubmit(
       makeRequest({
@@ -626,6 +643,26 @@ describe("contact record submit", () => {
         .get(),
     ).toBeDefined();
     expect(resolveCall().body.error).toBe("Cannot delete a guardian contact");
+  });
+
+  test("a refused delete leaves the mirror alone too", async () => {
+    seedContact("c-atomic", "Alice");
+    seedChannel("c-atomic", "email", "alice@example.com");
+    seedChannel("c-atomic", "telegram", "12345");
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-atomic"),
+        operation: "delete",
+        contactId: "c-atomic",
+        expectedChannels: [{ type: "email", address: "alice@example.com" }],
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    // The check runs with the gateway delete, before the mirror is touched, so
+    // a refusal has removed nothing anywhere rather than half of it.
+    expect(callsFor("contacts_mirror_delete_contact")).toHaveLength(0);
   });
 
   test("a dismissal resolves the parked call and writes nothing", async () => {

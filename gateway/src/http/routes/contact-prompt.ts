@@ -662,27 +662,16 @@ export async function handleContactRecordSubmit(
   try {
     if (operation === "delete") {
       // Deleting cascades the contact's channels, and the confirmation listed
-      // the ones it had when the form opened. Compare against that list rather
-      // than a row version: a channel arriving by invite redemption reparents
-      // the channel and leaves `contacts.updated_at` untouched, which is
-      // exactly the case worth catching.
-      if (Array.isArray(body.expectedChannels)) {
-        const shown = channelKeySet(body.expectedChannels);
-        const current = channelKeySet(
-          getStore().getChannelsForContact(contactId!),
-        );
-        const unchanged =
-          shown.size === current.size &&
-          [...shown].every((k) => current.has(k));
-        if (!unchanged) {
-          throw new ContactRecordNativeError(
-            "This contact's channels changed while the form was open. Check it and try again.",
-            409,
-            "STALE_CONFIRMATION",
-          );
-        }
-      }
-      await deleteContactCore(contactId!);
+      // the ones it had when the form opened. The core compares them against
+      // the contact's channels in the same transaction as the delete, so a
+      // channel reparented in between (an invite redeemed, say) is not
+      // cascaded away unseen.
+      await deleteContactCore(
+        contactId!,
+        Array.isArray(body.expectedChannels)
+          ? body.expectedChannels
+          : undefined,
+      );
       log.info({ requestId, contactId }, "contact-record-submit: deleted");
       return await resolveRecordPrompt(requestId, contactId!, claim.settleMs);
     }
@@ -766,15 +755,6 @@ function isChannelVerified(contactId: string, channelId: string): boolean {
     );
     return false;
   }
-}
-
-/** Channels as a comparable set, keyed the way the ACL keys them. */
-function channelKeySet(
-  channels: Array<{ type: string; address: string }>,
-): Set<string> {
-  return new Set(
-    channels.map((ch) => `${ch.type}\u0000${ch.address.toLowerCase()}`),
-  );
 }
 
 /** Fallback settle window when a claim did not carry one. */

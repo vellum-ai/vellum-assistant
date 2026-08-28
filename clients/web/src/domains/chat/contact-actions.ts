@@ -82,13 +82,23 @@ export async function handleContactPromptSubmit(
       return;
     }
 
-    useInteractionStore
-      .getState()
-      .acceptContactRequestIfMatches(pendingContactRequest.requestId);
-    useInteractionStore
-      .getState()
-      .releaseSubmission("contactRequest", pendingContactRequest.requestId);
     const savedRequestId = pendingContactRequest.requestId;
+    useInteractionStore
+      .getState()
+      .releaseSubmission("contactRequest", savedRequestId);
+
+    if (result.duplicate) {
+      // Another client answered this form first, so this address was not the
+      // one written. Retire the card without claiming it saved anything.
+      useInteractionStore
+        .getState()
+        .dismissContactRequestIfMatches(savedRequestId);
+      return;
+    }
+
+    useInteractionStore
+      .getState()
+      .acceptContactRequestIfMatches(savedRequestId);
     setTimeout(() => {
       useInteractionStore
         .getState()

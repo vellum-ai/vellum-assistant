@@ -24,6 +24,7 @@ import { eq } from "drizzle-orm";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getGatewayDb } from "../../db/connection.js";
+import { fetchInfoForContacts } from "../../db/contacts-info-joiner.js";
 import {
   ContactStore,
   CannotRevokeBlockedError,
@@ -34,7 +35,7 @@ import {
   type ContactWithInfo,
   type IngressInviteRow,
 } from "../../db/contact-store.js";
-import { contacts } from "../../db/schema.js";
+import { contactChannels, contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import {
   IpcHandlerError,
@@ -923,11 +924,17 @@ export async function upsertContactRecordCore(params: {
   // falls back to echoing the input when the read-back itself fails.
   let notesSaved: boolean | undefined;
   if (params.notes !== undefined) {
-    const stored = await store.getContactWithInfo(contact.id).catch(() => null);
-    notesSaved = (stored?.notes ?? "") === (params.notes ?? "");
+    // Read the mirror directly rather than through the contact shape, which
+    // reports an unreachable mirror as null info: indistinguishable from empty
+    // notes, so clearing notes during an outage would look like it worked. An
+    // absent entry is unknown, and unknown is reported as not saved.
+    const info = await fetchInfoForContacts([contact.id]).catch(() => null);
+    const entry = info?.get(contact.id);
+    notesSaved =
+      entry !== undefined && (entry.notes ?? "") === (params.notes ?? "");
     if (!notesSaved) {
       log.error(
-        { contactId: contact.id },
+        { contactId: contact.id, mirrorRead: entry !== undefined },
         "upsert_contact_record: notes did not reach the assistant mirror",
       );
     }
@@ -958,7 +965,16 @@ export async function upsertContactRecordCore(params: {
  * Throws `ContactRecordNativeError` for client-facing failures (404 unknown
  * id, 403 guardian); unexpected errors propagate.
  */
-export async function deleteContactCore(contactId: string): Promise<void> {
+export async function deleteContactCore(
+  contactId: string,
+  /**
+   * The channels a confirmation showed. When given, the gateway row is deleted
+   * only if the contact still has exactly these, checked in the same
+   * transaction as the delete so a channel reparented in between cannot be
+   * cascaded away unseen.
+   */
+  expectedChannels?: Array<{ type: string; address: string }>,
+): Promise<void> {
   const gatewayRow = getGatewayDb()
     .select({ role: contacts.role })
     .from(contacts)
@@ -1003,10 +1019,45 @@ export async function deleteContactCore(contactId: string): Promise<void> {
     );
   }
 
-  // Delete from both stores (a delete against the store lacking the row is a
-  // harmless no-op), so an assistant-only orphan is cleaned up and stops
-  // showing in the UI. The mirror delete is best-effort: the gateway (source
-  // of truth) delete below always applies, even if the mirror is unavailable.
+  // The gateway row goes first, with the channel check inside the same
+  // transaction: reading the channels and deleting in separate steps leaves a
+  // window for an invite redemption to reparent one onto this contact, which
+  // the cascade would then take away from a guardian who never saw it. A
+  // refusal here has deleted nothing anywhere.
+  getGatewayDb().transaction((tx) => {
+    if (expectedChannels) {
+      const current = new Set(
+        tx
+          .select({
+            type: contactChannels.type,
+            address: contactChannels.address,
+          })
+          .from(contactChannels)
+          .where(eq(contactChannels.contactId, contactId))
+          .all()
+          .map((ch) => `${ch.type}\u0000${ch.address.toLowerCase()}`),
+      );
+      const shown = new Set(
+        expectedChannels.map(
+          (ch) => `${ch.type}\u0000${ch.address.toLowerCase()}`,
+        ),
+      );
+      const unchanged =
+        shown.size === current.size && [...shown].every((k) => current.has(k));
+      if (!unchanged) {
+        throw new ContactRecordNativeError(
+          "This contact's channels changed while the form was open. Check it and try again.",
+          409,
+          "STALE_CONFIRMATION",
+        );
+      }
+    }
+    tx.delete(contacts).where(eq(contacts.id, contactId)).run();
+  });
+
+  // Then the mirror, so an assistant-only orphan is cleaned up and stops
+  // showing in the UI. Best-effort: the gateway is the source of truth and its
+  // row is already gone.
   try {
     await ipcCallAssistant("contacts_mirror_delete_contact", {
       body: { contactId },
@@ -1014,10 +1065,9 @@ export async function deleteContactCore(contactId: string): Promise<void> {
   } catch (err) {
     log.warn(
       { err, contactId },
-      "delete_contact: mirror delete failed (best-effort); gateway delete still applied",
+      "delete_contact: mirror delete failed (best-effort); gateway delete stands",
     );
   }
-  getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});

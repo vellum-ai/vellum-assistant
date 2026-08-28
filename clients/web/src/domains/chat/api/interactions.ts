@@ -308,7 +308,7 @@ export async function submitContactPrompt(
    * read back from the parked command) so the attest matches the form.
    */
   verify?: boolean,
-): Promise<SubmitSecretResponseResult> {
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
     const { error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
@@ -325,7 +325,13 @@ export async function submitContactPrompt(
         transient: false,
       };
     }
-    return { ok: true };
+    // Somebody else answered this form first: nothing is wrong, but none of
+    // these values were written, so the caller must not present them as saved.
+    const body = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as { duplicate?: boolean } | null;
+    return { ok: true, duplicate: body?.duplicate === true };
   } catch (err) {
     return {
       ok: false,
