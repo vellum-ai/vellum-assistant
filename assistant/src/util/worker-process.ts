@@ -117,22 +117,10 @@ export interface SpawnWorkerProcessOptions {
    * When the wait times out while the child is still alive (a hung or very
    * slow start), terminate that child before throwing. Callers whose failure
    * path leaves the worker's config flag off MUST set this: otherwise the
-   * detached worker keeps coming up and runs alongside whatever in-process
+   * worker keeps coming up and runs alongside whatever in-process
    * fallback the flag re-enabled.
    */
   terminateOnTimeout?: boolean;
-  /**
-   * Process parentage (default `true`):
-   *   - `true` — the worker is its own session leader and outlives the
-   *     spawning process. Short-lived CLI spawners need this so the worker
-   *     keeps running after the command returns.
-   *   - `false` — the worker is a direct child of the spawning process. The
-   *     daemon passes this so the worker it owns appears in its process tree
-   *     (`assistant ps`) and is torn down with the daemon.
-   * Either way the child is `unref`'d, so the spawning process never blocks on
-   * it and the worker is tracked via its PID file rather than the handle.
-   */
-  detached?: boolean;
 }
 
 export type PackagedWorkerEntry =
@@ -527,9 +515,9 @@ async function reclaimWorkerSlot(
 }
 
 /**
- * Spawn a worker entry script as a background process and wait for it to
- * report readiness by writing its PID file. `opts.detached` (default `true`)
- * controls process parentage, see {@link SpawnWorkerProcessOptions}.
+ * Spawn a worker entry script as a background process, as a child of this
+ * process, and wait for it to report readiness by writing its PID file. The
+ * child is `unref`'d, so the spawning process never blocks on it.
  *
  * If a worker is already running (per the PID file), returns its PID with
  * `alreadyRunning: true` rather than spawning a second one. Throws
@@ -550,7 +538,6 @@ export async function spawnWorkerProcess(args: {
   const opts = args.options ?? {};
   const pidWaitTimeoutMs = opts.pidWaitTimeoutMs ?? PID_FILE_WAIT_TIMEOUT_MS;
   const pidPollIntervalMs = opts.pidPollIntervalMs ?? PID_FILE_POLL_INTERVAL_MS;
-  const detached = opts.detached ?? true;
 
   const signature = workerKindSignature(args.entry, args.packagedEntry);
   const decision = inspectWorkerSlot(args.pidPath, signature);
@@ -596,7 +583,9 @@ export async function spawnWorkerProcess(args: {
     cmd: resolveWorkerCommand(args.entry, args.packagedEntry),
     env: workerMemoryEnv(),
     stdio: ["ignore", "ignore", stderrFd],
-    detached,
+    // Every worker is a direct child of the daemon. That parentage is the
+    // ownership record `classifyWorkerOwnership` reads, so it is not optional.
+    detached: false,
     windowsHide: true,
   });
 

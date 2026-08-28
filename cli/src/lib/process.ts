@@ -102,6 +102,26 @@ export function isVellumWindowsProcess(
   return /^bun\.exe$/i.test(imageName) && isVellumCommandLine(commandLine);
 }
 
+/**
+ * The POSIX command line for `pid`, or null when it cannot be read.
+ *
+ * Used to prove a PID still names the same process across an awaited gap. The
+ * Windows path never needs it: `taskkill /T` already terminates the tree, so
+ * no group escalation happens there.
+ */
+export function readPosixCommandLine(pid: number): string | null {
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 export function isVellumProcess(
   pid: number,
   hostPlatform: NodeJS.Platform = platform(),
@@ -304,12 +324,18 @@ export async function stopProcess(
       stdio: "ignore",
     });
   },
+  readIdentity: (pid: number) => string | null = readPosixCommandLine,
 ): Promise<boolean> {
   try {
     process.kill(pid, 0);
   } catch {
     return false;
   }
+
+  // Snapshot who this PID is before any waiting, so the group escalation below
+  // can prove it is still the same process rather than a recycled PID.
+  const identityBeforeWait =
+    hostPlatform === "win32" ? null : readIdentity(pid);
 
   console.log(`Stopping ${label} (pid ${pid})...`);
   let waitForGracefulExit = true;
@@ -353,6 +379,32 @@ export async function stopProcess(
     }
   }
   console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
+  // Kill the process group, not just the process. Daemons are spawned
+  // `detached: true` (a session and group leader), and their worker
+  // subprocesses inherit that group, so a single-PID SIGKILL here is what
+  // orphans workers onto init running a stale runtime. Group-kill takes the
+  // whole tree at once, which is what the Windows branch above already does
+  // via `taskkill /T`. Tool subprocesses run in their own groups (see
+  // assistant orphan-reaper), so they are unaffected. SIGTERM above stays
+  // single-PID on purpose: graceful shutdown is the daemon's to orchestrate,
+  // and a group-wide SIGTERM would kill the route host mid-HTTP-drain.
+  //
+  // Widening a signal to a whole group demands more than liveness: the target
+  // may have exited during the wait and the OS may have handed its PID to an
+  // unrelated group leader. Escalate only while the command line still matches
+  // the one captured before the wait; otherwise fall through to the
+  // single-PID kill this function has always sent.
+  const identityHolds =
+    identityBeforeWait != null && readIdentity(pid) === identityBeforeWait;
+  if (identityHolds) {
+    try {
+      process.kill(-pid, "SIGKILL");
+      return true;
+    } catch {
+      // `pid` does not lead a group (or the group is already gone). Fall back
+      // to the single-PID kill.
+    }
+  }
   try {
     process.kill(pid, "SIGKILL");
     return true;
