@@ -19,19 +19,22 @@ export interface StripeAppearanceTokens {
   danger: string;
   dangerText: string;
   icon: string;
+  radius: string;
 }
 
 /**
  * Resolves the design-library custom properties the Stripe Appearance needs.
  * `getComputedStyle` returns the declared value for a custom property, which
  * is a hex string in `tokens.css`; Stripe accepts hex and rgb alike, so the
- * values pass through unchanged.
+ * values pass through unchanged. A property resolves to nothing before the
+ * stylesheets apply, or when a token is renamed, so every field is optional.
  */
 export function readAppearanceTokens(
   root: Element = document.documentElement,
-): StripeAppearanceTokens {
+): Partial<StripeAppearanceTokens> {
   const styles = getComputedStyle(root);
-  const read = (name: string) => styles.getPropertyValue(name).trim();
+  const read = (name: string) =>
+    styles.getPropertyValue(name).trim() || undefined;
   const textSecondary = read("--content-tertiary");
   return {
     text: read("--content-emphasised"),
@@ -43,6 +46,7 @@ export function readAppearanceTokens(
     danger: read("--system-negative-strong"),
     dangerText: read("--system-negative-on-weak"),
     icon: textSecondary,
+    radius: read("--radius-lg"),
   };
 }
 
@@ -76,20 +80,57 @@ export function withAlpha(color: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+type Declarations = Record<string, string | undefined>;
+
+function isResolved(value: string | undefined): value is string {
+  return value !== undefined && value !== "";
+}
+
+/**
+ * Stripe can reject an appearance that carries an empty value, so a token that
+ * did not resolve is dropped and the Stripe base theme's default stands.
+ */
+function keepResolved(declarations: Declarations): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(declarations).filter((entry): entry is [string, string] =>
+      isResolved(entry[1]),
+    ),
+  );
+}
+
+function keepResolvedRules(
+  rules: Record<string, Declarations>,
+): NonNullable<Appearance["rules"]> {
+  const kept: NonNullable<Appearance["rules"]> = {};
+  for (const [selector, declarations] of Object.entries(rules)) {
+    const values = keepResolved(declarations);
+    if (Object.keys(values).length > 0) {
+      kept[selector] = values;
+    }
+  }
+  return kept;
+}
+
+function solidBorder(color: string | undefined): string | undefined {
+  return isResolved(color) ? `1px solid ${color}` : undefined;
+}
+
 export function appearanceFromTokens(
-  tokens: StripeAppearanceTokens,
+  tokens: Partial<StripeAppearanceTokens>,
   base: "stripe" | "night",
 ): Appearance {
-  const focusRing = `0 0 0 3px ${withAlpha(tokens.accent, 0.14)}`;
+  const focusRing = isResolved(tokens.accent)
+    ? `0 0 0 3px ${withAlpha(tokens.accent, 0.14)}`
+    : undefined;
   return {
     theme: base,
     labels: "floating",
-    variables: {
+    variables: keepResolved({
       fontFamily: '"DM Sans", system-ui, sans-serif',
       fontSizeBase: "15px",
       fontSizeSm: "11px",
       fontWeightMedium: "500",
-      borderRadius: "12px",
+      borderRadius: tokens.radius,
       spacingUnit: "4px",
       spacingGridRow: "10px",
       spacingGridColumn: "10px",
@@ -102,8 +143,8 @@ export function appearanceFromTokens(
       colorIcon: tokens.icon,
       focusOutline: "none",
       focusBoxShadow: focusRing,
-    },
-    rules: {
+    } satisfies NonNullable<Appearance["variables"]>),
+    rules: keepResolvedRules({
       ".Input": {
         backgroundColor: tokens.field,
         border: "1px solid transparent",
@@ -114,11 +155,11 @@ export function appearanceFromTokens(
       },
       ".Input:focus": {
         backgroundColor: tokens.surface,
-        border: `1px solid ${tokens.accent}`,
+        border: solidBorder(tokens.accent),
         boxShadow: focusRing,
       },
       ".Input--invalid": {
-        border: `1px solid ${tokens.danger}`,
+        border: solidBorder(tokens.danger),
         boxShadow: "none",
       },
       ".Input::placeholder": {
@@ -136,7 +177,7 @@ export function appearanceFromTokens(
         fontSize: "12.5px",
         color: tokens.dangerText,
       },
-    },
+    }),
   };
 }
 
