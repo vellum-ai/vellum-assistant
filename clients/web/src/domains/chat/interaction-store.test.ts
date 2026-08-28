@@ -289,10 +289,20 @@ describe("useInteractionStore", () => {
       ).toBe("cr1");
     });
 
-    it("acceptContactRequest sets flag", () => {
+    it("acceptContactRequestIfMatches sets flag for the card on screen", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().acceptContactRequest();
+      useInteractionStore.getState().acceptContactRequestIfMatches("cr1");
       expect(useInteractionStore.getState().contactRequestAccepted).toBe(true);
+    });
+
+    it("acceptContactRequestIfMatches ignores a response for a card that is gone", () => {
+      useInteractionStore.getState().showContactRequest({ requestId: "cr2" });
+
+      // A response can land after its own card was replaced, and the card that
+      // replaced it belongs to someone else's request.
+      useInteractionStore.getState().acceptContactRequestIfMatches("cr1");
+
+      expect(useInteractionStore.getState().contactRequestAccepted).toBe(false);
     });
   });
 

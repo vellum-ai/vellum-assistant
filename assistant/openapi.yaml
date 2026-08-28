@@ -6587,6 +6587,8 @@ paths:
                     type: string
                   address:
                     type: string
+                  verified:
+                    type: boolean
                 required:
                   - ok
                 additionalProperties: false

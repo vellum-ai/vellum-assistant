@@ -273,6 +273,40 @@ describe("handleContactPromptSubmit", () => {
     expect(callsFor(ipcMock, "contact_prompt_flags")).toHaveLength(0);
   });
 
+  test("the resolve reports what the channel actually is, not what was asked", async () => {
+    seedGuardian();
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-report-verified",
+        address: "+12025550145",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // The command prints this, and the guardian's checkbox is what decides it.
+    expect(resolveCall(ipcMock).body.verified).toBe(true);
+  });
+
+  test("an unchecked box resolves as unverified", async () => {
+    seedGuardian();
+
+    await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-report-unverified",
+        address: "+12025550146",
+        channelType: "imessage",
+        role: "guardian",
+        verify: false,
+      }),
+    );
+
+    expect(resolveCall(ipcMock).body.verified).toBe(false);
+  });
+
   test("submitted verify:false leaves the channel unverified even when the command asked for --verify", async () => {
     seedGuardian();
     // The guardian unchecked the box the command pre-checked. Their answer wins.

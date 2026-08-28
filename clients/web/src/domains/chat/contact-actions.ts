@@ -81,7 +81,9 @@ export async function handleContactPromptSubmit(
       return;
     }
 
-    useInteractionStore.getState().acceptContactRequest();
+    useInteractionStore
+      .getState()
+      .acceptContactRequestIfMatches(pendingContactRequest.requestId);
     useInteractionStore
       .getState()
       .releaseSubmission("contactRequest", pendingContactRequest.requestId);
@@ -200,7 +202,11 @@ export async function handleContactRecordSubmit(values: {
       return;
     }
 
-    useInteractionStore.getState().acceptContactRecordRequest();
+    useInteractionStore
+      .getState()
+      .acceptContactRecordRequestIfMatches(
+        pendingContactRecordRequest.requestId,
+      );
     useInteractionStore
       .getState()
       .releaseSubmission(

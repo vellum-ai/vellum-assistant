@@ -194,10 +194,15 @@ export interface InteractionActions {
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
   dismissContactRequestIfMatches: (requestId: string) => void;
-  acceptContactRequest: () => void;
+  /**
+   * Show the answered state, but only while the card on screen is the one that
+   * was answered. A response can land after its card is gone, and the card
+   * that replaced it belongs to a different request.
+   */
+  acceptContactRequestIfMatches: (requestId: string) => void;
   showContactRecordRequest: (payload: PendingContactRecordRequestState) => void;
   dismissContactRecordRequestIfMatches: (requestId: string) => void;
-  acceptContactRecordRequest: () => void;
+  acceptContactRecordRequestIfMatches: (requestId: string) => void;
 
   // Question
   showQuestion: (payload: PendingQuestionState) => void;
@@ -430,7 +435,12 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set({ pendingContactRequest: null });
   },
 
-  acceptContactRequest: () => set({ contactRequestAccepted: true }),
+  acceptContactRequestIfMatches: (requestId) => {
+    if (get().pendingContactRequest?.requestId !== requestId) {
+      return;
+    }
+    set({ contactRequestAccepted: true });
+  },
 
   // ----- Contact record request -----
   showContactRecordRequest: (payload) =>
@@ -450,7 +460,12 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set({ pendingContactRecordRequest: null });
   },
 
-  acceptContactRecordRequest: () => set({ contactRecordRequestAccepted: true }),
+  acceptContactRecordRequestIfMatches: (requestId) => {
+    if (get().pendingContactRecordRequest?.requestId !== requestId) {
+      return;
+    }
+    set({ contactRecordRequestAccepted: true });
+  },
 
   // ----- Question -----
   showQuestion: (payload) =>

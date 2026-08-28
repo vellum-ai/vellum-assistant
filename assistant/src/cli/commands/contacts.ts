@@ -58,6 +58,8 @@ interface ContactPromptResult {
   address?: string;
   channelId?: string;
   contactId?: string;
+  /** Whether the channel is attested, as the guardian's checkbox left it. */
+  verified?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -564,7 +566,9 @@ export function registerContactsCommand(program: Command): void {
               `Registered ${result.channelType} channel: ${result.address}\n` +
                 `  Channel ID: ${result.channelId}\n` +
                 `  Contact ID: ${result.contactId}\n` +
-                `  Status:     ${opts.verify ? "verified" : "unverified"}\n`,
+                // The guardian's checkbox decides this, so report what the
+                // channel is rather than what the flag asked for.
+                `  Status:     ${result.verified ? "verified" : "unverified"}\n`,
             );
           }
         },

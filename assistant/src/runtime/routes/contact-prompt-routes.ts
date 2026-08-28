@@ -59,6 +59,8 @@ export interface ContactPromptResult {
   channelId?: string;
   channelType?: string;
   address?: string;
+  /** Whether the channel is attested, as the guardian's checkbox left it. */
+  verified?: boolean;
 }
 
 interface PendingContactPrompt {
@@ -112,15 +114,23 @@ function announceFormClosed(
 function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
   resolved: boolean;
 } {
-  const { requestId, contactId, channelId, channelType, address, error } =
-    body as {
-      requestId: string;
-      contactId?: string;
-      channelId?: string;
-      channelType?: string;
-      address?: string;
-      error?: string;
-    };
+  const {
+    requestId,
+    contactId,
+    channelId,
+    channelType,
+    address,
+    verified,
+    error,
+  } = body as {
+    requestId: string;
+    contactId?: string;
+    channelId?: string;
+    channelType?: string;
+    address?: string;
+    verified?: boolean;
+    error?: string;
+  };
   const pending = pendingContactPrompts.get(requestId);
   if (!pending) {
     log.warn({ requestId }, "resolve_contact_prompt: no pending prompt found");
@@ -139,6 +149,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
       channelId,
       channelType,
       address,
+      verified,
     });
   }
 
@@ -434,6 +445,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       channelId: z.string().optional(),
       channelType: z.string().optional(),
       address: z.string().optional(),
+      verified: z.boolean().optional(),
     }),
   },
   {

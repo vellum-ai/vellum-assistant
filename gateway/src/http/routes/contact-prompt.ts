@@ -463,31 +463,28 @@ async function resolveContactPrompt(args: {
   verify: boolean | undefined;
 }): Promise<Response> {
   const { requestId, contactId, channelId, channelType, address } = args;
+  // What the channel ends up as, not what was asked for: the guardian's box
+  // decides, and an attest that fails leaves it unverified.
+  let verified = false;
   if (await promptWantsVerify(requestId, args.verify)) {
-    const verified = await getStore().markChannelVerified(channelId);
+    // A resolved row means the channel is attested, whether this call is what
+    // wrote it or it already was.
+    verified = (await getStore().markChannelVerified(channelId)) !== null;
     if (!verified) {
       log.warn(
         { requestId, contactId, channelId },
-        "contact-prompt-submit: --verify was set but the channel could not be attested",
+        "contact-prompt-submit: verification was requested but the channel could not be attested",
       );
     }
   }
-  try {
-    const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, contactId, channelId, channelType, address },
-    });
-    if ((ipcResult as { resolved?: boolean }).resolved === false) {
-      log.warn(
-        { requestId, contactId },
-        "contact-prompt-submit: resolve_contact_prompt IPC did not find a pending prompt — CLI may time out",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err, requestId, contactId },
-      "contact-prompt-submit: resolve_contact_prompt IPC failed — CLI may time out",
-    );
-  }
+  await reportResolution(requestId, {
+    requestId,
+    contactId,
+    channelId,
+    channelType,
+    address,
+    verified,
+  });
 
   return Response.json({ accepted: true });
 }
@@ -682,6 +679,51 @@ async function claimPrompt(
 }
 
 /**
+ * Report a committed write back to the assistant, retrying a transient failure.
+ *
+ * The write has already happened by the time this runs, so a lost callback is
+ * not a lost write: it is a command told its form failed while the contact was
+ * created, renamed, or deleted. Retries are bounded and stay well inside the
+ * settle window the claim opened, so the command is still waiting when a late
+ * attempt lands.
+ *
+ * A callback that never lands leaves the command reporting failure over a
+ * write that happened. Nothing here can close that gap, so it is logged at
+ * error rather than papered over.
+ */
+async function reportResolution(
+  requestId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  const backoffMs = [0, 500, 2_000, 5_000];
+  for (const [attempt, waitMs] of backoffMs.entries()) {
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    try {
+      const result = await ipcCallAssistant("resolve_contact_prompt", { body });
+      if ((result as { resolved?: boolean }).resolved === false) {
+        // The form is gone, so nobody is waiting. Retrying cannot change that.
+        log.warn(
+          { requestId },
+          "contact-prompt: resolve found no pending form; the command may already have given up",
+        );
+      }
+      return;
+    } catch (err) {
+      log.warn(
+        { err, requestId, attempt },
+        "contact-prompt: resolve failed, retrying",
+      );
+    }
+  }
+  log.error(
+    { requestId, body },
+    "contact-prompt: could not report a committed write to the assistant; the command will report failure over a write that happened",
+  );
+}
+
+/**
  * The response for a claim the caller did not get.
  *
  * A competing claim is success from this client's side: the form it was
@@ -717,21 +759,6 @@ async function resolveRecordPrompt(
   requestId: string,
   contactId: string,
 ): Promise<Response> {
-  try {
-    const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, contactId },
-    });
-    if ((ipcResult as { resolved?: boolean }).resolved === false) {
-      log.warn(
-        { requestId, contactId },
-        "contact-record-submit: resolve_contact_prompt found no pending prompt; CLI may time out",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err, requestId, contactId },
-      "contact-record-submit: resolve_contact_prompt IPC failed; CLI may time out",
-    );
-  }
+  await reportResolution(requestId, { requestId, contactId });
   return Response.json({ accepted: true });
 }

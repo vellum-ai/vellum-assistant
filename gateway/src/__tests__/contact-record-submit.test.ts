@@ -53,6 +53,10 @@ const ipcMock = mock(
       claimedForms.add(requestId);
       return { claimed: true };
     }
+    if (method === "resolve_contact_prompt" && resolveFailures > 0) {
+      resolveFailures -= 1;
+      throw new Error("socket closed");
+    }
     return { resolved: true, exists: false };
   },
 );
@@ -65,6 +69,9 @@ function openForm(requestId: string): string {
 
 /** Make the next claim attempt fail the way an unreachable assistant does. */
 let claimThrows = false;
+
+/** How many resolve attempts fail before one is allowed through. */
+let resolveFailures = 0;
 
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
@@ -129,6 +136,7 @@ beforeEach(() => {
   openForms = new Set<string>();
   claimedForms.clear();
   claimThrows = false;
+  resolveFailures = 0;
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
@@ -580,6 +588,25 @@ describe("contact record submit", () => {
 
     expect(res.status).toBe(503);
     expect(callsFor("resolve_contact_prompt")).toHaveLength(0);
+  });
+
+  test("a committed write is reported even when the first callback fails", async () => {
+    // The write has already happened, so a lost callback is a command told its
+    // form failed over a contact that was created.
+    resolveFailures = 1;
+
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-flaky-resolve"),
+        operation: "create",
+        displayName: "Alice",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    // Two attempts: the one that failed and the retry that landed.
+    expect(callsFor("resolve_contact_prompt")).toHaveLength(2);
   });
 
   test("an unknown operation is rejected", async () => {
