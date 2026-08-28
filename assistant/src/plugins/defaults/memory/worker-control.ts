@@ -37,8 +37,7 @@ export class MemoryWorkerSpawnError extends WorkerProcessSpawnError {}
  * failed to start).
  *
  * See {@link SpawnWorkerProcessOptions} for the generic option semantics. The
- * daemon's boot spawn passes `detached: false` (so the worker appears in
- * `assistant ps` and is torn down with the daemon) and leaves
+ * daemon's boot spawn leaves
  * `terminateOnTimeout` unset (a worker that comes up late is still the desired
  * sole drainer).
  */

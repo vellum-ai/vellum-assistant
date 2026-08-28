@@ -153,7 +153,7 @@ export class RouteHostClient {
         workerLabel: "Route host",
         // Owned by the daemon (appears in its process tree, torn down with it);
         // kill it if it hangs during startup so a failed spawn leaves nothing.
-        options: { detached: false, terminateOnTimeout: true },
+        options: { terminateOnTimeout: true },
       }));
     } catch (err) {
       // A failed bring-up (crash-on-startup, PID-file timeout) is a retryable

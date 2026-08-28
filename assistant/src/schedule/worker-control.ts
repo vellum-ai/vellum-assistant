@@ -119,13 +119,13 @@ export function stopScheduleWorkerProcess(): WorkerProcessStatus {
 
 /**
  * Daemon-lifecycle entry point: spawn the schedule worker as a child of the
- * daemon (`detached: false`, so it appears in `assistant ps` and is torn down
+ * daemon (so it appears in the daemon's process tree and is torn down
  * on shutdown). Fire-and-forget — a worker failure must never block boot. A
  * worker that comes up late is still the desired sole schedule runner
  * (`terminateOnTimeout` is deliberately not set).
  */
 export function startScheduleWorker(): void {
-  void spawnScheduleWorkerProcess({ detached: false })
+  void spawnScheduleWorkerProcess()
     .then((r) =>
       log.info(
         { pid: r.pid, alreadyRunning: r.alreadyRunning },

@@ -101,7 +101,7 @@ export function startRouteHost(): void {
   if (!isRouteHostEnabled()) {
     return;
   }
-  void spawnRouteHostWorkerProcess({ detached: false })
+  void spawnRouteHostWorkerProcess()
     .then((r) =>
       log.info(
         { pid: r.pid, alreadyRunning: r.alreadyRunning },
