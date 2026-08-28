@@ -230,6 +230,27 @@ export interface ComposerActions {
   saveDraft: (key: string, text: string) => void;
   /** Clear the draft for the given key (e.g. after a successful send). */
   clearDraft: (key: string) => void;
+  /**
+   * Put a failed send's text back into `key`'s draft slot, unless something is
+   * already there.
+   *
+   * The composer clears the moment a send starts, so a send that fails after
+   * the user has moved to another thread has nowhere on screen to put its text
+   * back: the composer in front of them belongs to a different conversation.
+   * Parking it in the draft map hands the message back the way any unsent draft
+   * is handed back, the next time that thread is opened. The deep-link send
+   * keeps a message for its target thread the same way when the user navigates
+   * away mid-resolve (see `hooks/use-deep-link-thread-send.ts`).
+   *
+   * An occupied slot wins and this does nothing. Whatever is in there was
+   * written after this send left, so it is the newer of the two, and it is what
+   * the user last saw in that composer.
+   *
+   * For a thread that is NOT the one on screen: the write lands in the map, and
+   * the composer picks it up on the switch that opens that conversation. A
+   * caller restoring into the open thread would want {@link setInput} as well.
+   */
+  restoreFailedDraft: (key: string, text: string) => void;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -323,6 +344,20 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
   clearDraft: (key) => {
     draftsMap.delete(key);
+    if (currentAssistantId) {
+      persistDrafts(currentAssistantId, draftsMap);
+    }
+  },
+
+  restoreFailedDraft: (key, text) => {
+    if (!text.trim()) {
+      return;
+    }
+    const existing = draftsMap.get(key);
+    if (existing && existing.trim()) {
+      return;
+    }
+    draftsMap.set(key, text);
     if (currentAssistantId) {
       persistDrafts(currentAssistantId, draftsMap);
     }

@@ -428,6 +428,16 @@ export function useSendMessage({
             activeConversationId:
               useConversationStore.getState().activeConversationId,
           });
+          // Ignored is about the UI, not about the message. Nothing on screen
+          // belongs to this send any more, but its text was cleared from the
+          // composer when it started and this failure is the end of the line
+          // for it, so it goes back to its own conversation's draft rather than
+          // nowhere. A hidden send has no user text to give back.
+          if (!isHidden) {
+            useComposerStore
+              .getState()
+              .restoreFailedDraft(requestConversationId, content);
+          }
           return { status: "ignored" };
         }
         const detail = resolvePostError(
@@ -854,6 +864,13 @@ export function useSendMessage({
                 message: detail,
                 code: postResult.error.code ?? undefined,
               });
+            } else if (!isHidden) {
+              // Off screen there is no banner to carry the failure and no
+              // composer of this thread's to put the text back into, so it
+              // goes to that thread's draft instead of being lost.
+              useComposerStore
+                .getState()
+                .restoreFailedDraft(activeConversationId, content);
             }
             return;
           }
@@ -940,6 +957,10 @@ export function useSendMessage({
           if (sendIsOnScreen) {
             revertQueuedMessage(userMessage.id);
             setError({ message: "Failed to queue message. Please try again." });
+          } else if (!isHidden) {
+            useComposerStore
+              .getState()
+              .restoreFailedDraft(activeConversationId, content);
           }
         }
         return;

@@ -27,6 +27,7 @@ import type { ReactNode } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import {
   INITIAL_TURN_STATE,
@@ -67,6 +68,16 @@ const ACCEPTED_QUEUED = {
  * send claiming the store swaps the id out from under the turn the open thread
  * is actually running, which the phase alone would not show.
  */
+/**
+ * The text parked for `key`, read back the way the composer reads it: through
+ * the restore that runs when that conversation is opened.
+ */
+function draftFor(key: string): string {
+  useComposerStore.setState({ input: "" });
+  useComposerStore.getState().restoreDraftIfEmpty(key);
+  return useComposerStore.getState().input;
+}
+
 function turnState() {
   const { phase, activeTurnId } = useTurnStore.getState();
   return { phase, activeTurnId };
@@ -120,6 +131,11 @@ beforeEach(() => {
     pendingQueuedMessageIds: [],
   });
   useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+  // The draft map is module state shared across tests; reloading it for the
+  // assistant from an empty localStorage is how the store itself resets it.
+  localStorage.clear();
+  useComposerStore.getState().loadAssistantDrafts("assistant-1");
+  useComposerStore.setState({ input: "" });
 
   postResponse = ACCEPTED_DIRECTLY;
 
@@ -303,5 +319,89 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     expect(useTurnStore.getState().activeTurnId).not.toBe(
       OPEN_THREAD_TURN.activeTurnId,
     );
+  });
+});
+
+/**
+ * A send that fails after the user has moved on has nowhere on screen to report
+ * itself: the streaming path classifies it `ignored` and the queue path's
+ * banner is scoped to the thread the failure happened in. The text still has to
+ * survive, so it goes back to its own conversation's draft slot and is handed
+ * over the next time that thread is opened.
+ */
+describe("useSendMessage: a stale send that fails", () => {
+  /** A daemon that refuses the POST. */
+  function refusePost() {
+    daemonClient.post = mock(async () => ({
+      data: null,
+      error: { detail: "nope" },
+      response: new Response(null, { status: 500 }),
+    })) as typeof daemonClient.post;
+  }
+
+  beforeEach(() => {
+    useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
+    refusePost();
+  });
+
+  test("the streaming path parks the text in its own thread's draft", async () => {
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("the one that got away");
+    });
+
+    expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
+    // Never into the thread the user is actually reading.
+    expect(draftFor(OPEN_CONVERSATION)).toBe("");
+  });
+
+  test("the queue path parks it too", async () => {
+    useTurnStore.setState({ phase: "streaming", activeTurnId: "open-turn" });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("queued and lost");
+    });
+
+    expect(draftFor(SEND_CONVERSATION)).toBe("queued and lost");
+    expect(draftFor(OPEN_CONVERSATION)).toBe("");
+  });
+
+  test("a draft already waiting in that thread is left alone", async () => {
+    // Written after the send left, so it is the newer of the two and the one
+    // the user last saw in that composer.
+    useComposerStore.getState().saveDraft(SEND_CONVERSATION, "typed later");
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("the one that got away");
+    });
+
+    expect(draftFor(SEND_CONVERSATION)).toBe("typed later");
+  });
+
+  test("a hidden send has no user text to give back", async () => {
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("scripted kickoff", [], {
+        hidden: true,
+      });
+    });
+
+    expect(draftFor(SEND_CONVERSATION)).toBe("");
+  });
+
+  test("an on-screen failure is unchanged: it banners rather than parks", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("right here");
+    });
+
+    expect(useChatSessionStore.getState().error).not.toBeNull();
+    expect(draftFor(SEND_CONVERSATION)).toBe("");
   });
 });
