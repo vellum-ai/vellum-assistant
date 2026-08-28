@@ -312,9 +312,6 @@
     "title": "Get the {appName} app",
     "titleGeneric": "Get the Vellum app"
   },
-  "nativeSplash": {
-    "logoAlt": "Vellum"
-  },
   "notFound": {
     "backToAssistant": "Back to your assistant",
     "badge": "Error 404",

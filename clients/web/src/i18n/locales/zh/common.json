@@ -312,9 +312,6 @@
     "title": "获取 {appName} 应用",
     "titleGeneric": "获取 Vellum 应用"
   },
-  "nativeSplash": {
-    "logoAlt": "Vellum"
-  },
   "notFound": {
     "backToAssistant": "返回您的助手",
     "badge": "错误 404",
