@@ -200,6 +200,11 @@ describe("onboarding funnel history contract", () => {
     click("Continue");
     const { to, opts } = navigatedWith();
     expect(to.startsWith(routes.onboarding.privacy)).toBe(true);
+    // The marker is what exempts this walk from the already-onboarded bounce,
+    // and the hosting choice still has to reach the hatch. Both ride here.
+    const forward = new URLSearchParams(to.slice(to.indexOf("?") + 1));
+    expect(forward.get(NEW_ASSISTANT_PARAM)).toBe("1");
+    expect(forward.get("hosting")).toBe("local");
     expect(opts).toEqual({ replace: true });
   });
 });
