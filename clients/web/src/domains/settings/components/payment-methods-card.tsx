@@ -1,82 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
-import type {
-  CardOnFile,
-  PaymentMethodModalMode,
-} from "@/domains/settings/components/payment-method-modal-shell";
+import {
+  modalSnapshotFor,
+  paymentMethodCards,
+  type PaymentModalSnapshot,
+} from "@/domains/settings/components/payment-method-cards";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
-import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
+import { useSetupIntentReturnStore } from "@/domains/settings/setup-intent-return-store";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useTranslation } from "@/i18n";
-
-export interface PaymentMethodCardEntry {
-  id: string;
-  brand: string | null;
-  last4: string | null;
-  expMonth: number | null;
-  expYear: number | null;
-}
-
-/**
- * The cards to list. The backend keeps at most one payment method and has no
- * list endpoint, so this is always length 0 or 1 today; the array is what the
- * multi-card render below is written against.
- */
-export function paymentMethodCards(
-  config: AutoTopUpConfigResponse | undefined,
-): PaymentMethodCardEntry[] {
-  if (config == null || !config.has_payment_method) {
-    return [];
-  }
-  return [
-    {
-      id: "primary",
-      brand: config.payment_method_brand,
-      last4: config.payment_method_last4,
-      // `?? null` because a platform deployment older than the expiry fields
-      // omits the keys entirely rather than sending them null.
-      expMonth: config.payment_method_exp_month ?? null,
-      expYear: config.payment_method_exp_year ?? null,
-    },
-  ];
-}
-
-/**
- * What the modal was opened with. Captured on the click that opens it, because
- * a successful save writes the new card into the config query cache before the
- * modal closes: derived props would flip an in-flight add into replace mode and
- * swap the card-on-file row for the card that was just saved.
- */
-interface PaymentModalSnapshot {
-  mode: PaymentMethodModalMode;
-  cardOnFile: CardOnFile | null;
-}
-
-function modalSnapshotFor(
-  cards: PaymentMethodCardEntry[],
-): PaymentModalSnapshot {
-  const [existing] = cards;
-  if (existing == null) {
-    return { mode: "add", cardOnFile: null };
-  }
-  return {
-    mode: "replace",
-    cardOnFile: {
-      brand: existing.brand,
-      last4: existing.last4,
-      expMonth: existing.expMonth,
-      expYear: existing.expYear,
-    },
-  };
-}
 
 /**
  * Settings → Billing "Payment Methods" section. Card management lives here;
@@ -92,11 +31,11 @@ export function PaymentMethodsCard() {
   // A return that is still resolving keeps the Add and Replace actions
   // disabled: the modal replays that outcome as its `initialOutcome`, which is
   // seeded on open alone, so one opened in that window would never show it.
-  const {
-    outcome,
-    pending: returnPending,
-    clearOutcome,
-  } = useSetupIntentReturn();
+  // The return is driven from `BillingPage` and parked in the store, so it
+  // survives this card being unmounted by a tab switch mid-resolution.
+  const outcome = useSetupIntentReturnStore.use.outcome();
+  const returnPending = useSetupIntentReturnStore.use.pending();
+  const clearOutcome = useSetupIntentReturnStore.use.clearOutcome();
 
   const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
 

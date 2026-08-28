@@ -1,14 +1,16 @@
 /**
  * Tests for `useSetupIntentReturn`: the SetupIntent params Stripe appends to
  * the `return_url` after an off-page 3DS challenge are read once, resolved
- * through Stripe.js, and stripped from the URL.
+ * through Stripe.js into `useSetupIntentReturnStore`, and stripped from the
+ * URL without disturbing the hash or any unrelated param.
  *
  * Strategy: mock the shared Stripe client so `retrieveSetupIntent` is driven
  * from the test (a real one needs Stripe.js and a live intent), mock the
  * saved-card sync so the confirm endpoint is not called, and mock the
  * org-readiness gate so a test can hold the resolution the way a hydrating org
- * store does. The real `setupIntentIdFromClientSecret` is kept, so the id the
- * sync is handed is parsed the way it is in the app.
+ * store does (with a short settle ceiling, so the bounded wait is observable).
+ * The real `setupIntentIdFromClientSecret` is kept, so the id the sync is
+ * handed is parsed the way it is in the app.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -72,12 +74,16 @@ mock.module("@/domains/settings/hooks/use-payment-method-saved-poll", () => ({
 
 // Drives the org-header gate. The resolution confirms the SetupIntent
 // server-side, so it waits out `"resolving"` the way the config query does.
+// The real ceiling is 5s; a short one here keeps the bounded-wait case fast.
 let orgReadiness: OrgHeaderReadiness = "ready";
 mock.module("@/hooks/use-is-org-ready", () => ({
-  useOrgHeaderReadiness: () => orgReadiness,
+  getOrgHeaderReadiness: () => orgReadiness,
+  ORG_HEADER_SETTLE_TIMEOUT_MS: 200,
 }));
 
 const { useSetupIntentReturn } = await import("./use-setup-intent-return");
+const { useSetupIntentReturnStore } =
+  await import("@/domains/settings/setup-intent-return-store");
 
 const RETURN_SEARCH =
   "?tab=billing&setup_intent=seti_1&setup_intent_client_secret=seti_1_secret_x&redirect_status=succeeded";
@@ -86,7 +92,10 @@ const CONFIRM_FAILED = "Failed to save payment method.";
 
 function renderAt(search: string) {
   return renderHook(
-    () => ({ location: useLocation(), ...useSetupIntentReturn() }),
+    () => {
+      useSetupIntentReturn();
+      return useLocation();
+    },
     {
       wrapper: ({ children }: { children: ReactNode }) => (
         <MemoryRouter initialEntries={[`/assistant/settings/usage${search}`]}>
@@ -100,12 +109,21 @@ function renderAt(search: string) {
 type HookResult = ReturnType<typeof renderAt>["result"];
 
 function currentUrl(result: HookResult): string {
-  return result.current.location.pathname + result.current.location.search;
+  const { pathname, search, hash } = result.current;
+  return pathname + search + hash;
 }
 
-async function waitForOutcome(result: HookResult): Promise<void> {
+function outcome() {
+  return useSetupIntentReturnStore.getState().outcome;
+}
+
+function pending(): boolean {
+  return useSetupIntentReturnStore.getState().pending;
+}
+
+async function waitForOutcome(): Promise<void> {
   await waitFor(() => {
-    if (result.current.outcome == null) {
+    if (outcome() == null) {
       throw new Error("outcome not resolved yet");
     }
   });
@@ -119,6 +137,7 @@ beforeEach(() => {
   syncCalls = [];
   syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
   orgReadiness = "ready";
+  useSetupIntentReturnStore.setState({ pending: false, outcome: null });
 });
 
 afterEach(cleanup);
@@ -126,9 +145,9 @@ afterEach(cleanup);
 describe("useSetupIntentReturn", () => {
   test("resolves a succeeded return into the synced saved card", async () => {
     const { result } = renderAt(RETURN_SEARCH);
-    await waitForOutcome(result);
+    await waitForOutcome();
 
-    expect(result.current.outcome).toEqual({
+    expect(outcome()).toEqual({
       kind: "saved",
       card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
     });
@@ -146,9 +165,9 @@ describe("useSetupIntentReturn", () => {
     };
 
     const { result } = renderAt(RETURN_SEARCH);
-    await waitForOutcome(result);
+    await waitForOutcome();
 
-    expect(result.current.outcome).toEqual({
+    expect(outcome()).toEqual({
       kind: "error",
       message: "Your card was declined.",
     });
@@ -159,10 +178,10 @@ describe("useSetupIntentReturn", () => {
   test("carries the retrieval error message when the intent cannot be read", async () => {
     retrieveResult = { error: { message: "No such setupintent." } };
 
-    const { result } = renderAt(RETURN_SEARCH);
-    await waitForOutcome(result);
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
 
-    expect(result.current.outcome).toEqual({
+    expect(outcome()).toEqual({
       kind: "error",
       message: "No such setupintent.",
     });
@@ -171,75 +190,97 @@ describe("useSetupIntentReturn", () => {
   test("falls back to the generic message when Stripe.js is unavailable", async () => {
     stripeAvailable = false;
 
-    const { result } = renderAt(RETURN_SEARCH);
-    await waitForOutcome(result);
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
 
-    expect(result.current.outcome).toEqual({
-      kind: "error",
-      message: CONFIRM_FAILED,
-    });
+    expect(outcome()).toEqual({ kind: "error", message: CONFIRM_FAILED });
     expect(retrieveCalls).toEqual([]);
   });
 
   test("does nothing and never loads Stripe on a plain visit", () => {
     const { result } = renderAt("?tab=billing");
 
-    expect(result.current.outcome).toBeNull();
-    expect(result.current.pending).toBe(false);
+    expect(outcome()).toBeNull();
+    expect(pending()).toBe(false);
     expect(getStripePromiseCalls).toBe(0);
     expect(currentUrl(result)).toBe(STRIPPED_URL);
   });
 
+  test("strips only Stripe's params, keeping the hash and unrelated ones", () => {
+    // An anchor deep link (`#daily-credit-limit`, from the daily-limit email)
+    // has to survive a Stripe return, so the strip rebuilds the URL from the
+    // live location instead of replacing it with the canonical billing route.
+    const { result } = renderAt(`${RETURN_SEARCH}&foo=1#daily-credit-limit`);
+
+    expect(currentUrl(result)).toBe(
+      "/assistant/settings/usage?tab=billing&foo=1#daily-credit-limit",
+    );
+  });
+
   test("stays pending from the captured params until the outcome settles", async () => {
     orgReadiness = "resolving";
-    const { result, rerender } = renderAt(RETURN_SEARCH);
+    renderAt(RETURN_SEARCH);
 
-    expect(result.current.pending).toBe(true);
-    expect(result.current.outcome).toBeNull();
+    expect(pending()).toBe(true);
+    expect(outcome()).toBeNull();
 
     orgReadiness = "ready";
-    rerender();
-    await waitForOutcome(result);
+    await waitForOutcome();
 
-    expect(result.current.pending).toBe(false);
+    expect(pending()).toBe(false);
   });
 
   test("stays pending while a failed return resolves", async () => {
     orgReadiness = "resolving";
     retrieveResult = { error: { message: "No such setupintent." } };
-    const { result, rerender } = renderAt(RETURN_SEARCH);
+    renderAt(RETURN_SEARCH);
 
-    expect(result.current.pending).toBe(true);
+    expect(pending()).toBe(true);
 
     orgReadiness = "ready";
-    rerender();
-    await waitForOutcome(result);
+    await waitForOutcome();
 
-    expect(result.current.pending).toBe(false);
+    expect(pending()).toBe(false);
   });
 
   test("holds the resolution while the org header source is resolving", async () => {
     orgReadiness = "resolving";
-    const { result, rerender } = renderAt(RETURN_SEARCH);
+    const { result } = renderAt(RETURN_SEARCH);
 
     // The params are already off the URL, so a reload cannot replay them.
     expect(currentUrl(result)).toBe(STRIPPED_URL);
     expect(getStripePromiseCalls).toBe(0);
     expect(retrieveCalls).toEqual([]);
     expect(syncCalls).toEqual([]);
-    expect(result.current.outcome).toBeNull();
+    expect(outcome()).toBeNull();
 
     orgReadiness = "ready";
-    rerender();
-    await waitForOutcome(result);
+    await waitForOutcome();
 
-    expect(result.current.outcome).toEqual({
+    expect(outcome()).toEqual({
       kind: "saved",
       card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
     });
     expect(getStripePromiseCalls).toBe(1);
     expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
     expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+  });
+
+  test("stops waiting on an org header that never settles", async () => {
+    // `"resolving"` is transient by construction, but a wait with no ceiling
+    // would leave the return pending (and the add-a-card actions disabled) for
+    // the rest of the visit if it ever weren't.
+    orgReadiness = "resolving";
+    retrieveResult = { error: { message: "No such setupintent." } };
+
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
+
+    expect(outcome()).toEqual({
+      kind: "error",
+      message: "No such setupintent.",
+    });
+    expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
   });
 
   test("resolves rather than waiting when org resolution produced no org", async () => {
@@ -249,27 +290,46 @@ describe("useSetupIntentReturn", () => {
     orgReadiness = "unavailable";
     retrieveResult = { error: { message: "No such setupintent." } };
 
-    const { result } = renderAt(RETURN_SEARCH);
-    await waitForOutcome(result);
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
 
-    expect(result.current.outcome).toEqual({
+    expect(outcome()).toEqual({
       kind: "error",
       message: "No such setupintent.",
     });
     expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
   });
 
+  test("settles into the store after the caller unmounts", async () => {
+    // The billing tab panel unmounts on a switch to Usage, and by then the
+    // params are off the URL: a resolution tied to a component lifecycle would
+    // strand the return with no way to replay it.
+    orgReadiness = "resolving";
+    const { unmount } = renderAt(RETURN_SEARCH);
+
+    expect(pending()).toBe(true);
+    unmount();
+
+    orgReadiness = "ready";
+    await waitForOutcome();
+
+    expect(outcome()).toEqual({
+      kind: "saved",
+      card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+    });
+  });
+
   test("clearOutcome drops the resolved outcome", async () => {
-    const { result } = renderAt(RETURN_SEARCH);
-    await waitForOutcome(result);
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
 
     act(() => {
-      result.current.clearOutcome();
+      useSetupIntentReturnStore.getState().clearOutcome();
     });
 
-    expect(result.current.outcome).toBeNull();
+    expect(outcome()).toBeNull();
     // A cleared outcome is a resolved return, not one that went back to being
     // in flight, so the card's actions stay usable.
-    expect(result.current.pending).toBe(false);
+    expect(pending()).toBe(false);
   });
 });
