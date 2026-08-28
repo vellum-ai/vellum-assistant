@@ -411,7 +411,8 @@ export function SoundsSections() {
           <button
             type="button"
             onClick={previewDefault}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-white px-3 py-1.5 text-body-medium-lighter text-[var(--content-default)] hover:bg-[var(--surface-base)] dark:bg-[var(--surface-lift)] dark:hover:bg-[var(--ghost-hover)]"
+            disabled={!config.globalEnabled}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-white px-3 py-1.5 text-body-medium-lighter text-[var(--content-default)] hover:bg-[var(--surface-base)] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[var(--surface-lift)] dark:hover:bg-[var(--ghost-hover)]"
           >
             <Play className="h-3.5 w-3.5" />
             {t("soundsSections.preview")}
