@@ -446,11 +446,14 @@ describe("VoiceSections speech-services banner slot", () => {
     voiceSelection.available = false;
     rerenderPage();
 
-    expect(bannerSlot(container)).not.toBeNull();
+    // The slot itself, not page-wide copy: `VoicePickerCard` renders the BYO
+    // note in this same state, and that note points at Models & Services too.
+    const slot = bannerSlot(container);
+    expect(slot).not.toBeNull();
+    expect(slot?.textContent).toBe("");
     expect(
       screen.queryByLabelText("Loading speech services status"),
     ).toBeNull();
-    expect(screen.queryByText(/Models & Services/)).toBeNull();
   });
 
   test("fills the same line once the answer is yes", () => {
