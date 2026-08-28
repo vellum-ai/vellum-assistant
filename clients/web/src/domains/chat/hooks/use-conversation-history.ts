@@ -803,14 +803,14 @@ export function useConversationHistory({
   const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
     if (pagination.isError && pagination.error) {
-      const isOlderPageError = pagination.isSuccess;
+      const isInitialLoadError = pagination.isLoadingError;
       captureError(pagination.error, {
-        context: isOlderPageError
-          ? "conversation_history_older_page"
-          : "conversation_history_initial",
+        context: isInitialLoadError
+          ? "conversation_history_initial"
+          : "conversation_history_cached",
       });
 
-      if (!isOlderPageError) {
+      if (isInitialLoadError) {
         setIsLoadingHistory(false);
         if (!isResumeGraceActive) {
           setError(
@@ -829,6 +829,7 @@ export function useConversationHistory({
     }
   }, [
     pagination.isError,
+    pagination.isLoadingError,
     pagination.isSuccess,
     pagination.error,
     isResumeGraceActive,

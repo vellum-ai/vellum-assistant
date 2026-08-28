@@ -117,10 +117,12 @@ export interface HistoryPaginationResult {
   backgroundToolCompletions: BackgroundTaskEntry[] | undefined;
   /** First-time load with no cached data available. */
   isLoading: boolean;
-  /** At least one successful fetch has completed. */
+  /** The current query status is successful. */
   isSuccess: boolean;
   /** The query errored. */
   isError: boolean;
+  /** The query errored before any history data loaded. */
+  isLoadingError: boolean;
   /** The error, if any. */
   error: Error | null;
   /** Older pages are available for infinite scroll. */
@@ -262,6 +264,7 @@ export function useHistoryPagination({
     isLoading: query.isLoading,
     isSuccess: query.isSuccess,
     isError: query.isError,
+    isLoadingError: query.isLoadingError,
     error: query.error,
     hasMore: query.hasNextPage ?? false,
     isFetchingOlderPages: query.isFetchingNextPage,

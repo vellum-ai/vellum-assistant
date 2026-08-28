@@ -8,15 +8,15 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
-// Stub the TanStack Query layer so the test drives the initial-page error
-// state directly. `isSuccess: false` marks it as an initial-page (not
-// older-page) failure and keeps the data-apply effect dormant.
+// Stub the TanStack Query layer so the test drives initial-load and cached-data
+// failures directly while keeping the data-apply effect dormant.
 const realPaginationModule = await import(
   "@/domains/chat/transcript/use-history-pagination"
 );
 
 let paginationIsError = false;
 let paginationIsSuccess = false;
+let paginationHasCachedData = false;
 let invalidateSpy = mock(async () => {});
 let onNativeMobile = true;
 
@@ -29,6 +29,7 @@ function paginationStub(): HistoryPaginationResult {
     isLoading: false,
     isSuccess: paginationIsSuccess,
     isError: paginationIsError,
+    isLoadingError: paginationIsError && !paginationHasCachedData,
     error: paginationIsError ? new Error("probe failed") : null,
     hasMore: false,
     isFetchingOlderPages: false,
@@ -91,6 +92,7 @@ beforeEach(() => {
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
   paginationIsError = false;
   paginationIsSuccess = false;
+  paginationHasCachedData = false;
   onNativeMobile = true;
   invalidateSpy = mock(async () => {});
   useChatSessionStore.getState().setError(null);
@@ -102,6 +104,7 @@ afterEach(() => {
   __setResumeGraceMsForTesting(DEFAULT_RESUME_GRACE_MS);
   paginationIsError = false;
   paginationIsSuccess = false;
+  paginationHasCachedData = false;
   onNativeMobile = true;
   useChatSessionStore.getState().setError(null);
 });
@@ -194,6 +197,20 @@ describe("useConversationHistory resume grace on history errors", () => {
 
     // THEN the billing error is preserved
     expect(currentError()).toEqual(billingError);
+  });
+
+  test("does not surface a blocking error when cached history refetch fails", () => {
+    // GIVEN a history query with usable cached data
+    paginationHasCachedData = true;
+    const { rerender } = renderHistory();
+
+    // WHEN a background refetch fails
+    paginationIsError = true;
+    paginationIsSuccess = false;
+    rerender();
+
+    // THEN the transcript remains usable without a blocking history error
+    expect(currentError()).toBeNull();
   });
 
   test("does not clear non-history errors when the query recovers", () => {
