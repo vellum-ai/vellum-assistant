@@ -8,14 +8,12 @@ import { useChatLayoutShortcuts } from "./use-chat-layout-shortcuts";
 
 /**
  * The web build advertises its own chords through `WEB_ACCELERATORS`, and this
- * hook is what actually answers them. Nothing in the types connects the two, so
- * a chord changed on one side leaves the other advertising or answering the
- * wrong key with nothing failing.
+ * hook answers them. Nothing in the types connects the two, so a chord that one
+ * side carries and the other does not is a hint naming a key nothing answers.
  *
- * These drive themselves from the table rather than repeating the chords, so a
- * hint that names a key the handler ignores fails here. The final case fails
- * when the table grows an entry no assertion covers, which is the way the two
- * would otherwise drift apart again.
+ * These drive themselves from the table rather than repeating the chords: an
+ * entry the handler ignores fails here, and the final case fails when the table
+ * carries an entry no assertion covers.
  */
 
 /** The keydown a given accelerator should produce, as a browser would send it. */
@@ -90,8 +88,8 @@ describe("useChatLayoutShortcuts answers every chord the web build advertises", 
   }
 
   test("every advertised chord has a case above", () => {
-    // Adding a chord to the table without teaching the handler, or without
-    // covering it here, is the drift these tests exist to catch.
+    // A chord the table carries and this file does not cover is a hint no
+    // assertion protects.
     expect(Object.keys(WEB_ACCELERATORS).sort()).toEqual(
       Object.keys(answered).sort(),
     );
