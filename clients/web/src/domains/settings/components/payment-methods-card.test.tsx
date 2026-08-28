@@ -14,7 +14,10 @@
  *    in-flight add into a replace or restate the card being replaced.
  *  - While a 3DS redirect return is still resolving, the Add and Replace
  *    actions are disabled, so no modal can be opened ahead of the outcome the
- *    return will replay into one.
+ *    return will replay into one. That state is read from
+ *    `useSetupIntentReturnStore`, which the resolution driven from
+ *    `BillingPage` writes, so this card can be unmounted and remounted by a
+ *    tab switch without losing it.
  *  - A 3DS redirect return replays its outcome into a freshly opened modal:
  *    a saved card on the success panel alone, a failure back into the form in
  *    the mode the saved card calls for. The failure waits for the config query
@@ -42,8 +45,6 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-
-import { useState } from "react";
 
 import type {
   AutoTopUpPaymentMethodModalProps,
@@ -107,26 +108,6 @@ function lastPmModalProps(): AutoTopUpPaymentMethodModalProps {
   return pmModalProps;
 }
 
-// Stands in for the 3DS redirect-return hook. It owns the outcome in state
-// like the real one does, so clearing it on close is what keeps the modal
-// shut rather than the absence of a re-render.
-let returnedOutcome: SetupIntentOutcome | null = null;
-let returnPending = false;
-let clearOutcomeCalls = 0;
-mock.module("@/domains/settings/hooks/use-setup-intent-return", () => ({
-  useSetupIntentReturn: () => {
-    const [outcome, setOutcome] = useState(returnedOutcome);
-    return {
-      outcome,
-      pending: returnPending,
-      clearOutcome: () => {
-        clearOutcomeCalls += 1;
-        setOutcome(null);
-      },
-    };
-  },
-}));
-
 import * as orgReadyModule from "@/hooks/use-is-org-ready";
 
 // Drives the org-readiness gate. `"ready"` matches the default test
@@ -141,9 +122,20 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
-const { PaymentMethodsCard, paymentMethodCards } =
-  await import("./payment-methods-card");
+const { PaymentMethodsCard } = await import("./payment-methods-card");
+const { paymentMethodCards } = await import("./payment-method-cards");
+const { useSetupIntentReturnStore } =
+  await import("@/domains/settings/setup-intent-return-store");
 const { DISABLED_CONFIG } = await import("./auto-top-up-card");
+
+/**
+ * Park an outcome in the redirect-return store the way the resolution driven
+ * from `BillingPage` does, and hand it back for the assertions.
+ */
+function seedReturnOutcome(outcome: SetupIntentOutcome): SetupIntentOutcome {
+  useSetupIntentReturnStore.setState({ pending: false, outcome });
+  return outcome;
+}
 
 const ENABLED_WITH_CARD: AutoTopUpConfigResponse = {
   ...DISABLED_CONFIG,
@@ -240,9 +232,7 @@ beforeEach(() => {
   releaseRetrieve = null;
   orgReadiness = "ready";
   pmModalProps = null;
-  returnedOutcome = null;
-  returnPending = false;
-  clearOutcomeCalls = 0;
+  useSetupIntentReturnStore.setState({ pending: false, outcome: null });
 });
 
 afterEach(cleanup);
@@ -451,10 +441,10 @@ describe("PaymentMethodsCard modal wiring", () => {
 describe("PaymentMethodsCard redirect return", () => {
   test("replays a saved outcome into the modal on the success panel alone", () => {
     retrieveResponse = { ...DISABLED_WITH_CARD };
-    returnedOutcome = {
+    const returnedOutcome = seedReturnOutcome({
       kind: "saved",
       card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
-    };
+    });
     const { container } = render(wrap(DISABLED_WITH_CARD));
 
     expect(
@@ -467,7 +457,10 @@ describe("PaymentMethodsCard redirect return", () => {
 
   test("replays an error outcome into replace mode with the card on file", () => {
     retrieveResponse = { ...DISABLED_WITH_CARD };
-    returnedOutcome = { kind: "error", message: "Your card was declined." };
+    const returnedOutcome = seedReturnOutcome({
+      kind: "error",
+      message: "Your card was declined.",
+    });
     render(wrap(DISABLED_WITH_CARD));
 
     expect(lastPmModalProps().open).toBe(true);
@@ -483,7 +476,10 @@ describe("PaymentMethodsCard redirect return", () => {
 
   test("holds a failed outcome until the config query settles", async () => {
     retrieveResponse = { ...DISABLED_WITH_CARD };
-    returnedOutcome = { kind: "error", message: "Your card was declined." };
+    const returnedOutcome = seedReturnOutcome({
+      kind: "error",
+      message: "Your card was declined.",
+    });
     holdRetrieve();
     const client = makeClient();
     const { container } = render(wrapWith(client));
@@ -510,7 +506,7 @@ describe("PaymentMethodsCard redirect return", () => {
   });
 
   test("disables Add Payment Method while the return is unresolved", () => {
-    returnPending = true;
+    useSetupIntentReturnStore.setState({ pending: true });
     const { getByTestId } = render(wrap(DISABLED_CONFIG));
 
     expect(
@@ -519,7 +515,7 @@ describe("PaymentMethodsCard redirect return", () => {
   });
 
   test("disables Replace card while the return is unresolved", () => {
-    returnPending = true;
+    useSetupIntentReturnStore.setState({ pending: true });
     retrieveResponse = { ...DISABLED_WITH_CARD };
     const { getByTestId } = render(wrap(DISABLED_WITH_CARD));
 
@@ -546,14 +542,14 @@ describe("PaymentMethodsCard redirect return", () => {
   });
 
   test("closing clears the outcome and leaves the modal shut", () => {
-    returnedOutcome = { kind: "saved", card: null };
+    seedReturnOutcome({ kind: "saved", card: null });
     const { container } = render(wrap(DISABLED_CONFIG));
 
     act(() => {
       lastPmModalProps().onClose();
     });
 
-    expect(clearOutcomeCalls).toBe(1);
+    expect(useSetupIntentReturnStore.getState().outcome).toBeNull();
     expect(lastPmModalProps().open).toBe(false);
     expect(lastPmModalProps().initialOutcome).toBeNull();
     expect(container.querySelector('[data-testid="pm-modal-stub"]')).toBeNull();
