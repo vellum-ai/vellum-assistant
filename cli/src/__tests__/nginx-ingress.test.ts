@@ -266,10 +266,33 @@ describe("buildIngressNginxConfig", () => {
   });
 
   test("compresses text asset types", () => {
-    expect(remoteConf).toContain("gzip on;");
     expect(remoteConf).toContain(
       "gzip_types application/javascript application/json application/wasm image/svg+xml text/css text/plain;",
     );
+  });
+
+  test("compresses only the static SPA surface, never a proxied response", () => {
+    // Compression is opt-in per location: this server also proxies
+    // authenticated /v1 and /webhooks traffic, and a compressed response
+    // carrying both a secret and attacker-influenced content over TLS is the
+    // BREACH side channel. The tuning at http scope stays inert.
+    expect(remoteConf).not.toMatch(/^ {2}gzip on;$/m);
+    const gzipLocations = [
+      ...remoteConf.matchAll(/location ([^{]+)\{\n {6}gzip on;/g),
+    ]
+      .map((m) => m[1].trim())
+      .sort();
+    expect(gzipLocations).toEqual([
+      "= /assistant/__remote-index.html",
+      "^~ /assistant/",
+      "^~ /assistant/assets/",
+    ]);
+    // Every proxying location must stay uncompressed.
+    for (const block of remoteConf.split("location ").slice(1)) {
+      if (block.includes("proxy_pass")) {
+        expect(block).not.toContain("gzip on;");
+      }
+    }
   });
 
   test("revalidates the shell and forbids storing only the inline config", () => {
