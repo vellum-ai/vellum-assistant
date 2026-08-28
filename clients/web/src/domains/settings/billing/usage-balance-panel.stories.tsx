@@ -1,10 +1,9 @@
 /**
- * The Usage Balance reading that the `obscure-credits` flag puts where the
- * current plan's price row used to sit: how much of the usage credit the
- * account was granted is already used, and, once the wallet behind it is
- * empty too, a strip offering to top it up. The reading itself turns
- * negative as soon as the granted credit is used up, whatever the wallet
- * holds.
+ * The Usage Balance reading that sits in place of the current plan's price
+ * row: how much of the usage credit the account was granted is already used,
+ * and, once the wallet behind it is empty too, a strip offering to top it up.
+ * The reading itself turns negative as soon as the granted credit is used up,
+ * whatever the wallet holds.
  *
  * Pure props, so every reading below is a fixture rather than a live usage
  * read. `PlanTile` mounts it as a footer; `Settings/Billing/PlanTile` carries
