@@ -875,7 +875,12 @@ describe("AssistantSideMenu · overlay close affordance", () => {
 
   test("keeps the search affordance in the overlay header", () => {
     const overlayHtml = renderMenu({ conversations: [], variant: "overlay" });
-    expect(overlayHtml).toContain('aria-label="Search (⌘K)"');
+    // The accessible name is the command; the chord it is bound to reaches
+    // assistive tech through `aria-keyshortcuts` and a sighted user through
+    // the tooltip, so the glyphs are not part of the name.
+    expect(overlayHtml).toContain('aria-label="Search"');
+    expect(overlayHtml).toContain('aria-keyshortcuts="Meta+K"');
+    expect(overlayHtml).toContain('title="Search (⌘K)"');
   });
 });
 
@@ -931,7 +936,7 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     expect(classTokens(glyph(container, "Close navigation"))).toContain(
       "pointer-events-auto",
     );
-    expect(classTokens(glyph(container, "Search (⌘K)"))).toContain(
+    expect(classTokens(glyph(container, "Search"))).toContain(
       "pointer-events-auto",
     );
   });
@@ -946,7 +951,7 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
 
     // Mirrors the chat header's right cluster: search directly left of the
     // bell, with the close glyph alone on the other side of the row.
-    const cluster = glyph(container, "Search (⌘K)").parentElement;
+    const cluster = glyph(container, "Search").parentElement;
     expect(cluster?.querySelector('[data-testid="bell-stub"]')).not.toBeNull();
     expect(
       cluster?.querySelector('[aria-label="Close navigation"]'),
@@ -983,7 +988,9 @@ describe("AssistantSideMenu · overlay section card geometry", () => {
   test("the overlay card and its header carry the 44px pill geometry", () => {
     const container = document.createElement("div");
     container.innerHTML = renderMenu({
-      conversations: [makeConversation({ conversationId: "a", title: "Alpha" })],
+      conversations: [
+        makeConversation({ conversationId: "a", title: "Alpha" }),
+      ],
       variant: "overlay",
     });
 
