@@ -35,9 +35,8 @@ export interface PreferencesUsage {
 }
 
 /**
- * Null while the org has no managed billing to read, and before an honest
- * number lands, so every caller renders exactly what it always has until there
- * is something real to say.
+ * Null until the org has managed billing and a real reading has landed, so no
+ * caller draws a usage figure it cannot stand behind.
  *
  * `conversationId` is the chat the reading is for. It reaches the wallet
  * status so a managed per-conversation profile pin classifies `exhausted`

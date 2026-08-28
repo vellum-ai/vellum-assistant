@@ -24,7 +24,6 @@ import {
   ShareFeedbackModalLazy,
 } from "@/components/share-feedback-modal-lazy";
 import { ThemeToggle } from "@/components/theme-toggle";
-import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
@@ -47,30 +46,6 @@ const AddCreditsModal = lazy(() =>
   })),
 );
 
-/**
- * The trigger names the menu it opens, never the signed-in account. This is a
- * settings entry point rather than a profile row, and the account's identity
- * belongs on the Settings page the menu links to.
- */
-
-/**
- * Whether the credits row belongs below the usage panel.
- *
- * The dollar balance stays hidden whenever there is a usage reading to stand
- * in for it. While the included bundle has room the bar is the reading that
- * matters, and a second number beside it only invites arithmetic. Once the
- * bundle is spent the panel itself says the next turn draws on extra usage
- * credits, and once the wallet is empty too its add-credits strip takes over,
- * so the row never earns its place.
- *
- * With no reading to hide behind, the row stays: the panel renders nothing
- * without one, and hiding the row too would leave the menu with no balance and
- * no way to buy more.
- */
-export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
-  return usage == null;
-}
-
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
@@ -82,6 +57,11 @@ export interface PreferencesMenuProps {
   triggerVariant?: "item" | "pill";
 }
 
+/**
+ * The trigger names the menu it opens, never the signed-in account. This is a
+ * settings entry point rather than a profile row, and the account's identity
+ * belongs on the Settings page the menu links to.
+ */
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
@@ -269,7 +249,8 @@ function PreferencesMenuContent({
   /* The same reading the usage panel below draws, composed once so the row and
      the bar can never disagree about how much of the bundle is left. */
   const usage = usePreferencesUsage({ conversationId: activeConversationId });
-  const showCredits = showsMenuCredits(usage);
+  // The credits row shows only when there is no usage reading to draw instead.
+  const showCredits = usage == null;
 
   return (
     <>

@@ -220,7 +220,7 @@ mock.module("@/domains/chat/components/credits-card", () => ({
     ),
 }));
 
-const { PreferencesMenu, showsMenuCredits } =
+const { PreferencesMenu } =
   await import("@/domains/chat/components/preferences-menu");
 
 /** Opens the menu the way a touch user does, and returns the open surface. */
@@ -546,17 +546,5 @@ describe("PreferencesMenu", () => {
     // The real panel renders nothing without a reading, so the row is the only
     // balance and the only way to buy more.
     expect(screen.getByTestId("credits-card")).toBeTruthy();
-  });
-});
-
-describe("showsMenuCredits", () => {
-  test("hides the row whenever there is a reading", () => {
-    expect(showsMenuCredits(usage(0.99))).toBe(false);
-    expect(showsMenuCredits(usage(1))).toBe(false);
-    expect(showsMenuCredits(usage(1, true))).toBe(false);
-  });
-
-  test("an unmeasurable reading falls back to showing the row", () => {
-    expect(showsMenuCredits(null)).toBe(true);
   });
 });
