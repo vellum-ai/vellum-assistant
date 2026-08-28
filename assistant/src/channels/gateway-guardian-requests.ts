@@ -209,9 +209,10 @@ export async function expireGuardianRequest(id: string): Promise<void> {
 
 /**
  * Daemon-boot expiry: interaction-bound kinds die with the daemon's
- * in-memory pendingInteractions map, plus persistent kinds already past
- * `expiresAt`. Returns the expired count. Throws on any failure
- * (fail-closed).
+ * in-memory pendingInteractions map. Persistent kinds are never touched
+ * here, whatever their deadline; their expiry belongs to the sweep, whose
+ * per-request confirmation keeps the fan-out recoverable. Returns the
+ * expired count. Throws on any failure (fail-closed).
  */
 export async function expireInteractionBoundGuardianRequests(): Promise<number> {
   const response = await callGateway(

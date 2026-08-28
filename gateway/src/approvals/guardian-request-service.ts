@@ -295,12 +295,21 @@ export async function decideGuardianRequest(
       : null;
 
   const txn = getGatewayDb().transaction(() => {
-    const cas = resolveGuardianRequest(params.id, params.expectedStatus, {
-      status: params.status,
-      answerText: params.answerText,
-      decidedByExternalUserId: params.decidedByExternalUserId,
-      decidedByPrincipalId: params.decidedByPrincipalId,
-    });
+    const cas = resolveGuardianRequest(
+      params.id,
+      params.expectedStatus,
+      {
+        status: params.status,
+        answerText: params.answerText,
+        decidedByExternalUserId: params.decidedByExternalUserId,
+        decidedByPrincipalId: params.decidedByPrincipalId,
+      },
+      // The deadline is part of the arbitration: a decision that reaches
+      // this transaction past `expiresAt` loses to expiry atomically, so
+      // the sweep's fan-out-then-confirm order can never race a decision
+      // into an approved request whose cards say it expired.
+      { requireUnexpired: true },
+    );
     if (!cas.applied) {
       return { applied: false as const };
     }

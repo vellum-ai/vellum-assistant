@@ -47,7 +47,7 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
   },
 }));
 
-// Gateway guardian-request client — in-memory rows driven by tests. The
+// Gateway guardian-request client, in-memory rows driven by tests. The
 // sweep lists past-deadline pending rows read-only and confirms each with
 // the per-request expire CAS after its side effects run.
 const gatewayRequests = new Map<string, GuardianRequestWire>();

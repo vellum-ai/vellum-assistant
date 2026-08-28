@@ -431,6 +431,16 @@ export function resolveGuardianRequest(
   id: string,
   expectedStatus: GuardianRequestStatus,
   decision: ResolveGuardianRequestDecision,
+  options?: {
+    /**
+     * Make the deadline part of the CAS: the transition applies only while
+     * `expires_at` is null or still in the future. The decide path sets
+     * this so a decision in flight across the deadline boundary loses the
+     * arbitration atomically, instead of committing while the expiry sweep
+     * is already withdrawing the request's cards.
+     */
+    requireUnexpired?: boolean;
+  },
 ): ResolveGuardianRequestResult {
   const raw = rawClient();
   const now = Date.now();
@@ -450,13 +460,20 @@ export function resolveGuardianRequest(
     args.push(decision.decidedByPrincipalId);
   }
 
+  const guards = ["id = ?", "status = ?"];
+  const guardArgs: (string | number)[] = [id, expectedStatus];
+  if (options?.requireUnexpired) {
+    guards.push("(expires_at IS NULL OR expires_at >= ?)");
+    guardArgs.push(now);
+  }
+
   const changes = raw
     .prepare(
       `UPDATE guardian_requests
        SET ${sets.join(", ")}
-       WHERE id = ? AND status = ?`,
+       WHERE ${guards.join(" AND ")}`,
     )
-    .run(...args, id, expectedStatus).changes;
+    .run(...args, ...guardArgs).changes;
 
   if (changes === 0) {
     return { applied: false };
@@ -485,15 +502,21 @@ export function resolveGuardianRequest(
 const INTERACTION_BOUND_KINDS = ["tool_approval", "pending_question"];
 
 /**
- * Bulk-expire stale pending guardian requests. Called via IPC at daemon
- * startup (daemon-keyed — the gateway never runs this on its own restart):
+ * Bulk-expire interaction-bound pending guardian requests. Called via IPC
+ * at daemon startup (daemon-keyed; the gateway never runs this on its own
+ * restart): `tool_approval` and `pending_question` die with the daemon's
+ * in-memory pendingInteractions map, so they can never complete after a
+ * restart.
  *
- * 1. Interaction-bound kinds (`tool_approval`, `pending_question`) expire
- *    unconditionally — they can never complete after a daemon restart.
- * 2. Persistent kinds expire only when already past their `expiresAt`
- *    deadline, so dedup logic sees fresh rows instead of dead pending ones.
+ * Persistent kinds are deliberately untouched, whatever their deadline:
+ * their expiry belongs to the sweep, whose per-request confirmation is what
+ * keeps the card-withdrawal and requester-notice fan-out recoverable, and
+ * an unconditional flip here would strand exactly the side effects a
+ * pre-restart crash left owed. Dedup reads are time-based
+ * (`isGuardianRequestExpired`), so a past-deadline row waiting for the
+ * sweep suppresses nothing.
  *
- * Returns the number of requests transitioned from pending → expired.
+ * Returns the number of requests transitioned from pending to expired.
  */
 export function expireAllPendingInteractionBound(): number {
   const raw = rawClient();
@@ -505,10 +528,9 @@ export function expireAllPendingInteractionBound(): number {
       `UPDATE guardian_requests
        SET status = 'expired', updated_at = ?
        WHERE status = 'pending'
-         AND (kind IN (${placeholders})
-              OR (expires_at IS NOT NULL AND expires_at < ?))`,
+         AND kind IN (${placeholders})`,
     )
-    .run(now, ...INTERACTION_BOUND_KINDS, now).changes;
+    .run(now, ...INTERACTION_BOUND_KINDS).changes;
 }
 
 /** Ceiling on one expiry batch, whatever the caller asks for. */
@@ -546,21 +568,29 @@ export function listExpiredPendingGuardianRequests(
 /**
  * Expire a single guardian request and all its deliveries in one
  * transaction. CAS-transitions the request from 'pending' to 'expired';
- * its deliveries are bulk-expired regardless of the request's status.
+ * the deliveries expire only when that CAS applies, so a request a
+ * decision already resolved never has its delivery rows restamped as
+ * expired.
  */
 export function expireGuardianRequest(id: string): void {
   const db = getGatewayDb();
   const now = Date.now();
 
   db.transaction(() => {
+    // The read and both writes share one synchronous SQLite transaction,
+    // so the status probe is the CAS.
+    const row = db
+      .select({ status: guardianRequests.status })
+      .from(guardianRequests)
+      .where(eq(guardianRequests.id, id))
+      .get();
+    if (row?.status !== "pending") {
+      return;
+    }
+
     db.update(guardianRequests)
       .set({ status: "expired", updatedAt: now })
-      .where(
-        and(
-          eq(guardianRequests.id, id),
-          eq(guardianRequests.status, "pending"),
-        ),
-      )
+      .where(eq(guardianRequests.id, id))
       .run();
 
     db.update(guardianRequestDeliveries)

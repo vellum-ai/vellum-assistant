@@ -2,9 +2,9 @@
  * Guardian request expiry sweep.
  *
  * Each round reads a bounded batch of pending requests past their
- * `expiresAt` and, per request, runs the expiry side effects — withdrawing
+ * `expiresAt` and, per request, runs the expiry side effects (withdrawing
  * the approval cards on every surface, notifying the requester, releasing
- * any in-memory pending interaction — and only then confirms with the
+ * any in-memory pending interaction), and only then confirms with the
  * gateway's per-request expire CAS. The status flip is the receipt that the
  * side effects ran, not the announcement that they should: a lost IPC
  * response, a timeout, or a crash at any point leaves the row pending and
@@ -12,14 +12,14 @@
  *
  * That order is safe because every decision path checks `expiresAt` before
  * any write: a past-deadline row is undecidable while it waits for its
- * fan-out. The cost is at-least-once side effects — a round that dies
+ * fan-out. The cost is at-least-once side effects: a round that dies
  * between the notice and the CAS re-notifies the requester next round —
  * which is the correct trade against silently losing the withdrawal and the
  * notice, since a stale card is an actionable control on every surface that
  * renders buttons.
  *
- * Requester notices are delivered straight to the requester's channel — not
- * the guardian-facing notification pipeline — and the guardian stays
+ * Requester notices are delivered straight to the requester's channel, not
+ * the guardian-facing notification pipeline, and the guardian stays
  * passive, since the withdrawn card already reflects expiry.
  *
  * Unreachable-gateway posture: log and skip the round — the next tick
@@ -56,7 +56,7 @@ let sweepInProgress = false;
  * Run one expiry sweep round: read a bounded batch of past-deadline pending
  * requests, run each one's side effects, then confirm each with the
  * gateway's per-request expire CAS (a concurrent decision that wins the
- * race is never overwritten — the CAS requires `pending`). Returns the
+ * race is never overwritten; the CAS requires `pending`). Returns the
  * count of requests whose full cycle completed.
  */
 export async function runGuardianExpirySweep(): Promise<number> {
@@ -106,7 +106,7 @@ export async function runGuardianExpirySweep(): Promise<number> {
     } catch (err) {
       log.warn(
         { err, requestId: request.id },
-        "Expire confirmation failed — the next round re-runs this request",
+        "Expire confirmation failed; the next round re-runs this request",
       );
     }
   }

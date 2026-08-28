@@ -406,6 +406,42 @@ describe("resolveGuardianRequest", () => {
       resolveGuardianRequest("missing", "pending", { status: "approved" }),
     ).toEqual({ applied: false });
   });
+
+  test("requireUnexpired makes the deadline part of the CAS", () => {
+    // A decision in flight across the deadline boundary must lose the
+    // arbitration atomically: the expiry sweep may already be withdrawing
+    // this request's cards, and a decision that still committed would
+    // leave an approved request whose card says it expired.
+    const stale = createRequest({ expiresAt: PAST() });
+    expect(
+      resolveGuardianRequest(
+        stale.id,
+        "pending",
+        { status: "approved" },
+        { requireUnexpired: true },
+      ),
+    ).toEqual({ applied: false });
+    expect(getGuardianRequest(stale.id)?.status).toBe("pending");
+
+    const fresh = createRequest({ expiresAt: FUTURE() });
+    const deadlineless = createRequest();
+    expect(
+      resolveGuardianRequest(
+        fresh.id,
+        "pending",
+        { status: "approved" },
+        { requireUnexpired: true },
+      ).applied,
+    ).toBe(true);
+    expect(
+      resolveGuardianRequest(
+        deadlineless.id,
+        "pending",
+        { status: "denied" },
+        { requireUnexpired: true },
+      ).applied,
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -428,7 +464,10 @@ describe("expireAllPendingInteractionBound", () => {
     expect(getGuardianRequest(pendingQuestion.id)?.status).toBe("expired");
   });
 
-  test("expires persistent kinds only past their deadline", () => {
+  test("leaves persistent kinds untouched, whatever their deadline", () => {
+    // A past-deadline persistent row's expiry belongs to the sweep, whose
+    // per-request confirmation keeps its card-withdrawal and notice fan-out
+    // recoverable; flipping it here would strand those side effects.
     const staleAccess = createRequest({
       kind: "access_request",
       expiresAt: PAST(),
@@ -443,9 +482,9 @@ describe("expireAllPendingInteractionBound", () => {
     });
     const deadlineless = createRequest({ kind: "tool_grant_request" });
 
-    expect(expireAllPendingInteractionBound()).toBe(2);
-    expect(getGuardianRequest(staleAccess.id)?.status).toBe("expired");
-    expect(getGuardianRequest(staleGrant.id)?.status).toBe("expired");
+    expect(expireAllPendingInteractionBound()).toBe(0);
+    expect(getGuardianRequest(staleAccess.id)?.status).toBe("pending");
+    expect(getGuardianRequest(staleGrant.id)?.status).toBe("pending");
     expect(getGuardianRequest(freshAccess.id)?.status).toBe("pending");
     expect(getGuardianRequest(deadlineless.id)?.status).toBe("pending");
   });
@@ -534,6 +573,26 @@ describe("expireGuardianRequest", () => {
     const statuses = listDeliveries(req.id).map((d) => d.status);
     expect(statuses).toEqual(["expired", "expired"]);
     expect([d1.status, d2.status]).toEqual(["pending", "pending"]);
+  });
+
+  test("a resolved request keeps its status and its delivery rows", () => {
+    // The delivery rows expire only when the request CAS applies: a
+    // decided request's cards were already rewritten by the decision flow,
+    // and restamping its deliveries as expired would misrecord history.
+    const decided = createRequest();
+    const delivery = createDelivery({
+      requestId: decided.id,
+      destinationChannel: "telegram",
+      destinationChatId: "chat-9",
+    });
+    resolveGuardianRequest(decided.id, "pending", { status: "approved" });
+
+    expireGuardianRequest(decided.id);
+
+    expect(getGuardianRequest(decided.id)?.status).toBe("approved");
+    expect(listDeliveries(decided.id).map((d) => d.status)).toEqual([
+      delivery.status,
+    ]);
   });
 
   test("does not overwrite an already-resolved request status", () => {

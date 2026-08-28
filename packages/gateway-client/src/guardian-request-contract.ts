@@ -418,7 +418,7 @@ const OUTCOME_TYPES_BY_DECISION_STATUS: Record<
 /**
  * Request for `guardian_requests_decide` (status CAS + optional ACL outcome).
  * Decisions only resolve a pending request to approved/denied — expiry has
- * `guardian_requests_expire`/`_list_expired_pending` — so a malformed call can never
+ * `guardian_requests_expire`/`_list_expired_pending`, so a malformed call can never
  * apply an `aclOutcome` while leaving the request decidable again. The
  * outcome type must agree with the status: activation/minting only on
  * approval, seeding/blocking only on denial.

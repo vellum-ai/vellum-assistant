@@ -203,7 +203,7 @@ The guardian request system provides a channel-agnostic, unified domain for all 
 
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 
-**Expiry:** the daemon's 60-second sweep (`src/runtime/routes/guardian-expiry-sweep.ts`) asks the gateway to CAS-expire pending requests past `expiresAt` (`guardian_requests_sweep_expired`) and fans out card withdrawal + requester notices from the returned rows; interaction-bound kinds (`tool_approval`, `pending_question`) are expired at daemon boot via `guardian_requests_expire_interaction_bound` since they die with the in-memory pending-interactions map. `src/calls/guardian-action-sweep.ts` sends the guardian-facing expiry notices for voice questions.
+**Expiry:** the daemon's 60-second sweep (`src/runtime/routes/guardian-expiry-sweep.ts`) lists a bounded batch of past-deadline pending requests (`guardian_requests_list_expired_pending`, read-only), fans out card withdrawal + requester notices per row, and only then confirms each with the per-request `guardian_requests_expire` CAS, so a lost response or crash leaves the row listed for the next round; interaction-bound kinds (`tool_approval`, `pending_question`) are expired at daemon boot via `guardian_requests_expire_interaction_bound` since they die with the in-memory pending-interactions map, and the boot call never touches persistent kinds. `src/calls/guardian-action-sweep.ts` sends the guardian-facing expiry notices for voice questions.
 
 **Key source files:**
 
@@ -267,19 +267,19 @@ Guardian requests (tool approvals, access requests, voice ASK_GUARDIAN questions
 
 **Voice consultation timeout:** When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the call controller expires the request via the gateway (`guardian_requests_expire` — deliveries expire with it), sends expiry notices to every surface the approval card reached (vellum conversations get an assistant message; external channels get a direct channel reply), and injects a `[GUARDIAN_TIMEOUT]` instruction so the model apologizes to the caller and offers a message or callback on the next voice turn.
 
-**Background expiry sweep:** Independent of any active call, a 60-second sweep asks the gateway to CAS-expire pending guardian requests past their `expiresAt` (`guardian_requests_sweep_expired` — a concurrent decision that wins the race is never overwritten), then fans out the side effects per expired row: withdrawing the approval cards on every surface, notifying the requester, and releasing any in-memory pending interaction.
+**Background expiry sweep:** Independent of any active call, a 60-second sweep lists pending guardian requests past their `expiresAt` (`guardian_requests_list_expired_pending`), runs the side effects per row (withdrawing the approval cards on every surface, notifying the requester, releasing any in-memory pending interaction), and then confirms each with the per-request `guardian_requests_expire` CAS; a decision arriving past the deadline loses to expiry atomically, since the decide CAS guards on `expires_at`.
 
 **Generated messaging requirement:** All user-facing copy in the guardian timeout/expiry path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
 **Key source files:**
 
-| File                                              | Purpose                                                                                                                                            |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/channels/gateway-guardian-requests.ts`       | Gateway-backed guardian-request client: typed wrappers over the `guardian_requests_*` IPC routes that own request/delivery state and expiry        |
-| `src/runtime/routes/guardian-expiry-sweep.ts`     | Periodic 60s sweep: gateway CAS-expiry (`guardian_requests_sweep_expired`) plus card-withdrawal, requester-notice, and pending-interaction fan-out |
-| `src/calls/call-controller.ts`                    | Voice timeout handling: expires the request, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for the generated voice response       |
-| `src/calls/guardian-action-sweep.ts`              | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                                              |
-| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates                                                        |
+| File                                              | Purpose                                                                                                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/channels/gateway-guardian-requests.ts`       | Gateway-backed guardian-request client: typed wrappers over the `guardian_requests_*` IPC routes that own request/delivery state and expiry               |
+| `src/runtime/routes/guardian-expiry-sweep.ts`     | Periodic 60s sweep: bounded expired-pending list, per-row card-withdrawal, requester-notice, and pending-interaction fan-out, then per-request expire CAS |
+| `src/calls/call-controller.ts`                    | Voice timeout handling: expires the request, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for the generated voice response              |
+| `src/calls/guardian-action-sweep.ts`              | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                                                     |
+| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates                                                               |
 
 ### WhatsApp Channel (Meta Cloud API)
 
