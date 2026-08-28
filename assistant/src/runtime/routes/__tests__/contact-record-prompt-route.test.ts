@@ -147,8 +147,10 @@ describe("contacts_record_prompt", () => {
 
     // Two clients answering the same broadcast. The daemon holds the only
     // record of which forms are open, so it is what settles the race.
-    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+    // A granted claim carries the window its write has to report back in.
+    expect(claimPrompt.handler({ body: { requestId } })).toMatchObject({
       claimed: true,
+      settleMs: expect.any(Number),
     });
     expect(claimPrompt.handler({ body: { requestId } })).toEqual({
       claimed: false,
@@ -218,7 +220,7 @@ describe("contacts_record_prompt", () => {
     // Somebody answered right at the deadline and the write is in flight. The
     // original timer firing now would tell the caller nothing happened while
     // the delete went on to commit.
-    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+    expect(claimPrompt.handler({ body: { requestId } })).toMatchObject({
       claimed: true,
     });
 

@@ -44,8 +44,13 @@ export function ContactRecordCard({
   const { t } = useTranslation("chat");
   // Render sites must key this card by `requestId` so a new request remounts
   // it and re-runs these initializers instead of keeping stale state.
+  // What the form shows: the proposal when there is one, else what is stored.
   const seededName = request.displayName ?? request.currentDisplayName ?? "";
-  const seededNotes = request.notes ?? "";
+  const seededNotes = request.notes ?? request.currentNotes ?? "";
+  // What the contact holds. A field is submitted when it differs from this, so
+  // accepting a proposal writes it and leaving a field alone does not.
+  const storedName = request.currentDisplayName ?? "";
+  const storedNotes = request.currentNotes ?? "";
   const [displayName, setDisplayName] = useState(seededName);
   const [notes, setNotes] = useState(seededNotes);
 
@@ -74,17 +79,18 @@ export function ContactRecordCard({
     // is never meant. Notes go as typed: trimming them here would let a rename
     // quietly rewrite notes the guardian never touched.
     //
-    // A create says everything; an update says only what changed, so a field
-    // left alone cannot overwrite an edit made elsewhere while this form was
-    // open.
+    // A create says everything; an update says only what differs from the
+    // stored contact, so a field left alone cannot overwrite an edit made
+    // elsewhere while this form was open, and an accepted proposal is a real
+    // change rather than a silent no-op.
     const trimmedName = displayName.trim();
     if (isCreate) {
       onSubmit({ displayName: trimmedName, notes });
       return;
     }
     onSubmit({
-      displayName: trimmedName === seededName.trim() ? undefined : trimmedName,
-      notes: notes === seededNotes ? undefined : notes,
+      displayName: trimmedName === storedName.trim() ? undefined : trimmedName,
+      notes: notes === storedNotes ? undefined : notes,
     });
   }
 

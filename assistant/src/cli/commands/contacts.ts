@@ -204,6 +204,7 @@ interface ContactRecordPromptBody {
   operation: "create" | "update" | "delete";
   contactId?: string;
   currentDisplayName?: string;
+  currentNotes?: string;
   channels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
@@ -459,6 +460,9 @@ export function registerContactsCommand(program: Command): void {
               operation: "update",
               contactId: id,
               currentDisplayName: current.displayName,
+              // What is stored, so the form can tell an accepted proposal from
+              // a field the guardian left alone.
+              currentNotes: current.notes ?? undefined,
               displayName: opts.name,
               // Seed the form's notes field with what the contact already has,
               // so a name-only edit does not show an empty box the guardian

@@ -91,6 +91,8 @@ describe("contacts record prompts", () => {
     const body = recordPromptBody();
     expect(body.operation).toBe("update");
     expect(body.displayName).toBe("Alice Chen");
+    // The form compares against what is stored, so it has to be told.
+    expect(body.currentNotes).toBe("Dentist, referred by Bob");
     // Without this the form shows an empty notes box and the guardian submits
     // it, erasing the notes as a side effect of a rename.
     expect(body.notes).toBe("Dentist, referred by Bob");

@@ -73,7 +73,7 @@ describe("ContactRecordCard", () => {
           operation: "update",
           contactId: "c-1",
           currentDisplayName: "Alice",
-          notes: "  spaced notes  ",
+          currentNotes: "  spaced notes  ",
         }}
       />,
     );
@@ -101,7 +101,7 @@ describe("ContactRecordCard", () => {
           operation: "update",
           contactId: "c-1",
           currentDisplayName: "Alice",
-          notes: "Dentist",
+          currentNotes: "Dentist",
         }}
       />,
     );
@@ -136,6 +136,81 @@ describe("ContactRecordCard", () => {
     expect(onSubmit).toHaveBeenCalledWith({
       displayName: "Alice",
       notes: "Dentist",
+    });
+  });
+
+  test("accepting a proposed name writes it", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "update",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          displayName: "Alice Chen",
+        }}
+      />,
+    );
+
+    // The guardian read the proposal and pressed Save without editing. That is
+    // an acceptance, not an absence of change.
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: "Alice Chen",
+      notes: undefined,
+    });
+  });
+
+  test("accepting proposed notes writes them", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "update",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          currentNotes: "Dentist",
+          notes: "Dentist, moved to Berlin",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: undefined,
+      notes: "Dentist, moved to Berlin",
+    });
+  });
+
+  test("a form submitted with nothing changed writes nothing", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "update",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          currentNotes: "Dentist",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: undefined,
+      notes: undefined,
     });
   });
 

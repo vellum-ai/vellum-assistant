@@ -5566,7 +5566,7 @@ paths:
       description:
         Marks a pending form as answered so a second client submitting the same form writes nothing. Returns
         claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is
-        pending.
+        pending. A granted claim carries the window its write has to report back in.
       tags:
         - contacts
       requestBody:
@@ -5596,6 +5596,9 @@ paths:
                     enum:
                       - already_claimed
                       - unknown
+                  settleMs:
+                    description: How long a granted claim has to report its write back before the waiting call gives up.
+                    type: number
                 required:
                   - claimed
                 additionalProperties: false
@@ -6522,7 +6525,7 @@ paths:
       summary: Prompt user to register a contact channel
       description:
         Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway.
-        The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.
+        The gateway owns the contact write and reports it back via resolve_contact_prompt.
       tags:
         - contacts
       requestBody:
@@ -6598,8 +6601,7 @@ paths:
       summary: Ask the guardian to confirm a contact record write
       description:
         Broadcasts a contact_record_request to connected clients and waits for the guardian to submit the form. The
-        gateway owns the write and notifies the daemon via resolve_contact_prompt IPC. Nothing is written if nobody
-        answers.
+        gateway owns the write and reports it back via resolve_contact_prompt. Nothing is written if nobody answers.
       tags:
         - contacts
       requestBody:
@@ -6623,6 +6625,11 @@ paths:
                   description:
                     The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned
                     facts are not read here.
+                  type: string
+                currentNotes:
+                  description:
+                    The target's current notes, resolved by the caller. The form submits a field only when it differs from what
+                    is stored.
                   type: string
                 channels:
                   description:
@@ -26162,7 +26169,7 @@ paths:
     post:
       operationId: resolve_contact_prompt_post
       summary: "Gateway callback: resolve a pending contact prompt"
-      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.
+      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt call.
       tags:
         - contacts
       responses:

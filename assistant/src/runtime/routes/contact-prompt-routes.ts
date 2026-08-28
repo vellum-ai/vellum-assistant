@@ -218,6 +218,12 @@ const ContactRecordPromptParams = z.object({
     .describe(
       "The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned facts are not read here.",
     ),
+  currentNotes: z
+    .string()
+    .optional()
+    .describe(
+      "The target's current notes, resolved by the caller. The form submits a field only when it differs from what is stored.",
+    ),
   channels: z
     .array(z.object({ type: z.string(), address: z.string() }))
     .optional()
@@ -320,6 +326,7 @@ async function handleContactRecordPrompt({
     operation,
     contactId,
     currentDisplayName,
+    currentNotes,
     channels,
     displayName,
     notes,
@@ -352,6 +359,7 @@ async function handleContactRecordPrompt({
       operation,
       contactId,
       currentDisplayName,
+      currentNotes,
       channels,
       displayName,
       notes,
@@ -379,6 +387,7 @@ async function handleContactRecordPrompt({
 function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
   claimed: boolean;
   reason?: "already_claimed" | "unknown";
+  settleMs?: number;
 } {
   const { requestId } = ContactPromptFlagsParams.parse(body);
   const pending = pendingContactPrompts.get(requestId);
@@ -403,7 +412,10 @@ function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
       "The submitted form never completed",
     );
   }, CONTACT_FORM_SETTLE_MS);
-  return { claimed: true };
+  // The claimer needs the window too: it is how long its write has to report
+  // back before the caller gives up, and it should not have to know the number
+  // independently.
+  return { claimed: true, settleMs: CONTACT_FORM_SETTLE_MS };
 }
 
 /**
@@ -435,7 +447,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     handler: handleContactPrompt,
     summary: "Prompt user to register a contact channel",
     description:
-      "Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway. The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.",
+      "Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway. The gateway owns the contact write and reports it back via resolve_contact_prompt.",
     tags: ["contacts"],
     requestBody: ContactPromptParams,
     responseBody: z.object({
@@ -459,7 +471,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     handler: handleContactRecordPrompt,
     summary: "Ask the guardian to confirm a contact record write",
     description:
-      "Broadcasts a contact_record_request to connected clients and waits for the guardian to submit the form. The gateway owns the write and notifies the daemon via resolve_contact_prompt IPC. Nothing is written if nobody answers.",
+      "Broadcasts a contact_record_request to connected clients and waits for the guardian to submit the form. The gateway owns the write and reports it back via resolve_contact_prompt. Nothing is written if nobody answers.",
     tags: ["contacts"],
     requestBody: ContactRecordPromptParams,
     responseBody: z.object({
@@ -479,7 +491,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     handler: resolveContactPrompt,
     summary: "Gateway callback: resolve a pending contact prompt",
     description:
-      "Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.",
+      "Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt call.",
     tags: ["contacts"],
   },
   {
@@ -493,12 +505,18 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     handler: claimContactPrompt,
     summary: "Claim a pending contact form for one submission",
     description:
-      "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is pending.",
+      "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is pending. A granted claim carries the window its write has to report back in.",
     tags: ["contacts"],
     requestBody: ContactPromptFlagsParams,
     responseBody: z.object({
       claimed: z.boolean(),
       reason: z.enum(["already_claimed", "unknown"]).optional(),
+      settleMs: z
+        .number()
+        .optional()
+        .describe(
+          "How long a granted claim has to report its write back before the waiting call gives up.",
+        ),
     }),
   },
   {

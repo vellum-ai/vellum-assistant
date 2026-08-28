@@ -31,6 +31,11 @@ export const ContactRecordRequestEventSchema = z.object({
   /** Current name of the target, so the form can show what is changing. */
   currentDisplayName: z.string().optional(),
   /**
+   * The target's current notes. The form submits a field only when it differs
+   * from what is stored, so it needs what is stored to compare against.
+   */
+  currentNotes: z.string().optional(),
+  /**
    * The target's channels, so a delete confirmation can say which of two
    * same-named contacts it is about, and what access is about to be lost.
    */

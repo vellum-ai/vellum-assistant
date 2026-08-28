@@ -464,7 +464,9 @@ async function resolveContactPrompt(args: {
 }): Promise<Response> {
   const { requestId, contactId, channelId, channelType, address } = args;
   // What the channel ends up as, not what was asked for: the guardian's box
-  // decides, and an attest that fails leaves it unverified.
+  // decides, an attest that fails leaves it unverified, and an address that
+  // reuses an already verified channel stays verified whether or not this
+  // submission asked for it.
   let verified = false;
   if (await promptWantsVerify(requestId, args.verify)) {
     // A resolved row means the channel is attested, whether this call is what
@@ -476,15 +478,14 @@ async function resolveContactPrompt(args: {
         "contact-prompt-submit: verification was requested but the channel could not be attested",
       );
     }
+  } else {
+    verified = isChannelVerified(contactId, channelId);
   }
-  await reportResolution(requestId, {
+  await reportResolution(
     requestId,
-    contactId,
-    channelId,
-    channelType,
-    address,
-    verified,
-  });
+    { requestId, contactId, channelId, channelType, address, verified },
+    undefined,
+  );
 
   return Response.json({ accepted: true });
 }
@@ -620,7 +621,7 @@ export async function handleContactRecordSubmit(
     if (operation === "delete") {
       await deleteContactCore(contactId!);
       log.info({ requestId, contactId }, "contact-record-submit: deleted");
-      return await resolveRecordPrompt(requestId, contactId!);
+      return await resolveRecordPrompt(requestId, contactId!, claim.settleMs);
     }
 
     const { contact } = await upsertContactRecordCore({
@@ -634,7 +635,7 @@ export async function handleContactRecordSubmit(
       { requestId, contactId: writtenId, operation },
       "contact-record-submit: wrote contact record",
     );
-    return await resolveRecordPrompt(requestId, writtenId);
+    return await resolveRecordPrompt(requestId, writtenId, claim.settleMs);
   } catch (err) {
     if (err instanceof ContactRecordNativeError) {
       await notifyDaemonResolveError(requestId, err.message);
@@ -663,12 +664,12 @@ export async function handleContactRecordSubmit(
  */
 async function claimPrompt(
   requestId: string,
-): Promise<{ claimed: boolean; reason?: string }> {
+): Promise<{ claimed: boolean; reason?: string; settleMs?: number }> {
   try {
     const result = await ipcCallAssistant("contact_prompt_claim", {
       body: { requestId },
     });
-    return result as { claimed: boolean; reason?: string };
+    return result as { claimed: boolean; reason?: string; settleMs?: number };
   } catch (err) {
     log.warn(
       { err, requestId },
@@ -679,13 +680,46 @@ async function claimPrompt(
 }
 
 /**
- * Report a committed write back to the assistant, retrying a transient failure.
+ * Whether the channel already carries an attestation.
+ *
+ * Read rather than assumed, so a submission that reuses a verified channel
+ * without asking for verification reports what the channel is.
+ */
+function isChannelVerified(contactId: string, channelId: string): boolean {
+  try {
+    const channel = getStore()
+      .getChannelsForContact(contactId)
+      .find((ch) => ch.id === channelId);
+    return channel?.verifiedAt != null;
+  } catch (err) {
+    log.warn(
+      { err, contactId, channelId },
+      "contact-prompt-submit: could not read the channel's verification state",
+    );
+    return false;
+  }
+}
+
+/** Fallback settle window when a claim did not carry one. */
+const DEFAULT_SETTLE_MS = 180_000;
+
+/** Longest a submission waits on the callback before answering its client. */
+const RESOLVE_INLINE_BUDGET_MS = 2_000;
+
+/**
+ * Report a committed write back to the assistant, retrying until the claimed
+ * form's settle window runs out.
  *
  * The write has already happened by the time this runs, so a lost callback is
  * not a lost write: it is a command told its form failed while the contact was
- * created, renamed, or deleted. Retries are bounded and stay well inside the
- * settle window the claim opened, so the command is still waiting when a late
- * attempt lands.
+ * created, renamed, or deleted. The window the claim granted is exactly how
+ * long the command is still there to hear it, so retries run to that deadline
+ * rather than to a fixed count, which a fast-failing socket would burn through
+ * in seconds.
+ *
+ * The first couple of seconds are awaited so the ordinary case answers the
+ * client with the callback already delivered; past that the retries continue
+ * on their own, since the client is waiting on a write that is already done.
  *
  * A callback that never lands leaves the command reporting failure over a
  * write that happened. Nothing here can close that gap, so it is logged at
@@ -694,12 +728,12 @@ async function claimPrompt(
 async function reportResolution(
   requestId: string,
   body: Record<string, unknown>,
+  settleMs: number | undefined,
 ): Promise<void> {
-  const backoffMs = [0, 500, 2_000, 5_000];
-  for (const [attempt, waitMs] of backoffMs.entries()) {
-    if (waitMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
+  const deadline = Date.now() + (settleMs ?? DEFAULT_SETTLE_MS);
+  const inlineUntil = Date.now() + RESOLVE_INLINE_BUDGET_MS;
+
+  const attempt = async (): Promise<boolean> => {
     try {
       const result = await ipcCallAssistant("resolve_contact_prompt", { body });
       if ((result as { resolved?: boolean }).resolved === false) {
@@ -709,18 +743,46 @@ async function reportResolution(
           "contact-prompt: resolve found no pending form; the command may already have given up",
         );
       }
-      return;
+      return true;
     } catch (err) {
-      log.warn(
-        { err, requestId, attempt },
-        "contact-prompt: resolve failed, retrying",
-      );
+      log.warn({ err, requestId }, "contact-prompt: resolve failed, retrying");
+      return false;
     }
+  };
+
+  const retryUntilDeadline = async (waitMs: number): Promise<void> => {
+    let backoff = waitMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, backoff));
+      if (Date.now() >= deadline) {
+        break;
+      }
+      if (await attempt()) {
+        return;
+      }
+      backoff = Math.min(backoff * 2, 10_000);
+    }
+    log.error(
+      { requestId, body },
+      "contact-prompt: could not report a committed write to the assistant; the command will report failure over a write that happened",
+    );
+  };
+
+  if (await attempt()) {
+    return;
   }
-  log.error(
-    { requestId, body },
-    "contact-prompt: could not report a committed write to the assistant; the command will report failure over a write that happened",
-  );
+
+  // Inline retries while the client's own wait is still short, then hand the
+  // rest to the background so the response is not held for the whole window.
+  let backoff = 500;
+  while (Date.now() < inlineUntil) {
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+    if (await attempt()) {
+      return;
+    }
+    backoff = Math.min(backoff * 2, 10_000);
+  }
+  void retryUntilDeadline(backoff);
 }
 
 /**
@@ -758,7 +820,8 @@ function lostClaimResponse(reason: string | undefined): Response {
 async function resolveRecordPrompt(
   requestId: string,
   contactId: string,
+  settleMs: number | undefined,
 ): Promise<Response> {
-  await reportResolution(requestId, { requestId, contactId });
+  await reportResolution(requestId, { requestId, contactId }, settleMs);
   return Response.json({ accepted: true });
 }
