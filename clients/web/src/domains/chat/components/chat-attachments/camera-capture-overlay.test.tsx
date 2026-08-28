@@ -48,6 +48,7 @@ function holdFrame() {
 mock.module("@/domains/chat/voice/voice-room/voice-camera", () => ({
   useVoiceCamera: () => ({
     open: cameraOpen,
+    flipping: false,
     native: cameraNative,
     facing: "environment",
     error: cameraError,

@@ -59,6 +59,7 @@ function Probe({ flash = true }: { flash?: boolean }) {
         {camera.flashAvailable ? "yes" : "no"}
       </span>
       <span data-testid="facing">{camera.facing}</span>
+      <span data-testid="flipping">{camera.flipping ? "yes" : "no"}</span>
       <button
         type="button"
         data-testid="open"
@@ -88,6 +89,8 @@ const flashAvailable = () =>
   screen.getByTestId("flash-available").textContent === "yes";
 
 const facing = () => screen.getByTestId("facing").textContent;
+
+const flipping = () => screen.getByTestId("flipping").textContent === "yes";
 
 async function press(testId: string) {
   await act(async () => {
@@ -485,11 +488,15 @@ describe("useVoiceCamera: a flip the bridge never answers", () => {
     setFlashModeSpy.mockImplementation(neverAnswers.answer);
     await press("flip");
     expect(flipSpy).not.toHaveBeenCalled();
+    expect(flipping()).toBe(true);
 
     setFlashModeSpy.mockImplementation(async () => true);
     await press("close");
     await press("open");
     await waitFor(() => expect(flashAvailable()).toBe(true));
+    // The release recovers the shutter along with the flip button: a hung
+    // hand-back must not leave the capture disabled for the session's life.
+    expect(flipping()).toBe(false);
 
     await press("flip");
 
@@ -520,6 +527,9 @@ describe("useVoiceCamera: a flip the bridge never answers", () => {
     await press("flip");
 
     await settle(() => abandoned.resolve(true));
+    // The abandoned flip's exit leaves the replacement's `flipping` standing
+    // for the same reason it leaves the claim.
+    expect(flipping()).toBe(true);
 
     // The replacement is still handing its own flash back, so this tap is the
     // second flip its guard is there to drop.
@@ -527,6 +537,7 @@ describe("useVoiceCamera: a flip the bridge never answers", () => {
     expect(flipSpy).not.toHaveBeenCalled();
 
     await settle(() => replacement.resolve(true));
+    expect(flipping()).toBe(false);
 
     expect(flipSpy).toHaveBeenCalledTimes(1);
     expect(facing()).toBe("user");
@@ -548,6 +559,36 @@ describe("useVoiceCamera: a flip the bridge never answers", () => {
 
     expect(flipSpy).toHaveBeenCalledTimes(2);
     expect(facing()).toBe("environment");
+  });
+});
+
+describe("useVoiceCamera: the shutter's window during a fallback flip", () => {
+  test("reports the flip while the replacement stream is on its way", async () => {
+    // On the browser path a flip releases the running stream before it can
+    // request the other camera, and `open` holds true across the wait. The
+    // `flipping` bit is what a surface holds its shutter on: a capture in
+    // that window has no stream to encode.
+    nativeMobile = false;
+    const getUserMedia = mock(async () => fakeStream());
+    stubMediaDevices(getUserMedia);
+
+    render(<Probe />);
+    await press("open");
+    expect(flipping()).toBe(false);
+
+    let arrive: () => void = () => {};
+    getUserMedia.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          arrive = () => resolve(fakeStream());
+        }),
+    );
+    await press("flip");
+    expect(flipping()).toBe(true);
+
+    await settle(() => arrive());
+    expect(flipping()).toBe(false);
+    expect(facing()).toBe("user");
   });
 });
 

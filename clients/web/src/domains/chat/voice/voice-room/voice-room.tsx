@@ -1178,7 +1178,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   onClick={() => void shutter()}
                   ariaLabel={t("voiceRoom.takePhoto")}
                   capturing={sending}
-                  disabled={sending}
+                  // Also held off while a flip swaps the capture: the
+                  // viewfinder stays up with nothing behind it, and a press
+                  // there would report a failure for a working flip.
+                  disabled={sending || camera.flipping}
                   testId="voice-room-shutter"
                 />
               </Tooltip>

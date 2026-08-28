@@ -205,6 +205,14 @@ export async function captureVideoFrame(
 export interface VoiceCamera {
   /** True once a camera preview is live. */
   readonly open: boolean;
+  /**
+   * True while a flip is swapping the capture under the open viewfinder. On
+   * the fallback path the flip releases one stream and awaits the
+   * replacement, and `open` holds true across that gap, so a capture pressed
+   * there has nothing to encode. Surfaces disable the shutter on this rather
+   * than report the press as a capture failure.
+   */
+  readonly flipping: boolean;
   /** True when the preview is a native layer behind the Capacitor web view. */
   readonly native: boolean;
   /** Which way the camera currently points. */
@@ -284,6 +292,7 @@ export function useVoiceCamera(
   // never sent a `setFlashMode` it would throw on.
   const flashEngagedRef = useRef(false);
   const [open, setOpen] = useState(false);
+  const [flipping, setFlipping] = useState(false);
   const [native, setNative] = useState(false);
   const [facing, setFacing] = useState<VoiceCameraFacing>("environment");
   const [error, setError] = useState<VoiceCameraError | null>(null);
@@ -344,6 +353,7 @@ export function useVoiceCamera(
    */
   const releaseCamera = useCallback(() => {
     flipInFlightRef.current = null;
+    setFlipping(false);
     stopCapture();
   }, [stopCapture]);
 
@@ -578,6 +588,7 @@ export function useVoiceCamera(
     }
     const claim = {};
     flipInFlightRef.current = claim;
+    setFlipping(true);
     try {
       // Before anything else, and before the flip itself: from here on the
       // camera any outstanding probe asked about is not the one that will be
@@ -636,9 +647,11 @@ export function useVoiceCamera(
       }
     } finally {
       // This flip's own claim only. A release landing mid-flip already dropped
-      // it, and the claim standing now may belong to the flip that came after.
+      // it, and the claim standing now may belong to the flip that came after,
+      // whose `flipping` this must also leave standing.
       if (flipInFlightRef.current === claim) {
         flipInFlightRef.current = null;
+        setFlipping(false);
       }
     }
   }, [acquire, facing, probeFlash]);
@@ -722,6 +735,7 @@ export function useVoiceCamera(
 
   return {
     open,
+    flipping,
     native,
     facing,
     flashAvailable,
