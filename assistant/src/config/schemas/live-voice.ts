@@ -202,7 +202,7 @@ export const LiveVoiceWorkingCueConfigSchema = z
       .boolean({ error: "liveVoice.workingCue.enabled must be a boolean" })
       .default(true)
       .describe(
-        "Hold a working turn's silence with a short wordless tone; the opt-out for the working cue. liveVoice.frontModel.progress.enabled wins over this, so a turn plays the cue only where spoken narration is off. Turning both off leaves the working turn silent.",
+        "Hold a working turn's silence with a short wordless tone; the opt-out for the working cue. liveVoice.frontModel.progress.enabled wins over this, so a turn plays the cue only where spoken narration is off. Turning both off leaves the working turn silent. The client must also declare it can read non-speech audio: one packaged before that capability is never sent the cue whatever this says, since it would score the tone as answer speech.",
       ),
     intervalMs: z
       .number({ error: "liveVoice.workingCue.intervalMs must be a number" })

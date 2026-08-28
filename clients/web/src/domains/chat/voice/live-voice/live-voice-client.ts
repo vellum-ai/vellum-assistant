@@ -503,6 +503,11 @@ export class LiveVoiceChannelClient {
       // session outright with `credentials_unavailable`, which is precisely
       // the outcome the text-only path exists to avoid.
       textInput: true,
+      // Unconditional for the same reason: the `nonSpeech` handling lives in
+      // this file's `ttsAudio` path and in the player, so any build that can
+      // send this frame can also read the flag. It is the daemon's gate for
+      // the working cue, which stays silent for a client that cannot say this.
+      nonSpeechAudio: true,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined

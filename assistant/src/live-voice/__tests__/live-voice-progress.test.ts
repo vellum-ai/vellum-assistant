@@ -52,6 +52,20 @@ const START_FRAME = {
     sampleRate: 24_000,
     channels: 1,
   },
+  // Every shipping client declares this, and the cue is gated on it, so the
+  // default frame here has to as well or no cue test would exercise a cue.
+  nonSpeechAudio: true,
+} as const satisfies LiveVoiceClientStartFrame;
+
+/** A client from before `nonSpeech`, which cannot be sent the cue. */
+const START_FRAME_NO_CUE_SUPPORT = {
+  type: "start",
+  conversationId: "conversation-123",
+  audio: {
+    mimeType: "audio/pcm",
+    sampleRate: 24_000,
+    channels: 1,
+  },
 } as const satisfies LiveVoiceClientStartFrame;
 
 const GENERATED_NARRATION = "Progress text.";
@@ -82,7 +96,7 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
-function createContext(): {
+function createContext(startFrame: LiveVoiceClientStartFrame = START_FRAME): {
   context: LiveVoiceSessionFactoryContext;
   frames: LiveVoiceServerFrame[];
 } {
@@ -93,7 +107,7 @@ function createContext(): {
     frames,
     context: {
       sessionId: "session-123",
-      startFrame: START_FRAME,
+      startFrame,
       sendFrame: mock(async (payload) => {
         const frame = sequencer.next(payload);
         frames.push(frame);
@@ -209,6 +223,9 @@ function createProgressHarness(options: {
   // Events the transcriber flushes at utterance release; defaults to a plain
   // untagged "hello" final.
   sttStopEvents?: SttStreamServerEvent[];
+  // Defaults to a client that declares `nonSpeechAudio`. Cue-gate tests pass a
+  // frame without it to stand in for a client packaged before the flag.
+  startFrame?: LiveVoiceClientStartFrame;
 }) {
   const { startVoiceTurn, getCallbacks, approvalPending } =
     createCapturingTurnStarter();
@@ -217,7 +234,7 @@ function createProgressHarness(options: {
     options.emitChunkMs,
     options.chunkContentType,
   );
-  const { context, frames } = createContext();
+  const { context, frames } = createContext(options.startFrame);
   const session = new LiveVoiceSession(context, {
     resolveTranscriber: mock(
       async () => new MockStreamingTranscriber(options.sttStopEvents),
@@ -1066,6 +1083,32 @@ async function startEscalatedProgressTurn(
 }
 
 describe("LiveVoiceSession working cue", () => {
+  // A packaged client ships on its own cadence and can be older than the
+  // daemon serving it. One that predates `nonSpeech` runs its old `tts_audio`
+  // handler on the tone and scores it as answer speech, so the cue is withheld
+  // rather than sent to be misread: the turn simply works in real silence.
+  test("a client that cannot read nonSpeech is sent no cue", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      startFrame: START_FRAME_NO_CUE_SUPPORT,
+      // Config says yes; only the missing capability holds the cue back.
+      frontModelConfig: progressConfig({
+        enabled: false,
+        idleIntervalMs: CUE_INTERVAL_MS,
+      }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    // Well past the interval a supported client would have played two on.
+    await new Promise((resolve) => setTimeout(resolve, CUE_INTERVAL_MS * 3));
+    expect(cueFrames(frames)).toHaveLength(0);
+    // Silence, not a fallback to the narration this feature replaced.
+    expect(ttsTexts).toHaveLength(1);
+    expect(generateProgressText).not.toHaveBeenCalled();
+  });
+
   test("an idle escalated turn plays the cue and speaks no narration", async () => {
     const generateProgressText = mock(async () => GENERATED_NARRATION);
     const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({

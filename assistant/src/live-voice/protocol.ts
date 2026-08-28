@@ -136,6 +136,25 @@ export interface LiveVoiceClientStartFrame {
    */
   readonly textInput?: boolean;
   /**
+   * The client understands `nonSpeech` on {@link LiveVoiceTtsAudioServerFrame}
+   * and will play such a frame as audio without counting it as the assistant
+   * talking.
+   *
+   * Load-bearing, not a feature announcement: it is what lets the server send
+   * the working cue at all. A client that predates the field runs its old
+   * `tts_audio` handler on the wordless tone and treats it as answer speech,
+   * latching speaking state, client-heard latency and the spoken-word cursor
+   * on a turn that has deliberately said nothing. An optional field cannot
+   * protect a consumer that never learned to read it, so the capability is
+   * declared here instead and the cue waits for it.
+   *
+   * Absent means false, which is the only thing an older client can have
+   * meant: it has no handler that could tell the tone from speech, so such a
+   * session holds its working silence with nothing rather than with audio
+   * that would be misread.
+   */
+  readonly nonSpeechAudio?: boolean;
+  /**
    * Which client opened the session. Absent from clients that predate the
    * field, in which case the originating client is simply unknown.
    *
@@ -963,6 +982,15 @@ function validateStartFrame(
     );
   }
 
+  if ("nonSpeechAudio" in value && typeof value.nonSpeechAudio !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "start frame field nonSpeechAudio must be a boolean",
+      "nonSpeechAudio",
+      "start",
+    );
+  }
+
   // An unrecognized client is dropped rather than rejected: the field is an
   // analytics dimension, and failing a session's startup over it would trade a
   // gap in a chart for a user who cannot talk to their assistant.
@@ -987,6 +1015,7 @@ function validateStartFrame(
         ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
         : {}),
       ...(value.textInput === true ? { textInput: true } : {}),
+      ...(value.nonSpeechAudio === true ? { nonSpeechAudio: true } : {}),
     },
   };
 }

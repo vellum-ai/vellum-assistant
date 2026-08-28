@@ -5795,15 +5795,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       : null;
   }
 
+  // Whether this session may play the working cue at all: the workspace has to
+  // want it AND the client has to be able to read it.
+  //
+  // The capability half is not belt-and-braces. A client that predates
+  // `nonSpeech` runs its old `tts_audio` handler on the tone and counts it as
+  // answer speech, latching speaking state, client-heard latency and the
+  // spoken-word cursor on a turn that has said nothing. A packaged client
+  // ships on its own cadence and can be older than the daemon serving it, so
+  // the cue waits to be told the frame will be understood. Absent means no.
+  private get workingCueEnabled(): boolean {
+    return (
+      this.workingCueConfig.enabled &&
+      this.context.startFrame.nonSpeechAudio === true
+    );
+  }
+
   // Whether the idle tick has anything to play, and so whether arming it is
   // worth a timer at all.
   private canHoldFloorWhileWorking(): boolean {
     if (!this.streamTtsAudio) {
       return false;
     }
-    return (
-      this.narrationFloorHolder() !== null || this.workingCueConfig.enabled
-    );
+    return this.narrationFloorHolder() !== null || this.workingCueEnabled;
   }
 
   // When the turn's current audible silence began: the latest of the last
@@ -5938,7 +5952,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // not about tool activity. A tool starting or finishing changes nothing a
     // wordless tone could carry, so the activity triggers say nothing and only
     // the idle tick plays it.
-    if (this.workingCueConfig.enabled && trigger === "idle") {
+    if (this.workingCueEnabled && trigger === "idle") {
       this.playWorkingCue(turn);
     }
   }

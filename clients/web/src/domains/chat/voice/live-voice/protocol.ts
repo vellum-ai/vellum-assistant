@@ -107,6 +107,16 @@ export interface LiveVoiceClientStartFrame {
    * back on `ready` as `audioInput: false`.
    */
   readonly textInput?: boolean;
+  /**
+   * This client reads `nonSpeech` on `tts_audio` and plays such a frame as
+   * audio without counting it as the assistant talking.
+   *
+   * The daemon holds the working cue back until it sees this, because a client
+   * that predates the flag would treat the wordless tone as answer speech and
+   * latch speaking state, client-heard latency and the spoken-word cursor on a
+   * turn that has said nothing. Declaring it is what turns the cue on.
+   */
+  readonly nonSpeechAudio?: boolean;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {

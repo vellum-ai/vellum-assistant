@@ -765,6 +765,61 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("parses the nonSpeechAudio capability on the start frame", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      nonSpeechAudio: true,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toMatchObject({ type: "start", nonSpeechAudio: true });
+  });
+
+  test.each([
+    ["absent", {}],
+    ["false", { nonSpeechAudio: false }],
+  ])(
+    "omits nonSpeechAudio from the start frame when %s",
+    (_label, extra: Record<string, unknown>) => {
+      // Both mean the same thing downstream: the client has no handler that
+      // could tell a wordless cue from speech, so the session must not send
+      // one. Only an explicit true opens that gate.
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        ...extra,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect("nonSpeechAudio" in result.frame).toBe(false);
+    },
+  );
+
+  test("returns a typed protocol error for a non-boolean nonSpeechAudio", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      nonSpeechAudio: "yes",
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "nonSpeechAudio",
+      frameType: "start",
+    });
+  });
+
   test("returns typed protocol errors for missing audio configuration fields", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",
