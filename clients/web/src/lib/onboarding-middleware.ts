@@ -45,9 +45,12 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
     return next();
   }
   // Auth has already been verified by the parent auth middleware.
+  // Path AND query, exactly as `authMiddleware` resolves: the guard reads the
+  // query (the new-assistant marker, a paid hatch's `returnTo`), so resolving
+  // on a bare pathname silently strips the evidence its own branches look for.
   const decision = resolveNavigation(
     buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
-    { kind: "route-guard", pathname: url.pathname },
+    { kind: "route-guard", pathname: url.pathname + url.search },
   );
   // A "wait" decision (still-hydrating state) falls through to next(): the
   // parent auth middleware owns hydration waits, so rendering is the safe
