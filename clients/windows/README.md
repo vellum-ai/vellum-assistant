@@ -130,7 +130,8 @@ the Bun version changes.
 MSBuild. It resolves vcpkg from `VCPKG_ROOT`, the local Vellum build-tools
 checkout, or `PATH`, in that order. The checkout must contain full Git history
 for the manifest's pinned dependency baseline. The Visual Studio-bundled vcpkg
-may be too old for that baseline.
+is too old for that baseline and is ignored when a Developer Prompt exposes it
+through `VCPKG_ROOT` or `PATH`.
 
 Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
 runs the same steps per architecture, then install-, launch-, and
