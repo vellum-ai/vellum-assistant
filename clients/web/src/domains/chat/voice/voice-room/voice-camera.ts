@@ -144,6 +144,12 @@ let lastNativePreviewCall: "start" | "stop" = "stop";
  */
 let nativePreviewCallSeq = 0;
 
+/** Record a native start or stop posted to the bridge, returning its seq. */
+function recordNativePreviewCall(call: "start" | "stop"): number {
+  lastNativePreviewCall = call;
+  return ++nativePreviewCallSeq;
+}
+
 /**
  * Whether a viewfinder can run in this environment.
  *
@@ -343,8 +349,7 @@ export function useVoiceCamera(
         flashEngagedRef.current = false;
         void setNativeVoiceCameraFlashMode("off");
       }
-      lastNativePreviewCall = "stop";
-      nativePreviewCallSeq++;
+      recordNativePreviewCall("stop");
       void stopNativeVoiceCamera();
     }
     const stream = streamRef.current;
@@ -439,8 +444,7 @@ export function useVoiceCamera(
 
       if (isNativeMobile()) {
         sourceRef.current = "native-pending";
-        lastNativePreviewCall = "start";
-        const nativeCallSeq = ++nativePreviewCallSeq;
+        const nativeCallSeq = recordNativePreviewCall("start");
         const started = await startNativeVoiceCamera(nextFacing);
         if (epoch !== acquireEpochRef.current) {
           // A canceled start still owns what it started, unless something
