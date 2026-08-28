@@ -34,7 +34,6 @@ import {
   type GuardianRequestWire,
   type ListGuardianRequestsIpcParams,
   type ListPendingGuardianRequestsByDestinationIpcParams,
-  type SweepExpiredGuardianRequestsIpcResponse,
   type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 
@@ -58,7 +57,7 @@ import {
   listPendingByDestinationChat,
   listPendingByDestinationConversation,
   resolveGuardianRequest,
-  sweepExpiredGuardianRequests,
+  listExpiredPendingGuardianRequests,
   updateDelivery,
   updateGuardianRequest as storeUpdateGuardianRequest,
 } from "../db/guardian-request-store.js";
@@ -135,15 +134,17 @@ export function expireInteractionBoundRequests(): ExpireInteractionBoundIpcRespo
 }
 
 /**
- * Deadline sweep: CAS-expires past-`expiresAt` pending requests and returns
- * the expired rows for daemon-side card-withdrawal / notification fan-out.
+ * Bounded, read-only probe for the daemon's expiry sweep: pending requests
+ * past their deadline, oldest first. The daemon confirms each one with
+ * `expireGuardianRequest` after running its side effects.
  */
-export function sweepExpiredRequests(
+export function listExpiredPendingRequests(
   now?: number,
-): SweepExpiredGuardianRequestsIpcResponse {
-  return {
-    expired: sweepExpiredGuardianRequests(now).map(toGuardianRequestWire),
-  };
+  limit?: number,
+): GuardianRequestWire[] {
+  return listExpiredPendingGuardianRequests(now, limit).map(
+    toGuardianRequestWire,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ import {
   and,
   desc,
   eq,
-  inArray,
   isNotNull,
   isNull,
   lt,
@@ -417,7 +416,8 @@ export interface ResolveGuardianRequestDecision {
 }
 
 export type ResolveGuardianRequestResult =
-  { applied: true; request: GuardianRequest } | { applied: false };
+  | { applied: true; request: GuardianRequest }
+  | { applied: false };
 
 /**
  * Compare-and-swap resolve: only transitions the request from
@@ -511,51 +511,36 @@ export function expireAllPendingInteractionBound(): number {
     .run(now, ...INTERACTION_BOUND_KINDS, now).changes;
 }
 
+/** Ceiling on one expiry batch, whatever the caller asks for. */
+const MAX_EXPIRED_PENDING_BATCH = 200;
+
 /**
- * Sweep-expire pending requests whose `expiresAt` deadline has passed.
- * Returns the expired rows as written so the daemon's card-withdrawal and
- * expiry-notification fan-out needs no follow-up read.
+ * List pending requests whose `expiresAt` deadline has passed, oldest
+ * deadline first, bounded. Read-only: the status flip is the caller's
+ * per-request confirmation (`expireGuardianRequest`) after that request's
+ * expiry side effects have run, so a row's work stays discoverable here
+ * until it is actually done. The bound keeps a round's IPC payload and the
+ * caller's fan-out finite however large a backlog grows.
  */
-export function sweepExpiredGuardianRequests(
+export function listExpiredPendingGuardianRequests(
   now = Date.now(),
+  limit = 50,
 ): GuardianRequest[] {
   const db = getGatewayDb();
-
-  return db.transaction(() => {
-    const stale = db
-      .select()
-      .from(guardianRequests)
-      .where(
-        and(
-          eq(guardianRequests.status, "pending"),
-          isNotNull(guardianRequests.expiresAt),
-          lt(guardianRequests.expiresAt, now),
-        ),
-      )
-      .all();
-
-    if (stale.length === 0) {
-      return [];
-    }
-
-    const updatedAt = Date.now();
-    db.update(guardianRequests)
-      .set({ status: "expired", updatedAt })
-      .where(
-        and(
-          inArray(
-            guardianRequests.id,
-            stale.map((row) => row.id),
-          ),
-          eq(guardianRequests.status, "pending"),
-        ),
-      )
-      .run();
-
-    return stale.map((row) =>
-      rowToRequest({ ...row, status: "expired", updatedAt }),
-    );
-  });
+  return db
+    .select()
+    .from(guardianRequests)
+    .where(
+      and(
+        eq(guardianRequests.status, "pending"),
+        isNotNull(guardianRequests.expiresAt),
+        lt(guardianRequests.expiresAt, now),
+      ),
+    )
+    .orderBy(guardianRequests.expiresAt)
+    .limit(Math.min(Math.max(1, limit), MAX_EXPIRED_PENDING_BATCH))
+    .all()
+    .map(rowToRequest);
 }
 
 /**

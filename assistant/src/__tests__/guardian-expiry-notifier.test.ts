@@ -47,26 +47,37 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
   },
 }));
 
-// Gateway guardian-request client — in-memory rows driven by tests. The sweep
-// asks the gateway to CAS-expire past-deadline pending rows and fans out
-// notifications from the returned rows.
+// Gateway guardian-request client — in-memory rows driven by tests. The
+// sweep lists past-deadline pending rows read-only and confirms each with
+// the per-request expire CAS after its side effects run.
 const gatewayRequests = new Map<string, GuardianRequestWire>();
+let expireCasFails = false;
+const actualGatewayGuardianRequests =
+  await import("../channels/gateway-guardian-requests.js");
 mock.module("../channels/gateway-guardian-requests.js", () => ({
-  sweepExpiredGuardianRequests: async () => {
+  ...actualGatewayGuardianRequests,
+  listExpiredPendingGuardianRequests: async () => {
     const now = Date.now();
-    const expired: GuardianRequestWire[] = [];
+    const stale: GuardianRequestWire[] = [];
     for (const row of gatewayRequests.values()) {
       if (
         row.status === "pending" &&
         row.expiresAt !== null &&
         row.expiresAt <= now
       ) {
-        const flipped = { ...row, status: "expired" as const };
-        gatewayRequests.set(row.id, flipped);
-        expired.push(flipped);
+        stale.push(row);
       }
     }
-    return expired;
+    return stale;
+  },
+  expireGuardianRequest: async (id: string) => {
+    if (expireCasFails) {
+      throw new Error("simulated IPC timeout");
+    }
+    const row = gatewayRequests.get(id);
+    if (row?.status === "pending") {
+      gatewayRequests.set(id, { ...row, status: "expired" as const });
+    }
   },
 }));
 
@@ -117,6 +128,8 @@ beforeEach(() => {
   broadcasts.length = 0;
   deliveryError = null;
   withdrawCalls = 0;
+  expireCasFails = false;
+  gatewayRequests.clear();
   pendingInteractions.clear();
 });
 
@@ -290,5 +303,39 @@ describe("sweep integration", () => {
     expect(expiredCount).toBe(0);
     expect(gatewayRequests.get("req-fresh")?.status).toBe("pending");
     expect(deliveredReplies).toHaveLength(0);
+  });
+
+  test("a lost expire confirmation leaves the row pending, and the next round recovers it", async () => {
+    // The status flip is the receipt that side effects ran, not the
+    // announcement that they should. When the confirmation is lost, the row
+    // must stay in the pending set so the next round re-runs its fan-out;
+    // the cost is at-least-once side effects, never their silent loss.
+    gatewayRequests.set(
+      "req-lost",
+      makeRequest({
+        id: "req-lost",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000,
+      }),
+    );
+
+    expireCasFails = true;
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(gatewayRequests.get("req-lost")?.status).toBe("pending");
+    expect(withdrawCalls).toBe(1);
+    expect(deliveredReplies).toHaveLength(1);
+
+    expireCasFails = false;
+    expect(await runGuardianExpirySweep()).toBe(1);
+    expect(gatewayRequests.get("req-lost")?.status).toBe("expired");
+    // The re-run repeats the side effects (at-least-once); the third round
+    // finds nothing.
+    expect(withdrawCalls).toBe(2);
+    expect(deliveredReplies).toHaveLength(2);
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(withdrawCalls).toBe(2);
   });
 });

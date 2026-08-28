@@ -42,7 +42,6 @@ import {
   type GuardianRequestWire,
   type ListGuardianRequestsIpcParams,
   type ListPendingGuardianRequestsByDestinationIpcParams,
-  SweepExpiredGuardianRequestsIpcResponseSchema,
   type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 import type { ZodType } from "zod";
@@ -224,19 +223,21 @@ export async function expireInteractionBoundGuardianRequests(): Promise<number> 
 }
 
 /**
- * Sweep persistent requests past their `expiresAt` (gateway CAS-expires;
- * `now` defaults gateway-side). Returns the expired rows so the daemon fan-out
- * needs no follow-up read. Throws on any failure (fail-closed).
+ * Bounded, read-only list of pending requests past their `expiresAt`,
+ * oldest deadline first. Rows stay pending (and so stay listed) until the
+ * sweep has run their expiry side effects and confirmed each with
+ * `expireGuardianRequest`, which is what makes the fan-out recoverable
+ * from state after a lost response or a crash. Throws on any failure
+ * (fail-closed).
  */
-export async function sweepExpiredGuardianRequests(
-  now?: number,
+export async function listExpiredPendingGuardianRequests(
+  limit?: number,
 ): Promise<GuardianRequestWire[]> {
-  const response = await callGateway(
-    GUARDIAN_REQUESTS_IPC_METHODS.sweepExpired,
-    { now },
-    SweepExpiredGuardianRequestsIpcResponseSchema,
+  return callGateway(
+    GUARDIAN_REQUESTS_IPC_METHODS.listExpiredPending,
+    { limit },
+    GuardianRequestListIpcResponseSchema,
   );
-  return response.expired;
 }
 
 /**

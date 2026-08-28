@@ -189,7 +189,7 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   decide: "guardian_requests_decide",
   expire: "guardian_requests_expire",
   expireInteractionBound: "guardian_requests_expire_interaction_bound",
-  sweepExpired: "guardian_requests_sweep_expired",
+  listExpiredPending: "guardian_requests_list_expired_pending",
   createDelivery: "guardian_requests_create_delivery",
   updateDelivery: "guardian_requests_update_delivery",
   listDeliveries: "guardian_requests_list_deliveries",
@@ -418,7 +418,7 @@ const OUTCOME_TYPES_BY_DECISION_STATUS: Record<
 /**
  * Request for `guardian_requests_decide` (status CAS + optional ACL outcome).
  * Decisions only resolve a pending request to approved/denied — expiry has
- * `guardian_requests_expire`/`_sweep_expired` — so a malformed call can never
+ * `guardian_requests_expire`/`_list_expired_pending` — so a malformed call can never
  * apply an `aclOutcome` while leaving the request decidable again. The
  * outcome type must agree with the status: activation/minting only on
  * approval, seeding/blocking only on denial.
@@ -508,26 +508,22 @@ export type ExpireInteractionBoundIpcResponse = z.infer<
   typeof ExpireInteractionBoundIpcResponseSchema
 >;
 
-/** Request for `guardian_requests_sweep_expired` (`now` defaults gateway-side). */
-export const SweepExpiredGuardianRequestsIpcParamsSchema = z.object({
-  now: z.number().optional(),
-});
-
-export type SweepExpiredGuardianRequestsIpcParams = z.infer<
-  typeof SweepExpiredGuardianRequestsIpcParamsSchema
->;
-
 /**
- * Response for `guardian_requests_sweep_expired`: the full expired rows, so
- * the daemon's card-withdrawal/notification fan-out never needs a follow-up
- * read that could fail after the status flip and strand the side effects.
+ * Request for `guardian_requests_list_expired_pending` (`now` defaults
+ * gateway-side; `limit` bounds the batch and is capped gateway-side).
+ * Read-only: the rows stay `pending` until the daemon has run each one's
+ * expiry side effects and confirms with `guardian_requests_expire`, so a
+ * lost response leaves the work discoverable by the next sweep round
+ * instead of silently done. Past-deadline pending rows are undecidable
+ * either way: every decision path checks `expiresAt` before any write.
  */
-export const SweepExpiredGuardianRequestsIpcResponseSchema = z.object({
-  expired: z.array(GuardianRequestSchema),
+export const ListExpiredPendingGuardianRequestsIpcParamsSchema = z.object({
+  now: z.number().optional(),
+  limit: z.number().optional(),
 });
 
-export type SweepExpiredGuardianRequestsIpcResponse = z.infer<
-  typeof SweepExpiredGuardianRequestsIpcResponseSchema
+export type ListExpiredPendingGuardianRequestsIpcParams = z.infer<
+  typeof ListExpiredPendingGuardianRequestsIpcParamsSchema
 >;
 
 // ---------------------------------------------------------------------------

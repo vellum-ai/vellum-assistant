@@ -23,7 +23,7 @@ import {
   listPendingByDestinationChat,
   listPendingByDestinationConversation,
   resolveGuardianRequest,
-  sweepExpiredGuardianRequests,
+  listExpiredPendingGuardianRequests,
   updateDelivery,
   updateGuardianRequest,
 } from "../guardian-request-store.js";
@@ -460,11 +460,11 @@ describe("expireAllPendingInteractionBound", () => {
 });
 
 // ---------------------------------------------------------------------------
-// sweepExpiredGuardianRequests
+// listExpiredPendingGuardianRequests
 // ---------------------------------------------------------------------------
 
-describe("sweepExpiredGuardianRequests", () => {
-  test("expires past-deadline pending rows and returns their rows", () => {
+describe("listExpiredPendingGuardianRequests", () => {
+  test("lists past-deadline pending rows and mutates nothing", () => {
     const stale1 = createRequest({ expiresAt: PAST() });
     const stale2 = createRequest({
       kind: "tool_approval",
@@ -475,24 +475,38 @@ describe("sweepExpiredGuardianRequests", () => {
     const resolved = createRequest({ expiresAt: PAST() });
     updateGuardianRequest(resolved.id, { status: "denied" });
 
-    const expired = sweepExpiredGuardianRequests();
+    const stale = listExpiredPendingGuardianRequests();
 
-    expect(expired.map((row) => row.id).sort()).toEqual(
+    expect(stale.map((row) => row.id).sort()).toEqual(
       [stale1.id, stale2.id].sort(),
     );
-    for (const row of expired) {
-      expect(row.status).toBe("expired");
+    // Read-only: the rows stay pending until the caller confirms each with
+    // expireGuardianRequest after running its side effects, which is what
+    // keeps the fan-out recoverable from state.
+    for (const row of stale) {
+      expect(row.status).toBe("pending");
     }
-    expect(getGuardianRequest(stale1.id)?.status).toBe("expired");
-    expect(getGuardianRequest(stale2.id)?.status).toBe("expired");
+    expect(getGuardianRequest(stale1.id)?.status).toBe("pending");
+    expect(getGuardianRequest(stale2.id)?.status).toBe("pending");
     expect(getGuardianRequest(fresh.id)?.status).toBe("pending");
     expect(getGuardianRequest(deadlineless.id)?.status).toBe("pending");
     expect(getGuardianRequest(resolved.id)?.status).toBe("denied");
   });
 
+  test("orders by deadline and honors the batch bound", () => {
+    const older = createRequest({ expiresAt: PAST() - 60_000 });
+    const newer = createRequest({ expiresAt: PAST() });
+
+    const bounded = listExpiredPendingGuardianRequests(Date.now(), 1);
+    expect(bounded.map((row) => row.id)).toEqual([older.id]);
+
+    const all = listExpiredPendingGuardianRequests();
+    expect(all.map((row) => row.id)).toEqual([older.id, newer.id]);
+  });
+
   test("returns an empty list when nothing is stale", () => {
     createRequest({ expiresAt: FUTURE() });
-    expect(sweepExpiredGuardianRequests()).toEqual([]);
+    expect(listExpiredPendingGuardianRequests()).toEqual([]);
   });
 });
 
