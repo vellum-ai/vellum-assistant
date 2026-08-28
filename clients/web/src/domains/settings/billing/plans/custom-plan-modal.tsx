@@ -50,7 +50,7 @@ export interface CustomPlanSelection {
   /** `null` is the baseline machine: the absence of a paid tier. */
   machineTier: MachineTierEnum | null;
   storageTier: StorageTierEnum;
-  /** `null` is the explicit "No extra credits" choice. */
+  /** `null` is the explicit no-bundle choice. */
   creditTier: CreditTierEnum | null;
 }
 
@@ -133,8 +133,8 @@ function PickerLabel({
  * white dialog over the dark takeover in the pricing mocks. The three pickers
  * render as dropdowns and start unselected for base checkout (or seeded from
  * the current plan for a Pro reconfigure); Continue stays disabled until every
- * dimension has an explicit choice ("No extra credits" counts) and, for a Pro
- * reconfigure, until at least one dimension differs from the seeded plan.
+ * dimension has an explicit choice (the no-bundle option counts) and, for a
+ * Pro reconfigure, until at least one dimension differs from the seeded plan.
  */
 export function CustomPlanModal({
   open,
@@ -151,7 +151,7 @@ export function CustomPlanModal({
   // A Pro reconfigure seeds the current tiers so the default is a no-op; base
   // checkout passes none and leaves every dimension empty. A baseline machine
   // (null) seeds the sentinel, mirroring how a null credit tier seeds
-  // "No extra credits".
+  // NO_EXTRA_CREDITS.
   const seed = open ? (initialSelection ?? null) : null;
   const [machineTier, setMachineTier] = useState<MachineChoice | "">(() =>
     seed ? (seed.machineTier ?? BASELINE_MACHINE) : "",
