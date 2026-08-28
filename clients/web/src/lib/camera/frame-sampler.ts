@@ -27,8 +27,10 @@
  * It fires once per frame the compositor actually receives. A 24 fps stream
  * costs 24 ticks a second instead of the animation frame's 60, a stalled camera
  * costs none, and no tick ever samples the same picture twice. Where the method
- * is missing the animation frame stands in, and the paused check exists only to
- * cover that case.
+ * is missing the animation frame stands in, and both duplicate-sample guards in
+ * `sampleFrame` exist purely to cover that case: a loop paced by the display
+ * rather than the camera sees the same picture repeatedly, and a repeat is a
+ * zero-motion frame that makes a moving camera look settled.
  *
  * ## What this module does not do
  *
@@ -182,6 +184,10 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
   let loop: FrameLoop | null = null;
   let pendingHandle: number | null = null;
   let frameIndex = 0;
+  // Playback position of the last frame sampled, read only by the
+  // animation-frame fallback. NaN compares equal to nothing, so the first tick
+  // after a start always samples.
+  let lastSampledTime = Number.NaN;
 
   /**
    * Build the canvases on first use and keep them, or record that a 2D context
@@ -259,19 +265,32 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
     if (source.readyState < HAVE_CURRENT_DATA) {
       return;
     }
-    // The animation frame keeps firing after playback stops, and re-reading a
-    // frozen picture would feed the gate identical grids with advancing
-    // timestamps: a perfectly settled scene, kept again on every heartbeat.
-    // `requestVideoFrameCallback` cannot reach this state, because a paused
-    // stream presents no frames and so schedules no callbacks.
-    if (!loop.perVideoFrame && (source.paused || source.ended)) {
-      return;
+    // Both of these cover the same hazard, which only the animation frame has:
+    // it fires on the display's schedule rather than the camera's, so it can
+    // read one picture more than once. `requestVideoFrameCallback` runs once
+    // per presented frame and cannot reach either state.
+    if (!loop.perVideoFrame) {
+      // A stopped stream holds its last picture indefinitely. Sampling it
+      // repeatedly is a perfectly settled scene that earns a heartbeat keep.
+      if (source.paused || source.ended) {
+        return;
+      }
+      // The same thing at video rate: a 24 fps stream on a 60 Hz display holds
+      // each frame across two or three animation frames, and a repeat sample
+      // scores zero motion against its own twin. That reads as a settled camera
+      // on alternate ticks, and the settle check then waves through a smeared
+      // frame mid-pan, which is the case it exists to catch. An advancing
+      // `currentTime` is what separates a new frame from the same one again.
+      if (source.currentTime === lastSampledTime) {
+        return;
+      }
     }
 
     const pixels = readGridPixels(source);
     if (!pixels) {
       return;
     }
+    lastSampledTime = source.currentTime;
     lumaGridFromRgba(pixels, scratchGrid);
 
     const nowMs = performance.now();
@@ -327,6 +346,7 @@ export function createFrameSampler(options: FrameSamplerOptions): FrameSampler {
     video = next;
     loop = frameLoopFor(next);
     frameIndex = 0;
+    lastSampledTime = Number.NaN;
     document.addEventListener("visibilitychange", handleVisibilityChange);
     schedule();
   }

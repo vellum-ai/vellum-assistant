@@ -60,6 +60,7 @@ interface FakeVideoState {
   readyState: number;
   paused: boolean;
   ended: boolean;
+  currentTime: number;
   requestVideoFrameCallback?: (callback: () => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
 }
@@ -70,9 +71,18 @@ interface FakeVideo {
   /** Mutable playback state, so a test can stall or pause the stream. */
   readonly state: FakeVideoState;
   pendingCount(): number;
+  /**
+   * Advance `currentTime` by one frame interval, as presenting a new picture
+   * does. The animation-frame path reads that value to tell a fresh frame from
+   * the one it already sampled.
+   */
+  presentFrame(): void;
   /** Run the callback the sampler is waiting on. False when it is not waiting. */
   fireFrame(): boolean;
 }
+
+/** Playback seconds a single presented frame covers, at 30 fps. */
+const FRAME_INTERVAL_SECONDS = 1 / 30;
 
 function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
   const pending = new Map<number, () => void>();
@@ -82,6 +92,7 @@ function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
     readyState: HAVE_CURRENT_DATA,
     paused: false,
     ended: false,
+    currentTime: 0,
   };
   if (drivesLoop) {
     state.requestVideoFrameCallback = (callback) => {
@@ -99,6 +110,9 @@ function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
     element: state as unknown as HTMLVideoElement,
     state,
     pendingCount: () => pending.size,
+    presentFrame() {
+      state.currentTime += FRAME_INTERVAL_SECONDS;
+    },
     fireFrame() {
       const next = pending.entries().next();
       if (next.done) {
@@ -106,6 +120,9 @@ function createFakeVideo({ drivesLoop = true } = {}): FakeVideo {
       }
       const [handle, callback] = next.value;
       pending.delete(handle);
+      // A video-frame callback fires once per presented frame, so the two go
+      // together on this path.
+      state.currentTime += FRAME_INTERVAL_SECONDS;
       callback();
       return true;
     },
@@ -511,6 +528,7 @@ describe("frame sampler animation frame fallback", () => {
 
     sampler.start(video.element);
     expect(animationFrame.pendingCount()).toBe(1);
+    video.presentFrame();
     animationFrame.fireFrame();
     expect(offers).toHaveLength(1);
 
@@ -526,17 +544,63 @@ describe("frame sampler animation frame fallback", () => {
 
     sampler.start(video.element);
     video.state.paused = true;
+    video.presentFrame();
     animationFrame.fireFrame();
     video.state.paused = false;
     video.state.ended = true;
+    video.presentFrame();
     animationFrame.fireFrame();
     // Identical grids with advancing timestamps read as a perfectly settled
     // scene, and the gate would keep one on every heartbeat.
     expect(offers).toHaveLength(0);
 
     video.state.ended = false;
+    video.presentFrame();
     animationFrame.fireFrame();
     expect(offers).toHaveLength(1);
+    sampler.stop();
+  });
+
+  test("samples a presented frame once, however many display frames it spans", () => {
+    const animationFrame = stubAnimationFrame();
+    const { gate, offers } = createRecordingGate();
+    const video = createFakeVideo({ drivesLoop: false });
+    const sampler = createFrameSampler({ gate, onDecision: () => {} });
+
+    sampler.start(video.element);
+    video.presentFrame();
+    animationFrame.fireFrame();
+    animationFrame.fireFrame();
+    // A 24 or 30 fps stream on a 60 Hz display lands here on every other tick.
+    // The repeat would score zero motion against its own twin, and the settle
+    // check would read a panning camera as steady and keep a smeared frame.
+    expect(offers).toHaveLength(1);
+    // Declining to sample is not declining to run: the loop has to be waiting
+    // when the next picture arrives.
+    expect(animationFrame.pendingCount()).toBe(1);
+
+    video.presentFrame();
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(2);
+    sampler.stop();
+  });
+
+  test("samples the first frame after a restart even at the same position", () => {
+    const animationFrame = stubAnimationFrame();
+    const { gate, offers } = createRecordingGate();
+    const video = createFakeVideo({ drivesLoop: false });
+    const sampler = createFrameSampler({ gate, onDecision: () => {} });
+
+    sampler.start(video.element);
+    video.presentFrame();
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(1);
+
+    // A restart means a different stream, so the position it happens to report
+    // says nothing about whether the picture is one already seen.
+    sampler.start(video.element);
+    animationFrame.fireFrame();
+    expect(offers).toHaveLength(2);
     sampler.stop();
   });
 });
