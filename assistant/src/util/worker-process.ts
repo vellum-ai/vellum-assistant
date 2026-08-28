@@ -21,7 +21,11 @@ import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath, getLogger } from "./logger.js";
 import { isProcessAlive } from "./process-liveness.js";
-import { listProcessTable, type ProcessTableRow } from "./process-table.js";
+import {
+  listProcessTable,
+  type ProcessTableRow,
+  readRawProcessCommand,
+} from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
 import {
   classifyWorkerOwnership,
@@ -273,6 +277,45 @@ export function workerKindSignature(
 }
 
 /**
+ * What became of the orphan after an awaited gap, from liveness plus a fresh
+ * command-line read.
+ *
+ *   - `gone`: the PID is dead, or alive under a command line that is not this
+ *     worker (the orphan exited and the OS recycled its PID). The slot may be
+ *     released.
+ *   - `orphan`: still alive and still reads as this worker. Escalation may
+ *     proceed.
+ *   - `identity-unreadable`: alive, but the command line could not be read, so
+ *     "still the orphan" and "recycled PID" cannot be told apart. Uncertainty
+ *     must resolve to reuse: no signal, and the slot must NOT be released, or
+ *     a second worker would be spawned next to a live one.
+ */
+export type OrphanFate = "gone" | "orphan" | "identity-unreadable";
+
+export function classifyOrphanAfterWait(
+  alive: boolean,
+  command: string | null,
+  signature: readonly string[],
+): OrphanFate {
+  if (!alive) {
+    return "gone";
+  }
+  if (command == null) {
+    return "identity-unreadable";
+  }
+  return matchesSignature(command, signature) ? "orphan" : "gone";
+}
+
+/** Re-read the orphan's fate for `pid` from the live process table. */
+function orphanFate(pid: number, signature: readonly string[]): OrphanFate {
+  return classifyOrphanAfterWait(
+    isProcessAlive(pid),
+    readRawProcessCommand(pid),
+    signature,
+  );
+}
+
+/**
  * How long an orphaned worker gets to exit after SIGTERM.
  *
  * Derived from the longest shutdown any worker can legitimately take, not
@@ -318,6 +361,7 @@ async function stopOrphanedWorker(
   pid: number,
   pidPath: string,
   workerLabel: string,
+  signature: readonly string[],
 ): Promise<boolean> {
   try {
     process.kill(pid, "SIGTERM");
@@ -326,19 +370,27 @@ async function stopOrphanedWorker(
   }
 
   await waitForExit(pid, ORPHAN_STOP_TIMEOUT_MS);
-  if (isProcessAlive(pid)) {
+  // Identity is re-proven after every awaited gap, not carried by the PID:
+  // the orphan may have exited during the wait and the OS may have handed its
+  // PID to a stranger. Only a positive re-match escalates, and only a proven
+  // "gone" releases the slot.
+  let fate = orphanFate(pid, signature);
+  if (fate === "orphan") {
     try {
       process.kill(pid, "SIGKILL");
     } catch {
       // Best-effort.
     }
     await waitForExit(pid, ORPHAN_KILL_CONFIRM_MS);
+    fate = orphanFate(pid, signature);
   }
 
-  if (isProcessAlive(pid)) {
+  if (fate !== "gone") {
     log.warn(
-      { pid, pidPath },
-      `${workerLabel} orphaned by a previous owner could not be stopped; reusing it rather than running a second one`,
+      { pid, pidPath, fate },
+      fate === "orphan"
+        ? `${workerLabel} orphaned by a previous owner could not be stopped; reusing it rather than running a second one`
+        : `${workerLabel} is still live but its identity could not be re-read; reusing it rather than risking a duplicate`,
     );
     return false;
   }
@@ -462,8 +514,9 @@ async function reclaimWorkerSlot(
   pid: number,
   pidPath: string,
   workerLabel: string,
+  signature: readonly string[],
 ): Promise<number | null> {
-  if (!(await stopOrphanedWorker(pid, pidPath, workerLabel))) {
+  if (!(await stopOrphanedWorker(pid, pidPath, workerLabel, signature))) {
     // Still running and beyond our reach. One stale worker beats two live ones.
     return pid;
   }
@@ -499,10 +552,8 @@ export async function spawnWorkerProcess(args: {
   const pidPollIntervalMs = opts.pidPollIntervalMs ?? PID_FILE_POLL_INTERVAL_MS;
   const detached = opts.detached ?? true;
 
-  const decision = inspectWorkerSlot(
-    args.pidPath,
-    workerKindSignature(args.entry, args.packagedEntry),
-  );
+  const signature = workerKindSignature(args.entry, args.packagedEntry);
+  const decision = inspectWorkerSlot(args.pidPath, signature);
   if (decision.action === "adopt") {
     return { pid: decision.pid, alreadyRunning: true };
   }
@@ -511,6 +562,7 @@ export async function spawnWorkerProcess(args: {
       decision.pid,
       args.pidPath,
       args.workerLabel,
+      signature,
     );
     if (adopted != null) {
       return { pid: adopted, alreadyRunning: true };
