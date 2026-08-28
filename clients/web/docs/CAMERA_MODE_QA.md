@@ -131,8 +131,8 @@ the redesign is called shipped.
       and that the blur is wanted over a busy frame.
 - [ ] Auto badge offset. The handoff pins the "A" at right 6 / bottom 5, which
       reads as detached from the 20px bolt (Jason, 2026-08-28). It sits at
-      right 9 / bottom 7, tucked against the bolt's lower tip so the pair reads
-      as one glyph. Confirm with design or take the spec offsets back.
+      right 12 / bottom 10, tucked against the bolt's lower tip so the pair
+      reads as one glyph. Confirm with design or take the spec offsets back.
 - [ ] Localized session words on the surfaces outside the room. The composer's
       voice bar, the title-bar session pill, the iOS Dynamic Island and the
       macOS companion panel all read the session's state through the catalog,

@@ -116,7 +116,7 @@ export function CameraFlashControl({
       {mode === "auto" ? (
         <span
           aria-hidden
-          className="absolute right-[9px] bottom-[7px] text-[8px] leading-none font-bold"
+          className="absolute right-[12px] bottom-[10px] text-[8px] leading-none font-bold"
         >
           {autoBadge}
         </span>
