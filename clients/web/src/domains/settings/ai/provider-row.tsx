@@ -1,5 +1,6 @@
 import { EllipsisVertical } from "lucide-react";
 
+import { actionMenuDestructiveClasses } from "@vellumai/design-library/components/action-menu";
 import { Button } from "@vellumai/design-library/components/button";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Menu } from "@vellumai/design-library/components/menu";
@@ -124,7 +125,7 @@ export function ProviderRow({
                 {showDelete ? (
                   <Menu.Item
                     onSelect={onDelete}
-                    className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+                    className={actionMenuDestructiveClasses.anchored}
                   >
                     {t("providerRow.delete")}
                   </Menu.Item>
