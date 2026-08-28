@@ -71,6 +71,14 @@ export function vcpkgMsbuildArguments(
   ];
 }
 
+export function isVisualStudioBundledVcpkgRoot(root: string): boolean {
+  const normalized = win32.normalize(root).toLowerCase();
+  return (
+    normalized.includes("\\microsoft visual studio\\") &&
+    normalized.endsWith("\\vc\\vcpkg")
+  );
+}
+
 export function resolveVcpkgRoot(
   environment: Record<string, string | undefined> = process.env,
   findVcpkg: () => string | null = () => Bun.which("vcpkg"),
@@ -78,7 +86,7 @@ export function resolveVcpkgRoot(
 ): string | undefined {
   const configuredRoot =
     environment.VCPKG_ROOT ?? environment.VCPKG_INSTALLATION_ROOT;
-  if (configuredRoot) {
+  if (configuredRoot && !isVisualStudioBundledVcpkgRoot(configuredRoot)) {
     return configuredRoot;
   }
   if (environment.LOCALAPPDATA) {
@@ -92,7 +100,13 @@ export function resolveVcpkgRoot(
     }
   }
   const executable = findVcpkg();
-  return executable ? win32.dirname(executable) : undefined;
+  if (!executable) {
+    return undefined;
+  }
+  const executableRoot = win32.dirname(executable);
+  return isVisualStudioBundledVcpkgRoot(executableRoot)
+    ? undefined
+    : executableRoot;
 }
 
 function testArchitectureSelection() {
@@ -128,11 +142,32 @@ function testArchitectureSelection() {
   );
   assert.equal(
     resolveVcpkgRoot(
+      {
+        LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local",
+        VCPKG_ROOT:
+          "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg",
+      },
+      () => null,
+      () => true,
+    ),
+    "C:\\Users\\user\\AppData\\Local\\vellum-build-tools\\vcpkg",
+  );
+  assert.equal(
+    resolveVcpkgRoot(
       {},
       () => "C:\\tools\\vcpkg.exe",
       () => false,
     ),
     "C:\\tools",
+  );
+  assert.equal(
+    resolveVcpkgRoot(
+      {},
+      () =>
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\vcpkg.exe",
+      () => false,
+    ),
+    undefined,
   );
   assert.equal(
     resolveVcpkgRoot(
