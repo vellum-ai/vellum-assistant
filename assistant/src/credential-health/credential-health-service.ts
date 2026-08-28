@@ -186,6 +186,7 @@ interface CheckConnectionOpts {
   grantedScopesRaw: string;
   defaultScopesRaw: string;
   authorizeParamsRaw: string | null;
+  scopeSeparator: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -204,6 +205,7 @@ async function checkConnection(
     grantedScopesRaw,
     defaultScopesRaw,
     authorizeParamsRaw,
+    scopeSeparator,
     pingUrl,
     pingMethod,
     pingHeaders,
@@ -284,6 +286,7 @@ async function checkConnection(
       authorizeParamsRaw,
       undefined,
     ),
+    scopeSeparator ?? undefined,
   );
   if (expectedScopes.length > 0 && grantedScopes.length > 0) {
     const missing = scopeDifference(expectedScopes, grantedScopes);
@@ -652,6 +655,7 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
           grantedScopesRaw: conn.grantedScopes,
           defaultScopesRaw: providerRow.defaultScopes,
           authorizeParamsRaw: providerRow.authorizeParams,
+          scopeSeparator: providerRow.scopeSeparator,
           pingUrl: providerRow.pingUrl,
           pingMethod: providerRow.pingMethod,
           pingHeaders: providerRow.pingHeaders,
@@ -766,6 +770,7 @@ export async function checkCredentialForProvider(
       grantedScopesRaw: conn.grantedScopes,
       defaultScopesRaw: providerRow.defaultScopes,
       authorizeParamsRaw: providerRow.authorizeParams,
+      scopeSeparator: providerRow.scopeSeparator,
       pingUrl: providerRow.pingUrl,
       pingMethod: providerRow.pingMethod,
       pingHeaders: providerRow.pingHeaders,

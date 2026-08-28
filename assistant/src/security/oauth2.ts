@@ -20,6 +20,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
 import { getIsPlatform } from "../config/env-registry.js";
+import { parseScopeList } from "../oauth/scope-utils.js";
 import { getLogger } from "../util/logger.js";
 import { renderOAuthCompletionPage as renderLoopbackPage } from "./oauth-completion-page.js";
 
@@ -249,19 +250,9 @@ export async function exchangeCodeForTokens(
       (tokenData.token_type as string | undefined),
   };
 
-  // Defensive split: providers (e.g. GitHub, Slack) may return comma-separated
-  // scopes in token responses regardless of the scope_separator used to join
-  // outbound authorize URLs, so we tolerate both spaces and commas here. When
-  // a provider explicitly configures a non-default separator (e.g. Linear uses
-  // ","), we honor that to keep symmetric round-tripping of configured scopes.
-  const splitPattern =
-    config.scopeSeparator === " " ? /[ ,]/ : config.scopeSeparator;
   const grantedScopes =
     typeof tokens.scope === "string"
-      ? tokens.scope
-          .split(splitPattern)
-          .map((s) => s.trim())
-          .filter(Boolean)
+      ? parseScopeList(tokens.scope, config.scopeSeparator)
       : [...config.scopes];
 
   return { tokens, grantedScopes, rawTokenResponse: tokenData };

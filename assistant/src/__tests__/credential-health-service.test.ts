@@ -13,6 +13,7 @@ let mockProviders: Array<{
   pingHeaders: string | null;
   pingBody: string | null;
   authorizeParams: string | null;
+  scopeSeparator: string | null;
   managedServiceConfigKey?: string;
 }> = [];
 
@@ -201,6 +202,7 @@ function addProvider(
     authorizeParams: opts?.authorizeParams
       ? JSON.stringify(opts.authorizeParams)
       : null,
+    scopeSeparator: " ",
     pingUrl: opts?.pingUrl ?? null,
     pingMethod: opts?.pingMethod ?? null,
     pingHeaders: null,

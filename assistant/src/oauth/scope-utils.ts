@@ -25,12 +25,25 @@ export function scopeDifference(
 }
 
 /**
- * Scope list as a provider writes it: space separated, comma separated, or a
- * mix. Token responses and authorize parameters both arrive in either form.
+ * Split a scope list the way the provider writes it.
+ *
+ * Providers (GitHub, Slack) may return comma-separated scopes regardless of
+ * the separator used to join outbound authorize URLs, so the default tolerates
+ * both spaces and commas. A provider that explicitly configures a non-default
+ * separator (Linear uses ",") is honored, keeping configured scopes
+ * round-tripping symmetrically.
+ *
+ * The one parser for both directions: token responses and authorize
+ * parameters. Two copies would let a provider-format fix land on one and not
+ * the other.
  */
-export function parseScopeList(raw: string): string[] {
+export function parseScopeList(
+  raw: string,
+  scopeSeparator: string = " ",
+): string[] {
+  const splitPattern = scopeSeparator === " " ? /[ ,]/ : scopeSeparator;
   return raw
-    .split(/[\s,]+/)
+    .split(splitPattern)
     .map((scope) => scope.trim())
     .filter(Boolean);
 }
@@ -49,12 +62,13 @@ export function parseScopeList(raw: string): string[] {
 export function expectedScopesForStoredToken(
   defaultScopes: string[],
   authorizeParams: Record<string, string> | undefined,
+  scopeSeparator?: string,
 ): string[] {
   const userScope = authorizeParams?.user_scope;
   if (typeof userScope !== "string") {
     return defaultScopes;
   }
-  const parsed = parseScopeList(userScope);
+  const parsed = parseScopeList(userScope, scopeSeparator);
   return parsed.length > 0 ? parsed : defaultScopes;
 }
 
