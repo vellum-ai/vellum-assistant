@@ -12,6 +12,7 @@ import type {
   GetAssistantResult,
   GetHealthzResult,
   HatchResult,
+  hatchAssistant,
 } from "@/assistant/api";
 import type { PurchasedProvisioningOutcome } from "@/domains/onboarding/purchased-provisioning";
 import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
@@ -46,13 +47,19 @@ mock.module("@/lib/self-hosted/connection", () => ({
 // rather than mere occurrence.
 let clearsAtHatch = { gateway: 0, selfHosted: 0 };
 
-const hatchAssistantMock = mock(async (): Promise<HatchResult> => {
-  clearsAtHatch = {
-    gateway: clearGatewayTokenMock.mock.calls.length,
-    selfHosted: setSelfHostedConnectionMock.mock.calls.length,
-  };
-  return hatchResult;
-});
+// Mirrors `hatchAssistant`'s parameters so call-argument assertions type-check.
+const hatchAssistantMock = mock(
+  async (
+    _input?: Parameters<typeof hatchAssistant>[0],
+    _mode?: Parameters<typeof hatchAssistant>[1],
+  ): Promise<HatchResult> => {
+    clearsAtHatch = {
+      gateway: clearGatewayTokenMock.mock.calls.length,
+      selfHosted: setSelfHostedConnectionMock.mock.calls.length,
+    };
+    return hatchResult;
+  },
+);
 const getAssistantMock = mock(
   async (_id?: string): Promise<GetAssistantResult> => getAssistantResult,
 );
@@ -371,6 +378,30 @@ describe("useBackgroundHatch", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
     // Vellum-Cloud / managed path still provisions via hatchAssistant.
     expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  // `ensure` (the default) hands back the org's existing managed assistant, so
+  // a walk that asked for an ADDITIONAL one has to say `create` outright.
+  test("createMode hatches in create mode; the default stays on ensure", async () => {
+    const { result } = renderHook(() =>
+      useBackgroundHatch({ createMode: true }),
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
+    expect(hatchAssistantMock.mock.calls[0]).toEqual([undefined, "create"]);
+
+    hatchAssistantMock.mockClear();
+    const plain = renderHook(() => useBackgroundHatch());
+    act(() => {
+      plain.result.current.start();
+    });
+    await waitFor(() => expect(plain.result.current.ready).toBe(true));
+    expect(hatchAssistantMock.mock.calls[0]).toEqual([undefined, undefined]);
   });
 
   test("post-checkout return withholds ready until the provisioning wait resolves", async () => {

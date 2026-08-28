@@ -49,6 +49,7 @@ import {
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
 import { shouldAdoptExistingAssistant } from "@/domains/onboarding/adopt-existing-assistant";
+import { isNewAssistantFunnel } from "@/domains/onboarding/onboarding-destination";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
@@ -338,6 +339,7 @@ export function ResearchOnboardingRoute() {
   } = useBackgroundHatch({
     adoptExisting: adoptExistingAssistant,
     adoptAssistantId,
+    createMode: isNewAssistantFunnel(searchParams),
     postCheckoutReturn,
   });
   const research = useResearchRunner();

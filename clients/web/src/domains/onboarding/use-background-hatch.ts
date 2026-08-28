@@ -90,6 +90,15 @@ export interface UseBackgroundHatchOptions {
    */
   adoptAssistantId?: string;
   /**
+   * This onboarding is provisioning an ADDITIONAL assistant (see
+   * `NEW_ASSISTANT_PARAM`), so the managed hatch runs in `create` mode. The
+   * default `ensure` hands back an existing managed assistant when the org has
+   * one, which would silently return the old assistant instead of the new one
+   * the user asked for. Ignored when `adoptExisting` is set: that path runs no
+   * managed hatch at all.
+   */
+  createMode?: boolean;
+  /**
    * The hatch is the return leg of a completed checkout (`post_checkout=1`):
    * after healthz, hold `ready` until the purchased machine/storage resize
    * converges (`awaitPurchasedProvisioning`), then re-probe healthz. Never set
@@ -122,6 +131,7 @@ export interface UseBackgroundHatchOptions {
 export function useBackgroundHatch({
   adoptExisting = false,
   adoptAssistantId,
+  createMode = false,
   postCheckoutReturn = false,
 }: UseBackgroundHatchOptions = {}): UseBackgroundHatch {
   const queryClient = useQueryClient();
@@ -316,7 +326,10 @@ export function useBackgroundHatch({
           setSelfHostedConnection(null);
         }
         try {
-          const result = await hatchAssistant();
+          const result = await hatchAssistant(
+            undefined,
+            createMode ? "create" : undefined,
+          );
           if (result.ok) {
             hatchedAssistantId = result.data.id;
             setAssistantId(result.data.id);
@@ -492,6 +505,7 @@ export function useBackgroundHatch({
     settleReady,
     adoptExisting,
     adoptAssistantId,
+    createMode,
     postCheckoutReturn,
     queryClient,
   ]);
