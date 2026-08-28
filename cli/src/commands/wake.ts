@@ -17,6 +17,7 @@ import {
   waitForDaemonMigrationsReady,
 } from "../lib/http-client.js";
 import {
+  DAEMON_STOP_TIMEOUT_MS,
   isProcessAlive,
   resolveProcessState,
   stopProcessByPidFile,
@@ -149,7 +150,12 @@ export async function wake(): Promise<void> {
       console.log(
         `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
       );
-      const stopped = await stopProcessByPidFile(pidFile, "assistant");
+      const stopped = await stopProcessByPidFile(
+        pidFile,
+        "assistant",
+        undefined,
+        DAEMON_STOP_TIMEOUT_MS,
+      );
       if (!stopped && isProcessAlive(pidFile).alive) {
         daemonRunning = true;
         daemonUnready = true;

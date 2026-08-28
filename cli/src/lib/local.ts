@@ -44,6 +44,7 @@ import {
 } from "./http-client.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
 import {
+  DAEMON_STOP_TIMEOUT_MS,
   type ProcessState,
   executableName,
   isProcessAlive,
@@ -1982,7 +1983,12 @@ export async function stopLocalProcesses(
     ? join(resources.instanceDir, ".vellum")
     : join(homedir(), ".vellum");
   const daemonPidFile = getDaemonPidPath(resources);
-  await stopProcessByPidFile(daemonPidFile, "daemon");
+  await stopProcessByPidFile(
+    daemonPidFile,
+    "daemon",
+    undefined,
+    DAEMON_STOP_TIMEOUT_MS,
+  );
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);

@@ -26,6 +26,7 @@ const isProcessAliveMock = mock((): { alive: boolean; pid: number | null } => ({
 const realProcess = { ...(await import("../lib/process.js")) };
 
 mock.module("../lib/process.js", () => ({
+  ...realProcess,
   isProcessAlive: isProcessAliveMock,
   stopProcessByPidFile: stopProcessByPidFileMock,
 }));
