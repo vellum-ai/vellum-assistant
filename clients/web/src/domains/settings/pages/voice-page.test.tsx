@@ -418,6 +418,15 @@ describe("VoiceSections loading gate", () => {
   const placeholder = () =>
     screen.queryByRole("status", { name: "Loading voice settings" });
 
+  // Each section's own heading, in document order. Not matched by text, since
+  // a card title can repeat one ("Captions" names both the section and the
+  // card inside it), and not a bare `section` query, since DetailCard renders
+  // a section per card: only the page's sections are its direct children.
+  const sectionHeadings = (container: HTMLElement) =>
+    Array.from(container.firstElementChild?.children ?? [])
+      .filter((el) => el.tagName === "SECTION")
+      .map((section) => section.querySelector("h2")?.textContent);
+
   test("an unsettled voice answer holds every card back", () => {
     voiceSelection.settled = false;
 
@@ -444,27 +453,28 @@ describe("VoiceSections loading gate", () => {
   });
 
   test("the section headings keep their place across the swap", () => {
-    // The point of gating here: the scaffolding is identical in both states,
-    // so only the card bodies change when the answers land.
     voiceSelection.settled = false;
-    renderPage();
-    const headings = ["Output", "Input", "Captions"];
-    for (const h of headings) {
-      expect(screen.queryAllByText(h)).toHaveLength(1);
-    }
+    const loading = renderPage();
+    expect(sectionHeadings(loading.container)).toEqual([
+      "Output",
+      "Input",
+      "Captions",
+    ]);
 
     cleanup();
     voiceSelection.settled = true;
-    renderPage();
-    for (const h of headings) {
-      expect(screen.queryAllByText(h)).toHaveLength(1);
-    }
+    const ready = renderPage();
+    expect(sectionHeadings(ready.container)).toEqual([
+      "Output",
+      "Input",
+      "Captions",
+    ]);
   });
 
   test("the placeholder gives way to the cards in a single step", () => {
     voiceSelection.settled = false;
     languageSelection.settled = false;
-    const { rerenderPage } = renderPage();
+    const { rerenderPage, container } = renderPage();
 
     expect(placeholder()).not.toBeNull();
     expect(captionsToggle()).toBeNull();
@@ -477,8 +487,6 @@ describe("VoiceSections loading gate", () => {
 
     expect(placeholder()).toBeNull();
     expect(captionsToggle()).not.toBeNull();
-    for (const h of ["Output", "Input", "Captions"]) {
-      expect(screen.queryAllByText(h)).toHaveLength(1);
-    }
+    expect(sectionHeadings(container)).toEqual(["Output", "Input", "Captions"]);
   });
 });
