@@ -560,10 +560,36 @@ describe("renderConversationMenuItems: read-state iconography", () => {
   });
 });
 
-describe("renderConversationMenuItems: keyboard shortcut hints", () => {
-  function menuHtml(props: Parameters<typeof renderConversationMenuItems>[0]) {
-    return renderToStaticMarkup(<>{renderConversationMenuItems(props)}</>);
+/**
+ * The design library is stubbed in this file, so `Menu.Item` here is a `div`
+ * that spreads its props as attributes rather than the real row. What that can
+ * prove is what this module owns: which accelerator reaches which row. How an
+ * accelerator becomes drawn glyphs plus `aria-keyshortcuts` is the design
+ * library's, and is covered by `menu-item-aside.test.tsx` against the real
+ * component.
+ */
+describe("renderConversationMenuItems: keyboard shortcut routing", () => {
+  interface MenuRow {
+    label: string;
+    shortcut: string | undefined;
   }
+
+  function menuRows(
+    props: Parameters<typeof renderConversationMenuItems>[0],
+  ): MenuRow[] {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems(props)}</>,
+    );
+    return Array.from(
+      html.matchAll(/<div data-testid="menu-item"([^>]*)>(.*?)<\/div>/g),
+    ).map(([, attrs = "", inner = ""]) => ({
+      label: inner.replace(/<[^>]*>/g, ""),
+      shortcut: /shortcut="([^"]*)"/.exec(attrs)?.[1],
+    }));
+  }
+
+  const rowFor = (rows: MenuRow[], label: string): MenuRow | undefined =>
+    rows.find((row) => row.label.includes(label));
 
   const everyAction = {
     Primitive: Menu as unknown as ConversationMenuPrimitive,
@@ -574,42 +600,36 @@ describe("renderConversationMenuItems: keyboard shortcut hints", () => {
     onOpenInNewWindow: () => {},
   };
 
-  test("draws a binding on the row it belongs to and announces it", () => {
-    const html = menuHtml({
+  test("routes a binding to the row it belongs to", () => {
+    const rows = menuRows({
       ...everyAction,
       shortcuts: { pin: "CmdOrCtrl+Shift+P" },
     });
-    // Modifier order belongs to the design library's formatter, so this
-    // asserts that the binding reached this row rather than how it is spelled.
-    expect(html).toMatch(/aria-keyshortcuts="[^"]*Shift[^"]*P"/);
-    expect(html).toMatch(/aria-keyshortcuts="[^"]*Meta[^"]*P"/);
-    // Drawn, and hidden from assistive tech because the attribute carries it.
-    expect(html).toContain('data-slot="menu-item-shortcut"');
-    // The raw accelerator is never what the user reads.
-    expect(html).not.toContain("CmdOrCtrl");
+    expect(rowFor(rows, "Pin")?.shortcut).toBe("CmdOrCtrl+Shift+P");
   });
 
   test("leaves rows without a binding alone", () => {
     // Rename has no shortcut on any host, so no row should sprout one just
     // because a sibling has one.
-    const html = menuHtml({
+    const rows = menuRows({
       ...everyAction,
       shortcuts: { pin: "CmdOrCtrl+Shift+P" },
     });
-    expect(html.match(/data-slot="menu-item-shortcut"/g)).toHaveLength(1);
+    expect(rowFor(rows, "Rename")?.shortcut).toBeUndefined();
+    expect(rows.filter((row) => row.shortcut !== undefined)).toHaveLength(1);
   });
 
-  test("shows no hints at all where the host binds none", () => {
+  test("passes nothing at all where the host binds none", () => {
     // The browser case: every accelerator is absent, so the menu reads exactly
     // as it did before hints existed.
-    const html = menuHtml(everyAction);
-    expect(html).not.toContain("menu-item-shortcut");
-    expect(html).not.toContain("aria-keyshortcuts");
+    const rows = menuRows(everyAction);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.shortcut === undefined)).toBe(true);
   });
 
   test("a menu that is not the command's target advertises nothing", () => {
     // The bound commands act on the active conversation. A sidebar row that is
-    // not the active one would otherwise draw a key that pins, marks, or pops
+    // not the active one would otherwise name a key that pins, marks, or pops
     // out a different conversation than the menu names.
     const html = renderToStaticMarkup(
       <ConversationActionsMenu
@@ -617,12 +637,11 @@ describe("renderConversationMenuItems: keyboard shortcut hints", () => {
         onMarkUnread={() => {}}
       />,
     );
-    expect(html).not.toContain("menu-item-shortcut");
-    expect(html).not.toContain("aria-keyshortcuts");
+    expect(html).not.toContain("shortcut=");
   });
 
   test("puts each binding on its own row", () => {
-    const html = menuHtml({
+    const rows = menuRows({
       ...everyAction,
       shortcuts: {
         pin: "CmdOrCtrl+Shift+P",
@@ -630,9 +649,9 @@ describe("renderConversationMenuItems: keyboard shortcut hints", () => {
         openInNewWindow: "CmdOrCtrl+P",
       },
     });
-    expect(html.match(/data-slot="menu-item-shortcut"/g)).toHaveLength(3);
-    expect(html).toMatch(/aria-keyshortcuts="[^"]*U"/);
-    expect(html).toContain('aria-keyshortcuts="Meta+P"');
+    expect(rowFor(rows, "Pin")?.shortcut).toBe("CmdOrCtrl+Shift+P");
+    expect(rowFor(rows, "Mark as unread")?.shortcut).toBe("CmdOrCtrl+Shift+U");
+    expect(rowFor(rows, "Open in New Window")?.shortcut).toBe("CmdOrCtrl+P");
   });
 });
 
