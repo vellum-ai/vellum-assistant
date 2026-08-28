@@ -325,6 +325,17 @@ const ARIA_KEYS: Record<string, string> = {
   numsub: "-",
   nummult: "*",
   numdiv: "/",
+  insert: "Insert",
+  // Electron's media and volume names differ from the UI Events values, which
+  // is the one place passing the token through would emit something assistive
+  // technology does not recognise.
+  volumeup: "AudioVolumeUp",
+  volumedown: "AudioVolumeDown",
+  volumemute: "AudioVolumeMute",
+  medianexttrack: "MediaTrackNext",
+  mediaprevioustrack: "MediaTrackPrevious",
+  mediastop: "MediaStop",
+  mediaplaypause: "MediaPlayPause",
 };
 
 /**
@@ -341,13 +352,26 @@ const ARIA_KEYS: Record<string, string> = {
  * A key {@link ARIA_KEYS} does not name, as its UI Events value.
  *
  * A single character announces uppercase, which is what the attribute's own
- * examples use. Anything longer is a named key an accelerator already spells
- * the UI Events way, and uppercasing it would emit a value no assistive
- * technology recognises. The drawn glyphs are hidden, so a mangled value here
- * is the only thing a screen reader would have.
+ * examples use, and a function key normalises its own case. Anything else is
+ * returned as written: the accelerator grammar accepts named keys in any case,
+ * so {@link ARIA_KEYS} carries every one whose canonical spelling this cannot
+ * recover, and reaching here otherwise means a key the grammar does not accept.
+ *
+ * The drawn glyphs are hidden, so whatever this returns is the only thing a
+ * screen reader has.
  */
-const ariaKeyFallback = (token: string): string =>
-  token.length === 1 ? token.toUpperCase() : token;
+const FUNCTION_KEY = /^f([1-9]|1\d|2[0-4])$/;
+
+const ariaKeyFallback = (token: string): string => {
+  if (token.length === 1) {
+    return token.toUpperCase();
+  }
+  const lower = token.toLowerCase();
+  if (FUNCTION_KEY.test(lower)) {
+    return lower.toUpperCase();
+  }
+  return token;
+};
 
 export const acceleratorToAriaKeyShortcuts = (
   accelerator: string,
