@@ -238,7 +238,7 @@ export async function handleContactPromptSubmit(
           { channelType, address: normalizedAddress, contactId },
           "contact-prompt-submit: channel resolution failed after upsert",
         );
-        return await channelResolutionError(requestId);
+        return await channelResolutionError(requestId, claim.settleMs);
       }
 
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
@@ -313,9 +313,10 @@ export async function handleContactPromptSubmit(
         },
         "contact-prompt-submit: channel already assigned to another contact",
       );
-      await notifyDaemonResolveError(
+      await reportFailure(
         requestId,
         "Channel already assigned to another contact",
+        claim.settleMs,
       );
       return Response.json(
         {
@@ -366,9 +367,10 @@ export async function handleContactPromptSubmit(
         await rollbackCreatedContact();
 
         // Notify daemon of failure so the CLI doesn't hang.
-        await notifyDaemonResolveError(
+        await reportFailure(
           requestId,
           "Failed to create contact channel",
+          claim.settleMs,
         );
         return Response.json(
           { accepted: false, error: "Failed to create contact channel" },
@@ -390,7 +392,7 @@ export async function handleContactPromptSubmit(
             body: { kind: "contacts_changed" },
           } as unknown as Record<string, unknown>).catch(() => {});
         }
-        return await channelResolutionError(requestId);
+        return await channelResolutionError(requestId, claim.settleMs);
       }
 
       log.info(
@@ -400,7 +402,7 @@ export async function handleContactPromptSubmit(
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
-    await notifyDaemonResolveError(requestId, "Database error");
+    await reportFailure(requestId, "Database error", claim.settleMs);
     return Response.json(
       { accepted: false, error: "Database error" },
       { status: 500 },
@@ -429,8 +431,11 @@ export async function handleContactPromptSubmit(
  * gateway DB read can't find the just-bound channel — resolving the prompt with
  * an empty channelId would falsely report success for a channel-less contact.
  */
-async function channelResolutionError(requestId: string): Promise<Response> {
-  await notifyDaemonResolveError(requestId, "Channel resolution failed");
+async function channelResolutionError(
+  requestId: string,
+  settleMs?: number,
+): Promise<Response> {
+  await reportFailure(requestId, "Channel resolution failed", settleMs);
   return Response.json(
     { accepted: false, error: "Channel resolution failed" },
     { status: 500 },
@@ -484,9 +489,19 @@ async function resolveContactPrompt(args: {
   // submission asked for it.
   let verified = false;
   if (await promptWantsVerify(requestId, args.verify)) {
-    // A resolved row means the channel is attested, whether this call is what
-    // wrote it or it already was.
-    verified = (await getStore().markChannelVerified(channelId)) !== null;
+    try {
+      // A resolved row means the channel is attested, whether this call is what
+      // wrote it or it already was.
+      verified = (await getStore().markChannelVerified(channelId)) !== null;
+    } catch (err) {
+      // The binding is already committed, so a failed attest is a channel that
+      // exists unverified, not a failed submission. Letting this throw would
+      // skip the report and park the command on a claimed form.
+      log.error(
+        { err, requestId, contactId, channelId },
+        "contact-prompt-submit: attesting the channel threw",
+      );
+    }
     if (!verified) {
       log.warn(
         { requestId, contactId, channelId },
@@ -506,25 +521,20 @@ async function resolveContactPrompt(args: {
 }
 
 /**
- * Best-effort notification to the daemon that a pending contact prompt has
- * resolved with an error. Failures here must not block the HTTP response —
- * the caller has already decided the request failed; we just want to wake
- * the CLI up.
+ * Tell the waiting call that its form ended in an error.
+ *
+ * Claiming a form takes ownership of its ending, so a failure owes the caller
+ * a report as much as a success does: a claimed form nobody reports on parks
+ * the command until its settle timer, and the client's retry comes back as a
+ * duplicate because the claim is still held. Retried on the same window a
+ * committed write gets.
  */
-async function notifyDaemonResolveError(
+async function reportFailure(
   requestId: string,
   error: string,
+  settleMs?: number,
 ): Promise<void> {
-  try {
-    await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, error },
-    });
-  } catch (err) {
-    log.warn(
-      { err, requestId },
-      "contact-prompt-submit: resolve_contact_prompt error notification failed",
-    );
-  }
+  await reportResolution(requestId, { requestId, error }, settleMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -657,14 +667,14 @@ export async function handleContactRecordSubmit(
     return await resolveRecordPrompt(requestId, writtenId, claim.settleMs);
   } catch (err) {
     if (err instanceof ContactRecordNativeError) {
-      await notifyDaemonResolveError(requestId, err.message);
+      await reportFailure(requestId, err.message, claim.settleMs);
       return Response.json(
         { accepted: false, error: err.message },
         { status: err.statusCode },
       );
     }
     log.error({ err, requestId, operation }, "contact-record-submit: failed");
-    await notifyDaemonResolveError(requestId, "Contact write failed");
+    await reportFailure(requestId, "Contact write failed", claim.settleMs);
     return Response.json(
       { accepted: false, error: "Contact write failed" },
       { status: 500 },

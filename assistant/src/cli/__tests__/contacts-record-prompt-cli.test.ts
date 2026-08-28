@@ -43,20 +43,31 @@ const contact = {
 const contactWithoutNotes = { ...contact, notes: null };
 
 let contactForRead: Record<string, unknown> = contact;
+/** Make the display readback fail, as a transient IPC hiccup would. */
+let readFails = false;
 
-const cliIpcCallMock = mock(
-  async (
-    operationId: string,
-    options?: Record<string, unknown>,
-    callOptions?: { timeoutMs?: number },
-  ) => {
-    calls.push({ operationId, options, callOptions });
-    if (operationId === "getContact") {
-      return { ok: true, result: { ok: true, contact: contactForRead } };
+/**
+ * The ordinary answers. Held as a named function so `beforeEach` can put it
+ * back: a test that installs its own implementation would otherwise leave it
+ * in place for everything after it, since clearing a mock keeps the last
+ * implementation.
+ */
+const baseIpcImplementation = async (
+  operationId: string,
+  options?: Record<string, unknown>,
+  callOptions?: { timeoutMs?: number },
+) => {
+  calls.push({ operationId, options, callOptions });
+  if (operationId === "getContact") {
+    if (readFails) {
+      return { ok: false, error: "socket closed" };
     }
-    return { ok: true, result: { ok: true, contactId: contact.id } };
-  },
-);
+    return { ok: true, result: { ok: true, contact: contactForRead } };
+  }
+  return { ok: true, result: { ok: true, contactId: contact.id } };
+};
+
+const cliIpcCallMock = mock(baseIpcImplementation);
 
 const actualCliClient = await import("../../ipc/cli-client.js");
 mock.module("../../ipc/cli-client.js", () => ({
@@ -76,7 +87,13 @@ describe("contacts record prompts", () => {
   beforeEach(() => {
     calls = [];
     contactForRead = contact;
+    readFails = false;
+    // Global and sticky: the failure-path cases below set it, and a later test
+    // asserting success would otherwise read their exit code as its own.
+    // Cleared to 0 rather than undefined, which does not reset it.
+    process.exitCode = 0;
     cliIpcCallMock.mockClear();
+    cliIpcCallMock.mockImplementation(baseIpcImplementation);
   });
 
   test("a name-only update carries the notes the contact already has", async () => {
@@ -193,6 +210,19 @@ describe("contacts record prompts", () => {
     expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(
       false,
     );
+  });
+
+  test("a write still reports success when only the display readback fails", async () => {
+    // The guardian has answered and the write is done. Exiting non-zero here
+    // says otherwise, and a retried create makes a second contact.
+    readFails = true;
+
+    await runAssistantCommand("contacts", "create", "--name", "Alice");
+
+    expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(
+      true,
+    );
+    expect(process.exitCode).toBeFalsy();
   });
 
   test("create proposes only what was asked for", async () => {

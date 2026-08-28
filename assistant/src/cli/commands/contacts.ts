@@ -290,16 +290,29 @@ async function runRecordPrompt(
     return;
   }
 
-  const written = await readContactForPrompt(contactId, cmd);
-  if (!written) {
-    return;
-  }
+  const verb = body.operation === "create" ? "Created" : "Updated";
+
+  // The write is already done and the guardian has already answered. This read
+  // is only for what to print, so a failure here reports the write with less
+  // detail rather than reporting the command as failed: an exit code that says
+  // otherwise invites a retry, and retrying a create makes a second contact.
+  const read = await cliIpcCall<{ ok: boolean; contact: ContactWithChannels }>(
+    "getContact",
+    { pathParams: { id: contactId } },
+  );
+  const written = read.ok ? read.result?.contact : undefined;
+
   if (shouldOutputJson(cmd)) {
-    writeOutput(cmd, { ok: true, contact: written });
-  } else {
-    const verb = body.operation === "create" ? "Created" : "Updated";
+    writeOutput(
+      cmd,
+      written ? { ok: true, contact: written } : { ok: true, contactId },
+    );
+  } else if (written) {
     process.stdout.write(`${verb} contact:\n`);
     process.stdout.write(formatContactDetail(written) + "\n");
+  } else {
+    process.stdout.write(`${verb} contact: ${contactId}\n`);
+    writeError(cmd, "Could not read the contact back to display it");
   }
 }
 
