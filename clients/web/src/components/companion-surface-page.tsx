@@ -446,8 +446,8 @@ export function CompanionSurfacePage() {
       }}
       onPointerCancel={() => {
         // The capture goes with the pointer when the host takes it, so nothing
-        // more reports this press. The leave no longer ends a drag, so this has
-        // to.
+        // more reports this press, and the leave defers to a live drag. This is
+        // what ends one the host took away.
         dragRef.current = null;
       }}
       onMouseLeave={() => {
