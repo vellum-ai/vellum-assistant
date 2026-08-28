@@ -1716,19 +1716,21 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
 describe("PlansPage: package usage rows", () => {
   test("every package row is named from the package", async () => {
-    const { findByText, getByText } = renderInteractive(freeSubscription());
+    const { findByText, getByText } = renderInteractive(freeSubscription(), {
+      // Titan carries no `usage_label`, so its row holds only if the wording
+      // comes off the package name.
+      plans: plansWith([
+        MIGHTY,
+        SUPER,
+        ULTRA,
+        makeProPackage({ key: "titan", name: "Titan", usage_label: null }),
+      ]),
+    });
 
     // The name-derived usage rows, matching the plan card's chip.
     await findByText("Mighty usage, reset monthly");
     getByText("Super usage, reset monthly");
     getByText("Ultra usage, reset monthly");
-  });
-
-  test("a package with no usage_label still gets a name-derived usage row", async () => {
-    const { findByText } = renderInteractive(freeSubscription(), {
-      plans: plansWith([makeProPackage({ usage_label: null })]),
-    });
-
-    await findByText("Mighty usage, reset monthly");
+    getByText("Titan usage, reset monthly");
   });
 });

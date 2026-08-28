@@ -122,6 +122,9 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSummaryRetrieveOptions: () => ({
     queryKey: [{ _id: "organizationsBillingSummaryRetrieve" }],
   }),
+  organizationsBillingSubscriptionRetrieveOptions: () => ({
+    queryKey: [{ _id: "organizationsBillingSubscriptionRetrieve" }],
+  }),
   referralCodesMeRetrieveOptions: () => ({
     queryKey: [{ _id: "referralCodesMeRetrieve" }],
   }),
@@ -195,7 +198,13 @@ const usageRef: { value: PreferencesUsage | null; opts: unknown } = {
   value: null,
   opts: undefined,
 };
+// Spread the real module so `showsMenuCredits` stays the production rule;
+// only the reading it works off is overridden.
+const actualPreferencesUsage = await import(
+  "@/domains/chat/hooks/use-preferences-usage"
+);
 mock.module("@/domains/chat/hooks/use-preferences-usage", () => ({
+  ...actualPreferencesUsage,
   usePreferencesUsage: (opts?: unknown) => {
     usageRef.opts = opts;
     return usageRef.value;

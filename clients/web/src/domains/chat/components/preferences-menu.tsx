@@ -24,8 +24,10 @@ import {
   ShareFeedbackModalLazy,
 } from "@/components/share-feedback-modal-lazy";
 import { ThemeToggle } from "@/components/theme-toggle";
-import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
-import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
+import {
+  showsMenuCredits,
+  usePreferencesUsage,
+} from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -321,11 +323,6 @@ function PreferencesMenuContent({
       />
     </>
   );
-}
-
-/** The credits row stands in for the usage panel when there is no reading. */
-export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
-  return usage == null;
 }
 
 function formatWholeCredits(value: string): string {
