@@ -20,13 +20,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath, getLogger } from "./logger.js";
-import {
-  classifyWorkerOwnership,
-  pid1OwnsMlWorkers as pid1OwnsWorkers,
-} from "./ml-worker-ownership.js";
 import { isProcessAlive } from "./process-liveness.js";
 import { findProcessRow, type ProcessTableRow } from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
+import {
+  classifyWorkerOwnership,
+  pid1OwnsWorkers,
+} from "./worker-ownership.js";
 
 const log = getLogger("worker-process");
 
