@@ -149,9 +149,9 @@ export async function submitSecretResponse(
 export async function cancelContactPrompt(
   assistantId: string,
   requestId: string,
-): Promise<SubmitSecretResponseResult> {
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
-    const { error, response } = await assistantContactsPromptSubmit({
+    const { data, error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
       body: { requestId, cancelled: true },
       throwOnError: false,
@@ -165,7 +165,9 @@ export async function cancelContactPrompt(
         transient: false,
       };
     }
-    return { ok: true };
+    // Somebody answered the form before this dismissal reached it, so the
+    // dismissal did not decide anything.
+    return { ok: true, duplicate: data?.duplicate === true };
   } catch (err) {
     return {
       ok: false,

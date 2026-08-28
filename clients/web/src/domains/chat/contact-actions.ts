@@ -160,6 +160,13 @@ export async function handleContactPromptCancel(): Promise<void> {
     .getState()
     .dismissContactRequestIfMatches(request.requestId);
 
+  if (result.duplicate) {
+    // Somebody answered the form first, so this dismissal decided nothing and
+    // the turn behind it is carrying on. Take the stale card down and leave it
+    // alone.
+    return;
+  }
+
   const activeConversationId =
     useConversationStore.getState().activeConversationId;
   if (
@@ -325,6 +332,13 @@ export async function handleContactRecordCancel(): Promise<void> {
   useInteractionStore
     .getState()
     .dismissContactRecordRequestIfMatches(request.requestId);
+
+  if (result.duplicate) {
+    // Somebody answered the form first, so this dismissal decided nothing and
+    // the turn behind it is carrying on. Take the stale card down and leave it
+    // alone.
+    return;
+  }
 
   // This form carries no conversation, so the only turn a dismissal may end is
   // the one that was on screen when it arrived, and only while that is still
