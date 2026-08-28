@@ -315,12 +315,13 @@ export interface LiveVoiceState {
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
-   * Which session lifetime this is, counted across {@link LiveVoiceActions.reset}
-   * calls. It moves when a session tears down and never during one, reconnects
-   * included, so an async continuation that read it mid-session can tell that
-   * its session is over. `controls` cannot answer that question: reconnect
-   * attempts republish a fresh controls object within one session. Survives
-   * `reset()` the way `starter` does.
+   * Which session lifetime this is. It moves when a session tears down and
+   * never during one, reconnects included, so an async continuation that read
+   * it mid-session can tell that its session is over. `controls` cannot
+   * answer that question: reconnect attempts republish a fresh controls
+   * object within one session. Never restored to the initial value: a
+   * terminal {@link LiveVoiceActions.reset} bumps it, and a mid-session reset
+   * (`sessionContinues`) leaves it alone.
    */
   sessionGeneration: number;
   /**
@@ -566,8 +567,13 @@ export interface LiveVoiceActions {
    * `starter` registered — it belongs to the controller's mount lifecycle,
    * not the session lifecycle, and must survive session teardown so the next
    * session can start.
+   *
+   * Bumps `sessionGeneration`, unless `sessionContinues` says this reset
+   * clears state inside one logical session (the reconnect path re-entering
+   * its connect flow), which keeps work pinned to the session, a photo upload
+   * above all, deliverable once the transport is back.
    */
-  reset: () => void;
+  reset: (opts?: { sessionContinues?: boolean }) => void;
 }
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
@@ -750,11 +756,14 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   fail: (message, recovery = null) =>
     set({ state: "failed", error: message, errorRecovery: recovery }),
   // The bump marks the session boundary for anything async that outlives the
-  // session, a photo upload above all (see `attachLiveVoiceImage`).
-  reset: () =>
+  // session, a photo upload above all (see `attachLiveVoiceImage`). A reset
+  // inside one logical session says so, and the generation holds.
+  reset: (opts) =>
     set((s) => ({
       ...INITIAL_SESSION_STATE,
-      sessionGeneration: s.sessionGeneration + 1,
+      sessionGeneration: opts?.sessionContinues
+        ? s.sessionGeneration
+        : s.sessionGeneration + 1,
     })),
 }));
 

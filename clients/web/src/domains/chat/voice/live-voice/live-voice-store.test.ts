@@ -558,6 +558,22 @@ describe("attachLiveVoiceImage", () => {
     expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
     expect(republished.attachImage).toHaveBeenCalledWith("att-1");
   });
+
+  test("survives the reconnect path's own mid-session reset", () => {
+    // The reconnect flow re-enters its connect sequence, which resets the
+    // store with `sessionContinues` before registering fresh controls. The
+    // logical session goes on, so a photo pressed before the blip still
+    // lands after it.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const reconnected = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(reconnected);
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
+    expect(reconnected.attachImage).toHaveBeenCalledWith("att-1");
+  });
 });
 
 describe("endLiveVoiceSession / releaseLiveVoiceTurn", () => {

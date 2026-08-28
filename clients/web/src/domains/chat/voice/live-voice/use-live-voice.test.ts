@@ -1299,6 +1299,36 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
   });
 
+  test("the session generation holds across a retryable reconnect", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    const generation = useLiveVoiceStore.getState().sessionGeneration;
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same logical session is continuing: a photo upload that began
+    // before the blip must still deliver to it (see `attachLiveVoiceImage`).
+    expect(useLiveVoiceStore.getState().sessionGeneration).toBe(generation);
+  });
+
   test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {
     const h = renderController();
     // Ready echoes manual — an older daemon ignored turnDetection.

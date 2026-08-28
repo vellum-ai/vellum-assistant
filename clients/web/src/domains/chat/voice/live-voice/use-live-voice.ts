@@ -687,7 +687,9 @@ export function useLiveVoice(
       // room would cover whatever the user minimized it to look at. A fresh
       // start (attempt 0) always reopens in the room.
       const wasRoomMinimized = store.roomMinimized;
-      store.reset();
+      // On reconnect the same logical session continues, so the session
+      // generation holds and a photo upload spanning the gap still lands.
+      store.reset({ sessionContinues: isReconnect });
       store.setState("connecting");
       // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
       // already bumped (> 0) by the transport `closed` handler, so relabel the
