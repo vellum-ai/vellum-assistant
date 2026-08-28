@@ -4,7 +4,7 @@
  * Enumerates all active OAuth connections and validates each one for:
  * - Token presence in secure storage
  * - Token expiry (expired or expiring within the warning window)
- * - Scope coverage (grantedScopes vs provider defaultScopes)
+ * - Scope coverage (grantedScopes vs the request that produced the token)
  * - Liveness ping (for providers with a pingUrl)
  *
  * Designed to run during the heartbeat cycle. The BYO liveness ping is
@@ -24,7 +24,10 @@ import {
   type OAuthConnectionRow,
   type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
-import { scopeDifference } from "../oauth/scope-utils.js";
+import {
+  expectedScopesForStoredToken,
+  scopeDifference,
+} from "../oauth/scope-utils.js";
 import {
   TokenExpiredError,
   withValidToken,
@@ -182,6 +185,7 @@ interface CheckConnectionOpts {
   hasRefreshToken: boolean;
   grantedScopesRaw: string;
   defaultScopesRaw: string;
+  authorizeParamsRaw: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -199,6 +203,7 @@ async function checkConnection(
     hasRefreshToken,
     grantedScopesRaw,
     defaultScopesRaw,
+    authorizeParamsRaw,
     pingUrl,
     pingMethod,
     pingHeaders,
@@ -268,11 +273,20 @@ async function checkConnection(
     // Has refresh token — not an issue, auto-refresh will handle it
   }
 
-  // 3. Check scope coverage
+  // 3. Check scope coverage, against the request that produced the stored
+  // token rather than the provider's bot-side `scope` parameter. A provider
+  // asking for user scopes as well stores the user token and records that
+  // token's grant, so the bot request names scopes that grant can never hold.
   const grantedScopes = safeJsonParse<string[]>(grantedScopesRaw, []);
-  const defaultScopes = safeJsonParse<string[]>(defaultScopesRaw, []);
-  if (defaultScopes.length > 0 && grantedScopes.length > 0) {
-    const missing = scopeDifference(defaultScopes, grantedScopes);
+  const expectedScopes = expectedScopesForStoredToken(
+    safeJsonParse<string[]>(defaultScopesRaw, []),
+    safeJsonParse<Record<string, string> | undefined>(
+      authorizeParamsRaw,
+      undefined,
+    ),
+  );
+  if (expectedScopes.length > 0 && grantedScopes.length > 0) {
+    const missing = scopeDifference(expectedScopes, grantedScopes);
     if (missing.length > 0) {
       return {
         ...base,
@@ -637,6 +651,7 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
           hasRefreshToken: !!conn.hasRefreshToken,
           grantedScopesRaw: conn.grantedScopes,
           defaultScopesRaw: providerRow.defaultScopes,
+          authorizeParamsRaw: providerRow.authorizeParams,
           pingUrl: providerRow.pingUrl,
           pingMethod: providerRow.pingMethod,
           pingHeaders: providerRow.pingHeaders,
@@ -750,6 +765,7 @@ export async function checkCredentialForProvider(
       hasRefreshToken: !!conn.hasRefreshToken,
       grantedScopesRaw: conn.grantedScopes,
       defaultScopesRaw: providerRow.defaultScopes,
+      authorizeParamsRaw: providerRow.authorizeParams,
       pingUrl: providerRow.pingUrl,
       pingMethod: providerRow.pingMethod,
       pingHeaders: providerRow.pingHeaders,

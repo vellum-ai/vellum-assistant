@@ -24,6 +24,40 @@ export function scopeDifference(
   );
 }
 
+/**
+ * Scope list as a provider writes it: space separated, comma separated, or a
+ * mix. Token responses and authorize parameters both arrive in either form.
+ */
+export function parseScopeList(raw: string): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The scopes the stored access token is expected to carry.
+ *
+ * A provider that asks for user scopes alongside bot scopes issues two grants
+ * from one authorization. `exchangeCodeForTokens` stores the `authed_user`
+ * token in that case and records that token's own grant as `grantedScopes`, so
+ * coverage has to be measured against the request that produced the stored
+ * token: `user_scope` where the provider sends one, the `scope` parameter
+ * otherwise. Measuring a user grant against the bot request reports scopes the
+ * authorization could never place on that token.
+ */
+export function expectedScopesForStoredToken(
+  defaultScopes: string[],
+  authorizeParams: Record<string, string> | undefined,
+): string[] {
+  const userScope = authorizeParams?.user_scope;
+  if (typeof userScope !== "string") {
+    return defaultScopes;
+  }
+  const parsed = parseScopeList(userScope);
+  return parsed.length > 0 ? parsed : defaultScopes;
+}
+
 const GMAIL_FULL_ACCESS_SCOPE = "https://mail.google.com/";
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
