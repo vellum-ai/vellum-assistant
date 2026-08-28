@@ -85,21 +85,41 @@ export async function runGuardianExpirySweep(): Promise<number> {
 
     // Withdraw the now-stale approval cards on every surface. No origin
     // channel — the expiry is system-driven, so all surfaces (including
-    // in-app) are withdrawn. Best-effort and non-throwing: a surface that
-    // fails is retried when the row is listed again.
-    await withdrawGuardianRequestCards({
+    // in-app) are withdrawn. Incomplete withdrawal defers the whole
+    // request: the notice has not been sent yet, so the retry next round
+    // repeats only idempotent card edits, never a delivered notice. A
+    // surface that fails persistently keeps its request in the pending set
+    // with this warning every round, which is loud where the old sweep was
+    // silent.
+    const withdrawal = await withdrawGuardianRequestCards({
       request,
       status: "expired",
     });
+    if (!withdrawal.complete) {
+      log.warn(
+        { requestId: request.id },
+        "Card withdrawal incomplete; leaving the request pending for the next round",
+      );
+      continue;
+    }
 
     // Notify the requester their request expired and release any in-memory
-    // pending interaction. Best-effort and non-throwing, like the card
-    // withdrawal above.
-    await notifyExpiredGuardianRequest(request);
+    // pending interaction. A failed notice also defers the request: an
+    // unsent notice is exactly what a retry can still deliver.
+    const notice = await notifyExpiredGuardianRequest(request);
+    if (!notice.complete) {
+      log.warn(
+        { requestId: request.id },
+        "Expiry notice incomplete; leaving the request pending for the next round",
+      );
+      continue;
+    }
 
     // The receipt: only after the side effects does the row leave the
     // pending set. A failure here leaves it discoverable for the next
-    // round rather than silently done.
+    // round rather than silently done; the notice-then-lost-confirmation
+    // window is the one duplicate-notice case, and it is bounded to that
+    // crash or timeout.
     try {
       await expireGuardianRequest(request.id);
       expiredCount += 1;

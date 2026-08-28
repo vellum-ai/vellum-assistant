@@ -38,12 +38,15 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-// The sweep withdraws cards via this module; we only assert it is invoked, and
-// mocking it keeps the sweep import light (no surface/slack transitive deps).
+// The sweep withdraws cards via this module; mocking it keeps the sweep
+// import light (no surface/slack transitive deps). The completeness result
+// gates the sweep's expire confirmation.
 let withdrawCalls = 0;
+let withdrawIncomplete = false;
 mock.module("../approvals/guardian-card-withdrawal.js", () => ({
   withdrawGuardianRequestCards: async () => {
     withdrawCalls++;
+    return { complete: !withdrawIncomplete };
   },
 }));
 
@@ -128,6 +131,7 @@ beforeEach(() => {
   broadcasts.length = 0;
   deliveryError = null;
   withdrawCalls = 0;
+  withdrawIncomplete = false;
   expireCasFails = false;
   gatewayRequests.clear();
   pendingInteractions.clear();
@@ -303,6 +307,59 @@ describe("sweep integration", () => {
     expect(expiredCount).toBe(0);
     expect(gatewayRequests.get("req-fresh")?.status).toBe("pending");
     expect(deliveredReplies).toHaveLength(0);
+  });
+
+  test("an incomplete withdrawal defers the request and holds the notice back", async () => {
+    // A card edit that failed leaves an actionable control somewhere, so the
+    // request must stay pending and retryable. The notice is held back too:
+    // sending it only after withdrawal completes means the retry round can
+    // never duplicate a delivered notice.
+    gatewayRequests.set(
+      "req-withdraw-fail",
+      makeRequest({
+        id: "req-withdraw-fail",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000,
+      }),
+    );
+
+    withdrawIncomplete = true;
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(gatewayRequests.get("req-withdraw-fail")?.status).toBe("pending");
+    expect(deliveredReplies).toHaveLength(0);
+
+    withdrawIncomplete = false;
+    expect(await runGuardianExpirySweep()).toBe(1);
+    expect(gatewayRequests.get("req-withdraw-fail")?.status).toBe("expired");
+    expect(deliveredReplies).toHaveLength(1);
+  });
+
+  test("a failed requester notice defers the request until a retry delivers it", async () => {
+    gatewayRequests.set(
+      "req-notice-fail",
+      makeRequest({
+        id: "req-notice-fail",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000,
+      }),
+    );
+
+    deliveryError = new Error("channel briefly unreachable");
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(gatewayRequests.get("req-notice-fail")?.status).toBe("pending");
+    expect(deliveredReplies).toHaveLength(0);
+
+    deliveryError = null;
+    expect(await runGuardianExpirySweep()).toBe(1);
+    expect(gatewayRequests.get("req-notice-fail")?.status).toBe("expired");
+    // The notice lands exactly once: the failed attempt delivered nothing.
+    expect(deliveredReplies).toHaveLength(1);
   });
 
   test("a lost expire confirmation leaves the row pending, and the next round recovers it", async () => {

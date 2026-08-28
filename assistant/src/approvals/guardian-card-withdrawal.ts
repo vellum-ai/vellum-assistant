@@ -88,11 +88,14 @@ export interface WithdrawGuardianCardsParams {
 
 /**
  * Withdraw a resolved request's approval cards across all delivery surfaces.
- * Never throws.
+ * Never throws; `complete` reports whether the delivery listing and every
+ * attempted surface edit succeeded, so a caller whose own receipt depends on
+ * the cards actually being withdrawn (the expiry sweep) can hold that
+ * receipt back and retry, while decision-path callers stay fire-and-forget.
  */
 export async function withdrawGuardianRequestCards(
   params: WithdrawGuardianCardsParams,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   const {
     request,
     status,
@@ -109,9 +112,10 @@ export async function withdrawGuardianRequestCards(
       { err, requestId: request.id },
       "Failed to list deliveries for card withdrawal",
     );
-    return;
+    return { complete: false };
   }
 
+  let complete = true;
   for (const delivery of deliveries) {
     try {
       if (delivery.destinationChannel === "vellum") {
@@ -139,6 +143,7 @@ export async function withdrawGuardianRequestCards(
       // post a new one), so its stale clicks are left to the existing
       // "already resolved" reply until in-place edit support lands.
     } catch (err) {
+      complete = false;
       log.warn(
         {
           err,
@@ -149,6 +154,7 @@ export async function withdrawGuardianRequestCards(
       );
     }
   }
+  return { complete };
 }
 
 /**
