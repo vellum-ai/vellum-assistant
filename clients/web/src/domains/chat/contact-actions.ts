@@ -105,18 +105,29 @@ export async function handleContactPromptSubmit(
 }
 
 /**
- * Cancel the contact prompt — dismisses local state and ends the turn.
+ * Cancel the contact prompt: dismisses local state and ends the turn it
+ * belongs to.
+ *
+ * This form carries no conversation, and it now outlives a conversation
+ * switch, so the turn to end is the one that was on screen when it arrived
+ * and only while that is still where the guardian is. Ending whatever happens
+ * to be active would error an unrelated turn that is still running.
  */
 export function handleContactPromptCancel(): void {
-  const requestId =
-    useInteractionStore.getState().pendingContactRequest?.requestId;
-  if (requestId) {
-    useInteractionStore.getState().dismissContactRequestIfMatches(requestId);
+  const request = useInteractionStore.getState().pendingContactRequest;
+  if (request) {
+    useInteractionStore
+      .getState()
+      .dismissContactRequestIfMatches(request.requestId);
   }
-  endTurn({
-    conversationId: useConversationStore.getState().activeConversationId,
-    reason: "error",
-  });
+  const activeConversationId =
+    useConversationStore.getState().activeConversationId;
+  if (
+    request?.originConversationId &&
+    request.originConversationId === activeConversationId
+  ) {
+    endTurn({ conversationId: activeConversationId, reason: "error" });
+  }
 }
 
 /**

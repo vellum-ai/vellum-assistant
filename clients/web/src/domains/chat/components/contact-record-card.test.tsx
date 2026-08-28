@@ -62,6 +62,34 @@ describe("ContactRecordCard", () => {
     });
   });
 
+  test("a rename leaves seeded notes exactly as they were", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "update",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          notes: "  spaced notes  ",
+        }}
+      />,
+    );
+
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    fireEvent.change(inputs[0], { target: { value: "Alice Chen" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // The guardian renamed the contact and never touched the notes, so the
+    // notes must go back exactly as they came.
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: "Alice Chen",
+      notes: "  spaced notes  ",
+    });
+  });
+
   test("an empty name cannot be submitted", () => {
     render(
       <ContactRecordCard

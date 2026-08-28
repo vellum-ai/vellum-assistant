@@ -144,6 +144,7 @@ export function handleContactRequest(
   ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRequest({
     requestId: event.requestId,
+    originConversationId: ctx.streamContext?.conversationId ?? null,
     channel: event.channel,
     placeholder: event.placeholder,
     defaultValue: event.defaultValue,

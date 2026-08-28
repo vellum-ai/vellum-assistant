@@ -64,7 +64,11 @@ export function ContactRecordCard({
     if (!canSubmit) {
       return;
     }
-    onSubmit({ displayName: displayName.trim(), notes: notes.trim() });
+    // The name is trimmed because it is validated non-empty and a stray space
+    // is never meant. Notes are submitted as typed: on a name-only update the
+    // field holds the contact's existing notes untouched, and trimming them
+    // here would let a rename quietly rewrite them.
+    onSubmit({ displayName: displayName.trim(), notes });
   }
 
   return (
