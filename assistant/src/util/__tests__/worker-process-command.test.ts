@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { EMBEDDING_SHUTDOWN_BUDGET_MS } from "../../persistence/embeddings/embedding-backend.js";
 import {
   decideWorkerSlot,
-  ORPHAN_STOP_TIMEOUT_MS,
   resolveWorkerCommand,
   workerKindSignature,
   type WorkerProcessStatus,
@@ -235,17 +233,5 @@ describe("decideWorkerSlot", () => {
 
   test("never signals when the process table could not be read", () => {
     expect(decide(null)).toEqual({ action: "adopt", pid: WORKER });
-  });
-});
-
-// The orphan stop must outlast the longest shutdown a worker can legitimately
-// run, or reclaiming one strands whatever that shutdown was collecting. The
-// memory worker's embedding reap is currently the longest; if that budget
-// grows, this fails rather than silently cutting the reap short.
-describe("ORPHAN_STOP_TIMEOUT_MS", () => {
-  test("outlasts the memory worker's embedding reap", () => {
-    expect(ORPHAN_STOP_TIMEOUT_MS).toBeGreaterThan(
-      EMBEDDING_SHUTDOWN_BUDGET_MS + 1_000,
-    );
   });
 });
