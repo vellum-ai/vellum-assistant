@@ -7,6 +7,14 @@
  * - Scope coverage (grantedScopes vs the request that produced the token)
  * - Liveness ping (for providers with a pingUrl)
  *
+ * Scope coverage answers "was everything we asked for granted", so it applies
+ * only where an authorization made a request. A manual-token provider (a bot
+ * token pasted in, e.g. `slack_channel`) has no request and carries empty
+ * scope lists here; it is still checked for token presence and liveness. What
+ * its token actually carries is read live from the `x-oauth-scopes` response
+ * header by `runtime/channel-readiness-service.ts`, which is the only source
+ * of truth available for a credential this service never negotiated.
+ *
  * Designed to run during the heartbeat cycle. The BYO liveness ping is
  * routed through `withValidToken`, so a stale-but-refreshable access token
  * is refreshed transparently before the ping fires — this prevents the
