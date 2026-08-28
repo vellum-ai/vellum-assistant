@@ -19,9 +19,6 @@ export interface PreferencesUsagePanelProps {
 /**
  * The preferences menu's usage reading: the same usage-balance reading the
  * billing Plan tile draws, close to where the work is being done.
- * `usePreferencesUsage` decides whether there is anything honest to say, so
- * this renders nothing until the org has managed billing and a real number has
- * landed.
  */
 export function PreferencesUsagePanel({
   onOpenBilling,

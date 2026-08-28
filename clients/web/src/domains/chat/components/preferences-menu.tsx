@@ -24,6 +24,7 @@ import {
   ShareFeedbackModalLazy,
 } from "@/components/share-feedback-modal-lazy";
 import { ThemeToggle } from "@/components/theme-toggle";
+import type { PreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
@@ -249,8 +250,7 @@ function PreferencesMenuContent({
   /* The same reading the usage panel below draws, composed once so the row and
      the bar can never disagree about how much of the bundle is left. */
   const usage = usePreferencesUsage({ conversationId: activeConversationId });
-  // The credits row shows only when there is no usage reading to draw instead.
-  const showCredits = usage == null;
+  const showCredits = showsMenuCredits(usage);
 
   return (
     <>
@@ -321,6 +321,11 @@ function PreferencesMenuContent({
       />
     </>
   );
+}
+
+/** The credits row stands in for the usage panel when there is no reading. */
+export function showsMenuCredits(usage: PreferencesUsage | null): boolean {
+  return usage == null;
 }
 
 function formatWholeCredits(value: string): string {
