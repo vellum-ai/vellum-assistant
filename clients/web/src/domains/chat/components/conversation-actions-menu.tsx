@@ -850,6 +850,13 @@ export function ConversationActionsSheet({
 
 export interface ConversationActionsMenuProps extends ConversationMenuItemsProps {
   /**
+   * Whether this menu belongs to the conversation the bound commands act on.
+   * The pin, mark-unread, and pop-out shortcuts target the active
+   * conversation, so only that conversation's menu may advertise them.
+   */
+  targetsActiveConversation?: boolean;
+
+  /**
    * Override the default hover-revealed ellipsis button with a custom
    * trigger (e.g. the topbar thread-name dropdown). The element is
    * wrapped in Radix `Menu.Trigger asChild`, so it must be a
@@ -867,9 +874,10 @@ export function ConversationActionsMenu({
   side = "right",
   align = "start",
   sideOffset = 4,
+  targetsActiveConversation = false,
   ...itemProps
 }: ConversationActionsMenuProps) {
-  const shortcuts = useConversationMenuShortcuts();
+  const shortcuts = useConversationMenuShortcuts(targetsActiveConversation);
   const isTouchMobile = useTouchMobile();
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);

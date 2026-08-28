@@ -607,6 +607,20 @@ describe("renderConversationMenuItems: keyboard shortcut hints", () => {
     expect(html).not.toContain("aria-keyshortcuts");
   });
 
+  test("a menu that is not the command's target advertises nothing", () => {
+    // The bound commands act on the active conversation. A sidebar row that is
+    // not the active one would otherwise draw a key that pins, marks, or pops
+    // out a different conversation than the menu names.
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        onPinToggle={() => {}}
+        onMarkUnread={() => {}}
+      />,
+    );
+    expect(html).not.toContain("menu-item-shortcut");
+    expect(html).not.toContain("aria-keyshortcuts");
+  });
+
   test("puts each binding on its own row", () => {
     const html = menuHtml({
       ...everyAction,

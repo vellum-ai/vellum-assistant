@@ -85,6 +85,7 @@ export function ChatConversationHeader({
   return (
     <ConversationActionsMenu
       variant="header"
+      targetsActiveConversation
       channelSourceLink={channelSourceLink}
       isPinned={isPinned}
       isArchived={isArchived}
