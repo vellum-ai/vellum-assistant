@@ -56,6 +56,8 @@ let readFails = false;
 let notesSaved: boolean | undefined;
 /** Whether the daemon reports that nothing the guardian submitted landed. */
 let nothingWritten: boolean | undefined;
+/** Contacts the list read can see, including any the gateway never recorded. */
+let listedContacts: Array<Record<string, unknown>> = [];
 
 const baseIpcImplementation = async (
   operationId: string,
@@ -68,6 +70,9 @@ const baseIpcImplementation = async (
       return { ok: false, error: "socket closed" };
     }
     return { ok: true, result: { ok: true, contact: contactForRead } };
+  }
+  if (operationId === "listContacts") {
+    return { ok: true, result: { contacts: listedContacts } };
   }
   return {
     ok: true,
@@ -98,6 +103,7 @@ describe("contacts record prompts", () => {
     readFails = false;
     notesSaved = undefined;
     nothingWritten = undefined;
+    listedContacts = [];
     // Global and sticky: the failure-path cases below set it, and a later test
     // asserting success would otherwise read their exit code as its own.
     // Cleared to 0 rather than undefined, which does not reset it.
@@ -295,6 +301,23 @@ describe("contacts record prompts", () => {
     ]);
     // The read comes first: the form names the contact it is about.
     expect(calls[0]!.operationId).toBe("getContact");
+  });
+
+  test("delete reaches the confirmation for a contact only the mirror has", async () => {
+    // A dual-write gap leaves contacts the gateway read cannot see, which
+    // `contacts list` still surfaces and the delete supports removing.
+    //
+    // The other side of this branch, an id nothing knows about, has no test:
+    // it ends in `exitFromIpcResult`, which calls `process.exit` and takes the
+    // test runner with it.
+    readFails = true;
+    listedContacts = [{ ...contact, id: "ct_orphan", displayName: "Orphan" }];
+
+    await runAssistantCommand("contacts", "delete", "ct_orphan");
+
+    const body = recordPromptBody();
+    expect(body.operation).toBe("delete");
+    expect(body.currentDisplayName).toBe("Orphan");
   });
 
   test("update refuses when neither --name nor --notes is given", async () => {

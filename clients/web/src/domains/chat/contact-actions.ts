@@ -16,37 +16,11 @@ import {
   reportSubmissionFailure,
 } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { useTurnStore } from "@/domains/chat/turn-store";
-import { useConversationStore } from "@/stores/conversation-store";
-import { endTurn } from "@/domains/chat/turn-coordinator";
 import {
   cancelContactPrompt,
   submitContactPrompt,
   submitContactRecord,
 } from "@/domains/chat/api/interactions";
-
-/**
- * Release the turn a dismissed contact form parked, if there is one.
- *
- * These forms carry no conversation of their own: raising one marks whichever
- * conversation was on screen as awaiting input, so that is the only turn a
- * dismissal has any claim on, and only while the guardian is still there and
- * it is still parked. A form raised by a background command lands on a
- * conversation that was never waiting for it, and a turn that has moved on is
- * running work of its own; ending either would report an error over something
- * that is fine.
- */
-function endParkedTurn(originConversationId: string | null | undefined): void {
-  const activeConversationId =
-    useConversationStore.getState().activeConversationId;
-  if (!originConversationId || originConversationId !== activeConversationId) {
-    return;
-  }
-  if (useTurnStore.getState().phase !== "awaiting_user_input") {
-    return;
-  }
-  endTurn({ conversationId: activeConversationId, reason: "error" });
-}
 
 /**
  * Submit the contact address/channel to the daemon.
@@ -183,15 +157,6 @@ export async function handleContactPromptCancel(): Promise<void> {
   useInteractionStore
     .getState()
     .dismissContactRequestIfMatches(request.requestId);
-
-  if (result.duplicate) {
-    // Somebody answered the form first, so this dismissal decided nothing and
-    // the turn behind it is carrying on. Take the stale card down and leave it
-    // alone.
-    return;
-  }
-
-  endParkedTurn(request.originConversationId);
 }
 
 /**
@@ -349,13 +314,4 @@ export async function handleContactRecordCancel(): Promise<void> {
   useInteractionStore
     .getState()
     .dismissContactRecordRequestIfMatches(request.requestId);
-
-  if (result.duplicate) {
-    // Somebody answered the form first, so this dismissal decided nothing and
-    // the turn behind it is carrying on. Take the stale card down and leave it
-    // alone.
-    return;
-  }
-
-  endParkedTurn(request.originConversationId);
 }

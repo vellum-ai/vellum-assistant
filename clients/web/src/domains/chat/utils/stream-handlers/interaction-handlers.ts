@@ -137,14 +137,21 @@ export function handleInteractionResolved(
   session.deleteConfirmationToolCall(requestId);
 }
 
+/**
+ * Raise an address form.
+ *
+ * The turn is left alone. This event carries no conversation, so the only one
+ * available is whichever the guardian happens to be viewing, which for a form
+ * raised by a background command is a conversation that is not waiting on
+ * anything: parking it would show an unrelated turn as awaiting input, and
+ * make it look like this form's to end.
+ */
 export function handleContactRequest(
   event: ContactRequestEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRequest({
     requestId: event.requestId,
-    originConversationId: ctx.streamContext?.conversationId ?? null,
     channel: event.channel,
     placeholder: event.placeholder,
     defaultValue: event.defaultValue,
@@ -155,14 +162,16 @@ export function handleContactRequest(
   });
 }
 
+/**
+ * Raise a record form. The turn is left alone, for the same reason the address
+ * form leaves it alone.
+ */
 export function handleContactRecordRequest(
   event: ContactRecordRequestEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRecordRequest({
     requestId: event.requestId,
-    originConversationId: ctx.streamContext?.conversationId ?? null,
     operation: event.operation,
     contactId: event.contactId,
     currentDisplayName: event.currentDisplayName,

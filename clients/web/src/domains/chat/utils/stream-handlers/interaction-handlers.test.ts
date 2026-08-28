@@ -368,15 +368,20 @@ describe("handleInteractionResolved", () => {
 });
 
 describe("handleContactRequest", () => {
-  it("dispatches CONTACT_REQUEST turn event and updates interaction store", () => {
+  it("raises the card without touching the turn", () => {
     const ctx = makeCtx();
     handleContactRequest(
       { type: "contact_request", requestId: "ctc-1", channel: "email" },
       ctx,
     );
-    expect(ctx.turnActions.onContactRequest).toHaveBeenCalled();
+
     const state = useInteractionStore.getState();
     expect(state.pendingContactRequest).toMatchObject({ requestId: "ctc-1" });
+    // The event carries no conversation, so the only turn available is
+    // whichever the guardian is viewing. A form raised by a background command
+    // would park a conversation that is not waiting on it, and show an
+    // unrelated turn as awaiting input.
+    expect(ctx.turnActions.onContactRequest).not.toHaveBeenCalled();
   });
 });
 

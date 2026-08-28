@@ -225,14 +225,30 @@ async function readContactForPrompt(
     "getContact",
     { pathParams: { id } },
   );
-  if (!r.ok) {
-    exitFromIpcResult(
-      r as { ok: false; error?: string; statusCode?: number },
-      cmd,
-    );
-    return null;
+  if (r.ok) {
+    return r.result!.contact;
   }
-  return r.result!.contact;
+
+  // A dual-write gap can leave a contact in the assistant mirror that the
+  // gateway never recorded. `contacts list` surfaces those and deleting one is
+  // supported, so a gateway-backed read missing it is not the same as it not
+  // existing: fall back to the list, which sees them.
+  const listed = await cliIpcCall<{ contacts: ContactWithChannels[] }>(
+    "listContacts",
+    {},
+  );
+  const orphan = listed.ok
+    ? listed.result?.contacts.find((c) => c.id === id)
+    : undefined;
+  if (orphan) {
+    return orphan;
+  }
+
+  exitFromIpcResult(
+    r as { ok: false; error?: string; statusCode?: number },
+    cmd,
+  );
+  return null;
 }
 
 /**
