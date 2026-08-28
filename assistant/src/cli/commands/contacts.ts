@@ -411,7 +411,11 @@ export function registerContactsCommand(program: Command): void {
               contactId: id,
               currentDisplayName: current.displayName,
               displayName: opts.name,
-              notes: opts.notes,
+              // Seed the form's notes field with what the contact already has,
+              // so a name-only edit does not show an empty box the guardian
+              // then submits over their notes. `??` keeps an explicit
+              // `--notes ""` as the deliberate clear it is.
+              notes: opts.notes ?? current.notes,
               label: opts.label,
               description: opts.description,
             },

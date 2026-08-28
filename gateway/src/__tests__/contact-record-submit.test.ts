@@ -165,6 +165,79 @@ describe("contact record submit", () => {
     ).toBeUndefined();
   });
 
+  test("the same create submitted twice lands one contact, not two", async () => {
+    // The form is broadcast to every connected client, so two of them can
+    // answer it, and a client that loses the response will retry.
+    const body = {
+      requestId: "req-twice",
+      operation: "create",
+      displayName: "Alice",
+    };
+
+    const first = await handleContactRecordSubmit(makeRequest(body));
+    const second = await handleContactRecordSubmit(makeRequest(body));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+
+    // Both submissions report the same contact, so whichever reply the client
+    // sees names the row that exists.
+    const resolves = callsFor("resolve_contact_prompt");
+    expect(resolves).toHaveLength(2);
+    expect(resolves[0].body.contactId).toBe(resolves[1].body.contactId);
+  });
+
+  test("two different forms create two contacts", async () => {
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: "req-a",
+        operation: "create",
+        displayName: "Alice",
+      }),
+    );
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: "req-b",
+        operation: "create",
+        displayName: "Alice",
+      }),
+    );
+
+    // Same name, different forms: the guardian answered twice on purpose.
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(2);
+  });
+
+  test("a replayed create does not undo an edit made since", async () => {
+    const body = {
+      requestId: "req-replay",
+      operation: "create",
+      displayName: "Alice",
+    };
+    await handleContactRecordSubmit(makeRequest(body));
+    const id = resolveCall().body.contactId as string;
+
+    // The guardian renames the contact, and only then does a duplicate of the
+    // original submission arrive.
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: "req-rename",
+        operation: "update",
+        contactId: id,
+        displayName: "Alice Chen",
+      }),
+    );
+    await handleContactRecordSubmit(makeRequest(body));
+
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, id))
+      .get();
+    expect(row!.displayName).toBe("Alice Chen");
+  });
+
   test("create requires a display name", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({ requestId: "req-noname", operation: "create" }),

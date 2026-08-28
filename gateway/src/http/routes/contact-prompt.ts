@@ -13,6 +13,8 @@
  * Auth: edge (same as all ingress contact routes).
  */
 
+import { createHash } from "node:crypto";
+
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../../db/connection.js";
@@ -604,7 +606,13 @@ export async function handleContactRecordSubmit(
     }
 
     const { contact } = await upsertContactRecordCore({
-      id: operation === "update" ? contactId : undefined,
+      operation,
+      // A create is keyed by the form it answers. The form is broadcast to
+      // every connected client, so two of them answering it, or one retrying
+      // after a lost response, would otherwise mint a contact per submission.
+      // Keying on the requestId collapses those onto one row.
+      contactId:
+        operation === "update" ? contactId! : contactIdForRequest(requestId),
       displayName,
       notes: body.notes,
     });
@@ -629,6 +637,30 @@ export async function handleContactRecordSubmit(
       { status: 500 },
     );
   }
+}
+
+/**
+ * The contact id a create for this form will use.
+ *
+ * Derived rather than random so replays of the same submission converge on one
+ * row, and hashed rather than reusing the request id verbatim so a contact id
+ * is not also a live interaction identifier. Formatted as a v4-shaped UUID
+ * because that is what every other contact id in both stores looks like.
+ */
+function contactIdForRequest(requestId: string): string {
+  const digest = createHash("sha256")
+    .update(`contact-record:${requestId}`)
+    .digest("hex");
+  const version = `4${digest.slice(13, 16)}`;
+  // Variant nibble: one of 8, 9, a, b.
+  const variant = `${"89ab"[parseInt(digest[16]!, 16) % 4]}${digest.slice(17, 20)}`;
+  return [
+    digest.slice(0, 8),
+    digest.slice(8, 12),
+    version,
+    variant,
+    digest.slice(20, 32),
+  ].join("-");
 }
 
 /**
