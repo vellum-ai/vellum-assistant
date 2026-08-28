@@ -6,7 +6,7 @@ import {
 } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
 import {
@@ -111,7 +111,9 @@ export function useTakeoverSurface(
     // through to neutral.
     (effectiveCustomImageUrl
       ? null
-      : ((effectiveComponents ?? BUNDLED_COMPONENTS).colors?.[0]?.hex ?? null));
+      : effectiveComponents
+        ? (effectiveComponents.colors?.[0]?.hex ?? null)
+        : (BUNDLED_COLORS[0]?.hex ?? null));
 
   return {
     tintHex: ready && accent ? avatarSurfaceHex(accent) : SURFACE_GROUND,
