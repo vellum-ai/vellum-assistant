@@ -1751,8 +1751,15 @@ export function ChatComposer({
                           {/* Desktop row only: the camera surface is a
                               pointer-sized affordance and has no mobile
                               placement yet. Renders nothing while the
-                              `vision-mode` flag is off. */}
-                          {!isAssistantBusy && <SightToggle />}
+                              `vision-mode` flag is off.
+
+                              Pop-out windows are excluded, as they are from the
+                              voice room and the companion mirror: the
+                              viewfinder mounts with the chat layout's main
+                              branch, which a pop-out never renders, so a
+                              control offered here would open a camera with
+                              nothing to preview it and nothing to close it. */}
+                          {!isAssistantBusy && !isPopout && <SightToggle />}
                           {!isAssistantBusy && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"

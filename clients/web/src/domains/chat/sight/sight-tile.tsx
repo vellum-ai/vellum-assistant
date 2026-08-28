@@ -39,14 +39,32 @@ export function SightTile() {
     };
   }, [stream]);
 
-  // Unregistering on unmount rather than on every stream change: the store
-  // drops its own registration when the camera is released, and this covers
-  // the tile leaving the tree with the camera still live.
+  // A tile that leaves the tree gives the camera back with it. This is the
+  // capture's only on-screen control, so a surface that goes away with the
+  // hardware still running (a window crossing the mobile breakpoint, a route
+  // out of the chat layout) strands a lit camera behind no viewfinder and no
+  // close button. The voice room releases its own capture on the same event
+  // and for the same reason.
+  //
+  // The status check keeps a teardown with nothing to release genuinely inert.
+  // `stop` bumps the store's acquire epoch, which is how it cancels a request
+  // still in flight, so an unconditional call would make every teardown a
+  // cancellation signal, including the cleanup StrictMode runs between its two
+  // mount passes. Turning the camera off does not unmount this component (it
+  // renders null and stays), so the toggle's own path never reaches here.
+  //
+  // Read through `getState` rather than the render-time actions: a cleanup runs
+  // outside the render cycle, and the status it acts on has to be the one
+  // standing at teardown.
   useEffect(() => {
     return () => {
-      attachPreviewVideo(null);
+      const sight = useSightStore.getState();
+      sight.attachPreviewVideo(null);
+      if (sight.status !== "off") {
+        sight.stop();
+      }
     };
-  }, [attachPreviewVideo]);
+  }, []);
 
   if (status === "off") {
     return null;

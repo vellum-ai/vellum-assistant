@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { fakeCameraStream } from "@/domains/chat/sight/sight.test-helper";
 import {
   restoreMediaDevices,
   stubMediaDevices,
@@ -37,22 +38,6 @@ mock.module("@/domains/chat/voice/voice-room/voice-camera", () => ({
 const { useSightStore } = await import("./sight-store");
 const { publish } = await import("@/lib/event-bus");
 
-/**
- * A stream whose tracks report being stopped. happy-dom's own `MediaStream` has
- * no `getTracks`, and a duck-typed stand-in cannot be assigned to a `<video>`,
- * so the real class is filled in rather than replaced.
- */
-function fakeStream(): { stream: MediaStream; stops: Array<() => void> } {
-  const stops = [mock(() => {}), mock(() => {})];
-  const tracks = stops.map((stop) => ({ stop }));
-  const stream = new MediaStream();
-  Object.defineProperties(stream, {
-    getTracks: { value: () => tracks },
-    getVideoTracks: { value: () => tracks },
-  });
-  return { stream, stops };
-}
-
 /** Let the queued microtasks behind an `onDecision` capture run. */
 async function flush(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -72,7 +57,7 @@ afterEach(() => {
 
 describe("sight store", () => {
   test("start opens a video-only capture and reaches on", async () => {
-    const { stream } = fakeStream();
+    const { stream } = fakeCameraStream();
     let seen: MediaStreamConstraints | undefined;
     stubMediaDevices((constraints) => {
       seen = constraints;
@@ -102,7 +87,7 @@ describe("sight store", () => {
   });
 
   test("stop releases every track, clears the slot, and repeats safely", async () => {
-    const { stream, stops } = fakeStream();
+    const { stream, stops } = fakeCameraStream();
     stubMediaDevices(() => Promise.resolve(stream));
     await useSightStore.getState().start();
 
@@ -134,7 +119,7 @@ describe("sight store", () => {
   });
 
   test("the app going to the background releases the camera", async () => {
-    const { stream, stops } = fakeStream();
+    const { stream, stops } = fakeCameraStream();
     stubMediaDevices(() => Promise.resolve(stream));
     await useSightStore.getState().start();
 
@@ -147,7 +132,7 @@ describe("sight store", () => {
   });
 
   test("a start that resolves behind a hidden window releases at once", async () => {
-    const { stream, stops } = fakeStream();
+    const { stream, stops } = fakeCameraStream();
     let deliver!: (value: MediaStream) => void;
     const pending = new Promise<MediaStream>((resolve) => {
       deliver = resolve;
@@ -176,7 +161,7 @@ describe("sight store", () => {
   });
 
   test("a stop racing an in-flight start leaves no live tracks", async () => {
-    const { stream, stops } = fakeStream();
+    const { stream, stops } = fakeCameraStream();
     // Definite assignment: a promise executor runs synchronously, so the
     // resolver is in hand before the next statement.
     let deliver!: (value: MediaStream) => void;
@@ -198,7 +183,7 @@ describe("sight store", () => {
   });
 
   test("a keep replaces the held frame, and takeSendFrame hands it over", async () => {
-    const { stream } = fakeStream();
+    const { stream } = fakeCameraStream();
     stubMediaDevices(() => Promise.resolve(stream));
     await useSightStore.getState().start();
 
@@ -239,7 +224,7 @@ describe("sight store", () => {
   });
 
   test("takeSendFrame falls back to the live frame before any keep", async () => {
-    const { stream } = fakeStream();
+    const { stream } = fakeCameraStream();
     stubMediaDevices(() => Promise.resolve(stream));
     await useSightStore.getState().start();
     useSightStore
