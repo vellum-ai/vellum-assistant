@@ -26,6 +26,20 @@ import {
   type UseComposerSubmitParams,
 } from "./use-composer-submit";
 
+/**
+ * The Eyes frame upload, replaced so the one question asked of it here is a
+ * call count rather than a camera and a network round trip. The real helper
+ * answers null with the camera off, which is what every other test in this file
+ * would see from it.
+ */
+const uploadSightFrameAttachment = mock(
+  async (_assistantId: string | null): Promise<DisplayAttachment | null> =>
+    null,
+);
+mock.module("@/domains/chat/sight/sight-attachment", () => ({
+  uploadSightFrameAttachment,
+}));
+
 const SYNTHETIC_PROJECT_KEY =
   "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv1Wx2Yz3A";
 
@@ -90,6 +104,7 @@ beforeEach(() => {
   useComposerStore.getState().resetAttachments();
   useQuoteReplyStore.getState().clearStagedQuotes();
   useChannelReferenceStore.setState({ reference: null });
+  uploadSightFrameAttachment.mockClear();
 });
 
 afterEach(() => {
@@ -261,5 +276,52 @@ describe("useComposerSubmit bypassSecretCheck plumbing", () => {
 
     expect(beforeSend).toHaveBeenCalledTimes(1);
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("useComposerSubmit Eyes frame", () => {
+  test("a message that becomes a turn asks the camera for its frame", async () => {
+    useComposerStore.getState().setInput("what am I holding?");
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(uploadSightFrameAttachment).toHaveBeenCalledTimes(1);
+    expect(uploadSightFrameAttachment).toHaveBeenCalledWith("assistant-1");
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test("a command the send resolves locally never reaches the camera", async () => {
+    // GIVEN a submit that ends in an ephemeral card or the Doctor panel
+    // WHEN it goes through
+    // THEN no frame is captured, resized or uploaded for it, while the send
+    // still receives the command and resolves it as it always has.
+    const { result, sendMessage } = renderSubmit();
+    for (const command of [
+      "/status",
+      "  /clean  ",
+      "/doctor fix my profiles",
+    ]) {
+      await act(async () => {
+        await result.current.submitMessage(command);
+      });
+    }
+
+    expect(uploadSightFrameAttachment).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+  });
+
+  test("the frame skipped by a command is still there for the next message", async () => {
+    // Nothing about the skip touches the store, so the keep it is holding
+    // survives to ride along with the first submit that becomes a turn.
+    const { result } = renderSubmit();
+    await act(async () => {
+      await result.current.submitMessage("/status");
+    });
+    expect(uploadSightFrameAttachment).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.submitMessage("and now look at this");
+    });
+    expect(uploadSightFrameAttachment).toHaveBeenCalledTimes(1);
   });
 });

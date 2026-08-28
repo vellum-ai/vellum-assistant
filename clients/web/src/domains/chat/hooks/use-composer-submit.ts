@@ -30,6 +30,7 @@ import {
 } from "@/domains/chat/composer-store";
 import { prependChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
+import { isLocallyHandledCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import { uploadSightFrameAttachment } from "@/domains/chat/sight/sight-attachment";
 import {
   useQuoteReplyStore,
@@ -220,9 +221,18 @@ export function useComposerSubmit({
       // attachment so the assistant answers about what it can see. Best effort:
       // the helper swallows its own failures and a message with no frame still
       // goes.
-      const sightAttachment = await uploadSightFrameAttachment(assistantId);
-      if (sightAttachment) {
-        attachmentsToSend.push(sightAttachment);
+      //
+      // Not for a command the send resolves by itself. `/status` and its
+      // siblings never become a chat message, so a frame captured for one is an
+      // image uploaded and persisted for nothing, and the round trip is latency
+      // a local command pays with no one waiting on an assistant. The frame is
+      // left where it is rather than consumed, so the next real message still
+      // carries it.
+      if (!isLocallyHandledCommand(finalContent)) {
+        const sightAttachment = await uploadSightFrameAttachment(assistantId);
+        if (sightAttachment) {
+          attachmentsToSend.push(sightAttachment);
+        }
       }
 
       // Forward the secret-check override only when this send explicitly
