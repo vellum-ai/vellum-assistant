@@ -234,6 +234,20 @@ interface ActionMenuItemProps {
   /** Keyboard shortcut hint. Pointer surfaces only, since a sheet has no keys. */
   shortcut?: ReactNode;
   /**
+   * The binding {@link ActionMenuItemProps.shortcut} draws, in
+   * [`aria-keyshortcuts`](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-keyshortcuts)
+   * form (`"Meta+Shift+P"`). The drawn glyphs are hidden from assistive tech,
+   * so this is what a screen reader announces. Travels with `shortcut`:
+   * pointer surfaces only.
+   */
+  ariaKeyShortcuts?: string;
+  /**
+   * Right-aligned trailing content that is not a keyboard shortcut: a status
+   * glyph, secondary hint text. Anchored presentation only; the sheet row has
+   * no trailing column.
+   */
+  trailing?: ReactNode;
+  /**
    * `"destructive"` paints the row in the negative system colour, for an action
    * that deletes or discards. A tone rather than a caller-supplied class, so
    * the warning looks the same in both presentations: a menu row styled red and
@@ -267,6 +281,8 @@ function Item({
   label,
   description,
   shortcut,
+  ariaKeyShortcuts,
+  trailing,
   tone = "default",
   disabled = false,
   onSelect,
@@ -311,6 +327,8 @@ function Item({
     <Menu.Item
       leftIcon={Icon ? <Icon size={14} /> : undefined}
       shortcut={shortcut}
+      aria-keyshortcuts={ariaKeyShortcuts}
+      trailing={trailing}
       disabled={disabled}
       className={cn(
         "whitespace-nowrap",

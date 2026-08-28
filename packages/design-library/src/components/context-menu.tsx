@@ -94,14 +94,30 @@ function Content({
 
 type ItemProps = ComponentProps<typeof ContextMenuPrimitive.Item> & {
   readonly leftIcon?: ReactNode;
+  /**
+   * Keyboard shortcut hint, right-aligned in the row. The glyphs are hidden
+   * from assistive tech, so pass `aria-keyshortcuts` on the item alongside
+   * this for screen readers to announce the binding.
+   */
   readonly shortcut?: ReactNode;
+  /**
+   * Right-aligned trailing content that is not a keyboard shortcut: a status
+   * glyph, secondary hint text. Unlike {@link ItemProps.shortcut} it stays in
+   * the accessible name.
+   */
+  readonly trailing?: ReactNode;
 };
+
+// The inner spans reuse Menu's slot names (`menu-item-icon` and friends), not
+// a `context-menu-` prefix: the two primitives render identical rows, and
+// shared helpers style items for both through one selector.
 
 function Item({
   className,
   children,
   leftIcon,
   shortcut,
+  trailing,
   ref,
   ...rest
 }: ItemProps) {
@@ -114,6 +130,7 @@ function Item({
     >
       {leftIcon ? (
         <span
+          data-slot="menu-item-icon"
           className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
           aria-hidden
         >
@@ -121,8 +138,23 @@ function Item({
         </span>
       ) : null}
       <span className="flex-1 truncate">{children}</span>
+      {trailing ? (
+        <span
+          data-slot="menu-item-trailing"
+          className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]"
+        >
+          {trailing}
+        </span>
+      ) : null}
       {shortcut ? (
-        <span className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]">
+        <span
+          data-slot="menu-item-shortcut"
+          aria-hidden
+          className={cn(
+            "pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]",
+            !trailing && "ml-auto",
+          )}
+        >
           {shortcut}
         </span>
       ) : null}
@@ -166,7 +198,11 @@ function CheckboxItem({
       </span>
       <span className="flex-1 truncate">{children}</span>
       {shortcut ? (
-        <span className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]">
+        <span
+          data-slot="menu-item-shortcut"
+          aria-hidden
+          className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]"
+        >
           {shortcut}
         </span>
       ) : null}
@@ -190,9 +226,7 @@ function RadioGroup({ ref, ...rest }: RadioGroupProps) {
   );
 }
 
-type RadioItemProps = ComponentProps<
-  typeof ContextMenuPrimitive.RadioItem
-> & {
+type RadioItemProps = ComponentProps<typeof ContextMenuPrimitive.RadioItem> & {
   readonly shortcut?: ReactNode;
 };
 
@@ -220,7 +254,11 @@ function RadioItem({
       </span>
       <span className="flex-1 truncate">{children}</span>
       {shortcut ? (
-        <span className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]">
+        <span
+          data-slot="menu-item-shortcut"
+          aria-hidden
+          className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]"
+        >
           {shortcut}
         </span>
       ) : null}
@@ -299,6 +337,7 @@ function SubTrigger({
     >
       {leftIcon ? (
         <span
+          data-slot="menu-item-icon"
           className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
           aria-hidden
         >
@@ -314,9 +353,7 @@ function SubTrigger({
   );
 }
 
-type SubContentProps = ComponentProps<
-  typeof ContextMenuPrimitive.SubContent
->;
+type SubContentProps = ComponentProps<typeof ContextMenuPrimitive.SubContent>;
 
 function SubContent({ className, ref, ...rest }: SubContentProps) {
   const container = usePortalContainer();

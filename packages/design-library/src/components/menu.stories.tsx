@@ -1,8 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
+  Check,
   Clipboard,
   LogOut,
   Pencil,
+  Pin,
   Settings,
   Trash2,
   UserPlus,
@@ -47,9 +49,7 @@ export const WithIcons: Story = {
       </Menu.Trigger>
       <Menu.Content>
         <Menu.Item leftIcon={<Pencil className="h-4 w-4" />}>Edit</Menu.Item>
-        <Menu.Item leftIcon={<Clipboard className="h-4 w-4" />}>
-          Copy
-        </Menu.Item>
+        <Menu.Item leftIcon={<Clipboard className="h-4 w-4" />}>Copy</Menu.Item>
         <Menu.Separator />
         <Menu.Item leftIcon={<UserPlus className="h-4 w-4" />}>
           Invite
@@ -58,28 +58,119 @@ export const WithIcons: Story = {
           Settings
         </Menu.Item>
         <Menu.Separator />
-        <Menu.Item leftIcon={<Trash2 className="h-4 w-4" />}>
-          Delete
-        </Menu.Item>
+        <Menu.Item leftIcon={<Trash2 className="h-4 w-4" />}>Delete</Menu.Item>
       </Menu.Content>
     </Menu.Root>
   ),
 };
 
+/**
+ * The shortcut glyphs are presentation only (`aria-hidden`), so each item also
+ * carries `aria-keyshortcuts` for assistive tech to announce the binding.
+ */
 export const WithShortcuts: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Menu.Root>
       <Menu.Trigger>
         <Button>File</Button>
       </Menu.Trigger>
       <Menu.Content>
-        <Menu.Item shortcut="⌘N">New</Menu.Item>
-        <Menu.Item shortcut="⌘O">Open</Menu.Item>
+        <Menu.Item shortcut="⌘N" aria-keyshortcuts="Meta+N">
+          New
+        </Menu.Item>
+        <Menu.Item shortcut="⌘O" aria-keyshortcuts="Meta+O">
+          Open
+        </Menu.Item>
         <Menu.Separator />
-        <Menu.Item shortcut="⌘S">Save</Menu.Item>
-        <Menu.Item shortcut="⇧⌘S">Save as…</Menu.Item>
+        <Menu.Item shortcut="⌘S" aria-keyshortcuts="Meta+S">
+          Save
+        </Menu.Item>
+        <Menu.Item shortcut="⇧⌘S" aria-keyshortcuts="Meta+Shift+S">
+          Save as…
+        </Menu.Item>
         <Menu.Separator />
-        <Menu.Item shortcut="⌘Q">Quit</Menu.Item>
+        <Menu.Item shortcut="⌘Q" aria-keyshortcuts="Meta+Q">
+          Quit
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
+  ),
+};
+
+/** The item slots, driven from Controls so each one can be tried in isolation. */
+interface ItemSlotsArgs {
+  label: string;
+  /** Right-aligned key hint. Hidden from assistive tech. */
+  shortcut: string;
+  /** Announced binding, paired with the visible {@link ItemSlotsArgs.shortcut}. */
+  ariaKeyShortcuts: string;
+  /** Right-aligned content that is not a shortcut. Stays in the accessible name. */
+  trailing: string;
+  showIcon: boolean;
+  disabled: boolean;
+}
+
+/**
+ * `shortcut` and `trailing` are separate slots because they mean different
+ * things to a screen reader: a key hint is decorative and repeats what
+ * `aria-keyshortcuts` announces, while trailing content (a status glyph, a
+ * secondary hint) is part of what the row says.
+ */
+export const ItemSlots: StoryObj<ItemSlotsArgs> = {
+  args: {
+    label: "Pin conversation",
+    shortcut: "⇧⌘P",
+    ariaKeyShortcuts: "Meta+Shift+P",
+    trailing: "",
+    showIcon: true,
+    disabled: false,
+  },
+  argTypes: {
+    label: { control: "text" },
+    shortcut: { control: "text" },
+    ariaKeyShortcuts: { control: "text" },
+    trailing: { control: "text" },
+    showIcon: { control: "boolean" },
+    disabled: { control: "boolean" },
+  },
+  render: (args) => (
+    <Menu.Root>
+      <Menu.Trigger>
+        <Button variant="outlined">Conversation</Button>
+      </Menu.Trigger>
+      <Menu.Content>
+        <Menu.Item
+          leftIcon={args.showIcon ? <Pin className="h-4 w-4" /> : undefined}
+          shortcut={args.shortcut || undefined}
+          aria-keyshortcuts={args.ariaKeyShortcuts || undefined}
+          trailing={args.trailing || undefined}
+          disabled={args.disabled}
+        >
+          {args.label}
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
+  ),
+};
+
+/**
+ * `trailing` carrying a status glyph and a secondary hint, next to a row that
+ * has neither, so the shared right column is visible.
+ */
+export const WithTrailingContent: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Menu.Root>
+      <Menu.Trigger>
+        <Button variant="outlined">Model</Button>
+      </Menu.Trigger>
+      <Menu.Content>
+        <Menu.Item trailing={<Check className="h-3.5 w-3.5" />}>
+          Balanced
+        </Menu.Item>
+        <Menu.Item>Fast</Menu.Item>
+        <Menu.Item trailing="Preview">Reasoning</Menu.Item>
       </Menu.Content>
     </Menu.Root>
   ),
