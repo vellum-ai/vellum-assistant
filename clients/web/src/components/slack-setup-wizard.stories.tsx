@@ -8,7 +8,7 @@ import { SlackSetupWizard } from "./slack-setup-wizard";
 const ASSISTANT_ID = "asst_story";
 
 /**
- * A 1x1 lilac PNG standing in for the rendered avatar. Seeded into the cache
+ * A 1x1 green PNG standing in for the rendered avatar. Seeded into the cache
  * under the raster key so the card renders without a daemon: the component
  * reads its file through TanStack Query, and a story owns that cache.
  */
