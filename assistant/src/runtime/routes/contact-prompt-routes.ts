@@ -54,6 +54,12 @@ interface PendingContactPrompt {
   timer: ReturnType<typeof setTimeout>;
   /** When true, the gateway marks the submitted channel verified (manual attest). */
   verify: boolean;
+  /**
+   * Set once a submission has been accepted for this form. The form is
+   * broadcast to every connected client, so more than one can answer it; the
+   * first claim wins and the rest write nothing.
+   */
+  claimed?: boolean;
 }
 
 const pendingContactPrompts = new Map<string, PendingContactPrompt>();
@@ -154,6 +160,12 @@ const ContactRecordPromptParams = z.object({
     .describe(
       "The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned facts are not read here.",
     ),
+  channels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
+    .optional()
+    .describe(
+      "The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show what access is about to be lost.",
+    ),
   displayName: z
     .string()
     .optional()
@@ -245,6 +257,7 @@ async function handleContactRecordPrompt({
     operation,
     contactId,
     currentDisplayName,
+    channels,
     displayName,
     notes,
     label,
@@ -272,6 +285,7 @@ async function handleContactRecordPrompt({
       operation,
       contactId,
       currentDisplayName,
+      channels,
       displayName,
       notes,
       label,
@@ -283,6 +297,32 @@ async function handleContactRecordPrompt({
       "Contact record prompt broadcast",
     );
   });
+}
+
+/**
+ * Claim a pending form so exactly one submission can write.
+ *
+ * The daemon holds the only record of which forms are still open, so it is the
+ * one place that can decide a race between two clients answering the same
+ * broadcast. First caller wins; the rest are told why they lost, so the
+ * gateway can tell "somebody already answered this" (leave their answer alone)
+ * apart from "no such form" (expired or already resolved, so nothing should be
+ * written at all).
+ */
+function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
+  claimed: boolean;
+  reason?: "already_claimed" | "unknown";
+} {
+  const { requestId } = ContactPromptFlagsParams.parse(body);
+  const pending = pendingContactPrompts.get(requestId);
+  if (!pending) {
+    return { claimed: false, reason: "unknown" };
+  }
+  if (pending.claimed) {
+    return { claimed: false, reason: "already_claimed" };
+  }
+  pending.claimed = true;
+  return { claimed: true };
 }
 
 /**
@@ -359,6 +399,25 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     description:
       "Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.",
     tags: ["contacts"],
+  },
+  {
+    operationId: "contact_prompt_claim",
+    endpoint: "contact_prompt_claim",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: claimContactPrompt,
+    summary: "Claim a pending contact form for one submission",
+    description:
+      "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is pending.",
+    tags: ["contacts"],
+    requestBody: ContactPromptFlagsParams,
+    responseBody: z.object({
+      claimed: z.boolean(),
+      reason: z.enum(["already_claimed", "unknown"]).optional(),
+    }),
   },
   {
     operationId: "contact_prompt_flags",

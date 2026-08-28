@@ -163,6 +163,7 @@ interface ContactRecordPromptBody {
   operation: "create" | "update" | "delete";
   contactId?: string;
   currentDisplayName?: string;
+  channels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
   label?: string;
@@ -440,6 +441,13 @@ export function registerContactsCommand(program: Command): void {
               operation: "delete",
               contactId: id,
               currentDisplayName: current.displayName,
+              // Two contacts can share a name, and deleting one takes its
+              // channels with it. The confirmation has to say which contact
+              // this is and what access is about to be lost.
+              channels: current.channels.map((ch) => ({
+                type: ch.type,
+                address: ch.address,
+              })),
               label: opts.label,
               description: opts.description,
             },

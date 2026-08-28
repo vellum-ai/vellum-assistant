@@ -163,6 +163,7 @@ export function handleContactRecordRequest(
     operation: event.operation,
     contactId: event.contactId,
     currentDisplayName: event.currentDisplayName,
+    channels: event.channels,
     displayName: event.displayName,
     notes: event.notes,
     label: event.label,

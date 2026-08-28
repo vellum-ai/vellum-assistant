@@ -28,7 +28,37 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 // Mock IPC so mirror ops + resolve_contact_prompt don't dial a real socket.
 // ---------------------------------------------------------------------------
 
-const ipcMock = mock(async () => ({ resolved: true, exists: false }));
+/**
+ * Forms the daemon still has open. The gateway claims one before writing, and
+ * the daemon grants that claim once, so the mock has to model the claim rather
+ * than wave it through: most of what these tests pin is what happens on the
+ * second answer to the same form.
+ */
+let openForms = new Set<string>();
+const claimedForms = new Set<string>();
+
+const ipcMock = mock(
+  async (method: string, options?: { body?: Record<string, unknown> }) => {
+    if (method === "contact_prompt_claim") {
+      const requestId = options?.body?.requestId as string;
+      if (!openForms.has(requestId)) {
+        return { claimed: false, reason: "unknown" };
+      }
+      if (claimedForms.has(requestId)) {
+        return { claimed: false, reason: "already_claimed" };
+      }
+      claimedForms.add(requestId);
+      return { claimed: true };
+    }
+    return { resolved: true, exists: false };
+  },
+);
+
+/** Open a form so a submission naming it can be claimed. */
+function openForm(requestId: string): string {
+  openForms.add(requestId);
+  return requestId;
+}
 
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
@@ -90,7 +120,8 @@ afterAll(() => {
 
 beforeEach(() => {
   ipcMock.mockClear();
-  ipcMock.mockImplementation(async () => ({ resolved: true, exists: false }));
+  openForms = new Set<string>();
+  claimedForms.clear();
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
@@ -100,7 +131,7 @@ describe("contact record submit", () => {
   test("create writes the submitted name and resolves the parked call", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-create",
+        requestId: openForm("req-create"),
         operation: "create",
         displayName: "Alice",
         notes: "Dentist",
@@ -127,7 +158,7 @@ describe("contact record submit", () => {
   test("create binds no channel", async () => {
     await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-no-channel",
+        requestId: openForm("req-no-channel"),
         operation: "create",
         displayName: "Alice",
       }),
@@ -143,7 +174,7 @@ describe("contact record submit", () => {
     // submitted body reaches this route, which is the point of the form.
     await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-edited",
+        requestId: openForm("req-edited"),
         operation: "create",
         displayName: "Alice Chen",
       }),
@@ -169,7 +200,7 @@ describe("contact record submit", () => {
     // The form is broadcast to every connected client, so two of them can
     // answer it, and a client that loses the response will retry.
     const body = {
-      requestId: "req-twice",
+      requestId: openForm("req-twice"),
       operation: "create",
       displayName: "Alice",
     };
@@ -178,27 +209,70 @@ describe("contact record submit", () => {
     const second = await handleContactRecordSubmit(makeRequest(body));
 
     expect(first.status).toBe(200);
+    // The loser is told it succeeded, because from its side nothing is wrong:
+    // the form it was showing has been answered.
     expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ accepted: true, duplicate: true });
     expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+  });
 
-    // Both submissions report the same contact, so whichever reply the client
-    // sees names the row that exists.
-    const resolves = callsFor("resolve_contact_prompt");
-    expect(resolves).toHaveLength(2);
-    expect(resolves[0].body.contactId).toBe(resolves[1].body.contactId);
+  test("a second answer to an update form cannot overwrite the first", async () => {
+    seedContact("c-race", "Alice");
+    const requestId = openForm("req-race");
+
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId,
+        operation: "update",
+        contactId: "c-race",
+        displayName: "Alice Chen",
+      }),
+    );
+    // A second client answers the same form with what it was seeded with.
+    const second = await handleContactRecordSubmit(
+      makeRequest({
+        requestId,
+        operation: "update",
+        contactId: "c-race",
+        displayName: "Alice",
+      }),
+    );
+
+    expect(second.status).toBe(200);
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-race"))
+      .get();
+    expect(row!.displayName).toBe("Alice Chen");
+  });
+
+  test("a submission for a form nobody is waiting on is refused", async () => {
+    // Expired, or already resolved: the CLI has gone, so a write here would be
+    // a contact nobody asked for.
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: "req-never-opened",
+        operation: "create",
+        displayName: "Alice",
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
   });
 
   test("two different forms create two contacts", async () => {
     await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-a",
+        requestId: openForm("req-a"),
         operation: "create",
         displayName: "Alice",
       }),
     );
     await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-b",
+        requestId: openForm("req-b"),
         operation: "create",
         displayName: "Alice",
       }),
@@ -210,7 +284,7 @@ describe("contact record submit", () => {
 
   test("a replayed create does not undo an edit made since", async () => {
     const body = {
-      requestId: "req-replay",
+      requestId: openForm("req-replay"),
       operation: "create",
       displayName: "Alice",
     };
@@ -221,7 +295,7 @@ describe("contact record submit", () => {
     // original submission arrive.
     await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-rename",
+        requestId: openForm("req-rename"),
         operation: "update",
         contactId: id,
         displayName: "Alice Chen",
@@ -240,7 +314,7 @@ describe("contact record submit", () => {
 
   test("create requires a display name", async () => {
     const res = await handleContactRecordSubmit(
-      makeRequest({ requestId: "req-noname", operation: "create" }),
+      makeRequest({ requestId: openForm("req-noname"), operation: "create" }),
     );
 
     expect(res.status).toBe(400);
@@ -254,7 +328,7 @@ describe("contact record submit", () => {
 
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-update",
+        requestId: openForm("req-update"),
         operation: "update",
         contactId: "c-1",
         displayName: "Alice Chen",
@@ -274,7 +348,7 @@ describe("contact record submit", () => {
   test("update on an unknown id is a 404, not a stray contact", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-ghost",
+        requestId: openForm("req-ghost"),
         operation: "update",
         contactId: "does-not-exist",
         displayName: "Alice",
@@ -288,7 +362,7 @@ describe("contact record submit", () => {
   test("update requires a contact id", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-noid",
+        requestId: openForm("req-noid"),
         operation: "update",
         displayName: "Alice",
       }),
@@ -303,7 +377,7 @@ describe("contact record submit", () => {
 
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-delete",
+        requestId: openForm("req-delete"),
         operation: "delete",
         contactId: "c-2",
       }),
@@ -325,7 +399,7 @@ describe("contact record submit", () => {
 
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-delete-guardian",
+        requestId: openForm("req-delete-guardian"),
         operation: "delete",
         contactId: "g-1",
       }),
@@ -347,7 +421,7 @@ describe("contact record submit", () => {
 
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-cancel",
+        requestId: openForm("req-cancel"),
         operation: "delete",
         contactId: "c-3",
         cancelled: true,
@@ -368,7 +442,7 @@ describe("contact record submit", () => {
   test("an unknown operation is rejected", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({
-        requestId: "req-bogus",
+        requestId: openForm("req-bogus"),
         operation: "promote",
         contactId: "c-4",
       }),

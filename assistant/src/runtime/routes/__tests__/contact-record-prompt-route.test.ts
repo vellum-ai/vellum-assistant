@@ -38,6 +38,7 @@ function routeFor(operationId: string) {
 
 const recordPrompt = routeFor("contacts_record_prompt");
 const resolvePrompt = routeFor("resolve_contact_prompt");
+const claimPrompt = routeFor("contact_prompt_claim");
 
 /** The broadcast for the only prompt parked so far. */
 function parkedRequestId(): string {
@@ -115,6 +116,53 @@ describe("contacts_record_prompt", () => {
       recordPrompt.handler({ body: { operation: "promote" } }),
     ).toThrow();
     expect(broadcasts).toHaveLength(0);
+  });
+
+  test("only the first claim on a form is granted", async () => {
+    const pending = recordPrompt.handler({
+      body: { operation: "create", displayName: "Alice" },
+    }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequestId();
+
+    // Two clients answering the same broadcast. The daemon holds the only
+    // record of which forms are open, so it is what settles the race.
+    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+      claimed: true,
+    });
+    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+      claimed: false,
+      reason: "already_claimed",
+    });
+
+    resolvePrompt.handler({ body: { requestId, contactId: "ct_new" } });
+    await pending;
+  });
+
+  test("a claim on a form nobody is waiting on is refused as unknown", () => {
+    expect(
+      claimPrompt.handler({ body: { requestId: "never-parked" } }),
+    ).toEqual({
+      claimed: false,
+      reason: "unknown",
+    });
+  });
+
+  test("a resolved form can no longer be claimed", async () => {
+    const pending = recordPrompt.handler({
+      body: { operation: "create", displayName: "Alice" },
+    }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequestId();
+
+    claimPrompt.handler({ body: { requestId } });
+    resolvePrompt.handler({ body: { requestId, contactId: "ct_new" } });
+    await pending;
+
+    // The entry is gone once the call it was holding has returned, so a late
+    // submission has nothing to write for.
+    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+      claimed: false,
+      reason: "unknown",
+    });
   });
 
   test("a resolve for an unknown request is ignored", () => {

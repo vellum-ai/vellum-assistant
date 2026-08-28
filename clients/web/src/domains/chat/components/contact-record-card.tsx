@@ -86,12 +86,36 @@ export function ContactRecordCard({
             </Typography>
           )}
           {isDelete && (
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-secondary)]"
-            >
-              {t("contactRecordCard.deleteWarning")}
-            </Typography>
+            <>
+              <Typography
+                variant="body-small-default"
+                className="text-[var(--content-secondary)]"
+              >
+                {t("contactRecordCard.deleteWarning")}
+              </Typography>
+              {/* Two contacts can share a name, so the channels are how the
+                  guardian tells which one this is, and they are also what is
+                  about to be lost. */}
+              {request.channels && request.channels.length > 0 ? (
+                <ul className="mt-1 list-none">
+                  {request.channels.map((channel) => (
+                    <li
+                      key={`${channel.type}:${channel.address}`}
+                      className="text-body-small-default text-[var(--content-secondary)]"
+                    >
+                      {channel.type}: {channel.address}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Typography
+                  variant="body-small-default"
+                  className="text-[var(--content-tertiary)]"
+                >
+                  {t("contactRecordCard.noChannels")}
+                </Typography>
+              )}
+            </>
           )}
         </div>
         {!accepted && (

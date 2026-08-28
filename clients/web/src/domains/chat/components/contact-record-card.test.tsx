@@ -116,6 +116,44 @@ describe("ContactRecordCard", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  test("delete names the channels, so two same-named contacts are tellable apart", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "delete",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          channels: [
+            { type: "email", address: "alice@example.com" },
+            { type: "phone", address: "+15555550142" },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/alice@example.com/)).toBeDefined();
+    expect(screen.getByText(/\+15555550142/)).toBeDefined();
+  });
+
+  test("delete says so when there are no channels to lose", () => {
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        request={{
+          requestId: "req-1",
+          operation: "delete",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          channels: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/no channels/i)).toBeDefined();
+  });
+
   test("dismissing does not submit", () => {
     const onSubmit = mock(noop);
     const onCancel = mock(noop);

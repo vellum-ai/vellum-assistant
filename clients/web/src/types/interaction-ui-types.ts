@@ -80,6 +80,8 @@ export interface PendingContactRecordRequestState {
   contactId?: string;
   /** The target's current name, so the form can show what is changing. */
   currentDisplayName?: string;
+  /** The target's channels, shown on a delete confirmation. */
+  channels?: Array<{ type: string; address: string }>;
   displayName?: string;
   notes?: string;
   label?: string;

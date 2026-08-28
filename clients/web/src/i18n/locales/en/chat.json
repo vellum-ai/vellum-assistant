@@ -497,6 +497,7 @@
     "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
     "dismiss": "Dismiss",
     "namePlaceholder": "Name",
+    "noChannels": "This contact has no channels.",
     "notesPlaceholder": "Notes (optional)",
     "save": "Save",
     "saving": "Saving…",

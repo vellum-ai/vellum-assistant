@@ -463,10 +463,13 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "config set", risk: "low" },
   { path: "contacts prompt", risk: "medium" },
   // Each opens a form in the guardian's app and writes only what they submit,
-  // so the guardian is in the loop regardless of this level.
+  // so the guardian is in the loop regardless of this level. The levels below
+  // still describe the command itself: create and update are non-destructive
+  // edits, while a delete takes the contact's channels with it and cannot be
+  // undone.
   { path: "contacts create", risk: "medium" },
   { path: "contacts update", risk: "medium" },
-  { path: "contacts delete", risk: "medium" },
+  { path: "contacts delete", risk: "high" },
   { path: "contacts channels update-status", risk: "medium" },
   { path: "contacts invites create", risk: "high" },
   { path: "contacts invites revoke", risk: "medium" },

@@ -838,31 +838,27 @@ export async function mergeContactsCore(params: {
  * invite redemption). A record written here reaches no channel, so it admits
  * nobody.
  *
- * A create carries the id it will be written under, because the form is
- * broadcast to every connected client and any of them can answer it. Two
- * clients answering the same form, or one retrying after a lost response, must
- * land one contact rather than a duplicate for each submission, and an
- * unkeyed create has nothing to collapse on. Callers derive that id from the
- * request the form belongs to, so replays converge on the same row.
- *
  * An update requires the row to exist: `ContactStore.upsertContact` INSERTs an
  * unknown explicit id, so a typo'd id would otherwise land a stray contact.
+ * A create takes no id and mints one; duplicate submissions of the same form
+ * are settled before they reach here, by claiming the form (see
+ * `contact_prompt_claim`).
  *
  * Throws `ContactRecordNativeError` for client-facing failures (400 bad input,
  * 404 unknown id); unexpected errors propagate.
  */
 export async function upsertContactRecordCore(params: {
   operation: "create" | "update";
-  contactId: string;
+  contactId?: string;
   displayName?: string;
   notes?: string | null;
 }): Promise<{ ok: true; created: boolean; contact: Record<string, unknown> }> {
-  const id = params.contactId.trim();
+  const id = params.contactId?.trim() || undefined;
   const displayName = params.displayName?.trim();
 
-  if (!id) {
+  if (params.operation === "update" && !id) {
     throw new ContactRecordNativeError(
-      "contactId is required",
+      "contactId is required to update a contact",
       400,
       "BAD_REQUEST",
     );
@@ -884,23 +880,6 @@ export async function upsertContactRecordCore(params: {
         "BAD_REQUEST",
       );
     }
-    const alreadyAnswered = getGatewayDb()
-      .select({ id: contacts.id })
-      .from(contacts)
-      .where(eq(contacts.id, id))
-      .get();
-    if (alreadyAnswered) {
-      // A replay of a form that was already answered. Return the row as it
-      // stands instead of writing the original values again, which would undo
-      // any edit made between the first submission and this one. Passing only
-      // the id keeps upsertContact on its omit-to-preserve path.
-      const { contact } = await new ContactStore().upsertContact({ id });
-      log.info(
-        { contactId: id },
-        "upsert_contact_record: replayed create, returning the existing contact",
-      );
-      return { ok: true, created: false, contact: toContactPayload(contact) };
-    }
   } else {
     if (displayName === undefined && params.notes === undefined) {
       throw new ContactRecordNativeError(
@@ -912,7 +891,7 @@ export async function upsertContactRecordCore(params: {
     const existing = getGatewayDb()
       .select({ id: contacts.id })
       .from(contacts)
-      .where(eq(contacts.id, id))
+      .where(eq(contacts.id, id!))
       .get();
     if (!existing) {
       throw new ContactRecordNativeError(

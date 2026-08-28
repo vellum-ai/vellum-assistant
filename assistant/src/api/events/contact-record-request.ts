@@ -28,6 +28,13 @@ export const ContactRecordRequestEventSchema = z.object({
   contactId: z.string().optional(),
   /** Current name of the target, so the form can show what is changing. */
   currentDisplayName: z.string().optional(),
+  /**
+   * The target's channels, so a delete confirmation can say which of two
+   * same-named contacts it is about, and what access is about to be lost.
+   */
+  channels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
+    .optional(),
   /** Proposed name, prefilled into the form. */
   displayName: z.string().optional(),
   /** Proposed notes, prefilled into the form. */

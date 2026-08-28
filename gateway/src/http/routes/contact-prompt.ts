@@ -13,8 +13,6 @@
  * Auth: edge (same as all ingress contact routes).
  */
 
-import { createHash } from "node:crypto";
-
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../../db/connection.js";
@@ -598,6 +596,35 @@ export async function handleContactRecordSubmit(
   const displayName =
     typeof body.displayName === "string" ? body.displayName : undefined;
 
+  // Claim the form before writing. It is broadcast to every connected client,
+  // so a second one can answer it with the values it was seeded with and
+  // overwrite the answer the guardian actually gave on the first.
+  const claim = await claimPrompt(requestId);
+  if (!claim.claimed) {
+    if (claim.reason === "already_claimed") {
+      // Somebody already answered. Report success without writing: their
+      // answer stands, and this client has nothing to fix.
+      log.info(
+        { requestId, operation },
+        "contact-record-submit: form already answered, ignoring duplicate",
+      );
+      return Response.json({ accepted: true, duplicate: true });
+    }
+    // No such form: it expired or was already resolved, so nothing is waiting
+    // on this write and nobody asked for it.
+    log.warn(
+      { requestId, operation, reason: claim.reason },
+      "contact-record-submit: no pending form for this submission",
+    );
+    return Response.json(
+      {
+        accepted: false,
+        error: "This request is no longer waiting for an answer",
+      },
+      { status: 409 },
+    );
+  }
+
   try {
     if (operation === "delete") {
       await deleteContactCore(contactId!);
@@ -607,12 +634,7 @@ export async function handleContactRecordSubmit(
 
     const { contact } = await upsertContactRecordCore({
       operation,
-      // A create is keyed by the form it answers. The form is broadcast to
-      // every connected client, so two of them answering it, or one retrying
-      // after a lost response, would otherwise mint a contact per submission.
-      // Keying on the requestId collapses those onto one row.
-      contactId:
-        operation === "update" ? contactId! : contactIdForRequest(requestId),
+      contactId: operation === "update" ? contactId : undefined,
       displayName,
       notes: body.notes,
     });
@@ -640,27 +662,27 @@ export async function handleContactRecordSubmit(
 }
 
 /**
- * The contact id a create for this form will use.
+ * Ask the daemon to claim this form for the caller.
  *
- * Derived rather than random so replays of the same submission converge on one
- * row, and hashed rather than reusing the request id verbatim so a contact id
- * is not also a live interaction identifier. Formatted as a v4-shaped UUID
- * because that is what every other contact id in both stores looks like.
+ * A transport failure is treated as a lost claim: the daemon holds the waiting
+ * call, so if it cannot be reached the write has nobody to report to and is
+ * better not made.
  */
-function contactIdForRequest(requestId: string): string {
-  const digest = createHash("sha256")
-    .update(`contact-record:${requestId}`)
-    .digest("hex");
-  const version = `4${digest.slice(13, 16)}`;
-  // Variant nibble: one of 8, 9, a, b.
-  const variant = `${"89ab"[parseInt(digest[16]!, 16) % 4]}${digest.slice(17, 20)}`;
-  return [
-    digest.slice(0, 8),
-    digest.slice(8, 12),
-    version,
-    variant,
-    digest.slice(20, 32),
-  ].join("-");
+async function claimPrompt(
+  requestId: string,
+): Promise<{ claimed: boolean; reason?: string }> {
+  try {
+    const result = await ipcCallAssistant("contact_prompt_claim", {
+      body: { requestId },
+    });
+    return result as { claimed: boolean; reason?: string };
+  } catch (err) {
+    log.warn(
+      { err, requestId },
+      "contact-record-submit: contact_prompt_claim IPC failed; refusing the write",
+    );
+    return { claimed: false, reason: "unreachable" };
+  }
 }
 
 /**

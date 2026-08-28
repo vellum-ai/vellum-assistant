@@ -25,7 +25,14 @@ const contact = {
   createdAt: 0,
   updatedAt: 0,
   interactionCount: 0,
-  channels: [],
+  channels: [
+    {
+      id: "ch_1",
+      contactId: "ct_1",
+      type: "email",
+      address: "alice@example.com",
+    },
+  ],
 };
 
 const cliIpcCallMock = mock(
@@ -110,6 +117,11 @@ describe("contacts record prompts", () => {
     expect(body.operation).toBe("delete");
     expect(body.contactId).toBe("ct_1");
     expect(body.currentDisplayName).toBe("Alice");
+    // Two contacts can share a name, so the confirmation carries the channels
+    // that identify this one and that the delete will take with it.
+    expect(body.channels).toEqual([
+      { type: "email", address: "alice@example.com" },
+    ]);
     // The read comes first: the form names the contact it is about.
     expect(calls[0]!.operationId).toBe("getContact");
   });

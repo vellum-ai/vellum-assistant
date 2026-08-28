@@ -497,6 +497,7 @@
     "deleteWarning": "Esto también elimina sus canales, por lo que ya no podrá contactar con tu asistente.",
     "dismiss": "Descartar",
     "namePlaceholder": "Nombre",
+    "noChannels": "Este contacto no tiene canales.",
     "notesPlaceholder": "Notas (opcional)",
     "save": "Guardar",
     "saving": "Guardando…",

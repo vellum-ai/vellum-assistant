@@ -5559,6 +5559,46 @@ paths:
                   - runs
                   - nextCursor
                 additionalProperties: false
+  /v1/contact_prompt_claim:
+    post:
+      operationId: contact_prompt_claim_post
+      summary: Claim a pending contact form for one submission
+      description:
+        Marks a pending form as answered so a second client submitting the same form writes nothing. Returns
+        claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is
+        pending.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: The pending contact_request id.
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claimed:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - already_claimed
+                      - unknown
+                required:
+                  - claimed
+                additionalProperties: false
   /v1/contact_prompt_flags:
     post:
       operationId: contact_prompt_flags_post
@@ -6575,6 +6615,21 @@ paths:
                     The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned
                     facts are not read here.
                   type: string
+                channels:
+                  description:
+                    The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show
+                    what access is about to be lost.
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      address:
+                        type: string
+                    required:
+                      - type
+                      - address
                 displayName:
                   description: Proposed name, prefilled into the form. The guardian can edit it.
                   type: string
