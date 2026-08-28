@@ -1,14 +1,19 @@
 /**
  * Credential metadata store.
  *
- * Reads stay on the workspace `metadata.json` file (sync). When a CES
- * record backend is injected, upserts and deletes also write-through to
- * CES so the CES catalog stays current.
+ * Production: CES owns identity + policy records. This module keeps a
+ * synchronous in-process cache so existing call sites stay sync, and
+ * write-throughs to CES when a record backend is injected.
  *
  * Tests: `_setMetadataPath` keeps the file-backed store and skips CES
  * write-through.
+ *
+ * After CES lists leftover workspace `metadata.json` accounts, the
+ * leftover file is deleted and the store switches to the CES cache.
+ * This module does not copy leftover rows into CES.
  */
 
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -52,10 +57,13 @@ let _store: StaticCredentialMetadataStore | undefined;
 let _overridePath: string | null = null;
 let _recordBackend: CredentialRecordBackend | undefined;
 
+function defaultMetadataPath(): string {
+  return join(getDataDir(), "credentials", "metadata.json");
+}
+
 function getStore(): StaticCredentialMetadataStore {
   if (!_store) {
-    const path =
-      _overridePath ?? join(getDataDir(), "credentials", "metadata.json");
+    const path = _overridePath ?? defaultMetadataPath();
     _store = new StaticCredentialMetadataStore(path);
   }
   return _store;
@@ -96,6 +104,76 @@ export function setCredentialRecordBackend(
   backend: CredentialRecordBackend | undefined,
 ): void {
   _recordBackend = backend;
+}
+
+/**
+ * Adopt CES records as the in-process cache.
+ *
+ * Leftover workspace `metadata.json` is deleted only after CES `list()`
+ * confirms every leftover account. This does not upload leftover rows.
+ * If `list()` fails or leftover accounts are missing, the file stays.
+ */
+export async function adoptCesCredentialRecords(): Promise<void> {
+  if (!_recordBackend || _overridePath) {
+    return;
+  }
+  if (!_recordBackend.isAvailable()) {
+    log.warn("CES record backend unavailable; leaving leftover metadata.json in place");
+    return;
+  }
+
+  const leftoverPath = defaultMetadataPath();
+  let leftoverAccounts: string[] | null = null;
+  if (existsSync(leftoverPath)) {
+    try {
+      const leftoverStore = new StaticCredentialMetadataStore(leftoverPath);
+      leftoverStore.assertWritable();
+      leftoverAccounts = leftoverStore
+        .list()
+        .map((record) => credentialKey(record.service, record.field));
+    } catch {
+      log.warn("Leftover metadata.json is unreadable; keeping the workspace file");
+      return;
+    }
+  } else {
+    leftoverAccounts = [];
+  }
+
+  const remote = await _recordBackend.list();
+  if (remote === null) {
+    log.warn("CES record list failed; keeping leftover metadata.json");
+    return;
+  }
+
+  const remoteAccounts = new Set(remote.map((entry) => entry.account));
+  const missing = leftoverAccounts.filter((account) => !remoteAccounts.has(account));
+  if (missing.length > 0) {
+    log.warn(
+      {
+        missingCount: missing.length,
+        leftover: leftoverAccounts.length,
+        remote: remote.length,
+      },
+      "CES list is missing leftover metadata.json accounts; keeping the workspace file",
+    );
+    return;
+  }
+
+  if (existsSync(leftoverPath)) {
+    try {
+      rmSync(leftoverPath, { force: true });
+      log.info(
+        { count: leftoverAccounts.length },
+        "Retired workspace credential metadata.json after CES confirmed leftover accounts",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to delete workspace metadata.json");
+      return;
+    }
+  }
+
+  getStore().useMemory(remote.map((entry) => entry.record));
+  log.info({ count: remote.length }, "Adopted credential records from CES");
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,8 @@ const log = getLogger("ces-migrations");
  * Copy workspace `metadata.json` catalog rows into the CES metadata store.
  *
  * CES does not delete the workspace file (the workspace volume is
- * read-only in managed mode).
+ * read-only in managed mode). The assistant retires the file after
+ * CES list() confirms the leftover accounts.
  */
 export const importWorkspaceMetadataMigration: CesMigration = {
   id: "003-import-workspace-metadata",
@@ -71,6 +72,6 @@ export const importWorkspaceMetadataMigration: CesMigration = {
   },
 
   async down(_backend: SecureKeyBackend): Promise<void> {
-    // Forward-only: records remain in CES.
+    // Forward-only: records remain in CES. The assistant owns file deletion.
   },
 };

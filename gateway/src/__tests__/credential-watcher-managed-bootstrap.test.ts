@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,42 +11,6 @@ import { startFakeAssistantIpc } from "./fake-assistant-ipc.js";
 const TEST_SERVICE_TOKEN = "test-ces-service-token";
 
 const testDir = join(tmpdir(), `gw-managed-${Date.now()}-${Math.random()}`);
-
-function metadataRecord(
-  credentialId: string,
-  service: string,
-  field: string,
-): Record<string, unknown> {
-  return {
-    credentialId,
-    service,
-    field,
-    allowedTools: [],
-    allowedDomains: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-}
-
-function writeCredentialMetadata(
-  credentials: Record<string, unknown>[] = [
-    metadataRecord("test-bt", "telegram", "bot_token"),
-    metadataRecord("test-ws", "telegram", "webhook_secret"),
-  ],
-): void {
-  const dir = join(testDir, ".vellum", "workspace", "data", "credentials");
-  mkdirSync(dir, { recursive: true });
-  const metadataPath = join(dir, "metadata.json");
-  const tmpPath = join(dir, `.tmp-${Date.now()}-metadata.json`);
-  writeFileSync(
-    tmpPath,
-    JSON.stringify({
-      version: 2,
-      credentials,
-    }),
-  );
-  renameSync(tmpPath, metadataPath);
-}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const gatewayRoot = join(__dirname, "..", "..");
@@ -216,9 +180,8 @@ afterEach(async () => {
 });
 
 describe("gateway managed credential bootstrap retry", () => {
-  test("reloads Telegram credentials after CES becomes reachable without a metadata rewrite", async () => {
+  test("reloads Telegram after CES becomes reachable without a metadata rewrite", async () => {
     mkdirSync(testDir, { recursive: true });
-    writeCredentialMetadata();
 
     // Reserve the CES port before starting the gateway so the gateway
     // knows where CES will eventually appear. CES isn't running yet —
@@ -254,7 +217,6 @@ describe("gateway managed credential bootstrap retry", () => {
 
   test("keeps retrying until configured credential reads succeed after CES list is already available", async () => {
     mkdirSync(testDir, { recursive: true });
-    writeCredentialMetadata();
 
     let readsReady = false;
     startFakeCes({

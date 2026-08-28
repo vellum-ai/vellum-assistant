@@ -164,14 +164,14 @@ async function attachCredentialRecordBackend(
   client: CesClient | undefined,
 ): Promise<void> {
   const { CesRpcRecordBackend } = await import("./ces-rpc-record-backend.js");
-  const { setCredentialRecordBackend } = await import(
-    "../tools/credentials/metadata-store.js"
-  );
+  const { adoptCesCredentialRecords, setCredentialRecordBackend } =
+    await import("../tools/credentials/metadata-store.js");
   if (!client) {
     setCredentialRecordBackend(undefined);
     return;
   }
   setCredentialRecordBackend(new CesRpcRecordBackend(client));
+  await adoptCesCredentialRecords();
 }
 
 /**
