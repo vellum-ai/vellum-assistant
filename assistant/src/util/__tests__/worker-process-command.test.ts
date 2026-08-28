@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  classifyOrphanAfterWait,
   decideWorkerSlot,
   resolveWorkerCommand,
   workerKindSignature,
@@ -233,5 +234,49 @@ describe("decideWorkerSlot", () => {
 
   test("never signals when the process table could not be read", () => {
     expect(decide(null)).toEqual({ action: "adopt", pid: WORKER });
+  });
+});
+
+// Escalation happens after an awaited SIGTERM grace, so the PID alone cannot
+// carry identity across it: the orphan may exit mid-wait and the OS may hand
+// its PID to a stranger, or the process table may simply fail to answer.
+// Only a positive re-match escalates, and only a proven "gone" releases the
+// slot; a live PID whose identity cannot be read resolves to reuse, because
+// releasing it would spawn a second worker next to a live one.
+describe("classifyOrphanAfterWait", () => {
+  const signature = ["src/schedule/worker.ts"];
+  const ours = "bun --smol run /app/runtime/0.10.11/src/schedule/worker.ts";
+
+  test("dead PID: gone, slot may be released", () => {
+    expect(classifyOrphanAfterWait(false, null, signature)).toBe("gone");
+    expect(classifyOrphanAfterWait(false, ours, signature)).toBe("gone");
+  });
+
+  test("still this worker: escalation proceeds", () => {
+    expect(classifyOrphanAfterWait(true, ours, signature)).toBe("orphan");
+  });
+
+  test("PID reused by a stranger: orphan exited, never SIGKILL", () => {
+    expect(
+      classifyOrphanAfterWait(true, "/usr/bin/postgres -D /data", signature),
+    ).toBe("gone");
+  });
+
+  test("PID reused by a different worker kind: never SIGKILL", () => {
+    expect(
+      classifyOrphanAfterWait(
+        true,
+        "bun --smol run /app/runtime/0.10.11/src/monitoring/worker.ts",
+        signature,
+      ),
+    ).toBe("gone");
+  });
+
+  // The fail-safe vex pinned: a live PID with an unreadable command line is
+  // neither killable nor releasable.
+  test("alive but command unreadable: identity-unreadable, reuse the slot", () => {
+    expect(classifyOrphanAfterWait(true, null, signature)).toBe(
+      "identity-unreadable",
+    );
   });
 });
