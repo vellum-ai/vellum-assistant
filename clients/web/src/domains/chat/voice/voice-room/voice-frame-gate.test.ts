@@ -465,4 +465,30 @@ describe("frame gate reset", () => {
     expect(afterFloor.reason).toBe("first");
     expect(afterFloor.novelty).toBeNull();
   });
+
+  test("the settle grace after a reset waits out the retained rate floor", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 18 }), 0).keep).toBe(true);
+
+    // A flip right after a keep, with the camera still moving. A keep becomes
+    // possible only when the retained floor expires at 100 ms, so the settle
+    // check owns the full grace from there and the earliest forced keep lands
+    // at 300 ms. Anchoring the grace at the first post-reset offer instead
+    // would force a smeared keep the moment the floor opens.
+    gate.reset(10);
+    let firstKeepAtMs: number | null = null;
+    for (let step = 0; step < 12; step++) {
+      const time = 20 + step * 33;
+      const decision = gate.offer(scene({ seed: 18, panX: step * 2 }), time);
+      if (decision.keep) {
+        firstKeepAtMs = time;
+        break;
+      }
+    }
+    expect(firstKeepAtMs).not.toBeNull();
+    expect(firstKeepAtMs!).toBeGreaterThanOrEqual(
+      TEST_OPTIONS.minIntervalMs + TEST_OPTIONS.settleGraceMs,
+    );
+  });
 });

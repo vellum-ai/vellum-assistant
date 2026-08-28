@@ -409,12 +409,15 @@ export function createFrameGate(
       }
       const moving = motion !== null && motion >= options.settleThreshold;
       // The settle grace runs from the moment a keep became POSSIBLE, not from
-      // the last frame offered. After a keep that is the end of the rate floor:
-      // measuring from the first frame after a keep would spend the whole grace
-      // inside the floor, and the settle check would never apply again.
-      const eligibleSinceMs = hasKept
-        ? keptAtMs + options.minIntervalMs
-        : firstEligibleAtMs;
+      // the last frame offered: measuring from any earlier point would spend
+      // the grace inside the rate floor, and the settle check would never
+      // apply again. A keep becomes possible at the later of the first
+      // post-warmup offer and the end of the floor, including the floor a
+      // reset retains from a keep made just before it.
+      const eligibleSinceMs = Math.max(
+        firstEligibleAtMs,
+        keptAtMs + options.minIntervalMs,
+      );
       // Past the grace window a moving frame is kept anyway rather than
       // letting a walking user's camera go silent indefinitely.
       const forced = nowMs - eligibleSinceMs >= options.settleGraceMs;
