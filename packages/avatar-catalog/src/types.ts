@@ -1,3 +1,14 @@
+/**
+ * Shapes for the catalog literal in this package.
+ *
+ * Declared here rather than derived from the generated OpenAPI types because
+ * this is a leaf package with no dependencies, and the clients that consume
+ * those generated types depend on it rather than the other way round. The
+ * canonical wire shape is the `avatar/character-components` route's
+ * `responseBody` schema; these are not exported so no consumer picks them up
+ * as a second name for it.
+ */
+
 export interface BodyShapeDefinition {
   id: string;
   viewBox: { width: number; height: number };
