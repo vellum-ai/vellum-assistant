@@ -87,7 +87,7 @@ export async function flipNativeVoiceCamera(): Promise<boolean> {
  *
  * Only meaningful between a resolved {@link startNativeVoiceCamera} and the
  * matching {@link stopNativeVoiceCamera}: outside that window one platform
- * rejects and the other answers for a camera that is no longer running.
+ * rejects and the other answers for a stopped camera.
  */
 export async function getNativeVoiceCameraFlashModes(): Promise<string[]> {
   return callNativeVoice(async () => {
