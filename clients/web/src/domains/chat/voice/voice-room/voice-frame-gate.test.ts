@@ -12,8 +12,9 @@
  * below changes gain and offset and NOTHING else, which is the only way to show
  * that invariance is a property of the gate rather than a property of the clip.
  *
- * What these tests do NOT establish is any absolute threshold value. See
- * `assistant/docs/live-vision-frame-gate-spike.md`.
+ * What these tests do NOT establish is any absolute threshold value. The
+ * calibration notes live in the description of the PR that introduced this
+ * module (#41659).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -403,22 +404,31 @@ describe("frame gate keep policy", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
 
-    // Every frame is a different scene, which is the busy-street case: the
-    // novelty threshold provides no protection at all here, and only the floor
-    // stops the flood. This is the assertion that bounds the feature's cost.
+    // The busy-street case: a new scene every other frame, each held for one
+    // repeat so a settled, wildly novel frame arrives about every 66 ms. That
+    // asks for far more keeps than the floor's one per 100 ms, and the settle
+    // check cannot be what limits them, so only the floor stands between this
+    // and a flood. This is the assertion that bounds the feature's cost.
+    const frames = 300;
+    const frameGapMs = 33;
     let keeps = 0;
     let time = 0;
-    for (let step = 0; step < 100; step++) {
-      // 10 s of frames at 100 ms, well inside `motionMaxAgeMs` so the settle
-      // check is live and rejecting too.
-      if (gate.offer(scene({ seed: 100 + step }), time).keep) {
+    for (let step = 0; step < frames; step++) {
+      if (gate.offer(scene({ seed: 100 + Math.floor(step / 2) }), time).keep) {
         keeps += 1;
       }
-      time += 100;
+      time += frameGapMs;
     }
-    // 10 s at a 100 ms floor cannot exceed 101 keeps in principle; what matters
-    // is that it lands near the floor's rate rather than near the frame rate.
-    expect(keeps).toBeLessThanOrEqual(10_000 / TEST_OPTIONS.minIntervalMs + 1);
+    // Offered ~150 settled novel frames; the floor admits at most one per
+    // `minIntervalMs`. The upper bound sits far below both the offered frame
+    // count and the eligible-keep count, so removing or breaking the
+    // rate-floor rung fails this assertion rather than slipping past it. The
+    // lower bound proves the gate is keeping near the floor's rate instead of
+    // going silent.
+    const elapsedMs = frames * frameGapMs;
+    const floorBound = Math.floor(elapsedMs / TEST_OPTIONS.minIntervalMs) + 1;
+    expect(keeps).toBeLessThanOrEqual(floorBound);
+    expect(keeps).toBeGreaterThanOrEqual(Math.floor(floorBound / 2));
   });
 });
 
@@ -435,5 +445,24 @@ describe("frame gate reset", () => {
     const afterFlip = gate.offer(scene({ seed: 120 }), 1_000);
     expect(afterFlip.reason).toBe("first");
     expect(afterFlip.novelty).toBeNull();
+  });
+
+  test("a reset does not open a gap in the rate floor", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 16 }), 0).keep).toBe(true);
+
+    // A flip right on the heels of a keep. The baseline is rightly gone, but
+    // the keep was already paid for, so the next keep still waits out the
+    // floor: otherwise flipping back and forth doubles the keep rate.
+    gate.reset(20);
+    const tooSoon = gate.offer(scene({ seed: 160 }), 50);
+    expect(tooSoon.keep).toBe(false);
+    expect(tooSoon.reason).toBe("rate-floor");
+
+    const afterFloor = gate.offer(scene({ seed: 160 }), 150);
+    expect(afterFloor.keep).toBe(true);
+    expect(afterFloor.reason).toBe("first");
+    expect(afterFloor.novelty).toBeNull();
   });
 });

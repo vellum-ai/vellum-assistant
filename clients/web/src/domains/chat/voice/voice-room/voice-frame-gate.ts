@@ -248,8 +248,11 @@ export interface FrameGate {
    */
   offer(grid: FrameGrid, nowMs: number): FrameGateDecision;
   /**
-   * Drop all history: no last-kept baseline, no previous frame, and a fresh
-   * warmup window starting at `nowMs`.
+   * Drop all comparison history: no last-kept baseline, no previous frame,
+   * and a fresh warmup window starting at `nowMs`. The one survivor is the
+   * rate floor's clock: a keep made just before the reset still counts
+   * against {@link FrameGateOptions.minIntervalMs}, because the floor bounds
+   * cost and a reset does not refund the frame already sent.
    *
    * Call this when the camera opens, and on anything else that invalidates
    * comparison against earlier frames. A camera flip is the important one: the
@@ -326,7 +329,9 @@ export function createFrameGate(
   let hasPrevious = false;
   let hasKept = false;
   let previousAtMs = 0;
-  let keptAtMs = 0;
+  // When the last keep happened. Survives reset() on purpose: the rate floor
+  // is the feature's cost bound, and a camera flip must not open a gap in it.
+  let keptAtMs = Number.NEGATIVE_INFINITY;
   let warmupUntilMs = Number.NEGATIVE_INFINITY;
   // The first offer that got past warmup, which is the moment the very first
   // keep became possible. Only consulted before that first keep: afterwards
@@ -415,6 +420,12 @@ export function createFrameGate(
       const forced = nowMs - eligibleSinceMs >= options.settleGraceMs;
 
       if (!hasKept) {
+        // The baseline is gone after a reset, but the floor's clock is not: a
+        // first keep is still a keep, and it pays the same minimum gap as any
+        // other, so a flip right after a keep cannot raise the keep rate.
+        if (nowMs - keptAtMs < options.minIntervalMs) {
+          return skipFrame(nowMs, "rate-floor", motion, novelty);
+        }
         if (moving && !forced) {
           return skipFrame(nowMs, "moving", motion, novelty);
         }
@@ -441,7 +452,9 @@ export function createFrameGate(
       hasPrevious = false;
       hasKept = false;
       previousAtMs = 0;
-      keptAtMs = 0;
+      // `keptAtMs` is deliberately not cleared: comparison history is invalid
+      // after a reset, but the cost of the last keep is already paid and the
+      // rate floor still counts it.
       warmupUntilMs = nowMs + options.warmupMs;
       firstEligibleAtMs = null;
     },
