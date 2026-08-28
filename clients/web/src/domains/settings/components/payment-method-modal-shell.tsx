@@ -14,7 +14,7 @@ import {
   brandLabel,
   cardExpiryLabel,
 } from "@/domains/settings/utils/payment-method-brand";
-import { useTranslation } from "@/i18n";
+import { useTranslation, type TFunction } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -75,6 +75,7 @@ export function PaymentMethodModalShell({
   const { t } = useTranslation("settings");
   const locked = isLockedState(state);
   const isReplace = mode === "replace";
+  const isSaved = state === "saved";
 
   return (
     <Modal.Root
@@ -95,16 +96,26 @@ export function PaymentMethodModalShell({
       >
         <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-[18px]">
           <div className="min-w-0">
-            <Modal.Title className="text-[18px] font-semibold tracking-[-0.02em] text-[var(--content-emphasised)]">
-              {isReplace
-                ? t("autoTopUpPaymentMethodModal.replaceTitle")
-                : t("autoTopUpPaymentMethodModal.addTitle")}
-            </Modal.Title>
-            <Modal.Description className="mt-[5px] text-[13px] leading-normal text-[var(--content-tertiary)]">
-              {isReplace
-                ? t("autoTopUpPaymentMethodModal.replaceSubtitle")
-                : t("autoTopUpPaymentMethodModal.addSubtitle")}
-            </Modal.Description>
+            {isSaved ? (
+              // A redirect return reopens straight into `saved` with no mode to
+              // derive a header from, so the panel below is the only title.
+              <Modal.Title className="sr-only">
+                {savedPanelTitle(t, savedCard)}
+              </Modal.Title>
+            ) : (
+              <>
+                <Modal.Title className="text-[18px] font-semibold tracking-[-0.02em] text-[var(--content-emphasised)]">
+                  {isReplace
+                    ? t("autoTopUpPaymentMethodModal.replaceTitle")
+                    : t("autoTopUpPaymentMethodModal.addTitle")}
+                </Modal.Title>
+                <Modal.Description className="mt-[5px] text-[13px] leading-normal text-[var(--content-tertiary)]">
+                  {isReplace
+                    ? t("autoTopUpPaymentMethodModal.replaceSubtitle")
+                    : t("autoTopUpPaymentMethodModal.addSubtitle")}
+                </Modal.Description>
+              </>
+            )}
           </div>
           <Modal.Close asChild>
             <button
@@ -119,8 +130,6 @@ export function PaymentMethodModalShell({
           </Modal.Close>
         </div>
 
-        {isReplace && cardOnFile ? <CardOnFileRow card={cardOnFile} /> : null}
-
         <form
           id="payment-method-modal-form"
           className="flex min-h-0 flex-1 flex-col"
@@ -130,16 +139,22 @@ export function PaymentMethodModalShell({
           }}
         >
           <Modal.Body className="flex flex-col gap-[14px] px-6 pb-0">
-            <div
-              data-testid="payment-method-modal-fields"
-              aria-busy={locked}
-              className={cn(
-                "flex flex-col gap-[10px]",
-                locked && "pointer-events-none opacity-45",
-              )}
-            >
-              {children}
-            </div>
+            {isReplace && cardOnFile ? (
+              <CardOnFileRow card={cardOnFile} />
+            ) : null}
+
+            {isSaved ? null : (
+              <div
+                data-testid="payment-method-modal-fields"
+                aria-busy={locked}
+                className={cn(
+                  "flex flex-col gap-[10px]",
+                  locked && "pointer-events-none opacity-45",
+                )}
+              >
+                {children}
+              </div>
+            )}
 
             {errorMessage ? (
               <div
@@ -170,7 +185,7 @@ export function PaymentMethodModalShell({
                   {t("autoTopUpPaymentMethodModal.confirmingWithBank")}
                 </span>
               </div>
-            ) : state === "saved" ? (
+            ) : isSaved ? (
               <SavedPanel
                 card={savedCard}
                 autoReloadActive={autoReloadActive}
@@ -187,36 +202,40 @@ export function PaymentMethodModalShell({
             ) : null}
           </Modal.Body>
 
+          {/* In `saved` the footer keeps its padding with no actions in it: the
+              body ends at `pb-0`, so this is the gutter under the panel. */}
           <Modal.Footer className="flex flex-col gap-1 px-6 pt-[18px] pb-[22px]">
-            <Button
-              variant="primary"
-              fullWidth
-              type="submit"
-              data-testid="auto-top-up-pm-save-button"
-              className="h-auto rounded-lg py-[14px] text-[14.5px] font-semibold"
-              disabled={submitDisabled || locked || state === "saved"}
-              leftIcon={
-                locked ? <Loader2 className="animate-spin" /> : undefined
-              }
-            >
-              {locked
-                ? t("autoTopUpPaymentMethodModal.primarySubmitting")
-                : isReplace
-                  ? t("autoTopUpPaymentMethodModal.primaryReplace")
-                  : t("autoTopUpPaymentMethodModal.primaryAdd")}
-            </Button>
-            {state !== "saved" ? (
-              <Button
-                variant="ghost"
-                fullWidth
-                type="button"
-                className="h-auto rounded-md py-[10px] text-[13.5px] font-medium [--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--content-emphasised)]"
-                onClick={onClose}
-                disabled={locked}
-              >
-                {t("autoTopUpPaymentMethodModal.cancel")}
-              </Button>
-            ) : null}
+            {isSaved ? null : (
+              <>
+                <Button
+                  variant="primary"
+                  fullWidth
+                  type="submit"
+                  data-testid="auto-top-up-pm-save-button"
+                  className="h-auto rounded-lg py-[14px] text-[14.5px] font-semibold"
+                  disabled={submitDisabled || locked}
+                  leftIcon={
+                    locked ? <Loader2 className="animate-spin" /> : undefined
+                  }
+                >
+                  {locked
+                    ? t("autoTopUpPaymentMethodModal.primarySubmitting")
+                    : isReplace
+                      ? t("autoTopUpPaymentMethodModal.primaryReplace")
+                      : t("autoTopUpPaymentMethodModal.primaryAdd")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  fullWidth
+                  type="button"
+                  className="h-auto rounded-md py-[10px] text-[13.5px] font-medium [--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--content-emphasised)]"
+                  onClick={onClose}
+                  disabled={locked}
+                >
+                  {t("autoTopUpPaymentMethodModal.cancel")}
+                </Button>
+              </>
+            )}
           </Modal.Footer>
         </form>
       </Modal.Content>
@@ -231,11 +250,18 @@ function CardOnFileRow({ card }: { card: CardOnFile }) {
   // generic fallback label into something that reads as a brand.
   const chip = brandName?.slice(0, 4) ?? null;
   const expiry = cardExpiryLabel(t, card.expMonth, card.expYear);
+  const brandText = brandName ?? t("paymentMethodRow.savedCard");
+  const label = card.last4
+    ? t("autoTopUpPaymentMethodModal.cardOnFile", {
+        brand: brandText,
+        last4: card.last4,
+      })
+    : brandText;
 
   return (
     <div
       data-testid="payment-method-modal-card-on-file"
-      className="mx-6 flex items-center gap-[11px] rounded-lg border border-[var(--border-subtle)] px-[13px] py-[11px]"
+      className="flex items-center gap-[11px] rounded-lg border border-[var(--border-subtle)] px-[13px] py-[11px]"
     >
       <span
         aria-hidden
@@ -244,10 +270,7 @@ function CardOnFileRow({ card }: { card: CardOnFile }) {
         {chip}
       </span>
       <p className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--content-emphasised)]">
-        {t("autoTopUpPaymentMethodModal.cardOnFile", {
-          brand: brandName ?? t("paymentMethodRow.savedCard"),
-          last4: card.last4 ?? "",
-        })}
+        {label}
         {expiry ? (
           <span className="ml-1 text-[var(--content-quiet)]">{expiry}</span>
         ) : null}
@@ -259,6 +282,19 @@ function CardOnFileRow({ card }: { card: CardOnFile }) {
   );
 }
 
+/** Shared by the success panel and the screen-reader title above it. */
+function savedPanelTitle(
+  t: TFunction<"settings">,
+  card: SavedCard | null,
+): string {
+  return card?.brand && card.last4
+    ? t("autoTopUpPaymentMethodModal.savedTitle", {
+        brand: brandLabel(card.brand),
+        last4: card.last4,
+      })
+    : t("autoTopUpPaymentMethodModal.savedTitleGeneric");
+}
+
 function SavedPanel({
   card,
   autoReloadActive,
@@ -267,13 +303,6 @@ function SavedPanel({
   autoReloadActive: boolean;
 }) {
   const { t } = useTranslation("settings");
-  const title =
-    card?.brand && card.last4
-      ? t("autoTopUpPaymentMethodModal.savedTitle", {
-          brand: brandLabel(card.brand),
-          last4: card.last4,
-        })
-      : t("autoTopUpPaymentMethodModal.savedTitleGeneric");
 
   return (
     <div
@@ -288,7 +317,7 @@ function SavedPanel({
       </span>
       <div className="min-w-0">
         <p className="text-[13.5px] font-medium text-[var(--system-positive-on-weak)]">
-          {title}
+          {savedPanelTitle(t, card)}
         </p>
         {autoReloadActive ? (
           <p className="mt-px text-[12px] text-[var(--system-positive-on-weak)]">

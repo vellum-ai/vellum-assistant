@@ -58,6 +58,35 @@ describe("PaymentMethodModalShell", () => {
     expect(row.textContent).toContain("Replaced on save");
   });
 
+  test("the card on file scrolls with the fields inside the modal body", () => {
+    const { getByTestId } = renderShell({
+      mode: "replace",
+      cardOnFile: VISA_ON_FILE,
+    });
+    const row = getByTestId("payment-method-modal-card-on-file");
+    expect(row.closest('[data-slot="modal-body"]')).not.toBeNull();
+  });
+
+  test("a card on file with no last4 drops the empty dots", () => {
+    const { getByTestId } = renderShell({
+      mode: "replace",
+      cardOnFile: { ...VISA_ON_FILE, last4: null },
+    });
+    const row = getByTestId("payment-method-modal-card-on-file");
+    expect(row.textContent).toContain("Visa");
+    expect(row.textContent).not.toContain("••••");
+  });
+
+  test("a card on file with no brand or last4 falls back to the generic label", () => {
+    const { getByTestId } = renderShell({
+      mode: "replace",
+      cardOnFile: { ...VISA_ON_FILE, brand: null, last4: null },
+    });
+    const row = getByTestId("payment-method-modal-card-on-file");
+    expect(row.textContent).toContain("Saved card");
+    expect(row.textContent).not.toContain("••••");
+  });
+
   test("omits the expiry when either half is missing", () => {
     const { getByTestId } = renderShell({
       mode: "replace",
@@ -106,7 +135,7 @@ describe("PaymentMethodModalShell", () => {
   });
 
   test("saved shows the success panel with the card and no cancel action", () => {
-    const { getByTestId, queryByText } = renderShell({
+    const { getByTestId, queryByTestId, queryByText } = renderShell({
       state: "saved",
       savedCard: { brand: "visa", last4: "1881" },
       autoReloadActive: true,
@@ -115,9 +144,28 @@ describe("PaymentMethodModalShell", () => {
     expect(panel.textContent).toContain("Visa •••• 1881 saved");
     expect(panel.textContent).toContain("Auto-reload is active again");
     expect(queryByText("Cancel")).toBeNull();
+    expect(queryByTestId("auto-top-up-pm-save-button")).toBeNull();
+  });
+
+  test("saved replaces the fields and the mode-derived header", () => {
+    const { baseElement, queryByTestId, queryByText } = renderShell({
+      state: "saved",
+      savedCard: { brand: "visa", last4: "1881" },
+    });
+    expect(queryByTestId("field-block")).toBeNull();
+    expect(queryByTestId("payment-method-modal-fields")).toBeNull();
+    expect(queryByText("Add a card")).toBeNull();
     expect(
-      (getByTestId("auto-top-up-pm-save-button") as HTMLButtonElement).disabled,
-    ).toBe(true);
+      queryByText("Kept on file for auto-reload and your Pro plan."),
+    ).toBeNull();
+
+    const title = baseElement.querySelector('[data-slot="modal-title"]');
+    expect(title?.className).toContain("sr-only");
+    expect(title?.textContent).toBe("Visa •••• 1881 saved");
+    expect(
+      baseElement.querySelector('[data-slot="modal-description"]'),
+    ).toBeNull();
+    expect(queryByTestId("payment-method-modal-close")).not.toBeNull();
   });
 
   test("saved falls back to the generic title and hides the sub-line", () => {
