@@ -7,8 +7,8 @@ import type { CredentialRecord } from "@vellumai/service-contracts/credential-rp
 
 import type { CredentialRecordBackend } from "../security/ces-rpc-record-backend.js";
 import {
+  _ensureCesRecordsLoaded,
   _setMetadataPath,
-  adoptCesCredentialRecords,
   getCredentialMetadata,
   setCredentialRecordBackend,
   upsertCredentialMetadata,
@@ -38,14 +38,17 @@ function leftoverContents(): string {
 function makeBackend(): CredentialRecordBackend & {
   store: Map<string, CredentialRecord>;
   bulkSetCalls: number;
+  listCalls: number;
 } {
   const store = new Map<string, CredentialRecord>();
   const backend: CredentialRecordBackend & {
     store: Map<string, CredentialRecord>;
     bulkSetCalls: number;
+    listCalls: number;
   } = {
     store,
     bulkSetCalls: 0,
+    listCalls: 0,
     isAvailable: () => true,
     get: async (account) => store.get(account),
     set: async (account, record) => {
@@ -59,8 +62,13 @@ function makeBackend(): CredentialRecordBackend & {
       store.delete(account);
       return "deleted";
     },
-    list: async () =>
-      [...store.entries()].map(([account, record]) => ({ account, record })),
+    list: async () => {
+      backend.listCalls += 1;
+      return [...store.entries()].map(([account, record]) => ({
+        account,
+        record,
+      }));
+    },
     bulkSet: async (records) => {
       backend.bulkSetCalls += 1;
       for (const { account, record } of records) {
@@ -72,7 +80,7 @@ function makeBackend(): CredentialRecordBackend & {
   return backend;
 }
 
-describe("CES credential record adopt", () => {
+describe("CES credential record cache", () => {
   beforeEach(() => {
     setCredentialRecordBackend(undefined);
     _setMetadataPath(null);
@@ -91,7 +99,7 @@ describe("CES credential record adopt", () => {
     }
   });
 
-  test("adopt loads CES records into the in-process cache", async () => {
+  test("first catalog read lazy-loads CES records into the in-process cache", async () => {
     const backend = makeBackend();
     const record: CredentialRecord = {
       credentialId: "cred-1",
@@ -104,8 +112,11 @@ describe("CES credential record adopt", () => {
     };
     backend.store.set(credentialKey("github", "token"), record);
     setCredentialRecordBackend(backend);
+    expect(backend.listCalls).toBe(0);
 
-    await adoptCesCredentialRecords();
+    getCredentialMetadata("github", "token");
+    await _ensureCesRecordsLoaded();
+    expect(backend.listCalls).toBe(1);
 
     expect(getCredentialMetadata("github", "token")?.credentialId).toBe(
       "cred-1",
@@ -113,9 +124,12 @@ describe("CES credential record adopt", () => {
     expect(getCredentialMetadata("github", "token")?.allowedTools).toEqual([
       "bash",
     ]);
+    getCredentialMetadata("github", "token");
+    await _ensureCesRecordsLoaded();
+    expect(backend.listCalls).toBe(1);
   });
 
-  test("adopt leaves leftover metadata.json in place and ignores it", async () => {
+  test("lazy load leaves leftover metadata.json in place and ignores it", async () => {
     const leftoverRecord: CredentialRecord = {
       credentialId: "cred-leftover",
       service: "github",
@@ -132,7 +146,8 @@ describe("CES credential record adopt", () => {
     backend.store.set(credentialKey("github", "token"), leftoverRecord);
     setCredentialRecordBackend(backend);
 
-    await adoptCesCredentialRecords();
+    getCredentialMetadata("github", "token");
+    await _ensureCesRecordsLoaded();
 
     expect(existsSync(leftoverPath())).toBe(true);
     expect(leftoverContents()).toBe(before);
@@ -142,7 +157,7 @@ describe("CES credential record adopt", () => {
     ]);
   });
 
-  test("adopt ignores leftover metadata.json when CES list fails", async () => {
+  test("lazy load ignores leftover metadata.json when CES list fails", async () => {
     const leftoverRecord: CredentialRecord = {
       credentialId: "cred-keep",
       service: "slack_channel",
@@ -158,7 +173,8 @@ describe("CES credential record adopt", () => {
     backend.list = async () => null;
     setCredentialRecordBackend(backend);
 
-    await adoptCesCredentialRecords();
+    getCredentialMetadata("slack_channel", "bot_token");
+    await _ensureCesRecordsLoaded();
 
     expect(existsSync(leftoverPath())).toBe(true);
     expect(backend.bulkSetCalls).toBe(0);
@@ -167,7 +183,7 @@ describe("CES credential record adopt", () => {
     ).toBeUndefined();
   });
 
-  test("adopt ignores leftover metadata.json when CES has no leftover accounts", async () => {
+  test("lazy load ignores leftover metadata.json when CES has no leftover accounts", async () => {
     const leftoverRecord: CredentialRecord = {
       credentialId: "cred-missing",
       service: "github",
@@ -182,7 +198,8 @@ describe("CES credential record adopt", () => {
     const backend = makeBackend();
     setCredentialRecordBackend(backend);
 
-    await adoptCesCredentialRecords();
+    getCredentialMetadata("github", "token");
+    await _ensureCesRecordsLoaded();
 
     expect(existsSync(leftoverPath())).toBe(true);
     expect(backend.store.size).toBe(0);
@@ -190,17 +207,18 @@ describe("CES credential record adopt", () => {
     expect(getCredentialMetadata("github", "token")).toBeUndefined();
   });
 
-  test("adopt does not throw when CES isAvailable throws", async () => {
+  test("lazy load does not throw when CES isAvailable throws", async () => {
     const backend = makeBackend();
     backend.isAvailable = () => {
       throw new Error("CES boom");
     };
     setCredentialRecordBackend(backend);
 
-    await adoptCesCredentialRecords();
+    getCredentialMetadata("github", "token");
+    await _ensureCesRecordsLoaded();
   });
 
-  test("upsert after adopt write-throughs to CES without updating leftover metadata.json", async () => {
+  test("upsert write-throughs to CES without updating leftover metadata.json", async () => {
     const leftoverRecord: CredentialRecord = {
       credentialId: "cred-leftover",
       service: "github",
@@ -216,7 +234,8 @@ describe("CES credential record adopt", () => {
     const backend = makeBackend();
     backend.store.set(credentialKey("github", "token"), leftoverRecord);
     setCredentialRecordBackend(backend);
-    await adoptCesCredentialRecords();
+    getCredentialMetadata("github", "token");
+    await _ensureCesRecordsLoaded();
     expect(existsSync(leftoverPath())).toBe(true);
 
     const created = upsertCredentialMetadata("slack_channel", "bot_token", {
