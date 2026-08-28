@@ -1,3 +1,4 @@
+import { ChannelAvatarDownload } from "@/components/channel-avatar-download";
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 
 import { Button, Notice, Typography } from "@vellumai/design-library";
@@ -117,6 +118,8 @@ export function TelegramSetupCreateStep({
           />
         </li>
       </ol>
+
+      <ChannelAvatarDownload channel="telegram" />
     </div>
   );
 }
