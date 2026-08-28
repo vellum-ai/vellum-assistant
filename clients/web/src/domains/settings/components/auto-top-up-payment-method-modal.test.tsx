@@ -80,6 +80,7 @@ mock.module("@stripe/stripe-js", () => ({
 }));
 
 import { STRIPE_FONTS } from "@/domains/settings/billing/stripe-appearance";
+import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpPaymentMethodModalProps } from "./auto-top-up-payment-method-modal";
 import * as platformDetection from "@/runtime/platform-detection";
@@ -120,8 +121,12 @@ mock.module("@/runtime/browser", () => ({
 const originalStripePk = process.env.VITE_STRIPE_PUBLISHABLE_KEY;
 process.env.VITE_STRIPE_PUBLISHABLE_KEY = "pk_test_fake";
 const { useAuthStore } = await import("@/stores/auth-store");
-const { AutoTopUpPaymentMethodModal, CUSTOM_TERMS_APPROVED } =
-  await import("./auto-top-up-payment-method-modal");
+const {
+  AutoTopUpPaymentMethodModal,
+  CUSTOM_TERMS_APPROVED,
+  REQUIRES_ACTION_HINT_MS,
+  SAVED_AUTO_CLOSE_MS,
+} = await import("./auto-top-up-payment-method-modal");
 
 const initialAuthState = useAuthStore.getState();
 
@@ -515,6 +520,47 @@ describe("AutoTopUpPaymentMethodModal submit", () => {
 
     await waitFor(() => expect(closes).toHaveLength(1), { timeout: 3000 });
   });
+
+  test("a slow saved-card sync never flips the modal to the bank hint", async () => {
+    let resolveSync: (card: SavedPaymentMethod | null) => void = () => {};
+    const syncPromise = new Promise<SavedPaymentMethod | null>((resolve) => {
+      resolveSync = resolve;
+    });
+    const result = await renderReadyForm({
+      onSavedOptimistic: () => syncPromise,
+    });
+
+    fireEvent.click(saveButton(result));
+
+    await waitFor(() => {
+      if (confirmSetupCalls.length === 0) {
+        throw new Error("confirmSetup not called");
+      }
+    });
+
+    // The confirm has already resolved, so the hint must stay disarmed even
+    // though the sync outlives it.
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, REQUIRES_ACTION_HINT_MS + 500);
+      });
+    });
+
+    expect(result.queryByTestId("payment-method-modal-status-row")).toBeNull();
+    expect(result.queryByTestId("payment-method-modal-saved")).toBeNull();
+    expect(saveButton(result).textContent).toContain("Saving");
+
+    await act(async () => {
+      resolveSync({ brand: "visa", last4: "4242", autoReloadEnabled: false });
+      await syncPromise;
+    });
+
+    await waitFor(() =>
+      expect(
+        result.getByTestId("payment-method-modal-saved").textContent,
+      ).toContain("Visa •••• 4242 saved"),
+    );
+  });
 });
 
 describe("AutoTopUpPaymentMethodModal redirect return", () => {
@@ -534,6 +580,26 @@ describe("AutoTopUpPaymentMethodModal redirect return", () => {
     expect(setupIntentCalls).toBe(0);
     expect(queryByTestId("stripe-address-element")).toBeNull();
     expect(queryByTestId("auto-top-up-pm-modal-spinner")).toBeNull();
+  });
+
+  test("a saved outcome closes itself on the same auto-close delay", async () => {
+    const closes: number[] = [];
+    const { getByTestId } = renderModal({
+      onClose: () => closes.push(1),
+      initialOutcome: {
+        kind: "saved",
+        card: { brand: "visa", last4: "1881", autoReloadEnabled: false },
+      },
+    });
+
+    await waitFor(() =>
+      expect(getByTestId("payment-method-modal-saved")).not.toBeNull(),
+    );
+    expect(closes).toHaveLength(0);
+
+    await waitFor(() => expect(closes).toHaveLength(1), {
+      timeout: SAVED_AUTO_CLOSE_MS * 4,
+    });
   });
 
   test("an error outcome pre-fills the error line over a fresh SetupIntent", async () => {

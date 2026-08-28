@@ -172,6 +172,13 @@ function AutoTopUpPaymentMethodModalContent({
   useEffect(() => {
     outcomeRef.current = initialOutcome;
   }, [initialOutcome]);
+  // The auto-close timer reads `onClose` through a ref so the scheduler stays
+  // stable, which keeps the reset effect below firing on `open` alone even
+  // when a caller inlines its handler.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -182,17 +189,30 @@ function AutoTopUpPaymentMethodModalContent({
     };
   }, []);
 
+  // Every route into the success panel closes the modal on the same timer,
+  // whether the card was saved in page or on a 3DS redirect return.
+  const scheduleAutoClose = useCallback(() => {
+    clearTimer(savedCloseTimer);
+    savedCloseTimer.current = setTimeout(() => {
+      onCloseRef.current();
+    }, SAVED_AUTO_CLOSE_MS);
+  }, []);
+
   // Seed each open from the redirect-return outcome and wipe everything on
   // close so a previous attempt cannot leak into the next open.
   useEffect(() => {
     clearTimer(requiresActionTimer);
     clearTimer(savedCloseTimer);
     const outcome = open ? outcomeRef.current : null;
-    setState(outcome?.kind === "saved" ? "saved" : "idle");
+    const savedOutcome = outcome?.kind === "saved" ? outcome : null;
+    setState(savedOutcome ? "saved" : "idle");
     setErrorMessage(outcome?.kind === "error" ? outcome.message : null);
-    setSavedCard(outcome?.kind === "saved" ? outcome.card : null);
+    setSavedCard(savedOutcome?.card ?? null);
     setFormComplete(false);
-  }, [open]);
+    if (savedOutcome) {
+      scheduleAutoClose();
+    }
+  }, [open, scheduleAutoClose]);
 
   // Fire the SetupIntent fetch once each time the modal opens; reset on close
   // so a stale `client_secret` or error doesn't leak into the next open.
@@ -233,6 +253,9 @@ function AutoTopUpPaymentMethodModalContent({
 
       try {
         const result = await confirm();
+        // The bank has answered, so disarm the hint before the (possibly
+        // slow) saved-card sync below can let it fire.
+        clearTimer(requiresActionTimer);
         if (!mountedRef.current) {
           return;
         }
@@ -254,12 +277,12 @@ function AutoTopUpPaymentMethodModalContent({
         }
         setSavedCard(saved ?? null);
         setState("saved");
-        savedCloseTimer.current = setTimeout(onClose, SAVED_AUTO_CLOSE_MS);
+        scheduleAutoClose();
       } finally {
         clearTimer(requiresActionTimer);
       }
     },
-    [clientSecret, onClose, onSavedOptimistic, t],
+    [clientSecret, onSavedOptimistic, scheduleAutoClose, t],
   );
 
   const renderFields = () => {
