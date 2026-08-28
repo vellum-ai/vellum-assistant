@@ -73,16 +73,14 @@ export const WithCheckboxItems: Story = {
           <ContextMenu.CheckboxItem
             checked={bold}
             onCheckedChange={setBold}
-            shortcut="⌘B"
-            aria-keyshortcuts="Meta+B"
+            shortcut="CmdOrCtrl+B"
           >
             Bold
           </ContextMenu.CheckboxItem>
           <ContextMenu.CheckboxItem
             checked={italic}
             onCheckedChange={setItalic}
-            shortcut="⌘I"
-            aria-keyshortcuts="Meta+I"
+            shortcut="CmdOrCtrl+I"
           >
             Italic
           </ContextMenu.CheckboxItem>
@@ -95,10 +93,8 @@ export const WithCheckboxItems: Story = {
 /** The item slots, driven from Controls so each one can be tried in isolation. */
 interface ItemSlotsArgs {
   label: string;
-  /** Right-aligned key hint. Hidden from assistive tech. */
+  /** Electron accelerator. Drives both the drawn hint and the announced binding. */
   shortcut: string;
-  /** Announced binding, paired with the visible {@link ItemSlotsArgs.shortcut}. */
-  ariaKeyShortcuts: string;
   /** Right-aligned content that is not a shortcut. Stays in the accessible name. */
   trailing: string;
   showIcon: boolean;
@@ -112,8 +108,7 @@ interface ItemSlotsArgs {
 export const ItemSlots: StoryObj<ItemSlotsArgs> = {
   args: {
     label: "Pin conversation",
-    shortcut: "⇧⌘P",
-    ariaKeyShortcuts: "Meta+Shift+P",
+    shortcut: "CmdOrCtrl+Shift+P",
     trailing: "",
     showIcon: true,
     disabled: false,
@@ -121,7 +116,6 @@ export const ItemSlots: StoryObj<ItemSlotsArgs> = {
   argTypes: {
     label: { control: "text" },
     shortcut: { control: "text" },
-    ariaKeyShortcuts: { control: "text" },
     trailing: { control: "text" },
     showIcon: { control: "boolean" },
     disabled: { control: "boolean" },
@@ -137,7 +131,6 @@ export const ItemSlots: StoryObj<ItemSlotsArgs> = {
         <ContextMenu.Item
           leftIcon={args.showIcon ? <Pin className="h-4 w-4" /> : undefined}
           shortcut={args.shortcut || undefined}
-          aria-keyshortcuts={args.ariaKeyShortcuts || undefined}
           trailing={args.trailing || undefined}
           disabled={args.disabled}
         >

@@ -139,7 +139,7 @@ export const WithGroupLabel: Story = {
       <ActionMenu.Content title={args.title}>
         <ActionMenu.Label>This conversation</ActionMenu.Label>
         <ActionMenu.Item label="Rename" />
-        <ActionMenu.Item label="Duplicate" shortcut="⌘D" />
+        <ActionMenu.Item label="Duplicate" shortcut="CmdOrCtrl+D" />
         <ActionMenu.Separator />
         <ActionMenu.Label>Everything</ActionMenu.Label>
         <ActionMenu.Item label="Archive all" />
@@ -149,10 +149,11 @@ export const WithGroupLabel: Story = {
 };
 
 /**
- * `shortcut` and `trailing` are both right-aligned, and both belong to the
- * pointer surface only: flip `presentation` to `sheet` and the rows keep their
- * labels and lose the right column, since a thumb has no keys and the sheet row
- * has no trailing slot.
+ * `shortcut` takes the accelerator and draws it, announcing the same binding
+ * through `aria-keyshortcuts`. Both slots belong to the pointer surface only:
+ * flip `presentation` to `sheet` and the rows keep their labels and lose the
+ * right column, since a thumb has no keys and the sheet row has no trailing
+ * slot.
  */
 export const WithTrailingContent: Story = {
   args: { title: "Deployment", presentation: "anchored" },
@@ -165,8 +166,7 @@ export const WithTrailingContent: Story = {
         <ActionMenu.Item
           icon={Pin}
           label="Pin conversation"
-          shortcut="⇧⌘P"
-          ariaKeyShortcuts="Meta+Shift+P"
+          shortcut="CmdOrCtrl+Shift+P"
         />
         <ActionMenu.Item icon={Link2} label="Deployed" trailing="Copy link" />
         <ActionMenu.Item icon={ArrowUp} label="Share" />

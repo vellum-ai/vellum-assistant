@@ -2,6 +2,11 @@ import { type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
 
+import {
+  acceleratorToAriaKeyShortcuts,
+  formatAcceleratorHint,
+} from "./shortcut-keys";
+
 /**
  * The right-aligned column of a menu row, shared by `Menu` and `ContextMenu`
  * so a key hint and a status glyph sit on the same baseline in the same
@@ -20,21 +25,22 @@ const asideBase = [
 ].join(" ");
 
 interface MenuItemShortcutProps {
+  /** Electron accelerator, e.g. `"CmdOrCtrl+Shift+P"`. */
+  readonly accelerator: string;
   /**
    * Whether this element pushes itself to the right edge. False when a
    * trailing slot precedes it and has already taken the free space.
    */
   readonly push?: boolean;
-  readonly children: ReactNode;
 }
 
 /**
- * Presentational key hint. Hidden from assistive tech, so the item itself
- * carries `aria-keyshortcuts` for the binding to be announced.
+ * The drawn key hint. Hidden from assistive tech, which reads the binding
+ * from the item's `aria-keyshortcuts` instead.
  */
 export function MenuItemShortcut({
+  accelerator,
   push = true,
-  children,
 }: MenuItemShortcutProps) {
   return (
     <span
@@ -42,9 +48,24 @@ export function MenuItemShortcut({
       aria-hidden
       className={cn(asideBase, push && "ml-auto")}
     >
-      {children}
+      {formatAcceleratorHint(accelerator)}
     </span>
   );
+}
+
+/**
+ * The attributes a row carries when it draws a key hint, for spreading onto
+ * the item element. Deriving the announced binding here, from the accelerator
+ * the glyphs are drawn from, is what keeps a hidden hint from becoming a
+ * shortcut assistive tech never hears about: a row cannot have one without
+ * the other.
+ */
+export function menuItemShortcutProps(accelerator: string | undefined): {
+  "aria-keyshortcuts"?: string;
+} {
+  return accelerator
+    ? { "aria-keyshortcuts": acceleratorToAriaKeyShortcuts(accelerator) }
+    : {};
 }
 
 /** Right-aligned content that is not a key hint, kept in the accessible name. */

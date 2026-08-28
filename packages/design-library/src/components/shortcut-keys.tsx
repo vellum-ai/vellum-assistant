@@ -162,6 +162,87 @@ export const formatAcceleratorHint = (
 ): string =>
   parseAccelerator(accelerator, platform).join(platform === "mac" ? "" : "+");
 
+/**
+ * Modifier names [`aria-keyshortcuts`](https://www.w3.org/TR/wai-aria-1.2/#aria-keyshortcuts)
+ * takes, which are the UI Events modifier key values rather than the glyphs a
+ * menu draws. `CmdOrCtrl` resolves per platform exactly as the glyphs do, so
+ * what a screen reader announces matches what the row shows.
+ */
+const ARIA_MODIFIERS: Record<ShortcutPlatform, Record<string, string>> = {
+  mac: {
+    command: "Meta",
+    cmd: "Meta",
+    commandorcontrol: "Meta",
+    cmdorctrl: "Meta",
+    super: "Meta",
+    meta: "Meta",
+    control: "Control",
+    ctrl: "Control",
+    alt: "Alt",
+    option: "Alt",
+    altgr: "AltGraph",
+    shift: "Shift",
+  },
+  windows: {
+    command: "Meta",
+    cmd: "Meta",
+    commandorcontrol: "Control",
+    cmdorctrl: "Control",
+    super: "Meta",
+    meta: "Meta",
+    control: "Control",
+    ctrl: "Control",
+    alt: "Alt",
+    option: "Alt",
+    altgr: "AltGraph",
+    shift: "Shift",
+  },
+};
+
+/** Named keys as their UI Events `KeyboardEvent.key` values. */
+const ARIA_KEYS: Record<string, string> = {
+  up: "ArrowUp",
+  down: "ArrowDown",
+  left: "ArrowLeft",
+  right: "ArrowRight",
+  return: "Enter",
+  enter: "Enter",
+  space: "Space",
+  backspace: "Backspace",
+  delete: "Delete",
+  escape: "Escape",
+  esc: "Escape",
+  tab: "Tab",
+  pageup: "PageUp",
+  pagedown: "PageDown",
+  home: "Home",
+  end: "End",
+  plus: "+",
+};
+
+/**
+ * The `aria-keyshortcuts` value for an accelerator: `"CmdOrCtrl+Shift+P"`
+ * becomes `"Meta+Shift+P"` on macOS and `"Control+Shift+P"` on Windows.
+ *
+ * Menus draw the glyph form and hide it from assistive tech, so this is the
+ * only channel through which a screen reader learns the binding. Derived from
+ * the same accelerator the glyphs come from, so the two cannot disagree.
+ */
+export const acceleratorToAriaKeyShortcuts = (
+  accelerator: string,
+  platform: ShortcutPlatform = detectShortcutPlatform(),
+): string =>
+  tokenize(accelerator)
+    .map((token) => {
+      const lower = token.toLowerCase();
+      return (
+        ARIA_MODIFIERS[platform][lower] ??
+        ARIA_KEYS[lower] ??
+        token.toUpperCase()
+      );
+    })
+    .join("+");
+
 export interface ShortcutKeysProps extends ComponentProps<"span"> {
   /** Electron accelerator string, e.g. `"CmdOrCtrl+Shift+N"`. */
   accelerator: string;

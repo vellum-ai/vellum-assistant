@@ -10,6 +10,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 
 import { Button } from "./button";
 import { Menu } from "./menu";
@@ -65,8 +66,9 @@ export const WithIcons: Story = {
 };
 
 /**
- * The shortcut glyphs are presentation only (`aria-hidden`), so each item also
- * carries `aria-keyshortcuts` for assistive tech to announce the binding.
+ * Items take the accelerator, not the glyphs. Each row draws the platform's
+ * key symbols and announces the same binding through `aria-keyshortcuts`, so
+ * the two cannot drift apart.
  */
 export const WithShortcuts: Story = {
   parameters: { controls: { disable: true } },
@@ -76,23 +78,13 @@ export const WithShortcuts: Story = {
         <Button>File</Button>
       </Menu.Trigger>
       <Menu.Content>
-        <Menu.Item shortcut="⌘N" aria-keyshortcuts="Meta+N">
-          New
-        </Menu.Item>
-        <Menu.Item shortcut="⌘O" aria-keyshortcuts="Meta+O">
-          Open
-        </Menu.Item>
+        <Menu.Item shortcut="CmdOrCtrl+N">New</Menu.Item>
+        <Menu.Item shortcut="CmdOrCtrl+O">Open</Menu.Item>
         <Menu.Separator />
-        <Menu.Item shortcut="⌘S" aria-keyshortcuts="Meta+S">
-          Save
-        </Menu.Item>
-        <Menu.Item shortcut="⇧⌘S" aria-keyshortcuts="Meta+Shift+S">
-          Save as…
-        </Menu.Item>
+        <Menu.Item shortcut="CmdOrCtrl+S">Save</Menu.Item>
+        <Menu.Item shortcut="CmdOrCtrl+Shift+S">Save as…</Menu.Item>
         <Menu.Separator />
-        <Menu.Item shortcut="⌘Q" aria-keyshortcuts="Meta+Q">
-          Quit
-        </Menu.Item>
+        <Menu.Item shortcut="CmdOrCtrl+Q">Quit</Menu.Item>
       </Menu.Content>
     </Menu.Root>
   ),
@@ -101,10 +93,8 @@ export const WithShortcuts: Story = {
 /** The item slots, driven from Controls so each one can be tried in isolation. */
 interface ItemSlotsArgs {
   label: string;
-  /** Right-aligned key hint. Hidden from assistive tech. */
+  /** Electron accelerator. Drives both the drawn hint and the announced binding. */
   shortcut: string;
-  /** Announced binding, paired with the visible {@link ItemSlotsArgs.shortcut}. */
-  ariaKeyShortcuts: string;
   /** Right-aligned content that is not a shortcut. Stays in the accessible name. */
   trailing: string;
   showIcon: boolean;
@@ -113,15 +103,14 @@ interface ItemSlotsArgs {
 
 /**
  * `shortcut` and `trailing` are separate slots because they mean different
- * things to a screen reader: a key hint is decorative and repeats what
+ * things to a screen reader: a key hint is drawn but hidden, repeating what
  * `aria-keyshortcuts` announces, while trailing content (a status glyph, a
  * secondary hint) is part of what the row says.
  */
 export const ItemSlots: StoryObj<ItemSlotsArgs> = {
   args: {
     label: "Pin conversation",
-    shortcut: "⇧⌘P",
-    ariaKeyShortcuts: "Meta+Shift+P",
+    shortcut: "CmdOrCtrl+Shift+P",
     trailing: "",
     showIcon: true,
     disabled: false,
@@ -129,10 +118,21 @@ export const ItemSlots: StoryObj<ItemSlotsArgs> = {
   argTypes: {
     label: { control: "text" },
     shortcut: { control: "text" },
-    ariaKeyShortcuts: { control: "text" },
     trailing: { control: "text" },
     showIcon: { control: "boolean" },
     disabled: { control: "boolean" },
+  },
+  // The row draws the hint and hides it, so the binding reaches assistive tech
+  // only through `aria-keyshortcuts`. Asserted on the composed tree, since the
+  // item is what has to carry the attribute.
+  play: async ({ canvasElement, args }) => {
+    await userEvent.click(within(canvasElement).getByRole("button"));
+    const item = await within(document.body).findByRole("menuitem");
+    expect(item).toHaveAttribute("aria-keyshortcuts");
+    expect(
+      item.querySelector('[data-slot="menu-item-shortcut"]'),
+    ).toHaveAttribute("aria-hidden", "true");
+    expect(item).toHaveAccessibleName(args.label);
   },
   render: (args) => (
     <Menu.Root>
@@ -143,7 +143,6 @@ export const ItemSlots: StoryObj<ItemSlotsArgs> = {
         <Menu.Item
           leftIcon={args.showIcon ? <Pin className="h-4 w-4" /> : undefined}
           shortcut={args.shortcut || undefined}
-          aria-keyshortcuts={args.ariaKeyShortcuts || undefined}
           trailing={args.trailing || undefined}
           disabled={args.disabled}
         >

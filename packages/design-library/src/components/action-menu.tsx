@@ -231,16 +231,12 @@ interface ActionMenuItemProps {
    * label rather than carry anything the label omits.
    */
   description?: ReactNode;
-  /** Keyboard shortcut hint. Pointer surfaces only, since a sheet has no keys. */
-  shortcut?: ReactNode;
   /**
-   * The binding {@link ActionMenuItemProps.shortcut} draws, in
-   * [`aria-keyshortcuts`](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-keyshortcuts)
-   * form (`"Meta+Shift+P"`). The drawn glyphs are hidden from assistive tech,
-   * so this is what a screen reader announces. Travels with `shortcut`:
-   * pointer surfaces only.
+   * Electron accelerator for the row's binding, e.g. `"CmdOrCtrl+Shift+P"`.
+   * Draws the glyph hint and announces the binding from the one value. Pointer
+   * surfaces only, since a sheet has no keys.
    */
-  ariaKeyShortcuts?: string;
+  shortcut?: string;
   /**
    * Right-aligned trailing content that is not a keyboard shortcut: a status
    * glyph, secondary hint text. Anchored presentation only; the sheet row has
@@ -281,7 +277,6 @@ function Item({
   label,
   description,
   shortcut,
-  ariaKeyShortcuts,
   trailing,
   tone = "default",
   disabled = false,
@@ -327,7 +322,6 @@ function Item({
     <Menu.Item
       leftIcon={Icon ? <Icon size={14} /> : undefined}
       shortcut={shortcut}
-      aria-keyshortcuts={ariaKeyShortcuts}
       trailing={trailing}
       disabled={disabled}
       className={cn(
