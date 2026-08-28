@@ -30,7 +30,12 @@ import { useTranslation, type TFunction } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { READ_ICON, UNREAD_ICON } from "@/utils/read-state-icon";
-import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  ContextMenu,
+  Menu,
+  actionMenuDestructiveClasses,
+} from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
@@ -56,12 +61,6 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 type MenuSide = "top" | "right" | "bottom" | "left";
 type MenuAlign = "start" | "center" | "end";
-
-/** Destructive row colour shared by the dropdown and the mobile sheet. */
-const DELETE_ITEM_CLASS =
-  "text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-hover)] [&_[data-slot=menu-item-icon]]:text-inherit";
-const DELETE_SHEET_ITEM_CLASS =
-  "text-[var(--system-negative-strong)] [--panel-item-icon-fg:var(--system-negative-strong)]";
 
 /**
  * Subset of the compound-menu API shared by `Menu` and `ContextMenu`. The
@@ -264,7 +263,7 @@ export function renderConversationMenuItems({
     <Primitive.Item
       leftIcon={<Trash2 size={14} />}
       onSelect={onDelete}
-      className={DELETE_ITEM_CLASS}
+      className={actionMenuDestructiveClasses.anchored}
     >
       {t("conversationActions.delete")}
     </Primitive.Item>
@@ -589,7 +588,7 @@ export function renderConversationMenuItemsAsPanelItems({
         key: "delete",
         icon: Trash2,
         label: t("conversationActions.delete"),
-        className: DELETE_SHEET_ITEM_CLASS,
+        className: actionMenuDestructiveClasses.sheet,
         run: onDelete,
         onClose,
       })

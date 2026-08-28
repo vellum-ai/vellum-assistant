@@ -137,6 +137,7 @@ export {
 } from "./components/confirm-dialog";
 export {
   ActionMenu,
+  actionMenuDestructiveClasses,
   type ActionMenuPresentation,
   type ActionMenuRootProps,
   type ActionMenuTriggerProps,
