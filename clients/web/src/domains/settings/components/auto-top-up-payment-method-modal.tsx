@@ -27,6 +27,7 @@ import {
 } from "@/domains/settings/components/payment-method-modal-shell";
 import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import type { BillingAddress } from "@/generated/api/types.gen";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useTranslation } from "@/i18n";
 import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
@@ -50,16 +51,6 @@ export const REQUIRES_ACTION_HINT_MS = 1500;
 /** How long the success panel stays on screen before the modal closes itself. */
 export const SAVED_AUTO_CLOSE_MS = 900;
 
-/** A saved billing address, shaped as the platform returns it. */
-export interface StripeAddressValue {
-  line1: string | null;
-  line2: string | null;
-  city: string | null;
-  state: string | null;
-  postal_code: string | null;
-  country: string | null;
-}
-
 /** The result of a 3DS redirect return, replayed into a freshly opened modal. */
 export type SetupIntentOutcome =
   | { kind: "saved"; card: SavedPaymentMethod | null }
@@ -72,7 +63,7 @@ export interface AutoTopUpPaymentMethodModalProps {
   /** The card being replaced; rendered only in `replace` mode. */
   cardOnFile?: CardOnFile | null;
   /** Seeds the Address Element so a known billing address is not retyped. */
-  billingAddress?: StripeAddressValue | null;
+  billingAddress?: BillingAddress | null;
   initialOutcome?: SetupIntentOutcome | null;
   /**
    * Called after `confirmSetup` succeeds, carrying the id of the SetupIntent
@@ -383,7 +374,7 @@ function clearTimer(ref: { current: TimerHandle }): void {
  * Stripe seeds an address only when it knows the country, so an address
  * without one leaves the element empty rather than half-filled.
  */
-function toStripeAddress(address: StripeAddressValue) {
+function toStripeAddress(address: BillingAddress) {
   if (!address.country) {
     return undefined;
   }
@@ -425,7 +416,7 @@ function SetupCardForm({
   onSave,
   onSubmitReady,
 }: {
-  billingAddress: StripeAddressValue | null;
+  billingAddress: BillingAddress | null;
   onCompleteChange: (complete: boolean) => void;
   onError: (message: string) => void;
   onSave: (confirm: () => Promise<SetupIntentResult>) => Promise<void>;
