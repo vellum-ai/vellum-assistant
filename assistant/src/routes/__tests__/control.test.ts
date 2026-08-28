@@ -73,7 +73,7 @@ describe("startRouteHost", () => {
     expect(spawnArgs).toHaveLength(0);
   });
 
-  test("spawns the host when enabled", async () => {
+  test("spawns the host as a daemon child when enabled", async () => {
     enabled = true;
     startRouteHost();
     await Promise.resolve();
