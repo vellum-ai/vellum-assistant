@@ -838,16 +838,23 @@ export function useSendMessage({
             },
           );
           if (!postResult.ok) {
-            revertQueuedMessage(userMessage.id);
-            const detail = resolvePostError(
-              postResult.error.code,
-              postResult.error.detail,
-              "Failed to queue message. Please try again.",
-            );
-            setError({
-              message: detail,
-              code: postResult.error.code ?? undefined,
-            });
+            // Reported only to the thread it happened in. The streaming path
+            // answers a scope mismatch the same way, returning `ignored`
+            // without surfacing anything, because an error banner raised over
+            // a conversation the user is now reading describes a send they
+            // cannot see and cannot retry from there.
+            if (sendIsOnScreen) {
+              revertQueuedMessage(userMessage.id);
+              const detail = resolvePostError(
+                postResult.error.code,
+                postResult.error.detail,
+                "Failed to queue message. Please try again.",
+              );
+              setError({
+                message: detail,
+                code: postResult.error.code ?? undefined,
+              });
+            }
             return;
           }
           void surfaceConversationAfterUserSend(
@@ -862,18 +869,31 @@ export function useSendMessage({
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            const queueIds =
-              useChatSessionStore.getState().pendingQueuedMessageIds;
-            const idx = queueIds.indexOf(userMessage.id);
-            if (idx !== -1) {
-              queueIds.splice(idx, 1);
+            //
+            // All of that describes the thread on screen: the queue FIFO, the
+            // row's queue badge, and the turn this send is now driving. A send
+            // whose thread the user has left owns none of them, and claiming
+            // the turn store here would replace the open conversation's phase
+            // and active turn id, mid-answer if that thread is streaming. The
+            // branch is reachable for such a send because `willQueue` reads
+            // the open thread's phase, so it can queue a message for a
+            // conversation that was idle all along. See `sendIsOnScreen`.
+            if (sendIsOnScreen) {
+              const queueIds =
+                useChatSessionStore.getState().pendingQueuedMessageIds;
+              const idx = queueIds.indexOf(userMessage.id);
+              if (idx !== -1) {
+                queueIds.splice(idx, 1);
+              }
+              setOptimisticSends((prev) =>
+                clearQueueStatus(prev, userMessage.id),
+              );
+              const fallbackTurnId = newTurnId();
+              useTurnStore.getState().requestSend(fallbackTurnId);
+              useTurnStore.getState().acceptSend(fallbackTurnId);
             }
-            setOptimisticSends((prev) =>
-              clearQueueStatus(prev, userMessage.id),
-            );
-            const fallbackTurnId = newTurnId();
-            useTurnStore.getState().requestSend(fallbackTurnId);
-            useTurnStore.getState().acceptSend(fallbackTurnId);
+            // Keyed by conversation rather than by what is on screen, so it
+            // stays correct for the thread this send belongs to either way.
             {
               const currentConv = findConversation(
                 queryClient,
@@ -890,7 +910,11 @@ export function useSendMessage({
             return;
           }
           const requestId = postResult.requestId;
-          if (requestId) {
+          // The mapping exists to bind the daemon's `message_queued_deleted`
+          // broadcast to a rendered row, and the deletion it would confirm can
+          // only have been asked for from one. A send with no row on screen has
+          // neither, so the whole block belongs to the thread on screen.
+          if (requestId && sendIsOnScreen) {
             const sessionStore = useChatSessionStore.getState();
             sessionStore.setRequestIdMapping(requestId, userMessage.id);
             if (sessionStore.consumePendingLocalDeletion(userMessage.id)) {
@@ -910,9 +934,13 @@ export function useSendMessage({
             }
           }
         } catch (err) {
+          // Captured whatever the scope, since a thrown send is a real fault;
+          // only its report to the user is scoped, as above.
           captureError(err, { context: "send_message_queue" });
-          revertQueuedMessage(userMessage.id);
-          setError({ message: "Failed to queue message. Please try again." });
+          if (sendIsOnScreen) {
+            revertQueuedMessage(userMessage.id);
+            setError({ message: "Failed to queue message. Please try again." });
+          }
         }
         return;
       }
