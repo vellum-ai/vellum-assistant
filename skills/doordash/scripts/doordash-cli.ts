@@ -386,8 +386,7 @@ export function registerDoordashCommand(program: Command): void {
                 itemName: params.itemName as string | undefined,
                 nestedOptions: params.nestedOptions as string | undefined,
                 specialInstructions: params.specialInstructions as
-                  | string
-                  | undefined,
+                  string | undefined,
                 unitPrice: params.unitPrice as number | undefined,
                 menuId: params.menuId as string | undefined,
                 storeId: params.storeId as string | undefined,
@@ -799,8 +798,7 @@ export function registerDoordashCommand(program: Command): void {
             itemName: params.itemName as string | undefined,
             nestedOptions: params.nestedOptions as string | undefined,
             specialInstructions: params.specialInstructions as
-              | string
-              | undefined,
+              string | undefined,
             unitPrice: params.unitPrice as number | undefined,
             menuId: params.menuId as string | undefined,
             storeId: params.storeId as string | undefined,
