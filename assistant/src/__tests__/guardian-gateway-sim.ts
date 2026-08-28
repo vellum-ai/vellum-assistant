@@ -178,7 +178,7 @@ export function createGuardianGatewaySim() {
       destinationConversationId: params.destinationConversationId ?? null,
       destinationChatId: params.destinationChatId ?? null,
       destinationMessageId: params.destinationMessageId ?? null,
-      status: params.status ?? "pending",
+      status: params.status ?? DELIVERY_STATUS.pending,
       createdAt: params.createdAt ?? now,
       updatedAt: params.updatedAt ?? now,
     };
@@ -365,7 +365,7 @@ export function createGuardianGatewaySim() {
         delivery.requestId === id &&
         delivery.status !== DELIVERY_STATUS.withdrawn
       ) {
-        delivery.status = "expired";
+        delivery.status = DELIVERY_STATUS.expired;
         delivery.updatedAt = Date.now();
       }
     }
