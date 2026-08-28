@@ -58,7 +58,8 @@ describe("SoundManager", () => {
 
     await manager.previewFallbackBlip();
 
-    expect(FakeAudioContext.lastInstance?.resumed).toBe(true);
-    expect(FakeAudioContext.lastInstance?.started).toBe(true);
+    const context = FakeAudioContext.lastInstance as unknown as FakeAudioContext;
+    expect(context.resumed).toBe(true);
+    expect(context.started).toBe(true);
   });
 });
