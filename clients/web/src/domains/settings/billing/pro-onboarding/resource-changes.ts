@@ -14,14 +14,10 @@ export interface ResourceChange {
 
 /**
  * The credits chip's pre-worded strings: each side names its bundle, under the
- * row label the caller supplies ("Usage"). The from-side is left unstated when
- * the catalog can't word it.
+ * row label the caller supplies ("Usage"). An unwordable from-side is left
+ * unstated.
  */
-export interface CreditsChipContent {
-  label: string;
-  from?: string;
-  to: string;
-}
+export type CreditsChipContent = Omit<ResourceChange, "key">;
 
 /**
  * Flattens the provisioning targets into the ordered list of resource changes
@@ -104,12 +100,7 @@ export function buildResourceChanges(input: {
   }
 
   if (credits != null) {
-    changes.push({
-      key: "credits",
-      label: credits.label,
-      from: credits.from,
-      to: credits.to,
-    });
+    changes.push({ key: "credits", ...credits });
   }
 
   return changes;

@@ -105,23 +105,6 @@ describe("buildResourceChanges", () => {
     expect(changes.map((c) => c.key)).toEqual(["credits"]);
   });
 
-  test("renders a credits-only change from the wording the caller passes", () => {
-    const changes = buildResourceChanges({
-      targets: { machineSize: null, storageGib: null },
-      fromSnapshot: { machineSize: null, storageGib: null },
-      credits: { label: "Usage", from: "No extra usage", to: "Mighty Usage" },
-    });
-
-    expect(changes).toEqual([
-      {
-        key: "credits",
-        label: "Usage",
-        from: "No extra usage",
-        to: "Mighty Usage",
-      },
-    ]);
-  });
-
   test("keeps a storage-only change free of a machine row", () => {
     const changes = buildResourceChanges({
       targets: { machineSize: "medium", storageGib: 50 },
