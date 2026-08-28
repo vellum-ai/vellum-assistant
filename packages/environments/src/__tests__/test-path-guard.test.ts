@@ -56,7 +56,7 @@ describe("assertTestPathIsEphemeral", () => {
     delete process.env[OPTIONS.allowEnvVar];
     const dir = join(homedir(), "test-path-guard-live");
     expect(() => assertTestPathIsEphemeral(dir, OPTIONS)).toThrow(
-      /Refusing to use[\s\S]*TEST_PATH_GUARD_ALLOW[\s\S]*package root/,
+      /Refusing to use[\s\S]*package root[\s\S]*TEST_PATH_GUARD_ALLOW/,
     );
   });
 
