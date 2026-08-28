@@ -11,7 +11,6 @@ import {
 import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
-import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
@@ -21,6 +20,8 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { TurnDetectionRow } from "@/domains/settings/pages/turn-detection-row";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
+import { VoiceSection } from "@/domains/settings/pages/voice-section";
+import { VoiceSectionsSkeleton } from "@/domains/settings/pages/voice-sections-skeleton";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { isElectron } from "@/runtime/is-electron";
@@ -173,72 +174,6 @@ function SpeechServicesBanner() {
         <ArrowUpRight className="h-3 w-3" />
       </Link>
     </div>
-  );
-}
-
-/**
- * Stand-in while the daemon answers which speech capabilities this assistant
- * has. Built from the same {@link VoiceSection} scaffolding as the real page
- * so the headings keep their position and only the card bodies change.
- */
-function VoiceSectionsSkeleton() {
-  const { t } = useTranslation("settings");
-
-  return (
-    <div
-      className="flex flex-col gap-8"
-      role="status"
-      aria-label={t("voicePage.loadingAria")}
-    >
-      <VoiceSection
-        heading={t("voicePage.sectionOutputHeading")}
-        description={t("voicePage.sectionOutputDescription")}
-      >
-        <CardSkeleton />
-      </VoiceSection>
-
-      <VoiceSection
-        heading={t("voicePage.sectionInputHeading")}
-        description={t("voicePage.sectionInputDescription")}
-      >
-        <CardSkeleton />
-        <CardSkeleton />
-      </VoiceSection>
-
-      <VoiceSection heading={t("voicePage.sectionCaptionsHeading")}>
-        <CardSkeleton />
-      </VoiceSection>
-    </div>
-  );
-}
-
-function CardSkeleton() {
-  return <Skeleton className="h-20 w-full rounded-xl" />;
-}
-
-function VoiceSection({
-  heading,
-  description,
-  children,
-}: {
-  heading: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-label-medium-default uppercase tracking-wide text-[var(--content-tertiary)]">
-          {heading}
-        </h2>
-        {description && (
-          <p className="text-body-small-default text-[var(--content-quiet)]">
-            {description}
-          </p>
-        )}
-      </div>
-      {children}
-    </section>
   );
 }
 
