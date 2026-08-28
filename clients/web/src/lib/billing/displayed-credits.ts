@@ -13,11 +13,7 @@
 
 import { parseUsd } from "@/lib/billing/parse-usd";
 
-/**
- * The balance to display: the effective balance less whatever is still unused
- * on the usage grants, never below zero. Returns the balance untouched when
- * the platform reports no grant figure.
- */
+/** Clamped at zero; passes the balance through when no grant figure lands. */
 export function displayedCreditsUsd(
   balance: string,
   availableUsageBalance: string | null | undefined,
