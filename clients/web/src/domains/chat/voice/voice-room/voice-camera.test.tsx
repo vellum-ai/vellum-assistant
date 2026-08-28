@@ -622,6 +622,29 @@ describe("useVoiceCamera: an open superseded while the bridge starts it", () => 
     await waitFor(() => expect(flashAvailable()).toBe(true));
   });
 
+  test("does not stop a camera another surface opened meanwhile", async () => {
+    // The surface holding the pending start unmounts, and a different hook
+    // instance raises its own camera before the late result arrives. The
+    // stale start's own refs are empty either way, so the module ledger is
+    // what tells "nothing owns the hardware" from "another surface does".
+    const firstStart = deferredCall<boolean>();
+    startSpy.mockImplementation(firstStart.answer);
+    const first = render(<Probe />);
+    await press("open");
+    act(() => first.unmount());
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+
+    startSpy.mockImplementation(async () => true);
+    render(<Probe />);
+    await press("open");
+    expect(startSpy).toHaveBeenCalledTimes(2);
+
+    await settle(() => firstStart.resolve(true));
+
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(flashAvailable()).toBe(true));
+  });
+
   test("stops the camera nothing owns when only a close follows", async () => {
     // The other half of the discipline: with no reopen behind it, the
     // superseded start is the last owner standing, and the stop it posts

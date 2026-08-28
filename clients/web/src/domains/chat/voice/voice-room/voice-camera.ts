@@ -126,6 +126,25 @@ const CYCLED_FLASH_MODES: FlashMode[] = ["off", "auto", "on"];
 const NO_FLASH_MODES: string[] = [];
 
 /**
+ * The newest native start or stop any instance of this hook posted to the
+ * bridge, corrected to "stop" when a start reports failure with nothing newer
+ * behind it. Module-scoped because the native preview is one plugin instance
+ * shared across hook instances (the room and the capture overlay), so a stale
+ * start deciding whether its cleanup is safe cannot consult its own refs: the
+ * newest call can belong to an instance it has never seen. When the newest
+ * call is a start, an unscoped stop tears down the preview that start raises;
+ * when it is a stop, one more stop is harmless.
+ */
+let lastNativePreviewCall: "start" | "stop" = "stop";
+
+/**
+ * Counts the calls the ledger describes, so a failed start can tell whether
+ * it is still the newest one before it downgrades the ledger: when a newer
+ * call sits behind it on the bridge, the ledger is that call's to describe.
+ */
+let nativePreviewCallSeq = 0;
+
+/**
  * Whether a viewfinder can run in this environment.
  *
  * Native mobile shells can provide the Capacitor preview even when the web
@@ -324,6 +343,8 @@ export function useVoiceCamera(
         flashEngagedRef.current = false;
         void setNativeVoiceCameraFlashMode("off");
       }
+      lastNativePreviewCall = "stop";
+      nativePreviewCallSeq++;
       void stopNativeVoiceCamera();
     }
     const stream = streamRef.current;
@@ -418,18 +439,20 @@ export function useVoiceCamera(
 
       if (isNativeMobile()) {
         sourceRef.current = "native-pending";
+        lastNativePreviewCall = "start";
+        const nativeCallSeq = ++nativePreviewCallSeq;
         const started = await startNativeVoiceCamera(nextFacing);
         if (epoch !== acquireEpochRef.current) {
           // A canceled start still owns what it started, unless something
           // newer holds a claim. The release that canceled this acquire posts
           // a stop of its own, but that stop can reach the native side before
           // this start finishes there and stop nothing, which is hardware
-          // left live with no owner; stopping here closes that hole. When
-          // `sourceRef` carries a newer acquire's claim the opposite holds:
-          // that acquire's start sits behind this one on the bridge, and an
-          // unscoped stop posted now lands after it, tearing down the very
-          // preview it is installing.
-          if (started && sourceRef.current === null) {
+          // left live with no owner; stopping here closes that hole. When the
+          // newest call on the bridge is another start, in this instance or
+          // any other, the opposite holds: that start sits behind this one on
+          // the bridge, and an unscoped stop posted now lands after it,
+          // tearing down the very preview it is installing.
+          if (started && lastNativePreviewCall === "stop") {
             await stopNativeVoiceCamera();
           }
           return "aborted";
@@ -445,6 +468,12 @@ export function useVoiceCamera(
           return null;
         }
         sourceRef.current = null;
+        // A failed start raises nothing, so while it is still the ledger's
+        // newest call it stops reading as a live preview a stale sibling
+        // must spare.
+        if (nativeCallSeq === nativePreviewCallSeq) {
+          lastNativePreviewCall = "stop";
+        }
       }
 
       if (
