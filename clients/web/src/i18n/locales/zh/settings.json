@@ -2173,6 +2173,7 @@
     "shortcutChordHint": "按住一个修饰键（Cmd、Ctrl、Option 或 Shift）并按下任意键。",
     "shortcutConflict": "已被 {command} 使用",
     "speechServicesBannerLink": "在“模型与服务”中设置",
+    "speechServicesBannerLoading": "正在加载语音服务状态",
     "speechServicesBannerPrompt": "想为 STT 或 TTS 使用您自己的 API 密钥，或设置自定义语音吗？",
     "systemDefault": "系统默认",
     "turnDetectionDescription": "语音模型决定您何时结束说话，而不是上面的暂停计时器。",

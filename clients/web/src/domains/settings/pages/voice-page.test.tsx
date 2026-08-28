@@ -31,15 +31,18 @@ import { MemoryRouter } from "react-router";
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "asst-test",
 }));
+// Mutable for the same reason as `languageSelection` below: the banner's slot
+// behaviour is about moving between these states, not about any one of them.
+const voiceSelection = {
+  available: false,
+  settled: true,
+  voices: [] as unknown[],
+  currentModel: "",
+  selectModel: () => {},
+  selecting: false,
+};
 mock.module("@/components/speech/use-managed-voice-selection", () => ({
-  useManagedVoiceSelection: () => ({
-    available: false,
-    settled: true,
-    voices: [],
-    currentModel: "",
-    selectModel: () => {},
-    selecting: false,
-  }),
+  useManagedVoiceSelection: () => voiceSelection,
 }));
 
 // The listening-language card reads daemon config through React Query too.
@@ -71,16 +74,22 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const tree = (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <VoiceSections />
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const utils = render(tree);
+  // Same tree, same client: re-rendering re-reads the mutable hook stubs, so
+  // a test can move between loading and settled the way the page does.
+  return { ...utils, rerenderPage: () => utils.rerender(tree) };
 }
 
 beforeEach(() => {
+  voiceSelection.available = false;
+  voiceSelection.settled = true;
   languageSelection.available = false;
   languageSelection.currentCode = "multi";
   languageSelection.configuredProviderId = "deepgram";
@@ -400,5 +409,60 @@ describe("VoiceSections voice mode shortcut", () => {
     );
 
     expect(storedBinding()).toEqual({ kind: "off" });
+  });
+});
+
+describe("VoiceSections speech-services banner slot", () => {
+  /**
+   * The slot is the fix: the banner is optional, so a placeholder that only
+   * exists while the answer is in flight would trade a shift down for a shift
+   * up whenever the answer turns out to be no. These assert the reserved line
+   * survives all three states, which is the property the page's stability
+   * actually rests on.
+   */
+  function bannerSlot(container: HTMLElement): HTMLElement | null {
+    return container.querySelector(".min-h-5");
+  }
+
+  test("holds the line, and shows a labelled placeholder, before the answer arrives", () => {
+    voiceSelection.settled = false;
+    const { container } = renderPage();
+
+    expect(bannerSlot(container)).not.toBeNull();
+    expect(
+      screen.getByLabelText("Loading speech services status"),
+    ).toBeTruthy();
+  });
+
+  test("keeps the line once the answer is no, so nothing below moves up", () => {
+    voiceSelection.settled = false;
+    const { container, rerenderPage } = renderPage();
+    expect(bannerSlot(container)).not.toBeNull();
+
+    // The transition that the first version of this fix got wrong: settling
+    // into "not available" must not collapse the space it was holding.
+    voiceSelection.settled = true;
+    voiceSelection.available = false;
+    rerenderPage();
+
+    expect(bannerSlot(container)).not.toBeNull();
+    expect(
+      screen.queryByLabelText("Loading speech services status"),
+    ).toBeNull();
+    expect(screen.queryByText(/Models & Services/)).toBeNull();
+  });
+
+  test("fills the same line once the answer is yes", () => {
+    voiceSelection.settled = false;
+    const { container, rerenderPage } = renderPage();
+
+    voiceSelection.settled = true;
+    voiceSelection.available = true;
+    rerenderPage();
+
+    expect(bannerSlot(container)).not.toBeNull();
+    expect(
+      screen.queryByLabelText("Loading speech services status"),
+    ).toBeNull();
   });
 });

@@ -145,18 +145,29 @@ function SpeechServicesBanner() {
     useActiveAssistantId(),
   );
 
-  // Hold one line of the banner's own height until the answer arrives, so
-  // the sections below sit where they will stay. Once settled this collapses
-  // for an assistant that never shows the banner, which is why the
-  // placeholder is keyed on `settled` and not on `available` alone.
-  if (!settled) {
-    return <Skeleton as="span" className="mx-1 block h-5 w-2/3 max-w-sm" />;
-  }
+  // A slot that always holds one line, rather than a placeholder that appears
+  // and then collapses. The banner is optional, so reserving space only while
+  // the answer is in flight trades a shift down for a shift up whenever the
+  // answer is no. Holding the line through all three states, loading, shown,
+  // and absent, leaves the sections below it still in every case.
+  return (
+    <div className="min-h-5">
+      {!settled ? (
+        <Skeleton
+          as="span"
+          role="status"
+          aria-label={t("voicePage.speechServicesBannerLoading")}
+          className="mx-1 block h-5 w-2/3 max-w-sm"
+        />
+      ) : available ? (
+        <SpeechServicesBannerContent />
+      ) : null}
+    </div>
+  );
+}
 
-  if (!available) {
-    return null;
-  }
-
+function SpeechServicesBannerContent() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />

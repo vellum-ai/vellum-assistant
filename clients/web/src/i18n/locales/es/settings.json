@@ -2178,6 +2178,7 @@
     "shortcutChordHint": "Mantén pulsado un modificador (Cmd, Ctrl, Opción o Mayús) y pulsa una tecla.",
     "shortcutConflict": "Ya lo usa {command}",
     "speechServicesBannerLink": "Configúralo en Modelos y servicios",
+    "speechServicesBannerLoading": "Cargando el estado de los servicios de voz",
     "speechServicesBannerPrompt": "¿Quieres usar tu propia clave API para STT o TTS, o configurar una voz personalizada?",
     "systemDefault": "Predeterminado del sistema",
     "turnDetectionDescription": "El modelo de voz decide cuándo has terminado, en lugar del temporizador de pausa de arriba.",

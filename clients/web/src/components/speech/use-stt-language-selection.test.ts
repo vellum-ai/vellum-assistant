@@ -28,7 +28,6 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => true,
-  useOrgHeaderReadiness: () => "ready",
 }));
 
 const ASSISTANT_ID = "asst-test";

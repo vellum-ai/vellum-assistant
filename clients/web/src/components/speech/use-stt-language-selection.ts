@@ -24,7 +24,7 @@ import {
   configGetOptions,
   sttProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   MULTI_DEFAULT_DAEMON_PROVIDERS,
   STT_LANGUAGE_DEFAULT_CODE,
@@ -83,14 +83,6 @@ export interface UseSttLanguageSelection {
    */
   available: boolean;
   /**
-   * "Nothing is in flight, and nothing is waiting to start." `available` is
-   * false both while the answer is still arriving and once it has arrived as
-   * no, so a caller reserving layout reads this to tell those apart: reserve
-   * while unsettled, and once settled let `available` decide. Mirrors
-   * `settled` on {@link useManagedVoiceSelection}.
-   */
-  settled: boolean;
-  /**
    * The currently-selected catalog code: the pick a write is still carrying,
    * else the config value. Unset and the provider's resolved default code
    * both read as `STT_LANGUAGE_DEFAULT_CODE` (display equivalence, see
@@ -118,16 +110,16 @@ export interface UseSttLanguageSelection {
 export function useSttLanguageSelection(
   assistantId: string | null,
 ): UseSttLanguageSelection {
-  const orgReadiness = useOrgHeaderReadiness();
-  const enabled = orgReadiness === "ready" && !!assistantId;
+  const isOrgReady = useIsOrgReady();
+  const enabled = isOrgReady && !!assistantId;
 
-  const { data: providerCatalog, isLoading: catalogLoading } = useQuery({
+  const { data: providerCatalog } = useQuery({
     ...sttProvidersGetOptions({ path: { assistant_id: assistantId ?? "" } }),
     enabled,
     staleTime: Infinity,
     retry: false,
   });
-  const { data: daemonConfig, isLoading: configLoading } = useQuery({
+  const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId ?? "" } }),
     enabled,
     staleTime: 30_000,
@@ -173,17 +165,8 @@ export function useSttLanguageSelection(
     failureMessage: "Couldn't change the language just now. Try again.",
   });
 
-  // Each `isLoading` reads false for a query that is disabled or has failed,
-  // so the states that never produce a picker (no assistant, an org that
-  // resolved to nothing, an old daemon) settle rather than read as
-  // perpetually loading. `"resolving"` is the one wait not expressed as a
-  // query: it disables both, and they would otherwise look settled.
-  const settled =
-    orgReadiness !== "resolving" && !catalogLoading && !configLoading;
-
   return {
     available,
-    settled,
     currentCode,
     configuredProviderId: configuredProvider,
     selectLanguage,
