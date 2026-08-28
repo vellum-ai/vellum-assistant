@@ -128,6 +128,12 @@
     "previewAria": "{filename} 的预览",
     "previousAttachmentAria": "上一个附件"
   },
+  "attachmentTile": {
+    "cancelUpload": "取消上传 {filename}",
+    "preview": "预览 {filename}",
+    "remove": "移除 {filename}",
+    "uploading": "正在上传 {filename}"
+  },
   "backgroundTaskDetailPanel": {
     "closeDetail": "关闭任务详情",
     "command": "命令",
@@ -239,6 +245,31 @@
     "openFailed": "无法打开相机。",
     "shutter": "拍照",
     "title": "拍照"
+  },
+  "cameraError": {
+    "captureFailed": "无法拍摄该照片。",
+    "deviceInUse": "另一个应用程序正在使用相机。",
+    "noDevice": "未找到相机。",
+    "notDelivered": "正在重新连接。请重新拍摄。",
+    "permissionDenied": "Vellum 未获得相机访问权限。",
+    "refused": "您的助手目前无法接收照片。",
+    "storeFailed": "无法将该照片添加到对话中。",
+    "unknown": "无法打开相机。",
+    "unsupported": "此设备无法打开相机。",
+    "uploadFailed": "无法发送该照片。"
+  },
+  "cameraStatusPill": {
+    "announceLive": "实时。{status}",
+    "announceLiveMuted": "实时。已静音。{status}",
+    "announceLiveMutedSpeaking": "实时。已静音。{name} 正在说话",
+    "announceLiveSpeaking": "实时。{name} 正在说话",
+    "announcePhoto": "照片。{status}",
+    "announcePhotoMuted": "照片。已静音。{status}",
+    "announcePhotoMutedSpeaking": "照片。已静音。{name} 正在说话",
+    "announcePhotoSpeaking": "照片。{name} 正在说话",
+    "live": "实时",
+    "photo": "照片",
+    "yourAssistant": "您的助手"
   },
   "cardSurface": {
     "tasksProgress": "已完成 {completed} / 共 {total} 个任务"
@@ -768,6 +799,15 @@
   "liveVoiceButton": {
     "startVoiceMode": "启动语音模式"
   },
+  "liveVoiceStatus": {
+    "connecting": "正在连接…",
+    "ending": "正在结束…",
+    "listening": "正在聆听…",
+    "muted": "已静音",
+    "reconnecting": "正在重新连接…",
+    "speaking": "正在说话…",
+    "thinking": "正在思考…"
+  },
   "llmCallErrorCard": {
     "chipCode": "代码",
     "chipProvider": "提供商",
@@ -1203,6 +1243,7 @@
     "submitFailed": "提交回复失败。请重试。"
   },
   "questionPromptCard": {
+    "expandAria": "重新打开问题",
     "minimizeAria": "最小化问题",
     "nextQuestionAria": "下一个问题",
     "optionAria": "选项 {number}：{label}",
@@ -1602,6 +1643,10 @@
     "closeCamera": "关闭摄像头",
     "endSessionAria": "结束语音会话",
     "endSessionTooltip": "结束会话",
+    "flashAuto": "自动闪光灯",
+    "flashAutoBadge": "A",
+    "flashOff": "关闭闪光灯",
+    "flashOn": "开启闪光灯",
     "flipCamera": "翻转摄像头",
     "minimizeAria": "最小化语音房间",
     "minimizeTooltip": "最小化（会话仍在进行）",

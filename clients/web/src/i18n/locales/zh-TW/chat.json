@@ -128,6 +128,12 @@
     "previewAria": "{filename} 的預覽",
     "previousAttachmentAria": "上一個附件"
   },
+  "attachmentTile": {
+    "cancelUpload": "取消上傳 {filename}",
+    "preview": "預覽 {filename}",
+    "remove": "移除 {filename}",
+    "uploading": "正在上傳 {filename}"
+  },
   "backgroundTaskDetailPanel": {
     "closeDetail": "關閉任務詳細資料",
     "command": "命令",
@@ -239,6 +245,31 @@
     "openFailed": "無法開啟相機。",
     "shutter": "拍照",
     "title": "拍照"
+  },
+  "cameraError": {
+    "captureFailed": "無法拍攝該相片。",
+    "deviceInUse": "另一個應用程式正在使用相機。",
+    "noDevice": "找不到相機。",
+    "notDelivered": "正在重新連線。請重新拍攝。",
+    "permissionDenied": "Vellum 未取得相機存取權限。",
+    "refused": "您的助理目前無法接收相片。",
+    "storeFailed": "無法將該相片新增至對話。",
+    "unknown": "無法開啟相機。",
+    "unsupported": "此裝置無法開啟相機。",
+    "uploadFailed": "無法傳送該相片。"
+  },
+  "cameraStatusPill": {
+    "announceLive": "即時。{status}",
+    "announceLiveMuted": "即時。已靜音。{status}",
+    "announceLiveMutedSpeaking": "即時。已靜音。{name} 正在說話",
+    "announceLiveSpeaking": "即時。{name} 正在說話",
+    "announcePhoto": "相片。{status}",
+    "announcePhotoMuted": "相片。已靜音。{status}",
+    "announcePhotoMutedSpeaking": "相片。已靜音。{name} 正在說話",
+    "announcePhotoSpeaking": "相片。{name} 正在說話",
+    "live": "即時",
+    "photo": "相片",
+    "yourAssistant": "您的助理"
   },
   "cardSurface": {
     "tasksProgress": "已完成 {completed} / 共 {total} 個任務"
@@ -768,6 +799,15 @@
   "liveVoiceButton": {
     "startVoiceMode": "啟動語音模式"
   },
+  "liveVoiceStatus": {
+    "connecting": "正在連線…",
+    "ending": "正在結束…",
+    "listening": "正在聆聽…",
+    "muted": "已靜音",
+    "reconnecting": "正在重新連線…",
+    "speaking": "正在說話…",
+    "thinking": "正在思考…"
+  },
   "llmCallErrorCard": {
     "chipCode": "程式碼",
     "chipProvider": "提供者",
@@ -1203,9 +1243,8 @@
     "submitFailed": "提交回覆失敗。請再試一次。"
   },
   "questionPromptCard": {
-    "closeQuestionAria": "關閉問題",
+    "expandAria": "重新開啟問題",
     "minimizeAria": "最小化問題",
-    "minimizedSummary": "{count, plural, other {# 個選項}} · 輕觸以重新開啟",
     "nextQuestionAria": "下一個問題",
     "optionAria": "選項 {number}：{label}",
     "previousQuestionAria": "上一個問題",
@@ -1604,6 +1643,10 @@
     "closeCamera": "關閉相機",
     "endSessionAria": "結束語音會話",
     "endSessionTooltip": "結束會話",
+    "flashAuto": "自動閃光燈",
+    "flashAutoBadge": "A",
+    "flashOff": "關閉閃光燈",
+    "flashOn": "開啟閃光燈",
     "flipCamera": "翻轉相機",
     "minimizeAria": "最小化語音聊天室",
     "minimizeTooltip": "最小化 (會話持續進行)",

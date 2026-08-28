@@ -799,5 +799,14 @@
     "managedLabel": "受管",
     "modeToggleAriaLabel": "服務模式",
     "yourOwnLabel": "自有"
+  },
+  "channelAvatarDownload": {
+    "previewAlt": "您的助理頭像",
+    "download": "下載頭像",
+    "prompt": {
+      "slack": "下載您的助理頭像，以上傳為應用程式圖示。",
+      "discord": "下載您的助理頭像，以上傳為機器人圖示。",
+      "telegram": "下載您的助理頭像，然後透過 /setuserpic 傳送給 BotFather。"
+    }
   }
 }

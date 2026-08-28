@@ -29,6 +29,7 @@
   "privacyScreen": {
     "title": "开始之前",
     "body": "选择您的隐私偏好设置。您可以随时在“设置”中更新这些内容。",
+    "start": "开始新手引导",
     "skipToChat": "跳过并聊天"
   },
   "hostingScreen": {

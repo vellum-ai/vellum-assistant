@@ -4,7 +4,6 @@
     "back": "返回",
     "forward": "前進",
     "cancel": "取消",
-    "start": "開始",
     "add": "新增",
     "adding": "正在新增…",
     "connect": "連線",
@@ -30,6 +29,7 @@
   "privacyScreen": {
     "title": "開始之前",
     "body": "選擇您的隱私偏好設定。您可以隨時在「設定」中更新這些內容。",
+    "start": "開始新手導覽",
     "skipToChat": "跳過並開始聊天"
   },
   "hostingScreen": {
