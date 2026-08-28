@@ -246,7 +246,7 @@ describe("notifyExpiredGuardianRequest", () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test("delivery failure is swallowed (best-effort)", async () => {
+  test("delivery failure never throws, and reports incomplete", async () => {
     deliveryError = new Error("gateway down");
 
     await expect(
@@ -257,7 +257,7 @@ describe("notifyExpiredGuardianRequest", () => {
           requesterChatId: "tg-chat",
         }),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ complete: false });
   });
 });
 

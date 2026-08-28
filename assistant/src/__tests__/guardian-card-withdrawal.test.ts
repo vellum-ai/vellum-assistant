@@ -355,7 +355,7 @@ describe("withdrawGuardianRequestCards", () => {
         status: "approved",
         originChannel: "telegram",
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ complete: false });
 
     // The in-app card was still withdrawn despite the Slack failure.
     expect(completeSurfaceAndNotify).toHaveBeenCalledTimes(1);
