@@ -1,5 +1,6 @@
 /**
- * Pure planning for the platform API proxy (`/v1/*`, `/_allauth/*`, `/accounts/*`).
+ * Pure planning for the platform API proxy (`/v1/*`, `/_allauth/*`,
+ * `/accounts/*`, `/_sr/*`).
  *
  * Mirrors `gateway-forward.ts`: the URL/header logic is testable without
  * importing `src/main/index.ts` or mocking Electron's `net`. The caller in
@@ -33,7 +34,7 @@ export interface PlatformForwardOptions {
   allowedOrigin?: PlatformForwardAllowedOrigin;
 }
 
-const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts"] as const;
+const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts", "/_sr"] as const;
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 function isPlatformPath(pathname: string): boolean {

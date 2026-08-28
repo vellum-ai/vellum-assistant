@@ -536,9 +536,7 @@ describe("--json output", () => {
 });
 
 describe("formatBrowserStatusLines", () => {
-  test("prints userActions including the Chrome Web Store install URL", () => {
-    const installUrl =
-      "https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne";
+  test("prints userActions for a disconnected extension", () => {
     const lines = formatBrowserStatusLines(
       JSON.stringify({
         requestedMode: "auto",
@@ -552,8 +550,8 @@ describe("formatBrowserStatusLines", () => {
             summary:
               "Extension mode is unavailable: no Chrome Extension is connected.",
             userActions: [
-              `Install the Vellum Assistant Chrome extension from the Chrome Web Store: ${installUrl}`,
-              "Open the extension and pair with your assistant.",
+              "Install the Vellum Assistant Chrome extension from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
+              "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
             ],
           },
         ],
@@ -564,8 +562,12 @@ describe("formatBrowserStatusLines", () => {
     const rendered = lines!.join("\n");
     expect(rendered).toContain("Requested mode: auto");
     expect(rendered).toContain("✗ extension (auto-candidate)");
-    expect(rendered).toContain(installUrl);
-    expect(rendered).toContain("Open the extension and pair with your assistant.");
+    expect(rendered).toContain(
+      "Install the Vellum Assistant Chrome extension from the Chrome Web Store:",
+    );
+    expect(rendered).toContain(
+      "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
+    );
   });
 
   test("omits userActions when the mode is ready", () => {

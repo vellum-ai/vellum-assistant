@@ -69,6 +69,35 @@ describe("planPlatformForward", () => {
     expect(plan.url).toBe("https://platform.vellum.ai/accounts/login");
   });
 
+  test("forwards session-replay /_sr/* requests to platform", () => {
+    const cdn = planPlatformForward(
+      request("/_sr/cdn/logger.min.js"),
+      PLATFORM,
+    );
+    if (cdn.kind !== "forward") throw new Error("expected forward");
+    expect(cdn.url).toBe("https://platform.vellum.ai/_sr/cdn/logger.min.js");
+    expect(cdn.method).toBe("GET");
+    expect(cdn.hasBody).toBe(false);
+
+    const ingest = planPlatformForward(
+      request("/_sr/ingest/i", {
+        method: "POST",
+        origin: "app://vellum.ai",
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+    if (ingest.kind !== "forward") throw new Error("expected forward");
+    expect(ingest.url).toBe("https://platform.vellum.ai/_sr/ingest/i");
+    expect(ingest.hasBody).toBe(true);
+  });
+
+  test("does not treat /_srx as a session-replay prefix", () => {
+    expect(planPlatformForward(request("/_srx/cdn"), PLATFORM)).toEqual({
+      kind: "pass",
+    });
+  });
+
   test("forwards exact prefix without trailing slash", () => {
     const plan = planPlatformForward(request("/v1"), PLATFORM);
     if (plan.kind !== "forward") throw new Error("expected forward");
