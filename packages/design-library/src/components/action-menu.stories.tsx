@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ArrowUp, Ellipsis, Pin, Trash2 } from "lucide-react";
+import { ArrowUp, Ellipsis, Link2, Pin, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor, within } from "storybook/test";
@@ -139,10 +139,37 @@ export const WithGroupLabel: Story = {
       <ActionMenu.Content title={args.title}>
         <ActionMenu.Label>This conversation</ActionMenu.Label>
         <ActionMenu.Item label="Rename" />
-        <ActionMenu.Item label="Duplicate" shortcut="⌘D" />
+        <ActionMenu.Item label="Duplicate" shortcut="CmdOrCtrl+D" />
         <ActionMenu.Separator />
         <ActionMenu.Label>Everything</ActionMenu.Label>
         <ActionMenu.Item label="Archive all" />
+      </ActionMenu.Content>
+    </ActionMenu.Root>
+  ),
+};
+
+/**
+ * `shortcut` takes the accelerator and draws it, announcing the same binding
+ * through `aria-keyshortcuts`. Both slots belong to the pointer surface only:
+ * flip `presentation` to `sheet` and the rows keep their labels and lose the
+ * right column, since a thumb has no keys and the sheet row has no trailing
+ * slot.
+ */
+export const WithTrailingContent: Story = {
+  args: { title: "Deployment", presentation: "anchored" },
+  render: (args) => (
+    <ActionMenu.Root {...rootArgs(args)}>
+      <ActionMenu.Trigger asChild>
+        <Button variant="outlined">Deployment</Button>
+      </ActionMenu.Trigger>
+      <ActionMenu.Content title={args.title}>
+        <ActionMenu.Item
+          icon={Pin}
+          label="Pin conversation"
+          shortcut="CmdOrCtrl+Shift+P"
+        />
+        <ActionMenu.Item icon={Link2} label="Deployed" trailing="Copy link" />
+        <ActionMenu.Item icon={ArrowUp} label="Share" />
       </ActionMenu.Content>
     </ActionMenu.Root>
   ),

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { resolveIpcSocketPath } from "../ipc/endpoint.js";
+
+// Fake workspace under tmpdir so the live-path guard accepts it.
+const WS_DIR = join(tmpdir(), "vellum-workspace-test");
 
 let savedWorkspaceDir: string | undefined;
 let savedGatewayIpcSocketDir: string | undefined;
@@ -27,7 +31,7 @@ afterEach(() => {
 describe("resolveIpcSocketPath", () => {
   test("uses env var override when set", () => {
     process.env.GATEWAY_IPC_SOCKET_DIR = "/run/gateway-ipc";
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+    process.env.VELLUM_WORKSPACE_DIR = WS_DIR;
 
     const resolved = resolveIpcSocketPath("gateway");
 
@@ -37,28 +41,32 @@ describe("resolveIpcSocketPath", () => {
 
   test("ignores empty env var override", () => {
     process.env.GATEWAY_IPC_SOCKET_DIR = "  ";
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+    process.env.VELLUM_WORKSPACE_DIR = WS_DIR;
 
     const resolved = resolveIpcSocketPath("gateway");
 
     expect(resolved.source).toBe("workspace");
-    expect(resolved.path).toBe("/tmp/vellum-workspace-test/gateway.sock");
+    expect(resolved.path).toBe(join(WS_DIR, "gateway.sock"));
   });
 
   test("uses workspace path by default", () => {
     delete process.env.GATEWAY_IPC_SOCKET_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+    process.env.VELLUM_WORKSPACE_DIR = WS_DIR;
 
     const resolved = resolveIpcSocketPath("gateway");
 
     expect(resolved.source).toBe("workspace");
-    expect(resolved.path).toBe("/tmp/vellum-workspace-test/gateway.sock");
+    expect(resolved.path).toBe(join(WS_DIR, "gateway.sock"));
   });
 
   test("falls back to tmpdir when workspace path exceeds AF_UNIX limit", () => {
     delete process.env.GATEWAY_IPC_SOCKET_DIR;
     // 90-char workspace dir + /gateway.sock = well over 103 bytes
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/" + "a".repeat(85) + "/workspace";
+    process.env.VELLUM_WORKSPACE_DIR = join(
+      tmpdir(),
+      "a".repeat(90),
+      "workspace",
+    );
 
     const resolved = resolveIpcSocketPath("gateway");
 
@@ -68,7 +76,7 @@ describe("resolveIpcSocketPath", () => {
 
   test("derives env var name from socket name", () => {
     process.env.ASSISTANT_IPC_SOCKET_DIR = "/run/assistant-ipc";
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+    process.env.VELLUM_WORKSPACE_DIR = WS_DIR;
 
     const resolved = resolveIpcSocketPath("assistant");
 
