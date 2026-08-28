@@ -12,6 +12,8 @@ let mockProviders: Array<{
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
+  authorizeParams: string | null;
+  scopeSeparator: string | null;
   managedServiceConfigKey?: string;
 }> = [];
 
@@ -191,11 +193,16 @@ function addProvider(
     pingUrl?: string | null;
     pingMethod?: string | null;
     managedServiceConfigKey?: string;
+    authorizeParams?: Record<string, string>;
   },
 ) {
   mockProviders.push({
     provider,
     defaultScopes: JSON.stringify(opts?.defaultScopes ?? []),
+    authorizeParams: opts?.authorizeParams
+      ? JSON.stringify(opts.authorizeParams)
+      : null,
+    scopeSeparator: " ",
     pingUrl: opts?.pingUrl ?? null,
     pingMethod: opts?.pingMethod ?? null,
     pingHeaders: null,
@@ -441,6 +448,44 @@ describe("credential-health-service", () => {
       "im:write",
     ]);
     expect(report.results[0]!.canAutoRecover).toBe(false);
+  });
+
+  test("measures a user-token grant against user_scope, not the bot scopes", async () => {
+    // Slack issues two grants from one authorization and the stored token is
+    // the user one, so its grant is compared against `user_scope`. Measuring
+    // it against the bot `scope` parameter reports scopes that grant can never
+    // hold: `channels:join` is bot-only and is never requested for the user.
+    addProvider("slack", {
+      defaultScopes: ["channels:join", "chat:write", "search:read"],
+      authorizeParams: { user_scope: "chat:write,search:read" },
+    });
+    addConnection("slack", "conn-1", {
+      grantedScopes: ["chat:write", "search:read"],
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    setToken("conn-1");
+
+    const report = await checkAllCredentials();
+    expect(report.results[0]!.status).not.toBe("missing_scopes");
+    expect(report.results[0]!.missingScopes).toEqual([]);
+  });
+
+  test("still reports a user scope the installer did not grant", async () => {
+    // Sensitivity check for the test above: comparing against `user_scope`
+    // must keep catching a genuinely declined user scope, not pass everything.
+    addProvider("slack", {
+      defaultScopes: ["channels:join", "chat:write", "search:read"],
+      authorizeParams: { user_scope: "chat:write,search:read" },
+    });
+    addConnection("slack", "conn-1", {
+      grantedScopes: ["chat:write"],
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    setToken("conn-1");
+
+    const report = await checkAllCredentials();
+    expect(report.results[0]!.status).toBe("missing_scopes");
+    expect(report.results[0]!.missingScopes).toEqual(["search:read"]);
   });
 
   test("returns revoked when ping returns 401", async () => {
