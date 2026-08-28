@@ -11,6 +11,8 @@
  * principal so access requests cannot bind to stale/cross-assistant contacts.
  */
 
+import { isGuardianRequestExpired } from "@vellumai/gateway-client";
+
 import {
   createGuardianRequest,
   listGuardianRequestsOrEmpty,
@@ -228,13 +230,19 @@ export async function notifyGuardianOfAccessRequest(
   // notified: true with the existing request ID so callers know the guardian
   // was already notified. A degraded (empty) read falls through to creation,
   // whose fail-closed throw prevents a prompt without a persisted request.
-  const existingPending = await listGuardianRequestsOrEmpty({
-    status: "pending",
-    requesterExternalUserId: actorExternalId,
-    sourceChannel,
-    kind: "access_request",
-    sourceConversationId: conversationId,
-  });
+  // Past-deadline rows never dedupe: a pending row can sit past its
+  // expiresAt until the sweep expires it, it is already undecidable, and
+  // letting it absorb a fresh attempt would silently drop the new guardian
+  // notification.
+  const existingPending = (
+    await listGuardianRequestsOrEmpty({
+      status: "pending",
+      requesterExternalUserId: actorExternalId,
+      sourceChannel,
+      kind: "access_request",
+      sourceConversationId: conversationId,
+    })
+  ).filter((r) => !isGuardianRequestExpired(r));
   if (existingPending.length > 0) {
     log.debug(
       { sourceChannel, actorExternalId, existingId: existingPending[0].id },

@@ -2188,6 +2188,7 @@
   "voicePickerCard": {
     "changeButton": "更改",
     "creditsNote": "通过 ElevenLabs 和 Deepgram 等提供商使用 Vellum 积分。",
+    "loadingAria": "正在加载语音",
     "title": "语音",
     "titleWithName": "{name} 的语音"
   },

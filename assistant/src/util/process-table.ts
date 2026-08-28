@@ -231,6 +231,19 @@ export async function listProcessTableAsync(
   );
 }
 
+/**
+ * The process-table row for `pid`, or null when the process is gone or the
+ * table cannot be read. Callers get `ppid` alongside the command line, so
+ * ownership and identity can be decided from a single snapshot.
+ */
+function findProcessRow(pid: number): ProcessTableRow | null {
+  try {
+    return listProcessTable().find((row) => row.pid === pid) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function readRawProcessCommand(pid: number): string | null {
   if (process.platform === "linux") {
     try {
@@ -243,9 +256,5 @@ export function readRawProcessCommand(pid: number): string | null {
     }
   }
 
-  try {
-    return listProcessTable().find((row) => row.pid === pid)?.command ?? null;
-  } catch {
-    return null;
-  }
+  return findProcessRow(pid)?.command ?? null;
 }
