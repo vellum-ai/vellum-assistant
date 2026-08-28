@@ -760,7 +760,31 @@ export function useSendMessage({
           ? { queueStatus: "queued" as const, queuePosition: 0 }
           : {}),
       };
-      if (!isHidden) {
+      // Whether the transcript on screen is still the one this send belongs to.
+      //
+      // A send can be entered after an await that began under a different
+      // conversation: the composer resolves a camera frame and reposts an
+      // edited message before calling in here, and the user is free to switch
+      // threads while either runs. The POST below targets the conversation this
+      // call closed over, so the message is delivered either way; the session
+      // store is not scoped that way, and a row written into it now renders in
+      // whatever transcript is open. Nothing takes it back out, because a
+      // switch clears the list and this row arrived after that.
+      //
+      // So the row is skipped rather than removed, and the server echo puts the
+      // message where it belongs when that thread is next opened. The pending
+      // queue FIFO below is held in the same store and follows the same rule.
+      const rendersOptimisticRow =
+        !isHidden &&
+        isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: assistantId,
+          requestConversationId: activeConversationId,
+        });
+      if (rendersOptimisticRow) {
         addOptimisticSend(userMessage);
       }
       void getSoundManager().play("message_sent");
@@ -771,8 +795,10 @@ export function useSendMessage({
         // A hidden send renders no optimistic row and the daemon suppresses
         // its queued ack, so there is nothing for the pending FIFO to bind.
         // Tracking it would park a dead entry at the head that the next
-        // visible send's ack would bind to instead of its own row.
-        if (!isHidden) {
+        // visible send's ack would bind to instead of its own row. A send
+        // whose conversation is no longer on screen has no row here either,
+        // and its ack belongs to a thread this FIFO does not describe.
+        if (rendersOptimisticRow) {
           useChatSessionStore
             .getState()
             .pushPendingQueuedMessageId(userMessage.id);
