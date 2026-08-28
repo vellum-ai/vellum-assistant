@@ -11,7 +11,13 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef, type FormEvent, type ReactNode } from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from "@testing-library/react";
 
 import {
   type ChatAttachment,
@@ -42,6 +48,7 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
 // mocking `use-is-mobile`, so a test says which signal the composer actually
@@ -3150,5 +3157,67 @@ describe("ChatComposer — text area during a live-voice session", () => {
 
     // THEN the ghost paints as it would without a session
     expect(container.textContent).toContain("ghost completion text");
+  });
+});
+
+/**
+ * The Eyes camera control. The viewfinder it raises mounts with the chat
+ * layout's desktop branch, so every surface that branch skips must skip the
+ * control too or the press opens a camera nobody can see or close.
+ */
+describe("Eyes toggle placement", () => {
+  const EYES_LABEL = "Turn on camera vision";
+
+  function setVisionMode(value: "off" | "on") {
+    act(() => {
+      useClientFeatureFlagStore
+        .getState()
+        .setStringFlags({ visionMode: value }, null);
+    });
+  }
+
+  beforeEach(() => {
+    setVisionMode("on");
+    mockIsNativeMobile = false;
+  });
+
+  afterEach(() => {
+    setVisionMode("off");
+    mockIsNativeMobile = false;
+  });
+
+  /** A mouse-driven window with room to spare: the row the toggle belongs to. */
+  function renderDesktopComposer(props: RenderComposerProps = {}) {
+    viewport.set({ narrow: false, coarsePointer: false });
+    return renderComposerView(props);
+  }
+
+  test("rides the desktop action row", () => {
+    const { container } = renderDesktopComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).not.toBeNull();
+  });
+
+  test("is absent below the width breakpoint, where the tile does not mount", () => {
+    const { container } = renderPhoneComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
+  });
+
+  test("is absent on a roomy native shell, which clears that breakpoint", () => {
+    // A Capacitor tablet in landscape: wide enough for the desktop row, and the
+    // one shell whose viewfinder is a native preview layer rather than a
+    // `getUserMedia` `<video>`.
+    mockIsNativeMobile = true;
+    const { container } = renderTouchTabletComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
+  });
+
+  test("is absent while the vision-mode flag is off", () => {
+    setVisionMode("off");
+    const { container } = renderDesktopComposer({ ...SETTINGS_SLOTS });
+
+    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
   });
 });

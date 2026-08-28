@@ -1759,22 +1759,29 @@ export function ChatComposer({
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
                           {!isAssistantBusy && attachControl}
-                          {/* Desktop row only: the camera surface is a
-                              pointer-sized affordance and has no mobile
-                              placement yet. Renders nothing while the
-                              `vision-mode` flag is off.
-
-                              Pop-out windows are excluded, as they are from the
-                              voice room and the companion mirror: the
-                              viewfinder mounts with the chat layout's main
-                              branch, which a pop-out never renders, so a
-                              control offered here would open a camera with
-                              nothing to preview it and nothing to close it. */}
-                          {!isAssistantBusy && !isPopout && (
-                            <SightToggle
-                              imageAttachmentsAllowed={imageAttachmentsAllowed}
-                            />
-                          )}
+                          {/* Desktop only, which this row already is: the
+                              viewfinder mounts with the chat layout's desktop
+                              branch, and a control offered anywhere that branch
+                              does not render would open a camera with nothing
+                              to preview it and nothing to close it. Pop-out
+                              windows are excluded on that count, as they are
+                              from the voice room and the companion mirror, and
+                              the native mobile shells on it plus their own: a
+                              Capacitor viewfinder is the plugin preview layer
+                              rather than a `getUserMedia` `<video>` (see
+                              `voice/voice-room/voice-camera.ts`), and a roomy
+                              tablet clears the width breakpoint this row is
+                              chosen by. Renders nothing while the `vision-mode`
+                              flag is off. */}
+                          {!isAssistantBusy &&
+                            !isPopout &&
+                            !isNativeMobileShell && (
+                              <SightToggle
+                                imageAttachmentsAllowed={
+                                  imageAttachmentsAllowed
+                                }
+                              />
+                            )}
                           {!isAssistantBusy && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"

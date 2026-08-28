@@ -8,10 +8,12 @@
  * session store already belonging to somewhere else.
  *
  * The message still goes to the conversation it was written in, because the
- * POST targets the id this call carries. What must not happen is the optimistic
- * row appearing in the transcript the user is now looking at, which nothing
- * would take back out: a switch clears the list, and this row arrives after
- * that.
+ * POST targets the id this call carries. What must not happen is the send
+ * writing into the stores that describe the ONE thread on screen: the
+ * optimistic row and the queue FIFO, which nothing would take back out (a
+ * switch clears them, and these arrive after that); the turn phase, whose
+ * matching `acceptSend` is scope-checked and would leave the composer disabled;
+ * and the interactive surfaces, which belong to the thread the user is reading.
  *
  * Driven against a spied daemon client rather than `mock.module`, so the module
  * registry stays clean for the sibling send suites.
@@ -26,7 +28,12 @@ import type { ReactNode } from "react";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
-import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import {
+  INITIAL_TURN_STATE,
+  isSending,
+  useTurnStore,
+} from "@/domains/chat/turn-store";
+import type { EphemeralMetaResult } from "@/domains/chat/types/types";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -141,6 +148,42 @@ describe("useSendMessage: a send whose thread is no longer open", () => {
     // does not describe would bind to the next visible send's row.
     expect(useChatSessionStore.getState().pendingQueuedMessageIds).toEqual([]);
     expect(postedConversationId()).toBe(SEND_CONVERSATION);
+  });
+
+  test("leaves the open thread's turn phase alone", async () => {
+    // `requestSend` puts the turn store into a submitting phase, and the
+    // matching `acceptSend` is scope-checked, so a stale send that reached it
+    // would leave the open thread submitting forever with its composer
+    // disabled and no turn behind it.
+    useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("what am I holding?");
+    });
+
+    expect(isSending(useTurnStore.getState().phase)).toBe(false);
+    expect(useTurnStore.getState().phase).toBe(INITIAL_TURN_STATE.phase);
+  });
+
+  test("leaves the open thread's interactive surfaces standing", async () => {
+    // A send supersedes the surfaces of the thread it is sent into. A stale
+    // one has nothing on screen to supersede, so a pending confirmation the
+    // user has not answered in the thread they just opened must survive it.
+    useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
+    const standingCard: EphemeralMetaResult = {
+      id: "meta-1",
+      kind: "info",
+      text: "all good",
+    };
+    useChatSessionStore.setState({ ephemeralMetaResults: [standingCard] });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("what am I holding?");
+    });
+
+    expect(useChatSessionStore.getState().ephemeralMetaResults).toHaveLength(1);
   });
 
   test("the row is painted as usual while the thread is still open", async () => {

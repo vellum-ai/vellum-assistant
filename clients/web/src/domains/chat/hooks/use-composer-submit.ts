@@ -124,6 +124,11 @@ export function useComposerSubmit({
   imageAttachmentsAllowed = true,
 }: UseComposerSubmitParams): ComposerSubmitResult {
   const shouldFocusInputRef = useRef(false);
+  /**
+   * Tail of the delivery chain, so submits reach the send in the order they
+   * were made. See where it is advanced in `submitMessage`.
+   */
+  const sendChainRef = useRef<Promise<void>>(Promise.resolve());
 
   // --- Focus effect -------------------------------------------------------
   useEffect(() => {
@@ -246,22 +251,44 @@ export function useComposerSubmit({
       // that case, so this is the backstop for a profile switched under a
       // camera already running: attaching the frame anyway would fail the turn
       // on the provider's image rejection, which costs the user their message.
-      if (imageAttachmentsAllowed && !isLocallyHandledCommand(finalContent)) {
-        const sightAttachment = await uploadSightFrameAttachment(assistantId);
-        if (sightAttachment) {
-          attachmentsToSend.push(sightAttachment);
+      const deliver = async () => {
+        if (imageAttachmentsAllowed && !isLocallyHandledCommand(finalContent)) {
+          const sightAttachment = await uploadSightFrameAttachment(assistantId);
+          if (sightAttachment) {
+            attachmentsToSend.push(sightAttachment);
+          }
         }
-      }
 
-      // Forward the secret-check override only when this send explicitly
-      // carries it (the Send-anyway path); ordinary sends never set it.
-      await sendMessage(
-        finalContent,
-        attachmentsToSend,
-        opts?.bypassSecretCheck === true
-          ? { bypassSecretCheck: true }
-          : undefined,
+        // Forward the secret-check override only when this send explicitly
+        // carries it (the Send-anyway path); ordinary sends never set it.
+        await sendMessage(
+          finalContent,
+          attachmentsToSend,
+          opts?.bypassSecretCheck === true
+            ? { bypassSecretCheck: true }
+            : undefined,
+        );
+      };
+
+      // Deliveries run one after another, in the order they were submitted.
+      //
+      // The composer is cleared and re-enabled above, ahead of the frame upload
+      // `deliver` runs, so a second message can be written and sent while the
+      // first is still resolving its frame. Whichever upload finishes first
+      // would otherwise reach the send first, and the send treats a message
+      // arriving while a turn is starting as one to queue behind it: the two
+      // land in the assistant's history the wrong way round.
+      //
+      // The link runs whether the previous one resolved or rejected, and the
+      // chain is advanced with a continuation that cannot reject, so one failed
+      // send does not wedge every send after it. An Eyes-off submit awaits an
+      // already-resolved promise, which costs it a microtask.
+      const link = sendChainRef.current.then(deliver, deliver);
+      sendChainRef.current = link.then(
+        () => {},
+        () => {},
       );
+      await link;
     },
     [
       sendDisabled,

@@ -105,6 +105,9 @@ beforeEach(() => {
   useQuoteReplyStore.getState().clearStagedQuotes();
   useChannelReferenceStore.setState({ reference: null });
   uploadSightFrameAttachment.mockClear();
+  // Restored explicitly: a case that swaps in a slow upload must not leave it
+  // standing for the next one, which would hang on a frame that never arrives.
+  uploadSightFrameAttachment.mockImplementation(async () => null);
 });
 
 afterEach(() => {
@@ -340,5 +343,69 @@ describe("useComposerSubmit vision gate", () => {
 
     expect(uploadSightFrameAttachment).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useComposerSubmit delivery order", () => {
+  test("two rapid submits reach the send in submit order", async () => {
+    // GIVEN the frame upload for the first message resolves AFTER the second
+    // message's, which is what a second, smaller frame does
+    const pending: Array<(value: DisplayAttachment | null) => void> = [];
+    uploadSightFrameAttachment.mockImplementation(
+      () =>
+        new Promise<DisplayAttachment | null>((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    const { result, sendMessage } = renderSubmit();
+
+    // WHEN both are submitted before either upload settles
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = result.current.submitMessage("first message");
+      second = result.current.submitMessage("second message");
+      await Promise.resolve();
+    });
+
+    // Only the first delivery is running: the second is parked behind it, so
+    // its upload has not even been asked for yet.
+    expect(pending).toHaveLength(1);
+
+    await act(async () => {
+      pending[0]?.(null);
+      await first;
+      pending[1]?.(null);
+      await second;
+    });
+
+    // THEN the assistant receives them the way they were written.
+    expect(sendMessage.mock.calls.map((call) => call[0])).toEqual([
+      "first message",
+      "second message",
+    ]);
+  });
+
+  test("a failed delivery does not wedge the ones behind it", async () => {
+    const failing = mock(
+      async (
+        _content: string,
+        _attachments?: DisplayAttachment[],
+        _opts?: { bypassSecretCheck?: boolean },
+      ): Promise<void> => {
+        throw new Error("send failed");
+      },
+    );
+    const { result } = renderSubmit({ sendMessage: failing });
+
+    await act(async () => {
+      await result.current.submitMessage("doomed").catch(() => {});
+      await result.current.submitMessage("still goes").catch(() => {});
+    });
+
+    expect(failing.mock.calls.map((call) => call[0])).toEqual([
+      "doomed",
+      "still goes",
+    ]);
   });
 });
