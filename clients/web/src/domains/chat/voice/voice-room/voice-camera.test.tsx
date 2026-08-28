@@ -301,9 +301,9 @@ describe("useVoiceCamera: handing the flash back", () => {
 describe("useVoiceCamera: a probe that outlives the camera it asked about", () => {
   test("drops a late 'yes' from the camera the user flipped away from", async () => {
     // The rear camera's probe is still in flight when the user flips to a
-    // front camera with no flash unit. Its answer describes a camera that is
-    // no longer running, and taking it would light the control on one whose
-    // Android implementation throws on the very next `setFlashMode`.
+    // front camera with no flash unit. Its answer describes a stopped camera,
+    // and taking it would light the control on one whose Android
+    // implementation throws on the very next `setFlashMode`.
     const rearProbe = deferredCall<string[]>();
     getFlashModesSpy.mockImplementation(rearProbe.answer);
 
