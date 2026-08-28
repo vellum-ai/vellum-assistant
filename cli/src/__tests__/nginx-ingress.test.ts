@@ -298,8 +298,9 @@ describe("buildIngressNginxConfig", () => {
   });
 
   test("revalidates the shell and forbids storing only the inline config", () => {
+    const blocks = locationBlocks(remoteConf);
     const cacheControlOf = (matcher: string) =>
-      locationBlocks(remoteConf)
+      blocks
         .find((b) => b.matcher === matcher)
         ?.body.match(/add_header Cache-Control "([^"]+)"/)?.[1];
     expect(cacheControlOf("= /assistant/__remote-index.html")).toBe("no-cache");
