@@ -215,28 +215,37 @@ function normalizeSeparators(value: string): string {
 }
 
 /**
- * A fragment of the command line that marks a process as one of our workers,
- * whichever install it came from.
+ * Fragments of a command line that together mark a process as this worker,
+ * whichever install it came from. All must be present.
  *
  * This is a safety guard, not the ownership test. Ownership is decided by
  * parentage; this only keeps us from signalling a process that happens to hold
  * a recycled PID. Three trailing path segments are specific enough
  * (`src/schedule/worker.ts`, `defaults/memory/worker.ts`) that an unrelated
- * program running some other `worker.ts` does not match.
+ * program running some other `worker.ts` does not match. Packaged workers all
+ * run one executable and are told apart by the subcommand, so the signature
+ * carries both: matching on the executable alone would let one packaged
+ * worker's slot reclaim another's process.
  */
 export function workerKindSignature(
   entry: URL,
   packagedEntry: PackagedWorkerEntry | undefined,
   runtime: WorkerCommandRuntime = defaultWorkerCommandRuntime(),
-): string {
-  if (packagedWorkerSpawn(packagedEntry, runtime)) {
-    return "vellum-worker";
+): readonly string[] {
+  const packaged = packagedWorkerSpawn(packagedEntry, runtime);
+  if (packaged) {
+    // Matched as separate fragments rather than one adjacent string: a Windows
+    // command line may quote the executable path, so the two are not reliably
+    // neighbours.
+    return ["vellum-worker", packaged.entry];
   }
-  return normalizeSeparators(fileURLToPath(entry))
-    .split("/")
-    .filter(Boolean)
-    .slice(-3)
-    .join("/");
+  return [
+    normalizeSeparators(fileURLToPath(entry))
+      .split("/")
+      .filter(Boolean)
+      .slice(-3)
+      .join("/"),
+  ];
 }
 
 /** How long an orphaned worker gets to exit after SIGTERM. */
@@ -247,17 +256,22 @@ const ORPHAN_STOP_POLL_INTERVAL_MS = 100;
 
 /**
  * Stop a worker orphaned by a previous owner and release its PID file.
+ * Reports whether it actually exited.
  *
  * Escalates to SIGKILL because the orphan runs a different generation's
- * shutdown path, which this process cannot make assumptions about. The unlink
- * is identity-checked: a concurrent launcher may already have replaced the
- * worker, and deleting that successor's PID file would strand it.
+ * shutdown path, which this process cannot make assumptions about. Signalling
+ * can still fail outright, most plausibly EPERM for a process owned by another
+ * user, so the PID file is released only once the process is confirmed gone:
+ * dropping it while the worker still runs would let the caller spawn a second
+ * one against the same workspace. The unlink is also identity-checked, since a
+ * concurrent launcher may already have replaced the worker and deleting that
+ * successor's entry would strand it.
  */
 async function stopOrphanedWorker(
   pid: number,
   pidPath: string,
   workerLabel: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -276,11 +290,20 @@ async function stopOrphanedWorker(
     }
   }
 
+  if (isProcessAlive(pid)) {
+    log.warn(
+      { pid, pidPath },
+      `${workerLabel} orphaned by a previous owner could not be stopped; reusing it rather than running a second one`,
+    );
+    return false;
+  }
+
   unlinkPidFileIfNames(pidPath, pid);
   log.warn(
     { pid, pidPath },
     `${workerLabel} orphaned by a previous owner was stopped so this process can start its own`,
   );
+  return true;
 }
 
 /**
@@ -294,7 +317,7 @@ async function stopOrphanedWorker(
  */
 async function resolveExistingWorker(
   pidPath: string,
-  signature: string,
+  signature: readonly string[],
   workerLabel: string,
 ): Promise<{ adopt: number } | null> {
   const current = probeWorkerPidFile(pidPath);
@@ -303,7 +326,8 @@ async function resolveExistingWorker(
   }
 
   const row = findProcessRow(current.pid);
-  if (!row || !normalizeSeparators(row.command).includes(signature)) {
+  const command = row ? normalizeSeparators(row.command) : "";
+  if (!row || !signature.every((part) => command.includes(part))) {
     return { adopt: current.pid };
   }
 
@@ -317,7 +341,10 @@ async function resolveExistingWorker(
     return { adopt: current.pid };
   }
 
-  await stopOrphanedWorker(current.pid, pidPath, workerLabel);
+  if (!(await stopOrphanedWorker(current.pid, pidPath, workerLabel))) {
+    // Still running and beyond our reach. One stale worker beats two live ones.
+    return { adopt: current.pid };
+  }
 
   // A concurrent launcher may have brought up a replacement while we waited.
   const replacement = probeWorkerPidFile(pidPath);

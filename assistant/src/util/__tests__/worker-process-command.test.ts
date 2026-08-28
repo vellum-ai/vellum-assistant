@@ -70,26 +70,52 @@ describe("workerKindSignature", () => {
   // The signature only guards against signalling a recycled PID, so it has to
   // be specific enough that an unrelated program running its own worker.ts
   // never matches.
+  const matches = (command: string, signature: readonly string[]): boolean =>
+    signature.every((part) => command.includes(part));
+
   test("does not match an unrelated program running some other worker.ts", () => {
     const signature = workerKindSignature(schedule, "schedule", source);
-    expect("bun run /home/dev/side-project/worker.ts").not.toContain(signature);
-    expect("node /srv/queue/src/jobs/worker.ts").not.toContain(signature);
+    expect(matches("bun run /home/dev/side-project/worker.ts", signature)).toBe(
+      false,
+    );
+    expect(matches("node /srv/queue/src/jobs/worker.ts", signature)).toBe(
+      false,
+    );
   });
 
   test("matches the same worker from a previous install", () => {
     const signature = workerKindSignature(schedule, "schedule", source);
     expect(
-      "bun --smol run /app/runtime/0.10.11/src/schedule/worker.ts",
-    ).toContain(signature);
+      matches(
+        "bun --smol run /app/runtime/0.10.11/src/schedule/worker.ts",
+        signature,
+      ),
+    ).toBe(true);
   });
 
-  test("is the packaged executable name inside a packaged runtime", () => {
-    expect(
-      workerKindSignature(schedule, "schedule", {
-        platform: "win32",
-        execPath: "/runtime/vellum-daemon.exe",
-        executableExists: () => true,
-      }),
-    ).toBe("vellum-worker");
+  const packaged = {
+    platform: "win32" as const,
+    execPath: "/runtime/vellum-daemon.exe",
+    executableExists: () => true,
+  };
+
+  // Every packaged worker runs one executable and is told apart by the
+  // subcommand, so the executable alone must not identify a worker: one
+  // worker's slot would otherwise reclaim another's process.
+  test("distinguishes packaged worker kinds sharing one executable", () => {
+    const scheduleSig = workerKindSignature(schedule, "schedule", packaged);
+    expect(matches('"C:/App/vellum-worker.exe" schedule', scheduleSig)).toBe(
+      true,
+    );
+    expect(matches('"C:/App/vellum-worker.exe" monitoring', scheduleSig)).toBe(
+      false,
+    );
+  });
+
+  test("matches a packaged worker from a previous install", () => {
+    const scheduleSig = workerKindSignature(schedule, "schedule", packaged);
+    expect(matches('"C:/Prev/vellum-worker.exe" schedule', scheduleSig)).toBe(
+      true,
+    );
   });
 });
