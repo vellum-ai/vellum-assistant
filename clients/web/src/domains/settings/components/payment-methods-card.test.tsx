@@ -12,6 +12,9 @@
  *  - The mode and card on file are captured when the modal opens, so the
  *    config the save itself writes back into the query cache cannot turn an
  *    in-flight add into a replace or restate the card being replaced.
+ *  - While a 3DS redirect return is still resolving, the Add and Replace
+ *    actions are disabled, so no modal can be opened ahead of the outcome the
+ *    return will replay into one.
  *  - A 3DS redirect return replays its outcome into a freshly opened modal:
  *    a saved card on the success panel alone, a failure back into the form in
  *    the mode the saved card calls for. The failure waits for the config query
@@ -101,12 +104,14 @@ function lastPmModalProps(): AutoTopUpPaymentMethodModalProps {
 // like the real one does, so clearing it on close is what keeps the modal
 // shut rather than the absence of a re-render.
 let returnedOutcome: SetupIntentOutcome | null = null;
+let returnPending = false;
 let clearOutcomeCalls = 0;
 mock.module("@/domains/settings/hooks/use-setup-intent-return", () => ({
   useSetupIntentReturn: () => {
     const [outcome, setOutcome] = useState(returnedOutcome);
     return {
       outcome,
+      pending: returnPending,
       clearOutcome: () => {
         clearOutcomeCalls += 1;
         setOutcome(null);
@@ -202,6 +207,7 @@ beforeEach(() => {
   orgReadiness = "ready";
   pmModalProps = null;
   returnedOutcome = null;
+  returnPending = false;
   clearOutcomeCalls = 0;
 });
 
@@ -467,6 +473,42 @@ describe("PaymentMethodsCard redirect return", () => {
       expMonth: null,
       expYear: null,
     });
+  });
+
+  test("disables Add Payment Method while the return is unresolved", () => {
+    returnPending = true;
+    const { getByTestId } = render(wrap(DISABLED_CONFIG));
+
+    expect(
+      (getByTestId("payment-methods-add") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("disables Replace card while the return is unresolved", () => {
+    returnPending = true;
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { getByTestId } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("leaves Add Payment Method usable when no return is in flight", () => {
+    const { getByTestId } = render(wrap(DISABLED_CONFIG));
+
+    expect(
+      (getByTestId("payment-methods-add") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  test("leaves Replace card usable when no return is in flight", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { getByTestId } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
   test("closing clears the outcome and leaves the modal shut", () => {

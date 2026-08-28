@@ -27,9 +27,15 @@ interface CapturedReturn {
  * Stripe.js, and a succeeded one is confirmed server-side through
  * `usePaymentMethodSavedSync`, so the success panel and the payment-method row
  * carry the new card's brand and last4.
+ *
+ * `pending` spans the window between reading those params and settling them,
+ * which the confirm fallback's webhook poll can stretch to 20 seconds. The
+ * outcome is replayed into a modal the caller opens for it, so the caller uses
+ * `pending` to keep a competing one from being opened first.
  */
 export function useSetupIntentReturn(): {
   outcome: SetupIntentOutcome | null;
+  pending: boolean;
   clearOutcome: () => void;
 } {
   const [searchParams] = useSearchParams();
@@ -39,6 +45,9 @@ export function useSetupIntentReturn(): {
 
   const [captured, setCaptured] = useState<CapturedReturn | null>(null);
   const [outcome, setOutcome] = useState<SetupIntentOutcome | null>(null);
+  // Tracked apart from `outcome` so `clearOutcome()` does not read as a return
+  // that went back to being unresolved.
+  const [settled, setSettled] = useState(false);
   const capturedRef = useRef(false);
   const resolvedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -86,6 +95,7 @@ export function useSetupIntentReturn(): {
     const settle = (next: SetupIntentOutcome) => {
       if (mountedRef.current) {
         setOutcome(next);
+        setSettled(true);
       }
     };
     const settleError = (message: string | undefined) => {
@@ -124,5 +134,5 @@ export function useSetupIntentReturn(): {
 
   const clearOutcome = useCallback(() => setOutcome(null), []);
 
-  return { outcome, clearOutcome };
+  return { outcome, pending: captured != null && !settled, clearOutcome };
 }

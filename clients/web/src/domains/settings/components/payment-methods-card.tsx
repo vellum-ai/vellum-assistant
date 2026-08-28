@@ -89,7 +89,14 @@ export function PaymentMethodsCard() {
   const { t } = useTranslation("settings");
   const configQuery = useAutoTopUpConfigQuery();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
-  const { outcome, clearOutcome } = useSetupIntentReturn();
+  // A return that is still resolving keeps the Add and Replace actions
+  // disabled: the modal replays that outcome as its `initialOutcome`, which is
+  // seeded on open alone, so one opened in that window would never show it.
+  const {
+    outcome,
+    pending: returnPending,
+    clearOutcome,
+  } = useSetupIntentReturn();
 
   const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
 
@@ -162,6 +169,7 @@ export function PaymentMethodsCard() {
             brand={card.brand}
             last4={card.last4}
             onUpdateCard={openPaymentModal}
+            actionsDisabled={returnPending}
           />
         ))}
       </div>
@@ -177,6 +185,7 @@ export function PaymentMethodsCard() {
             <Button
               variant="outlined"
               onClick={openPaymentModal}
+              disabled={returnPending}
               data-testid="payment-methods-add"
             >
               {t("paymentMethodsCard.addButton")}

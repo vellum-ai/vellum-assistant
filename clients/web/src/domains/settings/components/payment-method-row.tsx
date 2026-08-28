@@ -9,12 +9,15 @@ export interface PaymentMethodRowProps {
   brand: string | null;
   last4: string | null;
   onUpdateCard: () => void;
+  /** Disables the row's actions, e.g. while a redirect return is resolving. */
+  actionsDisabled?: boolean;
 }
 
 export function PaymentMethodRow({
   brand,
   last4,
   onUpdateCard,
+  actionsDisabled = false,
 }: PaymentMethodRowProps) {
   const { t } = useTranslation("settings");
 
@@ -50,6 +53,7 @@ export function PaymentMethodRow({
       <Button
         variant="ghost"
         onClick={onUpdateCard}
+        disabled={actionsDisabled}
         data-testid="payment-method-update"
         className="shrink-0"
       >

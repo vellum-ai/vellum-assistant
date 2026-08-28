@@ -185,8 +185,37 @@ describe("useSetupIntentReturn", () => {
     const { result } = renderAt("?tab=billing");
 
     expect(result.current.outcome).toBeNull();
+    expect(result.current.pending).toBe(false);
     expect(getStripePromiseCalls).toBe(0);
     expect(currentUrl(result)).toBe(STRIPPED_URL);
+  });
+
+  test("stays pending from the captured params until the outcome settles", async () => {
+    orgReadiness = "resolving";
+    const { result, rerender } = renderAt(RETURN_SEARCH);
+
+    expect(result.current.pending).toBe(true);
+    expect(result.current.outcome).toBeNull();
+
+    orgReadiness = "ready";
+    rerender();
+    await waitForOutcome(result);
+
+    expect(result.current.pending).toBe(false);
+  });
+
+  test("stays pending while a failed return resolves", async () => {
+    orgReadiness = "resolving";
+    retrieveResult = { error: { message: "No such setupintent." } };
+    const { result, rerender } = renderAt(RETURN_SEARCH);
+
+    expect(result.current.pending).toBe(true);
+
+    orgReadiness = "ready";
+    rerender();
+    await waitForOutcome(result);
+
+    expect(result.current.pending).toBe(false);
   });
 
   test("holds the resolution while the org header source is resolving", async () => {
@@ -239,5 +268,8 @@ describe("useSetupIntentReturn", () => {
     });
 
     expect(result.current.outcome).toBeNull();
+    // A cleared outcome is a resolved return, not one that went back to being
+    // in flight, so the card's actions stay usable.
+    expect(result.current.pending).toBe(false);
   });
 });
