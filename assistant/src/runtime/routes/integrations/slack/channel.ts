@@ -25,22 +25,25 @@ import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
 // ---------------------------------------------------------------------------
 // Body schemas
 //
-// Each is named once and used twice: as the route's `requestBody`, which is a
-// codegen signal only, and by `parseBody` in the handler, which is what
-// actually rejects a malformed request. Declaring them separately let the wire
-// contract and the runtime disagree, which is how `userToken` came to be read
-// by the handler while absent from the generated client.
+// Each is named once and used twice: as the route's `requestBody`, a codegen
+// signal only, and by `parseBody` in the handler, which is what rejects a
+// malformed request. One declaration keeps the wire contract and the runtime
+// check in agreement.
 // ---------------------------------------------------------------------------
 
+/**
+ * Every field is optional because `setSlackChannelConfig` accepts any subset:
+ * a user token alone is a valid update that leaves the bot and app tokens in
+ * place. The wizard requires both bot and app tokens, and enforces that in
+ * `use-save-slack-config.ts` where that requirement belongs.
+ */
 const SetSlackChannelConfigBody = z.object({
-  botToken: z.string().describe("Slack bot token"),
-  appToken: z.string().describe("Slack app-level token"),
+  botToken: z.string().optional().describe("Slack bot token"),
+  appToken: z.string().optional().describe("Slack app-level token"),
   userToken: z
     .string()
     .optional()
-    .describe(
-      "Optional Slack user token, for reading channels the bot is not in",
-    ),
+    .describe("Slack user token, for reading channels the bot is not in"),
 });
 
 const PatchSlackChannelConfigBody = z.object({
