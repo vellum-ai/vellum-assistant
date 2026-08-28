@@ -27,10 +27,14 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 
 const { PlanTile } = await import("./plan-tile");
 
+/**
+ * Chips with no `ownRow`: the vertical stack, or a wrapping row with nothing
+ * split out below it.
+ */
 const SPECS: PlanSpec[] = [
   { icon: Computer, label: "Small Machine" },
   { icon: HardDrive, label: "10 GB Storage" },
-  { icon: Coins, label: "$25 in credits included" },
+  { icon: Coins, label: "Mighty usage, reset monthly" },
 ];
 
 /** The production shape: two short chips, then two full-width rows. */

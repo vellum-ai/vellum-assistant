@@ -168,9 +168,7 @@ export const CurrentPaid: Story = {
     name: MIGHTY.name,
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
-    specs: packageSpecs(MIGHTY, {
-      usageLabel: usageChip(MIGHTY.name),
-    }),
+    specs: packageSpecs(MIGHTY, usageChip(MIGHTY.name)),
     specsWrap: true,
     footer: <UsageBalancePanel ratio={0.42} />,
   },
@@ -202,9 +200,7 @@ export const CurrentPaidNoUsageReading: Story = {
     name: MIGHTY.name,
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
-    specs: packageSpecs(MIGHTY, {
-      usageLabel: usageChip(MIGHTY.name),
-    }),
+    specs: packageSpecs(MIGHTY, usageChip(MIGHTY.name)),
     specsWrap: true,
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
   },
@@ -244,9 +240,7 @@ export const NextPlan: Story = {
     tierKey: SUPER.key,
     name: SUPER.name,
     tag: NEXT_PLAN_TAG,
-    specs: packageSpecs(SUPER, {
-      usageLabel: usageChip(SUPER.name),
-    }),
+    specs: packageSpecs(SUPER, usageChip(SUPER.name)),
     specsWrap: true,
     footer: upgradeCta(),
   },
@@ -289,9 +283,7 @@ export const SideBySide: Story = {
           name={MIGHTY.name}
           nameTestId="plan-card-name"
           tag={CURRENT_TAG}
-          specs={packageSpecs(MIGHTY, {
-            usageLabel: usageChip(MIGHTY.name),
-          })}
+          specs={packageSpecs(MIGHTY, usageChip(MIGHTY.name))}
           specsWrap
           footer={priceFooter(priceLabelFromCents(MIGHTY.total_price_cents))}
         />
@@ -301,9 +293,7 @@ export const SideBySide: Story = {
           tierKey={SUPER.key}
           name={SUPER.name}
           tag={NEXT_PLAN_TAG}
-          specs={packageSpecs(SUPER, {
-            usageLabel: usageChip(SUPER.name),
-          })}
+          specs={packageSpecs(SUPER, usageChip(SUPER.name))}
           specsWrap
           footer={upgradeCta()}
         />

@@ -51,7 +51,7 @@ describe("packageSpecs", () => {
         credits_usd: 25,
         storage_gib: 10,
       } as ProPackage,
-      { usageLabel: "Mighty usage, reset monthly" },
+      "Mighty usage, reset monthly",
     );
     expect(specs.map((s) => s.label)).toEqual([
       "Small Machine",
@@ -69,7 +69,7 @@ describe("packageSpecs", () => {
         credits_usd: 45,
         storage_gib: 30,
       } as ProPackage,
-      { usageLabel: "Super usage, reset monthly" },
+      "Super usage, reset monthly",
     );
     expect(specs.map((s) => s.label)).toEqual([
       "Medium Machine",
@@ -86,7 +86,7 @@ describe("packageSpecs", () => {
         credits_usd: 45,
         storage_gib: 30,
       } as ProPackage,
-      { usageLabel: "Super usage, reset monthly" },
+      "Super usage, reset monthly",
     );
     expect(specs.map((s) => s.label)).toEqual([
       "Medium Machine",
@@ -105,7 +105,7 @@ describe("packageSpecs", () => {
         credits_usd: 45,
         storage_gib: 30,
       } as ProPackage,
-      { usageLabel: "Super usage, reset monthly" },
+      "Super usage, reset monthly",
     );
     // Machine and storage share the wrapping row; the credits phrase and the
     // email/subdomain extra each take a full row below it.
@@ -120,7 +120,7 @@ describe("packageSpecs", () => {
   test("keeps the credits chip on its own row", () => {
     const specs = packageSpecs(
       { key: "mighty", credits_usd: 25, storage_gib: 10 } as ProPackage,
-      { usageLabel: "Mighty usage, reset monthly" },
+      "Mighty usage, reset monthly",
     );
     expect(specs[2].ownRow).toBe(true);
   });

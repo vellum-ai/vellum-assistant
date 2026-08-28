@@ -33,9 +33,9 @@ export interface PlanSpec {
   multiline?: boolean;
   /**
    * Give the chip a full-width row of its own instead of letting it flow in the
-   * wrapping row beside the short chips. Read only by the wrapped layout
-   * (`PlanTile`'s `specsWrap`); the vertical stack gives every chip its own row
-   * already.
+   * wrapping row beside the short chips. The plan card lays its chips out as a
+   * wrapping row (`PlanTile`'s `specsWrap`), so this takes effect there; the
+   * vertical stack gives every chip its own row and ignores it.
    */
   ownRow?: boolean;
 }
@@ -55,14 +55,6 @@ export function machineLabel(pkg: ProPackage | null): string {
   return SIZE_LABEL[size] ?? pkg.machine_size;
 }
 
-export interface PackageSpecsOptions {
-  /**
-   * The localized credits chip text, supplied by the caller because this pure
-   * module has no `t()`.
-   */
-  usageLabel: string;
-}
-
 /**
  * The spec chips for a package, in mock order: machine, storage, credits,
  * then any static extras from the tier copy (today only the email/subdomain
@@ -72,16 +64,16 @@ export interface PackageSpecsOptions {
  * The machine and storage chips are short enough to sit side by side; the
  * credits chip and the extras are sentences, so they take a row each wherever
  * the chips are laid out as a wrapping row.
+ *
+ * `usageLabel` is the localized credits chip text, supplied by the caller
+ * because this pure module has no `t()`.
  */
-export function packageSpecs(
-  pkg: ProPackage,
-  opts: PackageSpecsOptions,
-): PlanSpec[] {
+export function packageSpecs(pkg: ProPackage, usageLabel: string): PlanSpec[] {
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    { icon: Coins, label: opts.usageLabel, ownRow: true },
+    { icon: Coins, label: usageLabel, ownRow: true },
     ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
   ];
 }

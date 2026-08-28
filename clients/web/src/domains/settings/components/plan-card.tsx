@@ -287,9 +287,10 @@ function RecommendedUpgrade({
             {t("planCard.nextPlan")}
           </Tag>
         }
-        specs={packageSpecs(recommended, {
-          usageLabel: t("planCard.usageChip", { name: recommended.name }),
-        })}
+        specs={packageSpecs(
+          recommended,
+          t("planCard.usageChip", { name: recommended.name }),
+        )}
         specsWrap
         footer={
           <Button
@@ -464,9 +465,10 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const currentSpecs = isFreePlan
     ? freePlanSpecs()
     : currentPackage
-      ? packageSpecs(currentPackage, {
-          usageLabel: t("planCard.usageChip", { name: currentPackage.name }),
-        })
+      ? packageSpecs(
+          currentPackage,
+          t("planCard.usageChip", { name: currentPackage.name }),
+        )
       : null;
   const currentPriceCents = isFreePlan
     ? 0
