@@ -2489,6 +2489,7 @@ function modeTradeoffs(mode: StatusCheckMode): string[] {
 
 function extensionConnectionActions(): string[] {
   return [
+    CHROME_EXTENSION_INSTALL_HINT,
     "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
   ];
 }

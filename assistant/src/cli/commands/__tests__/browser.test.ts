@@ -550,6 +550,7 @@ describe("formatBrowserStatusLines", () => {
             summary:
               "Extension mode is unavailable: no Chrome Extension is connected.",
             userActions: [
+              "Install the Vellum Assistant Chrome extension from the Chrome Web Store: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
               "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
             ],
           },
@@ -561,6 +562,9 @@ describe("formatBrowserStatusLines", () => {
     const rendered = lines!.join("\n");
     expect(rendered).toContain("Requested mode: auto");
     expect(rendered).toContain("✗ extension (auto-candidate)");
+    expect(rendered).toContain(
+      "Install the Vellum Assistant Chrome extension from the Chrome Web Store:",
+    );
     expect(rendered).toContain(
       "Tell the user to make sure a browser is open with the Vellum Chrome extension on.",
     );

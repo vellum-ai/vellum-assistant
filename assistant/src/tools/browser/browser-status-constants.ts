@@ -24,7 +24,7 @@ export const BROWSER_STATUS_INPUT_FIELD = {
 export const CHROME_WEB_STORE_INSTALL_URL =
   "https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne";
 
-/** Install step used by command-failure remediation hints. */
+/** User-facing install step for status userActions and command-failure hints. */
 export const CHROME_EXTENSION_INSTALL_HINT = `Install the Vellum Assistant Chrome extension from the Chrome Web Store: ${CHROME_WEB_STORE_INSTALL_URL}`;
 
 export const CDP_INSPECT_STATUS_DISCOVERY_CODE = {
