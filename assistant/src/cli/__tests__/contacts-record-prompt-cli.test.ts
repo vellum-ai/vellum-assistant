@@ -10,6 +10,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CONTACT_FORM_SETTLE_MS } from "../../util/contact-form-timeouts.js";
+
 interface IpcCall {
   operationId: string;
   options?: Record<string, unknown>;
@@ -148,8 +150,27 @@ describe("contacts record prompts", () => {
     const call = calls.find((c) => c.operationId === "contacts_record_prompt");
     const body = (call!.options as { body: Record<string, unknown> }).body;
     expect(body.timeoutMs).toBe(1000);
-    // The socket outlives the form, so the form's own timer is what ends it.
-    expect(call!.callOptions?.timeoutMs).toBeGreaterThan(1000);
+    // The socket has to outlast an answer arriving at the deadline, which
+    // starts the settle window from there. Giving up sooner would report a
+    // failure while the write went on to commit.
+    expect(call!.callOptions?.timeoutMs).toBeGreaterThan(
+      1000 + CONTACT_FORM_SETTLE_MS,
+    );
+  });
+
+  test("a timeout past the ceiling is refused before the guardian is bothered", async () => {
+    await runAssistantCommand(
+      "contacts",
+      "create",
+      "--name",
+      "Alice",
+      "--timeout",
+      "99999999",
+    );
+
+    expect(calls.some((c) => c.operationId === "contacts_record_prompt")).toBe(
+      false,
+    );
   });
 
   test("a nonsense timeout is refused before the guardian is bothered", async () => {

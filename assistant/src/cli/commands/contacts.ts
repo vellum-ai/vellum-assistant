@@ -1,6 +1,11 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import {
+  CONTACT_FORM_DEFAULT_TIMEOUT_MS,
+  CONTACT_FORM_MAX_TIMEOUT_MS,
+  contactFormCallBudgetMs,
+} from "../../util/contact-form-timeouts.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { shouldOutputJson, writeError, writeOutput } from "../output.js";
@@ -158,33 +163,31 @@ function formatContactDetail(
   return lines.join("\n");
 }
 
-/** Default wait for the guardian to answer a form, matching the daemon park. */
-const CONTACT_FORM_TIMEOUT_MS = 300_000;
-
-/**
- * Extra time the CLI waits beyond the form's own deadline, so the daemon's
- * timer is what ends the wait. Giving up on the socket first would report a
- * failure while the form stayed open, and a guardian answering it later would
- * write something the caller was told had not happened.
- */
-const CONTACT_FORM_TRANSPORT_BUFFER_MS = 10_000;
-
 /**
  * Parse `--timeout`, which bounds how long the form stays open. Returns null
- * (after reporting) when the value is not a positive number of milliseconds.
+ * (after reporting) when the value is out of range, so a bad number fails here
+ * rather than as a schema rejection after the round trip.
  */
 function parseFormTimeout(
   raw: string | undefined,
   cmd: Command,
 ): number | null {
   if (raw === undefined) {
-    return CONTACT_FORM_TIMEOUT_MS;
+    return CONTACT_FORM_DEFAULT_TIMEOUT_MS;
   }
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     writeError(
       cmd,
       `Invalid --timeout "${raw}": expected a positive number of milliseconds`,
+    );
+    process.exitCode = 1;
+    return null;
+  }
+  if (parsed > CONTACT_FORM_MAX_TIMEOUT_MS) {
+    writeError(
+      cmd,
+      `Invalid --timeout "${raw}": the longest a form stays open is ${CONTACT_FORM_MAX_TIMEOUT_MS}ms`,
     );
     process.exitCode = 1;
     return null;
@@ -247,7 +250,7 @@ async function runRecordPrompt(
   }>(
     "contacts_record_prompt",
     { body: { ...body, timeoutMs } },
-    { timeoutMs: timeoutMs + CONTACT_FORM_TRANSPORT_BUFFER_MS },
+    { timeoutMs: contactFormCallBudgetMs(timeoutMs) },
   );
 
   if (!r.ok) {
@@ -534,7 +537,7 @@ export function registerContactsCommand(program: Command): void {
                 timeoutMs,
               },
             },
-            { timeoutMs: timeoutMs + CONTACT_FORM_TRANSPORT_BUFFER_MS },
+            { timeoutMs: contactFormCallBudgetMs(timeoutMs) },
           );
 
           if (!r.ok) {

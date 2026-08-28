@@ -26,6 +26,11 @@
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
+import {
+  CONTACT_FORM_DEFAULT_TIMEOUT_MS,
+  CONTACT_FORM_MAX_TIMEOUT_MS,
+  CONTACT_FORM_SETTLE_MS,
+} from "../../util/contact-form-timeouts.js";
 import { getLogger } from "../../util/logger.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -33,36 +38,11 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-prompt-routes");
 
-/** Default wait for the user to submit the contact form (5 min). */
-const CONTACT_PROMPT_TIMEOUT_MS = 300_000;
-
-/**
- * Ceiling on a caller-supplied wait (1 hour), so a bad value cannot park an
- * entry in {@link pendingContactPrompts} indefinitely.
- */
-const CONTACT_PROMPT_MAX_TIMEOUT_MS = 3_600_000;
-
-/**
- * How long a claimed form is held while its write settles (3 min).
- *
- * Claiming means somebody answered, so the original deadline stops applying:
- * letting it fire mid-write would report a timeout to the caller while the
- * write went on to commit, and for a delete that is a contact removed after
- * the command said nothing happened.
- *
- * The budget has to clear the gateway's whole write, not one call of it. Its
- * IPC calls bound at 30s each and a delete makes three in sequence (mirror
- * probe, mirror delete, then the resolve back), so anything at or near 30s
- * expires a write that is still legitimately in progress. Bounded all the
- * same, so a gateway that dies mid-write cannot park the caller forever.
- */
-const CONTACT_PROMPT_SETTLE_MS = 180_000;
-
 const TimeoutMsParam = z
   .number()
   .int()
   .positive()
-  .max(CONTACT_PROMPT_MAX_TIMEOUT_MS)
+  .max(CONTACT_FORM_MAX_TIMEOUT_MS)
   .optional()
   .describe(
     "How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is what ends the wait. Defaults to 300000.",
@@ -285,7 +265,7 @@ async function handleContactPrompt({
       }
       log.warn({ requestId }, "Contact prompt timed out");
       expireContactPrompt(requestId, pending, "Prompt timed out");
-    }, timeoutMs ?? CONTACT_PROMPT_TIMEOUT_MS);
+    }, timeoutMs ?? CONTACT_FORM_DEFAULT_TIMEOUT_MS);
 
     pendingContactPrompts.set(requestId, {
       resolve,
@@ -351,7 +331,7 @@ async function handleContactRecordPrompt({
       }
       log.warn({ requestId, operation }, "Contact record prompt timed out");
       expireContactPrompt(requestId, pending, "Prompt timed out");
-    }, timeoutMs ?? CONTACT_PROMPT_TIMEOUT_MS);
+    }, timeoutMs ?? CONTACT_FORM_DEFAULT_TIMEOUT_MS);
 
     pendingContactPrompts.set(requestId, { resolve, timer, verify: false });
 
@@ -411,7 +391,7 @@ function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
       pending,
       "The submitted form never completed",
     );
-  }, CONTACT_PROMPT_SETTLE_MS);
+  }, CONTACT_FORM_SETTLE_MS);
   return { claimed: true };
 }
 
