@@ -20,6 +20,7 @@ import {
 } from "drizzle-orm";
 
 import {
+  DELIVERY_WITHDRAWN_STATUS,
   type GuardianRequestDeliveryWire,
   type GuardianRequestStatus,
   type GuardianRequestWire,
@@ -602,7 +603,7 @@ export function expireGuardianRequest(id: string): void {
       .where(
         and(
           eq(guardianRequestDeliveries.requestId, id),
-          ne(guardianRequestDeliveries.status, "withdrawn"),
+          ne(guardianRequestDeliveries.status, DELIVERY_WITHDRAWN_STATUS),
         ),
       )
       .run();

@@ -201,6 +201,14 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   getByPendingQuestion: "guardian_requests_get_by_pending_question",
 } as const;
 
+/**
+ * Delivery-row status once its approval card is durably withdrawn. Written
+ * by the daemon's card withdrawal as its per-surface receipt; the gateway's
+ * per-request expire preserves rows carrying it, and a retrying withdrawal
+ * skips them.
+ */
+export const DELIVERY_WITHDRAWN_STATUS = "withdrawn";
+
 export type GuardianRequestsIpcMethod =
   (typeof GUARDIAN_REQUESTS_IPC_METHODS)[keyof typeof GUARDIAN_REQUESTS_IPC_METHODS];
 

@@ -22,6 +22,8 @@
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
+import { DELIVERY_WITHDRAWN_STATUS } from "@vellumai/gateway-client";
+
 import {
   type GuardianRequestDeliveryWire,
   type GuardianRequestStatus,
@@ -86,18 +88,6 @@ export interface WithdrawGuardianCardsParams {
    */
   hasOriginGuardianReply?: boolean;
 }
-
-/**
- * Delivery-row status once its card is durably withdrawn. The row is the
- * per-surface receipt: a retrying caller (the expiry sweep) skips rows
- * already carrying it, so one surface's failure never re-edits the others
- * or re-broadcasts an in-app completion, and any surface a future channel
- * contributes participates through the same row it already gets at
- * delivery time. The one status reader, the voice guardian-action sweep,
- * acts only on `sent`/`pending`, so a withdrawn row correctly receives no
- * further notices.
- */
-export const DELIVERY_WITHDRAWN_STATUS = "withdrawn";
 
 /**
  * Withdraw a resolved request's approval cards across all delivery

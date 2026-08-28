@@ -89,8 +89,8 @@ export async function runGuardianExpirySweep(): Promise<number> {
     // request: the notice has not been sent yet, so the retry next round
     // repeats only idempotent card edits, never a delivered notice. A
     // surface that fails persistently keeps its request in the pending set
-    // with this warning every round, which is loud where the old sweep was
-    // silent.
+    // with this warning every round, so the stall is observable rather
+    // than silent.
     const withdrawal = await withdrawGuardianRequestCards({
       request,
       status: "expired",
