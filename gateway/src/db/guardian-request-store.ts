@@ -432,6 +432,16 @@ export function resolveGuardianRequest(
   id: string,
   expectedStatus: GuardianRequestStatus,
   decision: ResolveGuardianRequestDecision,
+  options?: {
+    /**
+     * Make the deadline part of the CAS: the transition applies only while
+     * `expires_at` is null or still in the future. The decide path sets
+     * this so a decision in flight across the deadline boundary loses the
+     * arbitration atomically, instead of committing after expiry has
+     * already begun acting on the request.
+     */
+    requireUnexpired?: boolean;
+  },
 ): ResolveGuardianRequestResult {
   const raw = rawClient();
   const now = Date.now();
@@ -451,13 +461,20 @@ export function resolveGuardianRequest(
     args.push(decision.decidedByPrincipalId);
   }
 
+  const guards = ["id = ?", "status = ?"];
+  const guardArgs: (string | number)[] = [id, expectedStatus];
+  if (options?.requireUnexpired) {
+    guards.push("(expires_at IS NULL OR expires_at >= ?)");
+    guardArgs.push(now);
+  }
+
   const changes = raw
     .prepare(
       `UPDATE guardian_requests
        SET ${sets.join(", ")}
-       WHERE id = ? AND status = ?`,
+       WHERE ${guards.join(" AND ")}`,
     )
-    .run(...args, id, expectedStatus).changes;
+    .run(...args, ...guardArgs).changes;
 
   if (changes === 0) {
     return { applied: false };
@@ -567,21 +584,29 @@ export function sweepExpiredGuardianRequests(
 /**
  * Expire a single guardian request and all its deliveries in one
  * transaction. CAS-transitions the request from 'pending' to 'expired';
- * its deliveries are bulk-expired regardless of the request's status.
+ * the deliveries expire only when that CAS applies, so a request a
+ * decision already resolved never has its delivery rows restamped as
+ * expired.
  */
 export function expireGuardianRequest(id: string): void {
   const db = getGatewayDb();
   const now = Date.now();
 
   db.transaction(() => {
+    // The read and both writes share one synchronous SQLite transaction,
+    // so the status probe is the CAS.
+    const row = db
+      .select({ status: guardianRequests.status })
+      .from(guardianRequests)
+      .where(eq(guardianRequests.id, id))
+      .get();
+    if (row?.status !== "pending") {
+      return;
+    }
+
     db.update(guardianRequests)
       .set({ status: "expired", updatedAt: now })
-      .where(
-        and(
-          eq(guardianRequests.id, id),
-          eq(guardianRequests.status, "pending"),
-        ),
-      )
+      .where(eq(guardianRequests.id, id))
       .run();
 
     db.update(guardianRequestDeliveries)

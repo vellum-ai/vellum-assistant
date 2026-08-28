@@ -7,6 +7,7 @@
  */
 
 import type { CharacterComponents } from "@/types/avatar";
+import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
 
 const SCLERA = "#F2F2F2";
 const PUPIL = "#1A1A1A";
@@ -341,14 +342,9 @@ export const BUNDLED_COMPONENTS: CharacterComponents = {
     },
   ],
 
-  colors: [
-    { id: "green", hex: "#4C9B50" },
-    { id: "orange", hex: "#E9642F" },
-    { id: "pink", hex: "#DB4B77" },
-    { id: "purple", hex: "#A665C9" },
-    { id: "teal", hex: "#0E9B8B" },
-    { id: "yellow", hex: "#E9C91A" },
-  ],
+  // Palette lives in its own module so boot-path palette consumers don't
+  // statically depend on this file's SVG data.
+  colors: BUNDLED_COLORS,
 
   faceCenterOverrides: [
     // Ghost body — shift non-native eyes from y=167 -> y=200

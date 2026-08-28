@@ -21,9 +21,11 @@
  *     any caller read the installer's channels or post as them. Also used for
  *     content the assistant posts as itself.
  *
- *   - "user" — act as the assistant's owner, using the optional user token for
- *     its wider reach (channels the owner is in but the bot isn't; and
- *     `search.messages`, which only a user token can call). Scoped to the
+ *   - "user": act as the assistant's owner, using whichever of the installer's
+ *     own tokens is present for its wider reach (channels the owner is in but
+ *     the bot isn't; and `search.messages`, which only a user token can call):
+ *     the channel's pasted user token, else a `slack` OAuth connection, else
+ *     the bot token. Scoped to the
  *     in-conversation messaging adapter, where the assistant is acting for its
  *     own owner within a trust-classified conversation — NOT the edge-reachable
  *     control-plane routes above. Falls back to the bot token when no user
@@ -57,12 +59,36 @@ export async function resolveSlackAuth(
   );
   if (botToken) {
     if (identity === "user") {
-      // Prefer the optional user token; fall back to the bot token when the
-      // install never captured one.
+      // Three rungs, widest reach first. The pasted channel user token and the
+      // `slack` OAuth connection are the same thing obtained two ways: the
+      // installer's own token, carrying the channel and search scopes a bot
+      // token cannot. Falling straight to the bot from a missing paste would
+      // drop `search.messages`, which only a user token can call, while a
+      // usable one sat in the OAuth connection.
       const userToken = await getSecureKeyAsync(
         credentialKey("slack_channel", "user_token"),
       );
-      return userToken ?? botToken;
+      if (userToken) {
+        return userToken;
+      }
+      // The connection holds the installer's user token: this provider always
+      // requests `user_scope`, and `exchangeCodeForTokens` stores the nested
+      // `authed_user` token whenever Slack returns one. An install that
+      // granted no user scopes leaves a bot token there instead, which is the
+      // same thing the next line falls back to, so the wrong guess costs
+      // nothing.
+      if (getConnectionByProvider("slack")) {
+        try {
+          return await resolveOAuthConnection("slack", {
+            account: opts.account,
+          });
+        } catch {
+          // Unlike the legacy branch below, this one has somewhere to go: a
+          // revoked or unrefreshable connection degrades to the bot token
+          // rather than failing a resolve the bot can still answer.
+        }
+      }
+      return botToken;
     }
     return botToken;
   }

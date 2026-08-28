@@ -3,7 +3,7 @@
  *
  * The route handlers run inside the daemon and manage the worker process. We
  * mock schedule worker-control so the tests assert handler behaviour:
- *   - start spawns as a daemon child (detached:false) and throws on failure.
+ *   - start spawns the worker and throws on failure.
  *   - stop signals the worker and reports its prior state.
  *   - status reports the worker process liveness.
  */
@@ -15,7 +15,7 @@ import { getScheduleWorkerPidPath } from "../../../util/platform.js";
 class FakeSpawnError extends Error {}
 
 let spawnImpl: () => Promise<{ pid: number; alreadyRunning: boolean }>;
-let spawnArgs: Array<{ detached?: boolean; terminateOnTimeout?: boolean }> = [];
+let spawnArgs: Array<{ terminateOnTimeout?: boolean } | undefined> = [];
 let stopImpl: () => { status: "running" | "not_running"; pid?: number };
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
@@ -24,8 +24,7 @@ const adminStoppedCalls: boolean[] = [];
 
 mock.module("../../../schedule/worker-control.js", () => ({
   ScheduleWorkerSpawnError: FakeSpawnError,
-  spawnScheduleWorkerProcess: async (opts: {
-    detached?: boolean;
+  spawnScheduleWorkerProcess: async (opts?: {
     terminateOnTimeout?: boolean;
   }) => {
     spawnArgs.push(opts);
@@ -57,12 +56,12 @@ beforeEach(() => {
 });
 
 describe("schedules_worker_start", () => {
-  test("spawns as a daemon child and returns the PID", async () => {
+  test("spawns the worker and returns the PID", async () => {
     spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
 
     const res = await handler("schedules_worker_start")();
 
-    expect(spawnArgs).toEqual([{ detached: false }]);
+    expect(spawnArgs).toEqual([undefined]);
     expect(res).toEqual({
       pid: 4242,
       alreadyRunning: false,

@@ -28,6 +28,16 @@ mock.module("../../../security/secure-keys.js", () => ({
   }),
 }));
 
+// With `userTokenStored` false, `resolveSlackAuth` looks for a `slack` OAuth
+// connection before falling back to the bot token. This suite builds no
+// database, so the lookup has to be answered here; spread for the same reason
+// the secure-keys mock above does.
+const realOauthStore = await import("../../../oauth/oauth-store.js");
+mock.module("../../../oauth/oauth-store.js", () => ({
+  ...realOauthStore,
+  getConnectionByProvider: () => undefined,
+}));
+
 const { appendSlackStream, getSlackConversationInfo, startSlackStream } =
   await import("./api.js");
 

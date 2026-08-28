@@ -290,6 +290,11 @@ export function createGuardianGatewaySim() {
     if (!row || row.status !== params.expectedStatus) {
       return { applied: false, reason: "status_conflict" };
     }
+    // Mirrors the gateway decide CAS: the deadline is part of the
+    // arbitration, so a decision arriving past expiresAt loses atomically.
+    if (isGuardianRequestExpired(row, Date.now())) {
+      return { applied: false, reason: "status_conflict" };
+    }
     if (state.outcomeError && params.aclOutcome) {
       // Gateway transaction rollback: the CAS never lands.
       throw state.outcomeError;
@@ -344,11 +349,14 @@ export function createGuardianGatewaySim() {
   }
 
   async function expireGuardianRequest(id: string): Promise<void> {
+    // Mirrors the gateway: deliveries expire only when the request CAS
+    // applies, so a decided request's rows are never restamped.
     const row = requests.get(id);
-    if (row?.status === "pending") {
-      row.status = "expired";
-      row.updatedAt = Date.now();
+    if (row?.status !== "pending") {
+      return;
     }
+    row.status = "expired";
+    row.updatedAt = Date.now();
     for (const delivery of deliveries) {
       if (delivery.requestId === id) {
         delivery.status = "expired";

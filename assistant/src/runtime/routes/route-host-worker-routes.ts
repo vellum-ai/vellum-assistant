@@ -50,7 +50,7 @@ const statusResponseSchema = z.object({
 async function startRouteHostWorker() {
   let result: { pid: number; alreadyRunning: boolean };
   try {
-    result = await spawnRouteHostWorkerProcess({ detached: false });
+    result = await spawnRouteHostWorkerProcess();
   } catch (err) {
     const message =
       err instanceof RouteHostSpawnError || err instanceof Error

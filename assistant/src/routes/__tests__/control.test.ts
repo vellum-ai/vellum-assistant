@@ -14,7 +14,7 @@ import * as realLogger from "../../util/logger.js";
 import * as realWorkerProcess from "../../util/worker-process.js";
 
 let enabled = false;
-let spawnArgs: Array<{ options?: { detached?: boolean } }> = [];
+let spawnArgs: Array<{ options?: { terminateOnTimeout?: boolean } }> = [];
 let stopStatus: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
@@ -39,7 +39,9 @@ mock.module("../../util/logger.js", () => ({
 
 mock.module("../../util/worker-process.js", () => ({
   ...realWorkerProcess,
-  spawnWorkerProcess: async (args: { options?: { detached?: boolean } }) => {
+  spawnWorkerProcess: async (args: {
+    options?: { terminateOnTimeout?: boolean };
+  }) => {
     spawnArgs.push(args);
     return { pid: 4242, alreadyRunning: false };
   },
@@ -76,7 +78,6 @@ describe("startRouteHost", () => {
     startRouteHost();
     await Promise.resolve();
     expect(spawnArgs).toHaveLength(1);
-    expect(spawnArgs[0].options?.detached).toBe(false);
   });
 });
 

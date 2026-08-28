@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
 
 /**
  * The CSS custom property carrying the active assistant's avatar accent hex
@@ -25,7 +25,7 @@ export function resolveAvatarAccentHex(
   if (!colorId) {
     return null;
   }
-  const palette = components?.colors ?? BUNDLED_COMPONENTS.colors;
+  const palette = components?.colors ?? BUNDLED_COLORS;
   return palette.find((c) => c.id === colorId)?.hex ?? null;
 }
 

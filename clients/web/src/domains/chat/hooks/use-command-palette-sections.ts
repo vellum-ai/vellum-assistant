@@ -9,6 +9,7 @@ import {
   useCommandPalette,
   type UseCommandPaletteReturn,
 } from "@/components/command-palette/use-command-palette";
+import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import {
   buildActionsSection,
   buildServerResultSections,
@@ -135,12 +136,28 @@ export function useCommandPaletteSections({
   onClose,
   onItemSelect,
 }: UseCommandPaletteSectionsParams): UseCommandPaletteSectionsReturn {
+  // Read from the host's catalog, so these follow a rebind and fill in when
+  // the desktop catalog arrives after first paint.
+  const newConversationHint = useCommandShortcutHint("newConversation");
+  const currentConversationHint = useCommandShortcutHint("currentConversation");
+  const openSettingsHint = useCommandShortcutHint("openSettings");
+
   // Static sections: actions + recent conversations.
   const localSections = useMemo((): CommandPaletteSection[] => {
-    const actions = buildActionsSection(assistantName ?? "Assistant");
+    const actions = buildActionsSection(assistantName ?? "Assistant", {
+      newConversation: newConversationHint,
+      currentConversation: currentConversationHint,
+      openSettings: openSettingsHint,
+    });
     const recents = buildRecentsSection(conversations);
     return [actions, ...(recents.items.length > 0 ? [recents] : [])];
-  }, [conversations, assistantName]);
+  }, [
+    conversations,
+    assistantName,
+    newConversationHint,
+    currentConversationHint,
+    openSettingsHint,
+  ]);
 
   // Deduplicate server results against local recents.
   const recentConversationIds = useMemo(

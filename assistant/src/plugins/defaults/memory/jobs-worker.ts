@@ -192,7 +192,7 @@ export interface MemoryJobsWorker {
 
 /**
  * Daemon-lifecycle entry point: spawn the memory jobs worker as a child of the
- * daemon (`detached: false`, so it appears in `assistant ps` and is torn down
+ * daemon (so it appears in the daemon's process tree and is torn down
  * on shutdown). The worker process is the sole drainer of the memory job queue.
  * Fire-and-forget — a worker failure must never block boot. A worker that comes
  * up late is still the desired sole drainer, so `terminateOnTimeout` is
@@ -205,7 +205,6 @@ export interface MemoryJobsWorker {
 export function startMemoryJobsWorker(): void {
   void spawnMemoryWorkerProcess({
     terminateOnTimeout: false,
-    detached: false,
   })
     .then(({ pid, alreadyRunning }) =>
       log.info(
