@@ -265,6 +265,95 @@ describe("readServiceCredentials", () => {
       webhook_secret: "v2-webhook-secret",
     });
   });
+
+  test("CES HTTP requires metadata records even when secrets exist", async () => {
+    writeEncryptedStore({
+      [credentialKey("telegram", "bot_token")]: "my-bot-token",
+      [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
+    });
+
+    const previousUrl = process.env.CES_CREDENTIAL_URL;
+    const previousToken = process.env.CES_SERVICE_TOKEN;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (req.method === "GET" && url.pathname.startsWith("/v1/metadata/")) {
+          return Response.json({ error: "Record not found" }, { status: 404 });
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    });
+    process.env.CES_CREDENTIAL_URL = `http://127.0.0.1:${server.port}`;
+    process.env.CES_SERVICE_TOKEN = "test-ces-service-token";
+    try {
+      const result = await readServiceCredentials(telegramSpec);
+      expect(result).toBeNull();
+    } finally {
+      server.stop(true);
+      if (previousUrl === undefined) {
+        delete process.env.CES_CREDENTIAL_URL;
+      } else {
+        process.env.CES_CREDENTIAL_URL = previousUrl;
+      }
+      if (previousToken === undefined) {
+        delete process.env.CES_SERVICE_TOKEN;
+      } else {
+        process.env.CES_SERVICE_TOKEN = previousToken;
+      }
+    }
+  });
+
+  test("CES HTTP reads secrets after metadata records are present", async () => {
+    writeEncryptedStore({
+      [credentialKey("telegram", "bot_token")]: "my-bot-token",
+      [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
+    });
+
+    const previousUrl = process.env.CES_CREDENTIAL_URL;
+    const previousToken = process.env.CES_SERVICE_TOKEN;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (req.method === "GET" && url.pathname.startsWith("/v1/metadata/")) {
+          return Response.json({
+            record: {
+              credentialId: "cred-1",
+              service: "telegram",
+              field: "ignored",
+              allowedTools: [],
+              allowedDomains: [],
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          });
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    });
+    process.env.CES_CREDENTIAL_URL = `http://127.0.0.1:${server.port}`;
+    process.env.CES_SERVICE_TOKEN = "test-ces-service-token";
+    try {
+      const result = await readServiceCredentials(telegramSpec);
+      expect(result).toEqual({
+        bot_token: "my-bot-token",
+        webhook_secret: "my-webhook-secret",
+      });
+    } finally {
+      server.stop(true);
+      if (previousUrl === undefined) {
+        delete process.env.CES_CREDENTIAL_URL;
+      } else {
+        process.env.CES_CREDENTIAL_URL = previousUrl;
+      }
+      if (previousToken === undefined) {
+        delete process.env.CES_SERVICE_TOKEN;
+      } else {
+        process.env.CES_SERVICE_TOKEN = previousToken;
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

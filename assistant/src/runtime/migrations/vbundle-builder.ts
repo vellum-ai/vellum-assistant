@@ -30,7 +30,6 @@ import { createGzip, gzipSync } from "node:zlib";
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import { getLogger } from "../../util/logger.js";
 import type { VBundleOriginMode } from "./origin-mode.js";
-import { CREDENTIAL_METADATA_ARCHIVE_PATH } from "./vbundle-import-policy.js";
 import type {
   ManifestFileEntryType,
   ManifestType,
@@ -698,11 +697,6 @@ export interface BuildExportVBundleOptions {
   checkpoint?: () => void | Promise<void>;
   /** Optional credential entries to include in the archive under credentials/ prefix. */
   credentials?: Array<{ account: string; value: string }>;
-  /**
-   * In-process credential metadata catalog. Replaces leftover
-   * `workspace/data/credentials/metadata.json` when CES owns records.
-   */
-  credentialMetadataFile?: Uint8Array;
 }
 
 /**
@@ -728,7 +722,6 @@ export function buildExportVBundle(
     checkpoint,
     workspaceDir,
     credentials,
-    credentialMetadataFile,
   } = options;
 
   // Flush WAL to the main database file before reading so the export
@@ -778,20 +771,6 @@ export function buildExportVBundle(
     for (const { account, value } of credentials) {
       const data = new TextEncoder().encode(value);
       files.push({ path: `credentials/${account}`, data });
-    }
-  }
-
-  if (credentialMetadataFile && credentialMetadataFile.length > 0) {
-    const existing = files.find(
-      (file) => file.path === CREDENTIAL_METADATA_ARCHIVE_PATH,
-    );
-    if (existing) {
-      existing.data = credentialMetadataFile;
-    } else {
-      files.push({
-        path: CREDENTIAL_METADATA_ARCHIVE_PATH,
-        data: credentialMetadataFile,
-      });
     }
   }
 
@@ -1197,7 +1176,6 @@ export async function streamExportVBundle(
     checkpoint,
     workspaceDir,
     credentials,
-    credentialMetadataFile,
   } = options;
 
   // Flush WAL to the main database file before reading. Awaiting allows
@@ -1269,20 +1247,6 @@ export async function streamExportVBundle(
         size: data.length,
       });
     }
-  }
-
-  if (credentialMetadataFile && credentialMetadataFile.length > 0) {
-    const leftoverIdx = allFileMetadata.findIndex(
-      (file) => file.archivePath === CREDENTIAL_METADATA_ARCHIVE_PATH,
-    );
-    if (leftoverIdx !== -1) {
-      allFileMetadata.splice(leftoverIdx, 1);
-    }
-    inMemoryEntries.push({
-      archivePath: CREDENTIAL_METADATA_ARCHIVE_PATH,
-      data: credentialMetadataFile,
-      size: credentialMetadataFile.length,
-    });
   }
 
   // ------------------------------------------------------------------

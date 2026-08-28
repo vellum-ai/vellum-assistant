@@ -1,6 +1,10 @@
 /**
- * Watches the encrypted credential store and CES HTTP availability so
- * channel credentials are reloaded when they are added, updated, or removed.
+ * Watches the encrypted credential store and CES HTTP so channel
+ * credentials are reloaded when they are added, updated, or removed.
+ *
+ * Identity and policy live in CES (`GET /v1/metadata`). When CES HTTP
+ * is configured, the watcher polls that catalog instead of leftover
+ * workspace `metadata.json`. Local keys.enc mode stays secrets-only.
  *
  * Watches parent directories rather than files themselves because
  * keys.enc is rewritten via atomic rename. File-scoped fs.watch()
@@ -12,8 +16,9 @@ import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { createCesHttpCredentialClient } from "@vellumai/ces-client/http-credentials";
 import { getLogger } from "./logger.js";
 import {
-  readServiceCredentials,
   ALL_CREDENTIAL_SPECS,
+  getCesHttpConfig,
+  readServiceCredentials,
 } from "./credential-reader.js";
 import { getGatewaySecurityDir } from "./paths.js";
 
@@ -125,14 +130,13 @@ export class CredentialWatcher {
   }
 
   private startManagedBootstrapRetry(): void {
-    const baseUrl = process.env.CES_CREDENTIAL_URL?.trim();
-    const serviceToken = process.env.CES_SERVICE_TOKEN?.trim();
-    if (!baseUrl || !serviceToken) {
+    const config = getCesHttpConfig();
+    if (!config) {
       return;
     }
 
     const poll = (): void => {
-      void this.pollManagedBootstrap(baseUrl, serviceToken);
+      void this.pollManagedBootstrap(config.baseUrl, config.serviceToken);
     };
 
     this.managedBootstrapTimer = setInterval(poll, MANAGED_BOOTSTRAP_POLL_MS);
@@ -154,8 +158,9 @@ export class CredentialWatcher {
         log,
       );
       const listResult = await client.list();
+      const recordsResult = await client.listRecords();
 
-      if (listResult.unreachable) {
+      if (listResult.unreachable || recordsResult.unreachable) {
         // CES isn't reachable yet. Keep retrying.
         return;
       }
@@ -228,7 +233,7 @@ export class CredentialWatcher {
     this.polling = true;
     try {
       const credentials = new Map<string, Record<string, string> | null>();
-      const configuredServices = this.loadConfiguredServices();
+      const configuredServices = await this.loadConfiguredServices();
       for (const spec of ALL_CREDENTIAL_SPECS) {
         credentials.set(spec.service, await readServiceCredentials(spec));
       }
@@ -269,8 +274,36 @@ export class CredentialWatcher {
     }
   }
 
-  private loadConfiguredServices(): Set<string> {
-    return new Set(this.lastReadyServices);
+  private async loadConfiguredServices(): Promise<Set<string>> {
+    const config = getCesHttpConfig();
+    if (!config) {
+      return new Set(this.lastReadyServices);
+    }
+
+    try {
+      const client = createCesHttpCredentialClient(config, log);
+      const listed = await client.listRecords();
+      if (listed.unreachable) {
+        return new Set(this.lastConfiguredServices);
+      }
+
+      const configured = new Set<string>();
+      for (const spec of ALL_CREDENTIAL_SPECS) {
+        const hasAllRequiredFields = spec.requiredFields.every((field) =>
+          listed.records.some(
+            (entry) =>
+              entry.record.service === spec.service &&
+              entry.record.field === field,
+          ),
+        );
+        if (hasAllRequiredFields) {
+          configured.add(spec.service);
+        }
+      }
+      return configured;
+    } catch {
+      return new Set(this.lastConfiguredServices);
+    }
   }
 
   private allConfiguredServicesReady(): boolean {

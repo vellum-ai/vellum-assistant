@@ -114,6 +114,24 @@ async function startGateway(): Promise<void> {
   );
 }
 
+function recordForAccount(account: string) {
+  const parts = account.split("/");
+  const service = parts[1] ?? "unknown";
+  const field = parts.slice(2).join("/") || "unknown";
+  return {
+    account,
+    record: {
+      credentialId: `cred-${account}`,
+      service,
+      field,
+      allowedTools: [] as string[],
+      allowedDomains: [] as string[],
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  };
+}
+
 function startFakeCes(opts: {
   accounts?: string[];
   credentials?: Record<string, string>;
@@ -121,6 +139,7 @@ function startFakeCes(opts: {
 }): void {
   const accounts = opts.accounts ?? Object.keys(opts.credentials ?? {});
   const credentials = opts.credentials ?? {};
+  const records = accounts.map(recordForAccount);
   cesServer = Bun.serve({
     // If cesPort was pre-reserved (for tests that start the gateway before
     // the CES), bind to that port. Otherwise let the OS pick a free one.
@@ -151,6 +170,24 @@ function startFakeCes(opts: {
           );
         }
         return Response.json({ account, value });
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/metadata") {
+        return Response.json({ records });
+      }
+
+      if (req.method === "GET" && url.pathname.startsWith("/v1/metadata/")) {
+        const account = decodeURIComponent(
+          url.pathname.slice("/v1/metadata/".length),
+        );
+        const entry = records.find((item) => item.account === account);
+        if (!entry) {
+          return Response.json(
+            { error: "Record not found", account },
+            { status: 404 },
+          );
+        }
+        return Response.json({ account, record: entry.record });
       }
 
       return new Response("Not Found", { status: 404 });

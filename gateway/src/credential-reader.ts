@@ -178,6 +178,23 @@ function readEncryptedCredential(account: string): string | undefined {
 // CES HTTP credential reader (containerized mode)
 // ---------------------------------------------------------------------------
 
+export function getCesHttpConfig():
+  | { baseUrl: string; serviceToken: string }
+  | undefined {
+  const baseUrl = process.env.CES_CREDENTIAL_URL?.trim();
+  if (!baseUrl) {
+    return undefined;
+  }
+
+  const serviceToken = process.env.CES_SERVICE_TOKEN?.trim();
+  if (!serviceToken) {
+    log.warn("CES_CREDENTIAL_URL is set but CES_SERVICE_TOKEN is missing");
+    return undefined;
+  }
+
+  return { baseUrl, serviceToken };
+}
+
 /**
  * Try to read a credential from the CES managed service over HTTP.
  *
@@ -189,18 +206,44 @@ function readEncryptedCredential(account: string): string | undefined {
  * or the credential doesn't exist (404).
  */
 async function readCesCredential(account: string): Promise<string | undefined> {
-  const baseUrl = process.env.CES_CREDENTIAL_URL?.trim();
-  if (!baseUrl) return undefined;
-
-  const serviceToken = process.env.CES_SERVICE_TOKEN?.trim();
-  if (!serviceToken) {
-    log.warn("CES_CREDENTIAL_URL is set but CES_SERVICE_TOKEN is missing");
+  const config = getCesHttpConfig();
+  if (!config) {
     return undefined;
   }
 
-  const client = createCesHttpCredentialClient({ baseUrl, serviceToken }, log);
+  const client = createCesHttpCredentialClient(config, log);
   const result = await client.get(account);
   return result.value;
+}
+
+export type ServiceCredentialSpec = {
+  /** Service name as it appears in CES metadata (e.g., "telegram", "slack_channel") */
+  service: string;
+  /** Field names required for this service (e.g., ["bot_token", "webhook_secret"]) */
+  requiredFields: readonly string[];
+};
+
+/**
+ * When CES HTTP is configured, every required field must have a CES
+ * metadata record. Leftover workspace `metadata.json` is not consulted.
+ * Local keys.enc mode (no CES HTTP) skips this gate.
+ */
+async function requiredCesMetadataPresent(
+  spec: ServiceCredentialSpec,
+): Promise<boolean> {
+  const config = getCesHttpConfig();
+  if (!config) {
+    return true;
+  }
+
+  const client = createCesHttpCredentialClient(config, log);
+  for (const field of spec.requiredFields) {
+    const result = await client.getRecord(credentialKey(spec.service, field));
+    if (result.unreachable || !result.record) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,25 +268,23 @@ export async function readCredential(
   return readEncryptedCredential(account);
 }
 
-export type ServiceCredentialSpec = {
-  /** Service name as it appears in the credential account key (e.g., "telegram", "slack_channel") */
-  service: string;
-  /** Field names required for this service (e.g., ["bot_token", "webhook_secret"]) */
-  requiredFields: readonly string[];
-};
-
 /**
- * Generic credential reader that loads every required field from CES or
- * the encrypted store. A service is ready when every required secret
- * value can be read.
+ * Generic credential reader that checks CES metadata (when CES HTTP is
+ * configured) and then loads every required secret from CES or the
+ * encrypted store.
  *
  * Returns a `Record<string, string>` mapping field names to their values if
- * all required secrets are readable. Returns `null` if any secret is missing.
+ * all required secrets are readable. Returns `null` if CES metadata is
+ * missing or unreachable, or if any secret value can't be read.
  */
 export async function readServiceCredentials(
   spec: ServiceCredentialSpec,
 ): Promise<Record<string, string> | null> {
   try {
+    if (!(await requiredCesMetadataPresent(spec))) {
+      return null;
+    }
+
     const result: Record<string, string> = {};
     for (const field of spec.requiredFields) {
       const value = await readCredential(credentialKey(spec.service, field));
