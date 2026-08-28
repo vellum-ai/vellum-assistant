@@ -560,6 +560,101 @@ describe("renderConversationMenuItems: read-state iconography", () => {
   });
 });
 
+/**
+ * The design library is stubbed in this file, so `Menu.Item` here is a `div`
+ * that spreads its props as attributes rather than the real row. What that can
+ * prove is what this module owns: which accelerator reaches which row. How an
+ * accelerator becomes drawn glyphs plus `aria-keyshortcuts` is the design
+ * library's, and is covered by `menu-item-aside.test.tsx` against the real
+ * component.
+ */
+describe("renderConversationMenuItems: keyboard shortcut routing", () => {
+  interface MenuRow {
+    label: string;
+    shortcut: string | undefined;
+  }
+
+  function menuRows(
+    props: Parameters<typeof renderConversationMenuItems>[0],
+  ): MenuRow[] {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems(props)}</>,
+    );
+    return Array.from(
+      html.matchAll(/<div data-testid="menu-item"([^>]*)>(.*?)<\/div>/g),
+    ).map(([, attrs = "", inner = ""]) => ({
+      label: inner.replace(/<[^>]*>/g, ""),
+      shortcut: /shortcut="([^"]*)"/.exec(attrs)?.[1],
+    }));
+  }
+
+  const rowFor = (rows: MenuRow[], label: string): MenuRow | undefined =>
+    rows.find((row) => row.label.includes(label));
+
+  const everyAction = {
+    Primitive: Menu as unknown as ConversationMenuPrimitive,
+    t,
+    onPinToggle: () => {},
+    onRename: () => {},
+    onMarkUnread: () => {},
+    onOpenInNewWindow: () => {},
+  };
+
+  test("routes a binding to the row it belongs to", () => {
+    const rows = menuRows({
+      ...everyAction,
+      shortcuts: { pin: "CmdOrCtrl+Shift+P" },
+    });
+    expect(rowFor(rows, "Pin")?.shortcut).toBe("CmdOrCtrl+Shift+P");
+  });
+
+  test("leaves rows without a binding alone", () => {
+    // Rename has no shortcut on any host, so no row should sprout one just
+    // because a sibling has one.
+    const rows = menuRows({
+      ...everyAction,
+      shortcuts: { pin: "CmdOrCtrl+Shift+P" },
+    });
+    expect(rowFor(rows, "Rename")?.shortcut).toBeUndefined();
+    expect(rows.filter((row) => row.shortcut !== undefined)).toHaveLength(1);
+  });
+
+  test("passes nothing at all where the host binds none", () => {
+    // The browser case: every accelerator is absent, so the menu reads exactly
+    // as it did before hints existed.
+    const rows = menuRows(everyAction);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.shortcut === undefined)).toBe(true);
+  });
+
+  test("a menu that is not the command's target advertises nothing", () => {
+    // The bound commands act on the active conversation. A sidebar row that is
+    // not the active one would otherwise name a key that pins, marks, or pops
+    // out a different conversation than the menu names.
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        onPinToggle={() => {}}
+        onMarkUnread={() => {}}
+      />,
+    );
+    expect(html).not.toContain("shortcut=");
+  });
+
+  test("puts each binding on its own row", () => {
+    const rows = menuRows({
+      ...everyAction,
+      shortcuts: {
+        pin: "CmdOrCtrl+Shift+P",
+        markUnread: "CmdOrCtrl+Shift+U",
+        openInNewWindow: "CmdOrCtrl+P",
+      },
+    });
+    expect(rowFor(rows, "Pin")?.shortcut).toBe("CmdOrCtrl+Shift+P");
+    expect(rowFor(rows, "Mark as unread")?.shortcut).toBe("CmdOrCtrl+Shift+U");
+    expect(rowFor(rows, "Open in New Window")?.shortcut).toBe("CmdOrCtrl+P");
+  });
+});
+
 describe("ConversationActionsMenu — mobile panel details", () => {
   test("isMarkUnreadDisabled renders disabled panel item on mobile", () => {
     mockIsTouchMobile = true;

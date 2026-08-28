@@ -259,6 +259,7 @@ export const TranscriptRow = memo(function TranscriptRow({
         <div
           data-testid="transcript-thinking-row"
           data-active={item.active ? "true" : "false"}
+          data-copy-exclude
           aria-hidden={!item.active}
           className={`flex items-center overflow-hidden text-[13px] font-medium text-[var(--content-secondary)] transition-[height,opacity] duration-300 ease-out motion-reduce:transition-none ${
             item.active ? "h-7 opacity-100" : "h-0 opacity-0"

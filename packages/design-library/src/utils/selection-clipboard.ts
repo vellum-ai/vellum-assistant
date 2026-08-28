@@ -33,9 +33,11 @@ const KEPT_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
 /**
  * Elements that never carry copyable content: marked chrome (the code block
  * copy control and the header row it sits in, whose language label the
- * markdown fence already states) and presentational duplicates (KaTeX renders
- * both a visual `aria-hidden` layer and an accessible MathML layer for one
- * formula; copying both would repeat the formula).
+ * markdown fence already states, plus anything a consumer marks with
+ * `data-copy-exclude`, such as a message's hover controls or its timestamp)
+ * and presentational duplicates (KaTeX renders both a visual `aria-hidden`
+ * layer and an accessible MathML layer for one formula; copying both would
+ * repeat the formula).
  *
  * Matching is by marker, not by tag: a consumer can render real content inside
  * a `<button>` (a workspace path that opens a file, a previewable image), and
@@ -45,14 +47,68 @@ function isChrome(element: Element): boolean {
   return (
     element.hasAttribute("data-copy-control") ||
     element.hasAttribute("data-code-block-header") ||
+    element.hasAttribute("data-copy-exclude") ||
     element.getAttribute("aria-hidden") === "true"
   );
 }
 
-/** Drop every chrome element from a cloned fragment. */
+/**
+ * Elements that carry content even when they hold no text. A selection whose
+ * outside part is whitespace but includes one of these is still a selection
+ * that reaches beyond `container`.
+ */
+const VOID_CONTENT_TAGS = "img, input, svg, video, audio, canvas, iframe";
+
+/**
+ * Embedded documents (a rendered diagram, an embedded player) hold nothing the
+ * clipboard can carry: their content belongs to another document, so a copy
+ * keeps only an empty frame.
+ */
+const EMBEDDED_DOCUMENT_TAGS = "iframe, object, embed";
+
+/**
+ * Wrappers worth dropping once they are empty. Structural tags stay: an empty
+ * table cell, list item, or heading is part of the shape the reader selected.
+ */
+const DROPPABLE_WHEN_EMPTY: ReadonlySet<string> = new Set([
+  "ARTICLE",
+  "ASIDE",
+  "DIV",
+  "FIGURE",
+  "FOOTER",
+  "HEADER",
+  "P",
+  "SECTION",
+  "SPAN",
+]);
+
+/** True when `element` holds neither text nor a self-contained element. */
+function isEmptyWrapper(element: Element): boolean {
+  return (
+    DROPPABLE_WHEN_EMPTY.has(element.tagName) &&
+    element.textContent?.trim() === "" &&
+    element.querySelector(`br, hr, ${VOID_CONTENT_TAGS}`) === null
+  );
+}
+
+/**
+ * Drop every chrome element from a cloned fragment, then the wrappers left
+ * holding nothing, innermost first, so a pruned embed does not paste as a run
+ * of empty blocks.
+ */
 function pruneChrome(root: ParentNode): void {
   for (const element of Array.from(root.querySelectorAll("*"))) {
     if (isChrome(element)) {
+      element.remove();
+    }
+  }
+  for (const embed of Array.from(
+    root.querySelectorAll(EMBEDDED_DOCUMENT_TAGS),
+  )) {
+    embed.remove();
+  }
+  for (const element of Array.from(root.querySelectorAll("*")).reverse()) {
+    if (isEmptyWrapper(element)) {
       element.remove();
     }
   }
@@ -480,42 +536,129 @@ function renderLink(anchor: Element, text: string): string {
   return `${lead}[${core}](${href})${trail}`;
 }
 
+/**
+ * Write the clean flavors for the part of the current selection that lies
+ * inside `container`, and report whether it did.
+ *
+ * A `copy` handler calls `preventDefault()` on a `true` return, so the
+ * browser's own serialization (which inlines computed colors, background
+ * colors, and font sizes) never reaches the clipboard.
+ */
+export function writeSelectionClipboard(
+  clipboardData: DataTransfer,
+  container: Element,
+): boolean {
+  const selection = container.ownerDocument.defaultView?.getSelection();
+  if (!selection) {
+    return false;
+  }
+  const ranges = selectionRangesWithin(selection, container);
+  if (!ranges) {
+    return false;
+  }
+  const payload = buildSelectionClipboardPayload(
+    ranges,
+    container.ownerDocument,
+  );
+  // A selection of nothing but prunable content (a rendered diagram on its
+  // own, a message's controls) renders to nothing. Writing that would empty
+  // the clipboard, which is worse than whatever the browser would have put
+  // there, so the copy is left alone.
+  if (payload.html === "" && payload.text === "") {
+    return false;
+  }
+  clipboardData.setData("text/html", payload.html);
+  clipboardData.setData("text/plain", payload.text);
+  return true;
+}
+
 export interface SelectionClipboardPayload {
   html: string;
   text: string;
 }
 
 /**
- * True when every end of `selection` lies inside `container`. A selection
- * that reaches outside is left to the browser, since building a payload from
- * only the inside part would silently drop the rest.
+ * True when `fragment` holds nothing a reader would miss. Chrome and embedded
+ * documents are pruned first: a drag that overshoots onto a message's
+ * timestamp, or across a rendered diagram, has picked up nothing the clipboard
+ * could have carried anyway.
  */
-export function isSelectionWithin(
-  selection: Selection,
-  container: Node,
-): boolean {
-  if (selection.rangeCount === 0 || selection.isCollapsed) {
-    return false;
-  }
-  for (let i = 0; i < selection.rangeCount; i++) {
-    const range = selection.getRangeAt(i);
-    if (
-      !container.contains(range.startContainer) ||
-      !container.contains(range.endContainer)
-    ) {
-      return false;
-    }
-  }
-  return true;
+function isBlankFragment(fragment: DocumentFragment): boolean {
+  pruneChrome(fragment);
+  return (
+    fragment.textContent?.trim() === "" &&
+    fragment.querySelector(VOID_CONTENT_TAGS) === null
+  );
 }
 
-function cloneSelection(
+/**
+ * The parts of `selection` that lie inside `container`, or `null` when the
+ * selection also covers content outside it.
+ *
+ * A boundary node outside `container` does not by itself mean the reader
+ * selected anything outside: Chromium normalizes a drag that starts at the
+ * left edge of a block, or above the first line, up to an ancestor element,
+ * so a drag over one whole message commonly reports a start container that is
+ * the message row rather than the message. Clamping to `container` and then
+ * checking that the leftover parts hold no content keeps both cases right:
+ * the whole-message drag is served, while a selection that genuinely reaches
+ * other content is left to the browser rather than silently dropping the rest.
+ */
+export function selectionRangesWithin(
   selection: Selection,
+  container: Node,
+): Range[] | null {
+  if (selection.rangeCount === 0 || selection.isCollapsed) {
+    return null;
+  }
+  const ownerDocument = container.ownerDocument;
+  if (!ownerDocument) {
+    return null;
+  }
+  const containerRange = ownerDocument.createRange();
+  containerRange.selectNodeContents(container);
+
+  const clampedRanges: Range[] = [];
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const range = selection.getRangeAt(i);
+
+    const before = range.cloneRange();
+    before.setEnd(containerRange.startContainer, containerRange.startOffset);
+    const after = range.cloneRange();
+    after.setStart(containerRange.endContainer, containerRange.endOffset);
+    if (
+      !isBlankFragment(before.cloneContents()) ||
+      !isBlankFragment(after.cloneContents())
+    ) {
+      return null;
+    }
+
+    const clamped = range.cloneRange();
+    if (
+      clamped.compareBoundaryPoints(clamped.START_TO_START, containerRange) < 0
+    ) {
+      clamped.setStart(
+        containerRange.startContainer,
+        containerRange.startOffset,
+      );
+    }
+    if (clamped.compareBoundaryPoints(clamped.END_TO_END, containerRange) > 0) {
+      clamped.setEnd(containerRange.endContainer, containerRange.endOffset);
+    }
+    if (!clamped.collapsed) {
+      clampedRanges.push(clamped);
+    }
+  }
+  return clampedRanges.length > 0 ? clampedRanges : null;
+}
+
+function cloneRanges(
+  ranges: readonly Range[],
   ownerDocument: Document,
 ): HTMLElement {
   const container = ownerDocument.createElement("div");
-  for (let i = 0; i < selection.rangeCount; i++) {
-    container.appendChild(selection.getRangeAt(i).cloneContents());
+  for (const range of ranges) {
+    container.appendChild(range.cloneContents());
   }
   pruneChrome(container);
   unwrapButtons(container);
@@ -523,17 +666,17 @@ function cloneSelection(
 }
 
 /**
- * Build clean `text/html` and markdown `text/plain` payloads for `selection`.
+ * Build clean `text/html` and markdown `text/plain` payloads for `ranges`.
  * Each flavor gets its own clone, since markdown reads the class names that
  * the HTML flavor strips. The live DOM is untouched.
  */
 export function buildSelectionClipboardPayload(
-  selection: Selection,
+  ranges: readonly Range[],
   ownerDocument: Document,
 ): SelectionClipboardPayload {
-  const htmlRoot = cloneSelection(selection, ownerDocument);
+  const htmlRoot = cloneRanges(ranges, ownerDocument);
   stripAttributes(htmlRoot);
-  const markdownRoot = cloneSelection(selection, ownerDocument);
+  const markdownRoot = cloneRanges(ranges, ownerDocument);
   return {
     html: htmlRoot.innerHTML,
     text: renderContainer(markdownRoot).trim(),

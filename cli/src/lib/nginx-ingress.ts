@@ -180,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 5;
+export const EDGE_TEMPLATE_VERSION = 6;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -273,6 +273,19 @@ events {}
 http {
   access_log off;
   default_type application/octet-stream;
+
+  # Compression tuning only. It stays inert here because nginx ships with
+  # gzip off, and only the static SPA locations below turn it on: this server
+  # also proxies authenticated /v1 and /webhooks traffic, and compressing a
+  # response that carries both a secret and attacker-influenced content over
+  # TLS is the BREACH side channel. The SPA bytes are the whole win, so the
+  # boundary is drawn by opting locations in rather than by excluding proxies.
+  # text/html is always compressed once gzip is on, so it must not be
+  # repeated in gzip_types.
+  gzip_vary on;
+  gzip_comp_level 5;
+  gzip_min_length 1024;
+  gzip_types application/javascript application/json application/wasm image/svg+xml text/css text/plain;
 
   types {
     application/javascript js mjs;
@@ -369,10 +382,16 @@ ${proxyBlock}
       rewrite ^ /assistant/__remote-index.html last;
     }
 
+    # The shell and the unhashed files beside it revalidate rather than
+    # refusing storage: they carry no credential, and nginx serves them from
+    # disk with a validator, so a repeat load costs a 304 instead of the whole
+    # document. __config is the exception below: it is returned inline, so
+    # nginx attaches no validator for a revalidation to match against.
     location = /assistant/__remote-index.html {
       internal;
+      gzip on;
       alias ${nginxQuoted(indexHtmlPath, "remote web ingress index path")};
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = /assistant/__config {
@@ -382,15 +401,17 @@ ${proxyBlock}
     }
 
     location ^~ /assistant/assets/ {
+      gzip on;
       alias ${nginxQuoted(nginxDirPath(webAssetsDir), "web assets path")};
       try_files $uri =404;
       add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
     location ^~ /assistant/ {
+      gzip on;
       alias ${nginxQuoted(webDistDir, "web dist path")};
       try_files $uri $uri/ /assistant/__remote-index.html;
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = / {
