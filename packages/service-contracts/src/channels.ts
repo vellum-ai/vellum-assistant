@@ -66,6 +66,13 @@ export function isChannelId(value: unknown): value is ChannelId {
  * That irregularity is why this is stated rather than derived from the key,
  * and it is stated here because this file already owns what a channel is.
  *
+ * Both senses can hold a user token, which is the sharpest edge. The `slack`
+ * integration's persisted token *is* the installer's user token, held on its
+ * OAuth connection. `slack_channel` holds an optional `user_token` in the
+ * credential store, beside its bot and app tokens. Same words, different
+ * homes, and only the second is a credential-store key: a pasted token is
+ * always the channel's, because the integration's never leaves the exchange.
+ *
  * Deliberately only the key. What fields each credential requires is declared
  * once already, per service, in the gateway's credential specs; restating it
  * here would be a second copy of a different fact.

@@ -44,13 +44,13 @@ const SECTIONS: CommandPaletteSection[] = [
         id: "action-new-conversation",
         icon: SquarePen,
         title: "New Conversation",
-        shortcutHint: "⌘⇧O",
+        shortcutHint: "⇧⌘O",
       },
       {
         id: "action-current-conversation",
         icon: Monitor,
         title: "Current Conversation",
-        shortcutHint: "⌘⇧N",
+        shortcutHint: "⇧⌘N",
       },
       {
         id: "action-settings",

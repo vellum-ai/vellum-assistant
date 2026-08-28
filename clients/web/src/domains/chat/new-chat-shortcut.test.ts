@@ -12,9 +12,8 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => electron,
 }));
 
-const { newChatAccelerator, newChatShortcutHint } = await import(
-  "@/domains/chat/new-chat-shortcut"
-);
+const { newChatAccelerator, newChatShortcutHint } =
+  await import("@/domains/chat/new-chat-shortcut");
 
 describe("newChatShortcutHint", () => {
   afterEach(() => {
@@ -30,6 +29,6 @@ describe("newChatShortcutHint", () => {
   test("the web host advertises the in-app Cmd/Ctrl+Shift+O chord", () => {
     electron = false;
     expect(newChatAccelerator()).toBe("CmdOrCtrl+Shift+O");
-    expect(newChatShortcutHint()).toBe("⌘⇧O");
+    expect(newChatShortcutHint()).toBe("⇧⌘O");
   });
 });
