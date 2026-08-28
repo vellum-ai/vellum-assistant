@@ -26,6 +26,7 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { DetailCard } from "@/components/detail-card";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -39,12 +40,28 @@ export function ListeningLanguageCard() {
   const assistantId = useActiveAssistantId();
   const {
     available,
+    settled,
     currentCode,
     configuredProviderId,
     selectLanguage,
     selecting,
   } = useSttLanguageSelection(assistantId);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // The real card's shell, so the space held is the space taken. Keyed on
+  // `settled` rather than `available`, which is false both while the daemon
+  // config is arriving and once it has arrived saying this provider picks its
+  // own language.
+  if (!settled) {
+    return (
+      <DetailCard
+        title={t("listeningLanguageCard.title")}
+        subtitle={t("listeningLanguageCard.subtitle")}
+      >
+        <Skeleton as="span" className="block h-9 w-48" />
+      </DetailCard>
+    );
+  }
 
   if (!available) {
     return null;

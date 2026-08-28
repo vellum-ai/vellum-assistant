@@ -11,6 +11,7 @@ import {
 import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
@@ -140,7 +141,17 @@ export function VoiceSections() {
  */
 function SpeechServicesBanner() {
   const { t } = useTranslation("settings");
-  const { available } = useManagedVoiceSelection(useActiveAssistantId());
+  const { available, settled } = useManagedVoiceSelection(
+    useActiveAssistantId(),
+  );
+
+  // Hold one line of the banner's own height until the answer arrives, so
+  // the sections below sit where they will stay. Once settled this collapses
+  // for an assistant that never shows the banner, which is why the
+  // placeholder is keyed on `settled` and not on `available` alone.
+  if (!settled) {
+    return <Skeleton as="span" className="mx-1 block h-5 w-2/3 max-w-sm" />;
+  }
 
   if (!available) {
     return null;

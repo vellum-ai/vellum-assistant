@@ -24,6 +24,7 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
 mock.module("@/components/speech/use-managed-voice-selection", () => ({
   useManagedVoiceSelection: () => ({
     available: false,
+    settled: true,
     voices: [],
     currentModel: "",
     selectModel: () => {},
@@ -33,6 +34,7 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 mock.module("@/components/speech/use-stt-language-selection", () => ({
   useSttLanguageSelection: () => ({
     available: false,
+    settled: true,
     currentCode: "multi",
     configuredProviderId: "deepgram",
     selectLanguage: () => {},

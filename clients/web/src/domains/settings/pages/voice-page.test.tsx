@@ -34,6 +34,7 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
 mock.module("@/components/speech/use-managed-voice-selection", () => ({
   useManagedVoiceSelection: () => ({
     available: false,
+    settled: true,
     voices: [],
     currentModel: "",
     selectModel: () => {},
@@ -46,6 +47,7 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 // CI's bun), so its shape is swapped through this mutable seed instead.
 const languageSelection = {
   available: false,
+  settled: true,
   currentCode: "multi",
   configuredProviderId: "deepgram",
   selectLanguage: () => {},
