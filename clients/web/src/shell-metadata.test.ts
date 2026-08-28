@@ -160,7 +160,8 @@ describe("SPA shell: boot splash", () => {
       if (label === undefined) {
         continue;
       }
-      expect(SHELL_INIT).toContain(`${locale}: ${JSON.stringify(label)}`);
+      const pattern = locale.includes("-") ? `"${locale}": ${JSON.stringify(label)}` : `${locale}: ${JSON.stringify(label)}`;
+      expect(SHELL_INIT).toContain(pattern);
     }
   });
 

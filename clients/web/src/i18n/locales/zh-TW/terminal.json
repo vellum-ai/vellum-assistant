@@ -1,0 +1,25 @@
+{
+  "terminalToolbar": {
+    "heading": "終端機",
+    "recoveryTitle": "復原模式已啟用，工作階段已連線至偵錯終端機",
+    "recoveryTag": "復原",
+    "clearTitle": "清除終端機輸出",
+    "clear": "清除",
+    "disconnectTitle": "中斷終端機工作階段連線",
+    "disconnect": "中斷連線",
+    "connectTitle": "連線終端機工作階段",
+    "connect": "連線",
+    "statusAria": "終端機狀態：{status}"
+  },
+  "terminalStatus": {
+    "idle": "閒置",
+    "connecting": "連線中",
+    "connected": "已連線",
+    "reconnecting": "重新連線中",
+    "error": "錯誤",
+    "closed": "已關閉"
+  },
+  "terminalConsole": {
+    "consoleAria": "終端機主控台"
+  }
+}
