@@ -42,6 +42,17 @@ const CONTACT_PROMPT_TIMEOUT_MS = 300_000;
  */
 const CONTACT_PROMPT_MAX_TIMEOUT_MS = 3_600_000;
 
+/**
+ * How long a claimed form is held while its write settles (30s).
+ *
+ * Claiming means somebody answered, so the original deadline stops applying:
+ * letting it fire mid-write would report a timeout to the caller while the
+ * write went on to commit, and for a delete that is a contact removed after
+ * the command said nothing happened. The wait is still bounded, so a gateway
+ * that dies mid-write cannot park the caller forever.
+ */
+const CONTACT_PROMPT_SETTLE_MS = 30_000;
+
 const TimeoutMsParam = z
   .number()
   .int()
@@ -79,6 +90,26 @@ interface PendingContactPrompt {
 }
 
 const pendingContactPrompts = new Map<string, PendingContactPrompt>();
+
+/**
+ * End a form that nobody answered in time, and tell the clients showing it.
+ *
+ * Without the broadcast the card stays up offering to submit an answer the
+ * gateway will now refuse, since the form it names is no longer pending.
+ */
+function expireContactPrompt(
+  requestId: string,
+  pending: PendingContactPrompt,
+  error: string,
+): void {
+  pendingContactPrompts.delete(requestId);
+  pending.resolve({ ok: false, error });
+  broadcastMessage({
+    type: "contact_form_closed",
+    requestId,
+    reason: "timed_out",
+  });
+}
 
 /**
  * Called by the gateway after it writes the contact and channel.
@@ -229,9 +260,12 @@ async function handleContactPrompt({
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      pendingContactPrompts.delete(requestId);
+      const pending = pendingContactPrompts.get(requestId);
+      if (!pending) {
+        return;
+      }
       log.warn({ requestId }, "Contact prompt timed out");
-      resolve({ ok: false, error: "Prompt timed out" });
+      expireContactPrompt(requestId, pending, "Prompt timed out");
     }, timeoutMs ?? CONTACT_PROMPT_TIMEOUT_MS);
 
     pendingContactPrompts.set(requestId, {
@@ -292,9 +326,12 @@ async function handleContactRecordPrompt({
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      pendingContactPrompts.delete(requestId);
+      const pending = pendingContactPrompts.get(requestId);
+      if (!pending) {
+        return;
+      }
       log.warn({ requestId, operation }, "Contact record prompt timed out");
-      resolve({ ok: false, error: "Prompt timed out" });
+      expireContactPrompt(requestId, pending, "Prompt timed out");
     }, timeoutMs ?? CONTACT_PROMPT_TIMEOUT_MS);
 
     pendingContactPrompts.set(requestId, { resolve, timer, verify: false });
@@ -342,6 +379,20 @@ function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
     return { claimed: false, reason: "already_claimed" };
   }
   pending.claimed = true;
+  // The form has been answered, so swap its open-for-answers deadline for a
+  // bounded settle window while the write reports back.
+  clearTimeout(pending.timer);
+  pending.timer = setTimeout(() => {
+    log.warn(
+      { requestId },
+      "Contact prompt claimed but never settled; the write never reported back",
+    );
+    expireContactPrompt(
+      requestId,
+      pending,
+      "The submitted form never completed",
+    );
+  }, CONTACT_PROMPT_SETTLE_MS);
   return { claimed: true };
 }
 

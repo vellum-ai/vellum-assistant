@@ -5,9 +5,11 @@
  * address (phone, email, etc.). Emitted by the `contacts/prompt` IPC
  * route while a `pendingContactPrompts` entry awaits a reply.
  *
- * Resolved by a paired `interaction_resolved` event (`kind:
- * "contact"`, `state: "answered" | "cancelled"`) once the user
- * responds or the timeout fires.
+ * The form closes when the user answers it, or with a
+ * `contact_form_closed` event if it times out first. `interaction_resolved`
+ * does not cover it: that event is conversation-scoped on the wire and is
+ * deliberately not broadcast for a conversation-less interaction like this
+ * one.
  *
  * `channel` and `role` are advisory hints, not enforced enums — the
  * client may render any input it likes and post back a structured

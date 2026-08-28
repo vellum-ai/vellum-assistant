@@ -169,15 +169,50 @@ describe("contacts_record_prompt", () => {
     const pending = recordPrompt.handler({
       body: { operation: "create", displayName: "Alice", timeoutMs: 60 },
     }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequestId();
 
     // A form that outlived the command that opened it could still be answered,
     // writing something the caller was already told had failed.
     expect(await pending).toEqual({ ok: false, error: "Prompt timed out" });
 
     // And it is gone, so a late answer has nothing to claim.
+    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+      claimed: false,
+      reason: "unknown",
+    });
+
+    // Clients are told, so the card comes down rather than offering to submit
+    // an answer that would now be refused.
     expect(
-      claimPrompt.handler({ body: { requestId: parkedRequestId() } }),
-    ).toEqual({ claimed: false, reason: "unknown" });
+      broadcasts.find((b) => b.type === "contact_form_closed"),
+    ).toMatchObject({ requestId, reason: "timed_out" });
+  });
+
+  test("claiming a form stops its deadline, so a slow write is not reported as a timeout", async () => {
+    const pending = recordPrompt.handler({
+      body: { operation: "delete", contactId: "ct_1", timeoutMs: 60 },
+    }) as Promise<Record<string, unknown>>;
+    const requestId = parkedRequestId();
+
+    // Somebody answered right at the deadline and the write is in flight. The
+    // original timer firing now would tell the caller nothing happened while
+    // the delete went on to commit.
+    expect(claimPrompt.handler({ body: { requestId } })).toEqual({
+      claimed: true,
+    });
+
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(settled).toBe(false);
+    expect(broadcasts.some((b) => b.type === "contact_form_closed")).toBe(
+      false,
+    );
+
+    resolvePrompt.handler({ body: { requestId, contactId: "ct_1" } });
+    expect(await pending).toEqual({ ok: true, contactId: "ct_1" });
   });
 
   test("a resolve for an unknown request is ignored", () => {

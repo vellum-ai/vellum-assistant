@@ -10,9 +10,11 @@
  * edit the name and notes before submitting, and the client posts the result
  * straight to the gateway, which owns the write.
  *
- * Resolved by a paired `interaction_resolved` event (`kind: "contact"`,
- * `state: "answered" | "cancelled"`) once the guardian responds or the
- * timeout fires.
+ * The form closes when the guardian answers it, or with a
+ * `contact_form_closed` event if it times out first. `interaction_resolved`
+ * does not cover it: that event is conversation-scoped on the wire and is
+ * deliberately not broadcast for a conversation-less interaction like this
+ * one.
  *
  * Canonical wire-contract source. Daemon code imports the type directly from
  * this file; external consumers import via `@vellumai/assistant-api`.

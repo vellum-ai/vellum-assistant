@@ -13,7 +13,10 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // Reset store between tests to avoid cross-contamination
 beforeEach(() => {
-  useInteractionStore.getState().resetAll();
+  // `resetAll` is the conversation-switch reset and deliberately carries the
+  // workspace-global contact forms across it, so a test needs a blanker slate
+  // than that.
+  useInteractionStore.setState(useInteractionStore.getInitialState(), true);
 });
 
 describe("useInteractionStore", () => {
@@ -386,10 +389,9 @@ describe("useInteractionStore", () => {
       expect(s.pendingQuestion).not.toBeNull();
     });
 
-    it("resetAll returns to initial state", () => {
+    it("resetAll clears the per-conversation prompts", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
       useInteractionStore
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
@@ -398,7 +400,6 @@ describe("useInteractionStore", () => {
       const s = useInteractionStore.getState();
       expect(s.pendingSecret).toBeNull();
       expect(s.pendingConfirmation).toBeNull();
-      expect(s.pendingContactRequest).toBeNull();
       expect(s.pendingQuestion).toBeNull();
     });
   });
@@ -464,6 +465,42 @@ describe("prompt slots: the shared invariant", () => {
         .getState()
         .dismissContactRecordRequestIfMatches(requestId),
   };
+
+  describe("global contact forms across a conversation switch", () => {
+    it("survives resetAll, because the daemon is still holding a command open", () => {
+      useInteractionStore.getState().showContactRecordRequest({
+        requestId: "r-global",
+        operation: "create",
+      });
+      useInteractionStore
+        .getState()
+        .showContactRequest({ requestId: "r-address" });
+      useInteractionStore
+        .getState()
+        .claimSubmission("contactRecordRequest", "r-global");
+
+      useInteractionStore.getState().resetAll();
+
+      // Both forms are broadcast without a conversation, so a conversation
+      // switch is not news about them. Dropping them would strip the only copy
+      // of a form nothing can re-raise.
+      expect(
+        useInteractionStore.getState().pendingContactRecordRequest?.requestId,
+      ).toBe("r-global");
+      expect(
+        useInteractionStore.getState().pendingContactRequest?.requestId,
+      ).toBe("r-address");
+      expect(
+        useInteractionStore.getState().submittingByKind.contactRecordRequest,
+      ).toBe("r-global");
+    });
+
+    it("still clears per-conversation prompts", () => {
+      useInteractionStore.getState().showConfirmation({ requestId: "r-conf" });
+      useInteractionStore.getState().resetAll();
+      expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+    });
+  });
 
   for (const kind of KINDS) {
     describe(kind, () => {

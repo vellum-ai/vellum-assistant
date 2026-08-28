@@ -618,6 +618,22 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
+      // Both contact forms are workspace-global: they are broadcast without a
+      // conversation, so one can arrive while the guardian is on Home or in
+      // another conversation. Dropping them on a conversation switch would
+      // strip the only copy of a form the daemon is still holding a command
+      // open for, with nothing to re-raise it from.
+      pendingContactRequest: state.pendingContactRequest,
+      contactRequestAccepted: state.contactRequestAccepted,
+      pendingContactRecordRequest: state.pendingContactRecordRequest,
+      contactRecordRequestAccepted: state.contactRecordRequestAccepted,
+      // Their in-flight submissions travel with them; a switch mid-submit must
+      // not look like the submission was never claimed.
+      submittingByKind: {
+        ...INITIAL_STATE.submittingByKind,
+        contactRequest: state.submittingByKind.contactRequest,
+        contactRecordRequest: state.submittingByKind.contactRecordRequest,
+      },
       // A conversation switch drops the card, which is a change like any other:
       // carry the counters forward and advance them rather than restarting
       // from the initial zero. Restarting would let a read issued before the

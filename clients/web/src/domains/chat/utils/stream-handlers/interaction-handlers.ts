@@ -5,6 +5,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ConfirmationRequestEvent,
+  ContactFormClosedEvent,
   ContactRecordRequestEvent,
   ContactRequestEvent,
   InteractionResolvedEvent,
@@ -169,6 +170,17 @@ export function handleContactRecordRequest(
     label: event.label,
     description: event.description,
   });
+}
+
+/**
+ * Retire whichever contact form the daemon just closed. Without this the card
+ * stays up offering to submit an answer the gateway would refuse, because the
+ * form it names is no longer pending.
+ */
+export function handleContactFormClosed(event: ContactFormClosedEvent): void {
+  const store = useInteractionStore.getState();
+  store.dismissContactRequestIfMatches(event.requestId);
+  store.dismissContactRecordRequestIfMatches(event.requestId);
 }
 
 export function handleQuestionRequest(
