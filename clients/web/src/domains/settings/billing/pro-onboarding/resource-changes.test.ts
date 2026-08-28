@@ -14,7 +14,7 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: from,
-      credits: { from: "0", to: "50 credits" },
+      credits: { label: "Usage", from: "No extra usage", to: "Mighty Usage" },
     });
 
     expect(changes.map((c) => c.key)).toEqual([
@@ -36,9 +36,9 @@ describe("buildResourceChanges", () => {
     });
     expect(changes[2]).toEqual({
       key: "credits",
-      label: "Credits",
-      from: "0",
-      to: "50 credits",
+      label: "Usage",
+      from: "No extra usage",
+      to: "Mighty Usage",
     });
   });
 
@@ -99,13 +99,13 @@ describe("buildResourceChanges", () => {
     const changes = buildResourceChanges({
       targets: { machineSize: "large", storageGib: 50 },
       fromSnapshot: { machineSize: "large", storageGib: 50 },
-      credits: { from: "$25/mo", to: "$50/mo" },
+      credits: { label: "Usage", from: "Mighty Usage", to: "Super Usage" },
     });
 
     expect(changes.map((c) => c.key)).toEqual(["credits"]);
   });
 
-  test("takes the credits label override the obscured wording passes", () => {
+  test("renders a credits-only change from the wording the caller passes", () => {
     const changes = buildResourceChanges({
       targets: { machineSize: null, storageGib: null },
       fromSnapshot: { machineSize: null, storageGib: null },

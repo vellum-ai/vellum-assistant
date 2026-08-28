@@ -11,10 +11,10 @@ import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
  * number: "No extra credits" is $0, not an absent side.
  *
  * Each side also carries the bundle's catalog label ("Mighty Usage", the
- * Stripe product name, so it matches the invoice line), which the
- * `obscure-credits` rendering shows in place of the dollar rate. `null` marks
- * the explicit no-bundle side, worded by the caller; `undefined` a bundle the
- * catalog can't label, which the obscured chip leaves unstated.
+ * Stripe product name, so it matches the invoice line), which is what the chip
+ * renders. `null` marks the explicit no-bundle side, worded by the caller;
+ * `undefined` a bundle the catalog can't label, which the chip leaves
+ * unstated.
  */
 export interface CreditsChange {
   fromUsd: number;
@@ -106,8 +106,8 @@ export function useProvisioningCredits(
     const tier = findCreditTier(proPlan, pkg?.credit_tier);
     toUsd = pkg?.credits_usd ?? tier?.credits_usd;
     // The package's customer-facing usage_label is preferred: a tier label
-    // can be dollar-denominated ("$50 credits/mo"), which the obscured chip
-    // must never render. The tier label covers a package without one.
+    // can be dollar-denominated ("$50 credits/mo"), which the chip must never
+    // render. The tier label covers a package without one.
     toLabel = pkg?.usage_label ?? tier?.label ?? undefined;
   } else {
     const tier = findCreditTier(proPlan, intent.creditTier);
