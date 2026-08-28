@@ -464,6 +464,60 @@ describe("AutoTopUpPaymentMethodModal submit", () => {
     );
   });
 
+  test("a rejected confirm unlocks the modal into a generic error state", async () => {
+    let rejectConfirm: (reason: unknown) => void = () => {};
+    confirmSetupResult = new Promise((_resolve, reject) => {
+      rejectConfirm = reject;
+    });
+    const closes: number[] = [];
+    const result = await renderReadyForm({ onClose: () => closes.push(1) });
+
+    fireEvent.click(saveButton(result));
+
+    await waitFor(() => {
+      if (confirmSetupCalls.length === 0) {
+        throw new Error("confirmSetup not called");
+      }
+    });
+
+    await act(async () => {
+      rejectConfirm(new Error("stripe.js exploded"));
+      await confirmSetupResult.catch(() => {});
+    });
+
+    await waitFor(() => {
+      const line = result.getByTestId("auto-top-up-pm-modal-confirm-error");
+      expect(line.textContent).toContain("Failed to save payment method.");
+      expect(line.textContent).not.toContain("stripe.js exploded");
+    });
+    expect(saveButton(result).disabled).toBe(false);
+    expect(
+      (result.getByTestId("payment-method-modal-close") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    });
+    await waitFor(() => expect(closes).toHaveLength(1));
+  });
+
+  test("a rejected saved-card sync also lands in the unlocked error state", async () => {
+    const result = await renderReadyForm({
+      onSavedOptimistic: () => Promise.reject(new Error("sync failed")),
+    });
+
+    fireEvent.click(saveButton(result));
+
+    await waitFor(() =>
+      expect(
+        result.getByTestId("auto-top-up-pm-modal-confirm-error").textContent,
+      ).toContain("Failed to save payment method."),
+    );
+    expect(result.queryByTestId("payment-method-modal-saved")).toBeNull();
+    expect(saveButton(result).disabled).toBe(false);
+  });
+
   test("a slow confirm shows the bank status row and locks the modal shut", async () => {
     let settle: (value: Record<string, unknown>) => void = () => {};
     confirmSetupResult = new Promise((resolve) => {

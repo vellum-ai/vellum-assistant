@@ -278,6 +278,16 @@ function AutoTopUpPaymentMethodModalContent({
         setSavedCard(saved ?? null);
         setState("saved");
         scheduleAutoClose();
+      } catch {
+        // A rejection (Stripe throwing, or the saved-card sync failing) would
+        // otherwise strand the modal in a locked state with no way out. The
+        // card may in fact be saved; the page row reconciles from the config
+        // query, so the generic copy is enough here.
+        if (!mountedRef.current) {
+          return;
+        }
+        setState("error");
+        setErrorMessage(t("autoTopUpPaymentMethodModal.confirmFailed"));
       } finally {
         clearTimer(requiresActionTimer);
       }
