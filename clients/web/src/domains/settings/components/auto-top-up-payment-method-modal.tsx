@@ -5,11 +5,16 @@ import {
   useElements,
   useStripe,
 } from "@stripe/react-stripe-js";
-import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
+import { type Appearance } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import {
+  getStripePromise,
+  setupIntentIdFromClientSecret,
+  STRIPE_PK,
+} from "@/domains/settings/billing/stripe-client";
 import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
 import { useAndroidBillingHandoff } from "@/lib/billing/android-billing-handoff";
@@ -18,21 +23,6 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
-
-// Stripe publishable key — injected at build time by the deployment pipeline.
-// This is Stripe's *publishable* key (pk_live_* / pk_test_*), designed to be
-// embedded in client bundles: https://docs.stripe.com/keys#obtain-api-keys
-// Not in .env.example because local/OSS contributors don't need billing;
-// without it the modal gracefully shows <MissingStripeKeyNotice />.
-const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "";
-
-let stripePromise: Promise<Stripe | null> | null = null;
-function getStripePromise() {
-  if (!stripePromise && STRIPE_PK) {
-    stripePromise = loadStripe(STRIPE_PK);
-  }
-  return stripePromise;
-}
 
 function getStripeAppearance(): Appearance {
   const isDark =
@@ -57,23 +47,6 @@ export interface AutoTopUpPaymentMethodModalProps {
   onSavedOptimistic: (args: {
     setupIntentId: string | null;
   }) => void | Promise<void>;
-}
-
-/**
- * A SetupIntent client secret is `<setup intent id>_secret_<random>`, so the
- * id is everything before the `_secret` marker.
- */
-function setupIntentIdFromClientSecret(
-  clientSecret: string | null,
-): string | null {
-  if (!clientSecret) {
-    return null;
-  }
-  const marker = clientSecret.indexOf("_secret");
-  if (marker <= 0) {
-    return null;
-  }
-  return clientSecret.slice(0, marker);
 }
 
 /**
