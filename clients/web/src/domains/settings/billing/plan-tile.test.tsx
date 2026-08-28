@@ -33,7 +33,7 @@ const SPECS: PlanSpec[] = [
   { icon: Coins, label: "$25 in credits included" },
 ];
 
-/** The production shape under `obscure-credits`: two short chips, two rows. */
+/** The production shape: two short chips, then two full-width rows. */
 const OWN_ROW_SPECS: PlanSpec[] = [
   { icon: Computer, label: "Small Machine" },
   { icon: HardDrive, label: "10 GB Storage" },

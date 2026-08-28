@@ -174,17 +174,6 @@ mock.module("@/components/add-credits-modal", () => ({
 }));
 
 const { PlanCard } = await import("./plan-card");
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
-
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
 
 function basePlansResponse(): PlanListResponse {
   return {
@@ -394,12 +383,12 @@ const FREE_CHIPS = ["Small Machine", "4 GB Storage", "Pay as you go credits"];
 const MIGHTY_CHIPS = [
   "Small Machine",
   "10 GB Storage",
-  "Mighty Usage included",
+  "Mighty usage, reset monthly",
 ];
 const SUPER_CHIPS = [
   "Medium Machine",
   "30 GB Storage",
-  "Super Usage included",
+  "Super usage, reset monthly",
   "Assistant email and subdomain",
 ];
 
@@ -451,6 +440,10 @@ beforeEach(() => {
   });
   openedUrl = null;
   captureStashCalls = 0;
+  walletBalance = null;
+  byokSuppressed = false;
+  availableUsageBalance = null;
+  totalUsageBalance = null;
 });
 
 afterEach(() => {
@@ -1120,395 +1113,348 @@ describe("PlanCard recommended upgrade — change-package", () => {
 });
 
 /**
- * The flag-on cases render interactively rather than through
- * `renderToStaticMarkup`: a static render reads Zustand's *initial* state (its
- * `getServerSnapshot`), so a flag driven through the store would still read
- * off there. Interactive renders also let the billing reads settle.
+ * The usage-balance cases render interactively rather than through
+ * `renderToStaticMarkup`: a static render is single-pass, so the billing reads
+ * behind the bar would never settle.
  */
-describe("PlanCard with obscure-credits on", () => {
-  beforeEach(() => {
-    walletBalance = null;
-    byokSuppressed = false;
-    availableUsageBalance = null;
-    totalUsageBalance = null;
-    setObscureCredits(true);
+test("a Pro clean pin trades its price footer for the usage balance", async () => {
+  totalUsageBalance = "25.00";
+  availableUsageBalance = "15.00";
+  const { container, findByTestId, queryByTestId } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  // $10 of the $25 the cycle granted is gone.
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("Usage Balance");
+  expect(panel.textContent).toContain("40% used");
+  // The bar is the replacement, so the monthly price must not stand beside
+  // it on the current tile.
+  expect(queryByTestId("plan-card-price")).toBeNull();
+  expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
+});
+
+test("both tiles name the package's usage rather than a dollar bundle", () => {
+  const { container } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  const current = within(currentTile(container));
+  expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
+  // Machine and storage chips keep their own copy.
+  expect(current.getByText("10 GB Storage")).toBeTruthy();
+
+  const next = within(nextTile(container));
+  expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
+});
+
+test("both tiles wrap their short chips into a row, usage below", () => {
+  const { container } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  for (const [tile, usageLabel] of [
+    [currentTile(container), "Mighty usage, reset monthly"],
+    [nextTile(container), "Super usage, reset monthly"],
+  ] as const) {
+    // Child 0 is the header row; child 1 is the chip container.
+    const chips = tile.children[1] as HTMLElement;
+    const wrapRow = chips.firstElementChild as HTMLElement;
+    expect(wrapRow.className).toContain("flex-wrap");
+    expect(wrapRow.textContent).toContain("Machine");
+    expect(wrapRow.textContent).toContain("Storage");
+    expect(wrapRow.textContent).not.toContain(usageLabel);
+    // The usage chip is the first full-width row underneath (Super's email
+    // extra takes another below it).
+    expect(chips.children[1]?.textContent).toBe(usageLabel);
+  }
+});
+
+test("keeps the price row when the summary reports no grant figures", async () => {
+  // An older platform omits both usage-grant fields, so there is no honest
+  // reading. The tile keeps its price rather than an empty footer.
+  const { container } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  await act(async () => {
+    await Promise.resolve();
   });
+  expect(
+    container.querySelector('[data-testid="plan-usage-balance"]'),
+  ).toBeNull();
+  expect(
+    within(currentTile(container)).getByTestId("plan-card-price").textContent,
+  ).toBe("$30/month");
+});
 
-  afterEach(() => {
-    setObscureCredits(false);
-    walletBalance = null;
-    byokSuppressed = false;
-    availableUsageBalance = null;
-    totalUsageBalance = null;
+test("a Custom sub reads the same summary and still shows no chips", async () => {
+  // A customized pin matches no stock package, but the bar never needs one:
+  // the summary's grant figures say what the sub actually holds.
+  totalUsageBalance = "45.00";
+  availableUsageBalance = "36.00";
+  const { container, findByTestId } = renderCardInteractive(
+    customProSubscription("credits_45"),
+    plansWithCreditTiers(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("20% used");
+  // A Custom sub still enumerates nothing and still quotes no price.
+  const current = within(currentTile(container));
+  expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
+  expect(current.queryByText("10 GB Storage")).toBeNull();
+  expect(current.queryByTestId("plan-card-price")).toBeNull();
+});
+
+test("a Custom sub with no live grants reads as fully spent", async () => {
+  // Every grant this sub ever held is used or expired, so the summary's
+  // total is zero. The plan has nothing left to give, which is a full bar
+  // with no reset date, not a missing one.
+  totalUsageBalance = "0.00";
+  availableUsageBalance = "0.00";
+  const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(
+    customProSubscription(null),
+    plansWithCreditTiers(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    panel
+      .querySelector('[data-slot="progress-bar-fill"]')
+      ?.getAttribute("style"),
+  ).toContain("--system-negative-strong");
+  expect(queryByTestId("plan-card-price")).toBeNull();
+  // The wallet is not known to be empty, so nothing is being offered.
+  expect(
+    queryByText("Add credits to continue using your assistant"),
+  ).toBeNull();
+});
+
+test("no live grants with an empty wallet alarms and offers credits", async () => {
+  totalUsageBalance = "0.00";
+  availableUsageBalance = "0.00";
+  walletBalance = "0";
+  const { findByTestId, getByText } = renderCardInteractive(
+    customProSubscription(null),
+    plansWithCreditTiers(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    getByText("Add credits to continue using your assistant"),
+  ).toBeTruthy();
+});
+
+test("a spent bundle with an empty wallet alarms and offers credits", async () => {
+  // The whole $25 the cycle granted is gone, and no purchased credits
+  // behind it.
+  totalUsageBalance = "25.00";
+  availableUsageBalance = "0.00";
+  walletBalance = "0";
+  const { findByTestId, getByText, queryByTestId } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    getByText("Add credits to continue using your assistant"),
+  ).toBeTruthy();
+  expect(
+    panel
+      .querySelector('[data-slot="progress-bar-fill"]')
+      ?.getAttribute("style"),
+  ).toContain("--system-negative-strong");
+
+  expect(queryByTestId("add-credits-modal")).toBeNull();
+  fireEvent.click(await findByTestId("plan-usage-add-credits"));
+  expect(await findByTestId("add-credits-modal")).toBeTruthy();
+});
+
+test("a BYOK org with an empty wallet still gets the strip", async () => {
+  // The hook holds `isExhausted` down for a provably BYOK chat route, where
+  // a turn never spends the managed wallet. This surface reports the wallet
+  // itself, so an empty one alarms regardless of how chat dispatches.
+  totalUsageBalance = "25.00";
+  availableUsageBalance = "0.00";
+  walletBalance = "0";
+  byokSuppressed = true;
+  const { findByTestId, getByText } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    getByText("Add credits to continue using your assistant"),
+  ).toBeTruthy();
+});
+
+test("a spent bundle turns negative with credits still in hand", async () => {
+  // 100% of the granted usage, and the wallet still covers the next turn.
+  // The reading goes red anyway; only the strip waits on the wallet.
+  totalUsageBalance = "25.00";
+  availableUsageBalance = "0.00";
+  walletBalance = "12.50";
+  const { findByTestId, getByText, queryByText, queryByTestId } =
+    renderCardInteractive(proMightySubscription(), plansWithSuper(), () => {});
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    panel
+      .querySelector('[data-slot="progress-bar-fill"]')
+      ?.getAttribute("style"),
+  ).toContain("--system-negative-strong");
+  expect(getByText("100% used").className).toContain(
+    "--system-negative-strong",
+  );
+  expect(
+    queryByText("Add credits to continue using your assistant"),
+  ).toBeNull();
+  expect(queryByTestId("plan-usage-add-credits")).toBeNull();
+});
+
+test("an empty wallet mid-cycle leaves the bar alone", async () => {
+  // The strip belongs to a spent bundle, and so does the negative reading.
+  // Below 100% the tile reads the same as it always has, whatever the wallet
+  // says.
+  totalUsageBalance = "25.00";
+  availableUsageBalance = "15.00";
+  walletBalance = "0";
+  const { findByTestId, queryByText } = renderCardInteractive(
+    proMightySubscription(),
+    plansWithSuper(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("40% used");
+  expect(
+    panel
+      .querySelector('[data-slot="progress-bar-fill"]')
+      ?.getAttribute("style"),
+  ).not.toContain("--system-negative-strong");
+  expect(
+    queryByText("Add credits to continue using your assistant"),
+  ).toBeNull();
+});
+
+test("a free plan with no grant falls back to Free Forever and its own chips", () => {
+  // Nothing has reported a usage grant, so there is no denominator for the
+  // free tile's bar. Suppressing the footer here would leave the tile with an
+  // empty bottom slot, so the price row stays as the fallback.
+  const { container } = renderCardInteractive(
+    baseSubscription(),
+    basePlansResponse(),
+    () => {},
+  );
+
+  const current = within(currentTile(container));
+  expect(current.getByTestId("plan-card-price").textContent).toBe(
+    "Free Forever",
+  );
+  expect(
+    container.querySelector('[data-testid="plan-usage-balance"]'),
+  ).toBeNull();
+  expect(current.getByText("Pay as you go credits")).toBeTruthy();
+});
+
+test("a free plan hides Free Forever once its usage-grant bar renders", async () => {
+  // $3.40 of the $5.00 this account was granted, so the bar reads 68% and
+  // takes the footer over from the price row.
+  totalUsageBalance = "5.00";
+  availableUsageBalance = "1.60";
+  const { container, findByTestId } = renderCardInteractive(
+    baseSubscription(),
+    basePlansResponse(),
+    () => {},
+  );
+
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("Usage Balance");
+  expect(panel.textContent).toContain("68% used");
+  const current = within(currentTile(container));
+  expect(current.queryByTestId("plan-card-price")).toBeNull();
+  expect(current.queryByText("Free Forever")).toBeNull();
+});
+
+test("a free plan that was never granted credit keeps only its price row", async () => {
+  totalUsageBalance = "0.00";
+  availableUsageBalance = "0.00";
+  const { container } = renderCardInteractive(
+    baseSubscription(),
+    basePlansResponse(),
+    () => {},
+  );
+
+  await act(async () => {
+    await Promise.resolve();
   });
+  // Nothing granted is not a reading, so the tile renders exactly what it
+  // always has.
+  expect(
+    container.querySelector('[data-testid="plan-usage-balance"]'),
+  ).toBeNull();
+  expect(
+    within(currentTile(container)).getByTestId("plan-card-price").textContent,
+  ).toBe("Free Forever");
+});
 
-  test("a Pro clean pin trades its price footer for the usage balance", async () => {
-    totalUsageBalance = "25.00";
-    availableUsageBalance = "15.00";
-    const { container, findByTestId, queryByTestId } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
+test("a fully used grant alarms only once the wallet is empty too", async () => {
+  // The whole $5.00 grant used, and no purchased credits behind it.
+  totalUsageBalance = "5.00";
+  availableUsageBalance = "0.00";
+  walletBalance = "0";
+  const { findByTestId, getByText } = renderCardInteractive(
+    baseSubscription(),
+    basePlansResponse(),
+    () => {},
+  );
 
-    // $10 of the $25 the cycle granted is gone.
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Usage Balance");
-    expect(panel.textContent).toContain("40% used");
-    // The bar is the replacement, so the monthly price must not stand beside
-    // it on the current tile.
-    expect(queryByTestId("plan-card-price")).toBeNull();
-    expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
-  });
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    getByText("Add credits to continue using your assistant"),
+  ).toBeTruthy();
+});
 
-  test("both tiles name the package's usage instead of a dollar bundle", () => {
-    const { container } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
+test("a fully used grant with purchased credits stays red without a strip", async () => {
+  totalUsageBalance = "5.00";
+  availableUsageBalance = "0.00";
+  walletBalance = "12.50";
+  const { findByTestId, queryByText } = renderCardInteractive(
+    baseSubscription(),
+    basePlansResponse(),
+    () => {},
+  );
 
-    const current = within(currentTile(container));
-    expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
-    expect(current.queryByText("Mighty Usage included")).toBeNull();
-    // Machine and storage chips keep their own copy.
-    expect(current.getByText("10 GB Storage")).toBeTruthy();
-
-    const next = within(nextTile(container));
-    expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
-    expect(next.queryByText("Super Usage included")).toBeNull();
-  });
-
-  test("both tiles wrap their short chips into a row, usage below", () => {
-    const { container } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
-
-    for (const [tile, usageLabel] of [
-      [currentTile(container), "Mighty usage, reset monthly"],
-      [nextTile(container), "Super usage, reset monthly"],
-    ] as const) {
-      // Child 0 is the header row; child 1 is the chip container.
-      const chips = tile.children[1] as HTMLElement;
-      const wrapRow = chips.firstElementChild as HTMLElement;
-      expect(wrapRow.className).toContain("flex-wrap");
-      expect(wrapRow.textContent).toContain("Machine");
-      expect(wrapRow.textContent).toContain("Storage");
-      expect(wrapRow.textContent).not.toContain(usageLabel);
-      // The usage chip is the first full-width row underneath (Super's email
-      // extra takes another below it).
-      expect(chips.children[1]?.textContent).toBe(usageLabel);
-    }
-  });
-
-  test("keeps the price row when the summary reports no grant figures", async () => {
-    // An older platform omits both usage-grant fields, so there is no honest
-    // reading. The tile keeps its price rather than an empty footer.
-    const { container } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(
-      container.querySelector('[data-testid="plan-usage-balance"]'),
-    ).toBeNull();
-    expect(
-      within(currentTile(container)).getByTestId("plan-card-price").textContent,
-    ).toBe("$30/month");
-  });
-
-  test("a Custom sub reads the same summary and still shows no chips", async () => {
-    // A customized pin matches no stock package, but the bar never needs one:
-    // the summary's grant figures say what the sub actually holds.
-    totalUsageBalance = "45.00";
-    availableUsageBalance = "36.00";
-    const { container, findByTestId } = renderCardInteractive(
-      customProSubscription("credits_45"),
-      plansWithCreditTiers(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("20% used");
-    // A Custom sub still enumerates nothing and still quotes no price.
-    const current = within(currentTile(container));
-    expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
-    expect(current.queryByText("Mighty Usage included")).toBeNull();
-    expect(current.queryByText("10 GB Storage")).toBeNull();
-    expect(current.queryByTestId("plan-card-price")).toBeNull();
-  });
-
-  test("a Custom sub with no live grants reads as fully spent", async () => {
-    // Every grant this sub ever held is used or expired, so the summary's
-    // total is zero. The plan has nothing left to give, which is a full bar
-    // with no reset date, not a missing one.
-    totalUsageBalance = "0.00";
-    availableUsageBalance = "0.00";
-    const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(
-      customProSubscription(null),
-      plansWithCreditTiers(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).toContain("--system-negative-strong");
-    expect(queryByTestId("plan-card-price")).toBeNull();
-    // The wallet is not known to be empty, so nothing is being offered.
-    expect(
-      queryByText("Add credits to continue using your assistant"),
-    ).toBeNull();
-  });
-
-  test("no live grants with an empty wallet alarms and offers credits", async () => {
-    totalUsageBalance = "0.00";
-    availableUsageBalance = "0.00";
-    walletBalance = "0";
-    const { findByTestId, getByText } = renderCardInteractive(
-      customProSubscription(null),
-      plansWithCreditTiers(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      getByText("Add credits to continue using your assistant"),
-    ).toBeTruthy();
-  });
-
-  test("a spent bundle with an empty wallet alarms and offers credits", async () => {
-    // The whole $25 the cycle granted is gone, and no purchased credits
-    // behind it.
-    totalUsageBalance = "25.00";
-    availableUsageBalance = "0.00";
-    walletBalance = "0";
-    const { findByTestId, getByText, queryByTestId } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      getByText("Add credits to continue using your assistant"),
-    ).toBeTruthy();
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).toContain("--system-negative-strong");
-
-    expect(queryByTestId("add-credits-modal")).toBeNull();
-    fireEvent.click(await findByTestId("plan-usage-add-credits"));
-    expect(await findByTestId("add-credits-modal")).toBeTruthy();
-  });
-
-  test("a BYOK org with an empty wallet still gets the strip", async () => {
-    // The hook holds `isExhausted` down for a provably BYOK chat route, where
-    // a turn never spends the managed wallet. This surface reports the wallet
-    // itself, so an empty one alarms regardless of how chat dispatches.
-    totalUsageBalance = "25.00";
-    availableUsageBalance = "0.00";
-    walletBalance = "0";
-    byokSuppressed = true;
-    const { findByTestId, getByText } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      getByText("Add credits to continue using your assistant"),
-    ).toBeTruthy();
-  });
-
-  test("a spent bundle turns negative with credits still in hand", async () => {
-    // 100% of the granted usage, and the wallet still covers the next turn.
-    // The reading goes red anyway; only the strip waits on the wallet.
-    totalUsageBalance = "25.00";
-    availableUsageBalance = "0.00";
-    walletBalance = "12.50";
-    const { findByTestId, getByText, queryByText, queryByTestId } =
-      renderCardInteractive(
-        proMightySubscription(),
-        plansWithSuper(),
-        () => {},
-      );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).toContain("--system-negative-strong");
-    expect(getByText("100% used").className).toContain(
-      "--system-negative-strong",
-    );
-    expect(
-      queryByText("Add credits to continue using your assistant"),
-    ).toBeNull();
-    expect(queryByTestId("plan-usage-add-credits")).toBeNull();
-  });
-
-  test("an empty wallet mid-cycle leaves the bar alone", async () => {
-    // The strip belongs to a spent bundle, and so does the negative reading.
-    // Below 100% the tile reads the same as it always has, whatever the wallet
-    // says.
-    totalUsageBalance = "25.00";
-    availableUsageBalance = "15.00";
-    walletBalance = "0";
-    const { findByTestId, queryByText } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("40% used");
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).not.toContain("--system-negative-strong");
-    expect(
-      queryByText("Add credits to continue using your assistant"),
-    ).toBeNull();
-  });
-
-  test("a free plan with no grant falls back to Free Forever and its own chips", () => {
-    // Nothing has reported a usage grant, so there is no denominator for the
-    // free tile's bar. Suppressing the footer here would leave the tile with an
-    // empty bottom slot, so the price row stays as the fallback.
-    const { container } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    const current = within(currentTile(container));
-    expect(current.getByTestId("plan-card-price").textContent).toBe(
-      "Free Forever",
-    );
-    expect(
-      container.querySelector('[data-testid="plan-usage-balance"]'),
-    ).toBeNull();
-    expect(current.getByText("Pay as you go credits")).toBeTruthy();
-  });
-
-  test("a free plan hides Free Forever once its usage-grant bar renders", async () => {
-    // $3.40 of the $5.00 this account was granted, so the bar reads 68% and
-    // takes the footer over from the price row.
-    totalUsageBalance = "5.00";
-    availableUsageBalance = "1.60";
-    const { container, findByTestId } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Usage Balance");
-    expect(panel.textContent).toContain("68% used");
-    const current = within(currentTile(container));
-    expect(current.queryByTestId("plan-card-price")).toBeNull();
-    expect(current.queryByText("Free Forever")).toBeNull();
-  });
-
-  test("a free plan that was never granted credit keeps only its price row", async () => {
-    totalUsageBalance = "0.00";
-    availableUsageBalance = "0.00";
-    const { container } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    // Nothing granted is not a reading, so the tile renders exactly what it
-    // always has.
-    expect(
-      container.querySelector('[data-testid="plan-usage-balance"]'),
-    ).toBeNull();
-    expect(
-      within(currentTile(container)).getByTestId("plan-card-price").textContent,
-    ).toBe("Free Forever");
-  });
-
-  test("a fully used grant alarms only once the wallet is empty too", async () => {
-    // The whole $5.00 grant used, and no purchased credits behind it.
-    totalUsageBalance = "5.00";
-    availableUsageBalance = "0.00";
-    walletBalance = "0";
-    const { findByTestId, getByText } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      getByText("Add credits to continue using your assistant"),
-    ).toBeTruthy();
-  });
-
-  test("a fully used grant with purchased credits stays red without a strip", async () => {
-    totalUsageBalance = "5.00";
-    availableUsageBalance = "0.00";
-    walletBalance = "12.50";
-    const { findByTestId, queryByText } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("100% used");
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).toContain("--system-negative-strong");
-    expect(
-      queryByText("Add credits to continue using your assistant"),
-    ).toBeNull();
-  });
-
-  test("the free tile is untouched while the flag is off", async () => {
-    setObscureCredits(false);
-    totalUsageBalance = "5.00";
-    availableUsageBalance = "1.60";
-    const { container } = renderCardInteractive(
-      baseSubscription(),
-      basePlansResponse(),
-      () => {},
-    );
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(
-      container.querySelector('[data-testid="plan-usage-balance"]'),
-    ).toBeNull();
-    expect(
-      within(currentTile(container)).getByTestId("plan-card-price").textContent,
-    ).toBe("Free Forever");
-  });
+  const panel = await findByTestId("plan-usage-balance");
+  expect(panel.textContent).toContain("100% used");
+  expect(
+    panel
+      .querySelector('[data-slot="progress-bar-fill"]')
+      ?.getAttribute("style"),
+  ).toContain("--system-negative-strong");
+  expect(
+    queryByText("Add credits to continue using your assistant"),
+  ).toBeNull();
 });

@@ -363,7 +363,7 @@ export const ResourceAndEntitlementWalls: Story = {
                   </Tag>
                 }
                 specs={packageSpecs(SUPER_PACKAGE, {
-                  usageIncludedLabel: "Super Usage included",
+                  usageLabel: "Super usage, reset monthly",
                 })}
                 footer={
                   <Button

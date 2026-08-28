@@ -1282,7 +1282,6 @@
     "usageBalancePctUsed": "{pct}% usado",
     "usageBalanceTitle": "Saldo de uso",
     "usageChip": "Uso de {name}, se restablece cada mes",
-    "usageIncludedChip": "{label} incluido",
     "viewAllPlans": "Ver todos los planes"
   },
   "planCardContent": {

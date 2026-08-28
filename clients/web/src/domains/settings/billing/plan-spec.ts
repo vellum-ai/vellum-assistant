@@ -16,7 +16,6 @@ import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import { creditTierKeyUsd, findCreditTier } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
-  formatDollars,
   storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
 import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
@@ -58,18 +57,10 @@ export function machineLabel(pkg: ProPackage | null): string {
 
 export interface PackageSpecsOptions {
   /**
-   * Replaces the credits chip's dollar label, for the `obscure-credits`
-   * surfaces that describe the bundle as the package's own usage allowance
-   * instead of naming an amount.
+   * The localized credits chip text, supplied by the caller because this pure
+   * module has no `t()`.
    */
-  obscuredUsageLabel?: string;
-  /**
-   * Localized chip text for a package with a `usage_label` (e.g.
-   * "Mighty Usage included" via `planCard.usageIncludedChip`). Supplied by
-   * the caller because this pure module has no `t()`; without it the chip
-   * falls back to the untranslated dollar wording.
-   */
-  usageIncludedLabel?: string;
+  usageLabel: string;
 }
 
 /**
@@ -84,27 +75,13 @@ export interface PackageSpecsOptions {
  */
 export function packageSpecs(
   pkg: ProPackage,
-  opts?: PackageSpecsOptions,
+  opts: PackageSpecsOptions,
 ): PlanSpec[] {
-  const credits = pkg.credits_usd ?? FREE_CREDITS_USD;
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    // `usageIncludedLabel` carries the localized wording for the catalog's
-    // `usage_label` ("Mighty Usage"), the bundle's Stripe product name, so
-    // the chip matches the invoice line. The dollar fallback covers a package
-    // with no usage label. It is cents-aware like every other price on these
-    // surfaces, so a sub-dollar bundle reads "$0.50 in credits included"
-    // rather than "$0.5".
-    {
-      icon: Coins,
-      label:
-        opts?.obscuredUsageLabel ??
-        opts?.usageIncludedLabel ??
-        `${formatDollars(credits * 100)} in credits included`,
-      ownRow: true,
-    },
+    { icon: Coins, label: opts.usageLabel, ownRow: true },
     ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
   ];
 }
