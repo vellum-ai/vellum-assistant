@@ -362,6 +362,49 @@ describe("handleContactPromptSubmit", () => {
     expect(resolveCall(ipcMock).body.verified).toBe(true);
   });
 
+  test("a failed re-attest reports the channel as it stands", async () => {
+    seedGuardian();
+    // Bind and attest the channel first.
+    await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-first-attest",
+        address: "+12025550148",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+
+    // On the prototype: the handler holds its own ContactStore, so spying on a
+    // fresh instance would leave the real method in place and prove nothing.
+    const attest = spyOn(ContactStore.prototype, "markChannelVerified");
+    attest.mockImplementation(() => {
+      throw new Error("attest exploded");
+    });
+
+    // Re-submitting the same address reuses the verified channel. A failed
+    // re-attest changes nothing, so reporting it unverified would invent a
+    // downgrade that never happened.
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-reattest",
+        address: "+12025550148",
+        channelType: "imessage",
+        role: "guardian",
+        verify: true,
+      }),
+    );
+    // Read the call count before restoring: restoring clears the record.
+    const attestCalls = attest.mock.calls.length;
+    attest.mockRestore();
+
+    expect(res.status).toBe(200);
+    expect(attestCalls).toBeGreaterThan(0);
+    // The channel is still attested, so that is what the command hears.
+    const resolves = callsFor(ipcMock, "resolve_contact_prompt");
+    expect(resolves[resolves.length - 1]!.body.verified).toBe(true);
+  });
+
   test("an unchecked box resolves as unverified", async () => {
     seedGuardian();
 

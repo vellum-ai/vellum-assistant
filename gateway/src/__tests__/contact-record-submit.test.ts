@@ -536,6 +536,22 @@ describe("contact record submit", () => {
     expect(row!.displayName).toBe("Alice");
   });
 
+  test("an update cannot resurrect a contact deleted while the form was open", async () => {
+    // No row to update: the write must not treat the explicit id as a create
+    // and put back a channel-less contact somebody deliberately removed.
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-resurrect"),
+        operation: "update",
+        contactId: "c-gone",
+        displayName: "Alice",
+      }),
+    );
+
+    expect(res.status).toBe(404);
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+  });
+
   test("update requires a contact id", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({

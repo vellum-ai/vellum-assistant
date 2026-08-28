@@ -507,12 +507,15 @@ async function resolveContactPrompt(args: {
       verified = (await getStore().markChannelVerified(channelId)) !== null;
     } catch (err) {
       // The binding is already committed, so a failed attest is a channel that
-      // exists unverified, not a failed submission. Letting this throw would
-      // skip the report and park the command on a claimed form.
+      // exists as it stood, not a failed submission. Letting this throw would
+      // skip the report and park the command on a claimed form. Read the
+      // channel rather than assuming unverified: attesting one that already
+      // was leaves it verified, and reporting otherwise invents a downgrade.
       log.error(
         { err, requestId, contactId, channelId },
         "contact-prompt-submit: attesting the channel threw",
       );
+      verified = isChannelVerified(contactId, channelId);
     }
     if (!verified) {
       log.warn(

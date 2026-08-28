@@ -23,6 +23,7 @@ import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import { parseContactAutoApproveThreshold } from "../../db/contact-auto-approve-threshold.js";
 import { getGatewayDb } from "../../db/connection.js";
 import { fetchInfoForContacts } from "../../db/contacts-info-joiner.js";
 import {
@@ -891,30 +892,56 @@ export async function upsertContactRecordCore(params: {
         "BAD_REQUEST",
       );
     }
-  } else {
-    const existing = getGatewayDb()
-      .select({ id: contacts.id })
-      .from(contacts)
-      .where(eq(contacts.id, id!))
-      .get();
-    if (!existing) {
-      throw new ContactRecordNativeError(
-        `Contact "${id}" not found`,
-        404,
-        "NOT_FOUND",
-      );
-    }
   }
 
   // `role` and `principalId` are not inputs here. upsertContact preserves an
   // existing contact's pair and defaults a new one to ("contact", null), so
   // this path can neither mint nor rebind a guardian.
   const store = new ContactStore();
-  const { contact, created } = await store.upsertContact({
-    id,
-    displayName,
-    notes: params.notes,
-  });
+  let contact: ContactWithInfo;
+  let created: boolean;
+
+  if (params.operation === "create") {
+    ({ contact, created } = await store.upsertContact({
+      displayName,
+      notes: params.notes,
+    }));
+  } else {
+    // The row has to still be there when the write lands, not merely when it
+    // was checked: upsertContact INSERTs an explicit id it cannot find, so a
+    // contact deleted in between would come back as a new channel-less one.
+    // The check and the gateway write share a transaction, using the
+    // synchronous core built for exactly this composition; the mirror and the
+    // read-back follow the commit.
+    const written = getGatewayDb().transaction(() => {
+      const existing = getGatewayDb()
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.id, id!))
+        .get();
+      if (!existing) {
+        throw new ContactRecordNativeError(
+          `Contact "${id}" not found`,
+          404,
+          "NOT_FOUND",
+        );
+      }
+      return store.upsertContactGatewayWrites({
+        id,
+        displayName,
+        notes: params.notes,
+      });
+    });
+
+    await store.mirrorContactUpsertBestEffort(
+      written.contactId,
+      written.mirrorParams,
+    );
+    created = written.created;
+    contact =
+      (await store.getContactWithInfo(written.contactId).catch(() => null)) ??
+      contactFallbackShape(written.contactId, params.notes);
+  }
 
   // Notes live only in the assistant mirror, and that write is best-effort:
   // upsertContact logs a mirror failure and returns as if it had worked. The
@@ -949,6 +976,41 @@ export async function upsertContactRecordCore(params: {
     "upsert_contact_record: handled natively",
   );
   return { ok: true, created, contact: toContactPayload(contact), notesSaved };
+}
+
+/**
+ * The shape to report when a contact cannot be read back after its write.
+ *
+ * The gateway row is the part that just committed, so it carries the fields
+ * that matter; assistant-owned fields fall back to what was asked for.
+ */
+function contactFallbackShape(
+  contactId: string,
+  notes: string | null | undefined,
+): ContactWithInfo {
+  const row = getGatewayDb()
+    .select()
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .get()!;
+  return {
+    id: row.id,
+    displayName: row.displayName,
+    role: row.role,
+    principalId: row.principalId,
+    notes: notes ?? null,
+    contactType: "human",
+    userFile: null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    interactionCount: 0,
+    lastInteraction: null,
+    autoApproveThreshold: parseContactAutoApproveThreshold(
+      row.autoApproveThreshold,
+    ),
+    channels: [],
+    assistantMetadata: null,
+  };
 }
 
 /**
