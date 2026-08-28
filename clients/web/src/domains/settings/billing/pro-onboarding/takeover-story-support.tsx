@@ -98,8 +98,8 @@ function creditTier(
 
 /**
  * One catalog for every story. `machine_tiers` and `storage_tiers` are empty
- * because the takeover reads only `credit_tiers` (to price and name the credits
- * chip) and `packages` (to resolve a package intent's bundle).
+ * because the takeover reads only `credit_tiers` (to name the credits chip) and
+ * `packages` (to resolve a package intent's bundle).
  *
  * `credits_45` and `credits_115` are the packages' own bundles, which the
  * platform does not offer in the picker, so they carry the `legacy` marking the
