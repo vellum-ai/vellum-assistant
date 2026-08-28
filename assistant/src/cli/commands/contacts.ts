@@ -275,8 +275,12 @@ async function runRecordPrompt(
 
   const contactId = r.result.contactId;
   // Notes are stored apart from the rest of the record, so they can be the one
-  // part that does not land.
+  // part that does not land. When they were the whole requested change, losing
+  // them means nothing the caller asked for happened, and a zero exit would
+  // tell a script otherwise.
   const notesLost = r.result.notesSaved === false;
+  const nothingWritten =
+    notesLost && body.operation === "update" && body.displayName === undefined;
 
   if (body.operation === "delete") {
     const deleted = body.currentDisplayName ?? contactId ?? body.contactId;
@@ -305,6 +309,23 @@ async function runRecordPrompt(
     { pathParams: { id: contactId } },
   );
   const written = read.ok ? read.result?.contact : undefined;
+
+  if (nothingWritten) {
+    // Nothing the caller asked for landed, so this is a failure however it is
+    // read: one object, and a nonzero exit.
+    if (shouldOutputJson(cmd)) {
+      writeOutput(cmd, {
+        ok: false,
+        error: "The contact's notes could not be saved",
+        contactId,
+        notesSaved: false,
+      });
+    } else {
+      writeError(cmd, "The contact's notes could not be saved");
+    }
+    process.exitCode = 1;
+    return;
+  }
 
   if (shouldOutputJson(cmd)) {
     // One object, whatever happened: a second one saying otherwise reads as a
