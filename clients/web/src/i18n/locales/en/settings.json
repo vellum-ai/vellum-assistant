@@ -2193,6 +2193,7 @@
   "voicePickerCard": {
     "changeButton": "Change",
     "creditsNote": "Uses Vellum credits, through providers like ElevenLabs and Deepgram.",
+    "loadingAria": "Loading voice",
     "title": "Voice",
     "titleWithName": "{name}'s Voice"
   },

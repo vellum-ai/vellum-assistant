@@ -428,7 +428,11 @@ describe("expireAllPendingInteractionBound", () => {
     expect(getGuardianRequest(pendingQuestion.id)?.status).toBe("expired");
   });
 
-  test("expires persistent kinds only past their deadline", () => {
+  test("leaves persistent kinds untouched, whatever their deadline", () => {
+    // A past-deadline persistent row's expiry belongs to the sweep, which
+    // fans out the card withdrawal and requester notice for every row it
+    // expires; a bulk flip here strands those side effects, because no
+    // sweep revisits a row that already left pending.
     const staleAccess = createRequest({
       kind: "access_request",
       expiresAt: PAST(),
@@ -443,9 +447,9 @@ describe("expireAllPendingInteractionBound", () => {
     });
     const deadlineless = createRequest({ kind: "tool_grant_request" });
 
-    expect(expireAllPendingInteractionBound()).toBe(2);
-    expect(getGuardianRequest(staleAccess.id)?.status).toBe("expired");
-    expect(getGuardianRequest(staleGrant.id)?.status).toBe("expired");
+    expect(expireAllPendingInteractionBound()).toBe(0);
+    expect(getGuardianRequest(staleAccess.id)?.status).toBe("pending");
+    expect(getGuardianRequest(staleGrant.id)?.status).toBe("pending");
     expect(getGuardianRequest(freshAccess.id)?.status).toBe("pending");
     expect(getGuardianRequest(deadlineless.id)?.status).toBe("pending");
   });

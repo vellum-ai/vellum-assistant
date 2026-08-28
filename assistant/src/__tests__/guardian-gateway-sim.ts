@@ -364,9 +364,13 @@ export function createGuardianGatewaySim() {
       if (row.status !== "pending") {
         continue;
       }
+      // Mirrors the gateway contract: only the kinds that die with the
+      // daemon's in-memory pendingInteractions map expire at boot.
+      // Persistent kinds stay pending, whatever their deadline; their
+      // expiry belongs to the sweep, which owns the fan-out.
       const interactionBound =
         row.kind === "tool_approval" || row.kind === "pending_question";
-      if (interactionBound || isGuardianRequestExpired(row, now)) {
+      if (interactionBound) {
         row.status = "expired";
         row.updatedAt = now;
         expired += 1;
