@@ -30,6 +30,7 @@ import {
 } from "@/domains/chat/composer-store";
 import { prependChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
+import { uploadSightFrameAttachment } from "@/domains/chat/sight/sight-attachment";
 import {
   useQuoteReplyStore,
   type StagedQuote,
@@ -215,6 +216,15 @@ export function useComposerSubmit({
           // If undo fails, still send the message as a new one
         }
       }
+      // While the Eyes camera is up, the frame it is holding rides along as an
+      // attachment so the assistant answers about what it can see. Best effort:
+      // the helper swallows its own failures and a message with no frame still
+      // goes.
+      const sightAttachment = await uploadSightFrameAttachment(assistantId);
+      if (sightAttachment) {
+        attachmentsToSend.push(sightAttachment);
+      }
+
       // Forward the secret-check override only when this send explicitly
       // carries it (the Send-anyway path); ordinary sends never set it.
       await sendMessage(

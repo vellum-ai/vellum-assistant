@@ -31,6 +31,7 @@ import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel
 import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
+import { SightToggle } from "@/domains/chat/sight/sight-toggle";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
@@ -1747,6 +1748,11 @@ export function ChatComposer({
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
                           {!isAssistantBusy && attachControl}
+                          {/* Desktop row only: the camera surface is a
+                              pointer-sized affordance and has no mobile
+                              placement yet. Renders nothing while the
+                              `vision-mode` flag is off. */}
+                          {!isAssistantBusy && <SightToggle />}
                           {!isAssistantBusy && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"

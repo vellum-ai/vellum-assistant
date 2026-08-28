@@ -101,6 +101,7 @@ import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier"
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { SightTile } from "@/domains/chat/sight/sight-tile";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
@@ -1302,6 +1303,12 @@ export function ChatLayout({
                 transcript render underneath, hidden by it. */}
             <VoiceRoom variant="content" />
           </main>
+          {/* The Eyes viewfinder, a sibling of `<main>` rather than a child:
+              it is a fixed corner tile, and nesting it under a box that can
+              take a filter would make that box the containing block for its
+              `position: fixed` and park it against `<main>`'s rectangle
+              instead of the viewport. Self-gates on the camera's status. */}
+          <SightTile />
         </div>
       )}
 

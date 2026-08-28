@@ -1410,6 +1410,15 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
+  "sightTile": {
+    "close": "Close camera",
+    "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
+    "unavailable": "No camera is available."
+  },
+  "sightToggle": {
+    "turnOff": "Turn off camera vision",
+    "turnOn": "Turn on camera vision"
+  },
   "singleActivity": {
     "webSearch": "Web Search"
   },

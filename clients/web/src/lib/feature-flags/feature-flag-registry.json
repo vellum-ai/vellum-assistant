@@ -28,6 +28,15 @@
       "values": ["off", "on"]
     },
     {
+      "id": "vision-mode",
+      "scope": "client",
+      "key": "vision-mode",
+      "label": "Vision Mode",
+      "description": "Gates the Eyes camera surface in the web composer: the toggle, the floating viewfinder tile, and the send-frame path are all reachable only through the toggle. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
       "id": "experiment-activation-flow-2026-06-03",
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
