@@ -175,31 +175,47 @@ export function handleContactRecordRequest(
   });
 }
 
+/** How long an answered card shows its confirmation before retiring. */
+const ANSWERED_CARD_LINGER_MS = 1500;
+
 /**
  * Retire whichever contact form has closed. A closed form accepts no
  * submission, so a card left up offers an answer the gateway would refuse.
  *
- * A successful answer is the exception: the client that gave it is either
- * mid-submit or already showing its confirmation, which retires itself a
- * moment later, and cutting that short swaps a "saved" for a card vanishing
- * mid-read. The ordering makes this reachable rather than theoretical, since
- * the gateway resolves the form, and so broadcasts this, before its own HTTP
- * response returns. A form that closed any other way is retired everywhere,
- * including on the client whose write failed: its card has nothing left to
- * submit to.
+ * On the client that answered, an `answered` closure is the outcome itself,
+ * not just a signal to tidy up: the gateway resolves the form, and so
+ * broadcasts this, before its own HTTP response returns, so this can arrive
+ * first and is authoritative even if that response is then lost. Such a card
+ * shows its confirmation and retires on the usual delay rather than vanishing
+ * mid-read or waiting on a response that may never come.
+ *
+ * A form that closed any other way is retired everywhere, including on the
+ * client whose write failed: its card has nothing left to submit to.
  */
 export function handleContactFormClosed(event: ContactFormClosedEvent): void {
   const store = useInteractionStore.getState();
 
-  const answeredHere =
-    event.reason === "answered" &&
-    (((store.contactRequestAccepted ||
-      store.submittingByKind.contactRequest === event.requestId) &&
-      store.pendingContactRequest?.requestId === event.requestId) ||
-      ((store.contactRecordRequestAccepted ||
-        store.submittingByKind.contactRecordRequest === event.requestId) &&
-        store.pendingContactRecordRequest?.requestId === event.requestId));
-  if (answeredHere) {
+  const ownsAddressForm =
+    store.pendingContactRequest?.requestId === event.requestId &&
+    (store.contactRequestAccepted ||
+      store.submittingByKind.contactRequest === event.requestId);
+  const ownsRecordForm =
+    store.pendingContactRecordRequest?.requestId === event.requestId &&
+    (store.contactRecordRequestAccepted ||
+      store.submittingByKind.contactRecordRequest === event.requestId);
+
+  if (event.reason === "answered" && (ownsAddressForm || ownsRecordForm)) {
+    if (ownsAddressForm) {
+      store.acceptContactRequestIfMatches(event.requestId);
+    }
+    if (ownsRecordForm) {
+      store.acceptContactRecordRequestIfMatches(event.requestId);
+    }
+    setTimeout(() => {
+      const latest = useInteractionStore.getState();
+      latest.dismissContactRequestIfMatches(event.requestId);
+      latest.dismissContactRecordRequestIfMatches(event.requestId);
+    }, ANSWERED_CARD_LINGER_MS);
     return;
   }
 

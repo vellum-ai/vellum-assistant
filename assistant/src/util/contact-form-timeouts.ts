@@ -24,10 +24,11 @@ export const CONTACT_FORM_MAX_TIMEOUT_MS = 3_600_000;
 /**
  * How long a claimed form is held while its write settles (3 min).
  *
- * A claim means somebody answered, so the open-for-answers deadline no longer
- * governs. This budget covers the gateway's whole write rather than one call
- * of it: its IPC calls bound at 30s each and a delete makes three in sequence
- * (mirror probe, mirror delete, then the resolve back).
+ * A claim means somebody answered, so the open-for-answers deadline stops
+ * governing and this one takes over. It covers the gateway's whole write
+ * rather than one call of it: its IPC calls bound at 30s each and a delete
+ * makes three in sequence (mirror probe, mirror delete, then the resolve
+ * back).
  */
 export const CONTACT_FORM_SETTLE_MS = 180_000;
 

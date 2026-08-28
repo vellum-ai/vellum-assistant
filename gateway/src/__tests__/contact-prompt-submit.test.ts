@@ -255,6 +255,37 @@ describe("handleContactPromptSubmit", () => {
     expect(flags[0].body.requestId).toBe("req-verify");
   });
 
+  test("a dismissal unblocks the command and writes nothing", async () => {
+    seedGuardian();
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({ requestId: "req-dismiss", cancelled: true }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(getGatewayDb().select().from(gwContactChannels).all()).toHaveLength(
+      0,
+    );
+    expect(resolveCall(ipcMock).body.error).toBe("Cancelled by user");
+  });
+
+  test("a dismissal that loses the claim leaves the answer in flight alone", async () => {
+    seedGuardian();
+    ipcMock.mockImplementation(async (method: string) => {
+      if (method === "contact_prompt_claim") {
+        return { claimed: false, reason: "already_claimed" };
+      }
+      return defaultIpcResponse(method);
+    });
+
+    const res = await handleContactPromptSubmit(
+      makeRequest({ requestId: "req-dismiss-late", cancelled: true }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(callsFor(ipcMock, "resolve_contact_prompt")).toHaveLength(0);
+  });
+
   test("a submission that loses the claim writes nothing", async () => {
     seedGuardian();
     // A second client answering the same broadcast, after the first already

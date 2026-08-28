@@ -1341,16 +1341,26 @@
                     "type": "string",
                     "description": "The contact_request id broadcast by the assistant"
                   },
-                  "address": { "type": "string" },
-                  "channelType": { "type": "string" },
+                  "address": {
+                    "description": "Required unless cancelled is true",
+                    "type": "string"
+                  },
+                  "channelType": {
+                    "description": "Required unless cancelled is true",
+                    "type": "string"
+                  },
                   "role": { "type": "string" },
                   "displayName": { "type": "string" },
                   "verify": {
                     "description": "The form's 'mark verified' checkbox as the guardian left it. Omit only from clients that predate the checkbox; the parked command's flag is then used instead.",
                     "type": "boolean"
+                  },
+                  "cancelled": {
+                    "description": "The guardian dismissed the form. Unblocks the waiting command without writing.",
+                    "type": "boolean"
                   }
                 },
-                "required": ["requestId", "address", "channelType"]
+                "required": ["requestId"]
               }
             }
           }

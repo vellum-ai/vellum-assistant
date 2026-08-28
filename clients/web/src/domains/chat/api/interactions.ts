@@ -143,6 +143,40 @@ export async function submitSecretResponse(
 }
 
 /**
+ * Dismiss an address form. Unblocks the parked command without writing, and
+ * closes the form on every other client showing it.
+ */
+export async function cancelContactPrompt(
+  assistantId: string,
+  requestId: string,
+): Promise<SubmitSecretResponseResult> {
+  try {
+    const { error, response } = await assistantContactsPromptSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, cancelled: true },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to dismiss the contact prompt");
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: extractErrorMessage(error, response),
+        transient: false,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
+    };
+  }
+}
+
+/**
  * Submit the guardian's answer to a proposed contact record write, or their
  * dismissal of it. The gateway performs the write and unblocks the parked
  * command; a dismissal unblocks it without writing.

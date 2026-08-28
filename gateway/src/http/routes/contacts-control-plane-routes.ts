@@ -125,8 +125,14 @@ const ContactPromptSubmitRequestSchema = z.object({
   requestId: z
     .string()
     .describe("The contact_request id broadcast by the assistant"),
-  address: z.string(),
-  channelType: z.string(),
+  address: z
+    .string()
+    .optional()
+    .describe("Required unless cancelled is true"),
+  channelType: z
+    .string()
+    .optional()
+    .describe("Required unless cancelled is true"),
   role: z.string().optional(),
   displayName: z.string().optional(),
   verify: z
@@ -134,6 +140,12 @@ const ContactPromptSubmitRequestSchema = z.object({
     .optional()
     .describe(
       "The form's 'mark verified' checkbox as the guardian left it. Omit only from clients that predate the checkbox; the parked command's flag is then used instead.",
+    ),
+  cancelled: z
+    .boolean()
+    .optional()
+    .describe(
+      "The guardian dismissed the form. Unblocks the waiting command without writing.",
     ),
 });
 

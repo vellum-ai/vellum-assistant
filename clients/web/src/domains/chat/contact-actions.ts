@@ -19,6 +19,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import {
+  cancelContactPrompt,
   submitContactPrompt,
   submitContactRecord,
 } from "@/domains/chat/api/interactions";
@@ -110,22 +111,49 @@ export async function handleContactPromptSubmit(
  * Cancel the contact prompt: dismisses local state and ends the turn it
  * belongs to.
  *
- * This form carries no conversation, and it now outlives a conversation
- * switch, so the turn to end is the one that was on screen when it arrived
- * and only while that is still where the guardian is. Ending whatever happens
- * to be active would error an unrelated turn that is still running.
+ * This form carries no conversation and outlives a conversation switch, so
+ * the turn to end is the one that was on screen when it arrived, and only
+ * while that is still where the guardian is. Ending whatever happens to be
+ * active would error an unrelated turn that is still running.
  */
-export function handleContactPromptCancel(): void {
+export async function handleContactPromptCancel(): Promise<void> {
   const request = useInteractionStore.getState().pendingContactRequest;
-  if (request) {
-    useInteractionStore
-      .getState()
-      .dismissContactRequestIfMatches(request.requestId);
+  if (!request) {
+    return;
   }
+
+  const ctx = useStreamStore.getState().streamContext;
+  if (!ctx) {
+    // Nothing was sent, so the command is still parked. Reporting this as a
+    // dismissal would take away the only thing that could retry it.
+    useChatSessionStore
+      .getState()
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    return;
+  }
+
+  // Every client is showing this form and a command is parked on it, so the
+  // dismissal has to reach the gateway: taking the card down here would leave
+  // both waiting.
+  const result = await cancelContactPrompt(ctx.assistantId, request.requestId);
+  if (!result.ok) {
+    captureSubmissionRejection("cancel_contact_prompt", result);
+    reportSubmissionFailure(
+      "contactRequest",
+      request.requestId,
+      "contactActions.cancelFailed",
+    );
+    return;
+  }
+
+  useInteractionStore
+    .getState()
+    .dismissContactRequestIfMatches(request.requestId);
+
   const activeConversationId =
     useConversationStore.getState().activeConversationId;
   if (
-    request?.originConversationId &&
+    request.originConversationId &&
     request.originConversationId === activeConversationId
   ) {
     endTurn({ conversationId: activeConversationId, reason: "error" });

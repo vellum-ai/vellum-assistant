@@ -78,6 +78,8 @@ interface ContactPromptSubmitBody {
    * {@link promptWantsVerify}).
    */
   verify?: boolean;
+  /** The guardian dismissed the form. Unblocks the waiting call without writing. */
+  cancelled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,22 +112,26 @@ export async function handleContactPromptSubmit(
       { status: 400 },
     );
   }
-  if (!address || typeof address !== "string") {
-    return Response.json(
-      { accepted: false, error: "address is required" },
-      { status: 400 },
-    );
-  }
-  if (!channelType || typeof channelType !== "string") {
-    return Response.json(
-      { accepted: false, error: "channelType is required" },
-      { status: 400 },
-    );
+  if (body.cancelled !== true) {
+    if (!address || typeof address !== "string") {
+      return Response.json(
+        { accepted: false, error: "address is required" },
+        { status: 400 },
+      );
+    }
+    if (!channelType || typeof channelType !== "string") {
+      return Response.json(
+        { accepted: false, error: "channelType is required" },
+        { status: 400 },
+      );
+    }
   }
 
   // Claim before writing anything, exactly as the record form does: the form
   // went to every connected client, and an answer landing near the deadline
-  // must stop that deadline rather than race the write it started.
+  // must stop that deadline rather than race the write it started. A dismissal
+  // takes the same claim, so it cannot report "cancelled" over an answer that
+  // is already committing.
   const claim = await claimPrompt(requestId);
   if (!claim.claimed) {
     log.warn(
@@ -133,6 +139,11 @@ export async function handleContactPromptSubmit(
       "contact-prompt-submit: submission did not get the claim",
     );
     return lostClaimResponse(claim.reason);
+  }
+
+  if (body.cancelled === true) {
+    await reportFailure(requestId, "Cancelled by user", claim.settleMs);
+    return Response.json({ accepted: true });
   }
 
   const normalizedAddress =
@@ -456,9 +467,9 @@ async function promptWantsVerify(
   if (typeof submitted === "boolean") {
     return submitted;
   }
-  // Client older than the checkbox: fall back to the parked flag, which is how
-  // this worked before the box existed. Read out of band because that client
-  // has no field to echo it back in.
+  // A client with no checkbox sends no answer, so the parked flag stands in
+  // for one. Read out of band because such a client has no field to echo it
+  // back in.
   try {
     const result = await ipcCallAssistant("contact_prompt_flags", {
       body: { requestId },
