@@ -3,11 +3,9 @@ import { Check, ChevronRight, Circle } from "lucide-react";
 import { type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
-import {
-  menuContentBase,
-  menuItemAsideBase,
-  menuItemBase,
-} from "../utils/menu-styles";
+import { menuContentBase, menuItemBase } from "../utils/menu-styles";
+
+import { MenuItemShortcut, MenuItemTrailing } from "./menu-item-aside";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
@@ -112,10 +110,6 @@ type ItemProps = ComponentProps<typeof ContextMenuPrimitive.Item> & {
   readonly trailing?: ReactNode;
 };
 
-// The inner spans reuse Menu's slot names (`menu-item-icon` and friends), not
-// a `context-menu-` prefix: the two primitives render identical rows, and
-// shared helpers style items for both through one selector.
-
 function Item({
   className,
   children,
@@ -133,6 +127,8 @@ function Item({
       {...rest}
     >
       {leftIcon ? (
+        // Menu's slot name, not a `context-menu-` prefix: one selector styles
+        // the icon in both primitives.
         <span
           data-slot="menu-item-icon"
           className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
@@ -142,22 +138,9 @@ function Item({
         </span>
       ) : null}
       <span className="flex-1 truncate">{children}</span>
-      {trailing ? (
-        <span
-          data-slot="menu-item-trailing"
-          className={cn(menuItemAsideBase, "ml-auto")}
-        >
-          {trailing}
-        </span>
-      ) : null}
+      {trailing ? <MenuItemTrailing>{trailing}</MenuItemTrailing> : null}
       {shortcut ? (
-        <span
-          data-slot="menu-item-shortcut"
-          aria-hidden
-          className={cn(menuItemAsideBase, !trailing && "ml-auto")}
-        >
-          {shortcut}
-        </span>
+        <MenuItemShortcut push={!trailing}>{shortcut}</MenuItemShortcut>
       ) : null}
     </ContextMenuPrimitive.Item>
   );
@@ -198,15 +181,7 @@ function CheckboxItem({
         </ContextMenuPrimitive.ItemIndicator>
       </span>
       <span className="flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span
-          data-slot="menu-item-shortcut"
-          aria-hidden
-          className={cn(menuItemAsideBase, "ml-auto")}
-        >
-          {shortcut}
-        </span>
-      ) : null}
+      {shortcut ? <MenuItemShortcut>{shortcut}</MenuItemShortcut> : null}
     </ContextMenuPrimitive.CheckboxItem>
   );
 }
@@ -254,15 +229,7 @@ function RadioItem({
         </ContextMenuPrimitive.ItemIndicator>
       </span>
       <span className="flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span
-          data-slot="menu-item-shortcut"
-          aria-hidden
-          className={cn(menuItemAsideBase, "ml-auto")}
-        >
-          {shortcut}
-        </span>
-      ) : null}
+      {shortcut ? <MenuItemShortcut>{shortcut}</MenuItemShortcut> : null}
     </ContextMenuPrimitive.RadioItem>
   );
 }

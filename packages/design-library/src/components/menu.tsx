@@ -3,11 +3,9 @@ import { Check, ChevronRight, Circle } from "lucide-react";
 import { type ComponentProps, type ReactNode, useRef } from "react";
 
 import { cn } from "../utils/cn";
-import {
-  menuContentBase,
-  menuItemAsideBase,
-  menuItemBase,
-} from "../utils/menu-styles";
+import { menuContentBase, menuItemBase } from "../utils/menu-styles";
+
+import { MenuItemShortcut, MenuItemTrailing } from "./menu-item-aside";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
@@ -145,22 +143,9 @@ function Item({
         </span>
       ) : null}
       <span className="flex-1 truncate">{children}</span>
-      {trailing ? (
-        <span
-          data-slot="menu-item-trailing"
-          className={cn(menuItemAsideBase, "ml-auto")}
-        >
-          {trailing}
-        </span>
-      ) : null}
+      {trailing ? <MenuItemTrailing>{trailing}</MenuItemTrailing> : null}
       {shortcut ? (
-        <span
-          data-slot="menu-item-shortcut"
-          aria-hidden
-          className={cn(menuItemAsideBase, !trailing && "ml-auto")}
-        >
-          {shortcut}
-        </span>
+        <MenuItemShortcut push={!trailing}>{shortcut}</MenuItemShortcut>
       ) : null}
     </DropdownMenuPrimitive.Item>
   );
@@ -201,15 +186,7 @@ function CheckboxItem({
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       <span className="flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span
-          data-slot="menu-item-shortcut"
-          aria-hidden
-          className={cn(menuItemAsideBase, "ml-auto")}
-        >
-          {shortcut}
-        </span>
-      ) : null}
+      {shortcut ? <MenuItemShortcut>{shortcut}</MenuItemShortcut> : null}
     </DropdownMenuPrimitive.CheckboxItem>
   );
 }
@@ -257,15 +234,7 @@ function RadioItem({
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       <span className="flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span
-          data-slot="menu-item-shortcut"
-          aria-hidden
-          className={cn(menuItemAsideBase, "ml-auto")}
-        >
-          {shortcut}
-        </span>
-      ) : null}
+      {shortcut ? <MenuItemShortcut>{shortcut}</MenuItemShortcut> : null}
     </DropdownMenuPrimitive.RadioItem>
   );
 }
