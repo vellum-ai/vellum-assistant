@@ -18,6 +18,7 @@ const TOKENS: StripeAppearanceTokens = {
   danger: "#DA491A",
   dangerText: "#DA491A",
   icon: "#71808E",
+  radius: "12px",
 };
 
 const TOKEN_PROPERTIES: Array<[string, string]> = [
@@ -29,12 +30,58 @@ const TOKEN_PROPERTIES: Array<[string, string]> = [
   ["--system-info-strong", TOKENS.accent],
   ["--system-negative-strong", TOKENS.danger],
   ["--system-negative-on-weak", TOKENS.dangerText],
+  ["--radius-lg", TOKENS.radius],
 ];
+
+/** The variables that never come from a token, so they survive an empty read. */
+const STATIC_VARIABLES = {
+  fontFamily: '"DM Sans", system-ui, sans-serif',
+  fontSizeBase: "15px",
+  fontSizeSm: "11px",
+  fontWeightMedium: "500",
+  spacingUnit: "4px",
+  spacingGridRow: "10px",
+  spacingGridColumn: "10px",
+  focusOutline: "none",
+};
+
+const EMPTY_TOKENS: StripeAppearanceTokens = {
+  text: "",
+  textSecondary: "",
+  placeholder: "",
+  surface: "",
+  field: "",
+  accent: "",
+  danger: "",
+  dangerText: "",
+  icon: "",
+  radius: "",
+};
 
 function paintTokens(root: HTMLElement) {
   for (const [name, value] of TOKEN_PROPERTIES) {
     root.style.setProperty(name, value);
   }
+}
+
+function withRoot(run: (root: HTMLElement) => void) {
+  const root = document.createElement("div");
+  document.body.appendChild(root);
+  try {
+    run(root);
+  } finally {
+    root.remove();
+  }
+}
+
+function stringValues(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).flatMap(stringValues);
+  }
+  return [];
 }
 
 afterEach(() => {
@@ -79,9 +126,15 @@ describe("appearanceFromTokens", () => {
   });
 
   test("uses the radius-lg token value for the field radius", () => {
-    expect(appearanceFromTokens(TOKENS, "stripe").variables?.borderRadius).toBe(
-      "12px",
-    );
+    withRoot((root) => {
+      paintTokens(root);
+      root.style.setProperty("--radius-lg", "10px");
+      const appearance = appearanceFromTokens(
+        readAppearanceTokens(root),
+        "stripe",
+      );
+      expect(appearance.variables?.borderRadius).toBe("10px");
+    });
   });
 
   test("outlines a focused field with the accent and a 14% accent ring", () => {
@@ -112,18 +165,78 @@ describe("appearanceFromTokens", () => {
       color: TOKENS.dangerText,
     });
   });
+
+  test("drops every token-driven value when nothing resolves", () => {
+    const appearance = appearanceFromTokens(EMPTY_TOKENS, "night");
+    expect(appearance.variables).toEqual(STATIC_VARIABLES);
+    expect(appearance.rules).toEqual({
+      ".Input": {
+        border: "1px solid transparent",
+        boxShadow: "none",
+        padding: "9px 14px",
+        transition:
+          "background-color 120ms, border-color 120ms, box-shadow 120ms",
+      },
+      ".Input--invalid": {
+        boxShadow: "none",
+      },
+      ".Label": {
+        fontSize: "11px",
+        fontWeight: "500",
+      },
+      ".Error": {
+        fontSize: "12.5px",
+      },
+    });
+  });
+
+  test("never hands Stripe an empty or half-built value", () => {
+    for (const tokens of [EMPTY_TOKENS, {}]) {
+      for (const value of stringValues(appearanceFromTokens(tokens, "night"))) {
+        expect(value).not.toBe("");
+        expect(value).not.toMatch(/\s$/);
+      }
+    }
+  });
+
+  test("keeps the tokens that did resolve when only some are painted", () => {
+    const appearance = appearanceFromTokens(
+      { text: TOKENS.text, danger: TOKENS.danger },
+      "stripe",
+    );
+    expect(appearance.variables).toEqual({
+      ...STATIC_VARIABLES,
+      colorText: TOKENS.text,
+      colorDanger: TOKENS.danger,
+    });
+    expect(appearance.rules?.[".Input--invalid"]).toEqual({
+      border: `1px solid ${TOKENS.danger}`,
+      boxShadow: "none",
+    });
+    expect(appearance.rules?.[".Input:focus"]).toBeUndefined();
+    expect(appearance.rules?.[".Label--invalid"]).toEqual({
+      color: TOKENS.danger,
+    });
+  });
 });
 
 describe("readAppearanceTokens", () => {
   test("resolves every token from the given root", () => {
-    const root = document.createElement("div");
-    paintTokens(root);
-    document.body.appendChild(root);
-    try {
+    withRoot((root) => {
+      paintTokens(root);
       expect(readAppearanceTokens(root)).toEqual(TOKENS);
-    } finally {
-      root.remove();
-    }
+    });
+  });
+
+  test("leaves out a token that resolves to nothing", () => {
+    withRoot((root) => {
+      root.style.setProperty("--content-emphasised", TOKENS.text);
+      const tokens = readAppearanceTokens(root);
+      expect(tokens.text).toBe(TOKENS.text);
+      expect(tokens.surface).toBeUndefined();
+      expect(tokens.accent).toBeUndefined();
+      expect(tokens.radius).toBeUndefined();
+    });
   });
 
   test("defaults to the document element", () => {
