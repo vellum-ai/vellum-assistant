@@ -1,12 +1,22 @@
 /**
  * Shared helpers for deciding how an outbound OAuth request body is encoded.
  *
- * A body is either structured (an object or array, serialized as JSON) or
- * raw (a string forwarded to the provider byte-for-byte). The Content-Type
- * the caller supplied decides which one a string body is: multipart, XML,
- * form-encoded, and CSV payloads must survive intact, while JSON text is
- * already in its wire form and must not be re-encoded.
+ * A body is structured (an object or array, serialized as JSON), raw text
+ * (a string forwarded to the provider as UTF-8), or raw bytes (a Buffer
+ * forwarded to the provider byte-for-byte). The Content-Type the caller
+ * supplied decides which one a string body is: multipart, XML, form-encoded,
+ * and CSV payloads must survive intact, while JSON text is already in its
+ * wire form and must not be re-encoded. Files that are not valid UTF-8, or
+ * that carry a binary Content-Type, stay as bytes.
  */
+
+const BINARY_MEDIA_TYPES = new Set([
+  "application/octet-stream",
+  "application/pdf",
+  "application/zip",
+  "application/gzip",
+  "application/x-gzip",
+]);
 
 /** True when a Content-Type header names a JSON media type. */
 export function isJsonContentType(
@@ -57,4 +67,45 @@ export function parseRequestBodyData(
   // A JSON string scalar ("hello") would be indistinguishable from a raw
   // body once unquoted, so the original quoted text is kept as the wire form.
   return typeof parsed === "string" ? raw : parsed;
+}
+
+/** True when a Content-Type names a binary media type (PDF, image, zip). */
+export function isBinaryOAuthContentType(
+  contentType: string | undefined | null,
+): boolean {
+  if (!contentType) {
+    return false;
+  }
+  const mediaType = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (
+    mediaType.startsWith("image/") ||
+    mediaType.startsWith("audio/") ||
+    mediaType.startsWith("video/")
+  ) {
+    return true;
+  }
+  return BINARY_MEDIA_TYPES.has(mediaType);
+}
+
+/**
+ * Decide how file or stdin bytes reach the provider.
+ *
+ * Binary Content-Types and payloads that are not valid UTF-8 stay as a
+ * Buffer so the original bytes survive the JSON proxy envelope. Valid UTF-8
+ * follows {@link parseRequestBodyData}.
+ */
+export function parseRequestBodyBytes(
+  raw: Uint8Array,
+  contentType: string | undefined,
+): unknown {
+  if (isBinaryOAuthContentType(contentType)) {
+    return Buffer.from(raw);
+  }
+  let utf8: string;
+  try {
+    utf8 = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+  } catch {
+    return Buffer.from(raw);
+  }
+  return parseRequestBodyData(utf8, contentType);
 }

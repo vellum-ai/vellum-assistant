@@ -1,7 +1,8 @@
 # Per-environment Windows app icons
 
-Each environment has a 256x256 ICO asset derived from the matching Vellum
-desktop brand color:
+Each environment has a multi-resolution ICO asset derived from the matching
+Vellum desktop brand color. The 16, 24, 32, 48, 64, 128, and 256px entries
+cover installed shortcuts, Explorer, the taskbar, and high-DPI displays.
 
 - `local`: blue
 - `dev`: pink

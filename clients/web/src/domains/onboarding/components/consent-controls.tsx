@@ -18,8 +18,8 @@ import { Trans, useTranslation } from "@/i18n";
 // Consent checkboxes mirror the primary button: the checked fill uses
 // --primary-base and the check uses --content-inset (the on-primary
 // foreground). Unchecked, the design-library default bg/border both resolve to
-// the Card surface and disappear, so a recessed fill + visible border keep the
-// box legible against the card.
+// the surrounding surface and disappear, so an explicit fill + visible border
+// keep the box legible.
 const CONSENT_CHECKBOX_CLASS = [
   "[&_button[data-state=checked]]:bg-[var(--primary-base)]",
   "[&_svg]:text-[var(--content-inset)]",
@@ -209,30 +209,30 @@ export function AgreementsCard({
   return (
     <section className={className} style={style}>
       <p className={SECTION_LABEL_CLASS}>{t("consentControls.agreements")}</p>
-      <Card padding={electron ? "sm" : "md"} className="w-full">
-        <div className={`flex flex-col ${electron ? "gap-3.5" : "gap-4"}`}>
-          {showPrivacy && (
-            <div className="flex flex-col gap-2">
-              <PolicyChangeNotes notes={privacyNotes} />
-              <ConsentCheckbox
-                kind="privacy"
-                checked={privacyConsent}
-                onChange={onPrivacyChange}
-              />
-            </div>
-          )}
-          {showTos && (
-            <div className="flex flex-col gap-2">
-              <PolicyChangeNotes notes={tosNotes} />
-              <ConsentCheckbox
-                kind="tos"
-                checked={tosAccepted}
-                onChange={onTosChange}
-              />
-            </div>
-          )}
-        </div>
-      </Card>
+      {/* The agreements read as bare rows on the page surface, in contrast to
+          the privacy toggles, which sit in a card. */}
+      <div className={`flex flex-col pl-2 ${electron ? "gap-3.5" : "gap-4"}`}>
+        {showPrivacy && (
+          <div className="flex flex-col gap-2">
+            <PolicyChangeNotes notes={privacyNotes} />
+            <ConsentCheckbox
+              kind="privacy"
+              checked={privacyConsent}
+              onChange={onPrivacyChange}
+            />
+          </div>
+        )}
+        {showTos && (
+          <div className="flex flex-col gap-2">
+            <PolicyChangeNotes notes={tosNotes} />
+            <ConsentCheckbox
+              kind="tos"
+              checked={tosAccepted}
+              onChange={onTosChange}
+            />
+          </div>
+        )}
+      </div>
     </section>
   );
 }

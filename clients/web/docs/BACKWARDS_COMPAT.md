@@ -77,7 +77,7 @@ version off the identity store. Pick by call site:
 
 ### Version semantics
 
-The comparison in `supportsVersion()` has a few deliberate quirks worth
+The comparison in `versionSupports()` has a few deliberate quirks worth
 knowing before you add a gate:
 
 - **Unknown version returns `false`.** The version starts `null` and

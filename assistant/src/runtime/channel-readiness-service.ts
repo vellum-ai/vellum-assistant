@@ -26,10 +26,10 @@ export const REMOTE_TTL_MS = 5 * 60 * 1000;
  * Bot scopes the Slack manifest requests that the app cannot work without.
  *
  * Slack's install flow can return a token carrying a fraction of the manifest's
- * scopes while `auth.test` still succeeds — a live install produced 2 of 18, and
- * the first real API call failed with `missing_scope`. `auth.test` passing is
- * therefore not evidence the install is usable; the granted set has to be read
- * off the `x-oauth-scopes` response header and compared.
+ * scopes while `auth.test` still succeeds, leaving the first real API call to
+ * fail with `missing_scope`. `auth.test` passing is therefore not evidence the
+ * install is usable; the granted set has to be read off the `x-oauth-scopes`
+ * response header and compared.
  *
  * Mirrors the non-optional half of `oauth_config.scopes.bot` in
  * `skills/slack-app-setup/scripts/build-manifest.ts` (and its copy in

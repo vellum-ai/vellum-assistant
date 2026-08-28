@@ -10,6 +10,8 @@ public static class DictationServiceTests
     {
         public string Tap => "fake";
 
+        public bool HeardAudio => false;
+
         public bool Finished;
         public bool Cancelled;
         public bool Disposed;
@@ -83,22 +85,95 @@ public static class DictationServiceTests
         Assert(events.Any(e => e.Method == "dictation.finalized" &&
             e.Json.Contains("final text", StringComparison.Ordinal)));
 
-        // Device loss mid-session surfaces dictation.error, not finalized.
+        // Device loss mid-tap-session surfaces dictation.error, not
+        // finalized, and moves the session to the server path.
         events.Clear();
         engine = new FakeEngine();
+        var server = new FakeEngine();
+        manager = new DictationSessionManager(
+            request => request.RequireOnDevice ? engine : server, Notify);
         Assert(Json(manager.SetPartials(true, false, 16000))
             .Contains("\"enabled\":true", StringComparison.Ordinal));
         engine.EmitFailure("audio device lost");
         Assert(events.Any(e => e.Method == "dictation.error" &&
-            e.Json.Contains("audio device lost", StringComparison.Ordinal)));
+            e.Json.Contains("audio device lost", StringComparison.Ordinal) &&
+            e.Json.Contains("\"willRetryServer\":true", StringComparison.Ordinal)));
         Assert(!events.Any(e => e.Method == "dictation.finalized"));
         Assert(SpinWait.SpinUntil(() => engine.Disposed, TimeSpan.FromSeconds(1)));
         manager.AppendAudio(Convert.ToBase64String(new byte[] { 3, 4 }));
-        Assert(engine.Chunks.Count == 0);
+        Assert(engine.Chunks.Count == 0 && server.Chunks.Count == 1);
+
+        // A failure racing a graceful stop reports terminally instead of
+        // reopening the microphone on the server path.
+        events.Clear();
+        engine = new FakeEngine { FinalizeOnFinish = false };
+        var serverStarts = 0;
+        manager = new DictationSessionManager(
+            request =>
+            {
+                serverStarts += request.RequireOnDevice ? 0 : 1;
+                return engine;
+            },
+            Notify);
+        manager.SetPartials(true, false, 16000);
+        manager.SetPartials(false, false, 16000);
+        engine.EmitFailure("late failure");
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":false", StringComparison.Ordinal)));
+        Assert(serverStarts == 0);
+
+        // A tap session that stays silent is retried once on the server
+        // path; a session that spoke up is left alone.
+        events.Clear();
+        var silent = new FakeEngine();
+        var online = new FakeEngine();
+        var requests = new List<DictationEngineRequest>();
+        manager = new DictationSessionManager(
+            request =>
+            {
+                requests.Add(request);
+                return request.RequireOnDevice ? silent : online;
+            },
+            Notify,
+            TimeSpan.FromMilliseconds(50));
+        manager.SetPartials(true, false, 16000);
+        Assert(SpinWait.SpinUntil(() => silent.Cancelled, TimeSpan.FromSeconds(2)));
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":true", StringComparison.Ordinal)));
+        Assert(requests.Count == 2 && !requests[1].RequireOnDevice);
+        silent.EmitPartial("stale");
+        online.EmitPartial("server");
+        Assert(!events.Any(e => e.Json.Contains("stale", StringComparison.Ordinal)));
+        Assert(events.Any(e => e.Method == "dictation.partial" &&
+            e.Json.Contains("server", StringComparison.Ordinal)));
+
+        events.Clear();
+        var talkative = new FakeEngine();
+        manager = new DictationSessionManager(
+            _ => talkative, Notify, TimeSpan.FromMilliseconds(50));
+        manager.SetPartials(true, false, 16000);
+        talkative.EmitPartial("hi");
+        Thread.Sleep(150);
+        Assert(!talkative.Cancelled);
+        Assert(!events.Any(e => e.Method == "dictation.error"));
+
+        // Pushed-audio sessions never move to the server path, and an
+        // on-device failure there stays terminal.
+        events.Clear();
+        var pushed = new FakeEngine();
+        manager = new DictationSessionManager(
+            _ => pushed, Notify, TimeSpan.FromMilliseconds(50));
+        manager.SetPartials(true, true, 16000);
+        Thread.Sleep(150);
+        Assert(!pushed.Cancelled);
+        pushed.EmitFailure("gone");
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":false", StringComparison.Ordinal)));
 
         // Restarting cancels the replaced session: it is torn down and its
         // late events are dropped without a finalized transcript.
         events.Clear();
+        manager = new DictationSessionManager(_ => engine, Notify);
         var first = engine = new FakeEngine();
         manager.SetPartials(true, true, 16000);
         engine = new FakeEngine();
@@ -112,10 +187,36 @@ public static class DictationServiceTests
         // A failed replacement reports a reason and settles the displaced owner.
         events.Clear();
         engine = new FakeEngine { StartError = new Exception("audio device unavailable") };
-        Assert(Json(manager.SetPartials(true, false, 16000))
+        Assert(Json(manager.SetPartials(true, true, 16000))
             .Contains("audio device unavailable", StringComparison.Ordinal));
         Assert(events.Any(e => e.Method == "dictation.error" &&
             e.Json.Contains("audio device unavailable", StringComparison.Ordinal)));
+
+        // A tap session whose on-device engine cannot start falls through
+        // to the server path; when that fails too the error is terminal.
+        events.Clear();
+        var noLanguagePack = new FakeEngine { StartError = new Exception("no recognizer") };
+        var fallback = new FakeEngine();
+        manager = new DictationSessionManager(
+            request => request.RequireOnDevice ? noLanguagePack : fallback, Notify);
+        Assert(Json(manager.SetPartials(true, false, 16000))
+            .Contains("\"enabled\":true", StringComparison.Ordinal));
+        Assert(noLanguagePack.Disposed);
+        Assert(events.Any(e => e.Method == "dictation.error" &&
+            e.Json.Contains("\"willRetryServer\":true", StringComparison.Ordinal)));
+        events.Clear();
+        manager = new DictationSessionManager(
+            request => request.RequireOnDevice
+                ? throw new DictationUnavailableException("no recognizer")
+                : throw new DictationUnavailableException("offline"),
+            Notify);
+        Assert(Json(manager.SetPartials(true, false, 16000))
+            .Contains("offline", StringComparison.Ordinal));
+        Assert(events.Count(e => e.Method == "dictation.error") == 2);
+        Assert(events.Any(e =>
+            e.Json.Contains("\"onDevice\":false", StringComparison.Ordinal) &&
+            e.Json.Contains("\"willRetryServer\":false", StringComparison.Ordinal)));
+        manager = new DictationSessionManager(_ => engine, Notify);
 
         // Whole-recording transcription uses an independent pushed-audio
         // engine, publishes its final text, and does not disturb streaming.

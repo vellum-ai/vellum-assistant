@@ -104,6 +104,7 @@ export async function importPlaywright(): Promise<typeof import("playwright")> {
       cwd: externalDir,
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
     });
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
@@ -168,6 +169,7 @@ export async function ensureChromiumHeadlessShell(
         stdout: "pipe",
         stderr: "pipe",
         cwd: externalPwExists ? externalDir : undefined,
+        windowsHide: true,
       },
     );
     const timeoutMs = 120_000;

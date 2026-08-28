@@ -43,7 +43,7 @@ export function DetailCard({
               </h2>
             )}
             {subtitle && (
-              <p className="text-body-medium-default text-[var(--content-tertiary)]">
+              <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
                 {subtitle}
               </p>
             )}

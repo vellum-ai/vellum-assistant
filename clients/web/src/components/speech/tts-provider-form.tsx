@@ -560,7 +560,7 @@ export function TtsProviderForm({
               : t("ttsProviderForm.test")}
           </Button>
         )}
-        <div className="ml-auto flex items-center gap-3">
+        <div className="flex items-center gap-3">
           {managedVoiceToggle}
           {!hideSaveButton && (
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />

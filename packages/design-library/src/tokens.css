@@ -285,6 +285,11 @@
 /* ===== Light mode (default) — Figma node 2674:20625 ===== */
 :root,
 [data-theme="light"] {
+  /* Native controls (number spinners, scrollbars, pickers) follow the theme
+     rather than the UA default, which otherwise renders them light on our
+     dark surfaces. */
+  color-scheme: light;
+
   /* Surface */
   --surface-base: #F6F5F4;
   --surface-overlay: #FDFDFC;
@@ -367,6 +372,7 @@
   --field-bg: var(--surface-lift);
   --field-border: var(--border-element);
   --tag-bg-neutral: var(--surface-base);
+  --segment-track: var(--surface-active);
 
   /* Background / Foreground */
   --background: #F6F5F4;
@@ -376,6 +382,8 @@
 
 /* ===== Dark mode — Figma node 2674:20730 ===== */
 [data-theme="dark"] {
+  color-scheme: dark;
+
   /* Surface */
   --surface-base: #17191C;
   --surface-overlay: #1C2024;
@@ -455,6 +463,7 @@
   --field-bg: #2D3339;
   --field-border: transparent;
   --tag-bg-neutral: var(--primary-disabled);
+  --segment-track: #2D3339;
 
   /* Background / Foreground */
   --background: #17191C;
@@ -463,6 +472,8 @@
 
 /* ===== Velvet mode — dark with red/pink accents ===== */
 [data-theme="velvet"] {
+  color-scheme: dark;
+
   /* Surface */
   --surface-base: #121214;
   --surface-overlay: #1A171B;
@@ -543,6 +554,7 @@
   --field-bg: #242026;
   --field-border: transparent;
   --tag-bg-neutral: var(--primary-disabled);
+  --segment-track: var(--surface-active);
 
   /* Background / Foreground */
   --background: #121214;

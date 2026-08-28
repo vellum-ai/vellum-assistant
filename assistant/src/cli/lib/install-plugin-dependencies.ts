@@ -59,6 +59,7 @@ import { promisify } from "node:util";
 
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getLogger } from "../../util/logger.js";
+import { addToPathEnv } from "../../util/platform.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -318,6 +319,7 @@ export const defaultDependencyInstaller: DependencyInstaller = async ({
     timeout: DEPENDENCY_INSTALL_TIMEOUT_MS,
     maxBuffer: 32 * 1024 * 1024,
     env: dependencyInstallEnv(bun),
+    windowsHide: true,
   });
 };
 
@@ -331,10 +333,6 @@ export const defaultDependencyInstaller: DependencyInstaller = async ({
  */
 function dependencyInstallEnv(bun: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  const bunDir = dirname(bun);
-  const current = (env.PATH ?? "").split(":").filter(Boolean);
-  if (!current.includes(bunDir)) {
-    env.PATH = [bunDir, ...current].join(":");
-  }
+  addToPathEnv(env, [dirname(bun)]);
   return env;
 }

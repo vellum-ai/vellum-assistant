@@ -51,6 +51,11 @@ ruleTester.run("no-untranslated-strings", noUntranslatedStrings, {
       code: `const C = () => <div className="flex gap-2" data-slot="row" id="root" />;`,
     },
     {
+      name: "the design library's own className props are not copy",
+      filename: COMPONENT,
+      code: `const C = () => <Button iconOnlyGlyphClassName="size-3 [&_svg]:size-3" wrapperClassName="w-32 shrink-0" />;`,
+    },
+    {
       name: "JSX text with no letters",
       filename: COMPONENT,
       code: `const C = () => <span>{value} / {other} &middot; 42</span>;`,

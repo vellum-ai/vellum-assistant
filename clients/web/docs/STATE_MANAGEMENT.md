@@ -557,7 +557,7 @@ Zustand-as-state** pattern: `use-lifecycle.ts` returns `void` and
 publishes everything it produces (the `assistantState` discriminated
 union, the stable imperative actions) into
 [`src/assistant/lifecycle-store.ts`](../src/assistant/lifecycle-store.ts)
-and [`src/assistant/selection-store.ts`](../src/assistant/selection-store.ts).
+and [`src/assistant/selection.ts`](../src/assistant/selection.ts).
 Consumers read via atomic selectors; nothing flows through outlet
 context. This is the shape to copy when a side-effect orchestrator
 needs to expose its state to the whole tree — not a `useReducer`,

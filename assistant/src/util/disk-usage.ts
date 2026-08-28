@@ -30,6 +30,7 @@ async function getDirectorySizeBytes(paths: string[]): Promise<number | null> {
     }
     const { stdout } = await execFileAsync("du", ["-sb", ...existing], {
       timeout: 30_000,
+      windowsHide: true,
     });
     let total = 0;
     for (const line of stdout.trim().split("\n")) {

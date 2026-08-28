@@ -366,7 +366,7 @@ export function SystemPermissionsCard({
       {error && (
         <div
           role="alert"
-          className="mt-6 rounded-lg border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] bg-[var(--system-negative-weak)] p-3 text-body-medium-lighter text-[var(--content-secondary)]"
+          className="mt-6 rounded-md border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] bg-[var(--system-negative-weak)] p-3 text-body-medium-lighter text-[var(--content-secondary)]"
         >
           {error}
         </div>

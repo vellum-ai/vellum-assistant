@@ -77,7 +77,7 @@ function SurfaceRouterInner({
       );
     }
     return (
-      <div className="flex items-center gap-2 rounded-lg bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-lighter text-[var(--system-positive-strong)]">
+      <div className="flex items-center gap-2 rounded-md bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-lighter text-[var(--system-positive-strong)]">
         <CheckCircle className="h-4 w-4 shrink-0" />
         {surface.completionSummary ?? surface.title ?? t("surfaceRouter.done")}
       </div>

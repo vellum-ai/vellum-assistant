@@ -453,7 +453,7 @@ export function SttProviderForm({
       )}
 
       {(!hideSaveButton || providerHasKey) && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center gap-2">
           {!hideSaveButton && (
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
           )}

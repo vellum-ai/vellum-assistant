@@ -472,6 +472,7 @@ export const hostShellTool = {
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
+        windowsHide: true,
       });
 
       const stdoutChunks: Buffer[] = [];
@@ -659,6 +660,7 @@ export const hostShellTool = {
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
+        windowsHide: true,
       });
 
       const killTree = () => terminateProcessTree(child);

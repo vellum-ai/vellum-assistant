@@ -117,11 +117,11 @@ const { PrivacyScreen } =
   await import("@/domains/onboarding/pages/privacy-screen");
 
 function clickStart(): void {
-  fireEvent.click(screen.getByText("Start"));
+  fireEvent.click(screen.getByText("Start Onboarding"));
 }
 
 function clickSkipToChat(): void {
-  fireEvent.click(screen.getByText("Skip to chat"));
+  fireEvent.click(screen.getByText("Skip to the Assistant"));
 }
 
 /** The query of the single URL `navigate()` was called with. */

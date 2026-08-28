@@ -86,6 +86,7 @@ function execFileWithTimeout(
         encoding: "utf8",
         cwd: options?.cwd,
         env: options?.env,
+        windowsHide: true,
       },
       (err, stdout) => {
         clearTimeout(timer);

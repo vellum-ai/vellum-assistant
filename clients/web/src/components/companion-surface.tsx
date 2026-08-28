@@ -23,6 +23,7 @@ import type {
 
 import {
   COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_AVATAR_IMAGE,
   COMPANION_BASE_MAX_PILL_WIDTH,
 } from "@vellumai/ipc-contract";
 import type {
@@ -192,8 +193,12 @@ const WATCHING_RING_ACCENT = "#ff9f45";
  * The avatar artwork inside that box, which is inset by {@link INNER_GAP} on
  * every side. Both the still and the composed creature draw at this size, so
  * nothing moves when one replaces the other.
+ *
+ * From the contract because the pill lines up with the creature's visible
+ * bottom: `companionBaselineFor` answers half of this, and the two processes
+ * cannot be left holding different readings of where the creature stops.
  */
-const AVATAR_IMAGE = 28;
+const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 
 /**
  * The clearance every round thing inside the pill keeps from its edge.
@@ -707,7 +712,7 @@ export function CompanionSurface({
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
   // `CompanionIntro`, whose card hangs off the same creature.
-  const { scale, avatarRel, avatarHalf, gap, lineAt, edgeAt } =
+  const { scale, avatarRel, avatarHalf, baseline, gap, lineAt, edgeAt } =
     companionLayoutFor(avatarBox, optionsBox);
 
   // **The avatar never moves.** It holds one spot in the canvas, which is the
@@ -724,28 +729,25 @@ export function CompanionSurface({
   const placement = edgeAt(growth, avatarHalf + gap);
 
   // The card growing downward draws its composer row first, so the row starts
-  // on the avatar's top line and the card falls away from it; everything else
-  // hangs upward off the avatar's bottom line.
+  // one options box above the creature's baseline and the card falls away from
+  // it; everything else hangs upward off that baseline.
   const dropsFromTheRow = typing && cardGrowth === "down";
 
   const style: CSSProperties = {
     width,
     ...placement,
-    // **Bottom-flush with the avatar.** The pill's bottom edge sits on the
-    // avatar's, and the card keeps that line: its composer row is the column's
-    // last child growing up and its first growing down, so the row's bottom is
-    // the avatar's bottom either way and the mascot does not move when Type is
-    // pressed. The line is the avatar's *box*, not the artwork inside it, which
-    // is inset by an `INNER_GAP` on every side and so stops short of it. Which
-    // way the card stacks is the host's call: parked by the Dock a card growing
-    // down would grow off the bottom of the screen, and at the top of the
-    // display a card growing up has nowhere to be (see
+    // **On the creature's visible bottom.** The pill's bottom edge sits on the
+    // bottom of the artwork, and the card keeps that line: its composer row is
+    // the column's last child growing up and its first growing down, so the
+    // row's bottom is that line either way and the mascot does not move when
+    // Type is pressed. The line is the artwork, not the avatar's *box*, which
+    // runs an `INNER_GAP` further down to hold the glow and the bob's slack.
+    // Which way the card stacks is the host's call: parked by the Dock a card
+    // growing down would grow off the bottom of the screen, and at the top of
+    // the display a card growing up has nowhere to be (see
     // `CompanionSurfaceCardGrowth`). The row is one options box tall, so a card
     // growing downward starts exactly that far above the line.
-    top: lineAt(
-      cardGrowth,
-      dropsFromTheRow ? avatarHalf - optionsBox : avatarHalf,
-    ),
+    top: lineAt(cardGrowth, dropsFromTheRow ? baseline - optionsBox : baseline),
     transform: dropsFromTheRow ? "none" : "translateY(-100%)",
     // Settles rather than overshoots. A surface on screen all day should not
     // bounce every time the pointer crosses it.

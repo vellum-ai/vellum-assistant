@@ -221,7 +221,7 @@ export function PreferencesMenu({
               event.preventDefault();
               content?.focus();
             }}
-            className="w-64 rounded-lg p-4"
+            className="w-64"
           >
             {content}
           </Popover.Content>
@@ -282,7 +282,7 @@ function PreferencesMenuContent({
     <>
       <ThemeToggle className="px-2 py-0" />
 
-      <div className="my-2 border-t border-[var(--border-subtle)]" />
+      <div className="my-1 h-px bg-[var(--border-base)]" />
 
       <PreferencesUsagePanel
         conversationId={activeConversationId}

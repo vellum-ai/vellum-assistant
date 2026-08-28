@@ -35,7 +35,7 @@ async function extractThumbnail(inputPath: string): Promise<string | null> {
         "5",
         outputPath,
       ],
-      { stderr: "pipe" },
+      { stderr: "pipe", windowsHide: true },
     );
 
     let timer: ReturnType<typeof setTimeout>;

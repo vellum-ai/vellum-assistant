@@ -303,85 +303,90 @@ export function AssistantUpgrades({
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
             {targetLabel}
           </span>
-          <span className="block min-w-0">
-            {releasesLoading ? (
-              <span className="flex items-center gap-1 text-body-medium-lighter text-[var(--content-tertiary)]">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                {t("assistantUpgrades.loading")}
-              </span>
-            ) : releases && releases.length > 0 ? (
-              rollbackEnabled ? (
-                <Select
-                  value={effectiveSelectedVersion ?? ""}
-                  onChange={(value) =>
-                    setSelectedVersion(
-                      value === latestRelease?.version ? null : value,
-                    )
-                  }
-                  disabled={
-                    isPollingUpgrade ||
-                    upgradeCreate.isPending ||
-                    rollbackCreate.isPending
-                  }
-                  options={releases.map((r) => ({
-                    value: r.version,
-                    label: releaseLabel(
-                      r,
-                      currentVersion,
-                      latestRelease?.version,
-                    ),
-                  }))}
-                />
-              ) : (
-                <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
-                  {latestRelease
-                    ? releaseLabel(
-                        latestRelease,
-                        currentVersion,
-                        latestRelease.version,
-                      )
-                    : "—"}
+          {/* The action belongs to the version it acts on, so it shares the
+              row on desktop. Narrow screens stack it to keep both the version
+              string and the button at full width. */}
+          <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-4">
+            <span className="block min-w-0 flex-1">
+              {releasesLoading ? (
+                <span className="flex items-center gap-1 text-body-medium-lighter text-[var(--content-tertiary)]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t("assistantUpgrades.loading")}
                 </span>
-              )
-            ) : (
-              t("assistantUpgrades.noReleases")
-            )}
-          </span>
+              ) : releases && releases.length > 0 ? (
+                rollbackEnabled ? (
+                  <Select
+                    value={effectiveSelectedVersion ?? ""}
+                    onChange={(value) =>
+                      setSelectedVersion(
+                        value === latestRelease?.version ? null : value,
+                      )
+                    }
+                    disabled={
+                      isPollingUpgrade ||
+                      upgradeCreate.isPending ||
+                      rollbackCreate.isPending
+                    }
+                    options={releases.map((r) => ({
+                      value: r.version,
+                      label: releaseLabel(
+                        r,
+                        currentVersion,
+                        latestRelease?.version,
+                      ),
+                    }))}
+                  />
+                ) : (
+                  <span className="block min-w-0 break-all text-body-medium-lighter text-[var(--content-default)]">
+                    {latestRelease
+                      ? releaseLabel(
+                          latestRelease,
+                          currentVersion,
+                          latestRelease.version,
+                        )
+                      : "—"}
+                  </span>
+                )
+              ) : (
+                t("assistantUpgrades.noReleases")
+              )}
+            </span>
+            <Button
+              variant={isRollback ? "outlined" : "primary"}
+              className="min-w-[160px] shrink-0"
+              leftIcon={
+                upgradeCreate.isPending ||
+                rollbackCreate.isPending ||
+                isPollingUpgrade ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <RefreshCw />
+                )
+              }
+              onClick={() => setShowConfirmation(true)}
+              disabled={
+                !upgradeAvailable ||
+                upgradeCreate.isPending ||
+                rollbackCreate.isPending ||
+                isPollingUpgrade ||
+                releasesLoading ||
+                !releases?.length
+              }
+            >
+              {isPollingUpgrade
+                ? isPollingRollback
+                  ? t("assistantUpgrades.rollingBack")
+                  : t("assistantUpgrades.updating")
+                : isRollback
+                  ? t("assistantUpgrades.rollback")
+                  : isPreviewReleaseChannel
+                    ? t("assistantUpgrades.updatePreview")
+                    : t("assistantUpgrades.update")}
+            </Button>
+          </div>
         </div>
       </div>
 
-      <Button
-        variant={isRollback ? "outlined" : "primary"}
-        className="min-w-[160px]"
-        leftIcon={
-          upgradeCreate.isPending ||
-          rollbackCreate.isPending ||
-          isPollingUpgrade ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <RefreshCw />
-          )
-        }
-        onClick={() => setShowConfirmation(true)}
-        disabled={
-          !upgradeAvailable ||
-          upgradeCreate.isPending ||
-          rollbackCreate.isPending ||
-          isPollingUpgrade ||
-          releasesLoading ||
-          !releases?.length
-        }
-      >
-        {isPollingUpgrade
-          ? isPollingRollback
-            ? t("assistantUpgrades.rollingBack")
-            : t("assistantUpgrades.updating")
-          : isRollback
-            ? t("assistantUpgrades.rollback")
-            : isPreviewReleaseChannel
-              ? t("assistantUpgrades.updatePreview")
-              : t("assistantUpgrades.update")}
-      </Button>
       {isPreviewReleaseChannel && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
           <Trans

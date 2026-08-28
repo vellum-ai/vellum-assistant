@@ -161,6 +161,7 @@ function spawnRunner(
       env,
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
+      windowsHide: true,
     });
 
     const timer = setTimeout(() => {

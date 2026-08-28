@@ -2,18 +2,21 @@
  * The pending `ask_question` card, the prompt that docks above the composer
  * while the assistant is waiting on an answer.
  *
- * The card is pure props, so these stories drive it directly. What they are
- * for is the minimized state (LUM-3390): it is a live interaction, and the
- * chevron, the swipe and the tap all land on the same transition, so it wants
- * to be played with rather than screenshotted. Open a story, use the chevron
- * in the header, and on a touch target drag the card down or flick it back up.
+ * The card measures itself, so width is the axis these stories are organised
+ * around, and the decorator is what varies. A roomy card puts the question
+ * beside the pager on one line and offers no collapse at all; a narrow one
+ * stacks the pager above the question and carries a chevron to put the options
+ * away. The `Narrow*` stories are the cramped end, which is where the card is
+ * measured against the mock.
  *
- * The `Minimized*` stories start there instead, since that state is where the
- * card is measured against the mock. They are set to the phone viewport, which
- * is where the card is at its most cramped and where the collapse earns its
- * keep. Note that a desktop browser reports a fine pointer at any width, so the
- * numeric hotkey badges stay on; open the story in a device-emulated frame, or
- * on a real phone, to see the card without them.
+ * The collapse is a live interaction, and the chevron, the swipe and the header
+ * tap all land on the same transition, so it wants to be played with rather
+ * than screenshotted. Open a `Narrow` story, use the chevron, and on a touch
+ * target drag the card down or flick it back up.
+ *
+ * A desktop browser reports a fine pointer at any width, so the numeric hotkey
+ * badges stay on; open a story in a device-emulated frame, or on a real phone,
+ * to see the card without them.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
@@ -45,9 +48,8 @@ const CADENCE: QuestionEntry = {
 };
 
 /**
- * A question long enough to run past the one line the minimized header keeps,
- * which is the shape the collapse actually ships in: the card docks above the
- * composer with the question truncated to whatever the row has left.
+ * A question long enough to run past the two lines a collapsed header keeps,
+ * which is what bounds the height of a card docked above the composer.
  */
 const LONG: QuestionEntry = {
   id: "q3",
@@ -85,38 +87,76 @@ const meta: Meta<typeof QuestionPromptCard> = {
 export default meta;
 type Story = StoryObj<typeof QuestionPromptCard>;
 
-/** The default: expanded, one question, four options and the free-text row. */
-export const Expanded: Story = {
+/**
+ * The width a chat column reaches when the sidebar is closed, which is where
+ * the card gets its one-line header.
+ */
+const roomy: Story["decorators"] = [
+  (Story) => (
+    <div className="w-[600px] max-w-full">
+      <Story />
+    </div>
+  ),
+];
+
+/**
+ * A phone, or a desktop column squeezed by the sidebar. Both put the card in
+ * the same layout, which is the point of measuring the card rather than the
+ * window.
+ */
+const narrow: Story["decorators"] = [
+  (Story) => (
+    <div className="w-[386px] max-w-full">
+      <Story />
+    </div>
+  ),
+];
+
+/** The default: roomy, one question, four options and the free-text row. */
+export const Roomy: Story = {
   args: { entries: [MARKONE] },
+  decorators: roomy,
 };
 
 /**
- * A batch. The pager shares the trailing cluster with the minimize chevron, and
- * both leave when the card minimizes, since each of them acts on rows that are
- * on screen. Which question you are on is announced to a screen reader and not
- * drawn: a sighted reader has the options changing under them to say it.
+ * A batch with room. The count sits inline with the pager on the same line as
+ * the question, and the card offers no way to collapse: it is beside the
+ * transcript rather than on top of it.
  */
-export const Batched: Story = {
+export const RoomyBatched: Story = {
   args: { entries: [MARKONE, CADENCE] },
+  decorators: roomy,
 };
 
-/** A question with no description, so the header is a single line to begin with. */
+/** A question with no description, so the header is a single line either way. */
 export const NoDescription: Story = {
   args: { entries: [CADENCE] },
+  decorators: roomy,
 };
 
-/** Mid-submit: every control is disabled, but the card still minimizes. */
+/** Mid-submit: every control is disabled, but the card still collapses. */
 export const Submitting: Story = {
   args: { entries: [MARKONE], isSubmitting: true },
+  decorators: narrow,
 };
 
-/** No `onClose`, so the card renders without its X and Escape does nothing. */
-export const NotDismissible: Story = {
-  args: { entries: [MARKONE], onClose: undefined },
+/**
+ * The narrow header: the count and the chevrons take a line of their own above
+ * the question, and the chevron on the end puts the options away.
+ */
+export const Narrow: Story = {
+  args: { entries: [MARKONE] },
+  decorators: narrow,
 };
 
-/** Lands the story in the minimized state, which is otherwise a click away. */
-const minimizeCard: Story["play"] = async ({ canvasElement }) => {
+/** A narrow batch, where the pager earns the line it sits on. */
+export const NarrowBatched: Story = {
+  args: { entries: [MARKONE, CADENCE] },
+  decorators: narrow,
+};
+
+/** Lands the story collapsed, which is otherwise a click away. */
+const collapseCard: Story["play"] = async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await userEvent.click(
     await canvas.findByRole("button", { name: "Minimize question" }),
@@ -124,34 +164,25 @@ const minimizeCard: Story["play"] = async ({ canvasElement }) => {
 };
 
 /**
- * The minimized card, at the width it docks above the composer on a phone. The
- * question truncates to one line, the option count and the way back stand in
- * for the body, and the only control left is the X: the chevron leaves with the
- * rows it collapsed, and the summary itself is what reopens the card. Click it,
- * or tab to it and press Enter.
+ * The collapsed card, at the width it docks above the composer on a phone. The
+ * header stays whole (question, description, count and pager) and everything
+ * under it goes. The chevron turns over to point back up. Click it, tab to it
+ * and press Enter, or tap anywhere on the header.
  */
-export const Minimized: Story = {
+export const Collapsed: Story = {
   args: { entries: [LONG] },
+  decorators: narrow,
   globals: { viewport: { value: "sbMobile" } },
-  play: minimizeCard,
+  play: collapseCard,
 };
 
 /**
- * A minimized batch, which is a plain one-line row: no pager, since there are
- * no options on screen to page between, and no position to report.
+ * A collapsed batch, which still pages: the chevrons act on the question the
+ * header is showing, and the count follows them.
  */
-export const MinimizedBatched: Story = {
+export const CollapsedBatched: Story = {
   args: { entries: [MARKONE, CADENCE] },
+  decorators: narrow,
   globals: { viewport: { value: "sbMobile" } },
-  play: minimizeCard,
-};
-
-/**
- * The expanded card at phone width, to compare the two against each other: the
- * pager and the one chevron sit in the trailing cluster, and both go away
- * together on the way down.
- */
-export const BatchedOnAPhone: Story = {
-  args: { entries: [MARKONE, CADENCE] },
-  globals: { viewport: { value: "sbMobile" } },
+  play: collapseCard,
 };

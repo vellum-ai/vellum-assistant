@@ -4,18 +4,22 @@
  *
  * The card sits between the transcript and the composer, so at full height it
  * covers the assistant message the question is about (LUM-3390). Minimizing
- * leaves a one-line stand-in and hands the message back, and the state is
- * per-prompt: `QuestionPromptSlot` keys the card by `requestId`, so a new
- * question always arrives expanded.
+ * hands that message back, and the state is per-prompt: `QuestionPromptSlot`
+ * keys the card by `requestId`, so a new question always arrives expanded.
  *
  * Motion is expressed as a single `progress` in `[0, 1]`, 1 expanded and 0
  * minimized, that every animated part of the card reads. At rest it is the
  * state itself and CSS eases between the two; during a drag it tracks the
  * finger directly and the card's transitions are dropped, so the card follows
  * the gesture rather than lagging behind it.
+ *
+ * A card wide enough to sit beside the transcript rather than on top of it has
+ * nothing to minimize for, and carries no control to reopen from. `canMinimize`
+ * is what says so, and this hook owns every consequence of it, because the
+ * control and the gesture that substitutes for it have to agree.
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   MouseEvent as ReactMouseEvent,
   TouchEvent as ReactTouchEvent,
@@ -55,31 +59,20 @@ export function collapseProgress(
   return clamp01(resting - dragOffset / MINIMIZE_TRAVEL_PX);
 }
 
-/**
- * Opacity for chrome that belongs to the expanded card (the description, the
- * pager). Gone by the halfway point so it has cleared out before the summary
- * line it shares the header with fades in.
- */
-export function expandedChromeOpacity(progress: number): number {
-  return clamp01(progress * 2 - 1);
-}
-
-/**
- * Opacity for the one-line summary that stands in for the collapsed body. The
- * mirror of {@link expandedChromeOpacity}: the two never overlap, so the header
- * reads as one line swapping for another rather than as two lines dissolving
- * through each other.
- */
-export function minimizedChromeOpacity(progress: number): number {
-  return clamp01(1 - progress * 2);
-}
-
 export interface QuestionCardDragHandlers {
   onTouchStart: (event: ReactTouchEvent) => void;
   onTouchMove: (event: ReactTouchEvent) => void;
   onTouchEnd: (event: ReactTouchEvent) => void;
   onTouchCancel: () => void;
   onClickCapture: (event: ReactMouseEvent) => void;
+}
+
+export interface UseQuestionCardMinimizeOptions {
+  /**
+   * Whether the card is narrow enough to be worth collapsing. False disarms the
+   * gesture and holds the card open.
+   */
+  canMinimize: boolean;
 }
 
 export interface UseQuestionCardMinimizeResult {
@@ -91,16 +84,16 @@ export interface UseQuestionCardMinimizeResult {
   isDragging: boolean;
   /** `data-dragging` value for every element the drag animates. */
   dragAttr: "true" | undefined;
-  /** Flips the state. Backs the header's minimize / reopen button. */
+  /** Flips the state. Backs the header's collapse chevron. */
   toggle: () => void;
-  /** Reopens a minimized card. Backs the header's tap target. */
-  expand: () => void;
   /** Touch handlers for the card's drag surface. */
   dragHandlers: QuestionCardDragHandlers;
 }
 
-export function useQuestionCardMinimize(): UseQuestionCardMinimizeResult {
-  const [isMinimized, setIsMinimized] = useState(false);
+export function useQuestionCardMinimize({
+  canMinimize,
+}: UseQuestionCardMinimizeOptions): UseQuestionCardMinimizeResult {
+  const [minimizeRequested, setMinimizeRequested] = useState(false);
 
   // A tap that ends a drag must not also toggle. `touchend` runs before the
   // synthetic `click`, so the flag is raised while the drag resolves and
@@ -108,7 +101,7 @@ export function useQuestionCardMinimize(): UseQuestionCardMinimizeResult {
   const draggedRef = useRef(false);
 
   const swipe = useSwipeEngine({
-    enabled: true,
+    enabled: canMinimize,
     axis: "vertical",
     commitThresholdPx: MINIMIZE_COMMIT_PX,
     // The card follows the finger one-to-one for its whole travel. The engine's
@@ -120,10 +113,28 @@ export function useQuestionCardMinimize(): UseQuestionCardMinimizeResult {
       draggedRef.current = true;
     },
     onCommit: (delta) => {
+      // The engine only consults `enabled` when a gesture arms, so a drag that
+      // started while the card was narrow still lands here after a rotation
+      // widens it. Committing then would leave a card collapsed with no
+      // chevron to reopen it.
+      if (!canMinimize) {
+        return;
+      }
       haptic.light();
-      setIsMinimized(delta > 0);
+      setMinimizeRequested(delta > 0);
     },
   });
+
+  // Dropping the request rather than only overriding it below: a card held open
+  // by its width must not spring shut again the moment the width comes back,
+  // with nothing on screen having asked for it.
+  useEffect(() => {
+    if (!canMinimize) {
+      setMinimizeRequested(false);
+    }
+  }, [canMinimize]);
+
+  const isMinimized = minimizeRequested && canMinimize;
 
   const { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel } = swipe;
 
@@ -136,13 +147,7 @@ export function useQuestionCardMinimize(): UseQuestionCardMinimizeResult {
   );
 
   const toggle = useCallback(() => {
-    setIsMinimized((minimized) => !minimized);
-  }, []);
-
-  // Drag suppression lives in `onClickCapture` below, which stops the click
-  // before it reaches any handler, so this one is free to be unconditional.
-  const expand = useCallback(() => {
-    setIsMinimized(false);
+    setMinimizeRequested((minimized) => !minimized);
   }, []);
 
   /**
@@ -178,7 +183,6 @@ export function useQuestionCardMinimize(): UseQuestionCardMinimizeResult {
     isDragging: swipe.isDragging,
     dragAttr: swipe.isDragging ? "true" : undefined,
     toggle,
-    expand,
     dragHandlers,
   };
 }

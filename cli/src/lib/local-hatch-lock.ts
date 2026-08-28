@@ -10,7 +10,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "fs";
-import { hostname, userInfo } from "os";
+import { hostname, platform, userInfo } from "os";
 import { dirname, join } from "path";
 
 const DEFAULT_TIMEOUT_MS = 240_000;
@@ -62,11 +62,24 @@ function processIsAlive(pid: number): boolean {
 }
 
 function processStartedAt(pid: number): string | undefined {
+  const [file, args] =
+    platform() === "win32"
+      ? [
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CreationDate.ToString('o')`,
+          ],
+        ]
+      : ["ps", ["-o", "lstart=", "-p", String(pid)]];
   try {
-    const value = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+    const value = execFileSync(file, args, {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1_000,
+      timeout: platform() === "win32" ? 5_000 : 1_000,
+      windowsHide: true,
     }).trim();
     return value || undefined;
   } catch {

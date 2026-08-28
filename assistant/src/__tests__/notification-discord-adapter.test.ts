@@ -10,20 +10,44 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const dmOpens: string[] = [];
-const sendCalls: Array<{ channelId: string; text: string }> = [];
+const sendCalls: Array<{
+  channelId: string;
+  text: string;
+  approval?: { requestId: string } | undefined;
+}> = [];
 const editCalls: Array<{ channelId: string; messageId: string; text: string }> =
   [];
 
+// Spread the actual module: the real send.js is imported below for its
+// error class and transitively needs api.js's other named exports.
+const actualApi = await import("../messaging/providers/discord/api.js");
 mock.module("../messaging/providers/discord/api.js", () => ({
+  ...actualApi,
   openDiscordDmChannel: async (userId: string) => {
     dmOpens.push(userId);
     return `dm-for-${userId}`;
   },
 }));
 
+const actualSend = await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
-  sendDiscordReply: async (target: { channelId: string }, text: string) => {
-    sendCalls.push({ channelId: target.channelId, text });
+  DiscordPartialSendError: actualSend.DiscordPartialSendError,
+  sendDiscordReply: async (
+    target: { channelId: string },
+    text: string,
+    approval?: { requestId: string },
+  ) => {
+    if (approval && failRichSends) {
+      throw failRichSends === "partial"
+        ? new actualSend.DiscordPartialSendError(
+            new Error("final chunk rejected"),
+            2,
+            "tail of the card",
+            "1500",
+          )
+        : new Error("simulated component rejection");
+    }
+    sendCalls.push({ channelId: target.channelId, text, approval });
     return { lastMessageId: String(2000 + sendCalls.length) };
   },
   editDiscordMessage: async (
@@ -68,10 +92,13 @@ function makeDestination(
   };
 }
 
+let failRichSends: boolean | "partial" = false;
+
 beforeEach(() => {
   dmOpens.length = 0;
   sendCalls.length = 0;
   editCalls.length = 0;
+  failRichSends = false;
 });
 
 describe("DiscordAdapter.send", () => {
@@ -87,7 +114,7 @@ describe("DiscordAdapter.send", () => {
     expect(sendCalls[0].text).toContain("Your task finished.");
   });
 
-  test("approval notifications carry the typed-command instructions", async () => {
+  test("approval notifications deliver with component buttons", async () => {
     const adapter = new DiscordAdapter();
     const result = await adapter.send(
       makePayload({
@@ -102,6 +129,51 @@ describe("DiscordAdapter.send", () => {
 
     expect(result.success).toBe(true);
     expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].approval?.requestId).toBe("req-1");
+    // The rich card carries no typed-command tail; buttons are the controls.
+    expect(sendCalls[0].text).not.toContain("Reply");
+  });
+
+  test("a mid-card failure completes the card instead of replaying it", async () => {
+    failRichSends = "partial";
+    const adapter = new DiscordAdapter();
+    const result = await adapter.send(
+      makePayload({
+        approvalContext: {
+          requestId: "req-1",
+          actions: [{ id: "approve_once", label: "Approve once" }],
+          plainTextFallback: 'Reply "approve" or "reject" to decide.',
+        },
+      }),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(true);
+    expect(sendCalls).toHaveLength(1);
+    // Only the undelivered remainder goes out, with the typed instructions;
+    // the delivered chunks are never sent twice.
+    expect(sendCalls[0].approval).toBeUndefined();
+    expect(sendCalls[0].text).toContain("tail of the card");
+    expect(sendCalls[0].text).toContain('Reply "approve" or "reject"');
+  });
+
+  test("a failed rich delivery falls back to the typed-command card", async () => {
+    failRichSends = true;
+    const adapter = new DiscordAdapter();
+    const result = await adapter.send(
+      makePayload({
+        approvalContext: {
+          requestId: "req-1",
+          actions: [{ id: "approve_once", label: "Approve once" }],
+          plainTextFallback: 'Reply "approve" or "reject" to decide.',
+        },
+      }),
+      makeDestination(),
+    );
+
+    expect(result.success).toBe(true);
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].approval).toBeUndefined();
     expect(sendCalls[0].text).toContain(
       'Reply "approve" or "reject" to decide.',
     );

@@ -199,7 +199,10 @@ export function validatePluginForPublish(dir: string): PublishValidation {
 // ---------------------------------------------------------------------------
 
 async function runGit(dir: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, { cwd: dir });
+  const { stdout } = await execFileAsync("git", args, {
+    cwd: dir,
+    windowsHide: true,
+  });
   return stdout.trim();
 }
 

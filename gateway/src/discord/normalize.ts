@@ -17,8 +17,10 @@ import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import type { AdmissionCandidate } from "./admit.js";
 import { extractDiscordAttachments } from "./attachments.js";
 import type {
+  DiscordInteraction,
   DiscordMessageCreate,
   DiscordMessageDelete,
+  DiscordMessageReaction,
 } from "./message-schemas.js";
 
 /**
@@ -128,6 +130,134 @@ export function normalizeDiscordMessage(
  * author cleared the ACL when the message arrived; nothing here asserts who
  * deleted it.
  */
+/**
+ * Normalize a component-button INTERACTION_CREATE into the button event
+ * family, the same shape a Telegram callback query takes: `callbackData`
+ * carries the component's `custom_id` (`apr:<requestId>:<action>` on an
+ * approval card) and `source.messageId` names the card the press landed on.
+ * The actor is `user` in a DM and `member.user` in a guild; an interaction
+ * whose actor cannot be named, or whose actor is a bot, cannot be routed
+ * and drops.
+ */
+export function normalizeDiscordInteraction(
+  interaction: DiscordInteraction,
+  options: {
+    parentChannelId?: string;
+    raw: Record<string, unknown>;
+  },
+): DiscordInboundEvent | null {
+  const actor = interaction.user ?? interaction.member?.user;
+  const customId = interaction.data?.custom_id;
+  if (
+    !interaction.id ||
+    !interaction.channel_id ||
+    !customId ||
+    !actor?.id ||
+    actor.bot === true
+  ) {
+    return null;
+  }
+  const inThread = options.parentChannelId !== undefined;
+  const isDirectMessage = interaction.guild_id === undefined;
+  return {
+    version: "v1",
+    sourceChannel: "discord",
+    receivedAt: new Date().toISOString(),
+    message: {
+      eventKind: "button",
+      content: customId,
+      conversationExternalId: options.parentChannelId ?? interaction.channel_id,
+      externalMessageId: interaction.id,
+      callbackData: customId,
+    },
+    actor: {
+      actorExternalId: actor.id,
+      ...(actor.username !== undefined ? { username: actor.username } : {}),
+      ...(typeof actor.global_name === "string"
+        ? { displayName: actor.global_name }
+        : {}),
+      ...(actor.bot !== undefined ? { isBot: actor.bot } : {}),
+    },
+    source: {
+      updateId: interaction.id,
+      messageId: interaction.message?.id,
+      chatType: isDirectMessage ? "dm" : "channel",
+      isDirectMessage,
+      ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
+      ...(inThread ? { threadId: interaction.channel_id } : {}),
+    },
+    raw: options.raw,
+  };
+}
+
+export function normalizeDiscordMessageReaction(
+  reaction: DiscordMessageReaction,
+  options: {
+    op: "added" | "removed";
+    parentChannelId?: string;
+    raw: Record<string, unknown>;
+  },
+): DiscordInboundEvent | null {
+  // The emoji rides in Discord's own vocabulary: a unicode emoji's name IS
+  // the character, and a custom emoji is forwarded in its canonical
+  // `<:name:id>` mention form. The mention form is load-bearing for the
+  // guardian rail: a guild custom emoji's name is arbitrary text in the
+  // same string space as Slack's colon names, so a bare name like
+  // `white_check_mark` would read as approval vocabulary; the angle-bracket
+  // form can never collide with it, keeping custom emoji non-actionable
+  // transcript annotations with an unambiguous identity. An entry with no
+  // name (a deleted custom emoji on REMOVE) cannot be expressed and drops.
+  if (!reaction.message_id || !reaction.channel_id || !reaction.user_id) {
+    return null;
+  }
+  const emojiName = reaction.emoji?.name;
+  if (emojiName == null || emojiName.length === 0) {
+    return null;
+  }
+  const customEmojiId = reaction.emoji?.id;
+  const emoji =
+    customEmojiId != null ? `<:${emojiName}:${customEmojiId}>` : emojiName;
+  const inThread = options.parentChannelId !== undefined;
+  const isDirectMessage = reaction.guild_id === undefined;
+  // The reactor joins the dedup id so two users reacting with the same emoji
+  // on one message stay distinct events, and the op suffix keeps an add and
+  // its removal distinct. A re-add after a removal repeats the add's id and
+  // dedups away downstream, matching the Slack reaction id shape.
+  const externalMessageId =
+    options.op === "added"
+      ? `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}`
+      : `${reaction.message_id}:reaction:${emoji}:${reaction.user_id}:removed`;
+  return {
+    version: "v1",
+    sourceChannel: "discord",
+    receivedAt: new Date().toISOString(),
+    message: {
+      eventKind: "reaction",
+      // A reaction has no user-authored text; its payload is structured.
+      content: "",
+      conversationExternalId: options.parentChannelId ?? reaction.channel_id,
+      externalMessageId,
+      reaction: {
+        op: options.op,
+        emoji,
+        targetMessageId: reaction.message_id,
+      },
+    },
+    actor: {
+      actorExternalId: reaction.user_id,
+    },
+    source: {
+      updateId: reaction.message_id,
+      messageId: reaction.message_id,
+      chatType: isDirectMessage ? "dm" : "channel",
+      isDirectMessage,
+      ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
+      ...(inThread ? { threadId: reaction.channel_id } : {}),
+    },
+    raw: options.raw,
+  };
+}
+
 export function normalizeDiscordMessageDelete(
   del: DiscordMessageDelete,
   options: {

@@ -143,7 +143,11 @@ export async function readFileResidency(
     const { stdout } = await execFileAsync(
       "fincore",
       ["--bytes", "--json", ...paths],
-      { timeout: 10_000, maxBuffer: 4 * 1024 * 1024 },
+      {
+        timeout: 10_000,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      },
     );
     return parseFincoreJson(stdout);
   } catch {

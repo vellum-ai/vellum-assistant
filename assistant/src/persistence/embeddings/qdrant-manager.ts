@@ -286,6 +286,7 @@ export class QdrantManager {
           cmd: ["tar", "xzf", tmpTar, "-C", binDir, release.binaryName],
           stdout: "ignore",
           stderr: "pipe",
+          windowsHide: true,
         });
         await proc.exited;
         if (proc.exitCode !== 0) {

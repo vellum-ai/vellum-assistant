@@ -211,7 +211,11 @@ function findWasmPath(
   // /$bunfs/ filesystem. Prefer bundled WASM assets shipped alongside the
   // executable before falling back to process.cwd(), so we never accidentally
   // pick up a mismatched version from the working directory.
-  if (dir.startsWith("/$bunfs/")) {
+  const normalizedDir = dir.replaceAll("\\", "/");
+  if (
+    normalizedDir.startsWith("/$bunfs/") ||
+    /^[a-z]:\/~bun(?:\/|$)/i.test(normalizedDir)
+  ) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, "..", "Resources", file);

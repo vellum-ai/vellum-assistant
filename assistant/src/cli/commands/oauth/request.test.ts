@@ -182,6 +182,43 @@ describe("oauth request body encoding", () => {
     );
   });
 
+  test("reads a binary @file as a Buffer without UTF-8 replacement", async () => {
+    const filePath = join(tempDir, "upload.bin");
+    writeFileSync(filePath, PNG_MAGIC);
+
+    const parsed = readBodyData(`@${filePath}`, {
+      "Content-Type": "application/octet-stream",
+    });
+    expect(Buffer.isBuffer(parsed)).toBe(true);
+    expect(Buffer.from(parsed as Uint8Array).equals(PNG_MAGIC)).toBe(true);
+  });
+
+  test("forwards a binary @file to the route handler as a Buffer", async () => {
+    const filePath = join(tempDir, "report.pdf");
+    writeFileSync(filePath, PNG_MAGIC);
+
+    const { exitCode } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "-X",
+      "POST",
+      "-H",
+      "Content-Type: application/pdf",
+      "-d",
+      `@${filePath}`,
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=media",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(handleRequestCalls).toHaveLength(1);
+    const call = handleRequestCalls[0] as { body: { parsed_data: unknown } };
+    expect(Buffer.isBuffer(call.body.parsed_data)).toBe(true);
+    expect(
+      Buffer.from(call.body.parsed_data as Uint8Array).equals(PNG_MAGIC),
+    ).toBe(true);
+  });
+
   test("forwards a multipart body to the route handler as a string", async () => {
     const { exitCode } = await runRequestCommand([
       "--provider",

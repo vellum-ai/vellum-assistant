@@ -105,17 +105,23 @@ const resolveSigning = () => {
   }
 };
 
-// Enumerates every packaged executable and DLL (and later the installer)
-// into dist/signing-manifest-<arch>.json for signature verification.
-const enumerateSignableFiles = (args) => {
-  const result = spawnSync("bun", ["scripts/after-pack.ts", ...args], {
+const runBun = (args, label) => {
+  const result = spawnSync("bun", args, {
     cwd: __dirname,
     stdio: "inherit",
   });
   if (result.status !== 0) {
-    throw new Error(`after-pack enumeration failed (exit ${result.status})`);
+    throw new Error(`${label} failed (exit ${result.status})`);
   }
 };
+
+// Enumerates every packaged executable and DLL (and later the installer)
+// into dist/signing-manifest-<arch>.json for signature verification.
+const enumerateSignableFiles = (args) =>
+  runBun(["scripts/after-pack.ts", ...args], "after-pack enumeration");
+
+const buildElectronEntrypoints = () =>
+  runBun(["run", "build"], "Electron build");
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
@@ -141,6 +147,13 @@ module.exports = {
     { from: "resources/tray.ico", to: "tray.ico" },
     { from: appIcon, to: "icon.ico" },
     { from: "resources/cli-runtime", to: "cli-runtime" },
+    // electron-builder excludes a node_modules directory encountered below a
+    // broader file matcher. Use it as the matcher root so the CLI runtime's
+    // native packages are included in the installed app.
+    {
+      from: "resources/cli-runtime/node_modules",
+      to: "cli-runtime/node_modules",
+    },
     {
       from: `native/Vellum.PreviewHandler/build/${msbuildPlatform}/Release`,
       to: "preview-handler",
@@ -187,6 +200,7 @@ module.exports = {
       name: "Vellum Bundle",
     },
   ],
+  beforePack: buildElectronEntrypoints,
   afterPack: async (context) => {
     enumerateSignableFiles([
       "--app-out-dir",

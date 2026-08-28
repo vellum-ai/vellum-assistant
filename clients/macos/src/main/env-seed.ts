@@ -2,6 +2,8 @@
 // is seeded before any other module reads it at module scope.
 declare const __VELLUM_ENVIRONMENT__: string;
 
+process.env.VELLUM_DESKTOP_APP = "1";
+
 if (
   typeof __VELLUM_ENVIRONMENT__ === "string" &&
   !process.env.VELLUM_ENVIRONMENT

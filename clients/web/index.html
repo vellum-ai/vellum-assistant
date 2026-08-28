@@ -134,8 +134,8 @@
     // omitting it here keeps the splash and the app saying the same thing.
     // `src/shell-metadata.test.ts` fails if the two drift.
     (function () {
-      var SUPPORTED_LOCALES = ["en", "es", "ru"];
-      var LABELS = { es: "Cargando" };
+      var SUPPORTED_LOCALES = ["en", "es", "ru", "zh"];
+      var LABELS = { es: "Cargando", zh: "正在加载" };
 
       function resolveLocale() {
         var stored = null;

@@ -1,0 +1,42 @@
+{
+  "errorRetryRow": {
+    "retrying": "正在重试…",
+    "retry": "重试"
+  },
+  "emailsTab": {
+    "inbound": "收件",
+    "outbound": "发件",
+    "noSubject": "(无主题)",
+    "addressesLoadFailed": "无法加载电子邮件地址。",
+    "noAddress": "尚未注册电子邮件地址。",
+    "setUpLink": "在AI设置、电子邮件中设置一个。",
+    "totals": "总计",
+    "sentToday": "今日已发送",
+    "dailyLimitSub": "每日限额 {limit, number} 中的",
+    "receivedToday": "今日已接收",
+    "sentThisMonth": "本月已发送",
+    "receivedThisMonth": "本月已接收",
+    "recentEmails": "近期电子邮件",
+    "loading": "正在加载…",
+    "emailsLoadFailed": "无法加载近期电子邮件。",
+    "noEmails": "暂无电子邮件。"
+  },
+  "systemEventsTab": {
+    "longSleep": "长时间休眠",
+    "hideDetails": "隐藏详情",
+    "showDetails": "显示详情",
+    "intro": "您的助手在过去 {days, plural, one {# 天} other {# 天}} 的生命周期事件，最新在前。",
+    "loading": "正在加载系统事件...",
+    "loadFailed": "加载系统事件失败。请刷新后重试。",
+    "empty": "过去 {days, plural, one {# 天} other {# 天}} 未记录任何系统事件。",
+    "loadingOlder": "正在加载更早的事件...",
+    "loadOlder": "加载更早的事件"
+  },
+  "emailsPage": {
+    "platformLoginNotice": "登录 Vellum 平台以查看电子邮件。"
+  },
+  "systemEventsPage": {
+    "platformLoginNotice": "登录 Vellum 平台以查看系统事件。",
+    "notAvailable": "当前助手无法使用系统事件。"
+  }
+}

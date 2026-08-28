@@ -49,6 +49,7 @@ export async function ensureLocalCA(dataDir: string): Promise<void> {
   const keyProc = Bun.spawn(["openssl", "genrsa", "-out", keyPath, "2048"], {
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
   const keyExit = await keyProc.exited;
   if (keyExit !== 0) {
@@ -76,7 +77,7 @@ export async function ensureLocalCA(dataDir: string): Promise<void> {
       "-addext",
       "keyUsage=critical,keyCertSign,cRLSign",
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const certExit = await certProc.exited;
   if (certExit !== 0) {
@@ -144,7 +145,7 @@ export async function issueLeafCert(
   // Generate leaf key
   const keyProc = Bun.spawn(
     ["openssl", "genrsa", "-out", leafKeyPath, "2048"],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const keyExit = await keyProc.exited;
   if (keyExit !== 0) {
@@ -166,7 +167,7 @@ export async function issueLeafCert(
       "-subj",
       `/CN=${hostname}`,
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const csrExit = await csrProc.exited;
   if (csrExit !== 0) {
@@ -198,7 +199,7 @@ export async function issueLeafCert(
       "-extfile",
       extPath,
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", windowsHide: true },
   );
   const signExit = await signProc.exited;
   if (signExit !== 0) {

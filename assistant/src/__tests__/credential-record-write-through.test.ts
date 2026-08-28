@@ -6,7 +6,6 @@ import type { CredentialRecord } from "@vellumai/service-contracts/credential-rp
 import type { CredentialRecordBackend } from "../security/ces-rpc-record-backend.js";
 import {
   _setMetadataPath,
-  persistCredentialMetadata,
   setCredentialRecordBackend,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
@@ -54,7 +53,6 @@ describe("CES credential record write-through", () => {
     const created = upsertCredentialMetadata("slack_channel", "bot_token", {
       allowedTools: ["bash"],
     });
-    await persistCredentialMetadata(created);
 
     const stored = backend.store.get(
       credentialKey("slack_channel", "bot_token"),
@@ -68,10 +66,9 @@ describe("CES credential record write-through", () => {
     setCredentialRecordBackend(backend);
     _setMetadataPath("/tmp/does-not-write-through-metadata.json");
 
-    const created = upsertCredentialMetadata("github", "token", {
+    upsertCredentialMetadata("github", "token", {
       allowedTools: ["bash"],
     });
-    await persistCredentialMetadata(created);
 
     expect(backend.store.size).toBe(0);
   });

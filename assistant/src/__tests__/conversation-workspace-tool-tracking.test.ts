@@ -83,23 +83,6 @@ mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: "att-1" }),
   linkAttachmentToMessage: () => {},
 }));
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    reason: null,
-    provider: "mock",
-    model: "mock",
-    injectedText: "",
-    semanticHits: 0,
-    mergedCount: 0,
-    selectedCount: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-    topCandidates: [],
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
 mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));

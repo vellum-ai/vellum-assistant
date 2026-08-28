@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  baseMimeType,
+  extensionOf,
   type LocalFileKind,
   resolveLocalFileType,
   sniffMimeType,
@@ -318,5 +320,25 @@ describe("resolveLocalFileType: OOXML packages under their zip signature", () =>
         filename: "notes.md",
       }),
     ).toEqual({ mime: "application/zip", kind: "file" });
+  });
+});
+
+describe("baseMimeType", () => {
+  test("drops parameters and normalizes case and whitespace", () => {
+    expect(baseMimeType("application/pdf; charset=binary")).toBe(
+      "application/pdf",
+    );
+    expect(baseMimeType(" Image/JPEG ")).toBe("image/jpeg");
+    expect(baseMimeType("")).toBe("");
+  });
+});
+
+describe("extensionOf", () => {
+  test("reads the last segment's suffix, lowercased and trimmed", () => {
+    expect(extensionOf("photo.JPG")).toBe("jpg");
+    expect(extensionOf("photo.jpg ")).toBe("jpg");
+    expect(extensionOf("photos.2024/report")).toBe("");
+    expect(extensionOf(".hidden")).toBe("");
+    expect(extensionOf("pdf")).toBe("");
   });
 });

@@ -1,0 +1,86 @@
+{
+  "authWaitSpinner": {
+    "loading": "加载中"
+  },
+  "signupScreen": {
+    "headlineLead": "认识你的新",
+    "headlineRoles": {
+      "personalIntelligence": "个人智能",
+      "softwareEngineer": "软件工程师",
+      "financeOps": "财务运营",
+      "householdManager": "家庭管家",
+      "gtmEngineer": "市场推广工程师",
+      "productLead": "产品负责人"
+    },
+    "subtitle": "最强大的助手，可处理您的工作和生活管理任务。",
+    "continue": "继续",
+    "downloadMac": "下载 macOS 版",
+    "haveAccountPrompt": "已有账户？<signIn>登录</signIn>"
+  },
+  "accountPage": {
+    "loading": "加载中...",
+    "welcomeTitle": "欢迎使用 Vellum",
+    "welcomeSubtitle": "请登录以开始使用。",
+    "signIn": "登录",
+    "signedInTitle": "欢迎！",
+    "signedInTitleNamed": "欢迎，{name}！",
+    "signedInSubtitle": "您已登录。",
+    "goToAssistant": "前往您的助手",
+    "signOut": "退出登录"
+  },
+  "loginPage": {
+    "signUp": "注册",
+    "signIn": "登录"
+  },
+  "logoutPage": {
+    "title": "正在退出登录..."
+  },
+  "platformLoopbackPage": {
+    "backToWelcome": "返回欢迎页",
+    "completing": "正在完成登录..."
+  },
+  "oauthComplete": {
+    "errorCode": "错误：{code}"
+  },
+  "providerCallbackPage": {
+    "signupClosedTitle": "注册目前已关闭",
+    "signupClosedSubtitle": "加入社区以请求访问权限或了解何时重新开放注册。",
+    "joinCommunity": "加入社区",
+    "backToSignIn": "返回登录",
+    "failedTitle": "身份验证失败",
+    "failedSubtitle": "社交登录时出现问题。请重试或使用其他方式。",
+    "completingTitle": "正在完成登录...",
+    "completingSubtitle": "请稍候，我们正在完成您的身份验证。"
+  },
+  "providerSignupPage": {
+    "completingTitle": "正在完成注册...",
+    "completingSubtitle": "请稍候，我们正在加载您的信息。",
+    "headingLine1": "就快完成了，",
+    "headingLine2": "还差一步",
+    "firstNameQuestion": "我该如何称呼您？",
+    "firstNamePlaceholder": "名",
+    "lastNameQuestion": "您的姓氏是？",
+    "lastNamePlaceholder": "姓",
+    "roleQuestion": "您的角色",
+    "rolePlaceholder": "例如：软件工程师",
+    "submitting": "正在设置…",
+    "submit": "继续 →",
+    "completeAccountTitle": "完成您的账户设置",
+    "completeAccountSubtitle": "我们需要更多详细信息来完成您的账户设置。",
+    "backToSignIn": "← 返回登录",
+    "emailPlaceholder": "电子邮件",
+    "usernamePlaceholder": "用户名",
+    "completeSignup": "完成注册",
+    "completingSignup": "正在完成..."
+  },
+  "authErrors": {
+    "genericFailure": "发生错误。请重试。",
+    "signupClosed": "注册目前已关闭。请访问 {community} 申请访问权限。",
+    "providerSignup": "该登录尚未关联 Vellum 账户。请先注册，然后登录。",
+    "loginIncomplete": "您的账户需要额外步骤才能完成登录。请在网页上登录，然后重试。",
+    "desktopUpdateRequired": "此版本的 Vellum 桌面应用无法登录。请更新应用，然后重试。",
+    "loopbackStateMismatch": "登录失败：状态不匹配。请重试。",
+    "loopbackNoToken": "登录失败：未收到会话令牌。请重试。",
+    "loopbackInvalidToken": "登录失败：会话令牌无效。"
+  }
+}

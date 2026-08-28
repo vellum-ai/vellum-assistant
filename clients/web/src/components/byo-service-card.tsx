@@ -17,7 +17,6 @@ export function ByoServiceCard({
 }: ByoServiceCardProps) {
   return (
     <DetailCard id={id} title={title} subtitle={subtitle}>
-      <div className="h-px bg-[var(--surface-active)]" />
       <div className="mt-4">{children}</div>
     </DetailCard>
   );

@@ -358,6 +358,28 @@ describe("BYOOAuthConnection", () => {
       expect(headers.get("Content-Type")).toBe("application/json");
     });
 
+    test("sends a Buffer body as raw bytes under the caller's Content-Type", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const binary = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe,
+      ]);
+
+      await conn.request({
+        method: "POST",
+        path: "/upload/drive/v3/files",
+        headers: { "Content-Type": "application/pdf" },
+        body: binary,
+      });
+
+      const [, init] = mockFetch.mock.calls[0];
+      const sent = (init as RequestInit).body;
+      expect(Buffer.isBuffer(sent)).toBe(true);
+      expect(Buffer.from(sent as Buffer).equals(binary)).toBe(true);
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Content-Type")).toBe("application/pdf");
+    });
+
     test("sends a string body verbatim under the caller's Content-Type", async () => {
       await setupCredential("google");
       const conn = createConnection();

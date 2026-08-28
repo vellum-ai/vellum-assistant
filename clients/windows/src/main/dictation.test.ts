@@ -230,6 +230,27 @@ test("a terminal recognition error settles and clears the owner", async () => {
   expect(owner.send).toHaveBeenCalledTimes(1);
 });
 
+test("server-path retry keeps the streaming owner", async () => {
+  const owner = makeSender();
+  await handlers["vellum:helper:dictation:setPartials"]!(
+    [true, undefined, false],
+    { sender: owner },
+  );
+
+  fakeClient.notifications.get("dictation.error")!({
+    message: "no output",
+    onDevice: true,
+    willRetryServer: true,
+  });
+  expect(owner.send).not.toHaveBeenCalled();
+
+  fakeClient.notifications.get("dictation.partial")!({ text: "server" });
+  expect(owner.send).toHaveBeenCalledWith(
+    "vellum:helper:dictation:partial",
+    { text: "server" },
+  );
+});
+
 test("one-shot transcription routes independently from streaming", async () => {
   const recording = makeSender();
   const transcribing = makeSender();

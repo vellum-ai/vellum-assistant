@@ -217,7 +217,7 @@ Two orthogonal axes, do not conflate them:
 - **Admission** (above) — _who gets in the door_. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
 - **Capabilities** — _what an actor may do once admitted_. Resolved in the runtime, never on the gateway.
 
-**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
+**Trust classes** (`TrustClass` in `assistant/src/runtime/trust-class.ts`, re-exported from `actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
 
 | Class                | Rank | Meaning                                                                  |
 | -------------------- | ---- | ------------------------------------------------------------------------ |

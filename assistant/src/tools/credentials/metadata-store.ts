@@ -76,7 +76,9 @@ function toRecord(metadata: CredentialMetadata): CredentialRecord {
   };
 }
 
-async function persistRecord(metadata: CredentialMetadata): Promise<void> {
+async function persistCredentialMetadata(
+  metadata: CredentialMetadata,
+): Promise<void> {
   if (!_recordBackend || _overridePath) {
     return;
   }
@@ -88,13 +90,6 @@ async function persistRecord(metadata: CredentialMetadata): Promise<void> {
       "Failed to persist credential record to CES",
     );
   }
-}
-
-/** Await CES write-through for a record already in the local file store. */
-export async function persistCredentialMetadata(
-  metadata: CredentialMetadata,
-): Promise<void> {
-  await persistRecord(metadata);
 }
 
 export function setCredentialRecordBackend(
@@ -119,6 +114,8 @@ export function assertMetadataWritable(): void {
 /**
  * Create or update a credential metadata record.
  * If a record with the same service+field exists, it is updated.
+ * When a CES record backend is attached, the upsert also write-throughs
+ * to CES.
  */
 export function upsertCredentialMetadata(
   service: string,
@@ -134,7 +131,7 @@ export function upsertCredentialMetadata(
   },
 ): CredentialMetadata {
   const record = getStore().upsert(service, field, policy) as CredentialMetadata;
-  void persistRecord(record);
+  void persistCredentialMetadata(record);
   return record;
 }
 

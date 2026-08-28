@@ -73,7 +73,7 @@ export async function ssh(): Promise<void> {
     child = spawn(
       "docker",
       ["exec", "-it", res.assistantContainer, "/bin/sh"],
-      { stdio: "inherit" },
+      { stdio: "inherit", windowsHide: true },
     );
   } else if (cloud === "gcp") {
     const project = entry.project;
@@ -94,7 +94,7 @@ export async function ssh(): Promise<void> {
     child = spawn(
       "gcloud",
       ["compute", "ssh", sshTarget, `--project=${project}`, `--zone=${zone}`],
-      { stdio: "inherit" },
+      { stdio: "inherit", windowsHide: true },
     );
   } else if (cloud === "vellum") {
     const token = readPlatformToken();
@@ -117,7 +117,10 @@ export async function ssh(): Promise<void> {
 
     console.log(`🔗 Connecting to ${entry.assistantId} via ssh...\n`);
 
-    child = spawn("ssh", [...SSH_OPTS, sshTarget], { stdio: "inherit" });
+    child = spawn("ssh", [...SSH_OPTS, sshTarget], {
+      stdio: "inherit",
+      windowsHide: true,
+    });
   } else {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);

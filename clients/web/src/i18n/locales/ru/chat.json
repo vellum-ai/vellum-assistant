@@ -48,6 +48,12 @@
   "attachmentPreviewModal": {
     "pdfLoadFailed": "Не удалось показать этот PDF"
   },
+  "attachmentTile": {
+    "cancelUpload": "Отменить загрузку {filename}",
+    "preview": "Предпросмотр {filename}",
+    "remove": "Удалить {filename}",
+    "uploading": "Загрузка {filename}"
+  },
   "cacheBreakpointMapCard": {
     "description": "Где {count, plural, one {# точка разрыва кэша попала} few {# точки разрыва кэша попали} many {# точек разрыва кэша попали} other {# точки разрыва кэша попали}} в префикс этого запроса и какие сегменты прочитали, а какие создали заново.",
     "estimatedTokens": "≈ {count} токенов",

@@ -1,0 +1,40 @@
+{
+  "libraryEmptyState": {
+    "heading": "您的库为空",
+    "body": "让您的助手构建一些内容，或导入共享应用",
+    "newConversation": "新建对话",
+    "separator": "或",
+    "importFile": "导入 .vellum 文件"
+  },
+  "libraryView": {
+    "importFailed": "导入应用失败",
+    "imported": "{name} 已导入",
+    "loadingAria": "正在加载应用",
+    "retry": "重试",
+    "import": "导入",
+    "searchPlaceholder": "搜索您的库",
+    "noMatches": "没有应用或文档与“{query}”匹配",
+    "pinned": "已置顶",
+    "recents": "最近",
+    "documents": "文档"
+  },
+  "libraryAppCard": {
+    "exported": "应用已导出",
+    "shareFailed": "分享应用失败",
+    "actionsTitle": "{appName} 的选项",
+    "unpin": "取消置顶",
+    "pin": "置顶",
+    "share": "分享",
+    "shareSub": "导出为 .vellum 文件",
+    "deployed": "已部署到 Vercel",
+    "copyLink": "复制链接",
+    "redeploy": "重新部署",
+    "redeploySub": "发布当前版本",
+    "deploy": "部署到 Vercel",
+    "deploySub": "发布为静态页面",
+    "delete": "删除"
+  },
+  "libraryDetailPage": {
+    "backToLibrary": "返回库"
+  }
+}

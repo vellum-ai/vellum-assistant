@@ -4,7 +4,6 @@
     "back": "Atrás",
     "forward": "Adelante",
     "cancel": "Cancelar",
-    "start": "Empezar",
     "add": "Añadir",
     "adding": "Añadiendo…",
     "connect": "Conectar",
@@ -30,7 +29,8 @@
   "privacyScreen": {
     "title": "Antes de empezar",
     "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes.",
-    "skipToChat": "Ir al chat"
+    "start": "Comenzar la incorporación",
+    "skipToChat": "Ir al asistente"
   },
   "hostingScreen": {
     "title": "Alojamiento",

@@ -176,6 +176,7 @@ const { chooserRowAvatarCacheQueryKey, persistLastSeenAvatar } =
   await import("@/lib/persist-last-seen-avatar");
 const { platformAvatarUrlsQueryKey } =
   await import("@/hooks/use-platform-avatar-urls");
+const { resetAvatarSupersedeForTests } = await import("@/lib/avatar-supersede");
 
 /** Past the window a bare avatar stays fresh for. */
 const A_MINUTE_LATER = 61_000;
@@ -273,6 +274,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   setSystemTime();
+  resetAvatarSupersedeForTests();
   revokeObjectURL.mockClear();
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   useResolvedAssistantsStore.setState({ assistants: [] });
