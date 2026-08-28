@@ -45,3 +45,46 @@ describe("guardian gateway sim: boot expiry contract", () => {
     expect(sim.getRequest("tg")?.status).toBe("pending");
   });
 });
+
+describe("guardian gateway sim: decision arbitration contract", () => {
+  test("a decision past the deadline loses atomically", async () => {
+    const sim = createGuardianGatewaySim();
+    sim.seedRequest({
+      id: "late",
+      kind: "access_request",
+      status: "pending",
+      expiresAt: Date.now() - 1000,
+    });
+
+    const result = await sim.module.decideGuardianRequest({
+      id: "late",
+      expectedStatus: "pending",
+      status: "approved",
+    });
+
+    expect(result.applied).toBe(false);
+    expect(sim.getRequest("late")?.status).toBe("pending");
+  });
+
+  test("a no-op expire never restamps a decided request's deliveries", async () => {
+    const sim = createGuardianGatewaySim();
+    sim.seedRequest({ id: "done", kind: "access_request", status: "pending" });
+    sim.seedDelivery({
+      id: "d1",
+      requestId: "done",
+      destinationChannel: "telegram",
+      destinationChatId: "chat-1",
+      status: "sent",
+    });
+    await sim.module.decideGuardianRequest({
+      id: "done",
+      expectedStatus: "pending",
+      status: "approved",
+    });
+
+    await sim.module.expireGuardianRequest("done");
+
+    expect(sim.getRequest("done")?.status).toBe("approved");
+    expect(sim.deliveries.find((d) => d.id === "d1")?.status).toBe("sent");
+  });
+});
