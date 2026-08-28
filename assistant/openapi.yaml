@@ -6516,7 +6516,9 @@ paths:
                     - trusted-contact
                     - unknown
                 verify:
-                  description: When true, submitting the address also marks the channel verified. Same attest as Contacts Verify me.
+                  description:
+                    Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an
+                    unchecked box leaves the channel unverified.
                   type: boolean
       responses:
         "200":
@@ -6537,6 +6539,69 @@ paths:
                   channelType:
                     type: string
                   address:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
+  /v1/contacts/record-prompt:
+    post:
+      operationId: contacts_recordprompt_post
+      summary: Ask the guardian to confirm a contact record write
+      description:
+        Broadcasts a contact_record_request to connected clients and waits for the guardian to submit the form. The
+        gateway owns the write and notifies the daemon via resolve_contact_prompt IPC. Nothing is written if nobody
+        answers.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum:
+                    - create
+                    - update
+                    - delete
+                  description: Which record write the guardian is being asked to confirm.
+                contactId:
+                  description: Target contact. Required for update and delete.
+                  type: string
+                currentDisplayName:
+                  description:
+                    The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned
+                    facts are not read here.
+                  type: string
+                displayName:
+                  description: Proposed name, prefilled into the form. The guardian can edit it.
+                  type: string
+                notes:
+                  description: Proposed notes, prefilled into the form. The guardian can edit them.
+                  type: string
+                label:
+                  description: Display label shown in the form.
+                  type: string
+                description:
+                  description: Longer description shown in the form.
+                  type: string
+              required:
+                - operation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  error:
+                    type: string
+                  contactId:
                     type: string
                 required:
                   - ok
