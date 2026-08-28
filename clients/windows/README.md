@@ -153,7 +153,8 @@ CLI runtime, and renderer, packages and signs through `electron-builder`,
 verifies every manifest binary and the installer with
 `Get-AuthenticodeSignature`, and publishes to the
 `vellum-ai-<env>-releases/win-electron/<arch>/` feed: installer and blockmap
-first, then the `<env>.yml` channel manifest.
+first, then the `<env>.yml` channel manifest. Dev also publishes the installer
+as `vellum-assistant-dev-<arch>.exe` for stable download-page links.
 
 The executable, installer, and uninstaller use the environment-specific icon
 from `build-resources/icons/<environment>/icon.ico`, matching the local, dev,
