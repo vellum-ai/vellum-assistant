@@ -21,7 +21,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { CreditsCard } from "@/domains/chat/components/credits-card";
-import { showsMenuCredits } from "@/domains/chat/components/preferences-menu";
 import { PreferencesUsagePanel } from "@/domains/chat/components/preferences-usage-panel";
 import { usePreferencesUsage } from "@/domains/chat/hooks/use-preferences-usage";
 import {
@@ -83,9 +82,9 @@ function PanelOnly() {
 
 /**
  * The panel with the compact credits row beneath it, composed the way
- * `PreferencesMenuContent` composes them: `showsMenuCredits` decides whether
- * the row belongs on screen, and `displayedCreditsUsd` decides what it names,
- * so the story exercises both real rules. The seeded balance is already in the
+ * `PreferencesMenuContent` composes them: the row belongs on screen only
+ * without a usage reading, and `displayedCreditsUsd` decides what it names, so
+ * the story exercises both real rules. The seeded balance is already in the
  * two-decimal shape the menu formats it to.
  */
 function PanelWithCredits() {
@@ -95,7 +94,7 @@ function PanelWithCredits() {
     balance,
     availableUsageBalance,
   } = useBillingBalanceStatus();
-  const showCredits = showsMenuCredits(usage);
+  const showCredits = usage == null;
 
   return (
     <>
@@ -261,9 +260,8 @@ export const NoLiveGrants: Story = {
 /**
  * The same spent grants as `SpentBundle`, now with the menu's composition
  * around it: the panel's amber line already names what the next turn draws
- * on, so `showsMenuCredits` keeps the compact credits row off screen. The
- * row only appears when there is no usage reading for the flag to hide the
- * dollar balance behind.
+ * on, so the compact credits row stays off screen. The row only appears when
+ * there is no usage reading to stand in for the dollar balance.
  */
 export const SpentWithoutCreditsRow: Story = {
   name: "Spent bundle, no credits row",

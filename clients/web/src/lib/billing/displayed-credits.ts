@@ -1,24 +1,22 @@
 /**
- * What the credit figures name.
+ * The dollar figure the "Credits" labels name: what was bought or earned on
+ * top of the usage grants.
  *
  * The initial credit grant and a Pro sub's monthly bundle are what the Usage
- * Balance bar measures, so the numbers labelled "Credits" state only what was
- * bought or earned on top of them. Shared by the billing page's balance tile
- * and the preferences menu's credits row so the two can never quote different
- * amounts for the same wallet.
+ * Balance bar measures, so the credits figures leave those out. Shared by the
+ * billing page's balance tile and the preferences menu's credits row so the
+ * two can never quote different amounts for the same wallet.
  *
  * The banners and the exhausted/low-balance flags stay keyed on the full
- * effective balance: what the next turn can actually spend has not changed,
- * only what is worth naming separately.
+ * effective balance, which is what the next turn can actually spend.
  */
 
 import { parseUsd } from "@/lib/billing/parse-usd";
 
 /**
  * The balance to display: the effective balance less whatever is still unused
- * on the usage grants, never below zero. Returns the balance untouched on a
- * platform that reports no grant figure at all, so both call sites stay
- * byte-identical in that case without repeating the check.
+ * on the usage grants, never below zero. Returns the balance untouched when
+ * the platform reports no grant figure.
  */
 export function displayedCreditsUsd(
   balance: string,
