@@ -55,8 +55,12 @@ export type CommandShortcutKey =
  * Anything absent here is desktop-only and has no shortcut in a browser, which
  * is the common case: pinning, marking unread, and popping out are all menu
  * commands the web build never binds.
+ *
+ * Exported so the handler's own test can drive itself from this table: a hint
+ * naming a chord the handler does not answer is the failure mode, and nothing
+ * in the types connects the two.
  */
-const WEB_ACCELERATORS: Partial<Record<CommandShortcutKey, string>> = {
+export const WEB_ACCELERATORS: Partial<Record<CommandShortcutKey, string>> = {
   newConversation: "CmdOrCtrl+Shift+O",
   sidebarToggle: "CmdOrCtrl+\\",
   commandPalette: "CmdOrCtrl+K",
