@@ -277,22 +277,42 @@ export function workerKindSignature(
 }
 
 /**
- * Whether a command line still authorises escalating against a PID we
- * classified as the orphan before an awaited gap. The OS reuses PIDs, so
- * liveness alone cannot carry identity across a wait: a null or unrecognised
- * command means the orphan exited and the PID may now belong to a stranger,
- * which must read as "gone", never as a target.
+ * What became of the orphan after an awaited gap, from liveness plus a fresh
+ * command-line read.
+ *
+ *   - `gone`: the PID is dead, or alive under a command line that is not this
+ *     worker (the orphan exited and the OS recycled its PID). The slot may be
+ *     released.
+ *   - `orphan`: still alive and still reads as this worker. Escalation may
+ *     proceed.
+ *   - `identity-unreadable`: alive, but the command line could not be read, so
+ *     "still the orphan" and "recycled PID" cannot be told apart. Uncertainty
+ *     must resolve to reuse: no signal, and the slot must NOT be released, or
+ *     a second worker would be spawned next to a live one.
  */
-export function escalationAuthorised(
+export type OrphanFate = "gone" | "orphan" | "identity-unreadable";
+
+export function classifyOrphanAfterWait(
+  alive: boolean,
   command: string | null,
   signature: readonly string[],
-): boolean {
-  return command != null && matchesSignature(command, signature);
+): OrphanFate {
+  if (!alive) {
+    return "gone";
+  }
+  if (command == null) {
+    return "identity-unreadable";
+  }
+  return matchesSignature(command, signature) ? "orphan" : "gone";
 }
 
-/** Re-read identity for `pid` from the live process table. */
-function stillThisWorker(pid: number, signature: readonly string[]): boolean {
-  return escalationAuthorised(readRawProcessCommand(pid), signature);
+/** Re-read the orphan's fate for `pid` from the live process table. */
+function orphanFate(pid: number, signature: readonly string[]): OrphanFate {
+  return classifyOrphanAfterWait(
+    isProcessAlive(pid),
+    readRawProcessCommand(pid),
+    signature,
+  );
 }
 
 /**
@@ -352,21 +372,25 @@ async function stopOrphanedWorker(
   await waitForExit(pid, ORPHAN_STOP_TIMEOUT_MS);
   // Identity is re-proven after every awaited gap, not carried by the PID:
   // the orphan may have exited during the wait and the OS may have handed its
-  // PID to a stranger. A PID that no longer reads as this worker is treated
-  // as exited, whatever now holds it.
-  if (isProcessAlive(pid) && stillThisWorker(pid, signature)) {
+  // PID to a stranger. Only a positive re-match escalates, and only a proven
+  // "gone" releases the slot.
+  let fate = orphanFate(pid, signature);
+  if (fate === "orphan") {
     try {
       process.kill(pid, "SIGKILL");
     } catch {
       // Best-effort.
     }
     await waitForExit(pid, ORPHAN_KILL_CONFIRM_MS);
+    fate = orphanFate(pid, signature);
   }
 
-  if (isProcessAlive(pid) && stillThisWorker(pid, signature)) {
+  if (fate !== "gone") {
     log.warn(
-      { pid, pidPath },
-      `${workerLabel} orphaned by a previous owner could not be stopped; reusing it rather than running a second one`,
+      { pid, pidPath, fate },
+      fate === "orphan"
+        ? `${workerLabel} orphaned by a previous owner could not be stopped; reusing it rather than running a second one`
+        : `${workerLabel} is still live but its identity could not be re-read; reusing it rather than risking a duplicate`,
     );
     return false;
   }

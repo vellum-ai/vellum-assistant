@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  classifyOrphanAfterWait,
   decideWorkerSlot,
-  escalationAuthorised,
   resolveWorkerCommand,
   workerKindSignature,
   type WorkerProcessStatus,
@@ -239,36 +239,44 @@ describe("decideWorkerSlot", () => {
 
 // Escalation happens after an awaited SIGTERM grace, so the PID alone cannot
 // carry identity across it: the orphan may exit mid-wait and the OS may hand
-// its PID to a stranger. SIGKILL is authorised only while the command line
-// still reads as this worker.
-describe("escalationAuthorised", () => {
+// its PID to a stranger, or the process table may simply fail to answer.
+// Only a positive re-match escalates, and only a proven "gone" releases the
+// slot; a live PID whose identity cannot be read resolves to reuse, because
+// releasing it would spawn a second worker next to a live one.
+describe("classifyOrphanAfterWait", () => {
   const signature = ["src/schedule/worker.ts"];
+  const ours = "bun --smol run /app/runtime/0.10.11/src/schedule/worker.ts";
+
+  test("dead PID: gone, slot may be released", () => {
+    expect(classifyOrphanAfterWait(false, null, signature)).toBe("gone");
+    expect(classifyOrphanAfterWait(false, ours, signature)).toBe("gone");
+  });
 
   test("still this worker: escalation proceeds", () => {
+    expect(classifyOrphanAfterWait(true, ours, signature)).toBe("orphan");
+  });
+
+  test("PID reused by a stranger: orphan exited, never SIGKILL", () => {
     expect(
-      escalationAuthorised(
-        "bun --smol run /app/runtime/0.10.11/src/schedule/worker.ts",
-        signature,
-      ),
-    ).toBe(true);
-  });
-
-  test("orphan exited and PID reused by a stranger: never SIGKILL", () => {
-    expect(escalationAuthorised("/usr/bin/postgres -D /data", signature)).toBe(
-      false,
-    );
-  });
-
-  test("orphan exited, PID unclaimed: reads as gone", () => {
-    expect(escalationAuthorised(null, signature)).toBe(false);
+      classifyOrphanAfterWait(true, "/usr/bin/postgres -D /data", signature),
+    ).toBe("gone");
   });
 
   test("PID reused by a different worker kind: never SIGKILL", () => {
     expect(
-      escalationAuthorised(
+      classifyOrphanAfterWait(
+        true,
         "bun --smol run /app/runtime/0.10.11/src/monitoring/worker.ts",
         signature,
       ),
-    ).toBe(false);
+    ).toBe("gone");
+  });
+
+  // The fail-safe vex pinned: a live PID with an unreadable command line is
+  // neither killable nor releasable.
+  test("alive but command unreadable: identity-unreadable, reuse the slot", () => {
+    expect(classifyOrphanAfterWait(true, null, signature)).toBe(
+      "identity-unreadable",
+    );
   });
 });
