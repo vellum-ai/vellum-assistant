@@ -62,7 +62,7 @@ describe("ContactRecordCard", () => {
     });
   });
 
-  test("a rename leaves seeded notes exactly as they were", () => {
+  test("a rename says nothing about the notes it did not touch", () => {
     const onSubmit = mock(noop);
     render(
       <ContactRecordCard
@@ -82,11 +82,60 @@ describe("ContactRecordCard", () => {
     fireEvent.change(inputs[0], { target: { value: "Alice Chen" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    // The guardian renamed the contact and never touched the notes, so the
-    // notes must go back exactly as they came.
+    // Omitted rather than echoed, so notes edited elsewhere while this form
+    // was open survive, and untouched whitespace is not normalised either.
     expect(onSubmit).toHaveBeenCalledWith({
       displayName: "Alice Chen",
-      notes: "  spaced notes  ",
+      notes: undefined,
+    });
+  });
+
+  test("an edit to the notes says nothing about the name", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "update",
+          contactId: "c-1",
+          currentDisplayName: "Alice",
+          notes: "Dentist",
+        }}
+      />,
+    );
+
+    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    fireEvent.change(inputs[1], { target: { value: "Moved to Berlin" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: undefined,
+      notes: "Moved to Berlin",
+    });
+  });
+
+  test("a create says everything, since there is nothing to preserve", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactRecordCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        request={{
+          requestId: "req-1",
+          operation: "create",
+          displayName: "Alice",
+          notes: "Dentist",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      displayName: "Alice",
+      notes: "Dentist",
     });
   });
 

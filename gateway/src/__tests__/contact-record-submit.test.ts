@@ -359,6 +359,52 @@ describe("contact record submit", () => {
     expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
   });
 
+  test("an update naming no changed field writes nothing and still resolves", async () => {
+    seedContact("c-noop", "Alice");
+
+    // The card sends only what the guardian edited, so confirming a form
+    // without touching it names neither field. That is "yes, as it stands",
+    // not a bad request.
+    const res = await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-noop"),
+        operation: "update",
+        contactId: "c-noop",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-noop"))
+      .get();
+    expect(row!.displayName).toBe("Alice");
+    expect(resolveCall().body.contactId).toBe("c-noop");
+  });
+
+  test("an update naming only notes leaves the name alone", async () => {
+    seedContact("c-partial", "Alice");
+
+    // Another client may have renamed this contact while the form was open;
+    // echoing the form's stale name back would undo that.
+    await handleContactRecordSubmit(
+      makeRequest({
+        requestId: openForm("req-partial"),
+        operation: "update",
+        contactId: "c-partial",
+        notes: "Moved to Berlin",
+      }),
+    );
+
+    const row = getGatewayDb()
+      .select()
+      .from(gwContacts)
+      .where(eq(gwContacts.id, "c-partial"))
+      .get();
+    expect(row!.displayName).toBe("Alice");
+  });
+
   test("update requires a contact id", async () => {
     const res = await handleContactRecordSubmit(
       makeRequest({

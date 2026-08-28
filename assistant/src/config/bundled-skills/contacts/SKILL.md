@@ -34,7 +34,7 @@ Optional flags:
 
 - `--notes` -- proposed notes, prefilled into the form
 - `--label` / `--description` -- what the form says about why you are asking
-- `--timeout` -- how long to wait for an answer, in ms (default 310000)
+- `--timeout` -- how long the form stays open, in ms (default 300000)
 
 Use this before creating an invite for someone who is not in the contact graph yet.
 

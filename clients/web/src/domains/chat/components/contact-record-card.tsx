@@ -25,7 +25,12 @@ export interface ContactRecordCardProps {
   request: PendingContactRecordRequestState;
   isSubmitting: boolean;
   accepted: boolean;
-  onSubmit: (values: { displayName: string; notes: string }) => void;
+  /**
+   * Only the fields the guardian actually changed. What they left alone is
+   * omitted rather than echoed back, so a value another client edited in the
+   * meantime is preserved instead of overwritten with this form's snapshot.
+   */
+  onSubmit: (values: { displayName?: string; notes?: string }) => void;
   onCancel: () => void;
 }
 
@@ -39,12 +44,13 @@ export function ContactRecordCard({
   const { t } = useTranslation("chat");
   // Render sites must key this card by `requestId` so a new request remounts
   // it and re-runs these initializers instead of keeping stale state.
-  const [displayName, setDisplayName] = useState(
-    request.displayName ?? request.currentDisplayName ?? "",
-  );
-  const [notes, setNotes] = useState(request.notes ?? "");
+  const seededName = request.displayName ?? request.currentDisplayName ?? "";
+  const seededNotes = request.notes ?? "";
+  const [displayName, setDisplayName] = useState(seededName);
+  const [notes, setNotes] = useState(seededNotes);
 
   const isDelete = request.operation === "delete";
+  const isCreate = request.operation === "create";
   const canSubmit =
     (isDelete || displayName.trim().length > 0) && !isSubmitting && !accepted;
 
@@ -65,10 +71,21 @@ export function ContactRecordCard({
       return;
     }
     // The name is trimmed because it is validated non-empty and a stray space
-    // is never meant. Notes are submitted as typed: on a name-only update the
-    // field holds the contact's existing notes untouched, and trimming them
-    // here would let a rename quietly rewrite them.
-    onSubmit({ displayName: displayName.trim(), notes });
+    // is never meant. Notes go as typed: trimming them here would let a rename
+    // quietly rewrite notes the guardian never touched.
+    //
+    // A create says everything; an update says only what changed, so a field
+    // left alone cannot overwrite an edit made elsewhere while this form was
+    // open.
+    const trimmedName = displayName.trim();
+    if (isCreate) {
+      onSubmit({ displayName: trimmedName, notes });
+      return;
+    }
+    onSubmit({
+      displayName: trimmedName === seededName.trim() ? undefined : trimmedName,
+      notes: notes === seededNotes ? undefined : notes,
+    });
   }
 
   return (

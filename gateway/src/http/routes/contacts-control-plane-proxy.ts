@@ -844,6 +844,10 @@ export async function mergeContactsCore(params: {
  * are settled before they reach here, by claiming the form (see
  * `contact_prompt_claim`).
  *
+ * An update carries only the fields that changed, so one naming neither is a
+ * confirmation that nothing changed, not a bad request: `upsertContact` is
+ * omit-to-preserve, so it writes nothing but the timestamp.
+ *
  * Throws `ContactRecordNativeError` for client-facing failures (400 bad input,
  * 404 unknown id); unexpected errors propagate.
  */
@@ -881,13 +885,6 @@ export async function upsertContactRecordCore(params: {
       );
     }
   } else {
-    if (displayName === undefined && params.notes === undefined) {
-      throw new ContactRecordNativeError(
-        "At least one of displayName or notes must be provided",
-        400,
-        "BAD_REQUEST",
-      );
-    }
     const existing = getGatewayDb()
       .select({ id: contacts.id })
       .from(contacts)

@@ -135,8 +135,8 @@ export function handleContactPromptCancel(): void {
  * posted are the ones on the form, which the guardian may have edited.
  */
 export async function handleContactRecordSubmit(values: {
-  displayName: string;
-  notes: string;
+  displayName?: string;
+  notes?: string;
 }): Promise<void> {
   const { pendingContactRecordRequest, submittingByKind } =
     useInteractionStore.getState();
@@ -245,21 +245,26 @@ export async function handleContactRecordCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
-  if (ctx) {
-    const result = await submitContactRecord(
-      ctx.assistantId,
+  if (!ctx) {
+    // Nothing was sent, so the command is still parked. Reporting this as a
+    // dismissal would take away the only thing that could retry it.
+    useChatSessionStore
+      .getState()
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    return;
+  }
+
+  const result = await submitContactRecord(ctx.assistantId, request.requestId, {
+    cancelled: true,
+  });
+  if (!result.ok) {
+    captureSubmissionRejection("cancel_contact_record", result);
+    reportSubmissionFailure(
+      "contactRecordRequest",
       request.requestId,
-      { cancelled: true },
+      "contactActions.recordCancelFailed",
     );
-    if (!result.ok) {
-      captureSubmissionRejection("cancel_contact_record", result);
-      reportSubmissionFailure(
-        "contactRecordRequest",
-        request.requestId,
-        "contactActions.recordCancelFailed",
-      );
-      return;
-    }
+    return;
   }
 
   useInteractionStore

@@ -182,15 +182,20 @@ export function handleContactRecordRequest(
 export function handleContactFormClosed(event: ContactFormClosedEvent): void {
   const store = useInteractionStore.getState();
 
-  // The client that answered is already showing its own confirmation, which
-  // dismisses itself a moment later. Cutting that short would swap a "saved"
-  // for a card vanishing mid-read.
-  const showingOwnResult =
-    (store.contactRequestAccepted &&
+  // The client that answered owns this card's ending: it is either mid-submit
+  // or already showing its confirmation, which dismisses itself a moment
+  // later. Cutting that short would swap a "saved" for a card vanishing
+  // mid-read. The in-flight case is not hypothetical: the gateway resolves the
+  // form (which broadcasts this event) before its own HTTP response returns,
+  // so this can arrive first.
+  const owned =
+    ((store.contactRequestAccepted ||
+      store.submittingByKind.contactRequest === event.requestId) &&
       store.pendingContactRequest?.requestId === event.requestId) ||
-    (store.contactRecordRequestAccepted &&
+    ((store.contactRecordRequestAccepted ||
+      store.submittingByKind.contactRecordRequest === event.requestId) &&
       store.pendingContactRecordRequest?.requestId === event.requestId);
-  if (showingOwnResult) {
+  if (owned) {
     return;
   }
 
