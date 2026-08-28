@@ -21,15 +21,18 @@ import {
 } from "@/lib/billing/machine-sizes";
 
 /**
- * Sentinel for the "No extra credits" entry. `CreditChoice` is a string union,
- * so the absence of a tier needs a value to carry through the picker and the
- * diff. `Select` can now express this directly with a `null` option and
+ * Sentinel for the no-bundle entry. `CreditChoice` is a string union, so the
+ * absence of a tier needs a value to carry through the picker and the diff.
+ * `Select` can now express this directly with a `null` option and
  * `onSelectNone`, which would make the sentinel unnecessary.
  */
 export const NO_EXTRA_CREDITS = "__none__";
 export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 
-/** Shared by the credit dropdown's sentinel option and its recap row. */
+/**
+ * Fallback wording for the no-bundle sentinel when a caller supplies no
+ * `noBundleLabel`. The modal always passes its translated copy.
+ */
 export const NO_CREDITS_LABEL = "No extra credits";
 
 /**
@@ -180,8 +183,8 @@ export function computeCustomPlanDiff(input: {
     });
   }
 
-  // A concrete bundle the catalog can no longer resolve gets no row at all —
-  // "No extra credits" would be affirmatively false for a sub paying for one.
+  // A concrete bundle the catalog can no longer resolve gets no row at all:
+  // the no-bundle label would be affirmatively false for a sub paying for one.
   const selectedCreditLabel =
     creditChoice === NO_EXTRA_CREDITS
       ? noBundleLabel
@@ -193,7 +196,7 @@ export function computeCustomPlanDiff(input: {
 
   if (selectedCreditLabel != null) {
     // Compare the raw keys: a delisted seed bundle resolves to null, which
-    // would otherwise read identically to "no credits" and hide the change.
+    // would otherwise read as the no-bundle choice and hide the change.
     const changed =
       seed != null && (seed.creditTier ?? NO_EXTRA_CREDITS) !== creditChoice;
     const previousCreditLabel =

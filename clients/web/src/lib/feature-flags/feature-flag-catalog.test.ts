@@ -55,6 +55,7 @@ describe("feature flag catalog", () => {
   });
 
   test("does not expose the retired obscure-credits flag", () => {
+    expect("obscureCredits" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
     expect("obscureCredits" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("obscureCredits" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });

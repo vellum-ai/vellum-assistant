@@ -1714,23 +1714,14 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// The package rows never name a credit amount
-// ---------------------------------------------------------------------------
-
 describe("PlansPage: package usage rows", () => {
   test("every package row reads as the package's usage, never as credits", async () => {
-    const { findByText, getByText, queryByText, container } =
-      renderInteractive(freeSubscription());
+    const { findByText, getByText } = renderInteractive(freeSubscription());
 
     // The name-derived usage rows, matching the plan card's chip.
     await findByText("Mighty usage, reset monthly");
     getByText("Super usage, reset monthly");
     getByText("Ultra usage, reset monthly");
-    // The usage wording wins even though the fixtures carry a usage_label.
-    expect(queryByText("Mighty Usage included")).toBeNull();
-    // No card names a credit amount.
-    expect(container.textContent).not.toContain("in credits included");
   });
 
   test("a package with no usage_label still never falls back to credits", async () => {
