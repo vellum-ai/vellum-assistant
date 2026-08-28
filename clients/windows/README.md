@@ -144,9 +144,9 @@ uninstall-tests the installer.
 ## Release
 
 `.github/workflows/release-windows.yaml` is the reusable release: both
-`dev-release.yaml` and `release.yml` call it with `{ environment, version }`
-behind the `WINDOWS_{DEV,STAGING,PRODUCTION}_RELEASE_ENABLED` variables, so
-each channel stays off until its variable is set. Per
+`dev-release.yaml` and `release.yml` call it with `{ environment, version }`.
+Dev runs on every dev release, while staging and production stay behind the
+`WINDOWS_{STAGING,PRODUCTION}_RELEASE_ENABLED` variables. Per
 architecture (x64 on `windows-2025`, arm64 on the `windows-11-vs2026-arm`
 preview runner) it stamps the version, builds the helper, preview handler,
 CLI runtime, and renderer, packages and signs through `electron-builder`,
