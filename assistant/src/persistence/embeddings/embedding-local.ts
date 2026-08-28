@@ -18,6 +18,7 @@ import {
   getEmbeddingModelsDir,
   getEmbedWorkerPidPath,
 } from "../../util/platform.js";
+import { isProcessAlive } from "../../util/process-liveness.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
 import { workerComputeEnv } from "../../util/worker-compute.js";
 import { workerMemoryEnv } from "../../util/worker-memory.js";
@@ -86,17 +87,6 @@ async function didSettle(
     Bun.sleep(timeoutMs).then(() => timeout),
   ]);
   return result !== timeout;
-}
-
-/** Whether a PID names a live process. */
-function isProcessAlive(pid: number): boolean {
-  try {
-    // Signal 0 probes for liveness without delivering a signal.
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**
