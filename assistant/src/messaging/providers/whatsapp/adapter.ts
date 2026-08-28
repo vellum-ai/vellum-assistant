@@ -88,6 +88,12 @@ export const whatsappMessagingProvider: MessagingProvider = {
     // exists for the next inbound WhatsApp message from this number.
     try {
       const sourceChannel = "whatsapp";
+      // Deliberately not `buildScopedConversationKey`: that builder pins the
+      // scope to `asst:self`, and this path carries a caller-supplied
+      // assistant id (`messaging-send` passes its skill context's). Keys
+      // minted under a non-self scope are unreachable to every reader that
+      // goes through the builder, which is why the binding write below is
+      // limited to the self scope.
       const conversationKey = `asst:${assistantId ?? "self"}:${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } =
         getOrCreateConversation(conversationKey);
