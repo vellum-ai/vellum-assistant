@@ -98,7 +98,9 @@ export async function recordApprovalCardDelivery(
  * Channel results additionally carry the chat (`destination`) and channel-native
  * id (`messageId`) used to match inbound replies/reactions; a blank `destination`
  * is recorded as unknown rather than persisting the literal channel name as a
- * chat id. Status is diagnostic — the read paths key off addressing, not status.
+ * chat id. Status has two readers: the voice guardian-action sweep acts only
+ * on `sent`/`pending` rows, and card withdrawal skips rows already marked
+ * `withdrawn` (its per-surface receipt). Addressing lookups ignore status.
  *
  * Best-effort like the create: a status-patch failure is logged, not thrown.
  *

@@ -14,6 +14,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   notInArray,
   or,
 } from "drizzle-orm";
@@ -593,9 +594,17 @@ export function expireGuardianRequest(id: string): void {
       .where(eq(guardianRequests.id, id))
       .run();
 
+    // A `withdrawn` row is the daemon's receipt that the surface edit
+    // durably ran; restamping it would erase which surfaces were actually
+    // cleaned. Rows in any other state expire with the request.
     db.update(guardianRequestDeliveries)
       .set({ status: "expired", updatedAt: now })
-      .where(eq(guardianRequestDeliveries.requestId, id))
+      .where(
+        and(
+          eq(guardianRequestDeliveries.requestId, id),
+          ne(guardianRequestDeliveries.status, "withdrawn"),
+        ),
+      )
       .run();
   });
 }

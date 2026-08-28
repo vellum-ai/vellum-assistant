@@ -496,6 +496,72 @@ describe("withdrawGuardianRequestCards", () => {
 
     expect(result.complete).toBe(true);
   });
+
+  test("each durably withdrawn surface marks its delivery row as the receipt", async () => {
+    const req = makeRequest();
+    const slack = bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "C1",
+      destinationMessageId: "1.0",
+    });
+    const vellum = bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+
+    const result = await withdrawGuardianRequestCards({
+      request: req,
+      status: "expired",
+    });
+
+    expect(result.complete).toBe(true);
+    const byId = new Map(deliveriesFor(req.id).map((d) => [d.id, d.status]));
+    expect(byId.get(slack.id)).toBe("withdrawn");
+    expect(byId.get(vellum.id)).toBe("withdrawn");
+  });
+
+  test("a retry skips rows already withdrawn: no re-edits, no re-broadcasts", async () => {
+    // The delivery row is the per-surface receipt. When one surface fails,
+    // the next round must retry only that surface; re-editing the others
+    // would re-broadcast in-app completions and re-run channel edits that
+    // already landed.
+    const req = makeRequest({ sourceChannel: "telegram" });
+    const slack = bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "C1",
+      destinationMessageId: "1.0",
+    });
+    const telegram = bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+      destinationMessageId: "9",
+    });
+    withdrawTelegramApprovalCard.mockResolvedValueOnce({ complete: false });
+
+    const first = await withdrawGuardianRequestCards({
+      request: req,
+      status: "expired",
+    });
+    expect(first.complete).toBe(false);
+    let byId = new Map(deliveriesFor(req.id).map((d) => [d.id, d.status]));
+    expect(byId.get(slack.id)).toBe("withdrawn");
+    expect(byId.get(telegram.id)).not.toBe("withdrawn");
+
+    const second = await withdrawGuardianRequestCards({
+      request: req,
+      status: "expired",
+    });
+    expect(second.complete).toBe(true);
+    byId = new Map(deliveriesFor(req.id).map((d) => [d.id, d.status]));
+    expect(byId.get(telegram.id)).toBe("withdrawn");
+    // The already-receipted Slack surface was not re-edited.
+    expect(withdrawSlackApprovalCard).toHaveBeenCalledTimes(1);
+    expect(withdrawTelegramApprovalCard).toHaveBeenCalledTimes(2);
+  });
 });
 describe("recordApprovalCardDelivery", () => {
   beforeEach(() => {

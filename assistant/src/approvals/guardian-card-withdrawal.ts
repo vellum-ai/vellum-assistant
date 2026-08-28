@@ -26,6 +26,7 @@ import {
   type GuardianRequestDeliveryWire,
   type GuardianRequestStatus,
   listGuardianRequestDeliveries,
+  updateGuardianRequestDelivery,
 } from "../channels/gateway-guardian-requests.js";
 import {
   completeSurfaceAndNotify,
@@ -87,11 +88,27 @@ export interface WithdrawGuardianCardsParams {
 }
 
 /**
- * Withdraw a resolved request's approval cards across all delivery surfaces.
- * Never throws; `complete` reports whether the delivery listing and every
- * attempted surface edit succeeded, so a caller whose own receipt depends on
- * the cards actually being withdrawn (the expiry sweep) can hold that
- * receipt back and retry, while decision-path callers stay fire-and-forget.
+ * Delivery-row status once its card is durably withdrawn. The row is the
+ * per-surface receipt: a retrying caller (the expiry sweep) skips rows
+ * already carrying it, so one surface's failure never re-edits the others
+ * or re-broadcasts an in-app completion, and any surface a future channel
+ * contributes participates through the same row it already gets at
+ * delivery time. The one status reader, the voice guardian-action sweep,
+ * acts only on `sent`/`pending`, so a withdrawn row correctly receives no
+ * further notices.
+ */
+export const DELIVERY_WITHDRAWN_STATUS = "withdrawn";
+
+/**
+ * Withdraw a resolved request's approval cards across all delivery
+ * surfaces. Never throws. Each surface that durably withdraws marks its
+ * delivery row `withdrawn`; `complete` reports whether every row now
+ * carries that mark, so a caller whose own receipt depends on the cards
+ * actually being gone (the expiry sweep) can hold its receipt back and
+ * retry only what failed, while decision-path callers stay
+ * fire-and-forget. A surface with nothing a retry could ever fix (no
+ * captured message id, an unusable recorded id, a channel with no
+ * in-place edit) marks its row too, so it can never pin a request.
  */
 export async function withdrawGuardianRequestCards(
   params: WithdrawGuardianCardsParams,
@@ -117,21 +134,22 @@ export async function withdrawGuardianRequestCards(
 
   let complete = true;
   for (const delivery of deliveries) {
+    if (delivery.status === DELIVERY_WITHDRAWN_STATUS) {
+      continue;
+    }
+    let withdrawn = false;
     try {
       if (delivery.destinationChannel === "vellum") {
-        if (
-          !withdrawVellumCard(
-            request,
-            delivery,
-            status,
-            originChannel,
-            decidedAction,
-          )
-        ) {
-          complete = false;
-        }
+        withdrawn = withdrawVellumCard(
+          request,
+          delivery,
+          status,
+          originChannel,
+          decidedAction,
+        );
       } else if (delivery.destinationChannel === "slack") {
         await withdrawSlackCard(request, delivery, status, decidedAction);
+        withdrawn = true;
       } else if (delivery.destinationChannel === "telegram") {
         const telegram = await withdrawTelegramCard(
           delivery,
@@ -140,17 +158,19 @@ export async function withdrawGuardianRequestCards(
           decidedAction,
           hasOriginGuardianReply ?? false,
         );
-        if (!telegram.complete) {
-          complete = false;
-        }
+        withdrawn = telegram.complete;
       } else if (delivery.destinationChannel === "discord") {
         await withdrawDiscordCard(delivery, status, decidedAction);
+        withdrawn = true;
+      } else {
+        // WhatsApp direct delivery can't edit a message in place (it would
+        // post a new one), so its stale clicks are left to the existing
+        // "already resolved" reply until in-place edit support lands.
+        // Nothing a retry could fix, so the row is marked rather than
+        // allowed to pin its request.
+        withdrawn = true;
       }
-      // WhatsApp direct delivery can't edit a message in place (it would
-      // post a new one), so its stale clicks are left to the existing
-      // "already resolved" reply until in-place edit support lands.
     } catch (err) {
-      complete = false;
       log.warn(
         {
           err,
@@ -158,6 +178,24 @@ export async function withdrawGuardianRequestCards(
           channel: delivery.destinationChannel,
         },
         "Failed to withdraw guardian card on surface (non-fatal)",
+      );
+    }
+
+    if (!withdrawn) {
+      complete = false;
+      continue;
+    }
+    try {
+      await updateGuardianRequestDelivery(delivery.id, {
+        status: DELIVERY_WITHDRAWN_STATUS,
+      });
+    } catch (err) {
+      // The card is gone but the receipt write failed: the retry round
+      // re-runs this surface's idempotent edit and marks it then.
+      complete = false;
+      log.warn(
+        { err, requestId: request.id, deliveryId: delivery.id },
+        "Failed to record card withdrawal on the delivery row (non-fatal)",
       );
     }
   }

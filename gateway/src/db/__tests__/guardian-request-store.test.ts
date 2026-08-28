@@ -575,6 +575,27 @@ describe("expireGuardianRequest", () => {
     expect([d1.status, d2.status]).toEqual(["pending", "pending"]);
   });
 
+  test("a withdrawn delivery keeps its receipt through the bulk flip", () => {
+    const req = createRequest();
+    const withdrawn = createDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "chat-1",
+      status: "withdrawn",
+    });
+    createDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+
+    expireGuardianRequest(req.id);
+
+    const byId = new Map(listDeliveries(req.id).map((d) => [d.id, d.status]));
+    expect(byId.get(withdrawn.id)).toBe("withdrawn");
+    expect([...byId.values()].sort()).toEqual(["expired", "withdrawn"]);
+  });
+
   test("a resolved request keeps its status and its delivery rows", () => {
     // The delivery rows expire only when the request CAS applies: a
     // decided request's cards were already rewritten by the decision flow,
