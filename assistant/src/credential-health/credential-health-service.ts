@@ -7,8 +7,10 @@
  * - Scope coverage (grantedScopes vs the request that produced the token)
  * - Liveness ping (for providers with a pingUrl)
  *
- * Scope coverage answers "was everything we asked for granted", so it applies
- * only where an authorization made a request. A manual-token provider (a bot
+ * Scope coverage asks whether a connection carries the scopes the provider
+ * currently requests for the token it stores, which is how a newly required
+ * scope reaches an existing install and prompts a re-authorization. It applies
+ * only where an authorization makes a request. A manual-token provider (a bot
  * token pasted in, e.g. `slack_channel`) has no request and carries empty
  * scope lists here; it is still checked for token presence and liveness. What
  * its token actually carries is read live from the `x-oauth-scopes` response
