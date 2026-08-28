@@ -277,34 +277,40 @@ describe("buildIngressNginxConfig", () => {
     // carrying both a secret and attacker-influenced content over TLS is the
     // BREACH side channel. The tuning at http scope stays inert.
     expect(remoteConf).not.toMatch(/^ {2}gzip on;$/m);
-    const gzipLocations = [
-      ...remoteConf.matchAll(/location ([^{]+)\{\n {6}gzip on;/g),
-    ]
-      .map((m) => m[1].trim())
-      .sort();
-    expect(gzipLocations).toEqual([
+    const blocks = locationBlocks(remoteConf);
+    expect(
+      blocks
+        .filter((b) => b.body.includes("gzip on;"))
+        .map((b) => b.matcher)
+        .sort(),
+    ).toEqual([
       "= /assistant/__remote-index.html",
       "^~ /assistant/",
       "^~ /assistant/assets/",
     ]);
-    // Every proxying location must stay uncompressed.
-    for (const block of remoteConf.split("location ").slice(1)) {
-      if (block.includes("proxy_pass")) {
-        expect(block).not.toContain("gzip on;");
-      }
-    }
+    expect(
+      blocks
+        .filter(
+          (b) => b.body.includes("proxy_pass") && b.body.includes("gzip on;"),
+        )
+        .map((b) => b.matcher),
+    ).toEqual([]);
   });
 
   test("revalidates the shell and forbids storing only the inline config", () => {
-    expect(remoteConf).toContain(
-      `location = /assistant/__remote-index.html {\n      internal;\n      alias "/tmp/vellum web/dist/index.html";\n      add_header Cache-Control "no-cache";`,
-    );
-    expect(remoteConf).toContain(
-      `location ^~ /assistant/ {\n      alias "/tmp/vellum web/dist/";\n      try_files $uri $uri/ /assistant/__remote-index.html;\n      add_header Cache-Control "no-cache";`,
+    const cacheControlOf = (matcher: string) =>
+      locationBlocks(remoteConf)
+        .find((b) => b.matcher === matcher)
+        ?.body.match(/add_header Cache-Control "([^"]+)"/)?.[1];
+    expect(cacheControlOf("= /assistant/__remote-index.html")).toBe("no-cache");
+    expect(cacheControlOf("^~ /assistant/")).toBe("no-cache");
+    expect(cacheControlOf("^~ /assistant/assets/")).toBe(
+      "public, max-age=31536000, immutable",
     );
     // Only the inline __config return, which nginx gives no validator, still
     // refuses storage. A second no-store means a revalidating location
     // regressed to re-sending its whole body on every load.
+    expect(cacheControlOf("= /assistant/__config")).toBe("no-store");
     expect(remoteConf.match(/no-store/g)).toHaveLength(1);
   });
 
@@ -776,6 +782,28 @@ function mockKillableNginx(pid: number): { killed: () => boolean } {
 function mockUnkillableNginx(pid: number): void {
   fakePids.set(pid, { alive: true, unkillable: true });
   installKillMock();
+}
+
+/**
+ * The multi-line `location <matcher> { ... }` blocks of a generated config,
+ * so a test can assert what a location does rather than how its lines are
+ * ordered. Single-line denylist locations carry no directives worth reading
+ * and are skipped by the trailing-brace match.
+ */
+function locationBlocks(
+  conf: string,
+): Array<{ matcher: string; body: string }> {
+  const blocks: Array<{ matcher: string; body: string }> = [];
+  const opener = /^ {4}location ([^{]+?) \{$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = opener.exec(conf)) !== null) {
+    const end = conf.indexOf("\n    }", opener.lastIndex);
+    blocks.push({
+      matcher: match[1],
+      body: conf.slice(opener.lastIndex, end === -1 ? undefined : end),
+    });
+  }
+  return blocks;
 }
 
 const PRODUCTION_HUB_URL = "https://www.vellum.ai/assistant";
