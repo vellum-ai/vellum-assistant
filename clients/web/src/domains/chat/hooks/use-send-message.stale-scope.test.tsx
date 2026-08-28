@@ -78,6 +78,26 @@ function draftFor(key: string): string {
   return useComposerStore.getState().input;
 }
 
+/**
+ * A daemon that moves the user to another thread while the POST is in flight,
+ * which is the longest window a send spends with its answer still to come.
+ */
+function switchWhileAnswering(data: Record<string, unknown>) {
+  daemonClient.post = mock(
+    async (options: { body?: Record<string, unknown> }) => {
+      capturedBody = options.body ?? null;
+      useConversationStore
+        .getState()
+        .setActiveConversationId(OPEN_CONVERSATION);
+      return {
+        data,
+        error: null,
+        response: new Response(null, { status: 200 }),
+      };
+    },
+  ) as typeof daemonClient.post;
+}
+
 function turnState() {
   const { phase, activeTurnId } = useTurnStore.getState();
   return { phase, activeTurnId };
@@ -129,6 +149,8 @@ beforeEach(() => {
     optimisticSends: [],
     error: null,
     pendingQueuedMessageIds: [],
+    ephemeralMetaResults: [],
+    contextWindowUsage: null,
   });
   useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
   // The draft map is module state shared across tests; reloading it for the
@@ -403,5 +425,132 @@ describe("useSendMessage: a stale send that fails", () => {
 
     expect(useChatSessionStore.getState().error).not.toBeNull();
     expect(draftFor(SEND_CONVERSATION)).toBe("");
+  });
+});
+
+/**
+ * The switch lands mid-POST rather than before the send: on entry this thread
+ * IS the one on screen, so every pre-POST write runs as it should, and only the
+ * response writes have to notice that the screen moved under them.
+ */
+describe("useSendMessage: a switch during the POST", () => {
+  const OPEN_THREAD_TURN = {
+    phase: "streaming" as const,
+    activeTurnId: "open-turn",
+  };
+
+  beforeEach(() => {
+    // On screen at entry. The stub moves the user mid-flight.
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+  });
+
+  test("a directly-processed response does not claim the newly opened turn", async () => {
+    // `willQueue` is read pre-POST, so a streaming thread puts this send on the
+    // queue path; the daemon then reports it ran the message straight away.
+    useTurnStore.setState(OPEN_THREAD_TURN);
+    switchWhileAnswering(ACCEPTED_DIRECTLY);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("what am I holding?");
+    });
+
+    expect(turnState()).toEqual(OPEN_THREAD_TURN);
+  });
+
+  test("a failure raises no banner and parks the text instead", async () => {
+    daemonClient.post = mock(async () => {
+      useConversationStore
+        .getState()
+        .setActiveConversationId(OPEN_CONVERSATION);
+      return {
+        data: null,
+        error: { detail: "nope" },
+        response: new Response(null, { status: 500 }),
+      };
+    }) as typeof daemonClient.post;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("the one that got away");
+    });
+
+    // On screen when it started, off screen when it failed: the banner would
+    // land on the wrong thread, so the text goes to its own thread's draft.
+    expect(useChatSessionStore.getState().error).toBeNull();
+    expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
+  });
+
+  test("a queue-branch failure banners nowhere and parks the text", async () => {
+    // The same window on the path that posts for itself: `willQueue` was read
+    // before the POST, so this send is on the queue branch when the switch
+    // lands and its own failure handling has to notice.
+    useTurnStore.setState(OPEN_THREAD_TURN);
+    daemonClient.post = mock(async () => {
+      useConversationStore
+        .getState()
+        .setActiveConversationId(OPEN_CONVERSATION);
+      return {
+        data: null,
+        error: { detail: "nope" },
+        response: new Response(null, { status: 500 }),
+      };
+    }) as typeof daemonClient.post;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("queued and lost");
+    });
+
+    expect(useChatSessionStore.getState().error).toBeNull();
+    expect(draftFor(SEND_CONVERSATION)).toBe("queued and lost");
+  });
+
+  test("a queued response leaves the newly opened thread's mapping empty", async () => {
+    useTurnStore.setState(OPEN_THREAD_TURN);
+    switchWhileAnswering(ACCEPTED_QUEUED);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("queue this one");
+    });
+
+    expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(0);
+  });
+});
+
+/**
+ * A local meta command runs against its own conversation whatever happens, but
+ * its card and context readout describe the thread on screen. The serialized
+ * send chain can hold a `/status` behind a pending camera frame, so its answer
+ * can arrive after the user has moved on.
+ */
+describe("useSendMessage: a local command answering after a switch", () => {
+  const META_ANSWER = { kind: "info", text: "all good" };
+
+  test("draws no card in the thread that is open now", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    switchWhileAnswering(META_ANSWER);
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("/status");
+    });
+
+    expect(useChatSessionStore.getState().ephemeralMetaResults).toEqual([]);
+  });
+
+  test("draws it as usual when its own thread is still open", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    postResponse = META_ANSWER;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("/status");
+    });
+
+    const cards = useChatSessionStore.getState().ephemeralMetaResults;
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.text).toBe("all good");
   });
 });

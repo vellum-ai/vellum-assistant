@@ -249,8 +249,15 @@ export interface ComposerActions {
    * For a thread that is NOT the one on screen: the write lands in the map, and
    * the composer picks it up on the switch that opens that conversation. A
    * caller restoring into the open thread would want {@link setInput} as well.
+   *
+   * `assistantId` is the assistant the SEND belonged to, which is not
+   * necessarily the one loaded now: an assistant switch swaps the in-memory map
+   * out from under a send still in flight. When the two agree this writes the
+   * live map; when they do not it goes straight to that assistant's own
+   * persisted entry, so the message waits where its own conversation will look
+   * for it rather than being filed under a stranger.
    */
-  restoreFailedDraft: (key: string, text: string) => void;
+  restoreFailedDraft: (assistantId: string, key: string, text: string) => void;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -349,18 +356,22 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
   },
 
-  restoreFailedDraft: (key, text) => {
+  restoreFailedDraft: (assistantId, key, text) => {
     if (!text.trim()) {
       return;
     }
-    const existing = draftsMap.get(key);
+    // The map in memory belongs to whichever assistant is loaded. Reach for it
+    // only when that is this send's assistant; otherwise read, check and write
+    // that one's stored entry through the same helpers, so the two paths agree
+    // on both the storage key and the serialized shape.
+    const drafts =
+      assistantId === currentAssistantId ? draftsMap : loadDrafts(assistantId);
+    const existing = drafts.get(key);
     if (existing && existing.trim()) {
       return;
     }
-    draftsMap.set(key, text);
-    if (currentAssistantId) {
-      persistDrafts(currentAssistantId, draftsMap);
-    }
+    drafts.set(key, text);
+    persistDrafts(assistantId, drafts);
   },
 
   handleConversationSwitch: ({ previousKey, nextKey }) => {

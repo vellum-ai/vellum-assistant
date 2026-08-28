@@ -436,7 +436,11 @@ export function useSendMessage({
           if (!isHidden) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(requestConversationId, content);
+              .restoreFailedDraft(
+                requestAssistantId,
+                requestConversationId,
+                content,
+              );
           }
           return { status: "ignored" };
         }
@@ -614,22 +618,47 @@ export function useSendMessage({
           toast.error(t("chat:useSendMessage.commandFailed"));
           return;
         }
-        useChatSessionStore.getState().addEphemeralMetaResult({
-          id: crypto.randomUUID(),
-          kind: data.kind,
-          text: data.text,
+        // The command ran against its own conversation and the daemon has
+        // already answered for it, so nothing about it is cancelled here. What
+        // is scoped is where the answer is drawn: the ephemeral card and the
+        // context-usage readout describe the ONE thread on screen, and a
+        // command whose thread the user left while the send chain held it
+        // would otherwise render its card in whatever transcript is open.
+        //
+        // Read at answer time rather than at call time, since the round trip
+        // is the window the switch happens in.
+        const answerIsOnScreen = isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: activeAssistantId,
+          requestConversationId: conversationId,
         });
+        if (answerIsOnScreen) {
+          useChatSessionStore.getState().addEphemeralMetaResult({
+            id: crypto.randomUUID(),
+            kind: data.kind,
+            text: data.text,
+          });
+        }
         if (data.contextUsage) {
           const usage: ContextWindowUsage = {
             tokens: data.contextUsage.tokens,
             maxTokens: data.contextUsage.maxTokens,
             fillRatio: data.contextUsage.fillRatio,
           };
+          // Both of these are keyed by conversation and stay correct wherever
+          // the user is: the per-conversation map is what the indicator reads
+          // on the way back into this thread, and the stored copy survives a
+          // reload. Only the live readout describes the open thread.
           useChatSessionStore
             .getState()
             .setContextWindowUsageForConversation(conversationId, usage);
-          useChatSessionStore.getState().setContextWindowUsage(usage);
           saveContextWindowUsage(activeAssistantId, conversationId, usage);
+          if (answerIsOnScreen) {
+            useChatSessionStore.getState().setContextWindowUsage(usage);
+          }
         }
       } catch (err) {
         captureError(err, { context: "run_local_meta_command" });
@@ -717,16 +746,23 @@ export function useSendMessage({
       // every move, so reopening that thread re-derives its state from history
       // and the live stream. The sidebar's own processing key is written
       // against the conversation id further down and stays correct.
-      const sendIsOnScreen = isAsyncChatScopeCurrent({
-        currentAssistantId:
-          useResolvedAssistantsStore.getState().activeAssistantId,
-        currentConversationId:
-          useConversationStore.getState().activeConversationId,
-        requestAssistantId: assistantId,
-        requestConversationId: activeConversationId,
-      });
+      //
+      // Asked, never remembered. The user can switch at any point, the POST
+      // below being the longest such window, so a snapshot taken here would be
+      // answering for a screen that has since changed. Every write reads it
+      // where it stands; the pre-POST ones all run in this same synchronous
+      // stretch, so they see one another's answer regardless.
+      const sendScopeIsCurrent = () =>
+        isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: assistantId,
+          requestConversationId: activeConversationId,
+        });
 
-      if (sendIsOnScreen) {
+      if (sendScopeIsCurrent()) {
         setError(null);
         setNotice(null);
       }
@@ -737,10 +773,10 @@ export function useSendMessage({
         return;
       }
       // A real send supersedes any ephemeral meta-command cards. Only the ones
-      // on screen: see `sendIsOnScreen`. Hidden sends supersede them too, as
+      // on screen: see `sendScopeIsCurrent`. Hidden sends supersede them too, as
       // they always have, since the surfaces belong to the thread rather than
       // to the row a send does or does not draw.
-      if (sendIsOnScreen) {
+      if (sendScopeIsCurrent()) {
         useChatSessionStore.getState().clearEphemeralMetaResults();
         useInteractionStore.getState().resetSecretAndConfirmation();
       }
@@ -750,7 +786,7 @@ export function useSendMessage({
       // stays until the user resolves it — connects (self-heal / auto-continue)
       // or dismisses it (X) — the way `ask_question` stays until answered. The
       // post-connect retirement lives in `useAcpAutoContinue` instead.
-      if (sendIsOnScreen) {
+      if (sendScopeIsCurrent()) {
         useChatSessionStore.getState().clearConfirmationToolCallMap();
       }
       // Clear pending confirmations and dismiss interactive surfaces in a
@@ -766,7 +802,7 @@ export function useSendMessage({
       // cache, and the dismissed-id list that drives the hide set is computed
       // over the same view.
       if (
-        sendIsOnScreen &&
+        sendScopeIsCurrent() &&
         shouldCleanupSupersededInteractions(uiContextRef.current)
       ) {
         const transcriptForScan =
@@ -813,7 +849,7 @@ export function useSendMessage({
       // back out, since a switch clears the list and this one arrives after
       // that. The server echo puts the message where it belongs when its thread
       // is next opened. The pending queue FIFO below follows the same rule.
-      const rendersOptimisticRow = !isHidden && sendIsOnScreen;
+      const rendersOptimisticRow = !isHidden && sendScopeIsCurrent();
       if (rendersOptimisticRow) {
         addOptimisticSend(userMessage);
       }
@@ -853,7 +889,12 @@ export function useSendMessage({
             // without surfacing anything, because an error banner raised over
             // a conversation the user is now reading describes a send they
             // cannot see and cannot retry from there.
-            if (sendIsOnScreen) {
+            //
+            // Asked here rather than remembered from before the POST: the
+            // switch that moves this send off screen is at its most likely
+            // during that round trip.
+            const onScreenAtFailure = sendScopeIsCurrent();
+            if (onScreenAtFailure) {
               revertQueuedMessage(userMessage.id);
               const detail = resolvePostError(
                 postResult.error.code,
@@ -864,13 +905,17 @@ export function useSendMessage({
                 message: detail,
                 code: postResult.error.code ?? undefined,
               });
-            } else if (!isHidden) {
-              // Off screen there is no banner to carry the failure and no
-              // composer of this thread's to put the text back into, so it
-              // goes to that thread's draft instead of being lost.
+            }
+            // Off screen there is no banner to carry the failure and no
+            // composer of this thread's to put the text back into, so it goes
+            // to that thread's draft instead of being lost. Its own condition
+            // rather than the banner's `else`, because what matters is where
+            // the send stands NOW: one that was on screen when it started and
+            // is not by the time it fails belongs here.
+            if (!onScreenAtFailure && !isHidden) {
               useComposerStore
                 .getState()
-                .restoreFailedDraft(activeConversationId, content);
+                .restoreFailedDraft(assistantId, activeConversationId, content);
             }
             return;
           }
@@ -894,8 +939,10 @@ export function useSendMessage({
             // and active turn id, mid-answer if that thread is streaming. The
             // branch is reachable for such a send because `willQueue` reads
             // the open thread's phase, so it can queue a message for a
-            // conversation that was idle all along. See `sendIsOnScreen`.
-            if (sendIsOnScreen) {
+            // conversation that was idle all along. See `sendScopeIsCurrent`,
+            // asked again here because the POST is a window the user can
+            // switch threads inside.
+            if (sendScopeIsCurrent()) {
               const queueIds =
                 useChatSessionStore.getState().pendingQueuedMessageIds;
               const idx = queueIds.indexOf(userMessage.id);
@@ -931,7 +978,7 @@ export function useSendMessage({
           // broadcast to a rendered row, and the deletion it would confirm can
           // only have been asked for from one. A send with no row on screen has
           // neither, so the whole block belongs to the thread on screen.
-          if (requestId && sendIsOnScreen) {
+          if (requestId && sendScopeIsCurrent()) {
             const sessionStore = useChatSessionStore.getState();
             sessionStore.setRequestIdMapping(requestId, userMessage.id);
             if (sessionStore.consumePendingLocalDeletion(userMessage.id)) {
@@ -954,13 +1001,15 @@ export function useSendMessage({
           // Captured whatever the scope, since a thrown send is a real fault;
           // only its report to the user is scoped, as above.
           captureError(err, { context: "send_message_queue" });
-          if (sendIsOnScreen) {
+          const onScreenAtThrow = sendScopeIsCurrent();
+          if (onScreenAtThrow) {
             revertQueuedMessage(userMessage.id);
             setError({ message: "Failed to queue message. Please try again." });
-          } else if (!isHidden) {
+          }
+          if (!onScreenAtThrow && !isHidden) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(activeConversationId, content);
+              .restoreFailedDraft(assistantId, activeConversationId, content);
           }
         }
         return;
@@ -973,7 +1022,7 @@ export function useSendMessage({
       // never arrive to clear it, leaving a composer disabled with no turn
       // behind it. The id still travels, so the send's own bookkeeping is
       // unchanged.
-      if (sendIsOnScreen) {
+      if (sendScopeIsCurrent()) {
         useTurnStore.getState().requestSend(turnId);
       }
 
