@@ -127,8 +127,9 @@ export function expireGuardianRequest(id: string): void {
 }
 
 /**
- * Daemon-boot expiry: interaction-bound kinds unconditionally, persistent
- * kinds only past their `expiresAt`. Returns the expired-row count.
+ * Daemon-boot expiry: interaction-bound kinds only. Persistent kinds are
+ * never touched, whatever their deadline; the periodic sweep owns their
+ * expiry and its side effects. Returns the expired-row count.
  */
 export function expireInteractionBoundRequests(): ExpireInteractionBoundIpcResponse {
   return { expired: expireAllPendingInteractionBound() };
