@@ -26,6 +26,7 @@
 import {
   type ExtensionEnvironment,
   cloudUrlsForEnvironment,
+  createFirstAssistantUrl,
   parseExtensionEnvironment,
   resolveBuildDefaultEnvironment,
 } from "./extension-environment.js";
@@ -1480,6 +1481,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       const env = await getEffectiveEnvironment();
       const assistants = await fetchAssistants(env);
       sendResponseFn({ ok: true, assistants });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true; // async
+  }
+
+  if (message.type === "open-create-assistant") {
+    (async () => {
+      const env = await getEffectiveEnvironment();
+      await chrome.tabs.create({ url: createFirstAssistantUrl(env) });
+      sendResponseFn({ ok: true });
     })().catch((err) =>
       sendResponseFn({
         ok: false,

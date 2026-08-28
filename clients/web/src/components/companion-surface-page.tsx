@@ -333,11 +333,9 @@ export function CompanionSurfacePage() {
   const onMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     // **A drag whose release this window never saw ends here.**
     //
-    // The drag is ended by `mouseup` or by the pointer leaving the canvas, and
-    // both are events this window has to receive. Neither arrives when the
-    // button comes up over another app: the canvas is a bounded rectangle, a
-    // fast drag outruns a window that is moved a message at a time, and the
-    // release then lands somewhere this page is not.
+    // The drag is ended by `mouseup`, which the capture the press takes
+    // delivers wherever the button comes up. The host can still break that
+    // capture, and the release then lands somewhere this page is not.
     //
     // Left alone that press never ends. Every later move is read as a drag
     // frame, so the surface follows a pointer with no button held and the first
@@ -446,10 +444,24 @@ export function CompanionSurfacePage() {
       onMouseUp={() => {
         dragRef.current = null;
       }}
-      onMouseLeave={() => {
-        // The pointer left the canvas entirely, which mouse-move cannot report.
-        // A drag ends here too: the button came up somewhere we cannot see.
+      onPointerCancel={() => {
+        // The capture goes with the pointer when the host takes it, so nothing
+        // more reports this press, and a leave that deferred to the drag may
+        // never arrive. Give the desktop back the way a leave does; a pointer
+        // still on the pill re-arms it on its next move.
         dragRef.current = null;
+        setHovered(false);
+        setInteractive(false);
+      }}
+      onMouseLeave={() => {
+        // A leave is not a release. A drag can carry the pointer off the canvas
+        // and back, and handing the desktop back mid-press would put the window
+        // click-through under a button that is still down. Only a release ends
+        // the drag, seen as `mouseup` or as a move with no button held.
+        if (dragRef.current !== null) {
+          return;
+        }
+        // The pointer left the canvas entirely, which mouse-move cannot report.
         setHovered(false);
         setInteractive(false);
       }}
@@ -554,13 +566,33 @@ export function CompanionSurfacePage() {
         }
         rootRef={pillRef}
         avatarRef={avatarRef}
-        onSurfaceMouseDown={(event) => {
+        onSurfacePointerDown={(event) => {
           // A right-click is a menu, not a grab. Left alone it would arm the
           // drag and then never be released by a `mouseup` this window sees,
-          // because the menu takes the pointer for as long as it is open.
+          // because the menu takes the pointer for as long as it is open. It
+          // must not take the capture below either, for the same reason.
           if (event.button !== 0) {
             return;
           }
+          // A press on a control is not a grab, and here it must not even arm
+          // one: capture retargets the click to whatever holds it, so a press
+          // that took capture from a control is a click that control never
+          // sees. The surface's own controls stop the press themselves; the
+          // card's replies are markdown, and the affordances the design library
+          // draws inside them cannot.
+          if (
+            (event.target as Element).closest(
+              "button, a, input, textarea, select, [contenteditable='true']",
+            ) !== null
+          ) {
+            return;
+          }
+          // The window is moved a message at a time, so it trails the hand and
+          // a quick drag carries the pointer off the canvas. Capture keeps the
+          // moves and the release coming here regardless of what the pointer is
+          // over, and holds the canvas's `mouseleave` back until the button is
+          // up.
+          event.currentTarget.setPointerCapture(event.pointerId);
           dragRef.current = { x: event.screenX, y: event.screenY };
           pressOriginRef.current = { x: event.screenX, y: event.screenY };
           draggedRef.current = false;

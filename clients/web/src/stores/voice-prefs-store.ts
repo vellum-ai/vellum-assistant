@@ -80,6 +80,17 @@ export function clampPauseBeforeReplyMs(ms: number): number {
   );
 }
 
+/**
+ * Camera flash for a photo taken from the voice room: `auto` fires it when the
+ * scene is dark enough, `on` fires it always, `off` never.
+ *
+ * Capture flash only. A torch (the lamp held on continuously) is deliberately
+ * not one of these: iOS models it as a separate mode that the photo flash then
+ * has to turn back off, so offering both in one control gives the user two ways
+ * to light a scene that disagree with each other.
+ */
+export type FlashMode = "off" | "auto" | "on";
+
 export interface VoicePrefsState {
   /** Whether the user-side transcript is shown in the voice UI. */
   showUserTranscript: boolean;
@@ -106,6 +117,15 @@ export interface VoicePrefsState {
    * {@link DEFAULT_INTERRUPT_SENSITIVITY} as the resting value.
    */
   interruptSensitivity: InterruptSensitivity | null;
+  /**
+   * The flash mode the user picked for the voice room's camera.
+   *
+   * Their CHOICE, never what the hardware could do with it. Flipping to a
+   * front camera with no flash hides the control instead of writing `off` here,
+   * so flipping back restores the mode they set rather than one the device
+   * silently picked for them.
+   */
+  flashMode: FlashMode;
 }
 
 export interface VoicePrefsActions {
@@ -117,6 +137,8 @@ export interface VoicePrefsActions {
   setPauseBeforeReplyMs: (next: number | null) => void;
   /** `null` clears the preference, handing barge-in back to daemon config. */
   setInterruptSensitivity: (next: InterruptSensitivity | null) => void;
+  /** Record the flash mode the user picked. See {@link VoicePrefsState.flashMode}. */
+  setFlashMode: (next: FlashMode) => void;
 }
 
 export type VoicePrefsStore = VoicePrefsState & VoicePrefsActions;
@@ -133,6 +155,7 @@ const INITIAL_STATE: VoicePrefsState = {
   // override lets the daemon's configured VAD defaults stand.
   pauseBeforeReplyMs: null,
   interruptSensitivity: null,
+  flashMode: "off",
 };
 
 // ---------------------------------------------------------------------------
@@ -162,6 +185,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         }),
       setInterruptSensitivity: (next: InterruptSensitivity | null) =>
         set({ interruptSensitivity: next }),
+      setFlashMode: (next: FlashMode) => set({ flashMode: next }),
     }),
     {
       name: VOICE_PREFS_STORE_KEY,
@@ -172,6 +196,7 @@ const useVoicePrefsStoreBase = create<VoicePrefsStore>()(
         firstRunSeen: state.firstRunSeen,
         pauseBeforeReplyMs: state.pauseBeforeReplyMs,
         interruptSensitivity: state.interruptSensitivity,
+        flashMode: state.flashMode,
       }),
     },
   ),

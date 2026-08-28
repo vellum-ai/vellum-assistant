@@ -12,13 +12,14 @@
  *
  * Zones are inset past the room's corner controls — the gear/✕ cluster above,
  * the mute/stop cluster below — so text never collides with them. The `rem`
- * floor in each anchor is what guarantees that clearance (the controls are a
- * fixed 3rem tall at a 1.25rem inset); the percentage takes over on taller
- * viewports, where hugging a fixed offset off the edge would strand the text
- * far below the eyes. Both are safe-area aware per docs/CAPACITOR.md — the
- * `var()` is set by `capacitor-plugin-safe-area` on Capacitor iOS, `env()`
- * covers standard browsers with `viewport-fit=cover`, and `0px` covers desktop
- * / non-notch devices.
+ * floor in each anchor is what guarantees that clearance: the controls are a
+ * fixed 3.25rem tall at a 1.25rem inset, which reaches 4.5rem, so the floor
+ * sits a quarter of a rem past that rather than tangent to it. The percentage
+ * takes over on taller viewports, where hugging a fixed offset off the edge
+ * would strand the text far below the eyes. Both are safe-area aware per
+ * docs/CAPACITOR.md: the `var()` is set by `capacitor-plugin-safe-area` on
+ * Capacitor iOS, `env()` covers standard browsers with `viewport-fit=cover`,
+ * and `0px` covers desktop / non-notch devices.
  *
  * Percentages (not `vh`) resolve against the room box, so the zones size
  * correctly both in the app — where the room is a `fixed inset-0` overlay — and
@@ -35,7 +36,7 @@ export const SAFE_AREA_RIGHT =
   "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))";
 
 /** Top edge of the upper (user) zone — clears the top-right gear/✕ cluster. */
-export const VOICE_ROOM_UPPER_ZONE_TOP = `calc(max(4.5rem, 11%) + ${SAFE_AREA_TOP})`;
+export const VOICE_ROOM_UPPER_ZONE_TOP = `calc(max(4.75rem, 11%) + ${SAFE_AREA_TOP})`;
 /** Height of the upper zone. Content is bottom-anchored inside it, so a longer
  *  utterance grows upward and its oldest lines dissolve into the fade. */
 export const VOICE_ROOM_UPPER_ZONE_HEIGHT = "18%";
@@ -46,7 +47,7 @@ export const VOICE_ROOM_UPPER_ZONE_HEIGHT = "18%";
  * baseline, so turning live captions on replaces the status word roughly in
  * place rather than moving the room's text to a different region.
  */
-export const VOICE_ROOM_LOWER_ZONE_BOTTOM = `calc(max(4.5rem, 14%) + ${SAFE_AREA_BOTTOM})`;
+export const VOICE_ROOM_LOWER_ZONE_BOTTOM = `calc(max(4.75rem, 14%) + ${SAFE_AREA_BOTTOM})`;
 /** Ceiling on the lower zone. Content is bottom-anchored, so a long response
  *  keeps its newest words on the baseline and fades out the top. */
 export const VOICE_ROOM_LOWER_ZONE_MAX_HEIGHT = "28%";

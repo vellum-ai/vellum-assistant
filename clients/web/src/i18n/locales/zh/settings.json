@@ -510,8 +510,6 @@
   "credentialRow": {
     "addedMetadata": "添加于 {date}",
     "clickToRevealTitle": "点击显示",
-    "configureAriaLabel": "配置 {name}",
-    "configureButton": "配置",
     "copyFailedToast": "无法复制。请手动显示并复制。",
     "copyValueAriaLabel": "复制 {name} 的值",
     "copyValueTitle": "复制值",

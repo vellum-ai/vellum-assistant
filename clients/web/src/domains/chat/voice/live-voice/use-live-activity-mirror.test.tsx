@@ -155,6 +155,7 @@ const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const { BUNDLED_COMPONENTS } =
   await import("@/utils/avatar-bundled-components");
+const { changeLocale, currentLocale } = await import("@/i18n");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -227,6 +228,7 @@ beforeEach(() => {
   endVoiceLiveActivity.mockImplementation(async () => {});
   subscribeVoiceLiveActivityPushToken.mockClear();
   registerLiveActivityPushToken.mockClear();
+  registerLiveActivityPushToken.mockImplementation(async () => {});
   unregisterLiveActivityPushToken.mockClear();
   startVoiceActivity.mockClear();
   updateVoiceActivity.mockClear();
@@ -234,9 +236,12 @@ beforeEach(() => {
   emitPushToken = null;
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   useLiveVoiceStore.getState().reset();
+  // The locale is process-global, so a test that switches it would leave every
+  // later suite in this file asserting Spanish copy.
+  await changeLocale("en");
 });
 
 // ---------------------------------------------------------------------------
@@ -536,6 +541,25 @@ describe("updating the activity", () => {
     );
     expect(lastUpdatePayload()?.label).toBe("Thinking…");
   });
+
+  // The island and the macOS companion render the label the mirror hands them
+  // verbatim, so a label resolved in English would leave both reading a
+  // language the app is not in. Nothing in the session moves on a switch, so
+  // the mirror has to re-read it itself.
+  test("follows the active locale", async () => {
+    renderMirror();
+    await setPhase("listening");
+    expect(lastStartPayload()?.label).toBe("Listening…");
+
+    await act(async () => {
+      await changeLocale("es");
+    });
+
+    expect(lastUpdatePayload()?.label).toBe("Escuchando…");
+
+    // The phase behind it is untouched: only the wording moved.
+    expect(lastUpdatePayload()?.phase).toBe("listening");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -762,9 +786,9 @@ describe("registering the activity for server-driven updates", () => {
     });
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
-    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject(
-      { conversationId: "conv-9" },
-    );
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
+      conversationId: "conv-9",
+    });
   });
 
   // iOS reissues tokens mid-activity and each value invalidates the last, so a
@@ -781,9 +805,9 @@ describe("registering the activity for server-driven updates", () => {
     await emitToken("token-def");
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(2);
-    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject(
-      { token: "token-def" },
-    );
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
+      token: "token-def",
+    });
   });
 
   // The platform composes every push from the registration, so a mute the
@@ -805,6 +829,41 @@ describe("registering the activity for server-driven updates", () => {
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
     expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
       muted: true,
+    });
+  });
+
+  // The platform words every background push by looking a phase up in the
+  // label table the registration carried, so a language switch the registration
+  // never heard about leaves the island reading the language the user just
+  // left. Nothing in the session moves on a switch, which is why the mirror has
+  // to key on the locale itself. The table is built inside the upsert from the
+  // language active when the call is made (pinned by
+  // `live-activity-push-registration.test.ts`), so the locale recorded here is
+  // the language the platform ends up holding.
+  test("re-registers in the new language when the app's language changes", async () => {
+    const localesRegisteredIn: string[] = [];
+    registerLiveActivityPushToken.mockImplementation(async () => {
+      localesRegisteredIn.push(currentLocale());
+    });
+    renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+    await emitToken("token-abc");
+    registerLiveActivityPushToken.mockClear();
+    localesRegisteredIn.length = 0;
+
+    await act(async () => {
+      await changeLocale("es");
+    });
+
+    expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
+    expect(localesRegisteredIn).toEqual(["es"]);
+    // Only the wording moved: the activity it addresses is the same one.
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
+      token: "token-abc",
+      conversationId: "conv-1",
     });
   });
 

@@ -23,6 +23,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { StrictMode } from "react";
 
 let cameraOpen = true;
+let cameraFlipping = false;
 let cameraNative = true;
 let cameraError: string | null = null;
 let capturedFrame: File | null = null;
@@ -48,6 +49,7 @@ function holdFrame() {
 mock.module("@/domains/chat/voice/voice-room/voice-camera", () => ({
   useVoiceCamera: () => ({
     open: cameraOpen,
+    flipping: cameraFlipping,
     native: cameraNative,
     facing: "environment",
     error: cameraError,
@@ -96,6 +98,7 @@ const flushFocusRestore = () =>
 
 beforeEach(() => {
   cameraOpen = true;
+  cameraFlipping = false;
   cameraNative = true;
   cameraError = null;
   capturedFrame = null;
@@ -251,6 +254,28 @@ describe("CameraCaptureOverlay", () => {
     renderOverlay();
 
     expect(shutter().hasAttribute("disabled")).toBe(true);
+  });
+
+  test("the shutter waits out a flip rather than capturing its gap", () => {
+    // The fallback flip releases the stream while the viewfinder stays up. A
+    // press in that window would close the overlay on a capture failure for a
+    // flip that is working.
+    cameraFlipping = true;
+
+    renderOverlay();
+
+    expect(shutter().hasAttribute("disabled")).toBe(true);
+  });
+
+  test("the shutter's band is darkened, since the shutter carries no fill", () => {
+    renderOverlay();
+
+    // A white ring around a white core is invisible against a bright wall
+    // unless something behind it gives way. Inert, because it lies over the
+    // controls it exists to make readable.
+    const scrim = screen.getByTestId("camera-deep-link-scrim");
+    expect(scrim.className).toContain("pointer-events-none");
+    expect(scrim.getAttribute("style")).toContain("gradient");
   });
 
   test("an acquisition failure closes the surface rather than stranding it", () => {

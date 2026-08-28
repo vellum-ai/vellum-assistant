@@ -51,10 +51,10 @@ export interface VoiceLiveActivityContent {
    */
   phase: ActiveLiveVoiceSessionState;
   /**
-   * User-facing activity copy. Pass
-   * `liveVoiceSurfaceLabel(state, reconnecting, assistantAudioActive, muted)` so the
-   * island shows exactly what the voice room shows; the native side
-   * deliberately owns no phase wording of its own.
+   * User-facing activity copy. Pass the `chat` catalog's message for
+   * `liveVoiceSurfaceLabelKey(state, reconnecting, assistantAudioActive,
+   * muted)` so the island shows exactly what the voice room shows, in the same
+   * language; the native side deliberately owns no phase wording of its own.
    */
   label: string;
   /** Avatar accent as `#RRGGBB`. Unparseable values fall back to a neutral gray natively. */

@@ -106,22 +106,26 @@ the island UI would still have to handle.
 
 ### Why label copy comes from the web
 
-`ContentState.label` is a string passed through from
-`liveVoiceSurfaceLabel(state, reconnecting, assistantAudioActive)` — the *same
-call the voice room makes*, so the island reads exactly what the room reads. The
+`ContentState.label` is a string the web resolves out of its own catalog, keyed
+by `liveVoiceSurfaceLabelKey(state, reconnecting, assistantAudioActive, muted)`:
+the *same call the voice room makes*, so the island reads exactly what the room
+reads, in the language the app is in. The
 native side never switches on `phase` to produce wording — not in the expanded
 island, not in the compact slots, not on the Lock Screen. Three reasons, in order
 of importance:
 
-1. **Cadence.** `LIVE_VOICE_STATE_LABELS` deploys continuously; this shell ships
+1. **Cadence.** `LIVE_VOICE_STATE_KEYS` and the catalog behind it deploy
+   continuously; this shell ships
    on App Store review. A native `switch` would fossilize whatever wording was
    current at submission and drift silently from the room the user is looking at.
 2. **Two relabel rules, neither derivable from `phase` alone.**
-   `liveVoiceSurfaceLabel` maps `connecting` + `reconnecting` to "Reconnecting…",
+   `liveVoiceSurfaceLabelKey` maps `connecting` + `reconnecting` to "Reconnecting…",
    and a `speaking` with no audio actually playing to "Thinking…" — `speaking`
    stays set across a mid-turn tool run (JARVIS-1279). Reproducing either
    natively means shipping more state across the bridge and duplicating the rule.
-3. **Localization.** The web layer already owns user-facing copy.
+3. **Localization.** The web layer owns user-facing copy, and the label crosses
+   the bridge already translated, so the island follows the app language with no
+   catalog on this side.
 
 Wherever the label *is* rendered it is only ever truncated (`.lineLimit(1)` +
 `.truncationMode(.tail)` in `VoiceSessionText`), never swapped for a shorter

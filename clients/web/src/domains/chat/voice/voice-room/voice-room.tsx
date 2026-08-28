@@ -135,22 +135,35 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
-  liveVoiceSurfaceLabel,
+  liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { CameraShutter } from "@/domains/chat/voice/camera-shutter";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { useSupportsVoiceCamera } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
+import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
+import {
+  CAMERA_MEDIA_GLASS_CLASS,
+  CAMERA_SCRIM_BOTTOM,
+  CAMERA_SCRIM_TOP,
+} from "./camera-mode-paint";
+import {
+  CameraStatusPill,
+  useCameraStatusAnnouncement,
+} from "./camera-status-pill";
 import { useActiveConnectSurface } from "./use-active-connect-surface";
+import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
 import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
@@ -178,7 +191,10 @@ import { useCustomAvatarFieldHex } from "./use-custom-avatar-field";
 // minimize, the two mutes, the camera toggle, flip camera and end session. See
 // that module for the toning, and for why the design library's `Button` is not
 // the element here.
-import { VoiceRoomControl } from "./voice-room-control";
+import {
+  VoiceRoomControl,
+  type VoiceRoomControlSurface,
+} from "./voice-room-control";
 import {
   VoiceRoomColorLook,
   VoiceRoomVoiceBands,
@@ -195,6 +211,29 @@ const AVATAR_SIZE = 220;
  * top-right exit and the bottom control row sit on the same rhythm.
  */
 const CORNER_GAP = "1.25rem";
+
+/**
+ * Ceiling on the camera status pill, which is centred on the same line as the
+ * top-right minimize control and grows in both directions from there. A
+ * configured assistant name is arbitrarily long, so without this the pill runs
+ * under that control and off a phone-width room. Each side gives up the corner
+ * chrome's own offset, the control's 3.25rem box, and a gap so the two never
+ * touch; a percentage resolves against the room, which is what the pill has to
+ * fit inside.
+ */
+const CAMERA_PILL_MAX_WIDTH = `calc(100% - 2 * (max(${CORNER_GAP}, ${SAFE_AREA_RIGHT}) + 3.75rem))`;
+
+/**
+ * The flash button's accessible name, per state.
+ *
+ * It names the state and not the act, because the button has three states and
+ * one press: "Turn flash on" would be a lie two thirds of the time.
+ */
+const FLASH_LABEL_KEYS = {
+  off: "voiceRoom.flashOff",
+  auto: "voiceRoom.flashAuto",
+  on: "voiceRoom.flashOn",
+} as const;
 
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
@@ -463,12 +502,19 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // muted `listening` reads as "Muted", so they are not told it is hearing them
   // while the mic is off. Shared with the iOS Live Activity mirror and the
   // macOS companion, which show this exact string.
-  const stateLabel = liveVoiceSurfaceLabel(
+  //
+  // Taken as a catalog key and resolved here, once, for every surface in the
+  // room that shows it: the connect caption, the state announcer, and the
+  // camera's status pill. The out-of-app mirrors take the same key and resolve
+  // it through the same catalog, so one table decides the wording and every
+  // surface reads it in the language the app is in.
+  const stateLabelKey = liveVoiceSurfaceLabelKey(
     state,
     reconnecting,
     assistantAudioActive,
     muted,
   );
+  const stateLabel = stateLabelKey ? t(stateLabelKey) : "";
 
   // The state caption (e.g. "Listening…") shows only while the assistant
   // transcript is hidden. Nothing in the room toggles that any more: the
@@ -498,9 +544,53 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const cameraSupported =
     useSupportsVoiceCamera(assistantId) && isVoiceCameraSupported();
   const viewfinderRef = useRef<HTMLVideoElement | null>(null);
-  const { camera, sending, photos, errorMessage, shutter, open, close } =
+  const { camera, sending, photos, errorKey, shutter, open, close } =
     useVoiceRoomCamera(assistantId, viewfinderRef);
+  // The hook classifies the failure and names it; the room is where a
+  // translator's `t` already is, so the sentence is resolved here. Same split
+  // as the status pill's word below.
+  const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
+  // What every control in the room is sitting on. One value passed down rather
+  // than a boolean per control, so the row cannot end up half in camera mode.
+  const controlSurface: VoiceRoomControlSurface = cameraOpen
+    ? "camera"
+    : "room";
+
+  // Camera mode's own status readout. Gated on the camera so the user half is
+  // only reported while something renders its dot, and the name is resolved the
+  // way the first-run card resolves it.
+  const cameraVoiceState = useCameraVoiceState(
+    state,
+    assistantAudioActive,
+    cameraOpen,
+  );
+  const assistantName = useResolvedAssistantsStore.use
+    .assistants()
+    .find((a) => a.id === assistantId)?.name;
+  // The one sentence camera mode says. Composed here rather than inside the
+  // pill so the room's own always-mounted region speaks it: a live region that
+  // arrives with its first sentence already in it is announced by nothing
+  // reliable. Null while the camera is closed, where the region below carries
+  // the session's plain label instead.
+  const cameraAnnouncement = useCameraStatusAnnouncement(
+    cameraOpen
+      ? {
+          voiceState: cameraVoiceState,
+          statusLabel: stateLabel,
+          assistantName,
+          muted,
+        }
+      : null,
+  );
+
+  // The flash. A preference rather than a session setting, because the reason
+  // someone turns it on (a dark room, a phone that under-exposes) outlives the
+  // call it was turned on in. `useVoiceCamera` puts it on the camera; the room
+  // only cycles it. See `voice-camera.ts` for why it is offered on so few
+  // cameras.
+  const flashMode = useVoicePrefsStore.use.flashMode();
+  const setFlashMode = useVoicePrefsStore.use.setFlashMode();
 
   // Resolve the assistant's look. A character avatar hands over its palette
   // color and its eyes; an uploaded image hands over pixels, so the field color
@@ -721,6 +811,41 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         />
       ) : null}
 
+      {/* Legibility scrims for the two bands the camera chrome lives in.
+
+          The chrome over a viewfinder has no background it can count on: the
+          status pill's own glass holds up over most frames, but a white wall
+          under the top band or a bright sky under the bottom one takes the
+          whole row with it. A gradient darkens just enough at the edges to
+          keep it readable and fades to nothing before the middle of the frame,
+          which is the part the user is aiming.
+
+          Above the feed (`z-[2]`) and below the chrome (`z-10`), and inert:
+          they cover the shutter and the control row, so anything else would
+          swallow every press in the bottom third. Rendered for the native
+          preview too, which sits behind the transparent web view and needs the
+          scrim just as much. */}
+      {cameraOpen ? (
+        <>
+          <div
+            aria-hidden
+            data-testid="voice-room-scrim-top"
+            className="pointer-events-none absolute inset-x-0 top-0 z-[3] h-[22%]"
+            style={{ background: CAMERA_SCRIM_TOP }}
+          />
+          {/* The floor is what carries the scrim past the shutter in a short
+              room: 38% of a 500px panel stops above it, leaving the one control
+              meant to be the brightest thing on screen sitting on bare frame.
+              15rem clears the shutter's own row and the control row under it. */}
+          <div
+            aria-hidden
+            data-testid="voice-room-scrim-bottom"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[max(38%,15rem)]"
+            style={{ background: CAMERA_SCRIM_BOTTOM }}
+          />
+        </>
+      ) : null}
+
       {/* Optional live transcript, rendered into the room's two text zones —
           the user's speech above the eyes, the assistant's below. Pref-gated
           (the captions control above) and absolutely positioned in the margins
@@ -772,6 +897,35 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         />
       ) : null}
 
+      {/* Camera mode's status readout: what the camera is doing, and what the
+          session is doing. Top-centre, on the same offset the corner chrome
+          uses, so it shares a line with the minimize control instead of
+          floating on a rhythm of its own; that offset already clears the
+          sheet's grabber.
+
+          Camera-only. With the viewfinder closed the room says all of this
+          through the look itself (the avatar's visual, the state caption, the
+          bands), and a pill repeating it would be a second answer to a question
+          nobody asked. */}
+      {cameraOpen ? (
+        <div
+          data-testid="camera-status-pill-slot"
+          className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
+          style={{
+            top: fullscreen
+              ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})`
+              : CORNER_GAP,
+            maxWidth: CAMERA_PILL_MAX_WIDTH,
+          }}
+        >
+          <CameraStatusPill
+            voiceState={cameraVoiceState}
+            statusLabel={stateLabel}
+            assistantName={assistantName}
+          />
+        </div>
+      ) : null}
+
       {/* Top-right: minimize, alone.
 
           The corner is where every other surface in the app puts "get this off
@@ -808,7 +962,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           tooltip={t("voiceRoom.minimizeTooltip")}
           onClick={minimizeVoiceRoom}
           bare
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           <ChevronDown className="size-5" />
         </VoiceRoomControl>
@@ -904,13 +1058,24 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         <div
           data-testid="voice-room-camera-controls"
           className="absolute inset-x-0 z-10 flex flex-col items-center gap-3"
+          // The session row's own offset, plus its 52px height, plus the 46px
+          // the design leaves between the two. Composed from the row's top edge
+          // rather than written as one constant: the thing you press often has
+          // to stay off the thing that hangs up, and it is the GAP that
+          // guarantees that, not the number.
           style={{
-            bottom: `calc(5.5rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
+            bottom: `calc(6.125rem + max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM}))`,
           }}
         >
           {errorMessage ? (
+            // Visual only. A live region carrying its own first content is
+            // announced unreliably, since assistive tech watches an existing
+            // region for changes rather than a new one for arrival, and this
+            // element mounts with the message already in it. The always-mounted
+            // region at the foot of the room speaks it instead.
             <p
-              role="status"
+              aria-hidden
+              data-testid="voice-room-camera-error"
               className={cn(
                 "rounded-full px-3 py-1 text-xs",
                 // Same reason the controls get a scrim: a failed send reported
@@ -918,7 +1083,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                 // read. Camera-closed (a denied permission, the case where the
                 // viewfinder never came up) keeps the room's own treatment.
                 cameraOpen
-                  ? "bg-black/45 text-white backdrop-blur-sm"
+                  ? CAMERA_MEDIA_GLASS_CLASS
                   : "bg-[var(--room-wash)] text-[var(--room-fg)]",
               )}
             >
@@ -979,47 +1144,53 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               reaches for without looking. */}
           {cameraOpen ? (
             <div className="relative flex w-full items-center justify-center">
-              <Tooltip content={t("voiceRoom.takePhoto")}>
-                <button
-                  type="button"
-                  onClick={() => void shutter()}
-                  disabled={sending}
-                  aria-label={t("voiceRoom.takePhoto")}
-                  data-testid="voice-room-shutter"
-                  className={cn(
-                    "flex size-16 items-center justify-center rounded-full border-4 transition",
-                    // The one control with no camera-open branch: the shutter
-                    // exists only while the viewfinder does, so video is the
-                    // only thing it is ever seen against, and a tone-derived
-                    // color describes a background the feed has covered.
-                    //
-                    // White alone is not enough either, because the frame can
-                    // be any brightness: a white ring on a white wall is as
-                    // invisible as a dark one on a dark shirt. The white sits
-                    // on a dark fill and a dark outer hairline, so one edge or
-                    // the other separates it from the video at both extremes.
-                    "border-white bg-black/30 shadow-[0_0_0_1.5px_rgba(0,0,0,0.4)]",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-                    // The inner disc shrinks while the photo uploads: the
-                    // shutter's own press animation doubling as the progress
-                    // signal, so nothing else has to appear over the viewfinder.
-                    sending ? "opacity-60" : "hover:bg-black/45",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "rounded-full bg-white transition-all",
-                      sending ? "size-6" : "size-11",
-                    )}
+              {/* Flash on the left, flip on the right, shutter between them:
+                  the two things that change how the next photo comes out sit
+                  either side of the one that takes it, and neither can be hit
+                  by a thumb reaching for the middle.
+
+                  Present only where it does something. The browser fallback
+                  path cannot fire a flash at all, and a native camera with no
+                  flash unit reports none, so on both this is absent rather
+                  than a dead control the user has to discover is dead. */}
+              {camera.flashAvailable ? (
+                <Tooltip content={t(FLASH_LABEL_KEYS[flashMode])}>
+                  <CameraFlashControl
+                    mode={flashMode}
+                    ariaLabel={t(FLASH_LABEL_KEYS[flashMode])}
+                    autoBadge={t("voiceRoom.flashAutoBadge")}
+                    onClick={() => setFlashMode(nextFlashMode(flashMode))}
+                    // The design's own offset. It is not flip's on the other
+                    // side: the design places the two flanks independently, so
+                    // matching them to each other is a departure from it.
+                    className="absolute left-11"
+                    testId="voice-room-flash"
                   />
-                </button>
+                </Tooltip>
+              ) : null}
+
+              {/* The one control with no surface branch: the shutter exists
+                  only while the viewfinder does, so it is never seen against
+                  anything but video. Photo is the only mode the capture path
+                  reaches. */}
+              <Tooltip content={t("voiceRoom.takePhoto")}>
+                <CameraShutter
+                  onClick={() => void shutter()}
+                  ariaLabel={t("voiceRoom.takePhoto")}
+                  capturing={sending}
+                  // Also held off while a flip swaps the capture: the
+                  // viewfinder stays up with nothing behind it, and a press
+                  // there would report a failure for a working flip.
+                  disabled={sending || camera.flipping}
+                  testId="voice-room-shutter"
+                />
               </Tooltip>
 
               <VoiceRoomControl
                 label={t("voiceRoom.flipCamera")}
                 onClick={() => void camera.flipCamera()}
-                overMedia={cameraOpen}
-                className="absolute right-8"
+                surface={controlSurface}
+                className="absolute right-[30px]"
               >
                 <SwitchCamera className="size-5" />
               </VoiceRoomControl>
@@ -1036,23 +1207,36 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
         <VoiceRoomControl
-          label={muted ? t("voiceRoom.unmuteMicrophone") : t("voiceRoom.muteMicrophone")}
+          label={
+            muted
+              ? t("voiceRoom.unmuteMicrophone")
+              : t("voiceRoom.muteMicrophone")
+          }
           onClick={() => setLiveVoiceMuted(!muted)}
           pressed={muted}
-          tone={muted ? "destructive" : "neutral"}
+          // With the viewfinder up, the room's face is covered and this button
+          // is the only thing on screen saying the session can still hear you.
+          // A live mic therefore goes solid white rather than sitting on the
+          // same glass as the controls around it, where the answer would be an
+          // absence of red.
+          tone={muted ? "destructive" : "live"}
           isLight={tone?.isLight}
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
         </VoiceRoomControl>
 
         <VoiceRoomControl
-          label={outputMuted ? t("voiceRoom.unmuteAssistant") : t("voiceRoom.muteAssistant")}
+          label={
+            outputMuted
+              ? t("voiceRoom.unmuteAssistant")
+              : t("voiceRoom.muteAssistant")
+          }
           onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
           pressed={outputMuted}
           tone={outputMuted ? "destructive" : "neutral"}
           isLight={tone?.isLight}
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           {outputMuted ? (
             <VolumeX className="size-5" />
@@ -1083,10 +1267,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             self-evident would be worse than nothing. */}
         {cameraSupported ? (
           <VoiceRoomControl
-            label={cameraOpen ? t("voiceRoom.closeCamera") : t("voiceRoom.showCamera")}
+            label={
+              cameraOpen
+                ? t("voiceRoom.closeCamera")
+                : t("voiceRoom.showCamera")
+            }
             onClick={() => (cameraOpen ? close() : void open())}
             pressed={cameraOpen}
-            overMedia={cameraOpen}
+            surface={controlSurface}
             data-testid="voice-room-camera-toggle"
           >
             {cameraOpen ? (
@@ -1103,19 +1291,55 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           onClick={endLiveVoiceSession}
           tone="destructive"
           isLight={tone?.isLight}
-          overMedia={cameraOpen}
+          surface={controlSurface}
         >
           <X className="size-5" strokeWidth={2.5} />
         </VoiceRoomControl>
       </div>
 
       {/* Screen readers get session-state changes here; the avatar is the
-          visual channel, so this stays off-screen. */}
-      <div aria-live="polite" className="sr-only">
-        {/* A muted `listening` already reads as "Muted", so prefixing it again
-            would announce "Muted — Muted". The assistant's own phases still
-            need the prefix: "Thinking…" alone would not say the mic is off. */}
-        {muted && state !== "listening" ? t("voiceRoom.mutedState", { state: stateLabel }) : stateLabel}
+          visual channel, so this stays off-screen.
+
+          One region across both looks, rather than a second one appearing with
+          the viewfinder. Assistive tech announces a change made INSIDE a region
+          it was already watching, not the arrival of a region that comes with
+          its words already in it, so the camera's sentence is written into this
+          one and the pill above stays a drawing. */}
+      <div
+        aria-live="polite"
+        className="sr-only"
+        data-testid="voice-room-state-announcer"
+      >
+        {/* With the camera open the sentence leads with the mode word and
+            carries the mute prefix itself (see `useCameraStatusAnnouncement`),
+            so the room says the state once rather than twice.
+
+            Closed, a muted `listening` already reads as "Muted", so prefixing
+            it again would announce "Muted. Muted". The assistant's own phases
+            still need the prefix: "Thinking…" alone would not say the mic is
+            off. */}
+        {cameraOpen
+          ? cameraAnnouncement
+          : muted && state !== "listening"
+            ? t("voiceRoom.mutedState", { state: stateLabel })
+            : stateLabel}
+      </div>
+
+      {/* The camera's own failures, in words.
+
+          A region of its own rather than a branch of the one above, because the
+          two answer different questions and a failure stands until the camera is
+          opened or closed again: folding it in would silence every state change
+          for as long as the message lasted. Mounted whether or not there is
+          anything to say, since assistive tech announces a change made INSIDE a
+          region it was already watching, not the arrival of a region that comes
+          with its words already in it. */}
+      <div
+        aria-live="polite"
+        className="sr-only"
+        data-testid="voice-room-camera-announcer"
+      >
+        {errorMessage ?? ""}
       </div>
     </motion.div>
   );

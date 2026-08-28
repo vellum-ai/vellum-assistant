@@ -23,6 +23,7 @@ export function App() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [assistantsError, setAssistantsError] = useState<string | null>(null);
   const [cloudEmail, setCloudEmail] = useState<string | undefined>(undefined);
+  const [refreshingAssistants, setRefreshingAssistants] = useState(false);
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
@@ -143,8 +144,11 @@ export function App() {
         setScreen({ name: 'main' });
         sendMessage({ type: 'connect' });
       } else if (assistants.length === 0) {
-        setScreen({ name: 'main' });
-        sendMessage({ type: 'connect' });
+        setScreen({
+          name: 'picker',
+          assistants: [],
+          email: response.session?.email,
+        });
       } else if (assistants.length === 1) {
         const a = assistants[0]!;
         sendMessage({
@@ -168,6 +172,56 @@ export function App() {
     setAssistantsError(null);
     handleSignIn();
   }, [handleSignIn]);
+
+  const handleRefreshAssistants = useCallback(() => {
+    if (refreshingAssistants) {
+      return;
+    }
+    setRefreshingAssistants(true);
+    sendMessage<{
+      ok: boolean;
+      assistants?: CloudAssistant[];
+      error?: string;
+    }>({ type: 'list-assistants' })
+      .then((response) => {
+        if (modeRef.current !== 'cloud') {
+          return;
+        }
+        if (!response?.ok) {
+          setScreen({
+            name: 'picker',
+            assistants: [],
+            email: cloudEmail,
+            error: response?.error ?? 'Unable to load assistants',
+          });
+          return;
+        }
+        const assistants = response.assistants ?? [];
+        if (assistants.length === 1) {
+          const a = assistants[0]!;
+          sendMessage({
+            type: 'select-assistant',
+            assistantId: a.id,
+            assistantName: a.name,
+          });
+          setScreen({ name: 'main' });
+          sendMessage({ type: 'connect' });
+          return;
+        }
+        setScreen({
+          name: 'picker',
+          assistants,
+          email: cloudEmail,
+        });
+      })
+      .finally(() => {
+        setRefreshingAssistants(false);
+      });
+  }, [cloudEmail, refreshingAssistants]);
+
+  const handleCreateAssistant = useCallback(() => {
+    sendMessage({ type: 'open-create-assistant' });
+  }, []);
 
   const handleSelfHosted = useCallback(() => {
     setMode('self-hosted');
@@ -255,8 +309,12 @@ export function App() {
               <PickerScreen
                 assistants={screen.assistants}
                 email={screen.email}
+                error={screen.error}
+                refreshing={refreshingAssistants}
                 onSelect={handleSelectAssistant}
                 onBack={handleBackToWelcome}
+                onRetry={handleRefreshAssistants}
+                onCreateAssistant={handleCreateAssistant}
               />
             );
           case 'main':

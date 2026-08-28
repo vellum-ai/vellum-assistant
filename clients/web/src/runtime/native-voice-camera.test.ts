@@ -112,6 +112,37 @@ describe("native voice camera", () => {
     debugSpy.mockRestore();
   });
 
+  test("a refusal arriving after a replacement start leaves it visible", async () => {
+    nativeMobile = true;
+    const debugSpy = spyOn(console, "debug").mockImplementation(() => {});
+
+    // The first open's refusal is still on the bridge while a stop and a
+    // second open run. The visibility belongs to the second open: the late
+    // refusal must not hide the preview it is putting up.
+    let refuseFirst: () => void = () => {};
+    startSpy.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          refuseFirst = () => reject(new Error("camera busy"));
+        }),
+    );
+    const first = startNativeVoiceCamera("environment");
+
+    await stopNativeVoiceCamera();
+    startSpy.mockImplementation(async () => {});
+    const second = startNativeVoiceCamera("user");
+
+    refuseFirst();
+    expect(await first).toBe(false);
+    expect(await second).toBe(true);
+    expect(
+      document.documentElement.classList.contains(
+        NATIVE_VOICE_CAMERA_ACTIVE_CLASS,
+      ),
+    ).toBe(true);
+    debugSpy.mockRestore();
+  });
+
   test("captures, flips, and stops through the native bridge", async () => {
     nativeMobile = true;
     document.documentElement.classList.add(
