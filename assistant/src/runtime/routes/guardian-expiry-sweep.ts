@@ -13,7 +13,7 @@
  * That order is safe because every decision path checks `expiresAt` before
  * any write: a past-deadline row is undecidable while it waits for its
  * fan-out. The cost is at-least-once side effects: a round that dies
- * between the notice and the CAS re-notifies the requester next round —
+ * between the notice and the CAS re-notifies the requester next round,
  * which is the correct trade against silently losing the withdrawal and the
  * notice, since a stale card is an actionable control on every surface that
  * renders buttons.
