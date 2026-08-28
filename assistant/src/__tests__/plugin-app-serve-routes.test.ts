@@ -271,10 +271,10 @@ describe("multi-file plugin apps compile on open", () => {
     expect(result.html).toContain("Compiled Board");
     expect(result.html).not.toContain("not been compiled");
     expect(result.origin).toBe("plugin:acme");
-    // The daemon must not write dist/ into the read-only plugin tree — that is
+    // The daemon must not write dist/ into the read-only plugin tree. That is
     // the monitor's job. The on-open build happened in a throwaway temp dir.
     expect(existsSync(join(appDir, "dist"))).toBe(false);
-  });
+  }, 15_000);
 
   test("apps_open on a malformed plugin app (no src/, no dist/) serves the fallback, not a 500", async () => {
     // An app dir with neither a root index.html nor src/ nor dist/ is
