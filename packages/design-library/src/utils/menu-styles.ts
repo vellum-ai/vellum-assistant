@@ -15,6 +15,17 @@ export const menuItemBase = [
   "transition-colors",
 ].join(" ");
 
+/**
+ * The right-aligned column of a menu row, shared by the shortcut hint and the
+ * trailing slot so a key hint and a status glyph sit on the same baseline in
+ * the same colour. Compose with `ml-auto` on whichever element is first: with
+ * both slots present, only the leading one pushes.
+ */
+export const menuItemAsideBase = [
+  "pl-4 text-body-small-default tracking-wide",
+  "text-[var(--content-tertiary)]",
+].join(" ");
+
 export const menuContentBase = [
   "z-50 min-w-[10rem] overflow-hidden rounded-lg bg-[var(--surface-lift)] p-2 shadow-[var(--shadow-popover)]",
   "data-[state=open]:animate-in data-[state=closed]:animate-out",

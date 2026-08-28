@@ -3,7 +3,11 @@ import { Check, ChevronRight, Circle } from "lucide-react";
 import { type ComponentProps, type ReactNode, useRef } from "react";
 
 import { cn } from "../utils/cn";
-import { menuContentBase, menuItemBase } from "../utils/menu-styles";
+import {
+  menuContentBase,
+  menuItemAsideBase,
+  menuItemBase,
+} from "../utils/menu-styles";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
@@ -144,7 +148,7 @@ function Item({
       {trailing ? (
         <span
           data-slot="menu-item-trailing"
-          className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]"
+          className={cn(menuItemAsideBase, "ml-auto")}
         >
           {trailing}
         </span>
@@ -153,10 +157,7 @@ function Item({
         <span
           data-slot="menu-item-shortcut"
           aria-hidden
-          className={cn(
-            "pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]",
-            !trailing && "ml-auto",
-          )}
+          className={cn(menuItemAsideBase, !trailing && "ml-auto")}
         >
           {shortcut}
         </span>
@@ -204,7 +205,7 @@ function CheckboxItem({
         <span
           data-slot="menu-item-shortcut"
           aria-hidden
-          className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]"
+          className={cn(menuItemAsideBase, "ml-auto")}
         >
           {shortcut}
         </span>
@@ -260,7 +261,7 @@ function RadioItem({
         <span
           data-slot="menu-item-shortcut"
           aria-hidden
-          className="ml-auto pl-4 text-body-small-default tracking-wide text-[var(--content-tertiary)]"
+          className={cn(menuItemAsideBase, "ml-auto")}
         >
           {shortcut}
         </span>
