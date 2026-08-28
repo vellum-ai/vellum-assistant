@@ -72,13 +72,18 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  // A fresh element per pass: handed the same element object, React compares
+  // it by reference and skips the subtree, so a transition test would read the
+  // tree from before the flip.
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <VoiceSections />
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = render(tree());
+  return { ...result, rerenderPage: () => result.rerender(tree()) };
 }
 
 beforeEach(() => {
@@ -452,6 +457,27 @@ describe("VoiceSections loading gate", () => {
     voiceSelection.settled = true;
     renderPage();
     for (const h of headings) {
+      expect(screen.queryAllByText(h)).toHaveLength(1);
+    }
+  });
+
+  test("the placeholder gives way to the cards in a single step", () => {
+    voiceSelection.settled = false;
+    languageSelection.settled = false;
+    const { rerenderPage } = renderPage();
+
+    expect(placeholder()).not.toBeNull();
+    expect(captionsToggle()).toBeNull();
+
+    // Both answers land together, which is what the shared config query gives:
+    // one flip from placeholder to page, not one per capability.
+    voiceSelection.settled = true;
+    languageSelection.settled = true;
+    rerenderPage();
+
+    expect(placeholder()).toBeNull();
+    expect(captionsToggle()).not.toBeNull();
+    for (const h of ["Output", "Input", "Captions"]) {
       expect(screen.queryAllByText(h)).toHaveLength(1);
     }
   });
