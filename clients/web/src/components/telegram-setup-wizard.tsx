@@ -20,6 +20,8 @@ const WIZARD_STEP_IDS = ["create", "connect"] as const;
 export type TelegramSetupStepId = (typeof WIZARD_STEP_IDS)[number];
 
 export interface TelegramSetupWizardProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   assistantName: string;
   onSave?: (botToken: string) => void;
   saveStatus?: MutationStatus;
@@ -35,6 +37,7 @@ export interface TelegramSetupWizardProps {
  * needs do not exist here.
  */
 export function TelegramSetupWizard({
+  assistantId,
   assistantName,
   onSave,
   saveStatus = "idle",
@@ -89,6 +92,7 @@ export function TelegramSetupWizard({
     >
       {stepId === "create" && (
         <TelegramSetupCreateStep
+          assistantId={assistantId}
           suggestedName={assistantName}
           copied={copied}
           onCopyName={handleCopyName}

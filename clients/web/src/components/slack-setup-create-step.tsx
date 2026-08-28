@@ -4,6 +4,8 @@ import { Button, Notice, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface SlackSetupCreateStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   onContinue: () => void;
 }
 
@@ -15,6 +17,7 @@ export interface SlackSetupCreateStepProps {
  * stepping back, which the stepper already allows.
  */
 export function SlackSetupCreateStep({
+  assistantId,
   onContinue,
 }: SlackSetupCreateStepProps) {
   const { t } = useTranslation();
@@ -54,7 +57,7 @@ export function SlackSetupCreateStep({
         />
       </Notice>
 
-      <ChannelAvatarDownload channel="slack" />
+      <ChannelAvatarDownload assistantId={assistantId} channel="slack" />
 
       <Button
         type="button"

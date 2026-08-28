@@ -58,7 +58,12 @@ function goToConnectStep() {
 
 describe("TelegramSetupWizard step flow", () => {
   test("copying the suggested name does not navigate", () => {
-    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Copy name/i }));
 
@@ -75,7 +80,12 @@ describe("TelegramSetupWizard step flow", () => {
     }) as typeof window.open;
 
     try {
-      render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+      render(
+        <TelegramSetupWizard
+          assistantId="asst-test"
+          assistantName={ASSISTANT_NAME}
+        />,
+      );
       fireEvent.click(screen.getByRole("button", { name: /Open BotFather/i }));
 
       expect(opened).toEqual(["https://t.me/BotFather"]);
@@ -88,7 +98,12 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("Next advances to the token step", () => {
-    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
 
@@ -99,6 +114,7 @@ describe("TelegramSetupWizard step flow", () => {
     const saved: string[] = [];
     render(
       <TelegramSetupWizard
+        assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
         onSave={(token) => saved.push(token)}
       />,
@@ -118,7 +134,12 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("a truncated token is rejected", () => {
-    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     goToConnectStep();
 
@@ -138,6 +159,7 @@ describe("TelegramSetupWizard step flow", () => {
       return (
         <>
           <TelegramSetupWizard
+            assistantId="asst-test"
             assistantName={ASSISTANT_NAME}
             saveStatus={status}
             onSave={() => setStatus("success")}
@@ -164,6 +186,7 @@ describe("TelegramSetupWizard step flow", () => {
     const saved: string[] = [];
     render(
       <TelegramSetupWizard
+        assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
         onSave={(token) => saved.push(token)}
       />,

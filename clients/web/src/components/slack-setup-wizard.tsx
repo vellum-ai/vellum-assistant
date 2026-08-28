@@ -28,6 +28,8 @@ const WIZARD_STEP_IDS = ["name", "open", "create", "connect"] as const;
 export type SlackSetupStepId = (typeof WIZARD_STEP_IDS)[number];
 
 export interface SlackSetupWizardProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   assistantName: string;
   onSave?: (botToken: string, appToken: string) => void;
   saveStatus?: MutationStatus;
@@ -45,6 +47,7 @@ export interface SlackSetupWizardProps {
  * Slack (thread behavior) live in `SlackThreadBehavior`.
  */
 export function SlackSetupWizard({
+  assistantId,
   assistantName,
   onSave,
   saveStatus = "idle",
@@ -163,7 +166,10 @@ export function SlackSetupWizard({
       )}
 
       {stepId === "create" && (
-        <SlackSetupCreateStep onContinue={handleContinueToConnect} />
+        <SlackSetupCreateStep
+          assistantId={assistantId}
+          onContinue={handleContinueToConnect}
+        />
       )}
 
       {stepId === "connect" && (

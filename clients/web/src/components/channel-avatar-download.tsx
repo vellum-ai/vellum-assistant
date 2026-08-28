@@ -1,15 +1,35 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchAvatarImageUrlResult } from "@/assistant/avatar-api";
 import { useTranslation } from "@/i18n";
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { Button, Typography } from "@vellumai/design-library";
 
 /** Side of the square preview, large enough to judge the image by. */
 const PREVIEW_PX = 64;
 
+/** Name the raster is offered under, rather than the blob id. */
+const DOWNLOAD_FILENAME = "assistant-avatar.png";
+
+/**
+ * Written out per channel rather than composed from one. `catalogs.test.ts`
+ * finds a key by searching source for its literal, so a computed key reads as
+ * copy nothing references and fails the orphan check.
+ */
+const PROMPT_KEY = {
+  slack: "channelAvatarDownload.prompt.slack",
+  discord: "channelAvatarDownload.prompt.discord",
+  telegram: "channelAvatarDownload.prompt.telegram",
+} as const;
+
 export interface ChannelAvatarDownloadProps {
+  /**
+   * Assistant whose avatar to offer. Taken as a prop rather than read from
+   * the active-assistant store: the setup flow pins every query and credential
+   * write to the assistant its panel was opened for, so an assistant switch
+   * mid-setup must not swap which avatar this card offers.
+   */
+  assistantId: string;
   /** Provider whose icon field this is for, used only to pick the copy. */
   channel: "slack" | "discord" | "telegram";
 }
@@ -18,39 +38,42 @@ export interface ChannelAvatarDownloadProps {
  * Offers the assistant's avatar as a file, for the icon field of a channel bot.
  *
  * Every channel bot wears its provider's default icon until someone uploads
- * one by hand, and none of the three can be set from here: Slack keeps app
- * icons out of the manifest and behind a configuration token, Telegram accepts
- * one only through BotFather, and Discord's takes a credential this flow does
- * not hold. The wizard already has the user standing on the page that does
- * accept an upload, so the useful thing to hand them there is the file.
+ * one by hand, and none of the three can be set from here: Telegram has no API
+ * for it, Discord's needs a credential this flow does not hold, and Slack's
+ * `apps.icon.set` needs a configuration token that expires in hours. The
+ * wizard already has the user standing on the page that does accept an upload,
+ * so the useful thing to hand them there is the file.
  *
- * The preview is the raster itself rather than the usual avatar rendering. A
- * character avatar is drawn client-side from its traits, so showing it that
- * way would preview something other than what downloads. Reading the same PNG
- * that the download link points at keeps the two identical.
+ * The preview is the raster itself rather than the usual avatar rendering.
+ * `ChatAvatar` resolves traits ahead of a custom image, so a character avatar
+ * would preview as its client-side drawing while a PNG downloaded. Reading the
+ * same file the download writes keeps the two identical, which is the whole
+ * point of the control.
+ *
+ * Saving goes through `saveFile` rather than an anchor. A `blob:` anchor does
+ * not download on Capacitor iOS, where this wizard is reachable, and that
+ * helper already stages the blob through Filesystem and Share there.
  *
  * Renders nothing when there is no avatar to offer, which covers the `none`
  * kind and a workspace whose raster has not been written yet. An absent
- * suggestion is better than a broken thumbnail beside a dead link.
+ * suggestion is better than a broken thumbnail beside a dead control.
  */
-export function ChannelAvatarDownload({ channel }: ChannelAvatarDownloadProps) {
+export function ChannelAvatarDownload({
+  assistantId,
+  channel,
+}: ChannelAvatarDownloadProps) {
   const { t } = useTranslation();
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   // Owned by this component so it never revokes a URL another cache rendered.
   const urls = useRef(new Map<string, string>());
 
   useEffect(() => {
     const tracked = urls.current;
-    if (!assistantId) {
-      trackBlobUrl(tracked, "avatar", null);
-      setImageUrl(null);
-      return;
-    }
-
     let active = true;
+
     void fetchAvatarImageUrlResult(assistantId).then((result) => {
-      // A second assistant selected mid-flight must not overwrite the first.
+      // A second assistant resolved mid-flight must not overwrite the first,
+      // and its URL would otherwise leak.
       if (!active) {
         if (result.status === "found") {
           URL.revokeObjectURL(result.value);
@@ -67,14 +90,22 @@ export function ChannelAvatarDownload({ channel }: ChannelAvatarDownloadProps) {
     };
   }, [assistantId]);
 
-  // Revoke on unmount only. Keyed separately from the fetch so selecting a new
-  // assistant does not tear down the URL the effect above just stored.
+  // Revoke on unmount only. Kept out of the fetch effect so a re-fetch does
+  // not tear down the URL that effect just stored.
   useEffect(() => {
     const tracked = urls.current;
     return () => {
       trackBlobUrl(tracked, "avatar", null);
     };
   }, []);
+
+  const handleDownload = useCallback(async () => {
+    if (!imageUrl) {
+      return;
+    }
+    const { saveFile } = await import("@/runtime/native-file");
+    await saveFile(imageUrl, DOWNLOAD_FILENAME);
+  }, [imageUrl]);
 
   if (!imageUrl) {
     return null;
@@ -95,13 +126,10 @@ export function ChannelAvatarDownload({ channel }: ChannelAvatarDownloadProps) {
           variant="body-medium-lighter"
           className="text-[color:var(--content-default)]"
         >
-          {t(`channelAvatarDownload.prompt.${channel}`)}
+          {t(PROMPT_KEY[channel])}
         </Typography>
-        <Button asChild variant="outlined">
-          {/* The link owns the download, so a right-click "save as" works. */}
-          <a href={imageUrl} download="assistant-avatar.png">
-            {t("channelAvatarDownload.download")}
-          </a>
+        <Button type="button" variant="outlined" onClick={handleDownload}>
+          {t("channelAvatarDownload.download")}
         </Button>
       </div>
     </div>

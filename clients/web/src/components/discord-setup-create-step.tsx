@@ -3,6 +3,8 @@ import { Button, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface DiscordSetupCreateStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   onOpenPortal: () => void;
   onContinue: () => void;
 }
@@ -20,6 +22,7 @@ export interface DiscordSetupCreateStepProps {
  * that mention it.
  */
 export function DiscordSetupCreateStep({
+  assistantId,
   onOpenPortal,
   onContinue,
 }: DiscordSetupCreateStepProps) {
@@ -46,7 +49,7 @@ export function DiscordSetupCreateStep({
         {t("discordSetupCreateStep.intentsNote")}
       </Typography>
 
-      <ChannelAvatarDownload channel="discord" />
+      <ChannelAvatarDownload assistantId={assistantId} channel="discord" />
 
       <div className="flex gap-2">
         <Button type="button" variant="outlined" onClick={onOpenPortal}>

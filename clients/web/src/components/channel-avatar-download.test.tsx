@@ -1,28 +1,35 @@
 /**
  * Tests for `ChannelAvatarDownload`:
  *
- *   1. The download link points at the same raster the preview shows, so what
- *      a user looks at is what lands on disk.
+ *   1. Saving hands `saveFile` the same raster the preview shows, so what a
+ *      user looks at is what lands on disk. Asserted as a pair, because a save
+ *      of some other URL would still render a plausible-looking card.
  *   2. The file is offered under a stable name rather than the blob id.
- *   3. Nothing renders when the workspace has no avatar raster, since a
- *      thumbnail beside a dead link is worse than no suggestion.
- *   4. Nothing renders before an assistant is selected, which is the state the
- *      wizard mounts in.
+ *   3. The avatar fetched is the assistant passed in, not whichever is
+ *      globally active, so a switch mid-setup cannot offer the wrong one.
+ *   4. Nothing renders when the workspace has no raster, since a thumbnail
+ *      beside a dead control is worse than no suggestion.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 import type { AvatarFileResult } from "@/assistant/avatar-api";
 
 // Typed against the real result union so a test cannot assert a shape the
 // module never returns.
 const fetchAvatarImageUrlResult = mock(
-  async (): Promise<AvatarFileResult<string>> => ({
+  async (_assistantId: string): Promise<AvatarFileResult<string>> => ({
     status: "found",
     value: "blob:avatar-raster",
   }),
 );
-let activeAssistantId: string | null = "asst-1";
+const saveFile = mock(async (_source: Blob | string, _filename: string) => {});
 
 const actualApi = await import("@/assistant/avatar-api");
 mock.module("@/assistant/avatar-api", () => ({
@@ -30,13 +37,10 @@ mock.module("@/assistant/avatar-api", () => ({
   fetchAvatarImageUrlResult,
 }));
 
-const actualStore = await import("@/stores/resolved-assistants-store");
-mock.module("@/stores/resolved-assistants-store", () => ({
-  ...actualStore,
-  useResolvedAssistantsStore: {
-    ...actualStore.useResolvedAssistantsStore,
-    use: { activeAssistantId: () => activeAssistantId },
-  },
+const actualNativeFile = await import("@/runtime/native-file");
+mock.module("@/runtime/native-file", () => ({
+  ...actualNativeFile,
+  saveFile,
 }));
 
 const { ChannelAvatarDownload } = await import(
@@ -44,8 +48,8 @@ const { ChannelAvatarDownload } = await import(
 );
 
 beforeEach(() => {
-  activeAssistantId = "asst-1";
   fetchAvatarImageUrlResult.mockClear();
+  saveFile.mockClear();
   fetchAvatarImageUrlResult.mockResolvedValue({
     status: "found",
     value: "blob:avatar-raster",
@@ -55,43 +59,52 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ChannelAvatarDownload", () => {
-  test("offers the raster it previews", async () => {
-    render(<ChannelAvatarDownload channel="slack" />);
+  test("saves the raster it previews", async () => {
+    render(<ChannelAvatarDownload assistantId="asst-1" channel="slack" />);
 
     const image = await screen.findByRole("img");
     expect(image.getAttribute("src")).toBe("blob:avatar-raster");
 
-    const link = screen.getByRole("link");
-    // Asserted as a pair: a link pointing somewhere other than the preview
-    // would still render a plausible-looking card.
-    expect(link.getAttribute("href")).toBe("blob:avatar-raster");
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => {
+      expect(saveFile).toHaveBeenCalledTimes(1);
+    });
+    // The same URL the preview rendered, so the two cannot drift apart.
+    expect(saveFile.mock.calls[0]![0]).toBe("blob:avatar-raster");
   });
 
-  test("names the downloaded file rather than leaving the blob id", async () => {
-    render(<ChannelAvatarDownload channel="discord" />);
+  test("names the saved file rather than leaving the blob id", async () => {
+    render(<ChannelAvatarDownload assistantId="asst-1" channel="discord" />);
 
-    const link = await screen.findByRole("link");
-    expect(link.getAttribute("download")).toBe("assistant-avatar.png");
+    fireEvent.click(await screen.findByRole("button"));
+
+    await waitFor(() => {
+      expect(saveFile).toHaveBeenCalledTimes(1);
+    });
+    expect(saveFile.mock.calls[0]![1]).toBe("assistant-avatar.png");
+  });
+
+  test("fetches the assistant it was given, not the active one", async () => {
+    render(<ChannelAvatarDownload assistantId="asst-panel" channel="slack" />);
+
+    await waitFor(() => {
+      expect(fetchAvatarImageUrlResult).toHaveBeenCalled();
+    });
+    expect(fetchAvatarImageUrlResult.mock.calls[0]![0]).toBe("asst-panel");
   });
 
   test("renders nothing when the workspace has no raster", async () => {
     fetchAvatarImageUrlResult.mockResolvedValue({ status: "absent" });
 
-    const { container } = render(<ChannelAvatarDownload channel="telegram" />);
+    const { container } = render(
+      <ChannelAvatarDownload assistantId="asst-1" channel="telegram" />,
+    );
 
     await waitFor(() => {
       expect(fetchAvatarImageUrlResult).toHaveBeenCalled();
     });
     expect(container.textContent).toBe("");
-    expect(screen.queryByRole("link")).toBeNull();
-  });
-
-  test("renders nothing before an assistant is selected", () => {
-    activeAssistantId = null;
-
-    const { container } = render(<ChannelAvatarDownload channel="slack" />);
-
-    expect(container.textContent).toBe("");
-    expect(fetchAvatarImageUrlResult).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

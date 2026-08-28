@@ -6,6 +6,8 @@ import { Button, Notice, Typography } from "@vellumai/design-library";
 import { Trans, useTranslation } from "@/i18n";
 
 export interface TelegramSetupCreateStepProps {
+  /** Assistant the setup panel was opened for. */
+  assistantId: string;
   /** Suggested display name, offered for the prompt BotFather asks first. */
   suggestedName: string;
   copied: boolean;
@@ -21,6 +23,7 @@ export interface TelegramSetupCreateStepProps {
  * does not: a blocked popup would move the flow past a tab that never opened.
  */
 export function TelegramSetupCreateStep({
+  assistantId,
   suggestedName,
   copied,
   onCopyName,
@@ -119,7 +122,7 @@ export function TelegramSetupCreateStep({
         </li>
       </ol>
 
-      <ChannelAvatarDownload channel="telegram" />
+      <ChannelAvatarDownload assistantId={assistantId} channel="telegram" />
     </div>
   );
 }

@@ -91,7 +91,12 @@ function goToConnectStep() {
 
 describe("SlackSetupWizard step flow", () => {
   test("copying puts the live manifest on the clipboard without navigating", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.change(screen.getByLabelText(/App Name/i), {
       target: { value: "Support Bot" },
@@ -112,7 +117,12 @@ describe("SlackSetupWizard step flow", () => {
 
   test("a failed clipboard write neither claims success nor advances", async () => {
     stubClipboard(() => Promise.reject(new Error("NotAllowedError")));
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(copyButton());
 
@@ -125,7 +135,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("advancing without a copy warns at the handoff instead of blocking", () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(nextButton());
 
@@ -139,7 +154,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("editing after a copy retracts the Copied! label, not just the notice", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(copyButton());
     await waitFor(() => {
@@ -158,7 +178,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("a stale clipboard is reported as not ready", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(copyButton());
     await waitFor(() => {
@@ -179,7 +204,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("copying at the handoff step marks the manifest copied", async () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(nextButton());
     fireEvent.click(copyButton());
@@ -207,7 +237,12 @@ describe("SlackSetupWizard step flow", () => {
     }) as typeof window.open;
 
     try {
-      render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+      render(
+        <SlackSetupWizard
+          assistantId="asst-test"
+          assistantName={ASSISTANT_NAME}
+        />,
+      );
       fireEvent.click(nextButton());
       fireEvent.click(screen.getByRole("button", { name: /Open Slack/i }));
 
@@ -226,7 +261,12 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("an empty app name blocks both controls on step 1", () => {
-    render(<SlackSetupWizard assistantName={ASSISTANT_NAME} />);
+    render(
+      <SlackSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.change(screen.getByLabelText(/App Name/i), {
       target: { value: "   " },
@@ -247,6 +287,7 @@ describe("SlackSetupWizard step flow", () => {
       const [status, setStatus] = useState<"idle" | "success">("idle");
       return (
         <SlackSetupWizard
+          assistantId="asst-test"
           assistantName={ASSISTANT_NAME}
           saveStatus={status}
           onSave={() => setStatus("success")}
@@ -276,6 +317,7 @@ describe("SlackSetupWizard step flow", () => {
     const saved: Array<[string, string]> = [];
     render(
       <SlackSetupWizard
+        assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
         onSave={(bot, app) => saved.push([bot, app])}
       />,
