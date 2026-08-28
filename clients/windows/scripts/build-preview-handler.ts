@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep, win32 } from "node:path";
@@ -70,6 +70,7 @@ export function vcpkgMsbuildArguments(
   return [
     `/p:VcpkgRoot=${withTrailingSlash(root)}`,
     `/p:VcpkgInstalledDir=${withTrailingSlash(installedDir)}`,
+    "/p:VcpkgEnabled=false",
     "/p:VcpkgManifestInstall=false",
   ];
 }
@@ -181,13 +182,24 @@ function testArchitectureSelection() {
   assert.deepEqual(vcpkgMsbuildArguments("C:\\vcpkg", "C:\\installed"), [
     "/p:VcpkgRoot=C:\\vcpkg\\",
     "/p:VcpkgInstalledDir=C:\\installed\\",
+    "/p:VcpkgEnabled=false",
     "/p:VcpkgManifestInstall=false",
   ]);
   assert.deepEqual(vcpkgMsbuildArguments("C:\\vcpkg\\", "C:\\installed\\"), [
     "/p:VcpkgRoot=C:\\vcpkg\\",
     "/p:VcpkgInstalledDir=C:\\installed\\",
+    "/p:VcpkgEnabled=false",
     "/p:VcpkgManifestInstall=false",
   ]);
+  const project = readFileSync(
+    join(handlerRoot, "Vellum.PreviewHandler.vcxproj"),
+    "utf8",
+  );
+  assert.match(
+    project,
+    /\$\(VcpkgInstalledDir\)\$\(VcpkgTriplet\)\\include/,
+  );
+  assert.match(project, /<AdditionalDependencies>zs\.lib;/);
 }
 
 export async function runNativeCommand(
