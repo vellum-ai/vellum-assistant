@@ -53,8 +53,9 @@ export function savedFromConfig(
  *
  * If the webhook still hasn't landed at the timeout, the flipped config
  * stays put and the query's normal refetches reconcile with the server.
- * Always resolves, with the saved card the config ended up carrying (null
- * when it still reports no card).
+ * Always resolves: with the card a fresh response carried, or with null on
+ * timeout, since the cache then holds only the optimistic flip (or, when a
+ * card is being replaced, the previous card).
  */
 export function usePaymentMethodSavedPoll(): () => Promise<SavedPaymentMethod | null> {
   const queryClient = useQueryClient();
@@ -118,9 +119,7 @@ export function usePaymentMethodSavedPoll(): () => Promise<SavedPaymentMethod | 
       unsubscribe();
     }
 
-    return savedFromConfig(
-      queryClient.getQueryData<AutoTopUpConfigResponse>(queryKey),
-    );
+    return null;
   };
 }
 

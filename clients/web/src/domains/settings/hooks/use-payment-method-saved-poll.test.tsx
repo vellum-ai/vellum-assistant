@@ -15,7 +15,8 @@
  * the config cache from the response, falling back to the poll when the
  * confirm call fails or no SetupIntent id was derivable.
  *
- * Both resolve with the saved card the config ended up carrying.
+ * Both resolve with the saved card a fresh response carried, and with null
+ * when the poll times out without one.
  */
 
 import {
@@ -264,6 +265,26 @@ describe("usePaymentMethodSavedPoll", () => {
 
     expect(await result.current()).toBeNull();
     expect(retrieveCalls).toBe(1);
+  }, 10_000);
+
+  test("resolves to null on timeout even with a card already cached", async () => {
+    // Replacing a card: the cache carries the previous one, and the refetch
+    // keeps answering with the unchanged marker until the clock jump ends
+    // the loop. The previous card must not be reported as the new one.
+    const cached = {
+      ...makeConfig("2026-08-19T00:00:00Z", true),
+      payment_method_brand: "visa",
+      payment_method_last4: "4242",
+    };
+    retrieveResponses = [cached];
+    retrieveClockJumpMs = PM_SAVED_MAX_POLL_MS + 1000;
+    const { result, client } = setup(cached);
+
+    expect(await result.current()).toBeNull();
+    expect(retrieveCalls).toBe(1);
+    // The cached card stays on screen for the query's normal refetches to
+    // reconcile; only the resolved value withholds it.
+    expect(cachedConfig(client)?.payment_method_last4).toBe("4242");
   }, 10_000);
 });
 
