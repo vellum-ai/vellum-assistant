@@ -59,6 +59,31 @@ describe("PaymentMethodRow", () => {
     expect(onUpdateCard).toHaveBeenCalledTimes(1);
   });
 
+  test("actionsDisabled disables the row's actions", () => {
+    const onUpdateCard = mock(() => {});
+    const { getByTestId } = render(
+      <PaymentMethodRow
+        brand="Visa"
+        last4="4242"
+        onUpdateCard={onUpdateCard}
+        actionsDisabled
+      />,
+    );
+    const replace = getByTestId("payment-method-update") as HTMLButtonElement;
+    expect(replace.disabled).toBe(true);
+    fireEvent.click(replace);
+    expect(onUpdateCard).not.toHaveBeenCalled();
+  });
+
+  test("leaves the row's actions enabled by default", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
+    );
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
   test("offers Replace card as the only action", () => {
     const { getByTestId, queryByTestId } = render(
       <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,

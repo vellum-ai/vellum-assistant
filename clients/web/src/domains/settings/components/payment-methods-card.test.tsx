@@ -12,6 +12,13 @@
  *  - The mode and card on file are captured when the modal opens, so the
  *    config the save itself writes back into the query cache cannot turn an
  *    in-flight add into a replace or restate the card being replaced.
+ *  - While a 3DS redirect return is still resolving, the Add and Replace
+ *    actions are disabled, so no modal can be opened ahead of the outcome the
+ *    return will replay into one.
+ *  - A 3DS redirect return replays its outcome into a freshly opened modal:
+ *    a saved card on the success panel alone, a failure back into the form in
+ *    the mode the saved card calls for. The failure waits for the config query
+ *    to settle, so it cannot be pinned to add mode by a still-pending one.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
@@ -24,24 +31,54 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 
-import type { AutoTopUpPaymentMethodModalProps } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { useState } from "react";
+
+import type {
+  AutoTopUpPaymentMethodModalProps,
+  SetupIntentOutcome,
+} from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
 let retrieveResponse: AutoTopUpConfigResponse;
 let retrieveShouldFail = false;
+// Set by `holdRetrieve()` to keep the config query in flight, so a test can
+// observe what the card does before the query has settled.
+let retrieveGate: Promise<void> | null = null;
+let releaseRetrieve: (() => void) | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingAutoTopUpRetrieve: () => {
-    if (retrieveShouldFail) {
-      return Promise.reject(new Error("org header missing"));
+  organizationsBillingAutoTopUpRetrieve: async () => {
+    if (retrieveGate != null) {
+      await retrieveGate;
     }
-    return Promise.resolve({ data: retrieveResponse, response: { ok: true } });
+    if (retrieveShouldFail) {
+      throw new Error("org header missing");
+    }
+    return { data: retrieveResponse, response: { ok: true } };
   },
 }));
+
+function holdRetrieve() {
+  retrieveGate = new Promise<void>((resolve) => {
+    releaseRetrieve = resolve;
+  });
+}
+
+function releaseHeldRetrieve() {
+  retrieveGate = null;
+  releaseRetrieve?.();
+  releaseRetrieve = null;
+}
 
 // Stub the Stripe setup modal: these tests assert only that it is
 // opened/closed and which mode and card on file it is handed.
@@ -62,6 +99,26 @@ function lastPmModalProps(): AutoTopUpPaymentMethodModalProps {
   }
   return pmModalProps;
 }
+
+// Stands in for the 3DS redirect-return hook. It owns the outcome in state
+// like the real one does, so clearing it on close is what keeps the modal
+// shut rather than the absence of a re-render.
+let returnedOutcome: SetupIntentOutcome | null = null;
+let returnPending = false;
+let clearOutcomeCalls = 0;
+mock.module("@/domains/settings/hooks/use-setup-intent-return", () => ({
+  useSetupIntentReturn: () => {
+    const [outcome, setOutcome] = useState(returnedOutcome);
+    return {
+      outcome,
+      pending: returnPending,
+      clearOutcome: () => {
+        clearOutcomeCalls += 1;
+        setOutcome(null);
+      },
+    };
+  },
+}));
 
 import * as orgReadyModule from "@/hooks/use-is-org-ready";
 
@@ -145,8 +202,13 @@ async function settleConfigQuery(client: QueryClient) {
 beforeEach(() => {
   retrieveResponse = { ...DISABLED_CONFIG };
   retrieveShouldFail = false;
+  retrieveGate = null;
+  releaseRetrieve = null;
   orgReadiness = "ready";
   pmModalProps = null;
+  returnedOutcome = null;
+  returnPending = false;
+  clearOutcomeCalls = 0;
 });
 
 afterEach(cleanup);
@@ -349,6 +411,118 @@ describe("PaymentMethodsCard modal wiring", () => {
       expMonth: null,
       expYear: null,
     });
+  });
+});
+
+describe("PaymentMethodsCard redirect return", () => {
+  test("replays a saved outcome into the modal on the success panel alone", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    returnedOutcome = {
+      kind: "saved",
+      card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+    };
+    const { container } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      container.querySelector('[data-testid="pm-modal-stub"]'),
+    ).not.toBeNull();
+    expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
+    expect(lastPmModalProps().mode).toBe("add");
+    expect(lastPmModalProps().cardOnFile).toBeNull();
+  });
+
+  test("replays an error outcome into replace mode with the card on file", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    returnedOutcome = { kind: "error", message: "Your card was declined." };
+    render(wrap(DISABLED_WITH_CARD));
+
+    expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
+  });
+
+  test("holds a failed outcome until the config query settles", async () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    returnedOutcome = { kind: "error", message: "Your card was declined." };
+    holdRetrieve();
+    const client = makeClient();
+    const { container } = render(wrapWith(client));
+
+    // Snapshotting here would read no cards and pin the modal to add mode.
+    expect(container.querySelector('[data-testid="pm-modal-stub"]')).toBeNull();
+
+    releaseHeldRetrieve();
+    await settleConfigQuery(client);
+
+    await waitFor(() => {
+      if (lastPmModalProps().open !== true) {
+        throw new Error("modal not opened after the config query settled");
+      }
+    });
+    expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
+  });
+
+  test("disables Add Payment Method while the return is unresolved", () => {
+    returnPending = true;
+    const { getByTestId } = render(wrap(DISABLED_CONFIG));
+
+    expect(
+      (getByTestId("payment-methods-add") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("disables Replace card while the return is unresolved", () => {
+    returnPending = true;
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { getByTestId } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  test("leaves Add Payment Method usable when no return is in flight", () => {
+    const { getByTestId } = render(wrap(DISABLED_CONFIG));
+
+    expect(
+      (getByTestId("payment-methods-add") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  test("leaves Replace card usable when no return is in flight", () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const { getByTestId } = render(wrap(DISABLED_WITH_CARD));
+
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  test("closing clears the outcome and leaves the modal shut", () => {
+    returnedOutcome = { kind: "saved", card: null };
+    const { container } = render(wrap(DISABLED_CONFIG));
+
+    act(() => {
+      lastPmModalProps().onClose();
+    });
+
+    expect(clearOutcomeCalls).toBe(1);
+    expect(lastPmModalProps().open).toBe(false);
+    expect(lastPmModalProps().initialOutcome).toBeNull();
+    expect(container.querySelector('[data-testid="pm-modal-stub"]')).toBeNull();
   });
 });
 

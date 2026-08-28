@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -13,6 +13,7 @@ import type {
 } from "@/domains/settings/components/payment-method-modal-shell";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useTranslation } from "@/i18n";
 
@@ -59,6 +60,24 @@ interface PaymentModalSnapshot {
   cardOnFile: CardOnFile | null;
 }
 
+function modalSnapshotFor(
+  cards: PaymentMethodCardEntry[],
+): PaymentModalSnapshot {
+  const [existing] = cards;
+  if (existing == null) {
+    return { mode: "add", cardOnFile: null };
+  }
+  return {
+    mode: "replace",
+    cardOnFile: {
+      brand: existing.brand,
+      last4: existing.last4,
+      expMonth: existing.expMonth,
+      expYear: existing.expYear,
+    },
+  };
+}
+
 /**
  * Settings → Billing "Payment Methods" section. Card management lives here;
  * the auto-reload toggle and its config stay in `AutoTopUpCard` (Credits
@@ -70,29 +89,50 @@ export function PaymentMethodsCard() {
   const { t } = useTranslation("settings");
   const configQuery = useAutoTopUpConfigQuery();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
+  // A return that is still resolving keeps the Add and Replace actions
+  // disabled: the modal replays that outcome as its `initialOutcome`, which is
+  // seeded on open alone, so one opened in that window would never show it.
+  const {
+    outcome,
+    pending: returnPending,
+    clearOutcome,
+  } = useSetupIntentReturn();
 
   const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
 
   const config = configQuery.data;
-  const cards = paymentMethodCards(config);
+  const cards = useMemo(() => paymentMethodCards(config), [config]);
   const showAddButton = config != null && cards.length === 0;
 
   const openPaymentModal = () => {
-    const [existing] = cards;
-    if (existing == null) {
-      setPmModal({ mode: "add", cardOnFile: null });
+    setPmModal(modalSnapshotFor(cards));
+  };
+
+  // A 3DS redirect return lands on a freshly loaded page, so the mode the save
+  // was started in is gone: a saved outcome shows the success panel alone, and
+  // a failed one reopens the form in the mode the saved card calls for.
+  //
+  // That mode comes from the config query, so a failed outcome waits for it to
+  // settle. Snapshotting while it is still pending would read no cards, and
+  // the updater below preserves that snapshot: the replacement would replay
+  // under the Add title with no card-on-file row for the rest of the visit.
+  const configSettled = configQuery.isSuccess || configQuery.isError;
+  useEffect(() => {
+    if (outcome == null) {
       return;
     }
-    setPmModal({
-      mode: "replace",
-      cardOnFile: {
-        brand: existing.brand,
-        last4: existing.last4,
-        expMonth: existing.expMonth,
-        expYear: existing.expYear,
-      },
+    if (outcome.kind !== "saved" && !configSettled) {
+      return;
+    }
+    setPmModal((current) => {
+      if (current != null) {
+        return current;
+      }
+      return outcome.kind === "saved"
+        ? { mode: "add", cardOnFile: null }
+        : modalSnapshotFor(cards);
     });
-  };
+  }, [outcome, cards, configSettled]);
 
   const renderBody = () => {
     // `isPending` rather than `isLoading`: the query idles with no data until
@@ -129,6 +169,7 @@ export function PaymentMethodsCard() {
             brand={card.brand}
             last4={card.last4}
             onUpdateCard={openPaymentModal}
+            actionsDisabled={returnPending}
           />
         ))}
       </div>
@@ -144,6 +185,7 @@ export function PaymentMethodsCard() {
             <Button
               variant="outlined"
               onClick={openPaymentModal}
+              disabled={returnPending}
               data-testid="payment-methods-add"
             >
               {t("paymentMethodsCard.addButton")}
@@ -156,9 +198,13 @@ export function PaymentMethodsCard() {
 
       <AutoTopUpPaymentMethodModal
         open={pmModal != null}
-        onClose={() => setPmModal(null)}
+        onClose={() => {
+          setPmModal(null);
+          clearOutcome();
+        }}
         mode={pmModal?.mode ?? "add"}
         cardOnFile={pmModal?.cardOnFile ?? null}
+        initialOutcome={outcome}
         onSavedOptimistic={syncPaymentMethodSaved}
       />
     </Card>
