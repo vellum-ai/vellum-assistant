@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import {
   buildSelectionClipboardPayload,
   selectionRangesWithin,
+  writeSelectionClipboard,
 } from "./selection-clipboard";
 
 const window = new Window();
@@ -279,6 +280,40 @@ describe("embedded documents", () => {
       "<table><tbody><tr><td>a</td><td></td></tr></tbody></table>",
     );
     expect(html).toContain("<td></td>");
+  });
+});
+
+describe("writeSelectionClipboard", () => {
+  /** Minimal stand-in for the event's `DataTransfer`. */
+  function fakeClipboardData() {
+    const written: Record<string, string> = {};
+    return {
+      written,
+      transfer: {
+        setData: (type: string, value: string) => {
+          written[type] = value;
+        },
+      } as unknown as DataTransfer,
+    };
+  }
+
+  test("writes both flavors for a selection of real content", () => {
+    const { root } = selectIn("<p>Hello</p>");
+    const { written, transfer } = fakeClipboardData();
+    expect(writeSelectionClipboard(transfer, root)).toBe(true);
+    expect(written["text/html"]).toBe("<p>Hello</p>");
+    expect(written["text/plain"]).toBe("Hello");
+  });
+
+  /**
+   * Emptying the clipboard is worse than whatever the browser would have put
+   * there, so a selection that renders to nothing is left to the browser.
+   */
+  test("declines a selection holding only prunable content", () => {
+    const { root } = selectIn('<div><iframe src="about:blank"></iframe></div>');
+    const { written, transfer } = fakeClipboardData();
+    expect(writeSelectionClipboard(transfer, root)).toBe(false);
+    expect(written).toEqual({});
   });
 });
 

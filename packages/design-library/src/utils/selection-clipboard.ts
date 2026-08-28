@@ -560,6 +560,13 @@ export function writeSelectionClipboard(
     ranges,
     container.ownerDocument,
   );
+  // A selection of nothing but prunable content (a rendered diagram on its
+  // own, a message's controls) renders to nothing. Writing that would empty
+  // the clipboard, which is worse than whatever the browser would have put
+  // there, so the copy is left alone.
+  if (payload.html === "" && payload.text === "") {
+    return false;
+  }
   clipboardData.setData("text/html", payload.html);
   clipboardData.setData("text/plain", payload.text);
   return true;
