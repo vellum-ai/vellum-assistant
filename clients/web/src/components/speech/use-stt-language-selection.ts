@@ -85,10 +85,9 @@ export interface UseSttLanguageSelection {
   /**
    * "Nothing is in flight, and nothing is waiting to start." `available` is
    * false both while the answer is still arriving and once it has arrived as
-   * no, and a caller reserving layout has to tell those apart: without this
-   * it either reserves space forever for a control that is never coming, or
-   * reserves none and lets the control shove the page down when it lands.
-   * Mirrors `settled` on {@link useManagedVoiceSelection}.
+   * no, so a caller reserving layout reads this to tell those apart: reserve
+   * while unsettled, and once settled let `available` decide. Mirrors
+   * `settled` on {@link useManagedVoiceSelection}.
    */
   settled: boolean;
   /**
