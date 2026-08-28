@@ -92,9 +92,13 @@ export function resolveVcpkgRoot(
   if (configuredRoot && !isVisualStudioBundledVcpkgRoot(configuredRoot)) {
     return configuredRoot;
   }
-  if (environment.LOCALAPPDATA) {
+  const userProfile = environment.USERPROFILE ?? environment.HOME;
+  const localAppData =
+    environment.LOCALAPPDATA ??
+    (userProfile ? win32.join(userProfile, "AppData", "Local") : undefined);
+  if (localAppData) {
     const managedRoot = win32.join(
-      environment.LOCALAPPDATA,
+      localAppData,
       "vellum-build-tools",
       "vcpkg",
     );
@@ -147,6 +151,18 @@ function testArchitectureSelection() {
     resolveVcpkgRoot(
       {
         LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local",
+        VCPKG_ROOT:
+          "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\",
+      },
+      () => null,
+      () => true,
+    ),
+    "C:\\Users\\user\\AppData\\Local\\vellum-build-tools\\vcpkg",
+  );
+  assert.equal(
+    resolveVcpkgRoot(
+      {
+        USERPROFILE: "C:\\Users\\user",
         VCPKG_ROOT:
           "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\",
       },
