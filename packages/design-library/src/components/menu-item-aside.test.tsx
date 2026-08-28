@@ -35,7 +35,7 @@ describe("menuItemShortcutProps", () => {
     expect(mac).toContain("aria-hidden");
     expect(
       menuItemShortcutProps("CmdOrCtrl+Shift+P")["aria-keyshortcuts"],
-    ).toMatch(/^(Meta|Control)\+Shift\+P$/);
+    ).toMatch(/^(Shift\+Meta|Control\+Shift)\+P$/);
   });
 });
 

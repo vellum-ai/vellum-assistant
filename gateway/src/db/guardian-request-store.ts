@@ -417,7 +417,8 @@ export interface ResolveGuardianRequestDecision {
 }
 
 export type ResolveGuardianRequestResult =
-  { applied: true; request: GuardianRequest } | { applied: false };
+  | { applied: true; request: GuardianRequest }
+  | { applied: false };
 
 /**
  * Compare-and-swap resolve: only transitions the request from
@@ -485,15 +486,21 @@ export function resolveGuardianRequest(
 const INTERACTION_BOUND_KINDS = ["tool_approval", "pending_question"];
 
 /**
- * Bulk-expire stale pending guardian requests. Called via IPC at daemon
- * startup (daemon-keyed — the gateway never runs this on its own restart):
+ * Bulk-expire interaction-bound pending guardian requests. Called via IPC
+ * at daemon startup (daemon-keyed; the gateway never runs this on its own
+ * restart): `tool_approval` and `pending_question` die with the daemon's
+ * in-memory pendingInteractions map, so they can never complete after a
+ * restart.
  *
- * 1. Interaction-bound kinds (`tool_approval`, `pending_question`) expire
- *    unconditionally — they can never complete after a daemon restart.
- * 2. Persistent kinds expire only when already past their `expiresAt`
- *    deadline, so dedup logic sees fresh rows instead of dead pending ones.
+ * Persistent kinds are deliberately untouched, whatever their deadline:
+ * their expiry belongs to the sweep, which fans out the card withdrawal
+ * and requester notice for every row it expires. A bulk flip here strands
+ * those side effects, because no sweep ever revisits a row that already
+ * left `pending`. Dedup reads are time-based
+ * (`isGuardianRequestExpired`), so a past-deadline row waiting for the
+ * sweep suppresses nothing.
  *
- * Returns the number of requests transitioned from pending → expired.
+ * Returns the number of requests transitioned from pending to expired.
  */
 export function expireAllPendingInteractionBound(): number {
   const raw = rawClient();
@@ -505,10 +512,9 @@ export function expireAllPendingInteractionBound(): number {
       `UPDATE guardian_requests
        SET status = 'expired', updated_at = ?
        WHERE status = 'pending'
-         AND (kind IN (${placeholders})
-              OR (expires_at IS NOT NULL AND expires_at < ?))`,
+         AND kind IN (${placeholders})`,
     )
-    .run(now, ...INTERACTION_BOUND_KINDS, now).changes;
+    .run(now, ...INTERACTION_BOUND_KINDS).changes;
 }
 
 /**

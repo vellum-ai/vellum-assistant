@@ -26,7 +26,7 @@ import {
   FRAME_GRID_SIZE,
   type FrameGateOptions,
   type FrameGrid,
-} from "./voice-frame-gate";
+} from "./frame-gate";
 
 /**
  * Short intervals so a test can span several keeps in a readable number of
