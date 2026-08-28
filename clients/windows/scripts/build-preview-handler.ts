@@ -72,7 +72,10 @@ export function vcpkgMsbuildArguments(
 }
 
 export function isVisualStudioBundledVcpkgRoot(root: string): boolean {
-  const normalized = win32.normalize(root).toLowerCase();
+  const normalized = win32
+    .normalize(root)
+    .replace(/[\\/]+$/, "")
+    .toLowerCase();
   return (
     normalized.includes("\\microsoft visual studio\\") &&
     normalized.endsWith("\\vc\\vcpkg")
@@ -145,7 +148,7 @@ function testArchitectureSelection() {
       {
         LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local",
         VCPKG_ROOT:
-          "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg",
+          "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\",
       },
       () => null,
       () => true,
