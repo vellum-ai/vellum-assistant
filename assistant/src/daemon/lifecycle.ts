@@ -464,9 +464,9 @@ export async function runDaemon(): Promise<void> {
     // Expire interaction-bound guardian requests (tool_approval,
     // pending_question) left over from before this process started: their
     // in-memory pending-interaction session references are gone, so they
-    // can never be completed. Daemon-keyed by design — the daemon triggers
-    // the gateway op at its own boot; the gateway never runs it on its own
-    // restart. Persistent kinds (access_request, tool_grant_request) are
+    // can never be completed. Daemon-keyed by design: the daemon triggers
+    // the gateway op at its own boot, and the gateway never runs it on its
+    // own restart. Persistent kinds (access_request, tool_grant_request) are
     // never touched here, whatever their deadline: their expiry belongs to
     // the periodic sweep, which owns the card-withdrawal and
     // requester-notice fan-out, and the dedupe reads are deadline-aware so
