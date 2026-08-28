@@ -32,7 +32,7 @@ describe("freePlanSpecs", () => {
 
   test("gives the credits chip a row of its own", () => {
     // The machine and storage chips are short enough to share a row; the
-    // credits chip is a phrase, so the wrapped layout drops it onto its own.
+    // credits chip is a phrase, so it drops onto a row of its own.
     expect(freePlanSpecs().map((s) => s.ownRow)).toEqual([
       undefined,
       undefined,
@@ -48,7 +48,6 @@ describe("packageSpecs", () => {
         key: "mighty",
         name: "Mighty",
         machine_size: null,
-        credits_usd: 25,
         storage_gib: 10,
       } as ProPackage,
       "Mighty usage, reset monthly",
@@ -66,7 +65,6 @@ describe("packageSpecs", () => {
       {
         key: "unknown",
         machine_size: "medium",
-        credits_usd: 45,
         storage_gib: 30,
       } as ProPackage,
       "Super usage, reset monthly",
@@ -83,7 +81,6 @@ describe("packageSpecs", () => {
       {
         key: "super",
         machine_size: "medium",
-        credits_usd: 45,
         storage_gib: 30,
       } as ProPackage,
       "Super usage, reset monthly",
@@ -102,7 +99,6 @@ describe("packageSpecs", () => {
       {
         key: "super",
         machine_size: "medium",
-        credits_usd: 45,
         storage_gib: 30,
       } as ProPackage,
       "Super usage, reset monthly",
@@ -115,14 +111,6 @@ describe("packageSpecs", () => {
       true,
       true,
     ]);
-  });
-
-  test("keeps the credits chip on its own row", () => {
-    const specs = packageSpecs(
-      { key: "mighty", credits_usd: 25, storage_gib: 10 } as ProPackage,
-      "Mighty usage, reset monthly",
-    );
-    expect(specs[2].ownRow).toBe(true);
   });
 });
 

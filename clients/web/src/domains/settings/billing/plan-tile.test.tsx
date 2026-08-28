@@ -1,11 +1,11 @@
 /**
  * Tests for PlanTile: the shared tile of the billing "Plan" section. Verifies
  * it renders the tag, the 48px avatar slot, the name (forwarding `nameTestId`),
- * the spec-chip stack and the footer slot; splits the wrapped layout into the
- * wrapping row and the chips that asked for a row of their own; drops the chip
- * stack for null and empty `specs` and the footer wrapper when no footer is
- * passed; stamps a nested `data-theme` scope only when `theme` is set; and
- * forwards `testId` and `className` to the root.
+ * the spec chips and the footer slot; splits those chips into the wrapping row
+ * and the chips that asked for a row of their own; drops the chips for null and
+ * empty `specs` and the footer wrapper when no footer is passed; stamps a
+ * nested `data-theme` scope only when `theme` is set; and forwards `testId` and
+ * `className` to the root.
  *
  * The lazy `PlanTierAvatar` compositor bundle is mocked away so the avatar
  * renders its deterministic same-size placeholder (mirrors
@@ -27,10 +27,6 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 
 const { PlanTile } = await import("./plan-tile");
 
-/**
- * Chips with no `ownRow`: the vertical stack, or a wrapping row with nothing
- * split out below it.
- */
 const SPECS: PlanSpec[] = [
   { icon: Computer, label: "Small Machine" },
   { icon: HardDrive, label: "10 GB Storage" },
@@ -80,7 +76,7 @@ describe("PlanTile", () => {
     expect(placeholder?.style.height).toBe("48px");
   });
 
-  test("omits the chip stack when specs is null", () => {
+  test("omits the chips when specs is null", () => {
     const { getByTestId, queryByText } = render(
       <PlanTile
         testId={TILE_TEST_ID}
@@ -95,11 +91,11 @@ describe("PlanTile", () => {
     for (const spec of SPECS) {
       expect(queryByText(spec.label)).toBeNull();
     }
-    // Header row and footer only: no chip-stack wrapper in between.
+    // Header row and footer only: no chip wrapper in between.
     expect(getByTestId(TILE_TEST_ID).childElementCount).toBe(2);
   });
 
-  test("omits the chip stack when specs is empty", () => {
+  test("omits the chips when specs is empty", () => {
     const { getByTestId, queryByText } = render(
       <PlanTile
         testId={TILE_TEST_ID}
@@ -129,7 +125,7 @@ describe("PlanTile", () => {
     );
 
     const root = getByTestId(TILE_TEST_ID);
-    // Header row and chip stack only, and the last child is the chip stack
+    // Header row and chips only, and the last child is the chip container
     // rather than an empty footer slot.
     expect(root.childElementCount).toBe(2);
     expect(root.lastElementChild?.textContent).toContain("Small Machine");
@@ -148,7 +144,7 @@ describe("PlanTile", () => {
     expect(getByTestId(TILE_TEST_ID).childElementCount).toBe(1);
   });
 
-  test("stacks the chips vertically by default", () => {
+  test("lays the chips out as a wrapping row", () => {
     const { getByTestId } = render(
       <PlanTile
         testId={TILE_TEST_ID}
@@ -159,25 +155,8 @@ describe("PlanTile", () => {
       />,
     );
 
-    // Child 0 is the header row; child 1 is the chip container.
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(container.className).toContain("flex-col");
-    expect(container.className).not.toContain("flex-wrap");
-  });
-
-  test("lays the chips out as a wrapping row when specsWrap is set", () => {
-    const { getByTestId } = render(
-      <PlanTile
-        testId={TILE_TEST_ID}
-        tierKey="mighty"
-        name="Mighty"
-        tag={<span>Current</span>}
-        specs={SPECS}
-        specsWrap
-      />,
-    );
-
-    // No spec asks for its own row, so the whole set flows in the one wrap row.
+    // Child 0 is the header row; child 1 is the chip container. No spec asks
+    // for its own row, so the whole set flows in the one wrap row.
     const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
     expect(container.className).toContain("flex-col");
     expect(container.childElementCount).toBe(1);
@@ -195,7 +174,6 @@ describe("PlanTile", () => {
         name="Mighty"
         tag={<span>Current</span>}
         specs={OWN_ROW_SPECS}
-        specsWrap
       />,
     );
 
@@ -227,33 +205,12 @@ describe("PlanTile", () => {
         name="Mighty"
         tag={<span>Current</span>}
         specs={OWN_ROW_SPECS.filter((spec) => spec.ownRow)}
-        specsWrap
       />,
     );
 
     const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
     expect(container.childElementCount).toBe(2);
     expect(container.firstElementChild?.className).not.toContain("flex-wrap");
-  });
-
-  test("ignores ownRow in the vertical stack", () => {
-    const { getByTestId, getByText } = render(
-      <PlanTile
-        testId={TILE_TEST_ID}
-        tierKey="mighty"
-        name="Mighty"
-        tag={<span>Current</span>}
-        specs={OWN_ROW_SPECS}
-      />,
-    );
-
-    // Every chip already has a row of its own, in the order it was given.
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(container.childElementCount).toBe(OWN_ROW_SPECS.length);
-    expect(container.className).toContain("flex-col");
-    expect(getByText("Mighty usage, reset monthly").className).toContain(
-      "whitespace-nowrap",
-    );
   });
 
   test("stamps a nested data-theme scope when theme is set", () => {

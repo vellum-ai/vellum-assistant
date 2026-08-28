@@ -1137,22 +1137,6 @@ describe("PlanCard usage balance footer", () => {
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
   });
 
-  test("both tiles name the package's usage rather than a dollar bundle", () => {
-    const { container } = renderCardInteractive(
-      proMightySubscription(),
-      plansWithSuper(),
-      () => {},
-    );
-
-    const current = within(currentTile(container));
-    expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
-    // Machine and storage chips keep their own copy.
-    expect(current.getByText("10 GB Storage")).toBeTruthy();
-
-    const next = within(nextTile(container));
-    expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
-  });
-
   test("both tiles wrap their short chips into a row, usage below", () => {
     const { container } = renderCardInteractive(
       proMightySubscription(),
@@ -1161,8 +1145,8 @@ describe("PlanCard usage balance footer", () => {
     );
 
     for (const [tile, usageLabel] of [
-      [currentTile(container), "Mighty usage, reset monthly"],
-      [nextTile(container), "Super usage, reset monthly"],
+      [currentTile(container), MIGHTY_CHIPS[2]],
+      [nextTile(container), SUPER_CHIPS[2]],
     ] as const) {
       // Child 0 is the header row; child 1 is the chip container.
       const chips = tile.children[1] as HTMLElement;
@@ -1212,8 +1196,9 @@ describe("PlanCard usage balance footer", () => {
     expect(panel.textContent).toContain("20% used");
     // A Custom sub still enumerates nothing and still quotes no price.
     const current = within(currentTile(container));
-    expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
-    expect(current.queryByText("10 GB Storage")).toBeNull();
+    for (const label of MIGHTY_CHIPS) {
+      expect(current.queryByText(label)).toBeNull();
+    }
     expect(current.queryByTestId("plan-card-price")).toBeNull();
   });
 
