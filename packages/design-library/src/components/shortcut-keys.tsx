@@ -236,7 +236,7 @@ export const parseAccelerator = (
 
 /**
  * Compact inline form for tooltips and hints: glyphs run together on macOS
- * (`⌘⇧N`), text labels are `+`-joined on Windows (`Ctrl+Shift+N`).
+ * (`⇧⌘N`), text labels are `+`-joined on Windows (`Ctrl+Shift+N`).
  */
 export const formatAcceleratorHint = (
   accelerator: string,
