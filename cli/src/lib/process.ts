@@ -353,6 +353,22 @@ export async function stopProcess(
     }
   }
   console.log(`${label} did not exit after SIGTERM, sending SIGKILL...`);
+  // Kill the process group, not just the process. Daemons are spawned
+  // `detached: true` (a session and group leader), and their worker
+  // subprocesses inherit that group, so a single-PID SIGKILL here is what
+  // orphans workers onto init running a stale runtime. Group-kill takes the
+  // whole tree at once, which is what the Windows branch above already does
+  // via `taskkill /T`. Tool subprocesses run in their own groups (see
+  // assistant orphan-reaper), so they are unaffected. SIGTERM above stays
+  // single-PID on purpose: graceful shutdown is the daemon's to orchestrate,
+  // and a group-wide SIGTERM would kill the route host mid-HTTP-drain.
+  try {
+    process.kill(-pid, "SIGKILL");
+    return true;
+  } catch {
+    // `pid` does not lead a group (or the group is already gone). Fall back
+    // to the single-PID kill.
+  }
   try {
     process.kill(pid, "SIGKILL");
     return true;
