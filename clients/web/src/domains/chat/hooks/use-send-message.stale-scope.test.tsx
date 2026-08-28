@@ -98,6 +98,12 @@ function switchWhileAnswering(data: Record<string, unknown>) {
   ) as typeof daemonClient.post;
 }
 
+/** A turn belonging to whichever thread the user opened. */
+const OPEN_THREAD_ANSWERING = {
+  phase: "streaming" as const,
+  activeTurnId: "open-turn",
+};
+
 function turnState() {
   const { phase, activeTurnId } = useTurnStore.getState();
   return { phase, activeTurnId };
@@ -126,6 +132,7 @@ function Wrapper({ children }: { children: ReactNode }) {
  * happened in. A switch during the await moves the stores, not this.
  */
 function renderSendFor(conversationId: string) {
+  const cancelReconciliation = mock(() => {});
   const props = {
     assistantId: "assistant-1",
     activeConversationId: conversationId,
@@ -134,10 +141,32 @@ function renderSendFor(conversationId: string) {
     pendingOnboardingContextRef: { current: null },
     onboardingDraftConversationIdRef: { current: null },
     startReconciliationLoop: () => {},
-    cancelReconciliation: () => {},
+    cancelReconciliation,
     refreshConversations: async () => {},
   };
-  return renderHook(() => useSendMessage(props), { wrapper: Wrapper });
+  return {
+    ...renderHook(() => useSendMessage(props), { wrapper: Wrapper }),
+    cancelReconciliation,
+  };
+}
+
+/**
+ * A daemon whose POST throws rather than answering, optionally moving the user
+ * to another thread on the way out. A thrown send is the one failure that skips
+ * `sendMessageViaStream`'s own scope classification and lands in the outer
+ * catch instead.
+ */
+function throwWhileAnswering(options: { switchFirst?: boolean } = {}) {
+  daemonClient.post = mock(async () => {
+    if (options.switchFirst) {
+      useConversationStore
+        .getState()
+        .setActiveConversationId(OPEN_CONVERSATION);
+      // The thread they opened has an answer of its own running.
+      useTurnStore.setState(OPEN_THREAD_ANSWERING);
+    }
+    throw new Error("network down");
+  }) as typeof daemonClient.post;
 }
 
 beforeEach(() => {
@@ -552,5 +581,90 @@ describe("useSendMessage: a local command answering after a switch", () => {
     const cards = useChatSessionStore.getState().ephemeralMetaResults;
     expect(cards).toHaveLength(1);
     expect(cards[0]?.text).toBe("all good");
+  });
+});
+
+/**
+ * A POST that throws instead of answering. The outer catch is the only handler
+ * such a send reaches, so everything the scoped paths do has to happen there
+ * too: idle the turn only for the thread on screen, and hand the text back to
+ * its own conversation otherwise.
+ */
+describe("useSendMessage: a send whose POST throws", () => {
+  test("off screen it idles no turn, banners nothing, and parks the text", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    throwWhileAnswering({ switchFirst: true });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("the one that got away");
+    });
+
+    // The answer the user is watching is still running.
+    expect(turnState()).toEqual(OPEN_THREAD_ANSWERING);
+    expect(useChatSessionStore.getState().error).toBeNull();
+    expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
+  });
+
+  test("on screen it behaves as it always has", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    throwWhileAnswering();
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("right here");
+    });
+
+    expect(useChatSessionStore.getState().error).not.toBeNull();
+    // `onStreamError` ran: the turn is idled and its id dropped.
+    expect(turnState()).toEqual({ phase: "idle", activeTurnId: null });
+    // Nothing parked, because the banner carries the failure.
+    expect(draftFor(SEND_CONVERSATION)).toBe("");
+  });
+
+  test("the queue branch's own catch parks it too", async () => {
+    // `willQueue` is read pre-POST, so a thread already answering puts this
+    // send on the queue path; its catch is a separate handler from the one
+    // above and needs the same split.
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    useTurnStore.setState({ phase: "streaming", activeTurnId: "own-turn" });
+    throwWhileAnswering({ switchFirst: true });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("queued and thrown");
+    });
+
+    expect(useChatSessionStore.getState().error).toBeNull();
+    expect(draftFor(SEND_CONVERSATION)).toBe("queued and thrown");
+  });
+});
+
+/**
+ * The reconciliation timer is the open thread's delivery backstop below the
+ * events-tail floor. A send cancels it to say "a turn is starting here"; a send
+ * that is no longer here has no such claim to make.
+ */
+describe("useSendMessage: the reconciliation loop", () => {
+  test("a stale send leaves the open thread's timer running", async () => {
+    useConversationStore.getState().setActiveConversationId(OPEN_CONVERSATION);
+    const { result, cancelReconciliation } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("what am I holding?");
+    });
+
+    expect(cancelReconciliation).not.toHaveBeenCalled();
+  });
+
+  test("an on-screen send still cancels it", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    const { result, cancelReconciliation } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("still here");
+    });
+
+    expect(cancelReconciliation).toHaveBeenCalledTimes(1);
   });
 });

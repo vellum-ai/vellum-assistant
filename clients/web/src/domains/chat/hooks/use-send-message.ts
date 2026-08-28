@@ -1048,7 +1048,21 @@ export function useSendMessage({
         } as Conversation);
       }
 
-      cancelReconciliation();
+      // "A turn is starting here, so the stream takes over from the poll."
+      // Below the events-tail floor that timer is the open thread's only
+      // delivery backstop (at or above it the call is already a no-op, see
+      // `useMessageReconciliation`), and a send that is no longer on screen is
+      // starting a turn somewhere else. Cancelling would strand the thread the
+      // user IS watching, and nothing re-arms it: such a send returns on its
+      // own scope check inside `sendMessageViaStream` before that function
+      // reaches `startReconciliationLoop`.
+      //
+      // Skipping arms nothing of its own. The loop's start is the only thing
+      // that sets a timer and it replaces rather than stacks, so what is left
+      // running is the open thread's own loop, reconciling the open thread.
+      if (sendScopeIsCurrent()) {
+        cancelReconciliation();
+      }
 
       const isDraft = !currentConv;
       let resolvedId: string | undefined;
@@ -1199,13 +1213,31 @@ export function useSendMessage({
         void refreshConversations();
       } catch (err) {
         captureError(err, { context: "send_chat_message" });
-        setError({ message: "Something went wrong. Please try again." });
+        // The same split the queue branch's catch makes: the fault is recorded
+        // whatever the scope, its report is not. `onStreamError` idles the turn
+        // store and drops its active turn, which belongs to whichever thread is
+        // on screen, so a stale send reaching it would end the answer the user
+        // is actually watching.
+        //
+        // A throw is also the one failure that never reaches
+        // `sendMessageViaStream`'s own scope classification, so this is the
+        // only place that can hand the text back to its conversation.
+        const onScreenAtThrow = sendScopeIsCurrent();
+        if (onScreenAtThrow) {
+          setError({ message: "Something went wrong. Please try again." });
+          useTurnStore.getState().onStreamError();
+        }
+        if (!onScreenAtThrow && !isHidden) {
+          useComposerStore
+            .getState()
+            .restoreFailedDraft(assistantId, activeConversationId, content);
+        }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key
         // and the resolved key may have processing markers. `endTurn`
         // covers the single-conversation pairing; this catch-all clears
-        // every key the send touched and fires `onStreamError` once.
-        useTurnStore.getState().onStreamError();
+        // every key the send touched. Keyed by conversation, so it runs
+        // wherever the user is standing.
         const keysToClean = [activeConversationId, resolvedId].filter(
           Boolean,
         ) as string[];
