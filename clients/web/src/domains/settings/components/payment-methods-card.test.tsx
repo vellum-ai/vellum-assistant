@@ -9,6 +9,9 @@
  *  - "Add Payment Method" and "Replace card" open the Stripe setup modal
  *    (stubbed here; the modal has its own tests), in replace mode with the
  *    card on file once one exists and in add mode otherwise.
+ *  - The mode and card on file are captured when the modal opens, so the
+ *    config the save itself writes back into the query cache cannot turn an
+ *    in-flight add into a replace or restate the card being replaced.
  *  - The config query is gated on org readiness: before the org store
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
@@ -96,7 +99,7 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
   payment_method_last4: "4242",
 };
 
-function wrap(config?: AutoTopUpConfigResponse) {
+function makeClient(config?: AutoTopUpConfigResponse) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -109,11 +112,34 @@ function wrap(config?: AutoTopUpConfigResponse) {
       config,
     );
   }
+  return client;
+}
+
+function wrapWith(client: QueryClient) {
   return (
     <QueryClientProvider client={client}>
       <PaymentMethodsCard />
     </QueryClientProvider>
   );
+}
+
+function wrap(config?: AutoTopUpConfigResponse) {
+  return wrapWith(makeClient(config));
+}
+
+/**
+ * Waits out the fetch the mounted query starts, so a later `setQueryData` is
+ * not clobbered when that response lands.
+ */
+async function settleConfigQuery(client: QueryClient) {
+  await waitFor(() => {
+    const state = client.getQueryState(
+      organizationsBillingAutoTopUpRetrieveQueryKey(),
+    );
+    if (state?.fetchStatus !== "idle") {
+      throw new Error("config query still fetching");
+    }
+  });
 }
 
 beforeEach(() => {
@@ -241,7 +267,9 @@ describe("PaymentMethodsCard modal wiring", () => {
 
   test("opens in replace mode carrying the card on file", () => {
     retrieveResponse = { ...DISABLED_WITH_CARD };
-    render(wrap(DISABLED_WITH_CARD));
+    const { getByTestId } = render(wrap(DISABLED_WITH_CARD));
+
+    fireEvent.click(getByTestId("payment-method-update"));
 
     expect(lastPmModalProps().mode).toBe("replace");
     expect(lastPmModalProps().cardOnFile).toEqual({
@@ -253,10 +281,74 @@ describe("PaymentMethodsCard modal wiring", () => {
   });
 
   test("opens in add mode with no card on file while none is saved", () => {
-    render(wrap(DISABLED_CONFIG));
+    const { getByTestId } = render(wrap(DISABLED_CONFIG));
+
+    fireEvent.click(getByTestId("payment-methods-add"));
 
     expect(lastPmModalProps().mode).toBe("add");
     expect(lastPmModalProps().cardOnFile).toBeNull();
+  });
+
+  test("stays in add mode when the save writes a card into the cache", async () => {
+    const client = makeClient(DISABLED_CONFIG);
+    const { container, getByTestId } = render(wrapWith(client));
+    await settleConfigQuery(client);
+
+    fireEvent.click(getByTestId("payment-methods-add"));
+    expect(lastPmModalProps().mode).toBe("add");
+
+    // Stands in for the write `usePaymentMethodSavedSync` makes while the
+    // modal is still submitting.
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), {
+      ...DISABLED_WITH_CARD,
+    });
+
+    // The saved card reaches the section body, so the modal below is holding
+    // what it was opened with rather than a stale render.
+    await waitFor(() => {
+      if (
+        container.querySelector('[data-testid="payment-method-row"]') == null
+      ) {
+        throw new Error("saved card row not rendered");
+      }
+    });
+    expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().mode).toBe("add");
+    expect(lastPmModalProps().cardOnFile).toBeNull();
+  });
+
+  test("keeps the card being replaced when the save writes the new one into the cache", async () => {
+    retrieveResponse = { ...DISABLED_WITH_CARD };
+    const client = makeClient(DISABLED_WITH_CARD);
+    const { container, getByTestId } = render(wrapWith(client));
+    await settleConfigQuery(client);
+
+    fireEvent.click(getByTestId("payment-method-update"));
+    expect(lastPmModalProps().mode).toBe("replace");
+
+    const saved: AutoTopUpConfigResponse = {
+      ...DISABLED_WITH_CARD,
+      payment_method_brand: "mastercard",
+      payment_method_last4: "1881",
+    };
+    retrieveResponse = { ...saved };
+    client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), saved);
+
+    await waitFor(() => {
+      const row = container.querySelector('[data-testid="payment-method-row"]');
+      if (!row?.textContent?.includes("1881")) {
+        throw new Error("new card row not rendered");
+      }
+    });
+    expect(lastPmModalProps().open).toBe(true);
+    expect(lastPmModalProps().mode).toBe("replace");
+    expect(lastPmModalProps().cardOnFile).toEqual({
+      brand: "visa",
+      last4: "4242",
+      expMonth: null,
+      expYear: null,
+    });
   });
 });
 
