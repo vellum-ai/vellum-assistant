@@ -54,6 +54,11 @@ describe("feature flag catalog", () => {
     );
   });
 
+  test("does not expose the retired obscure-credits flag", () => {
+    expect("obscureCredits" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("obscureCredits" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("exposes proactive tips as a client string flag defaulted off", () => {
     expect(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips).toBe("off");
     expect("proactiveTips" in CLIENT_FLAG_DEFAULTS).toBe(false);
