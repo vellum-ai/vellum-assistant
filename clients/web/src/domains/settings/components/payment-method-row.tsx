@@ -1,6 +1,9 @@
 import { CreditCard } from "lucide-react";
 
-import { brandLabel } from "@/domains/settings/utils/payment-method-brand";
+import {
+  brandLabel,
+  cardExpiryLabel,
+} from "@/domains/settings/utils/payment-method-brand";
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -8,6 +11,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 export interface PaymentMethodRowProps {
   brand: string | null;
   last4: string | null;
+  expMonth?: number | null;
+  expYear?: number | null;
   onUpdateCard: () => void;
   /** Disables the row's actions, e.g. while a redirect return is resolving. */
   actionsDisabled?: boolean;
@@ -16,10 +21,13 @@ export interface PaymentMethodRowProps {
 export function PaymentMethodRow({
   brand,
   last4,
+  expMonth = null,
+  expYear = null,
   onUpdateCard,
   actionsDisabled = false,
 }: PaymentMethodRowProps) {
   const { t } = useTranslation("settings");
+  const expiry = cardExpiryLabel(t, expMonth, expYear);
 
   return (
     <div
@@ -46,6 +54,15 @@ export function PaymentMethodRow({
               className="truncate leading-snug text-[var(--content-tertiary)]"
             >
               {t("paymentMethodRow.endingIn", { last4 })}
+            </Typography>
+          )}
+          {expiry != null && (
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="truncate leading-snug text-[var(--content-quiet)]"
+            >
+              {expiry}
             </Typography>
           )}
         </div>
