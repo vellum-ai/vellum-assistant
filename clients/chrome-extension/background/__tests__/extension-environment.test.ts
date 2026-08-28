@@ -169,14 +169,14 @@ describe('createFirstAssistantUrl', () => {
   ];
 
   for (const { env, webBaseUrl } of cases) {
-    test(`${env} opens the web chooser on ${webBaseUrl}`, () => {
+    test(`${env} opens the hatching entry on ${webBaseUrl}`, () => {
       expect(createFirstAssistantUrl(env)).toBe(
         `${webBaseUrl}${CREATE_ASSISTANT_WEB_PATH}`,
       );
     });
   }
 
-  test('points at the select-assistant route so a signed-in user can hatch', () => {
-    expect(CREATE_ASSISTANT_WEB_PATH).toBe('/assistant/select-assistant');
+  test('points at the platform hatching route, not the local-only chooser create action', () => {
+    expect(CREATE_ASSISTANT_WEB_PATH).toBe('/assistant/onboarding/hatching');
   });
 });
