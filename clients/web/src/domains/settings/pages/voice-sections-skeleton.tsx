@@ -5,8 +5,15 @@ import { useTranslation } from "@/i18n";
 
 /**
  * Stand-in while the daemon answers which speech capabilities this assistant
- * has. Built from the same {@link VoiceSection} scaffolding as the real page
- * so the headings keep their position and only the card bodies change.
+ * has. Built from the same {@link VoiceSection} scaffolding as the real page,
+ * so the same three headings are present and in the same order on both sides
+ * of the swap and the page never reflows section by section.
+ *
+ * It does not hold the settled page's exact height. A row here is a fixed
+ * size and a card sizes to its content, and two of the settled elements (the
+ * services banner, the listening-language card) exist only for some answers.
+ * Reserving room for those is what makes a placeholder assert a capability
+ * the user may not have, which is the failure this gate exists to remove.
  */
 export function VoiceSectionsSkeleton() {
   const { t } = useTranslation("settings");

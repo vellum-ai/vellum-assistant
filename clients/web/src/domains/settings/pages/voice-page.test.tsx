@@ -456,7 +456,7 @@ describe("VoiceSections loading gate", () => {
     expect(captionsToggle()).not.toBeNull();
   });
 
-  test("the section headings keep their place across the swap", () => {
+  test("both states are headed by the same sections in the same order", () => {
     voiceSelection.settled = false;
     const loading = renderPage();
     expect(sectionHeadings(loading.container)).toEqual([
