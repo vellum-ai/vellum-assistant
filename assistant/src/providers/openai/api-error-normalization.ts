@@ -269,10 +269,27 @@ export function normalizeOpenAIAPIError(
   return out;
 }
 
+const VELLUM_HOSTED_SERVICE_PATTERN =
+  /is not yet supported on the Vellum hosted service/i;
+const VELLUM_HOSTED_SERVICE_LABEL = "Vellum hosted service";
+
+export function isManagedRuntimeProxyBaseUrl(
+  baseURL: string | undefined,
+): boolean {
+  return typeof baseURL === "string" && baseURL.includes("/v1/runtime-proxy/");
+}
+
+export function isVellumHostedServiceError(
+  n: NormalizedOpenAIAPIError,
+): boolean {
+  return VELLUM_HOSTED_SERVICE_PATTERN.test(normalizedErrorText(n));
+}
+
 export function formatNormalizedOpenAIAPIError(
   providerLabel: string,
   status: number | undefined,
   n: NormalizedOpenAIAPIError,
+  options?: { managedProxy?: boolean },
 ): string {
   const statusLabel =
     typeof status === "number" ? String(status) : "unknown status";
@@ -284,7 +301,17 @@ export function formatNormalizedOpenAIAPIError(
     n.requestId && `request_id=${n.requestId}`,
   ].filter((v): v is string => Boolean(v));
   const suffix = extras.length > 0 ? ` [${extras.join("; ")}]` : "";
-  return `${providerLabel} API error (${statusLabel}): ${n.message}${suffix}`;
+  if (isVellumHostedServiceError(n) && extras.length === 0) {
+    return n.message;
+  }
+  const label =
+    isVellumHostedServiceError(n) || options?.managedProxy
+      ? VELLUM_HOSTED_SERVICE_LABEL
+      : providerLabel;
+  if (label === VELLUM_HOSTED_SERVICE_LABEL) {
+    return `${label} error (${statusLabel}): ${n.message}${suffix}`;
+  }
+  return `${label} API error (${statusLabel}): ${n.message}${suffix}`;
 }
 
 interface BodyDetails {

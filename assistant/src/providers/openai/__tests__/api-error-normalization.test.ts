@@ -7,6 +7,7 @@ import {
   captureRawErrorBodyFetch,
   deriveReason,
   formatNormalizedOpenAIAPIError,
+  isManagedRuntimeProxyBaseUrl,
   normalizeOpenAIAPIError,
 } from "../api-error-normalization.js";
 
@@ -41,6 +42,44 @@ describe("normalizeOpenAIAPIError", () => {
     );
     expect(formatNormalizedOpenAIAPIError("Together AI", 400, n)).toBe(
       "Together AI API error (400): Model 'MiniMax-M3' is not yet supported on Vellum.",
+    );
+  });
+
+  test("does not brand Vellum hosted-service preflight as an upstream vendor", () => {
+    const n = normalizeOpenAIAPIError(
+      apiError(400),
+      JSON.stringify({
+        detail:
+          "Model 'qwen/qwen3-8b' is not yet supported on the Vellum hosted service.",
+      }),
+    );
+    expect(formatNormalizedOpenAIAPIError("Fireworks", 400, n)).toBe(
+      "Model 'qwen/qwen3-8b' is not yet supported on the Vellum hosted service.",
+    );
+    expect(
+      formatNormalizedOpenAIAPIError("Fireworks", 502, n, {
+        managedProxy: true,
+      }),
+    ).toBe(
+      "Model 'qwen/qwen3-8b' is not yet supported on the Vellum hosted service.",
+    );
+  });
+
+  test("labels other managed-proxy errors as Vellum hosted service", () => {
+    const n = normalizeOpenAIAPIError(
+      apiError(502),
+      JSON.stringify({ detail: "upstream timeout" }),
+    );
+    expect(
+      formatNormalizedOpenAIAPIError("Fireworks", 502, n, {
+        managedProxy: true,
+      }),
+    ).toBe("Vellum hosted service error (502): upstream timeout");
+    expect(isManagedRuntimeProxyBaseUrl("https://app.example/v1/runtime-proxy/vellum")).toBe(
+      true,
+    );
+    expect(isManagedRuntimeProxyBaseUrl("https://api.fireworks.ai/inference/v1")).toBe(
+      false,
     );
   });
 
