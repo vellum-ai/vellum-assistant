@@ -10,13 +10,14 @@ import { join } from "node:path";
 import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  classifyWorkerOwnership,
+  listWorkerProcesses,
+  pid1OwnsMlWorkers,
+} from "../../util/ml-worker-ownership.js";
+import {
   getEmbeddingModelsDir,
   getEmbedWorkerPidPath,
 } from "../../util/platform.js";
-import {
-  listProcessTable,
-  readRawProcessCommand,
-} from "../../util/process-table.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
 import { workerComputeEnv } from "../../util/worker-compute.js";
 import { workerMemoryEnv } from "../../util/worker-memory.js";
@@ -95,102 +96,6 @@ function isProcessAlive(pid: number): boolean {
     return true;
   } catch {
     return false;
-  }
-}
-
-interface WorkerProcess {
-  pid: number;
-  ppid: number;
-}
-
-/**
- * What this process may do with an embed worker it found in the process table.
- *
- * - `reclaim`: parented to us, a worker we started and lost track of. Reaping
- *   it is what enforces one live worker per owning process.
- * - `orphan`: reparented to init, or its owner is gone. Nobody else will ever
- *   clean it up.
- * - `foreign`: owned by another live process. The memory-worker process runs
- *   its own backend against this same workspace and is entitled to its own
- *   worker; signalling it is what made the two replace each other in a loop.
- *
- * A parent of PID 1 is ambiguous, and resolving it wrongly in either direction
- * costs something real. `docker-entrypoint.sh` execs the daemon, so PID 1 can
- * BE the daemon and its child a healthy sibling's worker. Under `docker run
- * --init`, and on any host, PID 1 is an init process instead, so the same
- * parentage means the owner died and the worker needs reclaiming. Callers
- * therefore pass what PID 1 actually is rather than inferring it from whether
- * the deployment is containerized, which is true in both container shapes.
- */
-export type WorkerOwnership = "reclaim" | "orphan" | "foreign";
-
-export function classifyWorkerOwnership(
-  worker: WorkerProcess,
-  selfPid: number,
-  isOwnerAlive: (pid: number) => boolean,
-  pid1OwnsWorkers: boolean,
-): WorkerOwnership {
-  if (worker.ppid === selfPid) {
-    return "reclaim";
-  }
-  if (worker.ppid <= 1) {
-    return pid1OwnsWorkers ? "foreign" : "orphan";
-  }
-  if (!isOwnerAlive(worker.ppid)) {
-    return "orphan";
-  }
-  return "foreign";
-}
-
-/** Entrypoint the daemon is exec'd with, including inside a container. */
-const DAEMON_ENTRYPOINT_MARKER = "daemon/main";
-
-/**
- * Whether PID 1 is an assistant daemon rather than an init process.
- *
- * True only where the daemon was exec'd as PID 1 (`docker-entrypoint.sh`),
- * which is what makes a worker parented to 1 a live sibling's rather than an
- * orphan. Under `docker run --init` PID 1 is docker-init and under launchd or
- * systemd it is the system init, so both answer false and PID-1 orphans stay
- * reclaimable. Unreadable means false, which keeps the reclaiming behaviour.
- */
-function pid1OwnsEmbedWorkers(): boolean {
-  if (process.pid === 1) {
-    return true;
-  }
-  return readRawProcessCommand(1)?.includes(DAEMON_ENTRYPOINT_MARKER) ?? false;
-}
-
-/**
- * Live embed-worker processes for this workspace, as `(pid, ppid)` pairs.
- *
- * Ownership of an embed worker is recorded by the OS process tree, not by the
- * PID file: a worker's parent IS its owner. The process table is therefore the
- * authoritative answer to "whose worker is this", and unlike the PID file it
- * survives a crash and cannot be overwritten by a second owner. That matters
- * because the daemon and the memory-worker process legitimately run one worker
- * each against the same workspace.
- *
- * Matches on the absolute worker script path, which lives under THIS
- * workspace's embedding-models directory and is therefore unique per assistant
- * instance, so a sibling instance's workers never match. Raw command lines are
- * read for matching only, never stored or logged: process arguments can carry
- * secrets (see the redaction note in `util/process-tree.ts`).
- */
-export function listWorkerProcesses(
-  workerPath: string,
-  model?: string,
-): WorkerProcess[] {
-  try {
-    return listProcessTable()
-      .filter(
-        (row) =>
-          row.command.includes(workerPath) &&
-          (!model || row.command.split(/\s+/).includes(model)),
-      )
-      .map(({ pid, ppid }) => ({ pid, ppid }));
-  } catch {
-    return [];
   }
 }
 
@@ -874,7 +779,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         worker,
         process.pid,
         isProcessAlive,
-        pid1OwnsEmbedWorkers(),
+        pid1OwnsMlWorkers(),
       );
       if (ownership === "foreign") {
         continue;
