@@ -56,7 +56,7 @@ export function runRetire(
       finish({
         ok: false,
         status: 500,
-        error: "Retire timed out after 60 seconds",
+        error: `Retire timed out after ${RETIRE_TIMEOUT_MS / 1000} seconds`,
       });
     }, RETIRE_TIMEOUT_MS);
 

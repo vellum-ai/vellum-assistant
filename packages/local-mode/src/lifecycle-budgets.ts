@@ -35,3 +35,13 @@ export const HOST_WRAPPER_HEADROOM_MS = 30_000;
 
 /** Headroom for commands that also archive or provision after stopping. */
 export const HOST_WRAPPER_LONG_HEADROOM_MS = 60_000;
+
+/**
+ * How long the CLI polls a freshly started daemon for readiness before giving
+ * up on it.
+ *
+ * A command that starts a daemon spends this before it can even discover it
+ * needs to stop one, so its wrapper budget has to cover the wait and the stop
+ * that may follow it, not just the stop.
+ */
+export const DAEMON_READINESS_WINDOW_MS = 60_000;
