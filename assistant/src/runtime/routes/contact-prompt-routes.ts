@@ -348,6 +348,21 @@ async function handleContactRecordPrompt({
     return { ok: false, error: `contactId is required to ${operation}` };
   }
 
+  // Clients hold one contact form at a time, so a second broadcast replaces the
+  // first card and leaves its command waiting on a form nobody can answer.
+  // Refusing here fails the second command immediately instead, which is a
+  // caller that can retry rather than one that hangs.
+  const openForm = [...pendingContactPrompts.values()].some(
+    (pending) => !pending.claimed,
+  );
+  if (openForm) {
+    return {
+      ok: false,
+      error:
+        "Another contact form is already open. Wait for it to be answered, then try again.",
+    };
+  }
+
   const requestId = uuid();
 
   return new Promise((resolve) => {

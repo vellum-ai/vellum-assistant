@@ -238,6 +238,61 @@ describe("contacts_record_prompt", () => {
     expect(await pending).toEqual({ ok: true, contactId: "ct_1" });
   });
 
+  test("a second form is refused rather than replacing the first", async () => {
+    const first = recordPrompt.handler({
+      body: { operation: "create", displayName: "Alice" },
+    }) as Promise<Record<string, unknown>>;
+    const firstRequestId = parkedRequestId();
+
+    // A client shows one contact form at a time, so a second broadcast would
+    // take the first's card away and leave its command waiting on a form
+    // nobody can answer.
+    const second = (await recordPrompt.handler({
+      body: { operation: "create", displayName: "Bob" },
+    })) as Record<string, unknown>;
+
+    expect(second.ok).toBe(false);
+    expect(String(second.error)).toContain("already open");
+    expect(
+      broadcasts.filter((b) => b.type === "contact_record_request"),
+    ).toHaveLength(1);
+
+    resolvePrompt.handler({
+      body: { requestId: firstRequestId, contactId: "ct_new" },
+    });
+    await first;
+  });
+
+  test("a form that has been answered does not block the next one", async () => {
+    const first = recordPrompt.handler({
+      body: { operation: "create", displayName: "Alice" },
+    }) as Promise<Record<string, unknown>>;
+    const firstRequestId = parkedRequestId();
+    claimPrompt.handler({ body: { requestId: firstRequestId } });
+
+    // Claimed means somebody answered it; its write is on its way and the
+    // guardian's card is done. The next command should not be refused.
+    const second = recordPrompt.handler({
+      body: { operation: "create", displayName: "Bob" },
+    }) as Promise<Record<string, unknown>>;
+
+    expect(
+      broadcasts.filter((b) => b.type === "contact_record_request"),
+    ).toHaveLength(2);
+
+    resolvePrompt.handler({
+      body: { requestId: firstRequestId, contactId: "ct_new" },
+    });
+    await first;
+    const secondId = (
+      broadcasts.filter((b) => b.type === "contact_record_request")[1] as {
+        requestId: string;
+      }
+    ).requestId;
+    resolvePrompt.handler({ body: { requestId: secondId, contactId: "ct_2" } });
+    await second;
+  });
+
   test("a resolve for an unknown request is ignored", () => {
     expect(
       resolvePrompt.handler({

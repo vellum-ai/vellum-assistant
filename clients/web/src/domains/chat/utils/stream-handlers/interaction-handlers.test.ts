@@ -405,15 +405,14 @@ describe("handleContactFormClosed", () => {
     ).toBeNull();
   });
 
-  it("treats an answered closure as the outcome, even mid-submit", () => {
+  it("gives a card with a submission on the wire a moment before retiring it", () => {
     raiseRecordForm("r1");
     useInteractionStore
       .getState()
       .claimSubmission("contactRecordRequest", "r1");
 
     // The gateway resolves the form before its HTTP response returns, so this
-    // can arrive while the submission is still on the wire, and is
-    // authoritative even if that response is then lost.
+    // can arrive while the submission is still on the wire.
     handleContactFormClosed({
       type: "contact_form_closed",
       requestId: "r1",
@@ -423,10 +422,11 @@ describe("handleContactFormClosed", () => {
     expect(
       useInteractionStore.getState().pendingContactRecordRequest?.requestId,
     ).toBe("r1");
-    // Shown as answered rather than left actionable, so a lost response cannot
-    // strand a card offering a submission the gateway would refuse.
+    // Not marked answered: this broadcast names the form, and every client
+    // submitting it concurrently matches, including the ones that lost. Only
+    // this client's own response can say it wrote anything.
     expect(useInteractionStore.getState().contactRecordRequestAccepted).toBe(
-      true,
+      false,
     );
   });
 

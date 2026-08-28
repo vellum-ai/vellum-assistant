@@ -140,9 +140,10 @@ export async function handleContactPromptSubmit(
     );
     return lostClaimResponse(claim.reason);
   }
+  const settleDeadline = Date.now() + (claim.settleMs ?? DEFAULT_SETTLE_MS);
 
   if (body.cancelled === true) {
-    await reportFailure(requestId, "Cancelled by user", claim.settleMs);
+    await reportFailure(requestId, "Cancelled by user", settleDeadline);
     return Response.json({ accepted: true });
   }
 
@@ -249,7 +250,7 @@ export async function handleContactPromptSubmit(
           { channelType, address: normalizedAddress, contactId },
           "contact-prompt-submit: channel resolution failed after upsert",
         );
-        return await channelResolutionError(requestId, claim.settleMs);
+        return await channelResolutionError(requestId, settleDeadline);
       }
 
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
@@ -261,7 +262,7 @@ export async function handleContactPromptSubmit(
         channelType,
         address: normalizedAddress,
         verify: body.verify,
-        settleMs: claim.settleMs,
+        settleDeadline,
       });
     }
 
@@ -327,7 +328,7 @@ export async function handleContactPromptSubmit(
       await reportFailure(
         requestId,
         "Channel already assigned to another contact",
-        claim.settleMs,
+        settleDeadline,
       );
       return Response.json(
         {
@@ -381,7 +382,7 @@ export async function handleContactPromptSubmit(
         await reportFailure(
           requestId,
           "Failed to create contact channel",
-          claim.settleMs,
+          settleDeadline,
         );
         return Response.json(
           { accepted: false, error: "Failed to create contact channel" },
@@ -403,7 +404,7 @@ export async function handleContactPromptSubmit(
             body: { kind: "contacts_changed" },
           } as unknown as Record<string, unknown>).catch(() => {});
         }
-        return await channelResolutionError(requestId, claim.settleMs);
+        return await channelResolutionError(requestId, settleDeadline);
       }
 
       log.info(
@@ -413,7 +414,7 @@ export async function handleContactPromptSubmit(
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
-    await reportFailure(requestId, "Database error", claim.settleMs);
+    await reportFailure(requestId, "Database error", settleDeadline);
     return Response.json(
       { accepted: false, error: "Database error" },
       { status: 500 },
@@ -433,7 +434,7 @@ export async function handleContactPromptSubmit(
     channelType,
     address: normalizedAddress,
     verify: body.verify,
-    settleMs: claim.settleMs,
+    settleDeadline,
   });
 }
 
@@ -444,9 +445,9 @@ export async function handleContactPromptSubmit(
  */
 async function channelResolutionError(
   requestId: string,
-  settleMs?: number,
+  deadline: number,
 ): Promise<Response> {
-  await reportFailure(requestId, "Channel resolution failed", settleMs);
+  await reportFailure(requestId, "Channel resolution failed", deadline);
   return Response.json(
     { accepted: false, error: "Channel resolution failed" },
     { status: 500 },
@@ -491,7 +492,7 @@ async function resolveContactPrompt(args: {
   channelType: string;
   address: string;
   verify: boolean | undefined;
-  settleMs: number | undefined;
+  settleDeadline: number;
 }): Promise<Response> {
   const { requestId, contactId, channelId, channelType, address } = args;
   // What the channel ends up as, not what was asked for: the guardian's box
@@ -525,7 +526,7 @@ async function resolveContactPrompt(args: {
   await reportResolution(
     requestId,
     { requestId, contactId, channelId, channelType, address, verified },
-    args.settleMs,
+    args.settleDeadline,
   );
 
   return Response.json({ accepted: true });
@@ -543,9 +544,9 @@ async function resolveContactPrompt(args: {
 async function reportFailure(
   requestId: string,
   error: string,
-  settleMs?: number,
+  deadline: number,
 ): Promise<void> {
-  await reportResolution(requestId, { requestId, error }, settleMs);
+  await reportResolution(requestId, { requestId, error }, deadline);
 }
 
 // ---------------------------------------------------------------------------
@@ -615,7 +616,7 @@ export async function handleContactRecordSubmit(
     await reportResolution(
       requestId,
       { requestId, error: "Cancelled by user" },
-      cancelClaim.settleMs,
+      Date.now() + (cancelClaim.settleMs ?? DEFAULT_SETTLE_MS),
     );
     return Response.json({ accepted: true });
   }
@@ -658,6 +659,7 @@ export async function handleContactRecordSubmit(
     );
     return lostClaimResponse(claim.reason);
   }
+  const settleDeadline = Date.now() + (claim.settleMs ?? DEFAULT_SETTLE_MS);
 
   try {
     if (operation === "delete") {
@@ -673,7 +675,7 @@ export async function handleContactRecordSubmit(
           : undefined,
       );
       log.info({ requestId, contactId }, "contact-record-submit: deleted");
-      return await resolveRecordPrompt(requestId, contactId!, claim.settleMs);
+      return await resolveRecordPrompt(requestId, contactId!, settleDeadline);
     }
 
     const { contact, notesSaved } = await upsertContactRecordCore({
@@ -690,19 +692,19 @@ export async function handleContactRecordSubmit(
     return await resolveRecordPrompt(
       requestId,
       writtenId,
-      claim.settleMs,
+      settleDeadline,
       notesSaved,
     );
   } catch (err) {
     if (err instanceof ContactRecordNativeError) {
-      await reportFailure(requestId, err.message, claim.settleMs);
+      await reportFailure(requestId, err.message, settleDeadline);
       return Response.json(
         { accepted: false, error: err.message },
         { status: err.statusCode },
       );
     }
     log.error({ err, requestId, operation }, "contact-record-submit: failed");
-    await reportFailure(requestId, "Contact write failed", claim.settleMs);
+    await reportFailure(requestId, "Contact write failed", settleDeadline);
     return Response.json(
       { accepted: false, error: "Contact write failed" },
       { status: 500 },
@@ -769,10 +771,11 @@ const RESOLVE_INLINE_BUDGET_MS = 2_000;
  *
  * The write has already happened by the time this runs, so a lost callback is
  * not a lost write: it is a command told its form failed while the contact was
- * created, renamed, or deleted. The window the claim granted is exactly how
- * long the command is still there to hear it, so retries run to that deadline
- * rather than to a fixed count, which a fast-failing socket would burn through
- * in seconds.
+ * created, renamed, or deleted. Retries run to the claim's deadline rather
+ * than to a fixed count, which a fast-failing socket would burn through in
+ * seconds. The deadline is absolute and dates from the claim, because the
+ * window is the daemon's and started running there: measuring it again after
+ * a slow write would retry against a form that has already expired.
  *
  * The first couple of seconds are awaited so the ordinary case answers the
  * client with the callback already delivered; past that the retries continue
@@ -785,9 +788,8 @@ const RESOLVE_INLINE_BUDGET_MS = 2_000;
 async function reportResolution(
   requestId: string,
   body: Record<string, unknown>,
-  settleMs: number | undefined,
+  deadline: number,
 ): Promise<void> {
-  const deadline = Date.now() + (settleMs ?? DEFAULT_SETTLE_MS);
   const inlineUntil = Date.now() + RESOLVE_INLINE_BUDGET_MS;
 
   const attempt = async (): Promise<boolean> => {
@@ -877,13 +879,13 @@ function lostClaimResponse(reason: string | undefined): Response {
 async function resolveRecordPrompt(
   requestId: string,
   contactId: string,
-  settleMs: number | undefined,
+  deadline: number,
   notesSaved?: boolean,
 ): Promise<Response> {
   await reportResolution(
     requestId,
     { requestId, contactId, notesSaved },
-    settleMs,
+    deadline,
   );
   return Response.json({ accepted: true });
 }

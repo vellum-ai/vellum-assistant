@@ -175,19 +175,27 @@ export function handleContactRecordRequest(
   });
 }
 
-/** How long an answered card shows its confirmation before retiring. */
-const ANSWERED_CARD_LINGER_MS = 1500;
+/**
+ * How long a card stays up after its form closes, so a submission still on the
+ * wire has time to say whether this client is the one that answered.
+ */
+const ANSWERED_CARD_LINGER_MS = 3000;
 
 /**
  * Retire whichever contact form has closed. A closed form accepts no
  * submission, so a card left up offers an answer the gateway would refuse.
  *
- * On the client that answered, an `answered` closure is the outcome itself,
- * not just a signal to tidy up: the gateway resolves the form, and so
- * broadcasts this, before its own HTTP response returns, so this can arrive
- * first and is authoritative even if that response is then lost. Such a card
- * shows its confirmation and retires on the usual delay rather than vanishing
- * mid-read or waiting on a response that may never come.
+ * A card with a submission still on the wire is given a moment rather than
+ * retired at once: the gateway resolves the form, and so broadcasts this,
+ * before its own HTTP response returns, so this can arrive first and cutting
+ * the card would lose the confirmation the guardian is waiting to see.
+ *
+ * It is not taken as proof that this client is the one that answered. The
+ * broadcast names the form, not the submission, so every client submitting it
+ * concurrently matches, including the ones whose claim lost. Only that
+ * client's own response can say it wrote anything, so the confirmation is left
+ * for it to set; if it never arrives, the card retires unconfirmed rather than
+ * claiming a save that may belong to somebody else.
  *
  * A form that closed any other way is retired everywhere, including on the
  * client whose write failed: its card has nothing left to submit to.
@@ -205,12 +213,6 @@ export function handleContactFormClosed(event: ContactFormClosedEvent): void {
       store.submittingByKind.contactRecordRequest === event.requestId);
 
   if (event.reason === "answered" && (ownsAddressForm || ownsRecordForm)) {
-    if (ownsAddressForm) {
-      store.acceptContactRequestIfMatches(event.requestId);
-    }
-    if (ownsRecordForm) {
-      store.acceptContactRecordRequestIfMatches(event.requestId);
-    }
     setTimeout(() => {
       const latest = useInteractionStore.getState();
       latest.dismissContactRequestIfMatches(event.requestId);
