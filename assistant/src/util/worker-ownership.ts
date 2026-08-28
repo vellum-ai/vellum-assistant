@@ -64,15 +64,14 @@ export function classifyWorkerOwnership(
 const DAEMON_PROCESS_PATTERN = /vellum-daemon|[\\/]daemon[\\/]main/;
 
 /**
- * Whether `pid` is a live assistant daemon.
+ * Whether a command line belongs to an assistant daemon.
  *
  * For a worker with exactly one legitimate owner, "is the owner alive" is not
  * the same question as "does some process still hold that PID". The OS recycles
  * PIDs, and a recycled owner PID would otherwise leave a stranded worker
  * looking owned, and therefore untouchable, indefinitely.
  */
-export function isDaemonProcess(pid: number): boolean {
-  const command = readRawProcessCommand(pid);
+export function isDaemonCommand(command: string | null): boolean {
   return command != null && DAEMON_PROCESS_PATTERN.test(command);
 }
 
@@ -84,9 +83,17 @@ export function isDaemonProcess(pid: number): boolean {
  * orphan. Under `docker run --init` PID 1 is docker-init and under launchd or
  * systemd it is the system init, so both answer false and PID-1 orphans stay
  * reclaimable. Unreadable means false, which keeps the reclaiming behaviour.
+ *
+ * Callers that already hold a process-table snapshot pass PID 1's command line
+ * so this does not read the table a second time.
  */
-export function pid1OwnsWorkers(): boolean {
-  return process.pid === 1 || isDaemonProcess(1);
+export function pid1OwnsWorkers(pid1Command?: string | null): boolean {
+  if (process.pid === 1) {
+    return true;
+  }
+  return isDaemonCommand(
+    pid1Command === undefined ? readRawProcessCommand(1) : pid1Command,
+  );
 }
 
 /**

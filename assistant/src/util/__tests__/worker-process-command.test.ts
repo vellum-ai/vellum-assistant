@@ -147,7 +147,7 @@ describe("decideWorkerSlot", () => {
       signature,
       DAEMON,
       isOwnerAlive,
-      () => pid1OwnsWorkers,
+      pid1OwnsWorkers,
     );
 
   test("spawns when the PID file names nothing running", () => {

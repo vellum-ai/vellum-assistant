@@ -21,11 +21,11 @@ import { fileURLToPath } from "node:url";
 
 import { getCurrentLogFilePath, getLogger } from "./logger.js";
 import { isProcessAlive } from "./process-liveness.js";
-import { findProcessRow, type ProcessTableRow } from "./process-table.js";
+import { listProcessTable, type ProcessTableRow } from "./process-table.js";
 import { workerMemoryEnv } from "./worker-memory.js";
 import {
   classifyWorkerOwnership,
-  isDaemonProcess,
+  isDaemonCommand,
   pid1OwnsWorkers,
 } from "./worker-ownership.js";
 
@@ -367,7 +367,7 @@ export function decideWorkerSlot(
   signature: readonly string[],
   selfPid: number,
   isOwnerAlive: (pid: number) => boolean,
-  pid1OwnsWorkers: () => boolean,
+  pid1OwnsWorkers: boolean,
 ): WorkerSlotDecision {
   if (status.status !== "running" || status.pid == null) {
     return { action: "spawn" };
@@ -383,7 +383,7 @@ export function decideWorkerSlot(
     row,
     selfPid,
     isOwnerAlive,
-    pid1OwnsWorkers(),
+    pid1OwnsWorkers,
   );
   return ownership === "orphan"
     ? { action: "reclaim", pid: status.pid }
@@ -401,13 +401,29 @@ function inspectWorkerSlot(
   signature: readonly string[],
 ): WorkerSlotDecision {
   const status = probeWorkerPidFile(pidPath);
+  if (status.status !== "running" || status.pid == null) {
+    return { action: "spawn" };
+  }
+
+  // The worker's row, its owner's identity, and what PID 1 is all come from
+  // one snapshot. Reading the table is a subprocess on most platforms, so
+  // asking three separate times would be three of them per worker.
+  let table: readonly ProcessTableRow[];
+  try {
+    table = listProcessTable();
+  } catch {
+    table = [];
+  }
+  const commandOf = (pid: number): string | null =>
+    table.find((row) => row.pid === pid)?.command ?? null;
+
   return decideWorkerSlot(
     status,
-    status.pid != null ? findProcessRow(status.pid) : null,
+    table.find((row) => row.pid === status.pid) ?? null,
     signature,
     process.pid,
-    isDaemonProcess,
-    pid1OwnsWorkers,
+    (pid) => isDaemonCommand(commandOf(pid)),
+    pid1OwnsWorkers(commandOf(1)),
   );
 }
 
