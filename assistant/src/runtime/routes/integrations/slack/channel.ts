@@ -19,7 +19,35 @@ import {
 } from "../../../../daemon/handlers/config-slack-channel.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { BadRequestError } from "../../errors.js";
+import { parseBody } from "../../parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
+
+// ---------------------------------------------------------------------------
+// Body schemas
+//
+// Each is named once and used twice: as the route's `requestBody`, which is a
+// codegen signal only, and by `parseBody` in the handler, which is what
+// actually rejects a malformed request. Declaring them separately let the wire
+// contract and the runtime disagree, which is how `userToken` came to be read
+// by the handler while absent from the generated client.
+// ---------------------------------------------------------------------------
+
+const SetSlackChannelConfigBody = z.object({
+  botToken: z.string().describe("Slack bot token"),
+  appToken: z.string().describe("Slack app-level token"),
+  userToken: z
+    .string()
+    .optional()
+    .describe(
+      "Optional Slack user token, for reading channels the bot is not in",
+    ),
+});
+
+const PatchSlackChannelConfigBody = z.object({
+  threadMode: SlackThreadMode.describe(
+    "Controls whether the bot follows threads after an initial @mention",
+  ).optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -32,22 +60,19 @@ async function handleGetSlackChannelConfig() {
 export async function handleSetSlackChannelConfig({
   body = {},
 }: RouteHandlerArgs) {
-  const { botToken, appToken, userToken } = body as {
-    botToken?: string;
-    appToken?: string;
-    userToken?: string;
-  };
+  const { botToken, appToken, userToken } = parseBody(
+    SetSlackChannelConfigBody,
+    body,
+  );
   const result = await setSlackChannelConfig(botToken, appToken, userToken);
   if (!result.success) {
-    throw new BadRequestError(
-      (result as { error?: string }).error ?? "Failed to set Slack config",
-    );
+    throw new BadRequestError(result.error ?? "Failed to set Slack config");
   }
   return result;
 }
 
 async function handlePatchSlackChannelConfig({ body = {} }: RouteHandlerArgs) {
-  const { threadMode } = body as { threadMode?: string };
+  const { threadMode } = parseBody(PatchSlackChannelConfigBody, body);
   if (threadMode !== undefined) {
     const parsed = SlackThreadMode.safeParse(threadMode);
     if (!parsed.success) {
@@ -95,10 +120,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Validate and store Slack channel credentials.",
     tags: ["integrations"],
     handler: handleSetSlackChannelConfig,
-    requestBody: z.object({
-      botToken: z.string().describe("Slack bot token"),
-      appToken: z.string().describe("Slack app-level token"),
-    }),
+    requestBody: SetSlackChannelConfigBody,
     responseBody: SlackChannelConfigResultSchema,
   },
   {
@@ -113,11 +135,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Update Slack channel behavior settings (e.g. thread mode).",
     tags: ["integrations"],
     handler: handlePatchSlackChannelConfig,
-    requestBody: z.object({
-      threadMode: SlackThreadMode.describe(
-        "Controls whether the bot follows threads after an initial @mention",
-      ).optional(),
-    }),
+    requestBody: PatchSlackChannelConfigBody,
     responseBody: SlackChannelConfigResultSchema,
   },
   {

@@ -16258,6 +16258,9 @@ paths:
                 appToken:
                   type: string
                   description: Slack app-level token
+                userToken:
+                  description: Optional Slack user token, for reading channels the bot is not in
+                  type: string
               required:
                 - botToken
                 - appToken
