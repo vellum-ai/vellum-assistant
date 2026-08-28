@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, win32 } from "node:path";
+import { dirname, join, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { argValue } from "./cli-args";
@@ -13,6 +13,9 @@ const windowsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nativeRoot = join(windowsRoot, "native");
 const handlerRoot = join(nativeRoot, "Vellum.PreviewHandler");
 const fixtureRoot = join(nativeRoot, "fixtures", "vellum-bundle-contract");
+const managedBuildToolsRoot = join(windowsRoot, ".build-tools");
+const vcpkgManifest = join(handlerRoot, "vcpkg.json");
+const vcpkgRepository = "https://github.com/microsoft/vcpkg.git";
 const previewClsid = "{5888DF89-8AD1-4D76-87C4-548A79E8C2E5}";
 const thumbnailClsid = "{C90464A7-6608-44C9-8983-2EA82F10E454}";
 
@@ -71,49 +74,103 @@ export function vcpkgMsbuildArguments(
   ];
 }
 
-export function isVisualStudioBundledVcpkgRoot(root: string): boolean {
-  const normalized = win32
-    .normalize(root)
-    .replace(/[\\/]+$/, "")
-    .toLowerCase();
-  return (
-    normalized.includes("\\microsoft visual studio\\") &&
-    normalized.endsWith("\\vc\\vcpkg")
-  );
+async function readVcpkgBaseline(): Promise<string> {
+  const manifest = (await Bun.file(vcpkgManifest).json()) as {
+    "builtin-baseline"?: unknown;
+  };
+  const baseline = manifest["builtin-baseline"];
+  if (typeof baseline !== "string" || !/^[0-9a-f]{40}$/.test(baseline)) {
+    throw new Error("vcpkg.json must contain a 40-character builtin-baseline");
+  }
+  return baseline;
 }
 
-export function resolveVcpkgRoot(
-  environment: Record<string, string | undefined> = process.env,
-  findVcpkg: () => string | null = () => Bun.which("vcpkg"),
-  pathExists: (path: string) => boolean = existsSync,
-): string | undefined {
-  const configuredRoot =
-    environment.VCPKG_ROOT ?? environment.VCPKG_INSTALLATION_ROOT;
-  if (configuredRoot && !isVisualStudioBundledVcpkgRoot(configuredRoot)) {
-    return configuredRoot;
+async function bootstrapManagedVcpkg(
+  buildToolsRoot: string,
+  baseline: string,
+): Promise<string> {
+  const checkoutsRoot = join(buildToolsRoot, "vcpkg");
+  const targetRoot = join(checkoutsRoot, baseline);
+  const targetExecutable = join(targetRoot, "vcpkg.exe");
+  if (existsSync(targetExecutable)) {
+    return targetRoot;
   }
-  const userProfile = environment.USERPROFILE ?? environment.HOME;
-  const localAppData =
-    environment.LOCALAPPDATA ??
-    (userProfile ? win32.join(userProfile, "AppData", "Local") : undefined);
-  if (localAppData) {
-    const managedRoot = win32.join(
-      localAppData,
-      "vellum-build-tools",
-      "vcpkg",
+
+  const git = Bun.which("git");
+  if (!git) {
+    throw new Error("Git is required to install the Windows vcpkg build tool");
+  }
+
+  await mkdir(checkoutsRoot, { recursive: true });
+  const resolvedToolsRoot = resolve(buildToolsRoot);
+  const resolvedTargetRoot = resolve(targetRoot);
+  if (!resolvedTargetRoot.startsWith(`${resolvedToolsRoot}${sep}`)) {
+    throw new Error("Refusing to initialize vcpkg outside the build-tools root");
+  }
+  await rm(targetRoot, { recursive: true, force: true });
+  await mkdir(targetRoot, { recursive: true });
+  try {
+    console.log(
+      `[preview-handler] Installing pinned vcpkg ${baseline.slice(0, 12)}...`,
     );
-    if (pathExists(win32.join(managedRoot, "vcpkg.exe"))) {
-      return managedRoot;
+    await runNativeCommand([git, "-C", targetRoot, "init"]);
+    await runNativeCommand([
+      git,
+      "-C",
+      targetRoot,
+      "config",
+      "core.longpaths",
+      "true",
+    ]);
+    await runNativeCommand([
+      git,
+      "-C",
+      targetRoot,
+      "remote",
+      "add",
+      "origin",
+      vcpkgRepository,
+    ]);
+    await runNativeCommand([
+      git,
+      "-C",
+      targetRoot,
+      "fetch",
+      "--depth=1",
+      "origin",
+      baseline,
+    ]);
+    await runNativeCommand([
+      git,
+      "-C",
+      targetRoot,
+      "checkout",
+      "--detach",
+      "FETCH_HEAD",
+    ]);
+    const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
+    const commandShell =
+      process.env.ComSpec ?? win32.join(systemRoot, "System32", "cmd.exe");
+    const bootstrap = join(targetRoot, "bootstrap-vcpkg.bat");
+    await runNativeCommand(
+      [commandShell, "/d", "/c", "call", bootstrap, "-disableMetrics"],
+      targetRoot,
+    );
+    if (!existsSync(targetExecutable)) {
+      throw new Error("vcpkg bootstrap completed without creating vcpkg.exe");
     }
+    return targetRoot;
+  } catch (error) {
+    await rm(targetRoot, { recursive: true, force: true });
+    throw error;
   }
-  const executable = findVcpkg();
-  if (!executable) {
-    return undefined;
-  }
-  const executableRoot = win32.dirname(executable);
-  return isVisualStudioBundledVcpkgRoot(executableRoot)
-    ? undefined
-    : executableRoot;
+}
+
+async function ensureVcpkgRoot(): Promise<string> {
+  return bootstrapManagedVcpkg(
+    managedBuildToolsRoot,
+    await readVcpkgBaseline(),
+  );
 }
 
 function testArchitectureSelection() {
@@ -131,71 +188,6 @@ function testArchitectureSelection() {
     "/p:VcpkgInstalledDir=C:\\installed\\",
     "/p:VcpkgManifestInstall=false",
   ]);
-  assert.equal(
-    resolveVcpkgRoot(
-      { VCPKG_ROOT: "C:\\configured" },
-      () => null,
-      () => false,
-    ),
-    "C:\\configured",
-  );
-  assert.equal(
-    resolveVcpkgRoot(
-      { LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local" },
-      () => null,
-      () => true,
-    ),
-    "C:\\Users\\user\\AppData\\Local\\vellum-build-tools\\vcpkg",
-  );
-  assert.equal(
-    resolveVcpkgRoot(
-      {
-        LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local",
-        VCPKG_ROOT:
-          "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\",
-      },
-      () => null,
-      () => true,
-    ),
-    "C:\\Users\\user\\AppData\\Local\\vellum-build-tools\\vcpkg",
-  );
-  assert.equal(
-    resolveVcpkgRoot(
-      {
-        USERPROFILE: "C:\\Users\\user",
-        VCPKG_ROOT:
-          "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\",
-      },
-      () => null,
-      () => true,
-    ),
-    "C:\\Users\\user\\AppData\\Local\\vellum-build-tools\\vcpkg",
-  );
-  assert.equal(
-    resolveVcpkgRoot(
-      {},
-      () => "C:\\tools\\vcpkg.exe",
-      () => false,
-    ),
-    "C:\\tools",
-  );
-  assert.equal(
-    resolveVcpkgRoot(
-      {},
-      () =>
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg\\vcpkg.exe",
-      () => false,
-    ),
-    undefined,
-  );
-  assert.equal(
-    resolveVcpkgRoot(
-      {},
-      () => null,
-      () => false,
-    ),
-    undefined,
-  );
 }
 
 export async function runNativeCommand(
@@ -272,11 +264,9 @@ async function main() {
   if (!msbuild) {
     throw new Error("MSBuild is required in a Visual Studio developer shell");
   }
-  const vcpkgRoot = resolveVcpkgRoot();
-  if (!vcpkgRoot) {
-    throw new Error("vcpkg is required; set VCPKG_ROOT or add vcpkg to PATH");
-  }
+  const vcpkgRoot = await ensureVcpkgRoot();
   const vcpkg = join(vcpkgRoot, "vcpkg.exe");
+  console.log(`[preview-handler] Using vcpkg: ${vcpkg}`);
   const installedDir = join(handlerRoot, "vcpkg_installed");
   const vcpkgArguments = vcpkgMsbuildArguments(vcpkgRoot, installedDir);
   for (const architecture of resolveArchitectures(
