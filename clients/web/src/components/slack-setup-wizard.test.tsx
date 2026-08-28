@@ -22,6 +22,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
 import * as toastModule from "@vellumai/design-library/components/toast";
@@ -89,9 +90,22 @@ function goToConnectStep() {
   fireEvent.click(screen.getByRole("button", { name: /I created the app/i }));
 }
 
+/**
+ * The create/token steps render `ChannelAvatarDownload`, which reads the
+ * avatar raster from the query cache, so these trees need a client.
+ */
+function renderWizard(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("SlackSetupWizard step flow", () => {
   test("copying puts the live manifest on the clipboard without navigating", async () => {
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -117,7 +131,7 @@ describe("SlackSetupWizard step flow", () => {
 
   test("a failed clipboard write neither claims success nor advances", async () => {
     stubClipboard(() => Promise.reject(new Error("NotAllowedError")));
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -135,7 +149,7 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("advancing without a copy warns at the handoff instead of blocking", () => {
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -154,7 +168,7 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("editing after a copy retracts the Copied! label, not just the notice", async () => {
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -178,7 +192,7 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("a stale clipboard is reported as not ready", async () => {
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -204,7 +218,7 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("copying at the handoff step marks the manifest copied", async () => {
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -237,7 +251,7 @@ describe("SlackSetupWizard step flow", () => {
     }) as typeof window.open;
 
     try {
-      render(
+      renderWizard(
         <SlackSetupWizard
           assistantId="asst-test"
           assistantName={ASSISTANT_NAME}
@@ -261,7 +275,7 @@ describe("SlackSetupWizard step flow", () => {
   });
 
   test("an empty app name blocks both controls on step 1", () => {
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -294,7 +308,7 @@ describe("SlackSetupWizard step flow", () => {
         />
       );
     }
-    render(<Harness />);
+    renderWizard(<Harness />);
 
     goToConnectStep();
     fireEvent.change(screen.getByLabelText(/Bot Token/i), {
@@ -315,7 +329,7 @@ describe("SlackSetupWizard step flow", () => {
 
   test("step 4 hands both tokens to onSave, trimmed", () => {
     const saved: Array<[string, string]> = [];
-    render(
+    renderWizard(
       <SlackSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}

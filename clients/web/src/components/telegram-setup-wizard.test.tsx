@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
 import * as toastModule from "@vellumai/design-library/components/toast";
@@ -56,9 +57,22 @@ function goToConnectStep() {
   fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
 }
 
+/**
+ * The create/token steps render `ChannelAvatarDownload`, which reads the
+ * avatar raster from the query cache, so these trees need a client.
+ */
+function renderWizard(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("TelegramSetupWizard step flow", () => {
   test("copying the suggested name does not navigate", () => {
-    render(
+    renderWizard(
       <TelegramSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -80,7 +94,7 @@ describe("TelegramSetupWizard step flow", () => {
     }) as typeof window.open;
 
     try {
-      render(
+      renderWizard(
         <TelegramSetupWizard
           assistantId="asst-test"
           assistantName={ASSISTANT_NAME}
@@ -98,7 +112,7 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("Next advances to the token step", () => {
-    render(
+    renderWizard(
       <TelegramSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -112,7 +126,7 @@ describe("TelegramSetupWizard step flow", () => {
 
   test("a wrong-field paste is rejected before it reaches Telegram", () => {
     const saved: string[] = [];
-    render(
+    renderWizard(
       <TelegramSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -134,7 +148,7 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("a truncated token is rejected", () => {
-    render(
+    renderWizard(
       <TelegramSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
@@ -168,7 +182,7 @@ describe("TelegramSetupWizard step flow", () => {
         </>
       );
     }
-    render(<Harness />);
+    renderWizard(<Harness />);
 
     goToConnectStep();
     const field = screen.getByLabelText(/Bot Token/i) as HTMLInputElement;
@@ -184,7 +198,7 @@ describe("TelegramSetupWizard step flow", () => {
 
   test("a well-formed token reaches onSave, trimmed", () => {
     const saved: string[] = [];
-    render(
+    renderWizard(
       <TelegramSetupWizard
         assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
