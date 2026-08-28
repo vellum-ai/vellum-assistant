@@ -25,12 +25,17 @@
  *
  * ## What releases the camera
  *
- * The toggle, the tile's close button, and the app going to the background. The
- * last one is the consent story: a camera light that stays on behind a hidden
- * window is one the user did not agree to. That signal arrives as the bus's
- * `app.hidden`, which is published from the app's one `visibilitychange`
- * listener and from the Capacitor app-state source, rather than from a listener
- * of this store's own (see `docs/EVENT_BUS.md`).
+ * The toggle, the tile's close button, the tile leaving the tree, and the app
+ * going to the background. That last one is the consent story: a camera light
+ * that stays on behind a hidden window is one the user did not agree to. The
+ * signal arrives as the bus's `app.hidden`, which is published from the app's
+ * one `visibilitychange` listener and from the Capacitor app-state source,
+ * rather than from a listener of this store's own (see `docs/EVENT_BUS.md`).
+ *
+ * The camera can also be taken rather than given up: a revoked permission or an
+ * unplugged webcam ends the tracks. That lands in an error rather than off, so
+ * the tile says what happened instead of disappearing, and the frame it was
+ * holding goes with it.
  */
 
 import { create } from "zustand";
@@ -50,12 +55,17 @@ import { createSelectors } from "@/utils/create-selectors";
 /** Where the camera is in its lifecycle. */
 export type SightStatus = "off" | "starting" | "on" | "error";
 
-/** Why the camera failed to open, mapped from `getUserMedia` DOMExceptions. */
+/**
+ * Why the camera is not running. All but the last are mapped from
+ * `getUserMedia` DOMExceptions; `interrupted` is a capture that opened and was
+ * then taken away from outside the app.
+ */
 export type SightError =
   | "unsupported"
   | "permission-denied"
   | "no-device"
   | "device-in-use"
+  | "interrupted"
   | "unknown";
 
 /** The most recent frame the gate kept, and when it was encoded. */
@@ -69,7 +79,10 @@ export interface SightState {
   stream: MediaStream | null;
   /** The frame a send would attach, or null while nothing has been kept. */
   latestKeep: SightKeptFrame | null;
-  /** Why the last {@link SightActions.start} failed. Cleared by the next one. */
+  /**
+   * Why the camera is not running: a {@link SightActions.start} that failed, or
+   * a capture the browser ended underneath us. Cleared by the next start.
+   */
   error: SightError | null;
 }
 
@@ -115,6 +128,12 @@ let previewVideo: HTMLVideoElement | null = null;
 /** Bus handle for the background release, held for as long as the camera is. */
 let unsubscribeAppHidden: (() => void) | null = null;
 /**
+ * Takes the `ended` listeners back off the running capture's tracks. Held as
+ * the detach rather than the tracks so every teardown path drops them the same
+ * way, and a released stream can never fire into the session that replaced it.
+ */
+let detachTrackEnded: (() => void) | null = null;
+/**
  * Bumped by every start and every stop, so a `getUserMedia` that resolves after
  * it was superseded can tell and release its own stream. Without it the
  * hardware stays live with nothing holding it, which is a camera light that
@@ -147,81 +166,21 @@ function nextCaptureFilename(): string {
   return `sight-${captureCount}.jpg`;
 }
 
-const useSightStoreBase = create<SightStore>()((set, get) => ({
-  status: "off",
-  stream: null,
-  latestKeep: null,
-  error: null,
-
-  start: async () => {
-    const status = get().status;
-    if (status === "starting" || status === "on") {
-      return;
-    }
-    const epoch = ++acquireEpoch;
-    set({ status: "starting", error: null });
-
-    if (
-      typeof navigator === "undefined" ||
-      !navigator.mediaDevices?.getUserMedia
-    ) {
-      set({ status: "error", error: "unsupported" });
-      return;
-    }
-
-    let stream: MediaStream;
-    try {
-      // Video only. See the module docstring: an `audio` key here renegotiates
-      // the microphone a live-voice call is already streaming from.
-      //
-      // `facingMode` is a plain (non-`exact`) constraint so a laptop with one
-      // camera opens it instead of failing with OverconstrainedError.
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: IDEAL_WIDTH },
-          height: { ideal: IDEAL_HEIGHT },
-        },
-      });
-    } catch (cause) {
-      // A rejection that lands after a stop is not news the user needs: the
-      // stop already set the state it wanted.
-      if (epoch !== acquireEpoch) {
-        return;
-      }
-      set({ status: "error", stream: null, error: classifyStartError(cause) });
-      return;
-    }
-
-    if (epoch !== acquireEpoch) {
-      // Superseded while the request was in flight, so this stream belongs to
-      // nobody: the stop that cancelled it ran against an empty slot.
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-      return;
-    }
-
-    // Attached only on the path that actually holds hardware, and dropped by
-    // the stop that gives it back.
-    unsubscribeAppHidden = subscribe("app.hidden", () => {
-      get().stop();
-    });
-    set({ status: "on", stream, error: null });
-    // The subscription begins after the permission round trip, so a hide
-    // during that round trip was published before anyone listened. Read the
-    // state it left behind: a camera raised behind a hidden window goes
-    // straight back.
-    if (document.visibilityState === "hidden") {
-      get().stop();
-    }
-  },
-
-  stop: () => {
-    acquireEpoch++;
+const useSightStoreBase = create<SightStore>()((set, get) => {
+  /**
+   * Give the hardware back and drop everything hanging off it, saying nothing
+   * about the state that leaves behind. Two callers want different answers: a
+   * stop lands off, an interruption lands in an error the tile has to explain.
+   * Bumping the acquire epoch belongs to the caller for the same reason.
+   */
+  function releaseCapture(): void {
     if (unsubscribeAppHidden) {
       unsubscribeAppHidden();
       unsubscribeAppHidden = null;
+    }
+    if (detachTrackEnded) {
+      detachTrackEnded();
+      detachTrackEnded = null;
     }
     if (sampler) {
       sampler.stop();
@@ -234,57 +193,183 @@ const useSightStoreBase = create<SightStore>()((set, get) => ({
         track.stop();
       }
     }
-    set({ status: "off", stream: null, latestKeep: null, error: null });
-  },
+  }
 
-  attachPreviewVideo: (video) => {
-    if (sampler) {
-      sampler.stop();
-      sampler = null;
+  /**
+   * Notice a capture ending from outside the app: a revoked permission, a
+   * webcam unplugged, another application taking the device.
+   *
+   * Nothing else would. The preview would sit frozen on its last decoded frame
+   * and every later send would attach the same stale JPEG, which is worse than
+   * no camera at all because it looks like one that works. Landing in an error
+   * rather than plain off is what lets the tile say so instead of vanishing.
+   *
+   * `stop()` on a track does not fire `ended` (the spec says so), so this
+   * cannot hear the store's own teardown. The epoch is checked anyway: a
+   * listener that somehow outlives its session must not speak for the one that
+   * replaced it.
+   */
+  function watchForInterruption(stream: MediaStream, epoch: number): void {
+    const tracks = stream.getVideoTracks();
+    const onEnded = () => {
+      if (epoch !== acquireEpoch) {
+        return;
+      }
+      acquireEpoch++;
+      releaseCapture();
+      set({
+        status: "error",
+        stream: null,
+        // The frozen frame goes with the camera. `takeSendFrame` refuses off an
+        // "on" status anyway, but a kept frame nobody can refresh is not a
+        // frame this store should still be holding.
+        latestKeep: null,
+        error: "interrupted",
+      });
+    };
+    for (const track of tracks) {
+      track.addEventListener("ended", onEnded);
     }
-    previewVideo = video;
-    if (!video) {
-      return;
-    }
+    detachTrackEnded = () => {
+      for (const track of tracks) {
+        track.removeEventListener("ended", onEnded);
+      }
+    };
+  }
 
-    const gate = createFrameGate(DEFAULT_FRAME_GATE_OPTIONS);
-    gate.reset(performance.now());
-    // The capture this decision triggers spans an encode, so both the camera
-    // and the element can be replaced under it.
-    const epoch = acquireEpoch;
-    const next = createFrameSampler({
-      gate,
-      onDecision: (decision) => {
-        if (!decision.keep) {
+  return {
+    status: "off",
+    stream: null,
+    latestKeep: null,
+    error: null,
+
+    start: async () => {
+      const status = get().status;
+      if (status === "starting" || status === "on") {
+        return;
+      }
+      const epoch = ++acquireEpoch;
+      set({ status: "starting", error: null });
+
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        set({ status: "error", error: "unsupported" });
+        return;
+      }
+
+      let stream: MediaStream;
+      try {
+        // Video only. See the module docstring: an `audio` key here renegotiates
+        // the microphone a live-voice call is already streaming from.
+        //
+        // `facingMode` is a plain (non-`exact`) constraint so a laptop with one
+        // camera opens it instead of failing with OverconstrainedError.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: IDEAL_WIDTH },
+            height: { ideal: IDEAL_HEIGHT },
+          },
+        });
+      } catch (cause) {
+        // A rejection that lands after a stop is not news the user needs: the
+        // stop already set the state it wanted.
+        if (epoch !== acquireEpoch) {
           return;
         }
-        void (async () => {
-          const file = await captureVideoFrame(video, nextCaptureFilename());
-          if (!file || epoch !== acquireEpoch || previewVideo !== video) {
+        set({
+          status: "error",
+          stream: null,
+          error: classifyStartError(cause),
+        });
+        return;
+      }
+
+      if (epoch !== acquireEpoch) {
+        // Superseded while the request was in flight, so this stream belongs to
+        // nobody: the stop that cancelled it ran against an empty slot.
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        return;
+      }
+
+      // Attached only on the path that actually holds hardware, and dropped by
+      // the stop that gives it back.
+      unsubscribeAppHidden = subscribe("app.hidden", () => {
+        get().stop();
+      });
+      set({ status: "on", stream, error: null });
+      // Ahead of the visibility check below, so a camera that goes straight back
+      // has its listeners taken off by that stop rather than left on a released
+      // stream.
+      watchForInterruption(stream, epoch);
+      // The subscription begins after the permission round trip, so a hide
+      // during that round trip was published before anyone listened. Read the
+      // state it left behind: a camera raised behind a hidden window goes
+      // straight back.
+      if (document.visibilityState === "hidden") {
+        get().stop();
+      }
+    },
+
+    stop: () => {
+      acquireEpoch++;
+      releaseCapture();
+      set({ status: "off", stream: null, latestKeep: null, error: null });
+    },
+
+    attachPreviewVideo: (video) => {
+      if (sampler) {
+        sampler.stop();
+        sampler = null;
+      }
+      previewVideo = video;
+      if (!video) {
+        return;
+      }
+
+      const gate = createFrameGate(DEFAULT_FRAME_GATE_OPTIONS);
+      gate.reset(performance.now());
+      // The capture this decision triggers spans an encode, so both the camera
+      // and the element can be replaced under it.
+      const epoch = acquireEpoch;
+      const next = createFrameSampler({
+        gate,
+        onDecision: (decision) => {
+          if (!decision.keep) {
             return;
           }
-          set({ latestKeep: { file, atMs: Date.now() } });
-        })();
-      },
-    });
-    sampler = next;
-    next.start(video);
-  },
+          void (async () => {
+            const file = await captureVideoFrame(video, nextCaptureFilename());
+            if (!file || epoch !== acquireEpoch || previewVideo !== video) {
+              return;
+            }
+            set({ latestKeep: { file, atMs: Date.now() } });
+          })();
+        },
+      });
+      sampler = next;
+      next.start(video);
+    },
 
-  takeSendFrame: async () => {
-    if (get().status !== "on") {
-      return null;
-    }
-    const kept = get().latestKeep;
-    if (kept) {
-      return kept.file;
-    }
-    const video = previewVideo;
-    if (!video) {
-      return null;
-    }
-    return captureVideoFrame(video, nextCaptureFilename());
-  },
-}));
+    takeSendFrame: async () => {
+      if (get().status !== "on") {
+        return null;
+      }
+      const kept = get().latestKeep;
+      if (kept) {
+        return kept.file;
+      }
+      const video = previewVideo;
+      if (!video) {
+        return null;
+      }
+      return captureVideoFrame(video, nextCaptureFilename());
+    },
+  };
+});
 
 export const useSightStore = createSelectors(useSightStoreBase);

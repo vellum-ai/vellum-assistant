@@ -325,3 +325,20 @@ describe("useComposerSubmit Eyes frame", () => {
     expect(uploadSightFrameAttachment).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useComposerSubmit vision gate", () => {
+  test("no frame is attached where an image would fail the turn", async () => {
+    // GIVEN a legacy assistant whose active profile has no vision, the same
+    // condition that makes the drop/pick path filter images out
+    // WHEN a message that becomes a turn is submitted
+    // THEN the camera is never asked for a frame, and the message still goes.
+    useComposerStore.getState().setInput("what am I holding?");
+    const { result, sendMessage } = renderSubmit({
+      imageAttachmentsAllowed: false,
+    });
+    await submit(result);
+
+    expect(uploadSightFrameAttachment).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+});

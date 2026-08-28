@@ -70,6 +70,18 @@ export interface UseComposerSubmitParams {
    * are left fully intact. Omitted = always proceed.
    */
   beforeSend?: (content: string) => boolean;
+  /**
+   * Whether an image attached to this message would survive the turn: the same
+   * gate the drop/pick path applies, resolved once by the caller and passed in
+   * so the two cannot answer differently. False on an assistant older than the
+   * image-fallback plugin whose active profile has no vision, where the
+   * provider rejects the image and fails the whole turn.
+   *
+   * Only the Eyes frame consults it here; attachments the user picked were
+   * already filtered on the way in. Defaults to true, which is what a caller
+   * that attaches no images of its own means.
+   */
+  imageAttachmentsAllowed?: boolean;
 }
 
 export interface ComposerSubmitResult {
@@ -109,6 +121,7 @@ export function useComposerSubmit({
   assistantId,
   activeConversationId,
   beforeSend,
+  imageAttachmentsAllowed = true,
 }: UseComposerSubmitParams): ComposerSubmitResult {
   const shouldFocusInputRef = useRef(false);
 
@@ -228,7 +241,12 @@ export function useComposerSubmit({
       // a local command pays with no one waiting on an assistant. The frame is
       // left where it is rather than consumed, so the next real message still
       // carries it.
-      if (!isLocallyHandledCommand(finalContent)) {
+      //
+      // Nor where an image would not survive the turn. The toggle is hidden in
+      // that case, so this is the backstop for a profile switched under a
+      // camera already running: attaching the frame anyway would fail the turn
+      // on the provider's image rejection, which costs the user their message.
+      if (imageAttachmentsAllowed && !isLocallyHandledCommand(finalContent)) {
         const sightAttachment = await uploadSightFrameAttachment(assistantId);
         if (sightAttachment) {
           attachmentsToSend.push(sightAttachment);
@@ -248,6 +266,7 @@ export function useComposerSubmit({
     [
       sendDisabled,
       beforeSend,
+      imageAttachmentsAllowed,
       activeConversationId,
       inputRef,
       scrollToLatest,

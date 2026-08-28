@@ -27,22 +27,30 @@ afterEach(() => {
   cleanup();
 });
 
+const toggle = () =>
+  screen.queryByRole("button", { name: "Turn on camera vision" });
+
 describe("SightToggle", () => {
   test("renders nothing when the vision-mode flag is off", () => {
-    render(<SightToggle />);
+    render(<SightToggle imageAttachmentsAllowed />);
 
-    expect(
-      screen.queryByRole("button", { name: "Turn on camera vision" }),
-    ).toBeNull();
+    expect(toggle()).toBeNull();
   });
 
   test("renders the control when the flag is on", () => {
     setVisionModeFlag("on");
-    render(<SightToggle />);
+    render(<SightToggle imageAttachmentsAllowed />);
 
-    const toggle = screen.getByRole("button", {
-      name: "Turn on camera vision",
-    });
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("renders nothing where an image would not survive the turn", () => {
+    // A legacy assistant on a profile with no vision: the provider rejects the
+    // image and fails the whole turn, so the camera is not offered rather than
+    // offered with its frames quietly dropped.
+    setVisionModeFlag("on");
+    render(<SightToggle imageAttachmentsAllowed={false} />);
+
+    expect(toggle()).toBeNull();
   });
 });

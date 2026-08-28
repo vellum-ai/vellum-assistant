@@ -12,12 +12,30 @@ import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button, cn } from "@vellumai/design-library";
 
-import { useSightStore } from "@/domains/chat/sight/sight-store";
+import {
+  useSightStore,
+  type SightError,
+} from "@/domains/chat/sight/sight-store";
 import { CAMERA_MEDIA_GLASS_CLASS } from "@/domains/chat/voice/voice-room/camera-mode-paint";
 import { useTranslation } from "@/i18n";
 
 /** Viewfinder width. Large enough to aim with, small enough to ignore. */
 const TILE_WIDTH_CLASS = "w-60";
+
+/**
+ * What the tile says when there is no picture. Three sentences rather than one
+ * with a branch: the two a user can act on say what to do, and the rest share
+ * the honest "there isn't one" ending.
+ */
+function errorMessageKey(error: SightError | null) {
+  if (error === "permission-denied") {
+    return "sightTile.permissionDenied" as const;
+  }
+  if (error === "interrupted") {
+    return "sightTile.interrupted" as const;
+  }
+  return "sightTile.unavailable" as const;
+}
 
 export function SightTile() {
   const { t } = useTranslation("chat");
@@ -83,9 +101,7 @@ export function SightTile() {
     >
       {failed ? (
         <p className="px-3 py-4 text-sm text-[var(--content-secondary)]">
-          {error === "permission-denied"
-            ? t("sightTile.permissionDenied")
-            : t("sightTile.unavailable")}
+          {t(errorMessageKey(error))}
         </p>
       ) : (
         // `starting` renders the same element with nothing in it yet, so the

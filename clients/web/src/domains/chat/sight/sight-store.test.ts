@@ -236,4 +236,77 @@ describe("sight store", () => {
     expect(frame).not.toBeNull();
     expect(captureVideoFrame).toHaveBeenCalledTimes(1);
   });
+
+  test("a track ending from outside releases the camera into the error state", async () => {
+    // GIVEN a running capture the browser then takes away: a revoked
+    // permission, a webcam unplugged, another app claiming the device.
+    const { stream, stops, tracks } = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(stream));
+    await useSightStore.getState().start();
+    const video = document.createElement("video");
+    useSightStore.getState().attachPreviewVideo(video);
+    samplerOptions?.onDecision(
+      { keep: true, reason: "first", motion: null, novelty: null, detail: 40 },
+      0,
+    );
+    await flush();
+    expect(useSightStore.getState().latestKeep).not.toBeNull();
+
+    tracks[0]!.end();
+
+    // The tile has something to say rather than silently vanishing, the
+    // hardware is back, and the frozen frame cannot ride a later send.
+    expect(useSightStore.getState().status).toBe("error");
+    expect(useSightStore.getState().error).toBe("interrupted");
+    expect(useSightStore.getState().stream).toBeNull();
+    expect(useSightStore.getState().latestKeep).toBeNull();
+    expect(samplerStop).toHaveBeenCalled();
+    for (const stop of stops) {
+      expect(stop).toHaveBeenCalledTimes(1);
+    }
+    for (const track of tracks) {
+      expect(track.endedListeners()).toHaveLength(0);
+    }
+  });
+
+  test("stop takes the ended listeners back off the tracks", async () => {
+    const { stream, tracks } = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(stream));
+    await useSightStore.getState().start();
+    for (const track of tracks) {
+      expect(track.endedListeners()).toHaveLength(1);
+    }
+
+    useSightStore.getState().stop();
+
+    for (const track of tracks) {
+      expect(track.endedListeners()).toHaveLength(0);
+    }
+  });
+
+  test("a listener outliving its capture says nothing about the next one", async () => {
+    // The detach on the way out is what should make this unreachable, so the
+    // handler is held from before the stop: the epoch is the second line, and
+    // firing a genuinely stale listener is the only way to reach it.
+    const first = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(first.stream));
+    await useSightStore.getState().start();
+    const staleListeners = first.tracks[0]!.endedListeners();
+    expect(staleListeners).toHaveLength(1);
+    useSightStore.getState().stop();
+
+    const second = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(second.stream));
+    await useSightStore.getState().start();
+
+    for (const handler of staleListeners) {
+      handler();
+    }
+
+    expect(useSightStore.getState().status).toBe("on");
+    expect(useSightStore.getState().stream).toBe(second.stream);
+    for (const stop of second.stops) {
+      expect(stop).not.toHaveBeenCalled();
+    }
+  });
 });

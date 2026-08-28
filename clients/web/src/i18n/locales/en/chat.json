@@ -1412,6 +1412,7 @@
   },
   "sightTile": {
     "close": "Close camera",
+    "interrupted": "The camera was disconnected.",
     "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
     "unavailable": "No camera is available."
   },

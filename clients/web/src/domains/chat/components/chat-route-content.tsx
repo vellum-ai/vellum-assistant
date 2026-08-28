@@ -965,6 +965,14 @@ export function ChatMainPanel({
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
   const visionGateActive = useVisionAttachmentGate();
+  // Whether an image attached to the next message would survive the turn. One
+  // resolution for every surface that can attach one: the drop/pick filter
+  // below, the Eyes toggle, and the send's own camera frame. On an assistant
+  // with the image-fallback plugin the gate is inactive and the question does
+  // not arise; below it, an image on a profile without vision fails the whole
+  // turn on the provider's rejection.
+  const imageAttachmentsAllowed =
+    !visionGateActive || activeModelSupportsVision;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -978,10 +986,9 @@ export function ChatMainPanel({
   const handleDroppedFiles = useCallback(
     (files: FileList | File[]): File[] => {
       const arr = Array.from(files);
-      const allowed =
-        !visionGateActive || activeModelSupportsVision
-          ? arr
-          : arr.filter((f) => !isImageAttachment(f));
+      const allowed = imageAttachmentsAllowed
+        ? arr
+        : arr.filter((f) => !isImageAttachment(f));
       if (allowed.length < arr.length) {
         useComposerStore.setState({
           attachmentLastError:
@@ -996,7 +1003,7 @@ export function ChatMainPanel({
       // budget that caller is keeping.
       return allowed;
     },
-    [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
+    [addChatAttachmentFiles, imageAttachmentsAllowed],
   );
   const handleDroppedDirectories = useCallback((directories: File[]) => {
     const { resolvedPaths, unresolvedCount } =
@@ -1076,6 +1083,7 @@ export function ChatMainPanel({
     typingDisabled,
     assistantId,
     activeConversationId,
+    imageAttachmentsAllowed,
     // Synchronous pre-send gate: re-scans the outgoing content so pastes
     // sent inside the detection debounce window are still caught. No
     // secrets → returns true, fully inert.
@@ -1350,6 +1358,7 @@ export function ChatMainPanel({
       typingDisabled={typingDisabled}
       sendDisabled={sendDisabled}
       onAddAttachmentFiles={handleDroppedFiles}
+      imageAttachmentsAllowed={imageAttachmentsAllowed}
       voiceInputRef={voiceInputRef}
       voiceInterim={voiceInterim ?? undefined}
       onVoiceTranscript={handleVoiceTranscript}

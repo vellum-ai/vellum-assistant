@@ -17,17 +17,30 @@ import {
 } from "@/hooks/use-vision-mode-flag";
 import { useTranslation } from "@/i18n";
 
-export function SightToggle() {
+export interface SightToggleProps {
+  /**
+   * Whether an image attached to this message would survive the turn. False on
+   * an assistant older than the image-fallback plugin whose active profile has
+   * no vision, where the provider rejects the image and takes the whole turn
+   * down with it. Resolved once by the chat route, so this control and the
+   * drop/pick path read the same answer.
+   */
+  imageAttachmentsAllowed: boolean;
+}
+
+export function SightToggle({ imageAttachmentsAllowed }: SightToggleProps) {
   const { t } = useTranslation("chat");
   const variant = useVisionModeVariant();
   const status = useSightStore.use.status();
   const start = useSightStore.use.start();
   const stop = useSightStore.use.stop();
 
-  // Only the entry point is gated: the tile keeps rendering off the camera's
-  // own status, so a flag turned off mid-session still leaves its close button
-  // reachable rather than stranding a live camera behind a vanished control.
-  if (!isVisionModeOn(variant)) {
+  // Hidden rather than degraded where an image cannot be sent, per the
+  // backwards-compat discipline: a camera whose frames were silently dropped on
+  // the way out would read as broken. Only the entry point is gated, since the
+  // tile renders off the camera's own status and carries its own close control,
+  // so a camera already running is never stranded behind a vanished toggle.
+  if (!isVisionModeOn(variant) || !imageAttachmentsAllowed) {
     return null;
   }
 

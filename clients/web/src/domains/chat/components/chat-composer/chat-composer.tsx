@@ -155,6 +155,16 @@ export interface ChatComposerProps {
    */
   onAddAttachmentFiles: (files: FileList | File[]) => File[] | void;
 
+  /**
+   * The same gate `onAddAttachmentFiles` applies, resolved by the caller: false
+   * when an image attached to this message would be rejected by the provider
+   * and take the turn down with it. Read by the Eyes toggle, which offers no
+   * camera where its frames could not be sent. Defaults to true for the
+   * surfaces that attach no images of their own (the app-editing and story
+   * composers), which is what they do today.
+   */
+  imageAttachmentsAllowed?: boolean;
+
   // voice — optional; when `voiceInputRef` is omitted the voice button is
   // skipped entirely (matches the app-editing variant which has no voice).
   voiceInputRef?: RefObject<VoiceInputButtonHandle | null>;
@@ -336,6 +346,7 @@ export function ChatComposer({
   typingDisabled,
   sendDisabled,
   onAddAttachmentFiles,
+  imageAttachmentsAllowed = true,
   voiceInputRef,
   onVoiceTranscript,
   onVoiceInterimTranscript,
@@ -1759,7 +1770,11 @@ export function ChatComposer({
                               branch, which a pop-out never renders, so a
                               control offered here would open a camera with
                               nothing to preview it and nothing to close it. */}
-                          {!isAssistantBusy && !isPopout && <SightToggle />}
+                          {!isAssistantBusy && !isPopout && (
+                            <SightToggle
+                              imageAttachmentsAllowed={imageAttachmentsAllowed}
+                            />
+                          )}
                           {!isAssistantBusy && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"
