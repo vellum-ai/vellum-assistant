@@ -43,6 +43,7 @@ import {
   isConversationPinned,
 } from "@/utils/conversation-predicates";
 import { isPointerCoarse } from "@/utils/pointer";
+import { useConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 
 import {
@@ -220,6 +221,7 @@ export function ConversationRow({
   );
 
   const isTouch = isPointerCoarse();
+  const shortcuts = useConversationMenuShortcuts();
   // The swipe and the long-press sheet are the paths that replace the inline
   // ellipsis, and both are armed by a coarse pointer, so a device that has
   // neither hover nor a coarse pointer (a hoverless stylus) keeps the ellipsis:
@@ -296,6 +298,7 @@ export function ConversationRow({
         {renderConversationMenuItems({
           Primitive: ContextMenu,
           t,
+          shortcuts,
           ...menuProps,
         })}
       </ContextMenu.Content>
