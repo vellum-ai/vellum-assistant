@@ -21,7 +21,7 @@
  *     any caller read the installer's channels or post as them. Also used for
  *     content the assistant posts as itself.
  *
- *   - "user" — act as the assistant's owner, using whichever of the installer's
+ *   - "user": act as the assistant's owner, using whichever of the installer's
  *     own tokens is present for its wider reach (channels the owner is in but
  *     the bot isn't; and `search.messages`, which only a user token can call):
  *     the channel's pasted user token, else a `slack` OAuth connection, else
@@ -71,6 +71,12 @@ export async function resolveSlackAuth(
       if (userToken) {
         return userToken;
       }
+      // The connection holds the installer's user token: this provider always
+      // requests `user_scope`, and `exchangeCodeForTokens` stores the nested
+      // `authed_user` token whenever Slack returns one. An install that
+      // granted no user scopes leaves a bot token there instead, which is the
+      // same thing the next line falls back to, so the wrong guess costs
+      // nothing.
       if (getConnectionByProvider("slack")) {
         try {
           return await resolveOAuthConnection("slack", {
