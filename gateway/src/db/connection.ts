@@ -3,11 +3,9 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
-import {
-  canonicalizePathThroughExistingParent,
-  getGatewaySecurityDir,
-  getLegacyRootDir,
-} from "../paths.js";
+import { canonicalizePathThroughExistingParent } from "@vellumai/environments/test-path-guard";
+
+import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import * as schema from "./schema.js";
 import { AdmissionPolicyStore } from "./admission-policy-store.js";
 import { seedAdmissionPolicyDefaults } from "./seed-admission-policy.js";

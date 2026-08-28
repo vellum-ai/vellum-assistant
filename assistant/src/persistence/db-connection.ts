@@ -1,8 +1,9 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { join, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
+import { canonicalizePathThroughExistingParent } from "@vellumai/environments/test-path-guard";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getLogsDbPath } from "../util/logs-db-path.js";
@@ -14,25 +15,6 @@ import * as schema from "./schema/index.js";
 import { wrapSqliteForSlowQueryLogging } from "./slow-query-log.js";
 
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
-
-function canonicalizePathThroughExistingParent(path: string): string {
-  const resolvedPath = resolve(path);
-  const pendingSegments: string[] = [];
-  let currentPath = resolvedPath;
-
-  while (true) {
-    try {
-      return resolve(realpathSync(currentPath), ...pendingSegments.reverse());
-    } catch {
-      const parentPath = dirname(currentPath);
-      if (parentPath === currentPath) {
-        return resolvedPath;
-      }
-      pendingSegments.push(basename(currentPath));
-      currentPath = parentPath;
-    }
-  }
-}
 
 /**
  * Guard against opening a real workspace database during tests. Shared by

@@ -6,9 +6,10 @@
  * without pulling in the full credential-reader dependency tree.
  */
 
-import { realpathSync } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
-import { homedir, tmpdir, userInfo } from "node:os";
+import { join } from "node:path";
+import { homedir, userInfo } from "node:os";
+
+import { assertTestPathIsEphemeral } from "@vellumai/environments/test-path-guard";
 
 function safeUserInfoHomedir(): string {
   try {
@@ -43,84 +44,22 @@ export function getLegacyRootDir(): string {
 let warnedWorkspaceDir = false;
 let warnedSecurityDir = false;
 
-// --- Live-path guard for test processes ------------------------------------
-//
-// A test process must never resolve the workspace or the gateway security
-// directory to a real, non-temp path: gateway code exercised by a test would
-// then read and write live state (the gateway DB, the actor-token signing
-// key, the backup key). The tmpdir redirection normally comes from the
-// bunfig.toml test preload, but bun only loads bunfig from the cwd, so
-// `bun test` run from any other directory skips the preload and inherits the
-// ambient env (or the ~/.vellum fallback). The containment assertion
-// therefore lives here, in production code, where it fires no matter how the
-// test process was launched.
-//
-// Detection and containment mirror assistant/src/util/platform.ts, which
-// cannot be imported here (cross-package boundary).
+// In test processes both resolvers below must stay under os.tmpdir():
+// gateway code exercised by a test would otherwise read and write live state
+// (the gateway DB, the actor-token signing key, the backup key). The guard is
+// shared with the assistant in @vellumai/environments/test-path-guard; the
+// escape hatches are the same variables the DB-open guard in db/connection.ts
+// honors.
 
-/** Lazily computed: is this process a `bun test` run? */
-let isTestProcess: boolean | undefined;
+const WORKSPACE_GUARD = {
+  allowEnvVar: "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS",
+  runHint: "Run tests from the gateway package root.",
+};
 
-/**
- * Resolve symlinks in the deepest existing ancestor of `path`, then
- * re-append the not-yet-created tail. This keeps containment checks honest
- * both for paths under a symlinked temp root (macOS /var/folders) and for
- * symlinks that point outside it, whether or not the leaf exists yet.
- */
-export function canonicalizePathThroughExistingParent(path: string): string {
-  const resolvedPath = resolve(path);
-  const pendingSegments: string[] = [];
-  let currentPath = resolvedPath;
-
-  while (true) {
-    try {
-      return resolve(realpathSync(currentPath), ...pendingSegments.reverse());
-    } catch {
-      const parentPath = dirname(currentPath);
-      if (parentPath === currentPath) {
-        return resolvedPath;
-      }
-      pendingSegments.push(basename(currentPath));
-      currentPath = parentPath;
-    }
-  }
-}
-
-function assertTestPathIsEphemeral(dir: string, allowEnvVar: string): void {
-  isTestProcess ??=
-    process.env.NODE_ENV === "test" ||
-    process.env.BUN_TEST === "1" ||
-    // `bun test` sets NODE_ENV=test only when unset; Bun.main being the test
-    // file itself is the backstop signal that survives a preset NODE_ENV.
-    (typeof Bun !== "undefined" &&
-      /\.(test|spec)\.[cm]?[jt]sx?$/.test(Bun.main));
-  if (!isTestProcess) {
-    return;
-  }
-  // Escape hatch for the rare intentional run against real state, shared
-  // with the DB-open guard in db/connection.ts. Deliberately not forwarded
-  // into agent-spawned shells (assistant/src/tools/terminal/safe-env.ts), so
-  // a daemon-level opt-out cannot disarm the guard for tests run from there.
-  if (process.env[allowEnvVar] === "1") {
-    return;
-  }
-  const tmpRoot = canonicalizePathThroughExistingParent(tmpdir());
-  const resolved = canonicalizePathThroughExistingParent(dir);
-  if (resolved !== tmpRoot && !resolved.startsWith(tmpRoot + sep)) {
-    throw new Error(
-      [
-        `Refusing to use ${dir} (resolves to ${resolved}) in a test process: it is not under the temp directory (${tmpRoot}).`,
-        "",
-        "Tests must only touch ephemeral state; a real directory would expose",
-        "live gateway state (DB, signing keys) to test fixtures. This usually",
-        "means `bun test` ran from a cwd without the gateway bunfig.toml, so",
-        "the test preload that redirects paths to a tmpdir never loaded.",
-        "Run tests from the gateway package root, or set",
-        `${allowEnvVar}=1 to bypass deliberately.`,
-      ].join("\n"),
-    );
-  }
-}
+const SECURITY_GUARD = {
+  allowEnvVar: "VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS",
+  runHint: "Run tests from the gateway package root.",
+};
 
 /**
  * Returns the workspace root for user-facing state.
@@ -132,7 +71,7 @@ function assertTestPathIsEphemeral(dir: string, allowEnvVar: string): void {
 export function getWorkspaceDir(): string {
   const override = process.env.VELLUM_WORKSPACE_DIR?.trim();
   if (override) {
-    assertTestPathIsEphemeral(override, "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS");
+    assertTestPathIsEphemeral(override, WORKSPACE_GUARD);
     return override;
   }
   if (!warnedWorkspaceDir) {
@@ -143,7 +82,7 @@ export function getWorkspaceDir(): string {
     );
   }
   const dir = join(getLegacyRootDir(), "workspace");
-  assertTestPathIsEphemeral(dir, "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS");
+  assertTestPathIsEphemeral(dir, WORKSPACE_GUARD);
   return dir;
 }
 
@@ -157,10 +96,7 @@ export function getWorkspaceDir(): string {
 export function getGatewaySecurityDir(): string {
   const override = process.env.GATEWAY_SECURITY_DIR?.trim();
   if (override) {
-    assertTestPathIsEphemeral(
-      override,
-      "VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS",
-    );
+    assertTestPathIsEphemeral(override, SECURITY_GUARD);
     return override;
   }
   if (!warnedSecurityDir) {
@@ -171,6 +107,6 @@ export function getGatewaySecurityDir(): string {
     );
   }
   const dir = join(getLegacyRootDir(), "protected");
-  assertTestPathIsEphemeral(dir, "VELLUM_ALLOW_REAL_GATEWAY_SECURITY_IN_TESTS");
+  assertTestPathIsEphemeral(dir, SECURITY_GUARD);
   return dir;
 }
