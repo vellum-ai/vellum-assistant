@@ -46,7 +46,7 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).toContain("internationalmaestro");
   });
 
-  test("fires onUpdateCard when Update Card is clicked", () => {
+  test("fires onUpdateCard when Replace card is clicked", () => {
     const onUpdateCard = mock(() => {});
     const { getByTestId } = render(
       <PaymentMethodRow
@@ -59,11 +59,13 @@ describe("PaymentMethodRow", () => {
     expect(onUpdateCard).toHaveBeenCalledTimes(1);
   });
 
-  test("offers Update Card as the only action", () => {
+  test("offers Replace card as the only action", () => {
     const { getByTestId, queryByTestId } = render(
       <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
-    expect(getByTestId("payment-method-update")).not.toBeNull();
+    expect(getByTestId("payment-method-update").textContent).toContain(
+      "Replace card",
+    );
     expect(queryByTestId("payment-method-remove")).toBeNull();
   });
 });

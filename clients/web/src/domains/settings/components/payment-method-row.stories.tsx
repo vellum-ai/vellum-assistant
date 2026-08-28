@@ -4,8 +4,8 @@
  * itself is pure props, so these stories drive it directly.
  *
  * The backend enforces a single payment method, so the row's only action is
- * Update Card, which replaces the card on file through the same setup flow
- * used to add one.
+ * Replace card, which swaps the card on file through the same setup flow used
+ * to add one.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -27,6 +27,6 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * The default row: the brand run through `brandLabel` so the raw Stripe string
- * reads as "Visa", the last four digits, and the Update Card action.
+ * reads as "Visa", the last four digits, and the Replace card action.
  */
 export const Default: Story = {};

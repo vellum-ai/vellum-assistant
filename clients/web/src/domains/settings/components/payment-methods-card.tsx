@@ -7,6 +7,10 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
+import type {
+  CardOnFile,
+  PaymentMethodModalMode,
+} from "@/domains/settings/components/payment-method-modal-shell";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
@@ -16,6 +20,8 @@ export interface PaymentMethodCardEntry {
   id: string;
   brand: string | null;
   last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
 }
 
 /**
@@ -34,27 +40,59 @@ export function paymentMethodCards(
       id: "primary",
       brand: config.payment_method_brand,
       last4: config.payment_method_last4,
+      // The config payload carries no expiry, so the card-on-file row in the
+      // modal renders brand and last4 alone.
+      expMonth: null,
+      expYear: null,
     },
   ];
+}
+
+/**
+ * What the modal was opened with. Captured on the click that opens it, because
+ * a successful save writes the new card into the config query cache before the
+ * modal closes: derived props would flip an in-flight add into replace mode and
+ * swap the card-on-file row for the card that was just saved.
+ */
+interface PaymentModalSnapshot {
+  mode: PaymentMethodModalMode;
+  cardOnFile: CardOnFile | null;
 }
 
 /**
  * Settings → Billing "Payment Methods" section. Card management lives here;
  * the auto-reload toggle and its config stay in `AutoTopUpCard` (Credits
  * section). The backend enforces a single payment method, so once a card is
- * on file the only offered action is updating it (which replaces the card
- * via the same setup flow); Add appears only while no card exists.
+ * on file the only offered action is replacing it (the same setup flow, opened
+ * in `replace` mode); Add appears only while no card exists.
  */
 export function PaymentMethodsCard() {
   const { t } = useTranslation("settings");
   const configQuery = useAutoTopUpConfigQuery();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
 
-  const [pmModalOpen, setPmModalOpen] = useState(false);
+  const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
 
   const config = configQuery.data;
   const cards = paymentMethodCards(config);
   const showAddButton = config != null && cards.length === 0;
+
+  const openPaymentModal = () => {
+    const [existing] = cards;
+    if (existing == null) {
+      setPmModal({ mode: "add", cardOnFile: null });
+      return;
+    }
+    setPmModal({
+      mode: "replace",
+      cardOnFile: {
+        brand: existing.brand,
+        last4: existing.last4,
+        expMonth: existing.expMonth,
+        expYear: existing.expYear,
+      },
+    });
+  };
 
   const renderBody = () => {
     // `isPending` rather than `isLoading`: the query idles with no data until
@@ -90,7 +128,7 @@ export function PaymentMethodsCard() {
             key={card.id}
             brand={card.brand}
             last4={card.last4}
-            onUpdateCard={() => setPmModalOpen(true)}
+            onUpdateCard={openPaymentModal}
           />
         ))}
       </div>
@@ -105,7 +143,7 @@ export function PaymentMethodsCard() {
           showAddButton ? (
             <Button
               variant="outlined"
-              onClick={() => setPmModalOpen(true)}
+              onClick={openPaymentModal}
               data-testid="payment-methods-add"
             >
               {t("paymentMethodsCard.addButton")}
@@ -117,8 +155,10 @@ export function PaymentMethodsCard() {
       {renderBody()}
 
       <AutoTopUpPaymentMethodModal
-        open={pmModalOpen}
-        onClose={() => setPmModalOpen(false)}
+        open={pmModal != null}
+        onClose={() => setPmModal(null)}
+        mode={pmModal?.mode ?? "add"}
+        cardOnFile={pmModal?.cardOnFile ?? null}
         onSavedOptimistic={syncPaymentMethodSaved}
       />
     </Card>

@@ -453,14 +453,16 @@ export function AutoTopUpCard() {
    * Once the config reflects the fresh PM, drop the no-PM gate and, if the
    * user got here via the toggle, advance straight into the configure form.
    * The gate effect above may already have run off the seeded cache; both
-   * paths land on the same state.
+   * paths land on the same state. Resolves with the saved card so the modal
+   * can title its success panel with it.
    */
   const handlePmSaved = async (args: { setupIntentId: string | null }) => {
-    await syncPaymentMethodSaved(args);
+    const card = await syncPaymentMethodSaved(args);
     setShowAddPm(false);
     if (pendingEnable) {
       enterFormMode();
     }
+    return card;
   };
 
   const isFormMode = mode === "form";
@@ -643,9 +645,12 @@ export function AutoTopUpCard() {
         onConfirm={handleConfirmDisable}
       />
 
+      {/* The cutoff gate has a declined card on file but asks for a different
+          one, so both gates open this modal in add mode. */}
       <AutoTopUpPaymentMethodModal
         open={pmModalOpen}
         onClose={() => setPmModalOpen(false)}
+        mode="add"
         onSavedOptimistic={handlePmSaved}
       />
     </div>
