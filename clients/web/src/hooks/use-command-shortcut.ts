@@ -1,4 +1,5 @@
 import { formatAcceleratorHint } from "@vellumai/design-library";
+import { DEFAULT_ACCELERATORS } from "@vellumai/ipc-contract";
 import { useSyncExternalStore } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
@@ -64,6 +65,17 @@ const WEB_ACCELERATORS: Partial<Record<CommandShortcutKey, string>> = {
 };
 
 /**
+ * The shell's compiled menu accelerators, widened to this module's keys.
+ *
+ * The global-scope commands (`globalHotkey`, `quickInput`, `toggleVoice`) are
+ * registered as system shortcuts rather than menu items and so are absent
+ * here; they resolve only once the catalog arrives, which is correct, since
+ * there is no compiled menu binding to claim on their behalf.
+ */
+const DESKTOP_MENU_DEFAULTS: Partial<Record<CommandShortcutKey, string>> =
+  DEFAULT_ACCELERATORS;
+
+/**
  * The Electron catalog, cached for the lifetime of the renderer.
  *
  * Held at module scope rather than per hook so that every row of a menu reads
@@ -127,6 +139,12 @@ export function commandAccelerator(
   // A caller outside React reaches the catalog before any component has
   // subscribed, so asking is what starts it loading.
   ensureLoaded();
+  if (catalog.length === 0) {
+    // No catalog yet, either because it has not arrived or because the shell
+    // is too old to report one. Either way the shell registered the compiled
+    // defaults, so those are the truthful answer until it says otherwise.
+    return DESKTOP_MENU_DEFAULTS[key] || undefined;
+  }
   const entry = catalog.find((hotkey) => hotkey.key === key);
   // An empty accelerator is how the catalog spells "bound to nothing".
   return entry?.accelerator ? entry.accelerator : undefined;
