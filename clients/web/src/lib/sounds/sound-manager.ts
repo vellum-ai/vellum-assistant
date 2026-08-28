@@ -102,6 +102,9 @@ class SoundManager {
   }
 
   async previewFallbackBlip(volumeOverride?: number): Promise<void> {
+    if (!this.featureEnabled) {
+      return;
+    }
     const volume = clampVolume(volumeOverride ?? this.config?.volume ?? 0.7);
     this.playFallbackBlip(volume);
   }
