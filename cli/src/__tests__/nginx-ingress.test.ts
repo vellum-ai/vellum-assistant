@@ -264,6 +264,13 @@ describe("buildIngressNginxConfig", () => {
     expect(remoteConf).toContain("location / {\n      return 404;\n    }");
   });
 
+  test("compresses text asset types", () => {
+    expect(remoteConf).toContain("gzip on;");
+    expect(remoteConf).toContain(
+      "gzip_types application/javascript application/json application/wasm image/svg+xml text/css text/plain;",
+    );
+  });
+
   test("serves remote web config for the SPA", () => {
     expect(remoteConf).toContain("location = /assistant/__config {");
     expect(remoteConf).toContain("default_type application/json;");

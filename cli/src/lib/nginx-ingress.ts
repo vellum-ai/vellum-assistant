@@ -180,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 5;
+const EDGE_TEMPLATE_VERSION = 6;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -273,6 +273,17 @@ events {}
 http {
   access_log off;
   default_type application/octet-stream;
+
+  # nginx ships with gzip off. Without it the SPA's boot-critical JS crosses
+  # the tunnel uncompressed (roughly 3.4x the bytes), on exactly the path
+  # with real network latency. text/html is always compressed once gzip is
+  # on, so it must not be repeated in gzip_types.
+  gzip on;
+  gzip_vary on;
+  gzip_comp_level 5;
+  gzip_min_length 1024;
+  gzip_proxied any;
+  gzip_types application/javascript application/json application/wasm image/svg+xml text/css text/plain;
 
   types {
     application/javascript js mjs;
