@@ -1,3 +1,5 @@
+import type { UseManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import type { UseSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 /**
  * Captions and turn-taking cards on the Voice settings page.
  *
@@ -31,11 +33,13 @@ import { MemoryRouter } from "react-router";
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "asst-test",
 }));
-const voiceSelection = {
+const voiceSelection: UseManagedVoiceSelection = {
   available: false,
+  isByok: false,
   settled: true,
-  voices: [] as { model: string; description: string }[],
+  voices: [],
   currentModel: "",
+  defaultModel: "",
   selectModel: () => {},
   selecting: false,
 };
@@ -46,7 +50,7 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
 // The listening-language card reads daemon config through React Query too.
 // Hoisted with the mocks above (a mid-file `mock.module` does not re-link on
 // CI's bun), so its shape is swapped through this mutable seed instead.
-const languageSelection = {
+const languageSelection: UseSttLanguageSelection = {
   available: false,
   settled: true,
   currentCode: "multi",
