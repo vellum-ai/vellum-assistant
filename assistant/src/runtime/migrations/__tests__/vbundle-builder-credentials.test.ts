@@ -213,6 +213,43 @@ describe("buildExportVBundle with credentials", () => {
       workspace.cleanup();
     }
   });
+
+  test("export injects CES credential metadata when leftover metadata.json is absent", () => {
+    const workspace = createTestWorkspace();
+    try {
+      const catalog = new TextEncoder().encode(
+        JSON.stringify({
+          version: 5,
+          credentials: [
+            {
+              credentialId: "cred-1",
+              service: "github",
+              field: "token",
+              allowedTools: ["bash"],
+              allowedDomains: [],
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          ],
+        }),
+      );
+
+      const result = buildExportVBundle({
+        ...defaultV1Options(),
+        workspaceDir: workspace.dir,
+        credentialMetadataFile: catalog,
+      });
+
+      const tar = gunzipSync(result.archive);
+      const entries = parseTar(tar);
+      const decoder = new TextDecoder();
+      expect(
+        decoder.decode(entries.get("workspace/data/credentials/metadata.json")!),
+      ).toBe(decoder.decode(catalog));
+    } finally {
+      workspace.cleanup();
+    }
+  });
 });
 
 describe("streamExportVBundle with credentials", () => {

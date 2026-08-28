@@ -44,6 +44,7 @@ import {
 } from "../../security/secure-keys.js";
 import {
   getCredentialMetadata,
+  serializeCredentialMetadataCatalog,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -436,6 +437,7 @@ export async function handleMigrationExport(
       ...manifestInputs,
       secretsRedacted,
       credentials,
+      credentialMetadataFile: serializeCredentialMetadataCatalog(),
       checkpoint: checkpointDbsForExport,
     });
 
@@ -657,6 +659,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
           ...manifestInputs,
           secretsRedacted,
           credentials: collected.credentials,
+          credentialMetadataFile: serializeCredentialMetadataCatalog(),
           checkpoint: checkpointDbsForExport,
         });
 
