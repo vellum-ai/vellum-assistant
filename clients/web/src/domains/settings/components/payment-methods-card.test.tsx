@@ -18,6 +18,9 @@
  *    `useSetupIntentReturnStore`, which the resolution driven from
  *    `BillingPage` writes, so this card can be unmounted and remounted by a
  *    tab switch without losing it.
+ *  - A saved 3DS return also invalidates the config query through this card's
+ *    own QueryClient, because the resolution's writes went to the client it
+ *    captured when it started, which a request-scope change can discard.
  *  - A 3DS redirect return replays its outcome into a freshly opened modal:
  *    a saved card on the success panel alone, a failure back into the form in
  *    the mode the saved card calls for. The failure waits for the config query
@@ -123,7 +126,8 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 const { PaymentMethodsCard } = await import("./payment-methods-card");
-const { paymentMethodCards } = await import("./payment-method-cards");
+const { paymentMethodCards } =
+  await import("@/domains/settings/utils/payment-method-cards");
 const { useSetupIntentReturnStore } =
   await import("@/domains/settings/setup-intent-return-store");
 const { DISABLED_CONFIG } = await import("./auto-top-up-card");
@@ -453,6 +457,35 @@ describe("PaymentMethodsCard redirect return", () => {
     expect(lastPmModalProps().initialOutcome).toEqual(returnedOutcome);
     expect(lastPmModalProps().mode).toBe("add");
     expect(lastPmModalProps().cardOnFile).toBeNull();
+  });
+
+  test("invalidates the config query through this card's own client", async () => {
+    // The resolution confirms the card through the QueryClient it captured
+    // when it started, and a request-scope change (the platform-session probe
+    // swapping the user id) remounts that client: without this the section can
+    // keep showing the empty state until an unrelated GET lands.
+    const client = makeClient(DISABLED_CONFIG);
+    const invalidated: Array<Parameters<QueryClient["invalidateQueries"]>[0]> =
+      [];
+    const invalidateQueries = client.invalidateQueries.bind(client);
+    client.invalidateQueries = (filters) => {
+      invalidated.push(filters);
+      return invalidateQueries(filters);
+    };
+    seedReturnOutcome({
+      kind: "saved",
+      card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+    });
+    render(wrapWith(client));
+
+    await waitFor(() => {
+      if (invalidated.length === 0) {
+        throw new Error("config query not invalidated");
+      }
+    });
+    expect(invalidated).toContainEqual({
+      queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
+    });
   });
 
   test("replays an error outcome into replace mode with the card on file", () => {

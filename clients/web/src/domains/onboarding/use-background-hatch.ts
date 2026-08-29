@@ -19,10 +19,7 @@ import {
   MAX_HATCH_WAIT_MS,
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
-import {
-  getOrgHeaderReadiness,
-  ORG_HEADER_SETTLE_TIMEOUT_MS,
-} from "@/hooks/use-is-org-ready";
+import { awaitOrgHeaderSettled } from "@/hooks/await-org-header-settled";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getLockfileAssistant,
@@ -45,9 +42,6 @@ const TIMEOUT_ERROR =
   "Your assistant is taking longer than expected. Please try again.";
 const ORG_HEADER_ERROR =
   "We couldn't confirm your organization. Please try again.";
-// Cadence for the org-header wait. Tighter than the assistant poll: the store
-// hydrates in one round trip, so every tick is dead time before the hatch POST.
-const ORG_HEADER_POLL_INTERVAL_MS = 100;
 
 export interface UseBackgroundHatch {
   /** Fire the hatch. Idempotent — only the first call provisions. */
@@ -233,28 +227,30 @@ export function useBackgroundHatch({
     // retry re-runs the same timeout and the hatch can't recover from a hung
     // request even after connectivity returns.
     const awaitOrgHeader = async (): Promise<boolean> => {
-      const waitStartMs = Date.now();
       let refetched = false;
-      while (true) {
-        if (abortedRef.current) {
-          return false;
-        }
-        const readiness = getOrgHeaderReadiness();
-        if (readiness === "ready") {
-          return true;
-        }
-        if (!refetched && (readiness === "unavailable" || isRetryAttempt)) {
+      const outcome = await awaitOrgHeaderSettled({
+        isCancelled: () => abortedRef.current,
+        registerTimer: (timer) => {
+          pollTimerRef.current = timer;
+        },
+        onWaiting: (readiness) => {
+          const kick =
+            !refetched && (readiness === "unavailable" || isRetryAttempt);
+          if (!kick) {
+            return false;
+          }
           refetched = true;
           void useOrganizationStore.getState().fetchOrganizations();
-        } else if (
-          readiness === "unavailable" ||
-          Date.now() - waitStartMs >= ORG_HEADER_SETTLE_TIMEOUT_MS
-        ) {
-          settleError(ORG_HEADER_ERROR);
-          return false;
-        }
-        await sleep(ORG_HEADER_POLL_INTERVAL_MS);
+          return true;
+        },
+      });
+      if (outcome === "ready") {
+        return true;
       }
+      if (outcome !== "cancelled") {
+        settleError(ORG_HEADER_ERROR);
+      }
+      return false;
     };
 
     void (async () => {

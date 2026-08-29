@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -10,10 +12,11 @@ import {
   modalSnapshotFor,
   paymentMethodCards,
   type PaymentModalSnapshot,
-} from "@/domains/settings/components/payment-method-cards";
+} from "@/domains/settings/utils/payment-method-cards";
 import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { useSetupIntentReturnStore } from "@/domains/settings/setup-intent-return-store";
+import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useTranslation } from "@/i18n";
 
@@ -26,6 +29,7 @@ import { useTranslation } from "@/i18n";
  */
 export function PaymentMethodsCard() {
   const { t } = useTranslation("settings");
+  const queryClient = useQueryClient();
   const configQuery = useAutoTopUpConfigQuery();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
   // A return that is still resolving keeps the Add and Replace actions
@@ -72,6 +76,18 @@ export function PaymentMethodsCard() {
         : modalSnapshotFor(cards);
     });
   }, [outcome, cards, configSettled]);
+
+  // The resolution confirmed the card through the QueryClient it captured when
+  // it started, which a request-scope change can have discarded since. This
+  // card's own client is the one the section renders from.
+  useEffect(() => {
+    if (outcome?.kind !== "saved") {
+      return;
+    }
+    void queryClient.invalidateQueries({
+      queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
+    });
+  }, [outcome, queryClient]);
 
   const renderBody = () => {
     // `isPending` rather than `isLoading`: the query idles with no data until

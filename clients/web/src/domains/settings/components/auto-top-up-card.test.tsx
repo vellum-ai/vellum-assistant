@@ -26,6 +26,8 @@
  *    so it replaces) and seed it with the saved billing address.
  *  - Both gates are disabled while a 3DS redirect return is still resolving,
  *    so no second modal can stack on the one that outcome replays into.
+ *  - The modal's `onSavedOptimistic` resolves with the synced card, which is
+ *    what titles its success panel.
  *
  * Strategy: the render-only cases pre-populate the React Query cache so the
  * card's `useQuery` resolves synchronously — `renderToStaticMarkup` is
@@ -37,10 +39,18 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
+import * as savedSyncModule from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as runtimeBrowser from "@/runtime/browser";
@@ -96,6 +106,20 @@ mock.module("@/generated/api/sdk.gen", () => ({
     }),
   organizationsBillingDailyCreditLimitRetrieve: () =>
     Promise.resolve({ data: dailyLimitResponse, response: { ok: true } }),
+}));
+
+// The saved-card sync the card hands the modal as `onSavedOptimistic`. Mocked
+// so the confirm endpoint and its webhook-poll fallback stay out of these
+// tests; what matters here is that the card passes the sync's answer back.
+let syncCalls: Array<{ setupIntentId: string | null }> = [];
+let syncedCard: SavedPaymentMethod | null = null;
+mock.module("@/domains/settings/hooks/use-payment-method-saved-poll", () => ({
+  ...savedSyncModule,
+  usePaymentMethodSavedSync:
+    () => async (args: { setupIntentId: string | null }) => {
+      syncCalls.push(args);
+      return syncedCard;
+    },
 }));
 
 // Stub the Stripe setup modal: these tests assert only which mode, card on
@@ -269,6 +293,8 @@ async function settleConfigQuery(client: QueryClient) {
 
 beforeEach(() => {
   updateCalls = [];
+  syncCalls = [];
+  syncedCard = null;
   nativeAndroid = false;
   openedUrl = null;
   pmModalProps = null;
@@ -928,6 +954,29 @@ describe("AutoTopUpCard add-a-card gates", () => {
     for (const button of buttons) {
       expect(button.disabled).toBe(true);
     }
+  });
+
+  test("hands the modal a saved callback that resolves with the synced card", async () => {
+    // The modal titles its success panel with what this resolves to, so the
+    // card must return the sync's answer rather than swallowing it.
+    syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      has_payment_method: false,
+    };
+    retrieveResponse = config;
+    render(wrap(config));
+
+    const saved = await act(async () =>
+      lastPmModalProps().onSavedOptimistic({ setupIntentId: "seti_1" }),
+    );
+
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+    expect(saved).toEqual({
+      brand: "visa",
+      last4: "4242",
+      autoReloadEnabled: false,
+    });
   });
 
   test("both gates stay usable when no return is in flight", () => {

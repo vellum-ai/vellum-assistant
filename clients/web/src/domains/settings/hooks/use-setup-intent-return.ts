@@ -10,11 +10,11 @@ import {
   type SavedPaymentMethod,
 } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { useSetupIntentReturnStore } from "@/domains/settings/setup-intent-return-store";
-import {
-  getOrgHeaderReadiness,
-  ORG_HEADER_SETTLE_TIMEOUT_MS,
-} from "@/hooks/use-is-org-ready";
+import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
+import { awaitOrgHeaderSettled } from "@/hooks/await-org-header-settled";
 import { t } from "@/i18n";
+import { useAuthStore } from "@/stores/auth-store";
+import { isPlatformSessionSettled } from "@/stores/session-status";
 
 const CLIENT_SECRET_PARAM = "setup_intent_client_secret";
 const REDIRECT_STATUS_PARAM = "redirect_status";
@@ -26,34 +26,21 @@ const STRIPE_RETURN_PARAMS = [
   REDIRECT_STATUS_PARAM,
 ];
 
-const ORG_HEADER_POLL_INTERVAL_MS = 100;
-
 type ConfirmSaved = (args: {
   setupIntentId: string | null;
 }) => Promise<SavedPaymentMethod | null>;
 
 /**
- * A full-page 3DS return remounts the app, so the org store can still be
- * hydrating when the params are read. The server-side confirm below needs
- * `Vellum-Organization-Id`, and a headerless one is rejected and falls back to
- * the 20-second webhook poll, so the resolution waits out `"resolving"` the
- * way the config query does.
- *
- * Bounded by the same ceiling imperative callers use elsewhere: a return that
- * never resolves leaves the add-a-card actions disabled for the rest of the
- * visit. Past it, and for `"unavailable"`, the request fires and fails into
- * the error outcome instead.
+ * The confirm below writes the saved card through the QueryClient captured
+ * when the resolution started, and that client is keyed on the request scope:
+ * the signed-in user as well as the organization. A 3DS return is a full page
+ * load, where the local-gateway path authenticates a placeholder user while
+ * the platform-session probe is still `"unknown"`, and the probe swapping in
+ * the real user remounts the client. Waiting the probe out keeps the confirm's
+ * writes on the client the cards read.
  */
-async function waitForOrgHeader(): Promise<void> {
-  const startedAt = Date.now();
-  while (
-    getOrgHeaderReadiness() === "resolving" &&
-    Date.now() - startedAt < ORG_HEADER_SETTLE_TIMEOUT_MS
-  ) {
-    await new Promise((resolve) =>
-      setTimeout(resolve, ORG_HEADER_POLL_INTERVAL_MS),
-    );
-  }
+function requestScopeSettled(): boolean {
+  return isPlatformSessionSettled(useAuthStore.getState().platformSession);
 }
 
 /**
@@ -83,7 +70,12 @@ async function resolveSetupIntentReturn({
     });
   };
 
-  await waitForOrgHeader();
+  // A full-page 3DS return remounts the app, so the org store can still be
+  // hydrating when the params are read. The confirm below needs
+  // `Vellum-Organization-Id`, and a headerless one is rejected and falls back
+  // to the 20-second webhook poll. Past the ceiling, and for `"unavailable"`,
+  // the request fires and fails into the error outcome instead.
+  await awaitOrgHeaderSettled({ alsoReady: requestScopeSettled });
 
   try {
     const stripe = await getStripePromise();
@@ -126,7 +118,7 @@ async function resolveSetupIntentReturn({
  */
 export function useSetupIntentReturn(): void {
   const [searchParams] = useSearchParams();
-  const { pathname, hash } = useLocation();
+  const location = useLocation();
   const navigate = useNavigate();
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
 
@@ -142,17 +134,15 @@ export function useSetupIntentReturn(): void {
     capturedRef.current = true;
     const redirectStatus = searchParams.get(REDIRECT_STATUS_PARAM);
 
-    // Rebuilt from the live location rather than navigating to the canonical
-    // billing route, which would drop the URL hash along with every unrelated
-    // param: anchor deep links (`#daily-credit-limit` from the daily-limit
-    // email) must survive a Stripe return the way they survive the tab
-    // normalization in `BillingPage`.
-    const next = new URLSearchParams(searchParams);
-    for (const param of STRIPE_RETURN_PARAMS) {
-      next.delete(param);
-    }
-    next.set("tab", "billing");
-    void navigate({ pathname, search: `?${next}`, hash }, { replace: true });
+    replaceSearchParams(navigate, location, (next) => {
+      for (const param of STRIPE_RETURN_PARAMS) {
+        next.delete(param);
+      }
+      // Stripe's params are not billing intent, so a signed-out-but-reachable
+      // viewer would lose the billing tab (and the outcome replayed into it)
+      // the moment they are stripped.
+      next.set("tab", "billing");
+    });
 
     useSetupIntentReturnStore.getState().beginResolving();
     void resolveSetupIntentReturn({
@@ -162,5 +152,5 @@ export function useSetupIntentReturn(): void {
     });
     // `syncPaymentMethodSaved` is rebuilt every render, so this effect re-runs
     // often; the capture guard above makes every run after the first a no-op.
-  }, [hash, navigate, pathname, searchParams, syncPaymentMethodSaved]);
+  }, [location, navigate, searchParams, syncPaymentMethodSaved]);
 }
