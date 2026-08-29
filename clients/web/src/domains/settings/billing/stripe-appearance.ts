@@ -83,7 +83,7 @@ export function withAlpha(color: string, alpha: number): string {
 type Declarations = Record<string, string | undefined>;
 
 function isResolved(value: string | undefined): value is string {
-  return value !== undefined;
+  return value !== undefined && value !== "";
 }
 
 /**

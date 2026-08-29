@@ -80,8 +80,11 @@ export function PaymentMethodsCard() {
   // The resolution confirmed the card through the QueryClient it captured when
   // it started, which a request-scope change can have discarded since. This
   // card's own client is the one the section renders from.
+  //
+  // A null card means the confirm failed and the poll timed out, so the cache
+  // holds only the poll's deliberate optimistic flip, which a refetch wipes.
   useEffect(() => {
-    if (outcome?.kind !== "saved") {
+    if (outcome?.kind !== "saved" || outcome.card == null) {
       return;
     }
     void queryClient.invalidateQueries({
