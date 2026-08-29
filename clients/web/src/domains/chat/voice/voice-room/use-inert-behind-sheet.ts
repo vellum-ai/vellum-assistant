@@ -19,7 +19,9 @@
  * under `<main>` already goes inert with the room (`chat-layout.tsx`); this is
  * the header's and the banner's share, held for exactly as long as the sheet
  * is flush. A sibling that arrived inert stays inert, since that attribute is
- * someone else's to remove.
+ * someone else's to remove. The shell's children change under an open camera
+ * (the status banner mounts beside the host when assistant state changes), so
+ * the gate watches the shell's child list and covers late arrivals too.
  */
 
 import { useEffect } from "react";
@@ -37,13 +39,30 @@ export function useInertBehindSheet(active: boolean): void {
     if (!host || !shell) {
       return;
     }
-    const covered = Array.from(shell.children).filter(
-      (element) => element !== host && !element.hasAttribute("inert"),
-    );
-    for (const element of covered) {
-      element.setAttribute("inert", "");
+    const covered = new Set<Element>();
+    const cover = (element: Element) => {
+      if (element !== host && !element.hasAttribute("inert")) {
+        element.setAttribute("inert", "");
+        covered.add(element);
+      }
+    };
+    for (const element of Array.from(shell.children)) {
+      cover(element);
     }
+    // Direct children only: the sheet's own churn inside the host never lands
+    // here.
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of Array.from(record.addedNodes)) {
+          if (node instanceof Element) {
+            cover(node);
+          }
+        }
+      }
+    });
+    observer.observe(shell, { childList: true });
     return () => {
+      observer.disconnect();
       for (const element of covered) {
         element.removeAttribute("inert");
       }

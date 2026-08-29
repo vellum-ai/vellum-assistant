@@ -10,7 +10,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { cleanup, renderHook } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { OVERLAY_HOST_ID, useInertBehindSheet } from "./use-inert-behind-sheet";
 
@@ -27,7 +27,7 @@ function mountShell() {
   host.id = OVERLAY_HOST_ID;
   shell.append(banner, header, host);
   document.body.append(shell);
-  return { banner, header, host };
+  return { shell, banner, header, host };
 }
 
 afterEach(() => {
@@ -71,6 +71,40 @@ describe("useInertBehindSheet", () => {
     });
 
     expect(shell.header.hasAttribute("inert")).toBe(false);
+  });
+
+  test("covers a sibling that mounts while the sheet is flush", async () => {
+    // The status banner is the concrete case: it renders nothing until
+    // assistant state changes, then lands beside the host mid-camera.
+    const shell = mountShell();
+    const { rerender } = renderHook(
+      ({ active }) => useInertBehindSheet(active),
+      { initialProps: { active: true } },
+    );
+
+    const banner = document.createElement("div");
+    shell.shell.append(banner);
+    await waitFor(() => {
+      expect(banner.hasAttribute("inert")).toBe(true);
+    });
+
+    rerender({ active: false });
+    expect(banner.hasAttribute("inert")).toBe(false);
+  });
+
+  test("leaves the sheet's own churn inside the host alone", async () => {
+    const shell = mountShell();
+    renderHook(({ active }) => useInertBehindSheet(active), {
+      initialProps: { active: true },
+    });
+
+    const sheetChild = document.createElement("div");
+    shell.host.append(sheetChild);
+    // Give the observer a turn to report, so a wrong subtree watch would show.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sheetChild.hasAttribute("inert")).toBe(false);
+    expect(shell.host.hasAttribute("inert")).toBe(false);
   });
 
   test("is a no-op with no portal host in the document", () => {
