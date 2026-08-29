@@ -147,13 +147,28 @@ describe("PaymentMethodModalShell", () => {
     expect(queryByTestId("auto-top-up-pm-save-button")).toBeNull();
   });
 
-  test("saved replaces the fields and the mode-derived header", () => {
-    const { baseElement, queryByTestId, queryByText } = renderShell({
+  test("saved replaces the fields but keeps the mode-derived header", () => {
+    const { getByRole, getByText, queryByTestId } = renderShell({
       state: "saved",
       savedCard: { brand: "visa", last4: "1881" },
     });
     expect(queryByTestId("field-block")).toBeNull();
     expect(queryByTestId("payment-method-modal-fields")).toBeNull();
+    expect(getByText("Add a card")).not.toBeNull();
+
+    const describedBy = getByRole("dialog").getAttribute("aria-describedby");
+    expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+      "Kept on file for auto-reload and your Pro plan.",
+    );
+    expect(queryByTestId("payment-method-modal-close")).not.toBeNull();
+  });
+
+  test("a headerless saved state leaves only a screen-reader title", () => {
+    const { baseElement, getByRole, queryByText } = renderShell({
+      state: "saved",
+      headerless: true,
+      savedCard: { brand: "visa", last4: "1881" },
+    });
     expect(queryByText("Add a card")).toBeNull();
     expect(
       queryByText("Kept on file for auto-reload and your Pro plan."),
@@ -165,7 +180,31 @@ describe("PaymentMethodModalShell", () => {
     expect(
       baseElement.querySelector('[data-slot="modal-description"]'),
     ).toBeNull();
-    expect(queryByTestId("payment-method-modal-close")).not.toBeNull();
+    expect(getByRole("dialog").hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  test("saved after a replace drops the card it just replaced", () => {
+    const { getByTestId, queryByTestId } = renderShell({
+      mode: "replace",
+      cardOnFile: VISA_ON_FILE,
+      state: "saved",
+      savedCard: { brand: "visa", last4: "1881" },
+    });
+    expect(queryByTestId("payment-method-modal-card-on-file")).toBeNull();
+    expect(getByTestId("payment-method-modal-saved").textContent).toContain(
+      "Visa •••• 1881 saved",
+    );
+  });
+
+  test("saved drops the actionless footer and gutters the body instead", () => {
+    const { baseElement } = renderShell({
+      state: "saved",
+      savedCard: { brand: "visa", last4: "1881" },
+    });
+    expect(baseElement.querySelector('[data-slot="modal-footer"]')).toBeNull();
+    expect(
+      baseElement.querySelector('[data-slot="modal-body"]')?.className,
+    ).toContain("pb-[22px]");
   });
 
   test("saved falls back to the generic title and hides the sub-line", () => {

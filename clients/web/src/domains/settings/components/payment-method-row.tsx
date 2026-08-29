@@ -1,7 +1,7 @@
 import { CreditCard } from "lucide-react";
 
 import {
-  brandLabel,
+  brandDisplayLabel,
   cardExpiryLabel,
 } from "@/domains/settings/utils/payment-method-brand";
 import { useTranslation } from "@/i18n";
@@ -45,7 +45,7 @@ export function PaymentMethodRow({
             variant="body-medium-default"
             className="truncate leading-snug text-[var(--content-default)]"
           >
-            {brand ? brandLabel(brand) : t("paymentMethodRow.savedCard")}
+            {brandDisplayLabel(t, brand)}
           </Typography>
           {last4 != null && (
             <Typography

@@ -11,10 +11,12 @@ import { Loader2, X } from "lucide-react";
 import { type ReactNode } from "react";
 
 import {
+  brandDisplayLabel,
   brandLabel,
   cardExpiryLabel,
+  savedPanelTitle,
 } from "@/domains/settings/utils/payment-method-brand";
-import { useTranslation, type TFunction } from "@/i18n";
+import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -45,6 +47,12 @@ export interface PaymentMethodModalShellProps {
   /** The card just saved; titles the success panel in the `saved` state. */
   savedCard?: SavedCard | null;
   autoReloadActive?: boolean;
+  /**
+   * Drops the header in the `saved` state down to a screen-reader title, for
+   * a redirect return that reopens straight into it with no mode to derive a
+   * header from.
+   */
+  headerless?: boolean;
   errorMessage?: string | null;
   showTerms?: boolean;
   submitDisabled?: boolean;
@@ -65,6 +73,7 @@ export function PaymentMethodModalShell({
   cardOnFile = null,
   savedCard = null,
   autoReloadActive = false,
+  headerless = false,
   errorMessage = null,
   showTerms = false,
   submitDisabled = false,
@@ -76,6 +85,11 @@ export function PaymentMethodModalShell({
   const locked = isLockedState(state);
   const isReplace = mode === "replace";
   const isSaved = state === "saved";
+  const srOnlyHeader = isSaved && headerless;
+  // Radix stamps `aria-describedby` at `Modal.Description`'s id whether or not
+  // that element renders, so the dialog drops the attribute outright when the
+  // header is down to a screen-reader title.
+  const describedBy = srOnlyHeader ? { "aria-describedby": undefined } : {};
 
   return (
     <Modal.Root
@@ -93,12 +107,11 @@ export function PaymentMethodModalShell({
         dismissOnOverlayClick={!locked}
         onEscapeKeyDown={locked ? (e) => e.preventDefault() : undefined}
         onInteractOutside={locked ? (e) => e.preventDefault() : undefined}
+        {...describedBy}
       >
         <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-[18px]">
           <div className="min-w-0">
-            {isSaved ? (
-              // A redirect return reopens straight into `saved` with no mode to
-              // derive a header from, so the panel below is the only title.
+            {srOnlyHeader ? (
               <Modal.Title className="sr-only">
                 {savedPanelTitle(t, savedCard)}
               </Modal.Title>
@@ -138,8 +151,15 @@ export function PaymentMethodModalShell({
             onSubmit?.();
           }}
         >
-          <Modal.Body className="flex flex-col gap-[14px] px-6 pb-0">
-            {isReplace && cardOnFile ? (
+          <Modal.Body
+            className={cn(
+              "flex flex-col gap-[14px] px-6",
+              // With no actions to render, the footer is dropped and the body
+              // carries the gutter under the success panel.
+              isSaved ? "pb-[22px]" : "pb-0",
+            )}
+          >
+            {isReplace && cardOnFile && !isSaved ? (
               <CardOnFileRow card={cardOnFile} />
             ) : null}
 
@@ -202,41 +222,37 @@ export function PaymentMethodModalShell({
             ) : null}
           </Modal.Body>
 
-          {/* In `saved` the footer keeps its padding with no actions in it: the
-              body ends at `pb-0`, so this is the gutter under the panel. */}
-          <Modal.Footer className="flex flex-col gap-1 px-6 pt-[18px] pb-[22px]">
-            {isSaved ? null : (
-              <>
-                <Button
-                  variant="primary"
-                  fullWidth
-                  type="submit"
-                  data-testid="auto-top-up-pm-save-button"
-                  className="h-auto rounded-lg py-[14px] text-[14.5px] font-semibold"
-                  disabled={submitDisabled || locked}
-                  leftIcon={
-                    locked ? <Loader2 className="animate-spin" /> : undefined
-                  }
-                >
-                  {locked
-                    ? t("autoTopUpPaymentMethodModal.primarySubmitting")
-                    : isReplace
-                      ? t("autoTopUpPaymentMethodModal.primaryReplace")
-                      : t("autoTopUpPaymentMethodModal.primaryAdd")}
-                </Button>
-                <Button
-                  variant="ghost"
-                  fullWidth
-                  type="button"
-                  className="h-auto rounded-md py-[10px] text-[13.5px] font-medium [--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--content-emphasised)]"
-                  onClick={onClose}
-                  disabled={locked}
-                >
-                  {t("autoTopUpPaymentMethodModal.cancel")}
-                </Button>
-              </>
-            )}
-          </Modal.Footer>
+          {isSaved ? null : (
+            <Modal.Footer className="flex flex-col gap-1 px-6 pt-[18px] pb-[22px]">
+              <Button
+                variant="primary"
+                fullWidth
+                type="submit"
+                data-testid="auto-top-up-pm-save-button"
+                className="h-auto rounded-lg py-[14px] text-[14.5px] font-semibold"
+                disabled={submitDisabled || locked}
+                leftIcon={
+                  locked ? <Loader2 className="animate-spin" /> : undefined
+                }
+              >
+                {locked
+                  ? t("autoTopUpPaymentMethodModal.primarySubmitting")
+                  : isReplace
+                    ? t("autoTopUpPaymentMethodModal.primaryReplace")
+                    : t("autoTopUpPaymentMethodModal.primaryAdd")}
+              </Button>
+              <Button
+                variant="ghost"
+                fullWidth
+                type="button"
+                className="h-auto rounded-md py-[10px] text-[13.5px] font-medium [--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--content-emphasised)]"
+                onClick={onClose}
+                disabled={locked}
+              >
+                {t("autoTopUpPaymentMethodModal.cancel")}
+              </Button>
+            </Modal.Footer>
+          )}
         </form>
       </Modal.Content>
     </Modal.Root>
@@ -245,12 +261,11 @@ export function PaymentMethodModalShell({
 
 function CardOnFileRow({ card }: { card: CardOnFile }) {
   const { t } = useTranslation("settings");
-  const brandName = card.brand ? brandLabel(card.brand) : null;
   // An unknown brand leaves the chip blank rather than abbreviating the
   // generic fallback label into something that reads as a brand.
-  const chip = brandName?.slice(0, 4) ?? null;
+  const chip = card.brand ? brandLabel(card.brand).slice(0, 4) : null;
   const expiry = cardExpiryLabel(t, card.expMonth, card.expYear);
-  const brandText = brandName ?? t("paymentMethodRow.savedCard");
+  const brandText = brandDisplayLabel(t, card.brand);
   const label = card.last4
     ? t("autoTopUpPaymentMethodModal.cardOnFile", {
         brand: brandText,
@@ -280,19 +295,6 @@ function CardOnFileRow({ card }: { card: CardOnFile }) {
       </span>
     </div>
   );
-}
-
-/** Shared by the success panel and the screen-reader title above it. */
-function savedPanelTitle(
-  t: TFunction<"settings">,
-  card: SavedCard | null,
-): string {
-  return card?.brand && card.last4
-    ? t("autoTopUpPaymentMethodModal.savedTitle", {
-        brand: brandLabel(card.brand),
-        last4: card.last4,
-      })
-    : t("autoTopUpPaymentMethodModal.savedTitleGeneric");
 }
 
 function SavedPanel({

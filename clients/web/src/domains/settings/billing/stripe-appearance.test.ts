@@ -45,19 +45,6 @@ const STATIC_VARIABLES = {
   focusOutline: "none",
 };
 
-const EMPTY_TOKENS: StripeAppearanceTokens = {
-  text: "",
-  textSecondary: "",
-  placeholder: "",
-  surface: "",
-  field: "",
-  accent: "",
-  danger: "",
-  dangerText: "",
-  icon: "",
-  radius: "",
-};
-
 function paintTokens(root: HTMLElement) {
   for (const [name, value] of TOKEN_PROPERTIES) {
     root.style.setProperty(name, value);
@@ -167,7 +154,7 @@ describe("appearanceFromTokens", () => {
   });
 
   test("drops every token-driven value when nothing resolves", () => {
-    const appearance = appearanceFromTokens(EMPTY_TOKENS, "night");
+    const appearance = appearanceFromTokens({}, "night");
     expect(appearance.variables).toEqual(STATIC_VARIABLES);
     expect(appearance.rules).toEqual({
       ".Input": {
@@ -191,7 +178,7 @@ describe("appearanceFromTokens", () => {
   });
 
   test("never hands Stripe an empty or half-built value", () => {
-    for (const tokens of [EMPTY_TOKENS, {}]) {
+    for (const tokens of [{}, { text: TOKENS.text, danger: TOKENS.danger }]) {
       for (const value of stringValues(appearanceFromTokens(tokens, "night"))) {
         expect(value).not.toBe("");
         expect(value).not.toMatch(/\s$/);
