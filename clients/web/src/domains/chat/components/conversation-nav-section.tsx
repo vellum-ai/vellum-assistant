@@ -9,18 +9,19 @@
  *
  * A windowed section paginates: `onEndReached` fires at the bottom of the
  * rows and pages more in (LUM-2444). What differs per section is where the
- * rows scroll. Only the bottom-most section (`isLast`) grows to fill whatever
- * space the sidebar has left above the pinned footer, then scrolls within
- * itself once its rows outgrow that: flex-grow has no notion of "this
- * section needs the room," so letting every open section claim a share
- * stretched a two-row group into a mostly-empty box the same size as a busy
- * one beside it. Every section above the last one caps at a fixed height
- * and scrolls within itself instead, since an uncapped busy section would
- * otherwise push its neighbours off screen - unless it opts out via
+ * rows scroll. On the rail, only the bottom-most section (`isLast`) grows
+ * to fill whatever space the sidebar has left above the pinned footer, then
+ * scrolls within itself once its rows outgrow that: flex-grow has no notion
+ * of "this section needs the room," so letting every open section claim a
+ * share stretched a two-row group into a mostly-empty box the same size as
+ * a busy one beside it. Every section above the last one caps at a fixed
+ * height and scrolls within itself instead, since an uncapped busy section
+ * would otherwise push its neighbours off screen - unless it opts out via
  * `unbounded` (Pinned: expected to stay short, and grows to fit its rows
- * instead). The flat list instead scrolls against the sidebar body it
- * already fills (`scrollParent`), which keeps the rail to a single
- * scrollbar.
+ * instead). The overlay drawer and the flat list instead scroll against the
+ * sidebar body (`scrollParent` / `overlayCards`), which keeps those
+ * surfaces to a single scrollbar so nested lists cannot trap rows behind
+ * the floating action pills.
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
@@ -101,6 +102,15 @@ export function ConversationRowList({
   isLast,
   onEndReached,
 }: ConversationRowListProps) {
+  const { overlayCards, scrollParent: contextScrollParent } =
+    useConversationListContext();
+  const listScrollParent = scrollParent ?? contextScrollParent;
+  /* Overlay cards and any list given an ancestor scroller grow with that
+     ancestor. A nested `overflow-y-auto` on the overlay would trap its
+     last rows behind the floating pills: the inner list cannot move those
+     rows into the body's reserved padding. */
+  const scrollWithBody = overlayCards === true || listScrollParent != null;
+
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
       key={conversation.conversationId}
@@ -119,10 +129,7 @@ export function ConversationRowList({
     !unbounded && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
 
   if (!windows) {
-    if (unbounded) {
-      return rows;
-    }
-    if (scrollParent) {
+    if (unbounded || scrollWithBody) {
       return rows;
     }
     return isLast ? (
@@ -142,16 +149,23 @@ export function ConversationRowList({
   const windowed = (
     <VirtualList
       items={items}
-      customScrollParent={scrollParent}
+      customScrollParent={listScrollParent}
       computeItemKey={(_, conversation) => conversation.conversationId}
       itemContent={(_, conversation) => renderRow(conversation)}
       endReached={onEndReached}
-      className={scrollParent ? "bg-transparent" : "h-full bg-transparent"}
+      className={
+        listScrollParent || scrollWithBody
+          ? "bg-transparent"
+          : "h-full bg-transparent"
+      }
     />
   );
 
-  if (scrollParent) {
-    return windowed;
+  if (scrollWithBody) {
+    /* The overlay body's ref lands one commit after first paint. Until it
+       does, mount the rows directly so a windowed list is not an empty
+       virtuoso viewport with no scroll parent. */
+    return listScrollParent ? windowed : rows;
   }
 
   /* Scrolling against an ancestor means no height of our own. Otherwise
