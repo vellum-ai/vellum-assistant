@@ -20,6 +20,8 @@ interface SetupIntentReturnState {
    * True from reading Stripe's redirect params until the outcome settles. The
    * outcome is replayed into a modal opened for it, so the cards gate their
    * add-a-card actions on this to keep a competing modal from opening first.
+   * A resolution is abandoned on the first request-scope change, which clears
+   * this straight away, so consumers need no scope check of their own.
    */
   pending: boolean;
   outcome: SetupIntentOutcome | null;
@@ -30,29 +32,69 @@ interface SetupIntentReturnState {
    * scope in hand before replaying a saved card or invalidating a cache.
    */
   scopeKey: string | null;
+  /**
+   * Which resolution the pending window belongs to. A resolution abandoned
+   * mid-flight bumps this, so the result it is still carrying (produced under
+   * whichever organization header the request ended up with) is recognized as
+   * stale when it arrives and never published.
+   */
+  generation: number;
 }
 
 interface SetupIntentReturnActions {
-  beginResolving: () => void;
-  settleOutcome: (outcome: SetupIntentOutcome, scopeKey: string) => void;
-  discardResolution: () => void;
+  /** Opens a pending window and returns the generation to settle it under. */
+  beginResolving: () => number;
+  settleOutcome: (
+    outcome: SetupIntentOutcome,
+    scopeKey: string,
+    generation: number,
+  ) => void;
+  discardResolution: (generation: number) => void;
+  abandonResolution: (generation: number) => void;
   clearOutcome: () => void;
 }
 
 const useSetupIntentReturnStoreBase = create<
   SetupIntentReturnState & SetupIntentReturnActions
->()((set) => ({
+>()((set, get) => ({
   pending: false,
   outcome: null,
   scopeKey: null,
+  generation: 0,
 
-  beginResolving: () => set({ pending: true, outcome: null, scopeKey: null }),
-  settleOutcome: (outcome, scopeKey) =>
-    set({ pending: false, outcome, scopeKey }),
+  beginResolving: () => {
+    const generation = get().generation + 1;
+    set({ pending: true, outcome: null, scopeKey: null, generation });
+    return generation;
+  },
+  settleOutcome: (outcome, scopeKey, generation) => {
+    if (generation !== get().generation) {
+      return;
+    }
+    set({ pending: false, outcome, scopeKey });
+  },
   // The return resolved for an identity that is no longer on screen, so it
   // ends the pending window without publishing anything to replay.
-  discardResolution: () =>
-    set({ pending: false, outcome: null, scopeKey: null }),
+  discardResolution: (generation) => {
+    if (generation !== get().generation) {
+      return;
+    }
+    set({ pending: false, outcome: null, scopeKey: null });
+  },
+  // The scope moved while the resolution was in flight. Everything it does
+  // from here carries the new identity's headers, so the pending window ends
+  // now and the generation bump drops whatever it eventually returns with.
+  abandonResolution: (generation) => {
+    if (generation !== get().generation) {
+      return;
+    }
+    set({
+      pending: false,
+      outcome: null,
+      scopeKey: null,
+      generation: generation + 1,
+    });
+  },
   // `pending` is left alone: a cleared outcome is a resolved return, not one
   // that went back to being in flight.
   clearOutcome: () => set({ outcome: null, scopeKey: null }),

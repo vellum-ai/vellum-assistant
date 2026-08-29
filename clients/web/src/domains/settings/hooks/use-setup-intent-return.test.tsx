@@ -22,7 +22,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import * as savedSyncModule from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
-import { useAuthStore } from "@/stores/auth-store";
+import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 // Keeps the real stripe-client below from injecting a Stripe.js script tag
@@ -92,6 +92,17 @@ const { useSetupIntentReturn } = await import("./use-setup-intent-return");
 const { useSetupIntentReturnStore } =
   await import("@/domains/settings/setup-intent-return-store");
 
+/** The account a mid-resolution user switch lands on. */
+const SWITCHED_USER: AuthUser = {
+  kind: "platform",
+  id: "u_2",
+  username: "second",
+  email: "second@example.com",
+  isStaff: false,
+  firstName: "Second",
+  lastName: "User",
+};
+
 const RETURN_SEARCH =
   "?tab=billing&setup_intent=seti_1&setup_intent_client_secret=seti_1_secret_x&redirect_status=succeeded";
 const STRIPPED_URL = "/assistant/settings/usage?tab=billing";
@@ -159,9 +170,18 @@ beforeEach(() => {
     persistedOrganizationId: null,
   });
   // Settled by default: the resolution holds until the platform-session probe
-  // has answered, the way it does on a warm app.
-  useAuthStore.setState({ platformSession: "absent" });
-  useSetupIntentReturnStore.setState({ pending: false, outcome: null });
+  // has answered, the way it does on a warm app. The identity half is reset
+  // too, so a test that switches users mid-resolution leaves no scope behind.
+  useAuthStore.setState({
+    platformSession: "absent",
+    sessionStatus: "initializing",
+    user: null,
+  });
+  useSetupIntentReturnStore.setState({
+    pending: false,
+    outcome: null,
+    scopeKey: null,
+  });
 });
 
 afterEach(cleanup);
@@ -400,8 +420,10 @@ describe("useSetupIntentReturn", () => {
     // show the previous organization's saved card under the new one and
     // invalidate the new one's billing cache.
     useOrganizationStore.setState({ currentOrganizationId: "org_1" });
+    const pendingAtSwitch: boolean[] = [];
     onSync = () => {
       useOrganizationStore.setState({ currentOrganizationId: "org_2" });
+      pendingAtSwitch.push(pending());
     };
 
     renderAt(RETURN_SEARCH);
@@ -414,6 +436,55 @@ describe("useSetupIntentReturn", () => {
     expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
     expect(outcome()).toBeNull();
     expect(useSetupIntentReturnStore.getState().scopeKey).toBeNull();
+    // The cards gate their add-a-card actions on the pending window, so it
+    // ends at the switch rather than when the abandoned resolution finishes.
+    expect(pendingAtSwitch).toEqual([false]);
+  });
+
+  test("abandons a return whose organization changed and changed back", async () => {
+    // The scope reads unchanged once it lands back on org_1, but the confirm
+    // and its webhook poll carried org_2's header from the first switch on, so
+    // the resolution is abandoned there and its late result never published.
+    useOrganizationStore.setState({ currentOrganizationId: "org_1" });
+    onSync = () => {
+      useOrganizationStore.setState({ currentOrganizationId: "org_2" });
+      useOrganizationStore.setState({ currentOrganizationId: "org_1" });
+    };
+
+    renderAt(RETURN_SEARCH);
+    await waitFor(() => {
+      if (syncCalls.length === 0) {
+        throw new Error("confirm not called yet");
+      }
+    });
+    await flushResolution();
+
+    expect(pending()).toBe(false);
+    expect(outcome()).toBeNull();
+    expect(useSetupIntentReturnStore.getState().scopeKey).toBeNull();
+  });
+
+  test("abandons a return whose signed-in user changed while it resolved", async () => {
+    // The same watch covers the auth half of the scope: a user switch lands on
+    // a different request-scoped QueryClient just as an org switch does.
+    useOrganizationStore.setState({ currentOrganizationId: "org_1" });
+    onSync = () => {
+      useAuthStore.setState({
+        sessionStatus: "authenticated",
+        user: SWITCHED_USER,
+      });
+    };
+
+    renderAt(RETURN_SEARCH);
+    await waitFor(() => {
+      if (syncCalls.length === 0) {
+        throw new Error("confirm not called yet");
+      }
+    });
+    await flushResolution();
+
+    expect(pending()).toBe(false);
+    expect(outcome()).toBeNull();
   });
 
   test("stamps a settled outcome with the scope it resolved under", async () => {

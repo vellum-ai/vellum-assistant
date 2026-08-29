@@ -15,6 +15,7 @@ import { replaceSearchParams } from "@/domains/settings/utils/replace-search-par
 import { awaitOrgHeaderSettled } from "@/hooks/await-org-header-settled";
 import { t } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { currentRequestScopeKey } from "@/stores/request-scope";
 import { isPlatformSessionSettled } from "@/stores/session-status";
 
@@ -54,10 +55,12 @@ async function resolveSetupIntentReturn({
   clientSecret,
   redirectStatus,
   confirmSaved,
+  generation,
 }: {
   clientSecret: string;
   redirectStatus: string | null;
   confirmSaved: ConfirmSaved;
+  generation: number;
 }): Promise<void> {
   // A full-page 3DS return remounts the app, so the org store can still be
   // hydrating when the params are read. The confirm below needs
@@ -72,17 +75,41 @@ async function resolveSetupIntentReturn({
   const initiatingScopeKey = currentRequestScopeKey();
 
   // The confirm can spend 20 seconds in its webhook poll, long enough for a
-  // user or organization switch to land. A result carried across one answers
-  // for an identity that is no longer on screen, so it is dropped rather than
-  // published into the module-level store the cards read.
-  const settle = (outcome: SetupIntentOutcome) => {
-    const { settleOutcome, discardResolution } =
-      useSetupIntentReturnStore.getState();
-    if (currentRequestScopeKey() !== initiatingScopeKey) {
-      discardResolution();
+  // user or organization switch to land, and it reads `Vellum-Organization-Id`
+  // live: past the first switch the rest of the resolution answers for an
+  // identity that is no longer on screen. So the resolution is abandoned the
+  // moment the scope moves rather than judged when it finishes, which also
+  // ends the pending window the cards gate on right away.
+  const scopeWatchers: Array<() => void> = [];
+  const stopWatchingScope = () => {
+    while (scopeWatchers.length > 0) {
+      scopeWatchers.pop()?.();
+    }
+  };
+  const abandonOnScopeChange = () => {
+    if (currentRequestScopeKey() === initiatingScopeKey) {
       return;
     }
-    settleOutcome(outcome, initiatingScopeKey);
+    stopWatchingScope();
+    useSetupIntentReturnStore.getState().abandonResolution(generation);
+  };
+  scopeWatchers.push(
+    useAuthStore.subscribe(abandonOnScopeChange),
+    useOrganizationStore.subscribe(abandonOnScopeChange),
+  );
+
+  const settle = (outcome: SetupIntentOutcome) => {
+    stopWatchingScope();
+    const { settleOutcome, discardResolution } =
+      useSetupIntentReturnStore.getState();
+    // Belt and braces: a scope that moved and moved back reads equal here, but
+    // the watcher above already abandoned the resolution on its first move and
+    // the generation below drops what this publishes either way.
+    if (currentRequestScopeKey() !== initiatingScopeKey) {
+      discardResolution(generation);
+      return;
+    }
+    settleOutcome(outcome, initiatingScopeKey, generation);
   };
 
   const settleError = (message: string | undefined) => {
@@ -163,11 +190,12 @@ export function useSetupIntentReturn(): void {
       next.set("tab", "billing");
     });
 
-    useSetupIntentReturnStore.getState().beginResolving();
+    const generation = useSetupIntentReturnStore.getState().beginResolving();
     void resolveSetupIntentReturn({
       clientSecret,
       redirectStatus,
       confirmSaved: syncPaymentMethodSaved,
+      generation,
     });
     // `syncPaymentMethodSaved` is rebuilt every render, so this effect re-runs
     // often; the capture guard above makes every run after the first a no-op.
