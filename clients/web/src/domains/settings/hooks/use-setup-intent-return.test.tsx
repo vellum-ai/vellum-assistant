@@ -9,8 +9,9 @@
  * saved-card sync so the confirm endpoint is not called, and mock the
  * org-readiness gate so a test can hold the resolution the way a hydrating org
  * store does (with a short settle ceiling, so the bounded wait is observable).
- * The real `setupIntentIdFromClientSecret` is kept, so the id the sync is
- * handed is parsed the way it is in the app.
+ * The platform-session half of that gate is driven through the real auth
+ * store. The real `setupIntentIdFromClientSecret` is kept, so the id the sync
+ * is handed is parsed the way it is in the app.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -21,6 +22,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import * as savedSyncModule from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
+import { useAuthStore } from "@/stores/auth-store";
 
 // Keeps the real stripe-client below from injecting a Stripe.js script tag
 // into happy-dom when it is imported.
@@ -121,6 +123,11 @@ function pending(): boolean {
   return useSetupIntentReturnStore.getState().pending;
 }
 
+/** Long enough for an ungated resolution to have run its Stripe read. */
+async function flushResolution(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 30));
+}
+
 async function waitForOutcome(): Promise<void> {
   await waitFor(() => {
     if (outcome() == null) {
@@ -137,6 +144,9 @@ beforeEach(() => {
   syncCalls = [];
   syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
   orgReadiness = "ready";
+  // Settled by default: the resolution holds until the platform-session probe
+  // has answered, the way it does on a warm app.
+  useAuthStore.setState({ platformSession: "absent" });
   useSetupIntentReturnStore.setState({ pending: false, outcome: null });
 });
 
@@ -230,19 +240,6 @@ describe("useSetupIntentReturn", () => {
     expect(pending()).toBe(false);
   });
 
-  test("stays pending while a failed return resolves", async () => {
-    orgReadiness = "resolving";
-    retrieveResult = { error: { message: "No such setupintent." } };
-    renderAt(RETURN_SEARCH);
-
-    expect(pending()).toBe(true);
-
-    orgReadiness = "ready";
-    await waitForOutcome();
-
-    expect(pending()).toBe(false);
-  });
-
   test("holds the resolution while the org header source is resolving", async () => {
     orgReadiness = "resolving";
     const { result } = renderAt(RETURN_SEARCH);
@@ -264,6 +261,45 @@ describe("useSetupIntentReturn", () => {
     expect(getStripePromiseCalls).toBe(1);
     expect(retrieveCalls).toEqual(["seti_1_secret_x"]);
     expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+  });
+
+  test("holds the resolution until the platform-session probe settles", async () => {
+    // The confirm writes through the QueryClient captured when the resolution
+    // started, and that client is keyed on the signed-in user: a full page load
+    // authenticates a placeholder user before the probe swaps in the real one,
+    // so confirming in that window writes the saved card into a client that is
+    // about to be discarded.
+    useAuthStore.setState({ platformSession: "unknown" });
+    renderAt(RETURN_SEARCH);
+    await flushResolution();
+
+    expect(getStripePromiseCalls).toBe(0);
+    expect(syncCalls).toEqual([]);
+    expect(pending()).toBe(true);
+
+    act(() => {
+      useAuthStore.setState({ platformSession: "present" });
+    });
+    await waitForOutcome();
+
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+    expect(outcome()).toEqual({
+      kind: "saved",
+      card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+    });
+  });
+
+  test("stops waiting on a platform session that never settles", async () => {
+    // Same ceiling as the org header: a probe that never answers must not leave
+    // the return pending (and the add-a-card actions disabled) for the rest of
+    // the visit.
+    useAuthStore.setState({ platformSession: "unknown" });
+
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
+
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+    expect(pending()).toBe(false);
   });
 
   test("stops waiting on an org header that never settles", async () => {

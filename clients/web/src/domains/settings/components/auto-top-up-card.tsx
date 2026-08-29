@@ -28,7 +28,7 @@ import {
   modalSnapshotFor,
   paymentMethodCards,
   type PaymentModalSnapshot,
-} from "@/domains/settings/components/payment-method-cards";
+} from "@/domains/settings/utils/payment-method-cards";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import { useSetupIntentReturnStore } from "@/domains/settings/setup-intent-return-store";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";

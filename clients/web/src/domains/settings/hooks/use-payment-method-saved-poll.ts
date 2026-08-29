@@ -1,5 +1,6 @@
 import { hashKey, useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { paymentMethodCards } from "@/domains/settings/utils/payment-method-cards";
 import {
   organizationsBillingAutoTopUpConfirmSetupIntentCreateMutation,
   organizationsBillingAutoTopUpRetrieveQueryKey,
@@ -17,16 +18,18 @@ export interface SavedPaymentMethod {
   autoReloadEnabled: boolean;
 }
 
+/** The card on file in the shape the modal's success panel titles itself with. */
 export function savedFromConfig(
   config: AutoTopUpConfigResponse | undefined,
 ): SavedPaymentMethod | null {
-  if (config == null || !config.has_payment_method) {
+  const [card] = paymentMethodCards(config);
+  if (card == null) {
     return null;
   }
   return {
-    brand: config.payment_method_brand,
-    last4: config.payment_method_last4,
-    autoReloadEnabled: config.enabled,
+    brand: card.brand,
+    last4: card.last4,
+    autoReloadEnabled: config?.enabled === true,
   };
 }
 
