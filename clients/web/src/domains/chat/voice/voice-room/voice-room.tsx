@@ -167,6 +167,7 @@ import {
 import { useActiveConnectSurface } from "./use-active-connect-surface";
 import { useCameraVoiceState } from "./use-camera-voice-state";
 import { useChatHeaderBottom } from "./use-chat-header-bottom";
+import { OVERLAY_HOST_ID, useInertBehindSheet } from "./use-inert-behind-sheet";
 import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
@@ -275,9 +276,6 @@ const ROOM_DIALOG_ATTR = "data-voice-room";
  */
 const MotionBottomSheetContent = motion.create(BottomSheet.Content);
 
-/** `RootLayout`'s portal container, inside the app shell's isolation. */
-const OVERLAY_HOST_ID = "viewport-overlays";
-
 /**
  * The element the mobile sheet portals into.
  *
@@ -363,6 +361,13 @@ export function VoiceRoom({
  * Escape is therefore left to the room's own handler, shared with the other
  * variants, rather than Radix's, so one keypress is one minimize.
  *
+ * Flush to the top for the camera, it covers that chrome instead of resting
+ * below it, and {@link useInertBehindSheet} takes the covered shell out of the
+ * tab order and the accessibility tree for as long as it does. Not by turning
+ * `modal` on: Radix renders a different content component per `modal`, so
+ * flipping it mid-session would remount the sheet, replay the slide-up and
+ * tear down the live viewfinder.
+ *
  * The exit rides this element rather than the room's box inside it. Radix
  * portals the content out of the layout and positions it `fixed`, so it is the
  * outermost thing the sheet owns; sliding the room's box instead would travel
@@ -397,6 +402,7 @@ function VoiceRoomSheet({
   children: ReactNode;
 }) {
   const { t } = useTranslation("chat");
+  useInertBehindSheet(flushToTop);
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <MotionBottomSheetContent

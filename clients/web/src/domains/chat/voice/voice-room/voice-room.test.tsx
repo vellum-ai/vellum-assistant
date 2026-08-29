@@ -576,6 +576,14 @@ describe("VoiceRoom: mobile sheet", () => {
     return () => header.remove();
   }
 
+  /** Stand in for `root-layout.tsx`'s portal container. */
+  function mountOverlayHost() {
+    const host = document.createElement("div");
+    host.id = "viewport-overlays";
+    document.body.appendChild(host);
+    return { host, remove: () => host.remove() };
+  }
+
   /** The room's own box, held by the sheet's content wrapper as its child. */
   function roomBox(): HTMLElement {
     const inner = document.querySelector(
@@ -680,7 +688,9 @@ describe("VoiceRoom: mobile sheet", () => {
     // line: parked there, its corners, its grabber and the chrome line under
     // them float a third of the way down over a feed that already covers the
     // rest. Closing the camera puts the sheet back below the header.
+    const overlays = mountOverlayHost();
     const removeHeader = mountHeader({ top: 47, height: 96 });
+    const header = document.querySelector('[data-slot="chat-layout-header"]')!;
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
     startOwnedSession("listening");
@@ -689,6 +699,10 @@ describe("VoiceRoom: mobile sheet", () => {
 
       const sheet = screen.getByRole("dialog", { name: "Voice session" });
       expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+      expect(overlays.host.contains(sheet)).toBe(true);
+      // Resting below it, the sheet leaves the header usable, which is what
+      // being non-modal buys.
+      expect(header.hasAttribute("inert")).toBe(false);
 
       await act(async () => {
         fireEvent.click(cameraToggle()!);
@@ -697,6 +711,9 @@ describe("VoiceRoom: mobile sheet", () => {
       expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
       expect(sheet.className).toContain("rounded-t-none");
       expect(roomBox().className).toContain("rounded-t-none");
+      // Covered by the feed, so out of the tab order and out of VoiceOver's
+      // way rather than lit and reachable behind it.
+      expect(header.hasAttribute("inert")).toBe(true);
 
       // The pull-down survives the mode switch, and the band it shares with the
       // camera pill clears the notch the sheet now reaches.
@@ -718,6 +735,7 @@ describe("VoiceRoom: mobile sheet", () => {
 
       expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
       expect(sheet.className).not.toContain("rounded-t-none");
+      expect(header.hasAttribute("inert")).toBe(false);
       // Back below the header, where nothing above the sheet is the notch.
       expect(roomBox().getAttribute("style")).toContain(
         "--room-grabber-top: 0.5rem",
@@ -728,6 +746,7 @@ describe("VoiceRoom: mobile sheet", () => {
     } finally {
       restoreMediaDevices();
       removeHeader();
+      overlays.remove();
     }
   });
 
@@ -811,14 +830,6 @@ describe("VoiceRoom: mobile sheet", () => {
   // navigation drawer opened invisibly behind the room and search opened behind
   // it. The room belongs inside the shell, under both.
   describe("stacking against the surfaces the header opens", () => {
-    /** Stand in for `root-layout.tsx`'s portal container. */
-    function mountOverlayHost() {
-      const host = document.createElement("div");
-      host.id = "viewport-overlays";
-      document.body.appendChild(host);
-      return { host, remove: () => host.remove() };
-    }
-
     test("portals into the app shell's overlay host, not the body", () => {
       const overlays = mountOverlayHost();
       const removeHeader = mountHeader();
