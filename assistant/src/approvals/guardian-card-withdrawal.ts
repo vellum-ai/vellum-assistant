@@ -22,10 +22,13 @@
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
+import { DELIVERY_STATUS } from "@vellumai/gateway-client";
+
 import {
   type GuardianRequestDeliveryWire,
   type GuardianRequestStatus,
   listGuardianRequestDeliveries,
+  updateGuardianRequestDelivery,
 } from "../channels/gateway-guardian-requests.js";
 import {
   completeSurfaceAndNotify,
@@ -87,12 +90,19 @@ export interface WithdrawGuardianCardsParams {
 }
 
 /**
- * Withdraw a resolved request's approval cards across all delivery surfaces.
- * Never throws.
+ * Withdraw a resolved request's approval cards across all delivery
+ * surfaces. Never throws. Each surface that durably withdraws marks its
+ * delivery row `withdrawn`; `complete` reports whether every row now
+ * carries that mark, so a caller whose own receipt depends on the cards
+ * actually being gone (the expiry sweep) can hold its receipt back and
+ * retry only what failed, while decision-path callers stay
+ * fire-and-forget. A surface with nothing a retry could ever fix (no
+ * captured message id, an unusable recorded id, a channel with no
+ * in-place edit) marks its row too, so it can never pin a request.
  */
 export async function withdrawGuardianRequestCards(
   params: WithdrawGuardianCardsParams,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   const {
     request,
     status,
@@ -109,13 +119,18 @@ export async function withdrawGuardianRequestCards(
       { err, requestId: request.id },
       "Failed to list deliveries for card withdrawal",
     );
-    return;
+    return { complete: false };
   }
 
+  let complete = true;
   for (const delivery of deliveries) {
+    if (delivery.status === DELIVERY_STATUS.withdrawn) {
+      continue;
+    }
+    let withdrawn = false;
     try {
       if (delivery.destinationChannel === "vellum") {
-        withdrawVellumCard(
+        withdrawn = withdrawVellumCard(
           request,
           delivery,
           status,
@@ -124,20 +139,27 @@ export async function withdrawGuardianRequestCards(
         );
       } else if (delivery.destinationChannel === "slack") {
         await withdrawSlackCard(request, delivery, status, decidedAction);
+        withdrawn = true;
       } else if (delivery.destinationChannel === "telegram") {
-        await withdrawTelegramCard(
+        const telegram = await withdrawTelegramCard(
           delivery,
           status,
           originChannel,
           decidedAction,
           hasOriginGuardianReply ?? false,
         );
+        withdrawn = telegram.complete;
       } else if (delivery.destinationChannel === "discord") {
         await withdrawDiscordCard(delivery, status, decidedAction);
+        withdrawn = true;
+      } else {
+        // WhatsApp direct delivery can't edit a message in place (it would
+        // post a new one), so its stale clicks are left to the existing
+        // "already resolved" reply until in-place edit support lands.
+        // Nothing a retry could fix, so the row is marked rather than
+        // allowed to pin its request.
+        withdrawn = true;
       }
-      // WhatsApp direct delivery can't edit a message in place (it would
-      // post a new one), so its stale clicks are left to the existing
-      // "already resolved" reply until in-place edit support lands.
     } catch (err) {
       log.warn(
         {
@@ -148,7 +170,26 @@ export async function withdrawGuardianRequestCards(
         "Failed to withdraw guardian card on surface (non-fatal)",
       );
     }
+
+    if (!withdrawn) {
+      complete = false;
+      continue;
+    }
+    try {
+      await updateGuardianRequestDelivery(delivery.id, {
+        status: DELIVERY_STATUS.withdrawn,
+      });
+    } catch (err) {
+      // The card is gone but the receipt write failed: the retry round
+      // re-runs this surface's idempotent edit and marks it then.
+      complete = false;
+      log.warn(
+        { err, requestId: request.id, deliveryId: delivery.id },
+        "Failed to record card withdrawal on the delivery row (non-fatal)",
+      );
+    }
   }
+  return { complete };
 }
 
 /**
@@ -171,24 +212,26 @@ function withdrawVellumCard(
   status: GuardianRequestStatus,
   originChannel: string | undefined,
   decidedAction: ApprovalAction | undefined,
-): void {
+): boolean {
   if (!delivery.destinationConversationId) {
-    return;
+    return true;
   }
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
   if (!surfaceId) {
-    return;
+    return true;
   }
   const summary = resolveDecisionStatusWord(status, decidedAction);
+  // A false here is a failed durable write: after a reload the persisted
+  // block would revert to a pending, clickable card, so it must hold the
+  // expiry sweep's receipt back and be retried.
   if (originChannel === "vellum") {
-    markSurfaceCompleted(
+    return markSurfaceCompleted(
       { conversationId: delivery.destinationConversationId },
       surfaceId,
       summary,
     );
-    return;
   }
-  completeSurfaceAndNotify(
+  return completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
     summary,
@@ -259,11 +302,11 @@ async function withdrawTelegramCard(
   originChannel: string | undefined,
   decidedAction: ApprovalAction | undefined,
   hasOriginGuardianReply: boolean,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   if (!delivery.destinationChatId || !delivery.destinationMessageId) {
-    return;
+    return { complete: true };
   }
-  await withdrawTelegramApprovalCard({
+  return withdrawTelegramApprovalCard({
     chatId: delivery.destinationChatId,
     messageId: delivery.destinationMessageId,
     status,

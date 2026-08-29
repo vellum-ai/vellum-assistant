@@ -21,10 +21,7 @@ import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
 
 import { cn } from "../utils/cn";
-import {
-  buildSelectionClipboardPayload,
-  isSelectionWithin,
-} from "../utils/selection-clipboard";
+import { writeSelectionClipboard } from "../utils/selection-clipboard";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
@@ -909,29 +906,25 @@ function remarkPreserveOrderedListNumbers() {
 }
 
 /**
- * Replace the browser's `copy` payload for a selection that lies entirely
- * within the rendered markdown. The browser's own HTML flavor inlines
- * computed background colors (grey shading when pasted into Outlook) and its
+ * Replace the browser's `copy` payload for a selection that covers nothing
+ * but the rendered markdown. The browser's own HTML flavor inlines computed
+ * colors, background colors and font sizes (grey shading when pasted into
+ * Outlook, the message's own dark theme when pasted into Gmail) and its
  * plain-text flavor is a flat dump with a blank line after every block. The
  * replacement is semantic HTML plus markdown. See
  * `buildSelectionClipboardPayload`.
  *
- * A selection that reaches outside the message is left to the browser.
+ * A selection that also covers content outside the message is left to the
+ * browser. See `selectionRangesWithin` for why a boundary node outside the
+ * message does not on its own mean the reader selected anything outside.
  */
 function handleSelectionCopy(event: ClipboardEvent<HTMLDivElement>) {
-  const root = event.currentTarget;
-  const selection = root.ownerDocument.defaultView?.getSelection();
   if (
-    !selection ||
-    !event.clipboardData ||
-    !isSelectionWithin(selection, root)
+    event.clipboardData &&
+    writeSelectionClipboard(event.clipboardData, event.currentTarget)
   ) {
-    return;
+    event.preventDefault();
   }
-  const payload = buildSelectionClipboardPayload(selection, root.ownerDocument);
-  event.clipboardData.setData("text/html", payload.html);
-  event.clipboardData.setData("text/plain", payload.text);
-  event.preventDefault();
 }
 
 export interface MarkdownMessageProps {

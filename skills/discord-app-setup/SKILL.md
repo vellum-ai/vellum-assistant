@@ -66,6 +66,12 @@ Tell the user:
 
 Wait for the user to confirm they've created the app before proceeding. Discord does not support manifest-based creation — the rest of the configuration happens step by step in the portal.
 
+**Offer the assistant's avatar as the app icon.** General Information is where Discord takes one, so this is the moment to mention it; the wizard path in Step 0.5 shows the same thing on its own create step. The rendered PNG sits at `$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png` and is 512x512 for a character avatar. Tell the user:
+
+> While you're on **General Information**, you can set the bot's icon to your assistant's avatar. I can point you at the file if you'd like it.
+
+Skip this if the assistant has no avatar set. It is cosmetic, so do not block setup on it.
+
 ## Step 2: Configure the Bot User
 
 Discord automatically attaches a Bot user to every new application. This integration needs **no privileged intents**, so the only thing to do here is confirm all three are off.

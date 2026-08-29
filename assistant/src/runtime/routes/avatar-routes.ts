@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { getCharacterComponents } from "@vellumai/avatar-catalog";
 import { AVATAR_TRAITS_FILENAME } from "@vellumai/avatar-manifest";
 import { z } from "zod";
 
@@ -16,7 +17,6 @@ import {
   setCharacter,
   setImage,
 } from "../../avatar/avatar-store.js";
-import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   ensureAvatarRaster,
   ensureAvatarRasterPath,

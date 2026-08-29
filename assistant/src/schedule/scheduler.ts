@@ -360,7 +360,7 @@ export function startScheduler(): SchedulerHandle {
   scheduleWorkerSupervisor = createWorkerSupervisor({
     label: "Schedule worker",
     probe: probeScheduleWorker,
-    respawn: () => spawnScheduleWorkerProcess({ detached: false }),
+    respawn: () => spawnScheduleWorkerProcess(),
     isSuppressed: isScheduleWorkerAdministrativelyStopped,
     killChild: (pid) => {
       try {

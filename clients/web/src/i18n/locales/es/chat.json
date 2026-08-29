@@ -94,6 +94,7 @@
     "bulkActionMembersFailed": "No se pudieron cargar todas las conversaciones de esta sección. Inténtalo de nuevo.",
     "closeNavAria": "Cerrar navegación",
     "navAria": "Navegación del asistente",
+    "search": "Buscar",
     "searchShortcut": "Buscar ({shortcut})"
   },
   "assistantSwitcher": {

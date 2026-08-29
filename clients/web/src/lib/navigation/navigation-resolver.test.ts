@@ -6,6 +6,8 @@ import {
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 
+import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
+
 import {
   postCheckoutHatchReturnTo,
   resolveNavigation,
@@ -223,6 +225,41 @@ describe("resolveNavigation", () => {
           "/assistant/onboarding/privacy?replay=1",
         ),
       ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    test("lets a new-assistant walk through privacy despite an onboarded assistant", () => {
+      expect(
+        guard(
+          s({ alreadyOnboarded: true }),
+          `/assistant/onboarding/privacy?hosting=local&${NEW_ASSISTANT_PARAM}=1`,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ alreadyOnboarded: true }),
+          `/assistant/onboarding/privacy?${NEW_ASSISTANT_PARAM}=1`,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // The loop the exemption above exists for.
+    test("without the marker the bounce lands a local client back on the chooser", () => {
+      const state = s({
+        isLocalClient: true,
+        isAuthenticated: false,
+        alreadyOnboarded: true,
+        hasAssistants: true,
+      });
+      expect(
+        guard(
+          { ...state, isAuthenticated: true },
+          "/assistant/onboarding/privacy?hosting=local",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+      expect(guard(state, "/assistant")).toEqual({
+        action: "redirect",
+        to: "/assistant/select-assistant",
+      });
     });
 
     test("resumes a paid hatch when bouncing an already-onboarded user off privacy", () => {

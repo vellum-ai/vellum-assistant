@@ -12,6 +12,8 @@
  * inputs).
  */
 
+import { ACCELERATOR_NAMED_KEYS } from "@vellumai/ipc-contract";
+
 const MODIFIERS = new Set(
   [
     "Command",
@@ -29,83 +31,8 @@ const MODIFIERS = new Set(
   ].map((m) => m.toLowerCase()),
 );
 
-/**
- * Named key codes Electron accepts. Single printable characters (letters,
- * digits, punctuation) are validated separately by {@link isKeyCode} so this
- * set only needs the multi-character names.
- */
-const NAMED_KEYS = new Set(
-  [
-    "Plus",
-    "Space",
-    "Tab",
-    "Capslock",
-    "Numlock",
-    "Scrolllock",
-    "Backspace",
-    "Delete",
-    "Insert",
-    "Return",
-    "Enter",
-    "Up",
-    "Down",
-    "Left",
-    "Right",
-    "Home",
-    "End",
-    "PageUp",
-    "PageDown",
-    "Escape",
-    "Esc",
-    "VolumeUp",
-    "VolumeDown",
-    "VolumeMute",
-    "MediaNextTrack",
-    "MediaPreviousTrack",
-    "MediaStop",
-    "MediaPlayPause",
-    "PrintScreen",
-    "F1",
-    "F2",
-    "F3",
-    "F4",
-    "F5",
-    "F6",
-    "F7",
-    "F8",
-    "F9",
-    "F10",
-    "F11",
-    "F12",
-    "F13",
-    "F14",
-    "F15",
-    "F16",
-    "F17",
-    "F18",
-    "F19",
-    "F20",
-    "F21",
-    "F22",
-    "F23",
-    "F24",
-    "num0",
-    "num1",
-    "num2",
-    "num3",
-    "num4",
-    "num5",
-    "num6",
-    "num7",
-    "num8",
-    "num9",
-    "numdec",
-    "numadd",
-    "numsub",
-    "nummult",
-    "numdiv",
-  ].map((k) => k.toLowerCase()),
-);
+/** Matched case-insensitively; see {@link ACCELERATOR_NAMED_KEYS}. */
+const NAMED_KEYS = new Set(ACCELERATOR_NAMED_KEYS.map((k) => k.toLowerCase()));
 
 /** Single printable characters Electron accepts as a key code. */
 const PUNCTUATION_KEYS = new Set([

@@ -30,6 +30,7 @@ function getCredential(field, { optional = false } = {}) {
     const value = execSync(
       `assistant credentials reveal --service github-app --field ${field}`,
       {
+        windowsHide: true,
         timeout: 10_000,
         stdio: ["ignore", "pipe", "pipe"],
       },

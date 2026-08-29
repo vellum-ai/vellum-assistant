@@ -62,7 +62,7 @@ const statusResponseSchema = z.object({
 async function startMemoryWorker() {
   let result: { pid: number; alreadyRunning: boolean };
   try {
-    result = await spawnMemoryWorkerProcess({ detached: false });
+    result = await spawnMemoryWorkerProcess();
   } catch (err) {
     const message =
       err instanceof MemoryWorkerSpawnError || err instanceof Error

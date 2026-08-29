@@ -27,6 +27,7 @@ async function run(
   cmd: string[],
 ): Promise<{ stdout: string; exitCode: number }> {
   const proc = Bun.spawn(cmd, {
+    windowsHide: true,
     stdout: "pipe",
     stderr: "inherit",
   });
@@ -162,6 +163,7 @@ async function setupVellum(): Promise<void> {
       "Webhook signing key from Mailgun dashboard (Settings > API Security > HTTP Webhook Signing Key)",
     ],
     {
+      windowsHide: true,
       stdout: "inherit",
       stderr: "inherit",
     },

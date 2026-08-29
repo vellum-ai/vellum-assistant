@@ -72,6 +72,7 @@
     "@tiptap/react": "3.23.5",
     "@tiptap/starter-kit": "3.23.5",
     "@vellumai/assistant-api": "workspace:*",
+    "@vellumai/avatar-catalog": "workspace:*",
     "@vellumai/design-library": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",

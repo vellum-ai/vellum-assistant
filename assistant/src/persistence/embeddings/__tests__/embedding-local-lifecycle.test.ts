@@ -14,11 +14,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { getEmbedWorkerPidPath } from "../../../util/platform.js";
 import {
   classifyWorkerOwnership,
   listWorkerProcesses,
-} from "../../../util/ml-worker-ownership.js";
-import { getEmbedWorkerPidPath } from "../../../util/platform.js";
+} from "../../../util/worker-ownership.js";
+import { ORPHAN_STOP_TIMEOUT_MS } from "../../../util/worker-process.js";
+import { EMBEDDING_SHUTDOWN_BUDGET_MS } from "../embedding-backend.js";
 import { LocalEmbeddingBackend } from "../embedding-local.js";
 
 /** Reach past `private`, which is compile-time only, so tests drive real state. */
@@ -752,4 +754,15 @@ describe("model matching", () => {
       listWorkerProcesses(scriptPath, "foo/bar-small-v2").map((w) => w.pid),
     ).toEqual([proc.pid]);
   });
+});
+
+// The daemon's orphan reclaim SIGTERMs a stale memory worker and waits
+// ORPHAN_STOP_TIMEOUT_MS before SIGKILL. That worker's shutdown reaps the ONNX
+// subprocess it owns, bounded at EMBEDDING_SHUTDOWN_BUDGET_MS + 1s. If the
+// reclaim ceiling does not outlast the reap, reclaiming kills the worker
+// mid-reap and strands the subprocess, which is the JARVIS-1125 failure.
+test("orphan reclaim outlasts the embedding reap it must not truncate", () => {
+  expect(ORPHAN_STOP_TIMEOUT_MS).toBeGreaterThan(
+    EMBEDDING_SHUTDOWN_BUDGET_MS + 1_000,
+  );
 });

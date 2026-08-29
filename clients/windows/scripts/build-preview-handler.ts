@@ -154,6 +154,7 @@ export async function runNativeCommand(
     env,
     stderr: "inherit",
     stdout: "inherit",
+    windowsHide: true,
   });
   if ((await child.exited) !== 0) {
     throw new Error(`Command failed: ${command.join(" ")}`);

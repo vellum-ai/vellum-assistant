@@ -3,7 +3,8 @@ import { Window } from "happy-dom";
 
 import {
   buildSelectionClipboardPayload,
-  isSelectionWithin,
+  selectionRangesWithin,
+  writeSelectionClipboard,
 } from "./selection-clipboard";
 
 const window = new Window();
@@ -36,7 +37,7 @@ function selectIn(html: string, target?: string) {
 
 function payloadFor(html: string, target?: string) {
   const { selection } = selectIn(html, target);
-  return buildSelectionClipboardPayload(selection, document);
+  return buildSelectionClipboardPayload([selection.getRangeAt(0)], document);
 }
 
 describe("html flavor", () => {
@@ -250,31 +251,137 @@ describe("markdown flavor", () => {
     range.setStart(textNode, 6);
     range.setEnd(textNode, 10);
     selection.addRange(range);
-    const payload = buildSelectionClipboardPayload(selection, document);
+    const payload = buildSelectionClipboardPayload([range], document);
     expect(payload.text).toBe("wide");
     expect(payload.html).toBe("wide");
   });
 });
 
-describe("isSelectionWithin", () => {
-  test("is true when the whole selection is inside the container", () => {
-    const { root, selection } = selectIn("<p>a</p><p>b</p>", "p:last-child");
-    expect(isSelectionWithin(selection, root)).toBe(true);
+describe("embedded documents", () => {
+  test("drops an embedded frame and the wrappers it leaves empty", () => {
+    const { html, text } = payloadFor(
+      '<div><div><iframe src="about:blank"></iframe></div></div><p>After</p>',
+    );
+    expect(html).toBe("<p>After</p>");
+    expect(text).toBe("After");
   });
 
-  test("is false for a collapsed selection", () => {
+  test("keeps a wrapper that still holds an image", () => {
+    const { html } = payloadFor(
+      '<div><img src="https://example.com/a.png" alt="A"></div><p>After</p>',
+    );
+    expect(html).toBe(
+      '<div><img src="https://example.com/a.png" alt="A"></div><p>After</p>',
+    );
+  });
+
+  test("keeps an empty table cell, which is part of the shape", () => {
+    const { html } = payloadFor(
+      "<table><tbody><tr><td>a</td><td></td></tr></tbody></table>",
+    );
+    expect(html).toContain("<td></td>");
+  });
+});
+
+describe("writeSelectionClipboard", () => {
+  /** Minimal stand-in for the event's `DataTransfer`. */
+  function fakeClipboardData() {
+    const written: Record<string, string> = {};
+    return {
+      written,
+      transfer: {
+        setData: (type: string, value: string) => {
+          written[type] = value;
+        },
+      } as unknown as DataTransfer,
+    };
+  }
+
+  test("writes both flavors for a selection of real content", () => {
+    const { root } = selectIn("<p>Hello</p>");
+    const { written, transfer } = fakeClipboardData();
+    expect(writeSelectionClipboard(transfer, root)).toBe(true);
+    expect(written["text/html"]).toBe("<p>Hello</p>");
+    expect(written["text/plain"]).toBe("Hello");
+  });
+
+  /**
+   * Emptying the clipboard is worse than whatever the browser would have put
+   * there, so a selection that renders to nothing is left to the browser.
+   */
+  test("declines a selection holding only prunable content", () => {
+    const { root } = selectIn('<div><iframe src="about:blank"></iframe></div>');
+    const { written, transfer } = fakeClipboardData();
+    expect(writeSelectionClipboard(transfer, root)).toBe(false);
+    expect(written).toEqual({});
+  });
+});
+
+describe("selectionRangesWithin", () => {
+  test("returns the selection when it is entirely inside the container", () => {
+    const { root, selection } = selectIn("<p>a</p><p>b</p>", "p:last-child");
+    const ranges = selectionRangesWithin(selection, root);
+    expect(ranges?.map((range) => range.toString())).toEqual(["b"]);
+  });
+
+  test("returns null for a collapsed selection", () => {
     const { root, selection } = selectIn("<p>a</p>");
     selection.collapseToStart();
-    expect(isSelectionWithin(selection, root)).toBe(false);
+    expect(selectionRangesWithin(selection, root)).toBeNull();
   });
 
-  test("is false when the selection reaches outside the container", () => {
+  test("returns null when the selection covers content outside the container", () => {
     const { root, selection } = selectIn("<p>a</p>");
     const outside = document.createElement("p");
     outside.textContent = "outside";
     document.body.appendChild(outside);
-    const range = selection.getRangeAt(0);
-    range.setEnd(outside.firstChild as Node, 3);
-    expect(isSelectionWithin(selection, root)).toBe(false);
+    selection.getRangeAt(0).setEnd(outside.firstChild as Node, 3);
+    expect(selectionRangesWithin(selection, root)).toBeNull();
+  });
+
+  /**
+   * The whole-message drag: Chromium reports an ancestor of the container as
+   * the start node, but nothing outside the container is actually selected.
+   */
+  test("clamps a boundary that sits outside but selects nothing outside", () => {
+    const wrapper = document.createElement("div");
+    const root = document.createElement("div");
+    root.innerHTML = "<p>inside</p>";
+    wrapper.appendChild(root);
+    document.body.appendChild(wrapper);
+    const selection = document.getSelection();
+    if (!selection) {
+      throw new Error("no selection");
+    }
+    selection.removeAllRanges();
+    const range = document.createRange();
+    range.setStart(wrapper, 0);
+    range.setEnd(root.querySelector("p")?.firstChild as Node, 6);
+    selection.addRange(range);
+    const ranges = selectionRangesWithin(selection, root);
+    expect(ranges?.map((entry) => entry.toString())).toEqual(["inside"]);
+    expect(buildSelectionClipboardPayload(ranges ?? [], document).html).toBe(
+      "<p>inside</p>",
+    );
+  });
+
+  test("returns null when the part outside the container holds an image", () => {
+    const wrapper = document.createElement("div");
+    const image = document.createElement("img");
+    image.setAttribute("src", "https://example.com/a.png");
+    const root = document.createElement("div");
+    root.innerHTML = "<p>inside</p>";
+    wrapper.append(image, root);
+    document.body.appendChild(wrapper);
+    const selection = document.getSelection();
+    if (!selection) {
+      throw new Error("no selection");
+    }
+    selection.removeAllRanges();
+    const range = document.createRange();
+    range.setStart(wrapper, 0);
+    range.setEnd(root.querySelector("p")?.firstChild as Node, 6);
+    selection.addRange(range);
+    expect(selectionRangesWithin(selection, root)).toBeNull();
   });
 });

@@ -1,11 +1,17 @@
 import { spawn } from "node:child_process";
 
+import {
+  DAEMON_STOP_TIMEOUT_MS,
+  HOST_WRAPPER_LONG_HEADROOM_MS,
+} from "./lifecycle-budgets";
 import type { CliInvocation } from "./util";
 
-const RETIRE_TIMEOUT_MS = 60_000;
+const RETIRE_TIMEOUT_MS =
+  DAEMON_STOP_TIMEOUT_MS + HOST_WRAPPER_LONG_HEADROOM_MS;
 
 export type RetireResult =
-  { ok: true } | { ok: false; status: number; error: string };
+  | { ok: true }
+  | { ok: false; status: number; error: string };
 
 export interface RetireOptions {
   platformToken?: string;
@@ -50,7 +56,7 @@ export function runRetire(
       finish({
         ok: false,
         status: 500,
-        error: "Retire timed out after 60 seconds",
+        error: `Retire timed out after ${RETIRE_TIMEOUT_MS / 1000} seconds`,
       });
     }, RETIRE_TIMEOUT_MS);
 

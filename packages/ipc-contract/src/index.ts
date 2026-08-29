@@ -10,6 +10,8 @@
  * explicitly allowed.
  */
 export * from "./types";
+export * from "./accelerators";
+export * from "./accelerator-keys";
 export * from "./schemas";
 export {
   type ElectronHostOS,

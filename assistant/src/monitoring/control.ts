@@ -68,13 +68,13 @@ export function stopMonitoringWorkerProcess(): WorkerProcessStatus {
 
 /**
  * Daemon-lifecycle entry point: spawn the monitor as a child of the daemon
- * (`detached: false`, so it appears in `assistant ps` and is torn down on
+ * (so it appears in the daemon's process tree and is torn down on
  * shutdown). Runs on every boot — the monitor is platform infrastructure,
  * not an opt-in feature. Fire-and-forget — a monitor failure must never
  * block boot.
  */
 export function startMonitoring(): void {
-  void spawnMonitoringWorkerProcess({ detached: false })
+  void spawnMonitoringWorkerProcess()
     .then((r) =>
       log.info(
         { pid: r.pid, alreadyRunning: r.alreadyRunning },

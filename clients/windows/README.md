@@ -111,8 +111,9 @@ This builds the local `clients/web` source, serves it from Electron's
 ## Packaging
 
 ```bash
-bun run pack        # runtime + native helper + preview handler + electron-builder --win (NSIS)
-bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
+bun run pack                     # dev installer for testing on another machine
+bun run pack --environment local # local-platform installer
+bun run pack:debug               # dev installer with Chrome DevTools enabled
 ```
 
 `pack` builds every bundled resource (`build:runtime`, `build:native-helper`,
@@ -120,6 +121,10 @@ bun run pack:debug  # same, with Chrome DevTools enabled in the packaged app
 handler DLL that `electron-builder.config.cjs` requires is always present.
 The builder rebuilds the Electron main and preload entrypoints immediately
 before collecting app files, including when it is invoked directly.
+
+The default `dev` environment keeps an installed test build connected to the
+deployed dev platform, including its login endpoint. Pass `--environment local`
+only when a platform server is available at `localhost:8000`.
 
 `build:runtime` bundles the Bun pinned in `.tool-versions`: the host `bun.exe`
 is used when its sha256 matches `scripts/bun-release.ts`, otherwise the

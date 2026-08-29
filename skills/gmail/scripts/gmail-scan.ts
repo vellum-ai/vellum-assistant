@@ -96,7 +96,7 @@ async function cacheStore(data: unknown): Promise<string> {
         "30m",
         "--json",
       ],
-      { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+      { windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
     );
 
     const stdout = await new Response(proc.stdout).text();

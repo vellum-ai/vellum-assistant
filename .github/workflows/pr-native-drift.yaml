@@ -9,6 +9,7 @@ on:
       # drift tests in clients/ios/scripts/__tests__ pin them to the avatar
       # component library.
       - 'assistant/src/avatar/**'
+      - 'packages/avatar-catalog/**'
       - 'clients/android/app/src/main/res/**'
       - 'clients/ios/App/App/AppIcon.icon/**'
       - 'clients/ios/App/App/AppIcon-Dev.icon/**'

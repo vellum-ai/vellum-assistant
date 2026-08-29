@@ -69,6 +69,7 @@ import {
 } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import { pairedHostLabel } from "@vellumai/local-mode/contract";
+import { actionMenuDestructiveClasses } from "@vellumai/design-library/components/action-menu";
 import { Button } from "@vellumai/design-library/components/button";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { useTranslation } from "@/i18n";
@@ -1011,7 +1012,7 @@ function RemoveCardMenu({
       <Menu.Content align="end" sideOffset={4}>
         <Menu.Item
           onSelect={onRemove}
-          className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+          className={actionMenuDestructiveClasses.anchored}
         >
           {t("selectAssistantScreen.removeFromDevice")}
         </Menu.Item>

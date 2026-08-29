@@ -10,6 +10,7 @@ import {
   ChannelIcon,
   getOpenInChannelLabel,
 } from "@/utils/channel-presentation";
+import { useConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
@@ -42,6 +43,9 @@ export function ChatConversationHeader({
   onPinToggle,
   onRename,
 }: ChatConversationHeaderProps) {
+  // This menu acts on `activeConversation`, which is what the bound commands
+  // act on too, so its rows may advertise them.
+  const shortcuts = useConversationMenuShortcuts(true);
   const { t } = useTranslation("chat");
   if (!activeConversation) {
     if (!assistantId) {
@@ -85,6 +89,7 @@ export function ChatConversationHeader({
   return (
     <ConversationActionsMenu
       variant="header"
+      shortcuts={shortcuts}
       channelSourceLink={channelSourceLink}
       isPinned={isPinned}
       isArchived={isArchived}

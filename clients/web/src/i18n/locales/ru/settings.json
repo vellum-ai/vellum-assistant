@@ -2192,6 +2192,7 @@
   "voicePickerCard": {
     "changeButton": "Сменить",
     "creditsNote": "Тратит кредиты Vellum через провайдеров вроде ElevenLabs и Deepgram.",
+    "loadingAria": "Загрузка голоса",
     "title": "Голос",
     "titleWithName": "Голос {name}"
   },

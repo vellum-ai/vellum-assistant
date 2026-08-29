@@ -30,7 +30,7 @@ import {
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  SweepExpiredGuardianRequestsIpcParamsSchema,
+  ListExpiredPendingGuardianRequestsIpcParamsSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
 } from "@vellumai/gateway-client";
@@ -52,7 +52,7 @@ import {
   listGuardianRequests,
   listPendingRequestsByDestination,
   listPendingRequestsByScope,
-  sweepExpiredRequests,
+  listExpiredPendingRequests,
   updateGuardianRequest,
   updateGuardianRequestDelivery,
 } from "../approvals/guardian-request-service.js";
@@ -66,9 +66,9 @@ const ExpireInteractionBoundParamsSchema = z.preprocess(
   (v) => v ?? {},
   ExpireInteractionBoundIpcParamsSchema,
 );
-const SweepExpiredParamsSchema = z.preprocess(
+const ListExpiredPendingParamsSchema = z.preprocess(
   (v) => v ?? {},
-  SweepExpiredGuardianRequestsIpcParamsSchema,
+  ListExpiredPendingGuardianRequestsIpcParamsSchema,
 );
 const ListGuardianRequestsParamsSchema = z.preprocess(
   (v) => v ?? {},
@@ -150,12 +150,14 @@ export const guardianRequestRoutes: IpcRoute[] = [
     handler: () => expireInteractionBoundRequests(),
   },
   {
-    // Returns the expired ids for daemon-side notification fan-out.
-    method: GUARDIAN_REQUESTS_IPC_METHODS.sweepExpired,
-    schema: SweepExpiredParamsSchema,
+    // Read-only, bounded: the daemon runs each row's expiry side effects
+    // and confirms with the `expire` CAS above, so a row stays listed here
+    // until its fan-out actually ran.
+    method: GUARDIAN_REQUESTS_IPC_METHODS.listExpiredPending,
+    schema: ListExpiredPendingParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { now } = SweepExpiredParamsSchema.parse(params);
-      return sweepExpiredRequests(now);
+      const { now, limit } = ListExpiredPendingParamsSchema.parse(params);
+      return listExpiredPendingRequests(now, limit);
     },
   },
   {

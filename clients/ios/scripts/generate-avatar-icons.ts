@@ -35,7 +35,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { deflateSync } from "node:zlib";
 
-import { getCharacterComponents } from "../../../assistant/src/avatar/character-components.js";
+import { getCharacterComponents } from "../../../packages/avatar-catalog/src/index.js";
 import { getResvg } from "../../../assistant/src/avatar/resvg-lazy.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");

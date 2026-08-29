@@ -38,35 +38,49 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-// The sweep withdraws cards via this module; we only assert it is invoked, and
-// mocking it keeps the sweep import light (no surface/slack transitive deps).
+// The sweep withdraws cards via this module; mocking it keeps the sweep
+// import light (no surface/slack transitive deps). The completeness result
+// gates the sweep's expire confirmation.
 let withdrawCalls = 0;
+let withdrawIncomplete = false;
 mock.module("../approvals/guardian-card-withdrawal.js", () => ({
   withdrawGuardianRequestCards: async () => {
     withdrawCalls++;
+    return { complete: !withdrawIncomplete };
   },
 }));
 
-// Gateway guardian-request client — in-memory rows driven by tests. The sweep
-// asks the gateway to CAS-expire past-deadline pending rows and fans out
-// notifications from the returned rows.
+// Gateway guardian-request client, in-memory rows driven by tests. The
+// sweep lists past-deadline pending rows read-only and confirms each with
+// the per-request expire CAS after its side effects run.
 const gatewayRequests = new Map<string, GuardianRequestWire>();
+let expireCasFails = false;
+const actualGatewayGuardianRequests =
+  await import("../channels/gateway-guardian-requests.js");
 mock.module("../channels/gateway-guardian-requests.js", () => ({
-  sweepExpiredGuardianRequests: async () => {
+  ...actualGatewayGuardianRequests,
+  listExpiredPendingGuardianRequests: async () => {
     const now = Date.now();
-    const expired: GuardianRequestWire[] = [];
+    const stale: GuardianRequestWire[] = [];
     for (const row of gatewayRequests.values()) {
       if (
         row.status === "pending" &&
         row.expiresAt !== null &&
         row.expiresAt <= now
       ) {
-        const flipped = { ...row, status: "expired" as const };
-        gatewayRequests.set(row.id, flipped);
-        expired.push(flipped);
+        stale.push(row);
       }
     }
-    return expired;
+    return stale;
+  },
+  expireGuardianRequest: async (id: string) => {
+    if (expireCasFails) {
+      throw new Error("simulated IPC timeout");
+    }
+    const row = gatewayRequests.get(id);
+    if (row?.status === "pending") {
+      gatewayRequests.set(id, { ...row, status: "expired" as const });
+    }
   },
 }));
 
@@ -117,6 +131,9 @@ beforeEach(() => {
   broadcasts.length = 0;
   deliveryError = null;
   withdrawCalls = 0;
+  withdrawIncomplete = false;
+  expireCasFails = false;
+  gatewayRequests.clear();
   pendingInteractions.clear();
 });
 
@@ -229,7 +246,7 @@ describe("notifyExpiredGuardianRequest", () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test("delivery failure is swallowed (best-effort)", async () => {
+  test("delivery failure never throws, and reports incomplete", async () => {
     deliveryError = new Error("gateway down");
 
     await expect(
@@ -240,7 +257,7 @@ describe("notifyExpiredGuardianRequest", () => {
           requesterChatId: "tg-chat",
         }),
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ complete: false });
   });
 });
 
@@ -290,5 +307,92 @@ describe("sweep integration", () => {
     expect(expiredCount).toBe(0);
     expect(gatewayRequests.get("req-fresh")?.status).toBe("pending");
     expect(deliveredReplies).toHaveLength(0);
+  });
+
+  test("an incomplete withdrawal defers the request and holds the notice back", async () => {
+    // A card edit that failed leaves an actionable control somewhere, so the
+    // request must stay pending and retryable. The notice is held back too:
+    // sending it only after withdrawal completes means the retry round can
+    // never duplicate a delivered notice.
+    gatewayRequests.set(
+      "req-withdraw-fail",
+      makeRequest({
+        id: "req-withdraw-fail",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000,
+      }),
+    );
+
+    withdrawIncomplete = true;
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(gatewayRequests.get("req-withdraw-fail")?.status).toBe("pending");
+    expect(deliveredReplies).toHaveLength(0);
+
+    withdrawIncomplete = false;
+    expect(await runGuardianExpirySweep()).toBe(1);
+    expect(gatewayRequests.get("req-withdraw-fail")?.status).toBe("expired");
+    expect(deliveredReplies).toHaveLength(1);
+  });
+
+  test("a failed requester notice defers the request until a retry delivers it", async () => {
+    gatewayRequests.set(
+      "req-notice-fail",
+      makeRequest({
+        id: "req-notice-fail",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000,
+      }),
+    );
+
+    deliveryError = new Error("channel briefly unreachable");
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(gatewayRequests.get("req-notice-fail")?.status).toBe("pending");
+    expect(deliveredReplies).toHaveLength(0);
+
+    deliveryError = null;
+    expect(await runGuardianExpirySweep()).toBe(1);
+    expect(gatewayRequests.get("req-notice-fail")?.status).toBe("expired");
+    // The notice lands exactly once: the failed attempt delivered nothing.
+    expect(deliveredReplies).toHaveLength(1);
+  });
+
+  test("a lost expire confirmation leaves the row pending, and the next round recovers it", async () => {
+    // The status flip is the receipt that side effects ran, not the
+    // announcement that they should. When the confirmation is lost, the row
+    // must stay in the pending set so the next round re-runs its fan-out;
+    // the cost is at-least-once side effects, never their silent loss.
+    gatewayRequests.set(
+      "req-lost",
+      makeRequest({
+        id: "req-lost",
+        kind: "access_request",
+        status: "pending",
+        requesterChatId: "tg-chat",
+        requesterExternalUserId: "tg-user",
+        expiresAt: Date.now() - 1000,
+      }),
+    );
+
+    expireCasFails = true;
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(gatewayRequests.get("req-lost")?.status).toBe("pending");
+    expect(withdrawCalls).toBe(1);
+    expect(deliveredReplies).toHaveLength(1);
+
+    expireCasFails = false;
+    expect(await runGuardianExpirySweep()).toBe(1);
+    expect(gatewayRequests.get("req-lost")?.status).toBe("expired");
+    // The re-run repeats the side effects (at-least-once); the third round
+    // finds nothing.
+    expect(withdrawCalls).toBe(2);
+    expect(deliveredReplies).toHaveLength(2);
+    expect(await runGuardianExpirySweep()).toBe(0);
+    expect(withdrawCalls).toBe(2);
   });
 });

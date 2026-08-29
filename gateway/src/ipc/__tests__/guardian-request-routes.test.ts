@@ -25,7 +25,6 @@ import {
   GuardianRequestInScopeIpcResponseSchema,
   GuardianRequestListIpcResponseSchema,
   GuardianRequestSchema,
-  SweepExpiredGuardianRequestsIpcResponseSchema,
 } from "@vellumai/gateway-client";
 import { eq } from "drizzle-orm";
 
@@ -424,21 +423,23 @@ describe("guardian_requests_expire", () => {
 });
 
 describe("guardian_requests_expire_interaction_bound", () => {
-  test("expires interaction-bound kinds unconditionally, persistent kinds only past deadline", async () => {
+  test("expires interaction-bound kinds unconditionally, never persistent kinds", async () => {
     const toolApproval = await createRequest({
       kind: "tool_approval",
       toolName: "bash",
     });
     const pendingQuestion = await createRequest({ kind: "pending_question" });
     const freshAccess = await createRequest({ expiresAt: FUTURE() });
+    // Past-deadline persistent rows wait for the sweep, whose per-request
+    // confirmation keeps their fan-out recoverable.
     const staleAccess = await createRequest({ expiresAt: PAST() });
 
     expect(await call(METHODS.expireInteractionBound, {})).toEqual({
-      expired: 3,
+      expired: 2,
     });
     expect(getRequestRow(toolApproval.id)?.status).toBe("expired");
     expect(getRequestRow(pendingQuestion.id)?.status).toBe("expired");
-    expect(getRequestRow(staleAccess.id)?.status).toBe("expired");
+    expect(getRequestRow(staleAccess.id)?.status).toBe("pending");
     expect(getRequestRow(freshAccess.id)?.status).toBe("pending");
   });
 
@@ -453,30 +454,35 @@ describe("guardian_requests_expire_interaction_bound", () => {
   });
 });
 
-describe("guardian_requests_sweep_expired", () => {
-  test("expires past-deadline pending requests and returns their ids", async () => {
+describe("guardian_requests_list_expired_pending", () => {
+  test("lists past-deadline pending requests without mutating them", async () => {
     const stale = await createRequest({ expiresAt: PAST() });
     const fresh = await createRequest({ expiresAt: FUTURE() });
     const noDeadline = await createRequest({});
 
-    const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
-      await call(METHODS.sweepExpired),
+    const listed = GuardianRequestListIpcResponseSchema.parse(
+      await call(METHODS.listExpiredPending),
     );
-    expect(swept.expired.map((row) => row.id)).toEqual([stale.id]);
-    expect(swept.expired[0].status).toBe("expired");
-    expect(getRequestRow(stale.id)?.status).toBe("expired");
+    expect(listed.map((row) => row.id)).toEqual([stale.id]);
+    // Read-only: the daemon confirms each row with the expire CAS after its
+    // side effects run, so the row stays pending (and listed) until then.
+    expect(listed[0].status).toBe("pending");
+    expect(getRequestRow(stale.id)?.status).toBe("pending");
     expect(getRequestRow(fresh.id)?.status).toBe("pending");
     expect(getRequestRow(noDeadline.id)?.status).toBe("pending");
   });
 
-  test("honors an explicit `now`", async () => {
+  test("honors an explicit `now` and `limit`", async () => {
     const fresh = await createRequest({ expiresAt: FUTURE() });
 
-    const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
-      await call(METHODS.sweepExpired, { now: fresh.expiresAt! + 1 }),
+    const listed = GuardianRequestListIpcResponseSchema.parse(
+      await call(METHODS.listExpiredPending, {
+        now: fresh.expiresAt! + 1,
+        limit: 10,
+      }),
     );
-    expect(swept.expired.map((row) => row.id)).toEqual([fresh.id]);
-    expect(getRequestRow(fresh.id)?.status).toBe("expired");
+    expect(listed.map((row) => row.id)).toEqual([fresh.id]);
+    expect(getRequestRow(fresh.id)?.status).toBe("pending");
   });
 });
 
@@ -734,7 +740,7 @@ describe("schema rejection", () => {
         },
       ],
       [METHODS.expire, {}],
-      [METHODS.sweepExpired, { now: "yesterday" }],
+      [METHODS.listExpiredPending, { now: "yesterday" }],
       [METHODS.createDelivery, { requestId: "req-x" }], // channel required
       [METHODS.updateDelivery, { id: "d-1" }], // patch required
       [METHODS.listDeliveries, {}],

@@ -53,7 +53,7 @@ import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
 } from "@/components/sidebar-nav-geometry";
-import { newChatShortcutHint } from "@/domains/chat/new-chat-shortcut";
+import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
@@ -77,7 +77,7 @@ function NewChatTooltip({
   side: "right" | "top";
 }) {
   const { t } = useTranslation("chat");
-  const hint = newChatShortcutHint();
+  const hint = useCommandShortcutHint("newConversation");
   return (
     <Tooltip
       content={
@@ -297,7 +297,9 @@ export function AssistantNavItem({
         <Plus
           aria-hidden="true"
           className="h-3.5 w-3.5"
-          style={{ color: "var(--panel-item-icon-fg, var(--content-tertiary))" }}
+          style={{
+            color: "var(--panel-item-icon-fg, var(--content-tertiary))",
+          }}
         />
       </button>
     </NewChatTooltip>

@@ -52,7 +52,7 @@ sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
 The launcher icon is the `quirky` eye pair from the avatar library in
-`assistant/src/avatar/character-components.ts`, the same design the iOS app
+`packages/avatar-catalog`, the same design the iOS app
 icon uses. The six paths in `res/drawable/ic_launcher_foreground.xml` and in
 the pre-adaptive `res/mipmap-anydpi/ic_launcher*.xml` fallbacks are copied
 verbatim from that table and only repositioned by a VectorDrawable `<group>`,

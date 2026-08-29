@@ -78,14 +78,18 @@ export async function importFromCredentialStore(
   targetDomain: string,
   opts?: { recordingId?: string },
 ): Promise<DoorDashSession> {
-  const { stdout } = await execFileAsync("assistant", [
-    "credentials",
-    "reveal",
-    "--service",
-    targetDomain,
-    "--field",
-    "session:cookies",
-  ]);
+  const { stdout } = await execFileAsync(
+    "assistant",
+    [
+      "credentials",
+      "reveal",
+      "--service",
+      targetDomain,
+      "--field",
+      "session:cookies",
+    ],
+    { windowsHide: true },
+  );
   const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
   if (!cookies.length) {
     throw new ConfigError("No cookies found in credential store");

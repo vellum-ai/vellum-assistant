@@ -76,6 +76,7 @@ const hasPinnedDotnetSdk = async (dotnet: string): Promise<boolean> => {
   const child = Bun.spawn([dotnet, "--list-sdks"], {
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
   const output = await new Response(child.stdout).text();
   return (await child.exited) === 0 && output.includes(`${dotnetSdkVersion} [`);

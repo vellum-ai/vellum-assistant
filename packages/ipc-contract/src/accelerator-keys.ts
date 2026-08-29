@@ -1,0 +1,83 @@
+/**
+ * Named key codes an Electron accelerator accepts, in their canonical
+ * spelling. Single printable characters (letters, digits, punctuation) are not
+ * listed: they are validated by shape rather than by name.
+ *
+ * Lives beside the accelerator defaults rather than in the shell because more
+ * than one side has to agree on the vocabulary. The shell validates against
+ * it, and a renderer showing a shortcut has to turn every one of these into
+ * the value assistive technology expects, which is not always the same
+ * spelling.
+ */
+export const ACCELERATOR_NAMED_KEYS = [
+  "Plus",
+  "Space",
+  "Tab",
+  "Capslock",
+  "Numlock",
+  "Scrolllock",
+  "Backspace",
+  "Delete",
+  "Insert",
+  "Return",
+  "Enter",
+  "Up",
+  "Down",
+  "Left",
+  "Right",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "Escape",
+  "Esc",
+  "VolumeUp",
+  "VolumeDown",
+  "VolumeMute",
+  "MediaNextTrack",
+  "MediaPreviousTrack",
+  "MediaStop",
+  "MediaPlayPause",
+  "PrintScreen",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "F6",
+  "F7",
+  "F8",
+  "F9",
+  "F10",
+  "F11",
+  "F12",
+  "F13",
+  "F14",
+  "F15",
+  "F16",
+  "F17",
+  "F18",
+  "F19",
+  "F20",
+  "F21",
+  "F22",
+  "F23",
+  "F24",
+  "num0",
+  "num1",
+  "num2",
+  "num3",
+  "num4",
+  "num5",
+  "num6",
+  "num7",
+  "num8",
+  "num9",
+  "numdec",
+  "numadd",
+  "numsub",
+  "nummult",
+  "numdiv",
+] as const;
+
+export type AcceleratorNamedKey = (typeof ACCELERATOR_NAMED_KEYS)[number];

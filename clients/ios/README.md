@@ -307,7 +307,7 @@ inline in `App/project.yml` under the `AppEnvironment` template.
 
 - `App/App/AppIcon.icon/` is an Icon Composer bundle: a solid `#4C9B50`
   background (the `green` entry in the avatar palette in
-  `assistant/src/avatar/character-components.ts`) with the `quirky` eye
+  `packages/avatar-catalog`) with the `quirky` eye
   pair from that same library centred on top, spanning half the icon
   width. The six paths in `Assets/eyes.svg` are copied verbatim out of
   `getCharacterComponents().eyeStyles`, keeping the icon and the in-app
@@ -339,7 +339,7 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   than shipping a fully opaque RGBA image.
 - The catalog and `Config/AvatarIcons.xcconfig`
   (`ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES`) are generated
-  output produced from the avatar component library (`assistant/src/avatar/`)
+  output produced from the avatar catalog (`packages/avatar-catalog`)
   by `clients/ios/scripts/generate-avatar-icons.ts`. Edit the script, not the
   files. Regenerate with `bun clients/ios/scripts/generate-avatar-icons.ts`,
   which reproduces the committed state in about five seconds (add `--pilot` to
@@ -348,10 +348,12 @@ inline in `App/project.yml` under the `AppEnvironment` template.
   Both the generator and the test rasterize through the native
   `@resvg/resvg-js` binding, so the assistant package's dependencies have to
   be installed first: `bun install --filter=@vellumai/assistant`.
-  `pr-ios.yaml` and `ci-main-ios.yaml` run that same check right after their
-  install step, and both watch `assistant/src/avatar/**`, so a catalog edit
-  without a regeneration fails CI. The unsigned Xcode build, not the drift
-  check, is what those jobs' 45-minute budget is for.
+  `pr-native-drift.yaml` and `ci-main-native-drift.yaml` run that same check,
+  and both watch `packages/avatar-catalog/**` as well as
+  `assistant/src/avatar/**`, so a catalog edit without a regeneration fails
+  CI. They are separate from `pr-ios.yaml` and `ci-main-ios.yaml` because the
+  sources they read are cross-cutting and none of it is worth a macOS Xcode
+  build; the unsigned build is what those iOS jobs' 45-minute budget is for.
 - All three app targets ship the catalog: it rides along in the
   `AppEnvironment` source sweep the way `Assets.xcassets` does, and each
   target's `Config/App*.xcconfig` includes `AvatarIcons.xcconfig`. Every

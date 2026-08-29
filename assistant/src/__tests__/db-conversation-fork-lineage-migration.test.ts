@@ -3,8 +3,6 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-const originalBunTest = process.env.BUN_TEST;
-
 import { getSqliteFrom } from "../persistence/db-connection.js";
 import { migrateConversationForkLineage } from "../persistence/migrations/183-add-conversation-fork-lineage.js";
 import * as schema from "../persistence/schema/index.js";
@@ -62,12 +60,10 @@ function resetMigrationTestDb(): void {
 
 describe("conversation fork lineage migration", () => {
   beforeEach(() => {
-    process.env.BUN_TEST = "0";
     resetMigrationTestDb();
   });
 
   afterAll(() => {
-    process.env.BUN_TEST = originalBunTest;
     resetMigrationTestDb();
   });
 

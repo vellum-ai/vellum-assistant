@@ -1850,6 +1850,7 @@ export class WorkspaceGitService {
         cwd: this.workspaceDir,
         env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
+        windowsHide: true,
       });
 
       // Swallow EPIPE from a child that exits without reading stdin; the

@@ -584,6 +584,12 @@ export const guardianRequests = sqliteTable(
   },
   (table) => [
     index("idx_gw_guardian_requests_status").on(table.status),
+    // The expiry sweep's probe: narrows to pending AND orders by deadline
+    // without scanning the whole pending set each round.
+    index("idx_gw_guardian_requests_status_expires").on(
+      table.status,
+      table.expiresAt,
+    ),
     index("idx_gw_guardian_requests_guardian").on(
       table.guardianExternalUserId,
       table.status,

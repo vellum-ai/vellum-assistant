@@ -268,8 +268,8 @@ export {
   ListGuardianRequestsIpcParamsSchema,
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
-  SweepExpiredGuardianRequestsIpcParamsSchema,
-  SweepExpiredGuardianRequestsIpcResponseSchema,
+  DELIVERY_STATUS,
+  ListExpiredPendingGuardianRequestsIpcParamsSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
 } from "./guardian-request-contract.js";
@@ -279,6 +279,7 @@ export type {
   CreateGuardianRequestIpcParams,
   DecideGuardianRequestIpcParams,
   DecideGuardianRequestIpcResponse,
+  DeliveryStatus,
   ExpireGuardianRequestIpcParams,
   ExpireInteractionBoundIpcParams,
   ExpireInteractionBoundIpcResponse,
@@ -306,8 +307,7 @@ export type {
   ListGuardianRequestsIpcParams,
   ListPendingGuardianRequestsByDestinationIpcParams,
   ListPendingGuardianRequestsByScopeIpcParams,
-  SweepExpiredGuardianRequestsIpcParams,
-  SweepExpiredGuardianRequestsIpcResponse,
+  ListExpiredPendingGuardianRequestsIpcParams,
   UpdateGuardianRequestDeliveryIpcParams,
   UpdateGuardianRequestIpcParams,
 } from "./guardian-request-contract.js";
