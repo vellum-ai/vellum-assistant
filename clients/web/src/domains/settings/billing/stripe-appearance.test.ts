@@ -178,7 +178,16 @@ describe("appearanceFromTokens", () => {
   });
 
   test("never hands Stripe an empty or half-built value", () => {
-    for (const tokens of [{}, { text: TOKENS.text, danger: TOKENS.danger }]) {
+    // The input is a `Partial`, so `""` is representable even though the token
+    // read never produces one: an empty accent would build `"0 0 0 3px "`.
+    const emptyTokens = Object.fromEntries(
+      Object.keys(TOKENS).map((key) => [key, ""]),
+    ) as Partial<StripeAppearanceTokens>;
+    for (const tokens of [
+      {},
+      emptyTokens,
+      { text: TOKENS.text, danger: TOKENS.danger },
+    ]) {
       for (const value of stringValues(appearanceFromTokens(tokens, "night"))) {
         expect(value).not.toBe("");
         expect(value).not.toMatch(/\s$/);

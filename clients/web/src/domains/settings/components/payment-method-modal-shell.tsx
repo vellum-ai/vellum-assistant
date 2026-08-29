@@ -14,9 +14,8 @@ import {
   brandDisplayLabel,
   brandLabel,
   cardExpiryLabel,
-  savedPanelTitle,
 } from "@/domains/settings/utils/payment-method-brand";
-import { useTranslation } from "@/i18n";
+import { useTranslation, type TFunction } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -295,6 +294,19 @@ function CardOnFileRow({ card }: { card: CardOnFile }) {
       </span>
     </div>
   );
+}
+
+/** Titles the success panel, and the screen-reader title above it. */
+function savedPanelTitle(
+  t: TFunction<"settings">,
+  card: SavedCard | null,
+): string {
+  return card?.brand && card.last4
+    ? t("autoTopUpPaymentMethodModal.savedTitle", {
+        brand: brandLabel(card.brand),
+        last4: card.last4,
+      })
+    : t("autoTopUpPaymentMethodModal.savedTitleGeneric");
 }
 
 function SavedPanel({

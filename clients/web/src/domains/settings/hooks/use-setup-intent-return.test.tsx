@@ -123,9 +123,13 @@ function pending(): boolean {
   return useSetupIntentReturnStore.getState().pending;
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Long enough for an ungated resolution to have run its Stripe read. */
 async function flushResolution(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await wait(30);
 }
 
 async function waitForOutcome(): Promise<void> {
@@ -287,6 +291,31 @@ describe("useSetupIntentReturn", () => {
       kind: "saved",
       card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
     });
+  });
+
+  test("gives the platform-session wait its own ceiling", async () => {
+    // Under one shared budget a slow org header starves the probe, and the wait
+    // gives up and confirms through the client that is about to be discarded.
+    orgReadiness = "resolving";
+    useAuthStore.setState({ platformSession: "unknown" });
+
+    renderAt(RETURN_SEARCH);
+
+    // Spend most of the header's 200ms ceiling before it answers.
+    await wait(150);
+    orgReadiness = "ready";
+
+    // Past where a single shared budget would already have expired.
+    await wait(150);
+    expect(syncCalls).toEqual([]);
+    expect(pending()).toBe(true);
+
+    act(() => {
+      useAuthStore.setState({ platformSession: "present" });
+    });
+    await waitForOutcome();
+
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
   });
 
   test("stops waiting on a platform session that never settles", async () => {

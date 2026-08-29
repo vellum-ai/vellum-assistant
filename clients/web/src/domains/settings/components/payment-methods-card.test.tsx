@@ -20,7 +20,9 @@
  *    tab switch without losing it.
  *  - A saved 3DS return also invalidates the config query through this card's
  *    own QueryClient, because the resolution's writes went to the client it
- *    captured when it started, which a request-scope change can discard.
+ *    captured when it started, which a request-scope change can discard. A
+ *    saved outcome carrying no card is left alone: the cache then holds only
+ *    the saved-poll's optimistic flip, which a refetch would wipe.
  *  - A 3DS redirect return replays its outcome into a freshly opened modal:
  *    a saved card on the success panel alone, a failure back into the form in
  *    the mode the saved card calls for. The failure waits for the config query
@@ -126,8 +128,6 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 
 const { PaymentMethodsCard } = await import("./payment-methods-card");
-const { paymentMethodCards } =
-  await import("@/domains/settings/utils/payment-method-cards");
 const { useSetupIntentReturnStore } =
   await import("@/domains/settings/setup-intent-return-store");
 const { DISABLED_CONFIG } = await import("./auto-top-up-card");
@@ -212,6 +212,18 @@ function wrapWith(client: QueryClient) {
 
 function wrap(config?: AutoTopUpConfigResponse) {
   return wrapWith(makeClient(config));
+}
+
+/** Records what the card invalidates, leaving the real behaviour in place. */
+function trackInvalidations(client: QueryClient) {
+  const invalidated: Array<Parameters<QueryClient["invalidateQueries"]>[0]> =
+    [];
+  const invalidateQueries = client.invalidateQueries.bind(client);
+  client.invalidateQueries = (filters) => {
+    invalidated.push(filters);
+    return invalidateQueries(filters);
+  };
+  return invalidated;
 }
 
 /**
@@ -465,13 +477,7 @@ describe("PaymentMethodsCard redirect return", () => {
     // swapping the user id) remounts that client: without this the section can
     // keep showing the empty state until an unrelated GET lands.
     const client = makeClient(DISABLED_CONFIG);
-    const invalidated: Array<Parameters<QueryClient["invalidateQueries"]>[0]> =
-      [];
-    const invalidateQueries = client.invalidateQueries.bind(client);
-    client.invalidateQueries = (filters) => {
-      invalidated.push(filters);
-      return invalidateQueries(filters);
-    };
+    const invalidated = trackInvalidations(client);
     seedReturnOutcome({
       kind: "saved",
       card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
@@ -486,6 +492,20 @@ describe("PaymentMethodsCard redirect return", () => {
     expect(invalidated).toContainEqual({
       queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
     });
+  });
+
+  test("leaves the cache alone when the confirm produced no card", () => {
+    // The confirm failed and the 20s poll timed out, so the cache holds only
+    // the poll's deliberate optimistic flip: a refetch would wipe it while the
+    // modal still reads "Card saved".
+    const client = makeClient(DISABLED_CONFIG);
+    const invalidated = trackInvalidations(client);
+    seedReturnOutcome({ kind: "saved", card: null });
+    render(wrapWith(client));
+
+    // The outcome did reach the card: it opened the modal on the success panel.
+    expect(lastPmModalProps().open).toBe(true);
+    expect(invalidated).toEqual([]);
   });
 
   test("replays an error outcome into replace mode with the card on file", () => {
@@ -633,40 +653,5 @@ describe("PaymentMethodsCard expiry and billing address", () => {
       expYear: null,
     });
     expect(lastPmModalProps().billingAddress).toBeNull();
-  });
-});
-
-/**
- * The backend stores at most one payment method and has no list endpoint, so
- * the multi-card shape is only reachable through the pure helper.
- */
-describe("paymentMethodCards", () => {
-  test("maps a saved card onto a single stably-keyed entry", () => {
-    expect(paymentMethodCards(ENABLED_WITH_CARD)).toEqual([
-      {
-        id: "primary",
-        brand: "visa",
-        last4: "4242",
-        expMonth: null,
-        expYear: null,
-      },
-    ]);
-  });
-
-  test("reads the expiry the platform sends", () => {
-    expect(paymentMethodCards(WITH_EXPIRY_AND_ADDRESS)).toEqual([
-      {
-        id: "primary",
-        brand: "visa",
-        last4: "4242",
-        expMonth: 4,
-        expYear: 2042,
-      },
-    ]);
-  });
-
-  test("maps no card and a missing config onto an empty list", () => {
-    expect(paymentMethodCards(DISABLED_CONFIG)).toEqual([]);
-    expect(paymentMethodCards(undefined)).toEqual([]);
   });
 });

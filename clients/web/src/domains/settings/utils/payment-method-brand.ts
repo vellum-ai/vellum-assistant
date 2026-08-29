@@ -26,19 +26,6 @@ export function brandDisplayLabel(
   return brand ? brandLabel(brand) : t("paymentMethodRow.savedCard");
 }
 
-/** Titles the success panel, and the screen-reader title above it. */
-export function savedPanelTitle(
-  t: TFunction<"settings">,
-  card: { brand: string | null; last4: string | null } | null,
-): string {
-  return card?.brand && card.last4
-    ? t("autoTopUpPaymentMethodModal.savedTitle", {
-        brand: brandLabel(card.brand),
-        last4: card.last4,
-      })
-    : t("autoTopUpPaymentMethodModal.savedTitleGeneric");
-}
-
 /** Carries its own leading separator, so callers render it as-is. */
 export function cardExpiryLabel(
   t: TFunction<"settings">,

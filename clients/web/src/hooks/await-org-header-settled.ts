@@ -12,15 +12,9 @@ import {
 const ORG_HEADER_POLL_INTERVAL_MS = 100;
 
 /** How {@link awaitOrgHeaderSettled} ended. */
-export type OrgHeaderWaitOutcome =
-  "ready" | "unavailable" | "timeout" | "cancelled";
+type OrgHeaderWaitOutcome = "ready" | "cancelled" | "failed";
 
-export interface AwaitOrgHeaderSettledOptions {
-  /**
-   * Ceiling on `"resolving"`, defaulting to
-   * {@link ORG_HEADER_SETTLE_TIMEOUT_MS}.
-   */
-  timeoutMs?: number;
+interface AwaitOrgHeaderSettledOptions {
   /** Cooperative cancellation, checked before every readiness read. */
   isCancelled?: () => boolean;
   /**
@@ -31,7 +25,8 @@ export interface AwaitOrgHeaderSettledOptions {
   /**
    * An extra condition that must hold before a `"ready"` header resolves the
    * wait, for callers whose readiness is the header source plus something else.
-   * Held to the same ceiling.
+   * Held to its own ceiling, which starts when the header first reads
+   * `"ready"`, so a slow header cannot starve this one.
    */
   alsoReady?: () => boolean;
   /**
@@ -53,18 +48,18 @@ export interface AwaitOrgHeaderSettledOptions {
  * Bounded on purpose. `"resolving"` is transient by construction, but a wait
  * with no ceiling would hold the caller's sequence for the rest of the visit if
  * it ever weren't, and `"unavailable"` never becomes `"ready"` on its own. What
- * a non-`"ready"` outcome means is the caller's call: the background hatch
- * fails retryably, the SetupIntent return fires its request anyway and reports
- * the failure.
+ * a `"failed"` outcome means is the caller's call: the background hatch fails
+ * retryably, the SetupIntent return fires its request anyway and reports the
+ * failure.
  */
 export async function awaitOrgHeaderSettled({
-  timeoutMs = ORG_HEADER_SETTLE_TIMEOUT_MS,
   isCancelled,
   registerTimer,
   alsoReady,
   onWaiting,
 }: AwaitOrgHeaderSettledOptions = {}): Promise<OrgHeaderWaitOutcome> {
-  const startedAt = Date.now();
+  let phaseStartedAt = Date.now();
+  let headerSettled = false;
   // Parks the pending handle so a caller can clear it, and once cancelled
   // resolves without scheduling anything, so the loop reaches its next check
   // with no timer left behind.
@@ -89,12 +84,18 @@ export async function awaitOrgHeaderSettled({
     if (readiness === "ready" && (alsoReady?.() ?? true)) {
       return "ready";
     }
+    // The header and `alsoReady` are sequential waits on unrelated sources, so
+    // each gets the full ceiling rather than sharing one budget.
+    if (!headerSettled && readiness === "ready") {
+      headerSettled = true;
+      phaseStartedAt = Date.now();
+    }
     if (onWaiting?.(readiness) !== true) {
       if (readiness === "unavailable") {
-        return "unavailable";
+        return "failed";
       }
-      if (Date.now() - startedAt >= timeoutMs) {
-        return "timeout";
+      if (Date.now() - phaseStartedAt >= ORG_HEADER_SETTLE_TIMEOUT_MS) {
+        return "failed";
       }
     }
     await sleep();
