@@ -81,8 +81,6 @@ export const Saved: Story = {
     state: "saved",
     savedCard: { brand: "visa", last4: "1881" },
     autoReloadActive: true,
-    // The real modal stops rendering the fields once the card is saved.
-    children: null,
   },
 };
 
@@ -92,6 +90,26 @@ export const SavedGeneric: Story = {
     state: "saved",
     savedCard: null,
     autoReloadActive: false,
-    children: null,
+  },
+};
+
+/** Replacing a card: once saved, the old card is gone rather than pending. */
+export const SavedAfterReplace: Story = {
+  args: {
+    mode: "replace",
+    cardOnFile: { brand: "visa", last4: "4242", expMonth: 4, expYear: 2042 },
+    state: "saved",
+    savedCard: { brand: "visa", last4: "1881" },
+    autoReloadActive: true,
+  },
+};
+
+/** A 3DS redirect return: no mode to title the modal, so the panel is it. */
+export const SavedFromRedirect: Story = {
+  args: {
+    state: "saved",
+    savedCard: { brand: "visa", last4: "1881" },
+    autoReloadActive: true,
+    headerless: true,
   },
 };

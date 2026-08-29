@@ -348,6 +348,9 @@ function AutoTopUpPaymentMethodModalContent({
       cardOnFile={mode === "replace" ? cardOnFile : null}
       savedCard={savedCard}
       autoReloadActive={savedCard?.autoReloadEnabled ?? false}
+      // A redirect return reopens straight into `saved`, where `mode` was
+      // never chosen by the user and so cannot title the modal.
+      headerless={returnedSaved}
       errorMessage={errorMessage}
       showTerms={CUSTOM_TERMS_APPROVED}
       submitDisabled={!formComplete}

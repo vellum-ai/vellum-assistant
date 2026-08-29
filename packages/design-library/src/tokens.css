@@ -224,6 +224,25 @@
   --color-amber-100: #FDF8EE;
 }
 
+/* ---------------------------------------------------------------------------
+ * Border-radius scale, `static` for the same reason as the ramps above.
+ *
+ * The Stripe Elements appearance reads `--radius-lg` off
+ * `getComputedStyle(document.documentElement)` at runtime
+ * (`clients/web/src/domains/settings/billing/stripe-appearance.ts`) so the
+ * card fields match the app's corners. Under a plain `@theme` block that only
+ * resolves while some utility happens to reference the variable.
+ * --------------------------------------------------------------------------- */
+@theme static inline {
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-xxl: 20px;
+  --radius-pill: 999px;
+}
+
 @theme inline {
   /* Font tokens — DM Sans across the board, matching the Swift macOS
    * client's VFont (TypographyTokens.swift). */
@@ -245,15 +264,6 @@
   --app-spacing-xl: 24px;
   --app-spacing-xxl: 32px;
   --app-spacing-xxxl: 48px;
-
-  /* Border-radius scale */
-  --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-xxl: 20px;
-  --radius-pill: 999px;
 
   /* Shadow scale — synced with macOS design system. `--shadow-popover` is
    * theme-aware (defined per-mode below); the rest are mode-agnostic. */

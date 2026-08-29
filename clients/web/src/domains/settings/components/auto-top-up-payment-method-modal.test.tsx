@@ -338,6 +338,34 @@ describe("AutoTopUpPaymentMethodModal Stripe element options", () => {
     expect(options?.appearance?.labels).toBe("floating");
     expect(options?.fonts).toEqual(STRIPE_FONTS);
   });
+
+  test("re-themes Elements when the document theme flips to dark", async () => {
+    await renderReadyForm();
+    const baseTheme = () =>
+      (
+        elementsProps?.options as
+          { appearance?: { theme?: string } } | undefined
+      )?.appearance?.theme;
+    expect(baseTheme()).toBe("stripe");
+
+    const previous = document.documentElement.getAttribute("data-theme");
+    try {
+      act(() => {
+        document.documentElement.setAttribute("data-theme", "dark");
+      });
+      // happy-dom holds a MutationObserver callback behind a WeakRef, so the
+      // theme hook's subscription can be collected mid-test. Any re-render
+      // re-reads the attribute, so drive one rather than wait on the observer.
+      fireOnChange(addressElementProps, { complete: false });
+      expect(baseTheme()).toBe("night");
+    } finally {
+      if (previous === null) {
+        document.documentElement.removeAttribute("data-theme");
+      } else {
+        document.documentElement.setAttribute("data-theme", previous);
+      }
+    }
+  });
 });
 
 describe("AutoTopUpPaymentMethodModal completeness gate", () => {
