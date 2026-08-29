@@ -16,8 +16,6 @@ import {
   reportSubmissionFailure,
 } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { resolveSupportsContactFormCancellation } from "@/lib/backwards-compat/contact-form-cancellation";
-
 import {
   cancelContactPrompt,
   submitContactPrompt,
@@ -34,6 +32,20 @@ import {
  */
 function isFormAlreadyClosed(result: { status?: number }): boolean {
   return result.status === 409;
+}
+
+/**
+ * Whether the assistant's submit route predates dismissals.
+ *
+ * Asked of the response rather than the version, because the version cannot
+ * answer it: the released 0.11.7 has no dismissal and a checkout of this
+ * source reports the same 0.11.7, so no floor separates them. The route that
+ * lacks the field rejects a body without an address, which one that has it
+ * never does, so the 400 is the distinction itself. The request costs a round
+ * trip and writes nothing.
+ */
+function isCancellationUnsupported(result: { status?: number }): boolean {
+  return result.status === 400;
 }
 
 /**
@@ -153,25 +165,17 @@ export async function handleContactPromptCancel(): Promise<void> {
       .setError({ message: t("chat:promptSubmission.noActiveSession") });
     return;
   }
-  if (!(await resolveSupportsContactFormCancellation(ctx.assistantId))) {
-    // This assistant's submit route requires an address and rejects a
-    // dismissal, so the card comes down locally and its command waits out its
-    // own timeout, as it always has on that version.
-    useInteractionStore
-      .getState()
-      .dismissContactRequestIfMatches(request.requestId);
-    return;
-  }
 
   // Every client is showing this form and a command is parked on it, so the
   // dismissal has to reach the gateway: taking the card down here would leave
   // both waiting.
   const result = await cancelContactPrompt(ctx.assistantId, request.requestId);
   if (!result.ok) {
-    if (isFormAlreadyClosed(result)) {
-      // The assistant is no longer holding this form, so there is nothing to
-      // dismiss and nothing a retry could reach. Take the card down: leaving
-      // it up makes it permanent, since every attempt gets the same answer.
+    if (isFormAlreadyClosed(result) || isCancellationUnsupported(result)) {
+      // Either the assistant is no longer holding this form, or it never
+      // understood the dismissal. Both are terminal, and both leave the card
+      // permanent if it stays: every attempt gets the same answer. Taking it
+      // down locally is what an assistant without dismissals has always done.
       useInteractionStore
         .getState()
         .dismissContactRequestIfMatches(request.requestId);
@@ -329,19 +333,12 @@ export async function handleContactRecordCancel(): Promise<void> {
       .setError({ message: t("chat:promptSubmission.noActiveSession") });
     return;
   }
-  if (!(await resolveSupportsContactFormCancellation(ctx.assistantId))) {
-    // An assistant that cannot raise this form cannot be asked to close one.
-    useInteractionStore
-      .getState()
-      .dismissContactRecordRequestIfMatches(request.requestId);
-    return;
-  }
 
   const result = await submitContactRecord(ctx.assistantId, request.requestId, {
     cancelled: true,
   });
   if (!result.ok) {
-    if (isFormAlreadyClosed(result)) {
+    if (isFormAlreadyClosed(result) || isCancellationUnsupported(result)) {
       // Nothing left to dismiss; see the address form's dismissal.
       useInteractionStore
         .getState()
