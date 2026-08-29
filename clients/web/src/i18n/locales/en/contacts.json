@@ -181,7 +181,7 @@
     "stop": "Stop",
     "recording": "Recording {seconds}s",
     "enrolledFromClips": "{count, plural, one {Enrolled from # clip} other {Enrolled from # clips}}",
-    "clipsRemaining": "{count, plural, one {# more clip to record} other {# more clips to record}}",
+    "enrollNext": "Record clip {index} of {total}",
     "bestMatch": "{name} · {score}",
     "noMatch": "No match above {threshold}",
     "micDenied": "Microphone unavailable",

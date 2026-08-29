@@ -89,7 +89,10 @@ export function ContactVoiceprintSection({
       setError(null);
       onClearIdentify();
       setIntent(nextIntent);
-      if (nextIntent === "enroll") {
+      // Reset only when leaving the enroll flow. Clearing on every enroll
+      // press would discard the clip just recorded, so the sequence could
+      // never reach its last clip.
+      if (nextIntent === "identify") {
         setCaptured([]);
       }
       try {
@@ -178,9 +181,14 @@ export function ContactVoiceprintSection({
           >
             {enrollPending
               ? t("voiceprint.enrolling")
-              : profile
-                ? t("voiceprint.reenroll")
-                : t("voiceprint.enroll")}
+              : captured.length > 0
+                ? t("voiceprint.enrollNext", {
+                    index: captured.length + 1,
+                    total: ENROLL_CLIPS,
+                  })
+                : profile
+                  ? t("voiceprint.reenroll")
+                  : t("voiceprint.enroll")}
           </Button>
           {voiceprints.length > 0 ? (
             <Button
@@ -196,14 +204,6 @@ export function ContactVoiceprintSection({
           ) : null}
         </div>
       )}
-
-      {captured.length > 0 && phase === "idle" ? (
-        <span className="text-sm">
-          {t("voiceprint.clipsRemaining", {
-            count: ENROLL_CLIPS - captured.length,
-          })}
-        </span>
-      ) : null}
 
       {error ? <span className="text-sm text-red-600">{error}</span> : null}
 
