@@ -443,6 +443,15 @@ const minimizeButton = () =>
 /** The row's mic, named for the act it offers, so this is the LIVE one. */
 const micButton = () =>
   screen.queryByRole("button", { name: "Mute microphone" });
+/** The row's camera: opens and closes the viewfinder. */
+const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
+
+/** An assistant new enough to accept `attach_image`. */
+function seedCameraCapableAssistant() {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
+}
 
 describe("VoiceRoom — visibility", () => {
   test("renders nothing when no session is active", () => {
@@ -664,6 +673,62 @@ describe("VoiceRoom: mobile sheet", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(screen.queryByTestId("voice-room-grabber")).toBeNull();
+  });
+
+  test("with the viewfinder open the sheet reaches the top edge", async () => {
+    // The camera fills the screen, so the sheet framing it leaves the header's
+    // line: parked there, its corners, its grabber and the chrome line under
+    // them float a third of the way down over a feed that already covers the
+    // rest. Closing the camera puts the sheet back below the header.
+    const removeHeader = mountHeader({ top: 47, height: 96 });
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    try {
+      render(<VoiceRoom variant="sheet" />);
+
+      const sheet = screen.getByRole("dialog", { name: "Voice session" });
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
+      expect(sheet.className).toContain("rounded-t-none");
+      expect(roomBox().className).toContain("rounded-t-none");
+
+      // The pull-down survives the mode switch, and the band it shares with the
+      // camera pill clears the notch the sheet now reaches.
+      const grabber = screen.getByTestId("voice-room-grabber");
+      expect(grabber.className).toContain("top-[var(--room-grabber-top)]");
+      expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
+        "top-[var(--room-chrome-top)]",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-grabber-top: calc(0.5rem + var(--safe-area-inset-top",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-chrome-top: calc(1.25rem + var(--safe-area-inset-top",
+      );
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+      expect(sheet.className).not.toContain("rounded-t-none");
+      // Back below the header, where nothing above the sheet is the notch.
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-grabber-top: 0.5rem",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-chrome-top: 1.25rem",
+      );
+    } finally {
+      restoreMediaDevices();
+      removeHeader();
+    }
   });
 
   test("with no header present the sheet rests at the top edge", () => {
@@ -1542,14 +1607,6 @@ describe("VoiceRoom: camera", () => {
     };
   }
 
-  /** An assistant new enough to accept `attach_image`. */
-  function seedCameraCapableAssistant() {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
-  }
-
-  const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
   const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
 
   afterEach(() => {
