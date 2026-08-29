@@ -20,6 +20,8 @@ import {
 } from "@/domains/chat/composer-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import {
   useComposerSubmit,
@@ -352,6 +354,22 @@ describe("useComposerSubmit Eyes frame", () => {
 });
 
 describe("useComposerSubmit vision gate", () => {
+  /** Stand the user on the submit's own thread, so the live gate applies. */
+  function standOnSubmitThread() {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+  }
+
+  /** Move the user to another conversation, as a mid-upload navigation does. */
+  function moveToAnotherThread() {
+    useConversationStore.setState({ activeConversationId: "conv-2" });
+  }
+
+  afterEach(() => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    useConversationStore.setState({ activeConversationId: null });
+  });
+
   test("no frame is attached where an image would fail the turn", async () => {
     // GIVEN a legacy assistant whose active profile has no vision, the same
     // condition that makes the drop/pick path filter images out
@@ -368,7 +386,9 @@ describe("useComposerSubmit vision gate", () => {
   });
 
   test("a profile losing vision mid-upload keeps the frame off the message", async () => {
-    // GIVEN Eyes is on and the frame upload is slow
+    // GIVEN Eyes is on, the frame upload is slow, and the user stays on the
+    // thread they submitted from, so the profile change is that thread's own
+    standOnSubmitThread();
     let settleUpload!: (value: DisplayAttachment | null) => void;
     uploadSightFrameAttachment.mockImplementation(
       () =>
@@ -424,6 +444,89 @@ describe("useComposerSubmit vision gate", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     const attachments = sendMessage.mock.calls[0]?.[1] ?? [];
     expect(attachments.map((a) => a.id)).toEqual(["sight-frame-1"]);
+  });
+
+  test("navigating to a non-vision thread does not discard the frame", async () => {
+    // GIVEN a vision-capable thread's submit with its upload pending
+    standOnSubmitThread();
+    let settleUpload!: (value: DisplayAttachment | null) => void;
+    uploadSightFrameAttachment.mockImplementation(
+      () =>
+        new Promise<DisplayAttachment | null>((resolve) => {
+          settleUpload = resolve;
+        }),
+    );
+    useComposerStore.getState().setInput("what am I holding?");
+    const { result, sendMessage, rerenderWith } = renderSubmit();
+
+    let submission: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submission = result.current.submitMessage();
+      await Promise.resolve();
+    });
+
+    // WHEN the user moves to a legacy thread whose gate answers false, so the
+    // live ref now describes somebody else's profile
+    moveToAnotherThread();
+    await act(async () => {
+      rerenderWith({ imageAttachmentsAllowed: false });
+    });
+    await act(async () => {
+      settleUpload(sightFrameAttachment());
+      await submission;
+    });
+
+    // THEN the frame still rides: the submit's own thread never lost vision
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const attachments = sendMessage.mock.calls[0]?.[1] ?? [];
+    expect(attachments.map((a) => a.id)).toEqual(["sight-frame-1"]);
+  });
+
+  test("navigating to a vision thread does not arm a non-vision submit", async () => {
+    // GIVEN the submit's own thread cannot take images, and its delivery is
+    // parked behind an earlier send still in flight, so its gate is read only
+    // after the navigation below
+    standOnSubmitThread();
+    const sendSettles: Array<() => void> = [];
+    const slowSend = mock(
+      async (
+        _content: string,
+        _attachments?: DisplayAttachment[],
+        _opts?: { bypassSecretCheck?: boolean },
+      ) =>
+        new Promise<void>((resolve) => {
+          sendSettles.push(resolve);
+        }),
+    );
+    const { result, rerenderWith } = renderSubmit({
+      imageAttachmentsAllowed: false,
+      sendMessage: slowSend,
+    });
+
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = result.current.submitMessage("look first");
+      second = result.current.submitMessage("what am I holding?");
+      await Promise.resolve();
+    });
+
+    // WHEN the user moves to a thread whose gate answers true before the
+    // second delivery runs
+    moveToAnotherThread();
+    await act(async () => {
+      rerenderWith({ imageAttachmentsAllowed: true, sendMessage: slowSend });
+    });
+    await act(async () => {
+      sendSettles[0]?.();
+      await first;
+      sendSettles[1]?.();
+      await second;
+    });
+
+    // THEN no frame was ever requested for the incompatible original thread
+    expect(uploadSightFrameAttachment).not.toHaveBeenCalled();
+    expect(slowSend).toHaveBeenCalledTimes(2);
   });
 });
 

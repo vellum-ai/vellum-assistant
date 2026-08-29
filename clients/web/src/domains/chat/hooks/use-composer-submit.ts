@@ -33,6 +33,9 @@ import { prependChannelReference } from "@/domains/chat/channel-sidecar/channel-
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
 import { isLocallyHandledCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import { uploadSightFrameAttachment } from "@/domains/chat/sight/sight-attachment";
+import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   useQuoteReplyStore,
   type StagedQuote,
@@ -267,19 +270,37 @@ export function useComposerSubmit({
       // that case, so this is the backstop for a profile switched under a
       // camera already running: attaching the frame anyway would fail the turn
       // on the provider's image rejection, which costs the user their message.
-      // Read from the ref, so the answer is the one standing when the frame is
-      // taken rather than the one this submit was rendered with.
+      // The gate belongs to this send's thread, not to the rendered route. The
+      // live ref follows whatever conversation is open, so once the user
+      // navigates away it answers for somebody else's profile: reading it then
+      // could drop a frame this thread can carry, or attach one it cannot. The
+      // send prefers the live answer while its own thread is on screen (a
+      // profile switch there re-renders through the ref) and otherwise falls
+      // back to the answer standing when the submit began, which is the last
+      // one its thread gave.
+      const gateAtSubmit = imageAttachmentsAllowedRef.current;
+      const sightGateAllows = () =>
+        assistantId !== null &&
+        activeConversationId !== null &&
+        isAsyncChatScopeCurrent({
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
+          requestAssistantId: assistantId,
+          requestConversationId: activeConversationId,
+        })
+          ? imageAttachmentsAllowedRef.current
+          : gateAtSubmit;
+
       const deliver = async () => {
-        if (
-          imageAttachmentsAllowedRef.current &&
-          !isLocallyHandledCommand(finalContent)
-        ) {
+        if (sightGateAllows() && !isLocallyHandledCommand(finalContent)) {
           const sightAttachment = await uploadSightFrameAttachment(assistantId);
-          // Read again on the way out: the upload itself is a window, and a
+          // Asked again on the way out: the upload itself is a window, and a
           // profile switched to one without vision while the frame was in
           // flight must not have it attached. The uploaded blob is left
           // behind, like any failed send's.
-          if (sightAttachment && imageAttachmentsAllowedRef.current) {
+          if (sightAttachment && sightGateAllows()) {
             attachmentsToSend.push(sightAttachment);
           }
         }
