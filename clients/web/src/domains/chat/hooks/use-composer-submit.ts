@@ -19,6 +19,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 
@@ -129,6 +130,21 @@ export function useComposerSubmit({
    * were made. See where it is advanced in `submitMessage`.
    */
   const sendChainRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * The vision gate as it stands right now, not as it stood when the submit
+   * began (the ref-backed fresh-closure pattern, as in `use-transcript-scroll`).
+   *
+   * A delivery can sit for as long as a capture and an upload take, and the
+   * user is free to switch model profiles inside that window. Switching
+   * re-renders the chat route, which recomputes the gate and re-renders this
+   * hook, so the ref carries the newly resolved answer by the time any queued
+   * delivery reaches its frame. Synced in a layout effect so it lands before
+   * the browser paints the new profile rather than after.
+   */
+  const imageAttachmentsAllowedRef = useRef(imageAttachmentsAllowed);
+  useLayoutEffect(() => {
+    imageAttachmentsAllowedRef.current = imageAttachmentsAllowed;
+  }, [imageAttachmentsAllowed]);
 
   // --- Focus effect -------------------------------------------------------
   useEffect(() => {
@@ -251,10 +267,19 @@ export function useComposerSubmit({
       // that case, so this is the backstop for a profile switched under a
       // camera already running: attaching the frame anyway would fail the turn
       // on the provider's image rejection, which costs the user their message.
+      // Read from the ref, so the answer is the one standing when the frame is
+      // taken rather than the one this submit was rendered with.
       const deliver = async () => {
-        if (imageAttachmentsAllowed && !isLocallyHandledCommand(finalContent)) {
+        if (
+          imageAttachmentsAllowedRef.current &&
+          !isLocallyHandledCommand(finalContent)
+        ) {
           const sightAttachment = await uploadSightFrameAttachment(assistantId);
-          if (sightAttachment) {
+          // Read again on the way out: the upload itself is a window, and a
+          // profile switched to one without vision while the frame was in
+          // flight must not have it attached. The uploaded blob is left
+          // behind, like any failed send's.
+          if (sightAttachment && imageAttachmentsAllowedRef.current) {
             attachmentsToSend.push(sightAttachment);
           }
         }
@@ -293,7 +318,6 @@ export function useComposerSubmit({
     [
       sendDisabled,
       beforeSend,
-      imageAttachmentsAllowed,
       activeConversationId,
       inputRef,
       scrollToLatest,

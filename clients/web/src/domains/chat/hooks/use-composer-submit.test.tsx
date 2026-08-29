@@ -40,6 +40,18 @@ mock.module("@/domains/chat/sight/sight-attachment", () => ({
   uploadSightFrameAttachment,
 }));
 
+/** The attachment a successful frame upload hands back. */
+function sightFrameAttachment(): DisplayAttachment {
+  return {
+    id: "sight-frame-1",
+    filename: "sight-1.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 2048,
+    previewUrl: null,
+    thumbnailUrl: null,
+  };
+}
+
 const SYNTHETIC_PROJECT_KEY =
   "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv1Wx2Yz3A";
 
@@ -62,23 +74,33 @@ function renderSubmit(overrides: Partial<UseComposerSubmitParams> = {}) {
       _opts?: { bypassSecretCheck?: boolean },
     ) => {},
   );
-  const { result } = renderHook(() =>
-    useComposerSubmit({
-      sendMessage,
-      inputRef: { current: null },
-      scrollToLatest: () => {},
-      isEditing: false,
-      editingMessageId: null,
-      cancelEditing: () => {},
-      canUndoEdit: false,
-      sendDisabled: false,
-      typingDisabled: false,
-      assistantId: "assistant-1",
-      activeConversationId: "conv-1",
-      ...overrides,
-    }),
+  const baseParams: UseComposerSubmitParams = {
+    sendMessage,
+    inputRef: { current: null },
+    scrollToLatest: () => {},
+    isEditing: false,
+    editingMessageId: null,
+    cancelEditing: () => {},
+    canUndoEdit: false,
+    sendDisabled: false,
+    typingDisabled: false,
+    assistantId: "assistant-1",
+    activeConversationId: "conv-1",
+    ...overrides,
+  };
+  const { result, rerender } = renderHook(
+    (props: UseComposerSubmitParams) => useComposerSubmit(props),
+    { initialProps: baseParams },
   );
-  return { result, sendMessage };
+  return {
+    result,
+    sendMessage,
+    // Re-render the hook with changed params, as the chat route does when a
+    // profile switch recomputes what it passes down.
+    rerenderWith: (next: Partial<UseComposerSubmitParams>) => {
+      rerender({ ...baseParams, ...next });
+    },
+  };
 }
 
 async function submit(result: {
@@ -343,6 +365,65 @@ describe("useComposerSubmit vision gate", () => {
 
     expect(uploadSightFrameAttachment).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test("a profile losing vision mid-upload keeps the frame off the message", async () => {
+    // GIVEN Eyes is on and the frame upload is slow
+    let settleUpload!: (value: DisplayAttachment | null) => void;
+    uploadSightFrameAttachment.mockImplementation(
+      () =>
+        new Promise<DisplayAttachment | null>((resolve) => {
+          settleUpload = resolve;
+        }),
+    );
+    useComposerStore.getState().setInput("what am I holding?");
+    const { result, sendMessage, rerenderWith } = renderSubmit();
+
+    let submission: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submission = result.current.submitMessage();
+      await Promise.resolve();
+    });
+
+    // WHEN the active profile flips to one without vision while it is pending
+    await act(async () => {
+      rerenderWith({ imageAttachmentsAllowed: false });
+    });
+    await act(async () => {
+      settleUpload(sightFrameAttachment());
+      await submission;
+    });
+
+    // THEN the message still goes, without the frame
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1] ?? []).toHaveLength(0);
+  });
+
+  test("a frame uploaded under a gate that held rides the message", async () => {
+    // The positive control for the test above: same slow upload, no flip.
+    let settleUpload!: (value: DisplayAttachment | null) => void;
+    uploadSightFrameAttachment.mockImplementation(
+      () =>
+        new Promise<DisplayAttachment | null>((resolve) => {
+          settleUpload = resolve;
+        }),
+    );
+    useComposerStore.getState().setInput("what am I holding?");
+    const { result, sendMessage } = renderSubmit();
+
+    let submission: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submission = result.current.submitMessage();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      settleUpload(sightFrameAttachment());
+      await submission;
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const attachments = sendMessage.mock.calls[0]?.[1] ?? [];
+    expect(attachments.map((a) => a.id)).toEqual(["sight-frame-1"]);
   });
 });
 
