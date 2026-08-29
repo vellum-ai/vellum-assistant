@@ -15,6 +15,10 @@
  * withheld from a plugin-sourced schedule that is turned off, since the daemon
  * refuses to run one whose plugin is disabled.
  *
+ * Pending one-shots show a labeled Cancel reminder action that POSTs
+ * `/schedules/:id/cancel`. Recurring, past, firing, and plugin-sourced
+ * rows do not.
+ *
  * The generated daemon SDK is mocked so the config and runs queries resolve
  * without a daemon.
  */
@@ -65,6 +69,8 @@ const CATALOG = {
 
 let patchCalls: Array<{ id: string; body: unknown }> = [];
 let patchFails = false;
+let cancelCalls: string[] = [];
+let cancelFails = false;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
@@ -80,6 +86,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
       return patchFails
         ? { response: { ok: false, status: 500 }, error: undefined }
         : { response: { ok: true, status: 200 }, data: {} };
+    },
+  ),
+  schedulesByIdCancelPost: mock(
+    async (options?: { path?: { id?: string } }) => {
+      cancelCalls.push(options?.path?.id ?? "");
+      return cancelFails
+        ? { response: { ok: false, status: 500 }, error: undefined }
+        : { response: { ok: true, status: 200 }, data: { schedules: [] } };
     },
   ),
 }));
@@ -119,7 +133,11 @@ function Wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function renderPanel(schedule: PanelSchedule, isPast = false) {
+function renderPanel(
+  schedule: PanelSchedule,
+  isPast = false,
+  onDeleted: () => void = () => {},
+) {
   return render(
     <Wrapper>
       <ScheduleDetailPanel
@@ -128,7 +146,7 @@ function renderPanel(schedule: PanelSchedule, isPast = false) {
         usage={{ status: "loading" }}
         isPast={isPast}
         onClose={() => {}}
-        onDeleted={() => {}}
+        onDeleted={onDeleted}
       />
     </Wrapper>,
   );
@@ -147,6 +165,8 @@ function renderedText(): string {
 beforeEach(() => {
   patchCalls = [];
   patchFails = false;
+  cancelCalls = [];
+  cancelFails = false;
 });
 
 afterEach(() => {
@@ -356,5 +376,70 @@ describe("ScheduleDetailPanel Run now availability", () => {
           .disabled,
       ).toBe(false);
     });
+  });
+});
+
+describe("ScheduleDetailPanel pending one-shot cancel", () => {
+  const pendingOneShot = (overrides: Parameters<typeof makeSchedule>[0] = {}) =>
+    makeSchedule({
+      name: "Add members and partners to phone system",
+      isOneShot: true,
+      mode: "notify",
+      expression: null,
+      cronExpression: null,
+      ...overrides,
+    }) as PanelSchedule;
+
+  test("a pending one-shot shows Cancel reminder", async () => {
+    const { getByRole } = renderPanel(pendingOneShot());
+
+    await waitFor(() => {
+      expect(getByRole("button", { name: "Cancel reminder" })).toBeTruthy();
+    });
+  });
+
+  test("a recurring schedule does not show Cancel reminder", async () => {
+    const { queryByRole, getByLabelText } = renderPanel(makeSchedule());
+
+    await waitFor(() => {
+      expect(getByLabelText("Delete")).toBeTruthy();
+    });
+    expect(queryByRole("button", { name: "Cancel reminder" })).toBeNull();
+  });
+
+  test("a past one-shot does not show Cancel reminder", async () => {
+    const { queryByRole } = renderPanel(
+      pendingOneShot({ status: "fired" }),
+      /* isPast */ true,
+    );
+
+    await waitFor(() => {
+      expect(queryByRole("button", { name: "View usage" })).toBeTruthy();
+    });
+    expect(queryByRole("button", { name: "Cancel reminder" })).toBeNull();
+  });
+
+  test("a plugin-sourced one-shot does not show Cancel reminder", async () => {
+    const { queryByRole, getByText } = renderPanel(
+      pendingOneShot({ sourceKey: "plugin:gmail/poll-inbox" }),
+    );
+
+    await waitFor(() => {
+      expect(getByText("Managed by plugin gmail")).toBeTruthy();
+    });
+    expect(queryByRole("button", { name: "Cancel reminder" })).toBeNull();
+  });
+
+  test("confirming cancel posts to the cancel endpoint and closes the panel", async () => {
+    const onDeleted = mock(() => {});
+    const { getByRole } = renderPanel(pendingOneShot(), false, onDeleted);
+
+    fireEvent.click(getByRole("button", { name: "Cancel reminder" }));
+    fireEvent.click(getByRole("button", { name: "Yes, cancel" }));
+
+    await waitFor(() => {
+      expect(cancelCalls).toEqual(["schedule-1"]);
+    });
+    expect(onDeleted).toHaveBeenCalledTimes(1);
   });
 });

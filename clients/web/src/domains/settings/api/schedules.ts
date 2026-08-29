@@ -1,13 +1,15 @@
 /**
  * Fetch wrappers for user-created schedule CRUD (create, update, toggle,
- * delete, runs, usage summary). System-task queries (heartbeat, consolidation,
- * retrospective) use generated SDK options directly, see use-system-tasks.ts.
+ * cancel, delete, runs, usage summary). System-task queries (heartbeat,
+ * consolidation, retrospective) use generated SDK options directly, see
+ * use-system-tasks.ts.
  *
  * Reading the schedule list is not here: `@/utils/schedules` owns it, because
  * its consumers span domains (settings, schedules, home, intelligence) and a
  * domain may not import a peer's internals.
  */
 import {
+  schedulesByIdCancelPost,
   schedulesByIdDelete,
   schedulesByIdPatch,
   schedulesByIdRunPost,
@@ -209,6 +211,27 @@ export async function deleteSchedule(
     throw new ApiError(
       response.status,
       extractErrorMessage(error, response, "Failed to delete schedule."),
+    );
+  }
+}
+
+/**
+ * Cancel a pending one-shot. The assistant marks it cancelled and it
+ * leaves the upcoming list; it is not deleted.
+ */
+export async function cancelSchedule(
+  assistantId: string,
+  scheduleId: string,
+): Promise<void> {
+  const { error, response } = await schedulesByIdCancelPost({
+    path: { assistant_id: assistantId, id: scheduleId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to cancel schedule.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to cancel schedule."),
     );
   }
 }

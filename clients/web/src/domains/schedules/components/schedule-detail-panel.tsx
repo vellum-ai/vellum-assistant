@@ -21,6 +21,7 @@ import {
   pluginNameFromSourceKey,
 } from "@/domains/schedules/plugin-source";
 import {
+  cancelSchedule,
   deleteSchedule,
   fetchScheduleRuns,
   runScheduleNow,
@@ -520,8 +521,18 @@ export function ScheduleDetailPanel({
   const [isRunning, setIsRunning] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const pluginName = pluginNameFromSourceKey(schedule.sourceKey);
   const disarmReasonKey = disarmReasonLabelKey(schedule);
+  // Recurring rows pause from the list toggle. A pending one-shot has
+  // nothing to pause, so cancel is the management action: it latches the
+  // row cancelled and it leaves the upcoming list.
+  const canCancelPending =
+    schedule.isOneShot &&
+    !isPast &&
+    pluginName === null &&
+    schedule.status !== "firing";
   // A plugin-sourced schedule is off either because the user turned it off or
   // because the plugin is disabled. Running it would execute the plugin's
   // script anyway, which the daemon refuses, so the affordance is disabled
@@ -550,6 +561,19 @@ export function ScheduleDetailPanel({
       toast.error(t("scheduleDetail.deleteFailed"));
       setIsDeleting(false);
       setConfirmingDelete(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    setIsCancelling(true);
+    try {
+      await cancelSchedule(assistantId, schedule.id);
+      onDeleted();
+    } catch (error) {
+      captureError(error, { context: "schedule_cancel" });
+      toast.error(t("scheduleDetail.cancelOneTimeFailed"));
+      setIsCancelling(false);
+      setConfirmingCancel(false);
     }
   };
 
@@ -667,6 +691,14 @@ export function ScheduleDetailPanel({
             >
               {t("scheduleDetail.viewUsage")}
             </Button>
+            {canCancelPending ? (
+              <Button
+                variant="dangerOutline"
+                onClick={() => setConfirmingCancel(true)}
+              >
+                {t("scheduleDetail.cancelOneTime")}
+              </Button>
+            ) : null}
             {schedule.mode === "script" ? (
               <>
                 {runNowBlocked ? (
@@ -709,6 +741,20 @@ export function ScheduleDetailPanel({
         isPending={isDeleting}
         onConfirm={() => void handleDelete()}
         onCancel={() => setConfirmingDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmingCancel}
+        title={t("scheduleDetail.cancelOneTime")}
+        message={t("scheduleDetail.cancelOneTimeConfirmMessage", {
+          name: schedule.name,
+        })}
+        confirmLabel={t("scheduleDetail.confirmCancelOneTime")}
+        cancelLabel={t("scheduleDetail.cancel")}
+        destructive
+        isPending={isCancelling}
+        onConfirm={() => void handleCancel()}
+        onCancel={() => setConfirmingCancel(false)}
       />
     </>
   );
