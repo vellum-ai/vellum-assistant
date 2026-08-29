@@ -105,6 +105,7 @@ export const PendingOneShot: Story = {
     schedule: {
       ...SCHEDULE,
       name: "Add members and partners to phone system",
+      description: "Remind me to add members and partners to the phone system.",
       isOneShot: true,
       expression: null,
       cronExpression: null,
