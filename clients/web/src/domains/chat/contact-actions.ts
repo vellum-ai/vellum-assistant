@@ -145,21 +145,21 @@ export async function handleContactPromptCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
-  if (!(await resolveSupportsContactFormCancellation())) {
-    // This assistant's submit route requires an address and rejects a
-    // dismissal, so the card comes down locally and its command waits out its
-    // own timeout, as it always has on that version.
-    useInteractionStore
-      .getState()
-      .dismissContactRequestIfMatches(request.requestId);
-    return;
-  }
   if (!ctx) {
     // Nothing was sent, so the command is still parked. Reporting this as a
     // dismissal would take away the only thing that could retry it.
     useChatSessionStore
       .getState()
       .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    return;
+  }
+  if (!(await resolveSupportsContactFormCancellation(ctx.assistantId))) {
+    // This assistant's submit route requires an address and rejects a
+    // dismissal, so the card comes down locally and its command waits out its
+    // own timeout, as it always has on that version.
+    useInteractionStore
+      .getState()
+      .dismissContactRequestIfMatches(request.requestId);
     return;
   }
 
@@ -321,19 +321,19 @@ export async function handleContactRecordCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
-  if (!(await resolveSupportsContactFormCancellation())) {
-    // An assistant that cannot raise this form cannot be asked to close one.
-    useInteractionStore
-      .getState()
-      .dismissContactRecordRequestIfMatches(request.requestId);
-    return;
-  }
   if (!ctx) {
     // Nothing was sent, so the command is still parked. Reporting this as a
     // dismissal would take away the only thing that could retry it.
     useChatSessionStore
       .getState()
       .setError({ message: t("chat:promptSubmission.noActiveSession") });
+    return;
+  }
+  if (!(await resolveSupportsContactFormCancellation(ctx.assistantId))) {
+    // An assistant that cannot raise this form cannot be asked to close one.
+    useInteractionStore
+      .getState()
+      .dismissContactRecordRequestIfMatches(request.requestId);
     return;
   }
 
