@@ -16,13 +16,25 @@ import {
   reportSubmissionFailure,
 } from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { supportsContactFormCancellation } from "@/lib/backwards-compat/contact-form-cancellation";
+import { resolveSupportsContactFormCancellation } from "@/lib/backwards-compat/contact-form-cancellation";
 
 import {
   cancelContactPrompt,
   submitContactPrompt,
   submitContactRecord,
 } from "@/domains/chat/api/interactions";
+
+/**
+ * Whether a rejected submission means the form itself is gone.
+ *
+ * The gateway answers 409 when the assistant has no such form pending: it
+ * expired, or the assistant restarted after broadcasting it. That is terminal,
+ * unlike a 503 from an assistant it could not reach, which is worth another
+ * attempt.
+ */
+function isFormAlreadyClosed(result: { status?: number }): boolean {
+  return result.status === 409;
+}
 
 /**
  * Submit the contact address/channel to the daemon.
@@ -133,7 +145,7 @@ export async function handleContactPromptCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
-  if (!supportsContactFormCancellation()) {
+  if (!(await resolveSupportsContactFormCancellation())) {
     // This assistant's submit route requires an address and rejects a
     // dismissal, so the card comes down locally and its command waits out its
     // own timeout, as it always has on that version.
@@ -156,6 +168,15 @@ export async function handleContactPromptCancel(): Promise<void> {
   // both waiting.
   const result = await cancelContactPrompt(ctx.assistantId, request.requestId);
   if (!result.ok) {
+    if (isFormAlreadyClosed(result)) {
+      // The assistant is no longer holding this form, so there is nothing to
+      // dismiss and nothing a retry could reach. Take the card down: leaving
+      // it up makes it permanent, since every attempt gets the same answer.
+      useInteractionStore
+        .getState()
+        .dismissContactRequestIfMatches(request.requestId);
+      return;
+    }
     captureSubmissionRejection("cancel_contact_prompt", result);
     reportSubmissionFailure(
       "contactRequest",
@@ -300,7 +321,7 @@ export async function handleContactRecordCancel(): Promise<void> {
   }
 
   const ctx = useStreamStore.getState().streamContext;
-  if (!supportsContactFormCancellation()) {
+  if (!(await resolveSupportsContactFormCancellation())) {
     // An assistant that cannot raise this form cannot be asked to close one.
     useInteractionStore
       .getState()
@@ -320,6 +341,13 @@ export async function handleContactRecordCancel(): Promise<void> {
     cancelled: true,
   });
   if (!result.ok) {
+    if (isFormAlreadyClosed(result)) {
+      // Nothing left to dismiss; see the address form's dismissal.
+      useInteractionStore
+        .getState()
+        .dismissContactRecordRequestIfMatches(request.requestId);
+      return;
+    }
     captureSubmissionRejection("cancel_contact_record", result);
     reportSubmissionFailure(
       "contactRecordRequest",

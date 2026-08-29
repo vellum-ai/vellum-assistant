@@ -24,12 +24,40 @@ describe("supportsContactFormCancellation", () => {
   });
 
   it("is false on an assistant whose submit route rejects a dismissal", () => {
-    setVersion("0.11.9");
+    setVersion("0.11.6");
     expect(supportsContactFormCancellation()).toBe(false);
   });
 
-  it("is true from the release that understands it", () => {
+  it("is true on a dev build from the carrying commit onwards", () => {
+    // Builds from this source report 0.11.7-dev.*, and they serve the field,
+    // so a floor at the next release number would degrade them.
+    setVersion("0.11.7-dev.202608281600.dd01e22");
+    expect(supportsContactFormCancellation()).toBe(true);
+    setVersion("0.11.7-dev.202608290900.abcdef1");
+    expect(supportsContactFormCancellation()).toBe(true);
+  });
+
+  it("is false on an earlier dev build of the same release", () => {
+    setVersion("0.11.7-dev.202608270000.0000000");
+    expect(supportsContactFormCancellation()).toBe(false);
+  });
+
+  it("is true from the build that first carries it", () => {
     setVersion(MIN_VERSION);
+    expect(supportsContactFormCancellation()).toBe(true);
+  });
+
+  it("is false on the 0.11.7 release, which was cut before this landed", () => {
+    // A dev build of X.Y.Z is treated as ahead of the X.Y.Z release here,
+    // because it carries commits the release does not. That is what makes the
+    // dev anchor correct: it admits the builds that have the field and still
+    // excludes the release that predates it.
+    setVersion("0.11.7");
+    expect(supportsContactFormCancellation()).toBe(false);
+  });
+
+  it("is true on the next release", () => {
+    setVersion("0.11.8");
     expect(supportsContactFormCancellation()).toBe(true);
   });
 
