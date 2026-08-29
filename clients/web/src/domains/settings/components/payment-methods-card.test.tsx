@@ -23,6 +23,8 @@
  *    captured when it started, which a request-scope change can discard. A
  *    saved outcome carrying no card is left alone: the cache then holds only
  *    the saved-poll's optimistic flip, which a refetch would wipe.
+ *  - The store outlives that remount, so an outcome stamped with a different
+ *    request scope is dropped rather than replayed or acted on here.
  *  - A 3DS redirect return replays its outcome into a freshly opened modal:
  *    a saved card on the success panel alone, a failure back into the form in
  *    the mode the saved card calls for. The failure waits for the config query
@@ -126,6 +128,7 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 }));
 
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { currentRequestScopeKey } from "@/stores/request-scope";
 
 const { PaymentMethodsCard } = await import("./payment-methods-card");
 const { useSetupIntentReturnStore } =
@@ -134,10 +137,15 @@ const { DISABLED_CONFIG } = await import("./auto-top-up-card");
 
 /**
  * Park an outcome in the redirect-return store the way the resolution driven
- * from `BillingPage` does, and hand it back for the assertions.
+ * from `BillingPage` does, and hand it back for the assertions. The scope
+ * defaults to the one the card is rendering under, which is what a return
+ * resolved in this tab carries.
  */
-function seedReturnOutcome(outcome: SetupIntentOutcome): SetupIntentOutcome {
-  useSetupIntentReturnStore.setState({ pending: false, outcome });
+function seedReturnOutcome(
+  outcome: SetupIntentOutcome,
+  scopeKey: string = currentRequestScopeKey(),
+): SetupIntentOutcome {
+  useSetupIntentReturnStore.setState({ pending: false, outcome, scopeKey });
   return outcome;
 }
 
@@ -248,7 +256,11 @@ beforeEach(() => {
   releaseRetrieve = null;
   orgReadiness = "ready";
   pmModalProps = null;
-  useSetupIntentReturnStore.setState({ pending: false, outcome: null });
+  useSetupIntentReturnStore.setState({
+    pending: false,
+    outcome: null,
+    scopeKey: null,
+  });
 });
 
 afterEach(cleanup);
@@ -492,6 +504,32 @@ describe("PaymentMethodsCard redirect return", () => {
     expect(invalidated).toContainEqual({
       queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
     });
+  });
+
+  test("drops an outcome that settled under a different user or organization", async () => {
+    // The store is module level and survives the remount a user or org switch
+    // gives the request-scoped QueryClient, so an outcome resolved under the
+    // replaced scope would otherwise replay that organization's saved card
+    // here and invalidate this organization's billing cache.
+    const client = makeClient(DISABLED_CONFIG);
+    const invalidated = trackInvalidations(client);
+    seedReturnOutcome(
+      {
+        kind: "saved",
+        card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
+      },
+      "user:someone-else:org:org_other",
+    );
+    render(wrapWith(client));
+
+    expect(lastPmModalProps().open).toBe(false);
+    expect(lastPmModalProps().initialOutcome).toBeNull();
+    await waitFor(() => {
+      if (useSetupIntentReturnStore.getState().outcome != null) {
+        throw new Error("stale outcome not cleared");
+      }
+    });
+    expect(invalidated).toEqual([]);
   });
 
   test("leaves the cache alone when the confirm produced no card", () => {

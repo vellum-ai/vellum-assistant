@@ -23,6 +23,7 @@ import * as savedSyncModule from "@/domains/settings/hooks/use-payment-method-sa
 import type { SavedPaymentMethod } from "@/domains/settings/hooks/use-payment-method-saved-poll";
 import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 
 // Keeps the real stripe-client below from injecting a Stripe.js script tag
 // into happy-dom when it is imported.
@@ -63,9 +64,13 @@ mock.module("@/domains/settings/billing/stripe-client", () => ({
 
 let syncCalls: Array<{ setupIntentId: string | null }> = [];
 let syncedCard: SavedPaymentMethod | null = null;
+// Seam for the scope test: the confirm is where the resolution spends its
+// time, so a switch that lands mid-flight lands here.
+let onSync: (() => void) | null = null;
 
 async function syncPaymentMethodSaved(args: { setupIntentId: string | null }) {
   syncCalls.push(args);
+  onSync?.();
   return syncedCard;
 }
 
@@ -147,7 +152,12 @@ beforeEach(() => {
   retrieveResult = { setupIntent: { status: "succeeded" } };
   syncCalls = [];
   syncedCard = { brand: "visa", last4: "4242", autoReloadEnabled: false };
+  onSync = null;
   orgReadiness = "ready";
+  useOrganizationStore.setState({
+    currentOrganizationId: null,
+    persistedOrganizationId: null,
+  });
   // Settled by default: the resolution holds until the platform-session probe
   // has answered, the way it does on a warm app.
   useAuthStore.setState({ platformSession: "absent" });
@@ -382,6 +392,39 @@ describe("useSetupIntentReturn", () => {
       kind: "saved",
       card: { brand: "visa", last4: "4242", autoReloadEnabled: false },
     });
+  });
+
+  test("discards a return whose organization changed while it resolved", async () => {
+    // The confirm writes through the QueryClient captured when the resolution
+    // started, and a switch remounts that client: publishing the result would
+    // show the previous organization's saved card under the new one and
+    // invalidate the new one's billing cache.
+    useOrganizationStore.setState({ currentOrganizationId: "org_1" });
+    onSync = () => {
+      useOrganizationStore.setState({ currentOrganizationId: "org_2" });
+    };
+
+    renderAt(RETURN_SEARCH);
+    await waitFor(() => {
+      if (pending()) {
+        throw new Error("return still resolving");
+      }
+    });
+
+    expect(syncCalls).toEqual([{ setupIntentId: "seti_1" }]);
+    expect(outcome()).toBeNull();
+    expect(useSetupIntentReturnStore.getState().scopeKey).toBeNull();
+  });
+
+  test("stamps a settled outcome with the scope it resolved under", async () => {
+    useOrganizationStore.setState({ currentOrganizationId: "org_1" });
+
+    renderAt(RETURN_SEARCH);
+    await waitForOutcome();
+
+    expect(useSetupIntentReturnStore.getState().scopeKey).toBe(
+      "anonymous:org:org_1",
+    );
   });
 
   test("clearOutcome drops the resolved outcome", async () => {

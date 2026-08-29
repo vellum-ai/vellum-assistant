@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
+import type { SetupIntentOutcome } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import {
   getStripePromise,
   setupIntentIdFromClientSecret,
@@ -14,6 +15,7 @@ import { replaceSearchParams } from "@/domains/settings/utils/replace-search-par
 import { awaitOrgHeaderSettled } from "@/hooks/await-org-header-settled";
 import { t } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
+import { currentRequestScopeKey } from "@/stores/request-scope";
 import { isPlatformSessionSettled } from "@/stores/session-status";
 
 const CLIENT_SECRET_PARAM = "setup_intent_client_secret";
@@ -57,25 +59,42 @@ async function resolveSetupIntentReturn({
   redirectStatus: string | null;
   confirmSaved: ConfirmSaved;
 }): Promise<void> {
-  const { settleOutcome } = useSetupIntentReturnStore.getState();
-
-  const settleError = (message: string | undefined) => {
-    console.warn("[useSetupIntentReturn] card not saved on redirect return", {
-      redirectStatus,
-    });
-    settleOutcome({
-      kind: "error",
-      message:
-        message ?? t("settings:autoTopUpPaymentMethodModal.confirmFailed"),
-    });
-  };
-
   // A full-page 3DS return remounts the app, so the org store can still be
   // hydrating when the params are read. The confirm below needs
   // `Vellum-Organization-Id`, and a headerless one is rejected and falls back
   // to the 20-second webhook poll. Past the ceiling, and for `"unavailable"`,
   // the request fires and fails into the error outcome instead.
   await awaitOrgHeaderSettled({ alsoReady: requestScopeSettled });
+
+  // The scope the resolution runs under, read once the wait above has settled
+  // it: at param capture the platform-session probe can still be answering,
+  // which would stamp the return with a placeholder identity.
+  const initiatingScopeKey = currentRequestScopeKey();
+
+  // The confirm can spend 20 seconds in its webhook poll, long enough for a
+  // user or organization switch to land. A result carried across one answers
+  // for an identity that is no longer on screen, so it is dropped rather than
+  // published into the module-level store the cards read.
+  const settle = (outcome: SetupIntentOutcome) => {
+    const { settleOutcome, discardResolution } =
+      useSetupIntentReturnStore.getState();
+    if (currentRequestScopeKey() !== initiatingScopeKey) {
+      discardResolution();
+      return;
+    }
+    settleOutcome(outcome, initiatingScopeKey);
+  };
+
+  const settleError = (message: string | undefined) => {
+    console.warn("[useSetupIntentReturn] card not saved on redirect return", {
+      redirectStatus,
+    });
+    settle({
+      kind: "error",
+      message:
+        message ?? t("settings:autoTopUpPaymentMethodModal.confirmFailed"),
+    });
+  };
 
   try {
     const stripe = await getStripePromise();
@@ -89,7 +108,7 @@ async function resolveSetupIntentReturn({
       const card = await confirmSaved({
         setupIntentId: setupIntentIdFromClientSecret(clientSecret),
       });
-      settleOutcome({ kind: "saved", card });
+      settle({ kind: "saved", card });
       return;
     }
     settleError(error?.message ?? setupIntent?.last_setup_error?.message);

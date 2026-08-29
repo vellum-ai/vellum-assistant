@@ -19,6 +19,7 @@ import { useSetupIntentReturnStore } from "@/domains/settings/setup-intent-retur
 import { organizationsBillingAutoTopUpRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useTranslation } from "@/i18n";
+import { useRequestScopeKey } from "@/stores/request-scope";
 
 /**
  * Settings → Billing "Payment Methods" section. Card management lives here;
@@ -37,11 +38,27 @@ export function PaymentMethodsCard() {
   // seeded on open alone, so one opened in that window would never show it.
   // The return is driven from `BillingPage` and parked in the store, so it
   // survives this card being unmounted by a tab switch mid-resolution.
-  const outcome = useSetupIntentReturnStore.use.outcome();
+  const settledOutcome = useSetupIntentReturnStore.use.outcome();
+  const settledScopeKey = useSetupIntentReturnStore.use.scopeKey();
   const returnPending = useSetupIntentReturnStore.use.pending();
   const clearOutcome = useSetupIntentReturnStore.use.clearOutcome();
+  const scopeKey = useRequestScopeKey();
+
+  // The store is module level, so it survives the user or organization switch
+  // that remounts this card's QueryClient. An outcome settled under the scope
+  // that was replaced is not this organization's answer: consuming it would
+  // replay the previous organization's saved card and invalidate this one's
+  // billing cache, so it is dropped instead.
+  const outcomeInScope = settledOutcome != null && settledScopeKey === scopeKey;
+  const outcome = outcomeInScope ? settledOutcome : null;
 
   const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
+
+  useEffect(() => {
+    if (settledOutcome != null && !outcomeInScope) {
+      clearOutcome();
+    }
+  }, [settledOutcome, outcomeInScope, clearOutcome]);
 
   const config = configQuery.data;
   const cards = useMemo(() => paymentMethodCards(config), [config]);

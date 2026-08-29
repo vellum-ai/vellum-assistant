@@ -23,11 +23,19 @@ interface SetupIntentReturnState {
    */
   pending: boolean;
   outcome: SetupIntentOutcome | null;
+  /**
+   * The request scope the settled outcome was produced under. This store is
+   * module level and survives the user or organization switch that remounts
+   * the request-scoped `QueryClient`, so consumers compare this against the
+   * scope in hand before replaying a saved card or invalidating a cache.
+   */
+  scopeKey: string | null;
 }
 
 interface SetupIntentReturnActions {
   beginResolving: () => void;
-  settleOutcome: (outcome: SetupIntentOutcome) => void;
+  settleOutcome: (outcome: SetupIntentOutcome, scopeKey: string) => void;
+  discardResolution: () => void;
   clearOutcome: () => void;
 }
 
@@ -36,12 +44,18 @@ const useSetupIntentReturnStoreBase = create<
 >()((set) => ({
   pending: false,
   outcome: null,
+  scopeKey: null,
 
-  beginResolving: () => set({ pending: true, outcome: null }),
-  settleOutcome: (outcome) => set({ pending: false, outcome }),
+  beginResolving: () => set({ pending: true, outcome: null, scopeKey: null }),
+  settleOutcome: (outcome, scopeKey) =>
+    set({ pending: false, outcome, scopeKey }),
+  // The return resolved for an identity that is no longer on screen, so it
+  // ends the pending window without publishing anything to replay.
+  discardResolution: () =>
+    set({ pending: false, outcome: null, scopeKey: null }),
   // `pending` is left alone: a cleared outcome is a resolved return, not one
   // that went back to being in flight.
-  clearOutcome: () => set({ outcome: null }),
+  clearOutcome: () => set({ outcome: null, scopeKey: null }),
 }));
 
 export const useSetupIntentReturnStore = createSelectors(
