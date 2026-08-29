@@ -34,6 +34,7 @@ import {
   useQuoteReplyStore,
   type StagedQuote,
 } from "@/domains/chat/quote-reply-store";
+import { finishActiveDictation } from "@/domains/chat/voice/finish-dictation";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -121,6 +122,25 @@ export function useComposerSubmit({
   // --- Submit logic -------------------------------------------------------
   const submitMessage = useCallback(
     async (inputOverride?: string, opts?: { bypassSecretCheck?: boolean }) => {
+      if (sendDisabled) {
+        return;
+      }
+      // A send pressed mid-dictation means "finish, then send". Waiting for
+      // the transcript to land is what keeps the payload equal to what the
+      // user can read: the live partial is not in the draft yet, so sending
+      // first would drop everything spoken since the draft was last written
+      // (LUM-3432). An explicit override is its own payload (a starter
+      // prompt, the secret guard's re-send) and never the live draft, so it
+      // does not wait.
+      if (inputOverride === undefined) {
+        const outcome = await finishActiveDictation();
+        if (outcome === "no-transcript") {
+          // The spoken words did not survive. The draft sitting in the
+          // composer is not what the user asked to send, so leave it intact
+          // rather than sending it in their place.
+          return;
+        }
+      }
       const input = useComposerStore.getState().input;
       const chatAttachments = useComposerStore.getState().attachments;
       const uploadingCount = selectUploadingCount(chatAttachments);
@@ -130,9 +150,6 @@ export function useComposerSubmit({
       const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
       const channelReference = useChannelReferenceStore.getState().reference;
       const trimmed = (inputOverride ?? input).trim();
-      if (sendDisabled) {
-        return;
-      }
       // A staged channel reference is content in its own right: "look at this
       // message" is a complete instruction, so it makes an otherwise empty
       // composer sendable exactly as a staged quote does.
