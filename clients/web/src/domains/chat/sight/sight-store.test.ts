@@ -37,6 +37,8 @@ mock.module("@/domains/chat/voice/voice-room/voice-camera", () => ({
 
 const { useSightStore } = await import("./sight-store");
 const { publish } = await import("@/lib/event-bus");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
 
 /** Let the queued microtasks behind an `onDecision` capture run. */
 async function flush(): Promise<void> {
@@ -52,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useSightStore.getState().stop();
+  useLiveVoiceStore.getState().reset();
   restoreMediaDevices();
 });
 
@@ -124,6 +127,58 @@ describe("sight store", () => {
     await useSightStore.getState().start();
 
     publish("app.hidden", { signal: "visibility" });
+
+    expect(useSightStore.getState().status).toBe("off");
+    for (const stop of stops) {
+      expect(stop).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("a voice session starting takes the camera", async () => {
+    const { stream, stops } = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(stream));
+    await useSightStore.getState().start();
+    expect(useSightStore.getState().status).toBe("on");
+
+    // The room raises a viewfinder of its own, and two surfaces cannot hold
+    // one webcam. Settled, so the burst a session start writes on its way to
+    // `listening` is read once.
+    useLiveVoiceStore.getState().setState("connecting");
+    await flush();
+
+    expect(useSightStore.getState().status).toBe("off");
+    for (const stop of stops) {
+      expect(stop).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  test("a session that failed to start leaves the camera alone", async () => {
+    const { stream } = fakeCameraStream();
+    stubMediaDevices(() => Promise.resolve(stream));
+    await useSightStore.getState().start();
+
+    // `failed` is not a running session: it is the surfaced error a retry
+    // starts from, and the camera it never took must not be closed for it.
+    useLiveVoiceStore.getState().setState("failed");
+    await flush();
+
+    expect(useSightStore.getState().status).toBe("on");
+  });
+
+  test("a start that resolves into a live call releases at once", async () => {
+    const { stream, stops } = fakeCameraStream();
+    let deliver!: (value: MediaStream) => void;
+    const pending = new Promise<MediaStream>((resolve) => {
+      deliver = resolve;
+    });
+    stubMediaDevices(() => pending);
+
+    const started = useSightStore.getState().start();
+    // A call started while the permission prompt was up, before the store
+    // subscribed, so only the state check at the end of start can catch it.
+    useLiveVoiceStore.getState().setState("listening");
+    deliver(stream);
+    await started;
 
     expect(useSightStore.getState().status).toBe("off");
     for (const stop of stops) {

@@ -12,6 +12,10 @@ import { Button } from "@vellumai/design-library";
 
 import { useSightStore } from "@/domains/chat/sight/sight-store";
 import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
   isVisionModeOn,
   useVisionModeVariant,
 } from "@/hooks/use-vision-mode-flag";
@@ -34,6 +38,9 @@ export function SightToggle({ imageAttachmentsAllowed }: SightToggleProps) {
   const status = useSightStore.use.status();
   const start = useSightStore.use.start();
   const stop = useSightStore.use.stop();
+  // A call owns the one webcam while it runs, and raises a viewfinder of its
+  // own to prove it. See the sight store's release triggers.
+  const callIsLive = isLiveVoiceSessionActive(useLiveVoiceStore.use.state());
 
   // Hidden rather than degraded where an image cannot be sent, per the
   // backwards-compat discipline: a camera whose frames were silently dropped on
@@ -45,7 +52,15 @@ export function SightToggle({ imageAttachmentsAllowed }: SightToggleProps) {
   }
 
   const engaged = status !== "off";
-  const label = engaged ? t("sightToggle.turnOff") : t("sightToggle.turnOn");
+  // Disabled rather than hidden, and the label says why: a control that
+  // vanishes when a call starts reads as a bug, and the reason it is
+  // unavailable is exactly the thing the user can act on (end the call, or use
+  // the room's own viewfinder).
+  const label = callIsLive
+    ? t("sightToggle.busyInCall")
+    : engaged
+      ? t("sightToggle.turnOff")
+      : t("sightToggle.turnOn");
 
   return (
     <Button
@@ -53,6 +68,7 @@ export function SightToggle({ imageAttachmentsAllowed }: SightToggleProps) {
       iconOnly={engaged ? <Eye /> : <EyeOff />}
       active={engaged}
       aria-pressed={engaged}
+      disabled={callIsLive}
       onClick={() => {
         if (engaged) {
           stop();

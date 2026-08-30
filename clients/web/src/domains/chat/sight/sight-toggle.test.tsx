@@ -1,12 +1,13 @@
 /**
- * The `vision-mode` gate on the composer's Eyes control. The toggle is the
- * feature's only entry point, so an off flag has to leave the row exactly as it
- * was.
+ * The `vision-mode` gate on the composer's Eyes control, and what a live call
+ * does to it. The toggle is the feature's only entry point, so an off flag has
+ * to leave the row exactly as it was.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render, screen } from "@testing-library/react";
 
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 import { SightToggle } from "./sight-toggle";
@@ -21,6 +22,9 @@ function setVisionModeFlag(value: "off" | "on") {
 
 beforeEach(() => {
   setVisionModeFlag("off");
+  act(() => {
+    useLiveVoiceStore.getState().reset();
+  });
 });
 
 afterEach(() => {
@@ -42,6 +46,24 @@ describe("SightToggle", () => {
     render(<SightToggle imageAttachmentsAllowed />);
 
     expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("is disabled, and says why, while a call holds the camera", () => {
+    // Disabled rather than hidden: the room raises its own viewfinder, so the
+    // camera is not gone, and a control that vanished mid-call would read as
+    // the feature breaking.
+    setVisionModeFlag("on");
+    render(<SightToggle imageAttachmentsAllowed />);
+    expect(toggle()).not.toBeNull();
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    const busy = screen.getByRole("button", {
+      name: "The voice call is using the camera",
+    });
+    expect(busy.hasAttribute("disabled")).toBe(true);
   });
 
   test("renders nothing where an image would not survive the turn", () => {

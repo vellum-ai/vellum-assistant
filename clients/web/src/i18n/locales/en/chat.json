@@ -1418,6 +1418,7 @@
     "unavailable": "No camera is available."
   },
   "sightToggle": {
+    "busyInCall": "The voice call is using the camera",
     "turnOff": "Turn off camera vision",
     "turnOn": "Turn on camera vision"
   },

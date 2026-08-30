@@ -25,12 +25,21 @@
  *
  * ## What releases the camera
  *
- * The toggle, the tile's close button, the tile leaving the tree, and the app
- * going to the background. That last one is the consent story: a camera light
- * that stays on behind a hidden window is one the user did not agree to. The
- * signal arrives as the bus's `app.hidden`, which is published from the app's
- * one `visibilitychange` listener and from the Capacitor app-state source,
- * rather than from a listener of this store's own (see `docs/EVENT_BUS.md`).
+ * The toggle, the tile's close button, the tile leaving the tree, the app going
+ * to the background, and a live voice session starting. The background one is
+ * the consent story: a camera light that stays on behind a hidden window is one
+ * the user did not agree to. The signal arrives as the bus's `app.hidden`,
+ * which is published from the app's one `visibilitychange` listener and from
+ * the Capacitor app-state source, rather than from a listener of this store's
+ * own (see `docs/EVENT_BUS.md`).
+ *
+ * The voice session is arbitration rather than consent. The voice room raises
+ * its own viewfinder and samples it for the call, and two surfaces cannot hold
+ * one webcam: on most machines the second `getUserMedia` simply fails, and
+ * where it does not the user is left with two camera previews and no way to
+ * tell which one the assistant is reading. The call wins, because it is the one
+ * with a live conversation attached to it, and the composer's toggle disables
+ * itself for the duration rather than offering a camera it would lose.
  *
  * The camera can also be taken rather than given up: a revoked permission or an
  * unplugged webcam ends the tracks. That lands in an error rather than off, so
@@ -40,6 +49,11 @@
 
 import { create } from "zustand";
 
+import {
+  isLiveVoiceSessionActive,
+  subscribeSettledLiveVoiceState,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { captureVideoFrame } from "@/domains/chat/voice/voice-room/voice-camera";
 import {
   DEFAULT_FRAME_GATE_OPTIONS,
@@ -127,6 +141,8 @@ let sampler: FrameSampler | null = null;
 let previewVideo: HTMLVideoElement | null = null;
 /** Bus handle for the background release, held for as long as the camera is. */
 let unsubscribeAppHidden: (() => void) | null = null;
+/** Store handle for the voice-session release, held the same way. */
+let unsubscribeVoiceSession: (() => void) | null = null;
 /**
  * Takes the `ended` listeners back off the running capture's tracks. Held as
  * the detach rather than the tracks so every teardown path drops them the same
@@ -177,6 +193,10 @@ const useSightStoreBase = create<SightStore>()((set, get) => {
     if (unsubscribeAppHidden) {
       unsubscribeAppHidden();
       unsubscribeAppHidden = null;
+    }
+    if (unsubscribeVoiceSession) {
+      unsubscribeVoiceSession();
+      unsubscribeVoiceSession = null;
     }
     if (detachTrackEnded) {
       detachTrackEnded();
@@ -301,16 +321,28 @@ const useSightStoreBase = create<SightStore>()((set, get) => {
       unsubscribeAppHidden = subscribe("app.hidden", () => {
         get().stop();
       });
+      // Settled rather than raw: starting a session writes `idle` and four
+      // half-built frames before it settles, and a raw subscriber would give
+      // the camera back to a session that never existed.
+      unsubscribeVoiceSession = subscribeSettledLiveVoiceState((session) => {
+        if (isLiveVoiceSessionActive(session.state)) {
+          get().stop();
+        }
+      });
       set({ status: "on", stream, error: null });
       // Ahead of the visibility check below, so a camera that goes straight back
       // has its listeners taken off by that stop rather than left on a released
       // stream.
       watchForInterruption(stream, epoch);
-      // The subscription begins after the permission round trip, so a hide
-      // during that round trip was published before anyone listened. Read the
-      // state it left behind: a camera raised behind a hidden window goes
-      // straight back.
-      if (document.visibilityState === "hidden") {
+      // Both subscriptions begin after the permission round trip, so anything
+      // that happened during it was published before anyone listened. Read the
+      // state they left behind: a camera raised behind a hidden window, or into
+      // a call that started while the permission alert was up, goes straight
+      // back.
+      if (
+        document.visibilityState === "hidden" ||
+        isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)
+      ) {
         get().stop();
       }
     },
