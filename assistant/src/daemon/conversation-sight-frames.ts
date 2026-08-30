@@ -16,11 +16,12 @@
  * import. They agree on the shape of what they leave behind: a `text` block
  * naming the media that was dropped, so a frame stubbed here is plain text by
  * the time the retry path walks the history and is neither counted as media nor
- * stubbed a second time. Keep the stub wording below in step with
- * `imageBlockToStub` there.
+ * stubbed a second time. Both describe that media through
+ * `mediaSourceDescriptor`, which is what holds the two wordings together
+ * without either module importing the other.
  */
 
-import { mediaSourceByteLength } from "../providers/media-resolve.js";
+import { mediaSourceDescriptor } from "../providers/media-resolve.js";
 import {
   type ContentBlock,
   mediaBlockAttachmentId,
@@ -150,20 +151,20 @@ export function stripAgedSightFrames(
 }
 
 /**
- * Stub for a frame that has aged out of the context. Mirrors the media type and
- * byte size the retry path's image stub reports, and adds the capture time,
- * which is the only thing telling one ambient frame from another once the
- * pixels are gone. A frame is always an image, so the extracted-text folding
- * the retry path does for file blocks has nothing to act on here.
+ * Stub for a frame that has aged out of the context. Describes the dropped
+ * media through `mediaSourceDescriptor`, the same way the retry path's stubs
+ * do, and adds the capture time, which is the only thing telling one ambient
+ * frame from another once the pixels are gone. A frame is always an image, so
+ * the extracted-text folding the retry path does for file blocks has nothing to
+ * act on here.
  */
 function sightFrameBlockToStub(
   block: Extract<ContentBlock, { type: "image" }>,
   capturedAt: number,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = mediaSourceByteLength(block.source);
   const capturedAtIso = new Date(capturedAt).toISOString();
   return {
     type: "text",
-    text: `[Camera frame omitted from context: captured ${capturedAtIso}, ${block.source.media_type}, ${sizeBytes} bytes]`,
+    text: `[Camera frame omitted from context: captured ${capturedAtIso}, ${mediaSourceDescriptor(block.source)}]`,
   };
 }

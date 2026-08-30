@@ -145,6 +145,21 @@ export function mediaSourceByteLength(source: MediaSource): number {
 }
 
 /**
+ * What a media source was, as the text that stands in for it once the bytes are
+ * gone: its media type and payload size.
+ *
+ * Every path that replaces a media block with a text stub naming what it
+ * dropped reports these same two facts, so they are derived once here. Each
+ * stub keeps its own surrounding sentence (which path dropped it, and why) and
+ * embeds this for the what. Reads the size through
+ * {@link mediaSourceByteLength}, so a reference and an inline block describe
+ * themselves the same way.
+ */
+export function mediaSourceDescriptor(source: MediaSource): string {
+  return `${source.media_type}, ${mediaSourceByteLength(source)} bytes`;
+}
+
+/**
  * Resolve a media source to inline base64, reading a reference source back from
  * its workspace location. Returns `null` when a reference can no longer be
  * read. For consumers that hold an individual in-memory block (image
