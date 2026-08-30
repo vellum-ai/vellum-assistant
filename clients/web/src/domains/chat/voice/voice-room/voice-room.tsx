@@ -362,8 +362,9 @@ export function VoiceRoom({
  * variants, rather than Radix's, so one keypress is one minimize.
  *
  * Flush to the top for the camera, it covers that chrome instead of resting
- * below it, and {@link useInertBehindSheet} takes the covered shell out of the
- * tab order and the accessibility tree for as long as it does. Not by turning
+ * below it, and {@link useInertBehindSheet} takes the covered shell, the other
+ * overlays sharing its portal host included, out of the tab order and the
+ * accessibility tree for as long as it does. Not by turning
  * `modal` on: Radix renders a different content component per `modal`, so
  * flipping it mid-session would remount the sheet, replay the slide-up and
  * tear down the live viewfinder.
@@ -402,10 +403,12 @@ function VoiceRoomSheet({
   children: ReactNode;
 }) {
   const { t } = useTranslation("chat");
-  useInertBehindSheet(flushToTop);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  useInertBehindSheet(flushToTop, contentRef);
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <MotionBottomSheetContent
+        ref={contentRef}
         {...motionProps}
         drag="y"
         // A voice room is a tall surface with controls near its bottom edge;

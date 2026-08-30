@@ -689,6 +689,9 @@ describe("VoiceRoom: mobile sheet", () => {
     // them float a third of the way down over a feed that already covers the
     // rest. Closing the camera puts the sheet back below the header.
     const overlays = mountOverlayHost();
+    // Another mobile overlay parked in the shared host, beside the sheet.
+    const parkedOverlay = document.createElement("div");
+    overlays.host.append(parkedOverlay);
     const removeHeader = mountHeader({ top: 47, height: 96 });
     const header = document.querySelector('[data-slot="chat-layout-header"]')!;
     stubMediaDevices(async () => fakeStream());
@@ -703,6 +706,7 @@ describe("VoiceRoom: mobile sheet", () => {
       // Resting below it, the sheet leaves the header usable, which is what
       // being non-modal buys.
       expect(header.hasAttribute("inert")).toBe(false);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(false);
 
       await act(async () => {
         fireEvent.click(cameraToggle()!);
@@ -712,8 +716,11 @@ describe("VoiceRoom: mobile sheet", () => {
       expect(sheet.className).toContain("rounded-t-none");
       expect(roomBox().className).toContain("rounded-t-none");
       // Covered by the feed, so out of the tab order and out of VoiceOver's
-      // way rather than lit and reachable behind it.
+      // way rather than lit and reachable behind it. The sheet itself stays
+      // reachable, which is the whole point.
       expect(header.hasAttribute("inert")).toBe(true);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(true);
+      expect(sheet.closest("[inert]")).toBeNull();
 
       // The pull-down survives the mode switch, and the band it shares with the
       // camera pill clears the notch the sheet now reaches.
@@ -736,6 +743,7 @@ describe("VoiceRoom: mobile sheet", () => {
       expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
       expect(sheet.className).not.toContain("rounded-t-none");
       expect(header.hasAttribute("inert")).toBe(false);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(false);
       // Back below the header, where nothing above the sheet is the notch.
       expect(roomBox().getAttribute("style")).toContain(
         "--room-grabber-top: 0.5rem",
