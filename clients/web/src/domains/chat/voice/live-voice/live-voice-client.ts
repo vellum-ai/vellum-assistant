@@ -422,6 +422,28 @@ export class LiveVoiceChannelClient {
   }
 
   /**
+   * Park a camera frame for the next turn to carry, by the id its upload
+   * already returned. Unlike `attachImage` the daemon persists nothing on its
+   * own: the id waits in a one-slot latest-wins holder and rides whichever turn
+   * launches next, or is given back if none ever does.
+   *
+   * Returns whether the frame went out, which is all a caller can act on. The
+   * frame is ambient context rather than something the user asked to send, so
+   * a false is not worth reporting: the next keep parks a newer one anyway.
+   *
+   * Callers MUST gate this on `useSupportsSightFrames`. An assistant that
+   * predates the frame rejects it with `unknown_type`, and while the branch
+   * below keeps that out of the `update_config` bucket, an ungated sampler
+   * would still be sending a frame every few seconds into a void.
+   */
+  attachFrame(attachmentId: string): boolean {
+    if (this.state !== "active") {
+      return false;
+    }
+    return this.trySend(JSON.stringify({ type: "attach_frame", attachmentId }));
+  }
+
+  /**
    * Take a turn by typing it instead of speaking it. The daemon answers on the
    * same session, out loud.
    *
@@ -607,6 +629,19 @@ export class LiveVoiceChannelClient {
           });
           return;
         }
+        if (about === "attach_frame") {
+          // Swallowed rather than emitted, and both shapes land here. An
+          // `unknown_type` from a stale build that passes the version gate
+          // must not reach the `update_config` latch below and turn the
+          // room's settings off for the session; and the daemon's own
+          // `recoverable` refusal (an id it cannot resolve) must not reach the
+          // recoverable-error handler, which returns a hands-free session from
+          // `transcribing` to `listening` and would disturb the turn this
+          // frame was meant to ride. A parked frame is ambient context nobody
+          // asked to send, so a lost one is worth a log and nothing more.
+          console.warn(`live-voice: camera frame not parked: ${frame.message}`);
+          return;
+        }
         if (about === "text") {
           // Both shapes land here and neither is a session problem: a refusal
           // because the assistant is mid-reply (recoverable), and an
@@ -625,8 +660,9 @@ export class LiveVoiceChannelClient {
         // Daemons predating `frameType` omit it, so an unattributed
         // `unknown_type` falls back to the settings frame. That is the safe
         // guess: it is the only frame this client sends without a version
-        // gate, and `attach_image` is gated on `useSupportsVoiceCamera` so it
-        // should never be in flight against an assistant that old. Anything
+        // gate, and the camera frames are gated (`useSupportsVoiceCamera`,
+        // `useSupportsSightFrames`) so neither should be in flight against an
+        // assistant that old. Anything
         // new sent from here needs a gate or a `frameType`, or its rejection
         // lands in the wrong bucket.
         if (frame.code === "unknown_type") {

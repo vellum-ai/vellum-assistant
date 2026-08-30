@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  attachLiveVoiceFrame,
   attachLiveVoiceImage,
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
@@ -573,6 +574,41 @@ describe("attachLiveVoiceImage", () => {
 
     expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
     expect(reconnected.attachImage).toHaveBeenCalledWith("att-1");
+  });
+});
+
+describe("attachLiveVoiceFrame", () => {
+  test("parks a frame sampled in the session that still runs", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const sampled = useLiveVoiceStore.getState().sessionGeneration;
+
+    expect(attachLiveVoiceFrame("att-1", sampled)).toBe(true);
+    expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
+  });
+
+  test("refuses a frame sampled in a session that ended", () => {
+    // Same rule as a photo's, and it matters more here: nobody pressed
+    // anything, so a frame landing in the wrong call would show the assistant
+    // a view from a conversation the user has already left.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const sampled = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset();
+    const successor = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(successor);
+
+    expect(attachLiveVoiceFrame("att-1", sampled)).toBe(false);
+    expect(successor.attachFrame).not.toHaveBeenCalled();
+  });
+
+  test("reports false when no session has registered controls", () => {
+    expect(
+      attachLiveVoiceFrame(
+        "att-1",
+        useLiveVoiceStore.getState().sessionGeneration,
+      ),
+    ).toBe(false);
   });
 });
 
