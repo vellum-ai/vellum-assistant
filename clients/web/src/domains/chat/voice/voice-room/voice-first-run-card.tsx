@@ -75,13 +75,12 @@ import { useTranslation } from "@/i18n";
  * can't discard a half-entered API key.
  *
  * `nonDismissible` locks the card to a single forward action — no ✕, backdrop,
- * or Escape. The composer sets it on Capacitor iOS, where the card precedes the
- * live-voice `getUserMedia` alert: per `docs/CAPACITOR.md` § OS permission
- * requests (Apple HIG / App Store Review 5.1.1(iv)) such a pre-prompt must lead
- * straight to the system alert, so a dismissible one is disallowed. Locked,
- * there is no card-level cancel by design — backing out means denying the OS
- * mic prompt (or ✕ once the room opens). The sub-view back arrow is in-modal
- * navigation, not a cancel, so it stays available under the lock.
+ * or Escape. The composer does not use that lock: dismissing here cancels
+ * without calling `getUserMedia`, so it is not a permission pre-prompt
+ * (see `docs/CAPACITOR.md` § OS permission requests). A widget, Siri, or
+ * Action Button launch can open this card by accident, and a locked card
+ * then has no way out short of killing the app. The sub-view back arrow is
+ * in-modal navigation, not a cancel, so it stays available under the lock.
  */
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */
@@ -102,9 +101,8 @@ export interface VoiceFirstRunCardProps {
   /** Cancel: dismissed without starting (does not consume the first run). */
   onDismiss?: () => void;
   /**
-   * Lock the card: no ✕ / backdrop / Escape, only "Start talking". Set on
-   * Capacitor iOS so the pre-permission card leads straight to the mic alert
-   * (see the module docstring). Defaults to dismissible (web).
+   * Lock the card: no ✕ / backdrop / Escape, only "Start talking".
+   * Defaults to dismissible. Dismiss cancels without requesting the mic.
    */
   nonDismissible?: boolean;
 }

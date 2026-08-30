@@ -78,6 +78,8 @@ Any UI that gates a browser API which triggers an OS permission alert (`getUserM
 
 Apple's [HIG — Requesting permission](https://developer.apple.com/design/human-interface-guidelines/requesting-permission) and [App Store Review Guideline 5.1.1(iv)](https://developer.apple.com/app-store/review/guidelines/#5.1.1) require any pre-prompt screen to lead directly to the alert. Pair `isXSupported()` capability checks with `useIsNativePlatform()` for any pre-permission UI: capability detection alone is not sufficient.
 
+A welcome or settings card whose dismiss **does not** call the permission API is not a pre-prompt. It must stay dismissible. The first-run voice card is this case: ✕ / backdrop / Escape cancel without calling `getUserMedia`. Locking that card traps an accidental widget or Siri launch with no way out.
+
 ### Keyboard-only affordances on touch devices
 
 Which signal to reach for (viewport size vs pointer capability vs native platform) and where the branch belongs is covered in [`PLATFORM_ADAPTATION.md`](./PLATFORM_ADAPTATION.md).

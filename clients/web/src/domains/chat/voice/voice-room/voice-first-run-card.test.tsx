@@ -201,10 +201,9 @@ describe("VoiceFirstRunCard", () => {
     expect(getByLabelText("Close")).toBeTruthy();
   });
 
-  test("nonDismissible (iOS lock): no ✕, only Start talking leads forward", () => {
-    // The lock strips the close affordance so the pre-permission card leads
-    // straight to the mic alert (CAPACITOR.md § OS permission requests); there
-    // is intentionally no card-level cancel.
+  test("nonDismissible: no ✕, only Start talking leads forward", () => {
+    // The lock strips the close affordance. The composer does not use it:
+    // dismiss cancels without requesting the mic.
     const { queryByLabelText, getByText } = render(
       <VoiceFirstRunCard
         assistantId="asst_test"

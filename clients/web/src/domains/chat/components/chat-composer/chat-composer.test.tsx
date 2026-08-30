@@ -2643,11 +2643,10 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("Capacitor iOS: first-ever entry shows the prefs card too (web↔iOS parity)", () => {
-    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
-    // entry. The card is intentionally shown on every platform — a deliberate
-    // deviation from CAPACITOR.md's "no dismissible pre-prompt before
-    // getUserMedia" rule, chosen for parity with web (see the composer's
-    // handleLiveVoiceStart note) — so the iOS shell must get it too.
+    // GIVEN the native iOS shell, no session, and a first-ever entry. The
+    // card is shown on every platform. Dismiss cancels without requesting
+    // the mic, so the card stays dismissible on iOS too (a widget or Siri
+    // launch can open it by accident).
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockIsNativeIOS = true;
     useVoicePrefsStore.setState({ firstRunSeen: false });
@@ -2656,13 +2655,12 @@ describe("ChatComposer — live-voice integration", () => {
     const { getByLabelText, getByTestId } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN the same prefs card appears and the session has NOT started yet —
-    // like web, but locked (non-dismissible) so it leads straight to the mic
-    // alert per CAPACITOR.md.
+    // THEN the same prefs card appears, dismissible, and the session has
+    // NOT started yet.
     expect(getByTestId("first-run-card")).toBeTruthy();
     expect(
       getByTestId("first-run-card").getAttribute("data-non-dismissible"),
-    ).toBe("true");
+    ).toBe("false");
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(livePrewarmSpy).not.toHaveBeenCalled();
   });
