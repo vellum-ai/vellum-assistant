@@ -71,7 +71,13 @@ const uploadChatAttachment = mock(
     });
   },
 );
-mock.module("@/domains/chat/api/messages", () => ({ uploadChatAttachment }));
+const deleteChatAttachment = mock(
+  async (_assistantId: string, _attachmentId: string) => true,
+);
+mock.module("@/domains/chat/api/messages", () => ({
+  uploadChatAttachment,
+  deleteChatAttachment,
+}));
 
 const { useVoiceRoomSight } = await import("./use-voice-room-sight");
 const { useLiveVoiceStore } =
@@ -145,12 +151,26 @@ async function keepFrame(): Promise<void> {
   await flush();
 }
 
+/**
+ * Replace the running gate's `reset` with a spy.
+ *
+ * The sampler is handed the very object the hook keeps, so overwriting the
+ * method here is what the hook calls. Nothing else can observe a reset: the
+ * sampler is faked, so no frame ever reaches the real gate.
+ */
+function watchGateReset() {
+  const spy = mock((_nowMs: number) => {});
+  samplerOptions!.gate.reset = spy;
+  return spy;
+}
+
 beforeEach(() => {
   samplerOptions = null;
   samplerStart.mockClear();
   samplerStop.mockClear();
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
+  deleteChatAttachment.mockClear();
   pendingUploads = [];
   autoUploadId = 0;
   uploadsResolveImmediately = true;
@@ -231,6 +251,8 @@ describe("useVoiceRoomSight: parking a keep", () => {
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
     expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+    // The daemon owns a frame that reached its slot and reclaims it there.
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
   });
 
   test("ignores frames the gate skipped", async () => {
@@ -272,6 +294,8 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
     expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
     expect(view.result.current.heldFrame).toBeNull();
+    // The daemon never saw this id, so nothing there will ever collect it.
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
   });
 
   test("an upload that resolves late does not displace a newer frame", async () => {
@@ -303,6 +327,10 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
     expect(controls.attachFrame.mock.calls).toEqual([["att-newer"]]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-newer");
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-older",
+    );
   });
 
   test("refuses a frame whose session ended under the upload", async () => {
@@ -335,6 +363,10 @@ describe("useVoiceRoomSight: parking a keep", () => {
     expect(successor.attachFrame).not.toHaveBeenCalled();
     expect(controls.attachFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-orphan",
+    );
   });
 
   test("refuses a frame whose camera closed under the upload", async () => {
@@ -357,6 +389,10 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
     expect(controls.attachFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-closed",
+    );
   });
 
   test("refuses a frame whose camera flipped under the upload", async () => {
@@ -380,6 +416,71 @@ describe("useVoiceRoomSight: parking a keep", () => {
 
     expect(controls.attachFrame).not.toHaveBeenCalled();
     expect(view.result.current.heldFrame).toBeNull();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-rear");
+  });
+});
+
+describe("useVoiceRoomSight: transport reconnect", () => {
+  test("drops the held frame the dead session took with it", async () => {
+    // A retryable close ends the server-side session, whose own close reclaims
+    // the parked frame, while the logical call survives the gap. The fresh
+    // session's slot is empty and the id being held is a row the daemon has
+    // already deleted.
+    const revoke = spyOn(URL, "revokeObjectURL");
+    const { view } = renderSight();
+    await keepFrame();
+    const held = view.result.current.heldFrame;
+    const reset = watchGateReset();
+    controls.attachFrame.mockClear();
+
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
+    // Nothing to unpark on a session that no longer exists, and re-parking a
+    // deleted id would earn the refusal it deserves.
+    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+    // Reset, so the reconnected session gets a frame as soon as the camera
+    // settles rather than scoring against a baseline nobody can see.
+    expect(reset).toHaveBeenCalledTimes(1);
+    revoke.mockRestore();
+  });
+
+  test("parks the next keep on the reconnected session", async () => {
+    const { view } = renderSight();
+    await keepFrame();
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(false);
+    });
+
+    await keepFrame();
+
+    expect(controls.attachFrame).toHaveBeenLastCalledWith("att-2");
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
+  });
+
+  test("coming back out of the gap clears nothing", async () => {
+    // Only entering a reconnect means a session was replaced. The `ready` that
+    // lowers the flag means the opposite, and a frame parked by then belongs
+    // to the session that is now running.
+    const { view } = renderSight();
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+    await keepFrame();
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
+
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(false);
+    });
+
+    expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
   });
 });
 
@@ -399,6 +500,8 @@ describe("useVoiceRoomSight: unparking", () => {
     expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
     expect(view.result.current.heldFrame).toBeNull();
     expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
+    // The daemon reclaims what it unparks; deleting here would race it.
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
     revoke.mockRestore();
   });
 
@@ -422,6 +525,31 @@ describe("useVoiceRoomSight: unparking", () => {
     });
 
     expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
+  });
+
+  test("clears the slot when the camera flips", async () => {
+    // The parked frame is the old camera's view, and the new camera's first
+    // keep is an exposure warmup plus a rate floor away, so leaving it staged
+    // would let a turn carry the view the user just turned away from.
+    const { view } = renderSight();
+    await keepFrame();
+    const reset = watchGateReset();
+
+    act(() => {
+      view.rerender({ cameraOpen: true, facing: "user" });
+    });
+
+    expect(controls.attachFrame).toHaveBeenLastCalledWith(null);
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(reset).toHaveBeenCalledTimes(1);
+    // The daemon reclaims what it unparks.
+    expect(deleteChatAttachment).not.toHaveBeenCalled();
+  });
+
+  test("says nothing on the mount pass, where nothing is parked yet", () => {
+    renderSight();
+
+    expect(controls.attachFrame).not.toHaveBeenCalled();
   });
 
   test("says nothing about a session that is already over", async () => {

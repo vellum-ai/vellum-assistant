@@ -43,7 +43,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { uploadChatAttachment } from "@/domains/chat/api/messages";
+import {
+  deleteChatAttachment,
+  uploadChatAttachment,
+} from "@/domains/chat/api/messages";
 import { prepareImageAttachmentForUpload } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
 import {
   attachLiveVoiceFrame,
@@ -183,14 +186,34 @@ export function useVoiceRoomSight(
         if (!uploaded.ok) {
           return;
         }
+        /**
+         * Give the row back on every path that abandons this id after the
+         * upload persisted it. Nothing else can: an attachment is collected
+         * when the message linking it is deleted, or by the daemon reclaiming
+         * a frame from its own slot, and an id that reaches neither is a row
+         * and its bytes kept for good.
+         */
+        const abandonUpload = (): void => {
+          void deleteChatAttachment(assistantId, uploaded.id).then((ok) => {
+            if (!ok) {
+              captureError(new Error("sight frame delete refused"), {
+                context: ERROR_CONTEXT,
+                bestEffort: true,
+              });
+            }
+          });
+        };
+
         if (
           useLiveVoiceStore.getState().sessionGeneration !== sessionGeneration
         ) {
+          abandonUpload();
           return;
         }
         // The camera this came from is closed or pointing elsewhere, so this
         // is a view of nothing the user is looking at now.
         if (captureEpoch !== captureEpochRef.current) {
+          abandonUpload();
           return;
         }
         // Latest wins by CAPTURE time, not by resolve order: two uploads can be
@@ -198,13 +221,16 @@ export function useVoiceRoomSight(
         // the whole cost of a superseded frame, so it is simply dropped.
         const held = heldRef.current;
         if (held && held.atMs >= atMs) {
+          abandonUpload();
           return;
         }
         // Parked before it is shown, and shown only if it was parked. The
         // thumbnail claims the call can see this frame, and during a reconnect
         // gap it cannot: what stays on screen is then the older frame the
-        // session's slot really does hold.
+        // session's slot really does hold. A frame that never reached the slot
+        // is this hook's to give back, since the daemon never saw it.
         if (!attachLiveVoiceFrame(uploaded.id, sessionGeneration)) {
+          abandonUpload();
           return;
         }
         hold({
@@ -282,10 +308,43 @@ export function useVoiceRoomSight(
   // score against the old baseline is meaningless and every capture still
   // encoding belongs to the camera that is gone. The sampler keeps running: it
   // is the same element, only the stream behind it changed.
+  //
+  // The frame ALREADY parked is the old camera's view, and the exposure warmup
+  // plus the gate's rate floor put the replacement seconds away, so leaving it
+  // staged would let a turn carry the view the user just turned away from. An
+  // empty slot until the new camera's first keep is the honest state. On mount
+  // there is nothing parked and this is a no-op.
   useEffect(() => {
     captureEpochRef.current += 1;
+    unparkHeldFrame();
     gateRef.current?.reset(performance.now());
-  }, [facing]);
+  }, [facing, unparkHeldFrame]);
+
+  // A retryable transport close ends the SERVER-side session, whose close path
+  // reclaims the parked frame, while the logical call (and so
+  // `sessionGeneration`) deliberately survives the gap. The fresh session's
+  // slot is therefore empty and the id being held points at a row the daemon
+  // has already deleted, so the thumbnail would keep claiming a view nothing
+  // holds until the gate's heartbeat replaced it.
+  //
+  // Nothing is sent: there is no slot to unpark, and re-parking the old id
+  // would earn the refusal a deleted attachment deserves. The gate is reset so
+  // the new session gets a frame as soon as the camera settles rather than
+  // waiting out a novelty comparison against a baseline nobody can see.
+  //
+  // The flag is the narrowest signal for it: only the transport's `closed`
+  // handler raises it, and it is lowered again on the `ready` that means a
+  // fresh session exists. This effect re-runs only when it changes, so the
+  // early return is what confines the work to the transition INTO the gap:
+  // coming back out of one must not clear a frame parked since.
+  const reconnecting = useLiveVoiceStore.use.reconnecting();
+  useEffect(() => {
+    if (!reconnecting) {
+      return;
+    }
+    hold(null);
+    gateRef.current?.reset(performance.now());
+  }, [hold, reconnecting]);
 
   return { heldFrame };
 }
