@@ -1640,7 +1640,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Park a camera frame for the next turn to carry.
+   * Park a camera frame for the next turn to carry, or give up the parked one.
    *
    * Nothing is persisted and no turn runs: the frame is ambient context, and
    * on its own it says nothing the user asked to say. It rides the next turn's
@@ -1648,12 +1648,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * message. A frame that arrives while a turn is already running belongs to
    * the turn after it, which the drain at launch takes care of.
    *
+   * A null id unparks: the client's camera is off, so the slot must stop
+   * answering for a view nobody can see any more. The frame goes with it, and
+   * unparking an empty slot is a no-op.
+   *
    * The id is checked against the attachment store here rather than at the
    * turn, for the same reason a failed photo is reported: an id that resolves
    * to nothing would otherwise leave the user believing the assistant can see
    * something it never received, one turn later and with nothing said.
    */
   private parkTurnFrame(frame: LiveVoiceClientAttachFrameFrame): void {
+    if (frame.attachmentId === null) {
+      const parked = this.pendingTurnAttachmentId;
+      this.pendingTurnAttachmentId = null;
+      this.reclaimParkedFrame(parked);
+      return;
+    }
+
     let exists = false;
     try {
       exists = attachmentExists(frame.attachmentId);

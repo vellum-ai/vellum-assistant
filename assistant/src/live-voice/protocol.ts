@@ -227,10 +227,24 @@ export interface LiveVoiceClientAttachImageFrame {
  *
  * Latest wins. A second frame overwrites the first, because what matters is
  * what the camera is pointed at when the user speaks.
+ *
+ * A `null` id is the other direction: unpark, meaning the client's camera is
+ * no longer on and the slot must not keep answering for it. It clears the slot
+ * and gives the frame up, so a viewfinder the user closed leaves nothing
+ * staged behind it. Sending it needs no id of its own because the slot only
+ * ever holds one frame and only the client that parked it can be closing.
+ *
+ * `null` and a missing field are different things. An absent `attachmentId` is
+ * still a malformed frame, because a client that meant to unpark says so.
+ *
+ * Version skew: a build carrying the park half but not this one refuses the
+ * null with the attributable recoverable error, which the web client logs and
+ * drops. Only dev builds cut between the two changes are affected, and there
+ * the cost is a frame the session gives up at close instead of at unpark.
  */
 export interface LiveVoiceClientAttachFrameFrame {
   readonly type: "attach_frame";
-  readonly attachmentId: string;
+  readonly attachmentId: string | null;
 }
 
 /**
@@ -792,10 +806,10 @@ function validateAttachFrameFrame(
     );
   }
 
-  if (!isNonEmptyString(value.attachmentId)) {
+  if (value.attachmentId !== null && !isNonEmptyString(value.attachmentId)) {
     return protocolError(
       "invalid_field",
-      "attach_frame frame field attachmentId must be a non-empty string",
+      "attach_frame frame field attachmentId must be a non-empty string or null",
       "attachmentId",
       "attach_frame",
     );

@@ -206,7 +206,20 @@ describe("live-voice attach_frame frame", () => {
     });
   });
 
+  test("accepts a null attachmentId, which unparks", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "attach_frame",
+      attachmentId: null,
+    });
+    expect(result).toEqual({
+      ok: true,
+      frame: { type: "attach_frame", attachmentId: null },
+    });
+  });
+
   test("rejects a missing attachmentId, naming the frame", () => {
+    // A missing field is not an unpark. A client that means to clear the slot
+    // says so with an explicit null; an absent field is a malformed frame.
     const result = validateLiveVoiceClientFrame({ type: "attach_frame" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -361,6 +374,96 @@ describe("live-voice camera frames parked for the next turn", () => {
 
     expect(turns[0]?.attachments).toEqual([first]);
     expect(turns[1]?.attachments).toEqual([second]);
+
+    await session.close("websocket_close");
+  });
+
+  test("unparking clears the slot and gives the frame up", async () => {
+    // The client's viewfinder closed. Nothing should still be staged for a
+    // turn that would show a view the user can no longer see.
+    const attachmentId = await uploadFrame();
+    const turns: VoiceTurnOptions[] = [];
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        turns.push(options);
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: `bridge-turn-${turns.length}`, abort: mock() };
+      },
+    );
+    const { frames, session } = createSessionHarness(startVoiceTurn);
+    await session.start();
+
+    await session.handleClientFrame({ type: "attach_frame", attachmentId });
+    expect(parkedFrameId(session)).toBe(attachmentId);
+    const before = frames.length;
+
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: null,
+    });
+
+    expect(parkedFrameId(session)).toBeNull();
+    expect(frameStored(attachmentId)).toBe(false);
+    // Nothing is answered for an unpark: it is the client tidying up after
+    // itself, not a request that can fail.
+    expect(frames.slice(before)).toEqual([]);
+
+    await speakAndRelease(session, () => turns.length, 8_000);
+    expect(turns[0]?.attachments).toBeUndefined();
+
+    await session.close("websocket_close");
+  });
+
+  test("unparking an empty slot does nothing", async () => {
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: "bridge-turn-1", abort: mock() };
+      },
+    );
+    const { frames, session } = createSessionHarness(startVoiceTurn);
+    await session.start();
+    const before = frames.length;
+
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: null,
+    });
+
+    expect(parkedFrameId(session)).toBeNull();
+    expect(frames.slice(before)).toEqual([]);
+
+    await session.close("websocket_close");
+  });
+
+  test("unparking leaves a frame that already rode a message alone", async () => {
+    // Same link-awareness the displacement path relies on: an unpark arriving
+    // after the turn drained the slot finds it empty, and the frame the
+    // transcript is showing is not this call's to collect.
+    const conversation = createConversation("Live voice frame unpark");
+    const message = await addMessage(conversation.id, "user", "what is this");
+    const sent = await uploadFrame();
+    linkAttachmentToMessage(message.id, sent, 0);
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: "bridge-turn-1", abort: mock() };
+      },
+    );
+    const { session } = createSessionHarness(startVoiceTurn);
+    await session.start();
+
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: sent,
+    });
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: null,
+    });
+
+    expect(parkedFrameId(session)).toBeNull();
+    expect(frameStored(sent)).toBe(true);
 
     await session.close("websocket_close");
   });
