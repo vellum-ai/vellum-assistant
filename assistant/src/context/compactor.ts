@@ -977,6 +977,13 @@ export async function buildRetainedImageBlocks(
         media_type: optimized.mediaType,
         data: optimized.data,
       },
+      // The rebuilt block is inline bytes, so the row it came from is only
+      // recoverable from the id the manifest entry already holds. Carrying it
+      // keeps a retained image traceable to its attachment, which is what
+      // camera-frame retention matches on: without it a frame the compaction
+      // model chose to keep would be invisible to every later pass and could
+      // outlive the retention bound.
+      _attachmentId: entry.attachmentId,
     });
     resolved.push(name);
   }

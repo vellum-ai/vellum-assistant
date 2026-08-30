@@ -54,6 +54,20 @@ function liveImage(
   };
 }
 
+/**
+ * A block in the shape `buildRetainedImageBlocks` rebuilds: inline bytes
+ * re-hydrated from the attachment store, stamped with the manifest entry's id.
+ */
+function retainedImage(
+  attachmentId: string,
+): Extract<ContentBlock, { type: "image" }> {
+  return {
+    type: "image",
+    source: { type: "base64", media_type: "image/png", data: "AAAAAAAA" },
+    _attachmentId: attachmentId,
+  };
+}
+
 function user(...blocks: ContentBlock[]): Message {
   return { role: "user", content: blocks };
 }
@@ -272,6 +286,44 @@ describe("stripAgedSightFrames", () => {
     expect(result.replacedBlocks).toBe(1);
     expect(result.messages[0].content[0]).toEqual(liveImage("picked-1"));
     expect(result.messages[1].content[0].type).toBe("text");
+  });
+
+  test("re-stubs frames that compaction pulled back into the history", () => {
+    // Compaction builds its image manifest from the stored rows, not from the
+    // trimmed copy a turn sent, so a frame this pass already stubbed can come
+    // back as a rebuilt inline block. The history below is the shape compaction
+    // leaves behind (summary, retained-images message, verbatim tail), written
+    // out rather than produced by a real compaction run, which would need a
+    // provider call. The bound has to re-apply over it.
+    const messages: Message[] = [
+      assistant("<context_summary>earlier call</context_summary>"),
+      user(
+        {
+          type: "text",
+          text: "Images retained from the compacted portion of the conversation:",
+        },
+        retainedImage("f1"),
+        retainedImage("f2"),
+        retainedImage("f3"),
+      ),
+      user({ type: "text", text: "and now" }, liveImage("f4")),
+    ];
+
+    const result = stripAgedSightFrames(
+      messages,
+      captureTimes("f1", "f2", "f3", "f4"),
+    );
+
+    expect(result.replacedBlocks).toBe(2);
+    expect(textOf(result.messages[1], 1)).toBe(
+      "[Camera frame omitted from context: captured 2026-08-30T14:25:00.000Z, image/png, 6 bytes]",
+    );
+    expect(textOf(result.messages[1], 2)).toBe(
+      "[Camera frame omitted from context: captured 2026-08-30T14:25:01.000Z, image/png, 6 bytes]",
+    );
+    // The newest retained frame and the tail's live frame are the survivors.
+    expect(result.messages[1].content[3]).toEqual(retainedImage("f3"));
+    expect(result.messages[2].content[1]).toEqual(liveImage("f4"));
   });
 
   test("leaves a conversation at or under the budget untouched", () => {
