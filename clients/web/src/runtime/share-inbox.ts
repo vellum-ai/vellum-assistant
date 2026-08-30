@@ -11,23 +11,18 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { publish } from "@/lib/event-bus";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
+import {
+  parseShareInboxItem,
+  type ShareInboxFileRef,
+  type ShareInboxItem,
+} from "@/runtime/share-inbox-parse";
 
-export type ShareInboxDestination =
-  | { type: "new" }
-  | { type: "thread"; threadId: string };
-
-export interface ShareInboxFileRef {
-  name: string;
-  mimeType: string;
-  path: string;
-}
-
-export interface ShareInboxItem {
-  id: string;
-  destination: ShareInboxDestination;
-  text: string | null;
-  files: ShareInboxFileRef[];
-}
+export type {
+  ShareInboxDestination,
+  ShareInboxFileRef,
+  ShareInboxItem,
+} from "@/runtime/share-inbox-parse";
+export { parseShareInboxItem } from "@/runtime/share-inbox-parse";
 
 interface ShareInboxPlugin {
   consume(options: { id?: string }): Promise<{
@@ -46,77 +41,6 @@ function isShareInboxAvailable(): boolean {
   return Capacitor.getPlatform() === "ios";
 }
 
-function parseItem(raw: unknown): ShareInboxItem | null {
-  if (raw === null || typeof raw !== "object") {
-    return null;
-  }
-  const value = raw as Record<string, unknown>;
-  if (typeof value.id !== "string" || value.id.length === 0) {
-    return null;
-  }
-  const destination = parseDestination(value.destination);
-  if (destination === null) {
-    return null;
-  }
-  const text =
-    typeof value.text === "string" && value.text.trim().length > 0
-      ? value.text
-      : null;
-  const files = Array.isArray(value.files)
-    ? value.files.flatMap((entry) => {
-        if (entry === null || typeof entry !== "object") {
-          return [];
-        }
-        const file = entry as Record<string, unknown>;
-        if (
-          typeof file.name !== "string" ||
-          file.name.length === 0 ||
-          typeof file.path !== "string" ||
-          file.path.length === 0
-        ) {
-          return [];
-        }
-        return [
-          {
-            name: file.name,
-            mimeType:
-              typeof file.mimeType === "string" && file.mimeType.length > 0
-                ? file.mimeType
-                : "application/octet-stream",
-            path: file.path,
-          },
-        ];
-      })
-    : [];
-  if (text === null && files.length === 0) {
-    return null;
-  }
-  return { id: value.id, destination, text, files };
-}
-
-function parseDestination(raw: unknown): ShareInboxDestination | null {
-  if (raw === null || typeof raw !== "object") {
-    return null;
-  }
-  const value = raw as Record<string, unknown>;
-  if (value.type === "new") {
-    return { type: "new" };
-  }
-  if (
-    value.type === "thread" &&
-    typeof value.threadId === "string" &&
-    value.threadId.length > 0
-  ) {
-    return { type: "thread", threadId: value.threadId };
-  }
-  return null;
-}
-
-/**
- * Consume one inbox item. `id` names a specific write; omit it to take
- * the newest unexpired item. Returns `null` when the plugin is absent,
- * the id is gone, or the payload is empty.
- */
 /** Read exported inbox files into `File`s the composer accepts. */
 export async function readShareInboxFiles(
   files: ShareInboxFileRef[],
@@ -130,6 +54,11 @@ export async function readShareInboxFiles(
   return filesFromNativePaths(files);
 }
 
+/**
+ * Consume one inbox item. `id` names a specific write; omit it to take
+ * the newest unexpired item. Returns `null` when the plugin is absent,
+ * the id is gone, or the payload is empty.
+ */
 export async function consumeShareInbox(
   id?: string | null,
 ): Promise<ShareInboxItem | null> {
@@ -141,7 +70,7 @@ export async function consumeShareInbox(
       id !== null && id !== undefined && id.length > 0
         ? await ShareInbox.consume({ id })
         : await ShareInbox.consume({});
-    return parseItem(result.item);
+    return parseShareInboxItem(result.item);
   } catch (err) {
     console.debug("[share-inbox] ShareInbox bridge unavailable:", err);
     return null;

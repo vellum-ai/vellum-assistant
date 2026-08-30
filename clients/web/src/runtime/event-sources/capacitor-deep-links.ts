@@ -152,12 +152,9 @@ function handleUrl(url: string): void {
 }
 
 function sanitizeUnknownUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return url.split(/[?#]/, 1)[0];
-  }
+  // Strip query/fragment from the raw string. `new URL` would resolve `..`
+  // (so `://share/../x` would look like a legitimate `://share/x` in
+  // telemetry) and is unnecessary: the only secret-bearing parts are after
+  // `?` or `#`.
+  return url.split(/[?#]/, 1)[0];
 }

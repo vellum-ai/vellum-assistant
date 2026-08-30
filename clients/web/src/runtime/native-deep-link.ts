@@ -523,8 +523,15 @@ export function parseShareDeepLink(
     return null;
   }
 
-  const inboxId = url.pathname.replace(/^\//, "");
-  if (!SHARE_INBOX_ID_RE.test(inboxId)) {
+  // Read the path from the raw URL. `new URL` resolves `..` segments, so
+  // `://share/../x` would otherwise parse as id `x`.
+  const hostPrefix = `://${SHARE_DEEP_LINK_HOST}/`;
+  const hostAt = rawUrl.indexOf(hostPrefix);
+  if (hostAt < 0) {
+    return null;
+  }
+  const inboxId = rawUrl.slice(hostAt + hostPrefix.length).split(/[?#]/, 1)[0];
+  if (!inboxId || !SHARE_INBOX_ID_RE.test(inboxId)) {
     return null;
   }
 

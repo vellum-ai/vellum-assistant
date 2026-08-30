@@ -30,6 +30,7 @@ import {
 } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
@@ -93,7 +94,9 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice: async () => ({ status: "ready" }),
 }));
 
-const consumeShareInboxMock = mock(async (_id?: string | null) => null as null);
+const consumeShareInboxMock = mock(
+  async (_id?: string | null): Promise<ShareInboxItem | null> => null,
+);
 const readShareInboxFilesMock = mock(async () => [] as File[]);
 mock.module("@/runtime/share-inbox", () => ({
   consumeShareInbox: consumeShareInboxMock,
@@ -1102,7 +1105,7 @@ describe("deeplink.share", () => {
     expect(parked?.isNewDraft).toBe(true);
     expect(parked?.text).toBe("look at this");
     expect(parked?.threadId).toBe(
-      useConversationStore.getState().activeConversationId,
+      useConversationStore.getState().activeConversationId ?? undefined,
     );
   });
 
