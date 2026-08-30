@@ -235,7 +235,7 @@ enum ShareInbox {
         }
         return take(
             itemURL: containerURL.appendingPathComponent(id, isDirectory: true),
-            exportDirectory: exportDirectory ?? exportDirectory(for: id),
+            exportDirectory: exportDirectory ?? Self.exportDirectory(for: id),
             now: now
         )
     }
@@ -270,7 +270,7 @@ enum ShareInbox {
         let id = newest.lastPathComponent
         return take(
             itemURL: newest,
-            exportDirectory: exportDirectory ?? exportDirectory(for: id),
+            exportDirectory: exportDirectory ?? Self.exportDirectory(for: id),
             now: now
         )
     }
