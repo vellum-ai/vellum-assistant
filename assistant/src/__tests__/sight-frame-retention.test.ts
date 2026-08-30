@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { applySightFrameRetention } from "../daemon/conversation-runtime-assembly.js";
 import {
+  getAttachmentMetadataForMessage,
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../persistence/attachments-store.js";
+import {
   addMessage,
+  createConversation,
+  forkConversation,
   getMessages,
   selectSightFrameCaptureTimes,
 } from "../persistence/conversation-crud.js";
@@ -175,5 +182,111 @@ describe("applySightFrameRetention", () => {
     ];
 
     expect(applySightFrameRetention(assembled, conversationId)).toBe(assembled);
+  });
+});
+
+describe("forked conversations", () => {
+  test("a fork's tag covers both its source and cloned attachment ids", async () => {
+    // A fork copies `messages.content` verbatim, so its blocks still name the
+    // SOURCE attachment ids, while `message_attachments` is re-linked to
+    // freshly CLONED rows. The compactor reads the link side and stamps cloned
+    // ids onto the frames it rebuilds, so a tag naming only one vocabulary
+    // goes blind on the other.
+    const db = getDb();
+    db.run("DELETE FROM message_attachments");
+    db.run("DELETE FROM attachments");
+
+    const source = createConversation("camera call");
+    const uploaded = await uploadAttachment(
+      "frame.png",
+      "image/png",
+      "iVBORw0K",
+    );
+    const row = await addMessage(
+      source.id,
+      "user",
+      JSON.stringify([
+        {
+          type: "image",
+          source: {
+            type: "workspace_ref",
+            media_type: "image/png",
+            attachmentId: uploaded.id,
+            sizeBytes: 8,
+          },
+        },
+      ]),
+      {
+        metadata: { sightFrameAttachmentIds: [uploaded.id] },
+        skipIndexing: true,
+      },
+    );
+    linkAttachmentToMessage(row.id, uploaded.id, 0);
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkRow = getMessages(fork.id)[0];
+    const clonedId = getAttachmentMetadataForMessage(forkRow.id)[0]?.id;
+
+    // The fork really did clone the attachment under a new id.
+    expect(clonedId).toBeDefined();
+    expect(clonedId).not.toBe(uploaded.id);
+
+    const captureTimes = selectSightFrameCaptureTimes(fork.id);
+    // Both vocabularies resolve, so a frame is matchable whether it arrived
+    // through the copied content or through the compactor's manifest.
+    expect(captureTimes.has(uploaded.id)).toBe(true);
+    expect(captureTimes.has(clonedId!)).toBe(true);
+
+    // The source conversation is untouched by the widening.
+    expect([...selectSightFrameCaptureTimes(source.id).keys()]).toEqual([
+      uploaded.id,
+    ]);
+  });
+
+  test("retention still matches the frames a fork holds directly", async () => {
+    const db = getDb();
+    db.run("DELETE FROM message_attachments");
+    db.run("DELETE FROM attachments");
+
+    const source = createConversation("camera call 2");
+    const ids: string[] = [];
+    for (const name of ["a.png", "b.png", "c.png"]) {
+      const uploaded = await uploadAttachment(name, "image/png", "iVBORw0K");
+      const row = await addMessage(
+        source.id,
+        "user",
+        JSON.stringify([
+          {
+            type: "image",
+            source: {
+              type: "workspace_ref",
+              media_type: "image/png",
+              attachmentId: uploaded.id,
+              sizeBytes: 8,
+            },
+          },
+        ]),
+        {
+          metadata: { sightFrameAttachmentIds: [uploaded.id] },
+          skipIndexing: true,
+        },
+      );
+      linkAttachmentToMessage(row.id, uploaded.id, 0);
+      ids.push(uploaded.id);
+    }
+
+    const fork = forkConversation({ conversationId: source.id });
+    // The fork's own rows, exactly as its history assembles them.
+    const assembled: Message[] = getMessages(fork.id).map((r) => ({
+      role: "user" as const,
+      content: r.content,
+    }));
+
+    const retained = applySightFrameRetention(assembled, fork.id);
+
+    // Oldest of the three is stubbed; the newest two survive.
+    expect(retained[0].content[0].type).toBe("text");
+    expect(retained[1].content[0].type).toBe("image");
+    expect(retained[2].content[0].type).toBe("image");
   });
 });

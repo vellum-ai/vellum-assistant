@@ -132,6 +132,27 @@ export function attachmentIdFragment(attachmentId: string | undefined): {
   return attachmentId ? { _attachmentId: attachmentId } : {};
 }
 
+/**
+ * The attachment row a media block came from, whichever of the two shapes it
+ * is in, or undefined for a block that came from none (tool-generated and
+ * assistant-authored media).
+ *
+ * A reference names its row on `source.attachmentId`; an inline block has
+ * nowhere to put it but the top-level `_attachmentId`. Both are the same fact,
+ * so anything asking "which attachment is this?" has to read both or it goes
+ * blind on half the histories. Reading only `_attachmentId` in particular is
+ * the sharp edge: it is absent on every reference block, so a rebuild that
+ * flattens a reference to inline bytes drops the link unless it derives the id
+ * through here first.
+ */
+export function mediaBlockAttachmentId(
+  block: ImageContent | FileContent,
+): string | undefined {
+  return block.source.type === "workspace_ref"
+    ? block.source.attachmentId
+    : block._attachmentId;
+}
+
 export interface ToolUseContent {
   type: "tool_use";
   id: string;

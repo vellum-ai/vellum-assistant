@@ -229,6 +229,12 @@ export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // to its attachment row across the rebuild, so host consumers that correlate a
 // block back to its attachment still can.
 export { attachmentIdFragment } from "../providers/types.js";
+// Read the attachment row a media block came from, whichever shape it is in: a
+// reference names it on `source.attachmentId`, an inline block on
+// `_attachmentId`. A plugin that rebuilds a block into inline bytes derives the
+// id through this before stamping it, since the reference shape's id would
+// otherwise be lost with the source it replaced.
+export { mediaBlockAttachmentId } from "../providers/types.js";
 // Classify a provider stop reason: whether the turn was truncated at the
 // output token cap (vs. a natural stop or a tool call). A `post-model-call`
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to

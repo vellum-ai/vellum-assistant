@@ -326,6 +326,62 @@ describe("stripAgedSightFrames", () => {
     expect(result.messages[2].content[1]).toEqual(liveImage("f4"));
   });
 
+  test("ranks compaction-rebuilt frames by capture time, not position", () => {
+    // Compaction lists the frames it keeps in the MODEL's order inside one
+    // synthetic message, so their position stops tracking recency. Here the
+    // newest frame (f4) sits first and the oldest (f1) last. Ranking by
+    // position would stub f4 and keep f1; ranking by capture time keeps f4.
+    const times = captureTimes("f1", "f2", "f3", "f4");
+    const messages: Message[] = [
+      assistant("<context_summary>earlier call</context_summary>"),
+      user(
+        {
+          type: "text",
+          text: "Images retained from the compacted portion of the conversation:",
+        },
+        retainedImage("f4"),
+        retainedImage("f3"),
+        retainedImage("f2"),
+        retainedImage("f1"),
+      ),
+    ];
+
+    const result = stripAgedSightFrames(messages, times);
+
+    expect(result.replacedBlocks).toBe(2);
+    const retained = result.messages[1];
+    // The two newest survive wherever they sit.
+    expect(retained.content[1]).toEqual(retainedImage("f4"));
+    expect(retained.content[2]).toEqual(retainedImage("f3"));
+    // The two oldest are stubbed, each naming its own capture time.
+    expect(textOf(retained, 3)).toBe(
+      "[Camera frame omitted from context: captured 2026-08-30T14:25:01.000Z, image/png, 6 bytes]",
+    );
+    expect(textOf(retained, 4)).toBe(
+      "[Camera frame omitted from context: captured 2026-08-30T14:25:00.000Z, image/png, 6 bytes]",
+    );
+  });
+
+  test("falls back to history order for frames sharing a capture time", () => {
+    // Frames attached to the same row share its `createdAt`, so the tiebreak
+    // is the order they sit in the history, which is the order they arrived.
+    const sameRow = new Map([
+      ["f1", 1000],
+      ["f2", 1000],
+      ["f3", 1000],
+    ]);
+    const messages: Message[] = [
+      user(retainedImage("f1"), retainedImage("f2"), retainedImage("f3")),
+    ];
+
+    const result = stripAgedSightFrames(messages, sameRow);
+
+    expect(result.replacedBlocks).toBe(1);
+    expect(result.messages[0].content[0].type).toBe("text");
+    expect(result.messages[0].content[1]).toEqual(retainedImage("f2"));
+    expect(result.messages[0].content[2]).toEqual(retainedImage("f3"));
+  });
+
   test("leaves a conversation at or under the budget untouched", () => {
     const messages: Message[] = [
       user(referenceImage("f1")),

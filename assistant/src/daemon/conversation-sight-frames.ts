@@ -21,7 +21,11 @@
  */
 
 import { mediaSourceByteLength } from "../providers/media-resolve.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import {
+  type ContentBlock,
+  mediaBlockAttachmentId,
+  type Message,
+} from "../providers/types.js";
 
 /**
  * How many camera frames stay in the context as real images, counted
@@ -39,40 +43,19 @@ import type { ContentBlock, Message } from "../providers/types.js";
 export const KEEP_LATEST_SIGHT_FRAMES = 2;
 
 /**
- * The attachment row an image block came from, or null when it came from none.
- *
- * Two shapes carry the same fact, because a turn sends its uploads inline while
- * persisting them as references: a reloaded block names the row on
- * `source.attachmentId`, and the live in-memory block a turn pushed names it on
- * `_attachmentId` (see `attachmentsToContentBlocks`). Matching on both is what
- * lets one uninterrupted call and a reloaded conversation share a single pool
- * of frames.
- *
- * Tool-generated and assistant-authored images carry neither and resolve to
- * null, so they can never be mistaken for a tagged frame.
- */
-export function imageAttachmentId(
-  block: Extract<ContentBlock, { type: "image" }>,
-): string | null {
-  if (block.source.type === "workspace_ref") {
-    return block.source.attachmentId;
-  }
-  return block._attachmentId ?? null;
-}
-
-/**
  * True when any image in the history can be traced back to an attachment row.
  *
  * The retention pass reads rows to learn which attachments were camera frames;
  * a history holding no attributable image has nothing those rows could match,
  * so callers use this to skip the read entirely. Shares
- * {@link imageAttachmentId} with the matcher so the two cannot disagree about
- * what is skippable.
+ * {@link mediaBlockAttachmentId} with the matcher so the two cannot disagree
+ * about what is skippable.
  */
 export function hasAttributableImages(messages: Message[]): boolean {
   return messages.some((message) =>
     message.content.some(
-      (block) => block.type === "image" && imageAttachmentId(block) !== null,
+      (block) =>
+        block.type === "image" && mediaBlockAttachmentId(block) !== undefined,
     ),
   );
 }
@@ -83,13 +66,19 @@ export function hasAttributableImages(messages: Message[]): boolean {
  *
  * `frameCaptureTimes` maps an attachment id the conversation tagged as a camera
  * frame to when the row carrying it was written; an image block counts as a
- * frame only when {@link imageAttachmentId} resolves it to one of those ids.
- * Every other attachment (picked files, pasted images, shutter photos) is left
- * alone here.
+ * frame only when {@link mediaBlockAttachmentId} resolves it to one of those
+ * ids. Every other attachment (picked files, pasted images, shutter photos) is
+ * left alone here.
  *
- * Frames are ranked by their position in the history rather than by capture
- * time, so a row backdated by `sentAt` cannot displace a frame the model saw
- * more recently. Returns the input array itself when nothing is replaced.
+ * Frames are ranked by capture time, not by where they sit in the history:
+ * compaction rebuilds the frames it keeps into one synthetic message in the
+ * order the model listed them, so position stops tracking recency the moment a
+ * conversation has been compacted. The times come from the rows themselves
+ * (`createdAt`, which `monotonicNow` keeps strictly increasing), so they order
+ * frames the way they were captured and no client-supplied timestamp can perturb
+ * that. Frames sharing a row share a time and fall back to history order, which
+ * is the order they were attached. Returns the input array itself when nothing
+ * is replaced.
  */
 export function stripAgedSightFrames(
   messages: Message[],
@@ -109,8 +98,8 @@ export function stripAgedSightFrames(
       if (block.type !== "image") {
         continue;
       }
-      const attachmentId = imageAttachmentId(block);
-      if (attachmentId === null) {
+      const attachmentId = mediaBlockAttachmentId(block);
+      if (attachmentId === undefined) {
         continue;
       }
       const capturedAt = frameCaptureTimes.get(attachmentId);
@@ -124,11 +113,14 @@ export function stripAgedSightFrames(
     return { messages, modified: false, replacedBlocks: 0 };
   }
 
-  // History runs oldest to newest, so dropping the tail keeps the newest.
+  // Oldest first by capture time, so dropping the tail keeps the newest. The
+  // sort is stable and `frames` was collected in history order, which is what
+  // separates frames that share a row's timestamp.
+  const byCaptureTime = [...frames].sort((a, b) => a.capturedAt - b.capturedAt);
   const aged = new Map<number, Map<number, number>>();
-  for (const frame of frames.slice(
+  for (const frame of byCaptureTime.slice(
     0,
-    frames.length - KEEP_LATEST_SIGHT_FRAMES,
+    byCaptureTime.length - KEEP_LATEST_SIGHT_FRAMES,
   )) {
     const blocks = aged.get(frame.messageIndex) ?? new Map<number, number>();
     blocks.set(frame.blockIndex, frame.capturedAt);

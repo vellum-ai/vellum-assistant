@@ -1677,6 +1677,8 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     });
   }
 
+  widenForkSightFrameTags(messagesToCopy, forkedMessageIds, attachmentIdMap);
+
   // Set lastMessageAt to the max createdAt of copied messages so the
   // forked conversation sorts correctly by message recency.
   const lastCopiedMessage = messagesToCopy.at(-1);
@@ -1717,6 +1719,75 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
       fork.id,
       messagesToCopy.at(-1)?.createdAt ?? null,
     );
+  }
+}
+
+/**
+ * Extend the copied rows' camera-frame tags to name the fork's cloned
+ * attachment ids alongside the source ids they were written with.
+ *
+ * A fork leaves its rows describing their attachments two different ways:
+ * `messages.content` is copied byte for byte and still names the SOURCE
+ * attachment ids, while `message_attachments` is re-linked to freshly CLONED
+ * rows under new ids. Readers split along that seam. Camera-frame retention
+ * matches the tag against the ids in the content blocks (source ids), and the
+ * compactor builds its image manifest from the links (cloned ids) and stamps
+ * those onto the frames it rebuilds. A tag naming only one vocabulary goes
+ * blind on the other, so it names both.
+ *
+ * Widening rather than remapping is deliberate: replacing the source ids would
+ * fix the compactor's frames by breaking every frame the fork holds directly,
+ * which is the common case. Extra ids are inert, since an id no block carries
+ * simply never matches.
+ *
+ * Runs after the attachment loop because that loop is what produces the id map.
+ * Only rows that actually carry a tag are rewritten, so an ordinary fork does
+ * no extra writes.
+ */
+function widenForkSightFrameTags(
+  messagesToCopy: MessageRow[],
+  forkedMessageIds: Map<string, string>,
+  attachmentIdMap: Map<string, string>,
+): void {
+  if (attachmentIdMap.size === 0) {
+    return;
+  }
+  const db = getDb();
+  for (const message of messagesToCopy) {
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (!forkedMessageId) {
+      continue;
+    }
+    const sourceMetadata = parseMessageMetadata(message.metadata);
+    const sourceIds = sightFrameAttachmentIdsFromMetadata(sourceMetadata);
+    if (sourceIds.length === 0) {
+      continue;
+    }
+    const widened = new Set(sourceIds);
+    for (const sourceId of sourceIds) {
+      const clonedId = attachmentIdMap.get(sourceId);
+      if (clonedId) {
+        widened.add(clonedId);
+      }
+    }
+    if (widened.size === sourceIds.length) {
+      continue;
+    }
+    const forkedRow = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, forkedMessageId))
+      .get();
+    const forkedMetadata = parseMessageMetadata(forkedRow?.metadata ?? null);
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          ...(forkedMetadata ?? {}),
+          [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: [...widened],
+        }),
+      })
+      .where(eq(messages.id, forkedMessageId))
+      .run();
   }
 }
 

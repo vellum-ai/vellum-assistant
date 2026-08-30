@@ -6,7 +6,10 @@ import {
   enrichMessageWithSourcePaths,
 } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
-import { attachmentIdFragment } from "../providers/types.js";
+import {
+  attachmentIdFragment,
+  mediaBlockAttachmentId,
+} from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // attachmentIdFragment
@@ -23,6 +26,70 @@ describe("attachmentIdFragment", () => {
     expect(attachmentIdFragment(undefined)).toEqual({});
     expect(attachmentIdFragment("")).toEqual({});
     expect("_attachmentId" in attachmentIdFragment("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mediaBlockAttachmentId
+// ---------------------------------------------------------------------------
+
+describe("mediaBlockAttachmentId", () => {
+  test("reads a reference's id off its source", () => {
+    expect(
+      mediaBlockAttachmentId({
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "att-ref",
+          sizeBytes: 10,
+        },
+      }),
+    ).toBe("att-ref");
+  });
+
+  test("reads an inline block's id off the top-level field", () => {
+    expect(
+      mediaBlockAttachmentId({
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "AAAA" },
+        _attachmentId: "att-inline",
+      }),
+    ).toBe("att-inline");
+  });
+
+  test("is undefined for a block that came from no attachment", () => {
+    expect(
+      mediaBlockAttachmentId({
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "AAAA" },
+      }),
+    ).toBeUndefined();
+  });
+
+  test("covers file blocks in both shapes", () => {
+    expect(
+      mediaBlockAttachmentId({
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "application/pdf",
+          attachmentId: "att-file-ref",
+          sizeBytes: 10,
+        },
+      }),
+    ).toBe("att-file-ref");
+    expect(
+      mediaBlockAttachmentId({
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: "AAAA",
+        },
+        _attachmentId: "att-file-inline",
+      }),
+    ).toBe("att-file-inline");
   });
 });
 
