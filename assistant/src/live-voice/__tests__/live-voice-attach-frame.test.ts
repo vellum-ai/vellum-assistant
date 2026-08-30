@@ -18,7 +18,15 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import { uploadAttachment } from "../../persistence/attachments-store.js";
+import {
+  getAttachmentById,
+  linkAttachmentToMessage,
+  uploadAttachment,
+} from "../../persistence/attachments-store.js";
+import {
+  addMessage,
+  createConversation,
+} from "../../persistence/conversation-crud.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type {
   StreamingTranscriber,
@@ -61,6 +69,11 @@ async function uploadFrame(): Promise<string> {
     IMAGE_BASE64,
   );
   return attachment.id;
+}
+
+/** True while the attachment's row is still in the store. */
+function frameStored(attachmentId: string): boolean {
+  return getAttachmentById(attachmentId) !== null;
 }
 
 function loudPcmChunk(amplitude: number, sampleCount = 240): Uint8Array {
@@ -267,9 +280,50 @@ describe("live-voice camera frames parked for the next turn", () => {
       type: "attach_frame",
       attachmentId: current,
     });
+
+    // A client shooting the camera on a timer parks one of these every few
+    // seconds. Nothing else ever collects them, so the displaced one is given
+    // up here or its row and bytes stay for good.
+    expect(frameStored(stale)).toBe(false);
+    expect(frameStored(current)).toBe(true);
+
     await speakAndRelease(session, () => turns.length, 8_000);
 
     expect(turns[0]?.attachments).toEqual([current]);
+
+    await session.close("websocket_close");
+  });
+
+  test("displacing a frame that already rode a message leaves it alone", async () => {
+    // The reclaim is link-aware, which is what makes it safe to run on an id
+    // the client may have sent before: a frame that reached a message is that
+    // message's, and re-sending its id must not delete it out from under the
+    // transcript.
+    const conversation = createConversation("Live voice frame reuse");
+    const message = await addMessage(conversation.id, "user", "what is this");
+    const sent = await uploadFrame();
+    linkAttachmentToMessage(message.id, sent, 0);
+    const replacement = await uploadFrame();
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: "bridge-turn-1", abort: mock() };
+      },
+    );
+    const { session } = createSessionHarness(startVoiceTurn);
+    await session.start();
+
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: sent,
+    });
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: replacement,
+    });
+
+    expect(frameStored(sent)).toBe(true);
+    expect(parkedFrameId(session)).toBe(replacement);
 
     await session.close("websocket_close");
   });
@@ -327,8 +381,10 @@ describe("live-voice camera frames parked for the next turn", () => {
 
     await session.close("websocket_close");
 
-    // A frame is only good for the call it was shot on.
+    // A frame is only good for the call it was shot on, so the staged row
+    // goes with the call rather than outliving it.
     expect(parkedFrameId(session)).toBeNull();
+    expect(frameStored(attachmentId)).toBe(false);
   });
 
   test("a rolled-back turn hands the frame back for the replay", async () => {
@@ -363,6 +419,50 @@ describe("live-voice camera frames parked for the next turn", () => {
     await speakAndRelease(session, () => dispatches, 9_000);
 
     expect(turns[0]?.attachments).toEqual([attachmentId]);
+
+    await session.close("websocket_close");
+  });
+
+  test("a rollback keeps the newer frame and gives up the one it replaced", async () => {
+    // The camera kept shooting while the doomed turn was in flight, so the
+    // frame coming back off it is already out of date. Latest still wins, and
+    // the one that loses is nobody's to send: it goes.
+    const claimed = await uploadFrame();
+    const newer = await uploadFrame();
+    const turns: VoiceTurnOptions[] = [];
+    let dispatches = 0;
+    const sessionRef: { current: LiveVoiceSession | null } = { current: null };
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        dispatches += 1;
+        if (dispatches === 1) {
+          await sessionRef.current?.handleClientFrame({
+            type: "attach_frame",
+            attachmentId: newer,
+          });
+          throw new Error("bridge unavailable");
+        }
+        turns.push(options);
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: `bridge-turn-${turns.length}`, abort: mock() };
+      },
+    );
+    const { session } = createSessionHarness(startVoiceTurn);
+    sessionRef.current = session;
+    await session.start();
+
+    await session.handleClientFrame({
+      type: "attach_frame",
+      attachmentId: claimed,
+    });
+    await speakAndRelease(session, () => dispatches, 8_000);
+
+    expect(parkedFrameId(session)).toBe(newer);
+    expect(frameStored(claimed)).toBe(false);
+
+    await speakAndRelease(session, () => dispatches, 9_000);
+
+    expect(turns[0]?.attachments).toEqual([newer]);
 
     await session.close("websocket_close");
   });

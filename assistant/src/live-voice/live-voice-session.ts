@@ -45,7 +45,10 @@ import {
   recordLiveVoiceSessionStarted,
 } from "../onboarding/onboarding-events-store.js";
 import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
-import { attachmentExists } from "../persistence/attachments-store.js";
+import {
+  attachmentExists,
+  deleteOrphanAttachments,
+} from "../persistence/attachments-store.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
@@ -722,6 +725,10 @@ interface ActiveAssistantTurn {
   // persisted user message. Held here so a rolled-back dispatch can hand it
   // back to the session (see restorePendingTurnContext).
   turnAttachmentId: string | null;
+  // The frame the rollback could NOT hand back, because a newer one took the
+  // slot while this turn was in flight. Nothing will ever send it, so it is
+  // collected once the discard has removed the row still linking it.
+  staleFrameId: string | null;
   // The queued announcement this turn consumed alongside `continuationResult`
   // — the two are routes for one answer, so launching consumes both. Held here
   // so a rolled-back speculative dispatch can re-arm it (see
@@ -1667,7 +1674,51 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       });
       return;
     }
+    const displaced = this.pendingTurnAttachmentId;
     this.pendingTurnAttachmentId = frame.attachmentId;
+    if (displaced !== null && displaced !== frame.attachmentId) {
+      this.reclaimParkedFrame(displaced);
+    }
+  }
+
+  /**
+   * Give up a parked camera frame no turn will ever carry: one a newer frame
+   * displaced, one the session end leaves behind, one a rollback could not
+   * hand back. A client shooting the camera on a timer parks one every few
+   * seconds, and attachment collection is scoped to message deletion with no
+   * global sweep, so an id dropped without this leaves its row and its bytes
+   * behind for good.
+   *
+   * Safe because `deleteOrphanAttachments` is link-aware: it removes only ids
+   * with no message link, so a frame that already rode a turn is kept and one
+   * that never left this slot is collected. Nothing waits on the result and a
+   * store that cannot be reached must not take the call down, so a failure is
+   * logged and dropped.
+   */
+  private reclaimParkedFrame(attachmentId: string | null): void {
+    if (attachmentId === null) {
+      return;
+    }
+    try {
+      deleteOrphanAttachments([attachmentId]);
+    } catch (err) {
+      log.warn(
+        { err, attachmentId },
+        "Could not reclaim a parked live-voice camera frame",
+      );
+    }
+  }
+
+  /**
+   * Collect the frame a turn's rollback could not hand back, once the discard
+   * that owns the turn's row has finished. Ordering is the whole point: the
+   * reclaim is link-aware, so running it while the doomed row still links the
+   * frame finds the link, keeps the frame, and leaks it.
+   */
+  private reclaimStaleTurnFrame(turn: ActiveAssistantTurn): void {
+    const staleFrameId = turn.staleFrameId;
+    turn.staleFrameId = null;
+    this.reclaimParkedFrame(staleFrameId);
   }
 
   /**
@@ -1733,8 +1784,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
     this.clearProviderTurnEndTimer();
-    // No turn will ever carry it now, and the frame is the client's to send
-    // again on its next session.
+    // No turn will ever carry it now, and the frame is the client's to shoot
+    // again on its next session, so the staged row and bytes go with the call.
+    this.reclaimParkedFrame(this.pendingTurnAttachmentId);
     this.pendingTurnAttachmentId = null;
     // There is no longer anyone on the call to speak to, so a queued
     // announcement cannot be spoken — but the answer behind it is finished
@@ -3925,12 +3977,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     const handle = turn.handle;
     turn.handle = null;
-    void handle?.discard?.().catch((err: unknown) => {
-      log.warn(
-        { err, turnId: turn.turnId, reason },
-        "Speculative voice turn discard failed",
-      );
-    });
+    void handle
+      ?.discard?.()
+      .catch((err: unknown) => {
+        log.warn(
+          { err, turnId: turn.turnId, reason },
+          "Speculative voice turn discard failed",
+        );
+      })
+      // Only once the discard has deleted the row: until then the row still
+      // links a displaced frame, and the reclaim would keep it forever.
+      .finally(() => {
+        this.reclaimStaleTurnFrame(turn);
+      });
     turn.utterance.assistantTurnStarted = false;
     log.info(
       { turnId: turn.turnId, reason },
@@ -4740,14 +4799,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.isClosed ||
       this.detachStopGeneration !== turn.pendingContextStopGeneration
     ) {
+      // The drop is deliberate, so the frame it drops is nobody's to send.
+      turn.staleFrameId = turnAttachmentId;
       return;
     }
     if (this.pendingInterruptedRequest === null) {
       this.pendingInterruptedRequest = interruptedRequest;
     }
-    // A frame parked since this turn launched is newer, so it wins outright.
+    // A frame parked since this turn launched is newer, so it wins outright
+    // and the one being handed back is the stale one: collect it rather than
+    // leave it staged for a turn that will never ask for it.
     if (this.pendingTurnAttachmentId === null) {
       this.pendingTurnAttachmentId = turnAttachmentId;
+    } else if (turnAttachmentId !== null) {
+      turn.staleFrameId = turnAttachmentId;
     }
     if (this.pendingContinuationResult === null) {
       this.pendingContinuationResult = continuationResult;
@@ -4846,6 +4911,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       continuationResult: pending?.continuationResult ?? null,
       handedOffRequest: pending?.handedOffRequest ?? null,
       turnAttachmentId: pending?.turnAttachmentId ?? null,
+      staleFrameId: null,
       consumedAnnouncement: pending?.announcement ?? null,
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
@@ -4870,6 +4936,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.sendFrame({ type: "thinking", turnId });
       if (!this.isActiveAssistantTurn(token)) {
         this.restorePendingTurnContext(activeTurn);
+        // Nothing was persisted, so a frame the restore could not hand back
+        // links to no row and is collectible right here.
+        this.reclaimStaleTurnFrame(activeTurn);
         return false;
       }
     } else {
@@ -4928,8 +4997,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
     if (!started) {
       // Nothing was persisted or spoken, so the context this turn consumed goes
-      // back to the session rather than dying with the failed dispatch.
+      // back to the session rather than dying with the failed dispatch. A frame
+      // a newer one displaced meanwhile links to no row, so it is collected
+      // here rather than left staged.
       this.restorePendingTurnContext(activeTurn);
+      this.reclaimStaleTurnFrame(activeTurn);
     }
     return started;
   }
@@ -5384,12 +5456,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // rollback: a plain abort would leave the discarded pause's user
         // row in history.
         if (activeTurn.discardRequested && handle.discard) {
-          void handle.discard().catch((err: unknown) => {
-            log.warn(
-              { err, turnId: activeTurn.turnId },
-              "Late speculative voice turn discard failed",
-            );
-          });
+          void handle
+            .discard()
+            .catch((err: unknown) => {
+              log.warn(
+                { err, turnId: activeTurn.turnId },
+                "Late speculative voice turn discard failed",
+              );
+            })
+            // This discard owns the row, so it owns the reclaim of any frame
+            // the rollback could not hand back (see reclaimStaleTurnFrame).
+            .finally(() => {
+              this.reclaimStaleTurnFrame(activeTurn);
+            });
         } else {
           handle.abort();
         }
