@@ -467,6 +467,47 @@ describe("live-voice camera frames parked for the next turn", () => {
     await session.close("websocket_close");
   });
 
+  test("a retransmitted id is the same frame, not a newer one", async () => {
+    // A client that re-sends the id it already sent, while the turn holding it
+    // is in flight, has parked the SAME frame. Reading that as a displacement
+    // would collect the very frame the slot is pointing at, and the replay
+    // would speak without the picture with nothing said.
+    const attachmentId = await uploadFrame();
+    const turns: VoiceTurnOptions[] = [];
+    let dispatches = 0;
+    const sessionRef: { current: LiveVoiceSession | null } = { current: null };
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        dispatches += 1;
+        if (dispatches === 1) {
+          await sessionRef.current?.handleClientFrame({
+            type: "attach_frame",
+            attachmentId,
+          });
+          throw new Error("bridge unavailable");
+        }
+        turns.push(options);
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: `bridge-turn-${turns.length}`, abort: mock() };
+      },
+    );
+    const { session } = createSessionHarness(startVoiceTurn);
+    sessionRef.current = session;
+    await session.start();
+
+    await session.handleClientFrame({ type: "attach_frame", attachmentId });
+    await speakAndRelease(session, () => dispatches, 8_000);
+
+    expect(parkedFrameId(session)).toBe(attachmentId);
+    expect(frameStored(attachmentId)).toBe(true);
+
+    await speakAndRelease(session, () => dispatches, 9_000);
+
+    expect(turns[0]?.attachments).toEqual([attachmentId]);
+
+    await session.close("websocket_close");
+  });
+
   test("an unknown attachment id is refused and nothing is parked", async () => {
     const turns: VoiceTurnOptions[] = [];
     const startVoiceTurn: LiveVoiceTurnStarter = mock(

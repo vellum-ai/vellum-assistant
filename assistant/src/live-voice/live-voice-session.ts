@@ -4795,12 +4795,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn.handedOffRequest = null;
     turn.consumedAnnouncement = null;
     turn.turnAttachmentId = null;
+    // Nobody's to send unless the slot already holds it. A client that
+    // retransmits the id this turn claimed parked the SAME frame rather than a
+    // newer one, and collecting it would leave the slot pointing at a row that
+    // is gone: the discard keeps the bytes alive precisely so the replay can
+    // still send them.
+    const orphanedFrameId =
+      turnAttachmentId !== null &&
+      this.pendingTurnAttachmentId !== turnAttachmentId
+        ? turnAttachmentId
+        : null;
     if (
       this.isClosed ||
       this.detachStopGeneration !== turn.pendingContextStopGeneration
     ) {
       // The drop is deliberate, so the frame it drops is nobody's to send.
-      turn.staleFrameId = turnAttachmentId;
+      turn.staleFrameId = orphanedFrameId;
       return;
     }
     if (this.pendingInterruptedRequest === null) {
@@ -4811,8 +4821,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // leave it staged for a turn that will never ask for it.
     if (this.pendingTurnAttachmentId === null) {
       this.pendingTurnAttachmentId = turnAttachmentId;
-    } else if (turnAttachmentId !== null) {
-      turn.staleFrameId = turnAttachmentId;
+    } else {
+      turn.staleFrameId = orphanedFrameId;
     }
     if (this.pendingContinuationResult === null) {
       this.pendingContinuationResult = continuationResult;
