@@ -983,6 +983,11 @@ export async function buildRetainedImageBlocks(
       // camera-frame retention matches on: without it a frame the compaction
       // model chose to keep would be invisible to every later pass and could
       // outlive the retention bound.
+      //
+      // Assigned rather than spread through `attachmentIdFragment`, the helper
+      // the conditional producers share: a manifest entry always names a row,
+      // so making the field conditional here would describe an absence the
+      // type rules out.
       _attachmentId: entry.attachmentId,
     });
     resolved.push(name);

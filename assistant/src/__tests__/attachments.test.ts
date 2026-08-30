@@ -6,6 +6,25 @@ import {
   enrichMessageWithSourcePaths,
 } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
+import { attachmentIdFragment } from "../providers/types.js";
+
+// ---------------------------------------------------------------------------
+// attachmentIdFragment
+// ---------------------------------------------------------------------------
+
+describe("attachmentIdFragment", () => {
+  test("yields the property when an id is present", () => {
+    expect(attachmentIdFragment("att-1")).toEqual({ _attachmentId: "att-1" });
+  });
+
+  test("yields nothing for a missing or empty id", () => {
+    // Absent rather than present-and-empty: the read side requires a non-empty
+    // string before it treats the field as an id.
+    expect(attachmentIdFragment(undefined)).toEqual({});
+    expect(attachmentIdFragment("")).toEqual({});
+    expect("_attachmentId" in attachmentIdFragment("")).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // attachmentsToReferenceBlocks

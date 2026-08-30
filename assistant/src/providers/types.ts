@@ -110,6 +110,28 @@ export interface FileContent {
   _attachmentId?: string;
 }
 
+/**
+ * The `_attachmentId` property as a spreadable fragment, or nothing when there
+ * is no usable id.
+ *
+ * Every producer of a media block faces the same choice: it either knows the
+ * attachment row the block came from, or it does not, and the field has to be
+ * absent rather than present-and-empty in the second case. Spelling that out at
+ * each site is how the checks drifted apart, so they share this one instead.
+ * Callers pass whatever id they hold: the source block's own
+ * ({@link ImageContent._attachmentId}) when carrying it across a rebuild, or an
+ * upload's row id when stamping a fresh block.
+ *
+ * Empty counts as absent, matching the read side, which requires a non-empty
+ * string before it will treat the field as an id (see
+ * `daemon/handlers/shared.ts`).
+ */
+export function attachmentIdFragment(attachmentId: string | undefined): {
+  _attachmentId?: string;
+} {
+  return attachmentId ? { _attachmentId: attachmentId } : {};
+}
+
 export interface ToolUseContent {
   type: "tool_use";
   id: string;

@@ -221,6 +221,73 @@ describe("resolveMediaReferences image validation", () => {
   });
 });
 
+describe("resolveMediaReferences attachment id", () => {
+  beforeEach(resetTables);
+
+  test("carries a file block's attachment id across reference resolution", async () => {
+    // Resolving a reference rebuilds the block around freshly read bytes. The
+    // id is the block's only remaining link to its attachment row, so it has to
+    // survive the rebuild.
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "notes.txt",
+      "text/plain",
+      Buffer.from("hello").toString("base64"),
+    );
+    const message = userMessage([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "text/plain",
+          attachmentId: stored.id,
+          sizeBytes: stored.sizeBytes,
+          filename: "notes.txt",
+        },
+        _attachmentId: stored.id,
+      },
+    ]);
+
+    const [resolved] = await resolveMediaReferences([message]);
+
+    const block = resolved.content[0];
+    expect(block.type).toBe("file");
+    expect(block).toMatchObject({
+      source: { type: "base64" },
+      _attachmentId: stored.id,
+    });
+  });
+
+  test("omits the field when the source block carries no id", async () => {
+    const conv = createConversation();
+    const stored = await createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "plain.txt",
+      "text/plain",
+      Buffer.from("hi").toString("base64"),
+    );
+    const message = userMessage([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "text/plain",
+          attachmentId: stored.id,
+          sizeBytes: stored.sizeBytes,
+          filename: "plain.txt",
+        },
+      },
+    ]);
+
+    const [resolved] = await resolveMediaReferences([message]);
+
+    expect("_attachmentId" in resolved.content[0]).toBe(false);
+  });
+});
+
 describe("isUnsendableImageSource", () => {
   beforeEach(resetTables);
 

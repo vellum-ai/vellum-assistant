@@ -28,13 +28,14 @@ import {
   sniffImageMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
-import type {
-  Base64MediaSource,
-  ContentBlock,
-  FileContent,
-  ImageContent,
-  MediaSource,
-  Message,
+import {
+  attachmentIdFragment,
+  type Base64MediaSource,
+  type ContentBlock,
+  type FileContent,
+  type ImageContent,
+  type MediaSource,
+  type Message,
 } from "./types.js";
 
 const log = getLogger("media-resolve");
@@ -280,9 +281,7 @@ function resolveFileBlock(block: FileContent): ContentBlock {
     ...(block.extracted_text !== undefined
       ? { extracted_text: block.extracted_text }
       : {}),
-    ...(block._attachmentId !== undefined
-      ? { _attachmentId: block._attachmentId }
-      : {}),
+    ...attachmentIdFragment(block._attachmentId),
   };
 }
 
