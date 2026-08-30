@@ -1164,6 +1164,32 @@ export function getAttachmentsByIds(
   return results;
 }
 
+/**
+ * Hydrate attachment ids into the shape a persisted user message stores:
+ * base64 data plus the on-disk source path where one is known. Ids with no
+ * attachment row are dropped, so a caller that needs to know an id was bad
+ * compares the returned length against what it asked for.
+ */
+export function resolveAttachmentsForPersist(attachmentIds: string[]): Array<{
+  id: string;
+  filename: string;
+  mimeType: string;
+  data: string;
+  filePath?: string;
+}> {
+  const resolved = getAttachmentsByIds(attachmentIds, {
+    hydrateFileData: true,
+  });
+  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
+  return resolved.map((a) => ({
+    id: a.id,
+    filename: a.originalFilename,
+    mimeType: a.mimeType,
+    data: a.dataBase64,
+    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+  }));
+}
+
 export function linkAttachmentToMessage(
   messageId: string,
   attachmentId: string,

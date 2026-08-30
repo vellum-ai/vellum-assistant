@@ -25,10 +25,7 @@ import { v7 as uuidv7 } from "uuid";
 
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
-} from "../persistence/attachments-store.js";
+import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -54,25 +51,6 @@ const PHOTO_MESSAGE_CONTENT = "here's a photo:";
 export interface LiveVoicePhotoResult {
   readonly ok: boolean;
   readonly messageId?: string;
-}
-
-/**
- * Hydrate attachment ids into the shape `persistQueuedMessageBody` stores.
- * Mirrors the HTTP send path's own `resolveAttachments`, so a photo taken
- * mid-call is stored exactly like one attached to a typed message.
- */
-function resolvePhotoAttachments(attachmentIds: string[]) {
-  const resolved = getAttachmentsByIds(attachmentIds, {
-    hydrateFileData: true,
-  });
-  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-  return resolved.map((a) => ({
-    id: a.id,
-    filename: a.originalFilename,
-    mimeType: a.mimeType,
-    data: a.dataBase64,
-    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-  }));
 }
 
 /** Resolve once the conversation is not mid-turn, or false on timeout. */
@@ -105,7 +83,7 @@ export async function persistLiveVoicePhoto(
   attachmentId: string,
 ): Promise<LiveVoicePhotoResult> {
   try {
-    const attachments = resolvePhotoAttachments([attachmentId]);
+    const attachments = resolveAttachmentsForPersist([attachmentId]);
     if (attachments.length === 0) {
       log.warn({ attachmentId }, "Live-voice photo attachment did not resolve");
       return { ok: false };

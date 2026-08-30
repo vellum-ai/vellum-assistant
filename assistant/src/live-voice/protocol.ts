@@ -8,6 +8,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "end",
   "update_config",
   "attach_image",
+  "attach_frame",
   "text",
 ] as const;
 
@@ -194,15 +195,41 @@ export interface LiveVoiceClientUpdateConfigFrame {
  * caps size, and stores the blob, and routing an image through this socket
  * would duplicate all of it on a transport tuned for 50 ms audio frames.
  *
- * The id is *parked*, not dispatched. It rides the next turn's own user
- * message (see {@link LiveVoiceSession}'s pending-attachment handling), so the
- * photo and the words spoken about it are one message rather than two, which
- * is what lets "what's this?" resolve, and what keeps the image attached to the
- * newest user message, the only one a context-overflow retry preserves media on
- * (`conversation-media-retry.ts`).
+ * The id is persisted the moment it arrives, as a standalone user message that
+ * runs no turn (see `live-voice-photo.ts`). A snap the user watched themselves
+ * take has to show up in the conversation whether or not they ever speak about
+ * it, and landing it in history immediately is what makes shutter-then-speak
+ * and speak-then-shutter answer the same way.
+ *
+ * Deliberately not {@link LiveVoiceClientAttachFrameFrame}, which parks its id
+ * for the next spoken turn instead. The two frames look alike on the wire and
+ * answer opposite questions: a deliberate snap must appear now; an ambient
+ * camera frame is worthless without the words that follow it.
  */
 export interface LiveVoiceClientAttachImageFrame {
   readonly type: "attach_image";
+  readonly attachmentId: string;
+}
+
+/**
+ * An ambient camera frame the client picked for the assistant to see, already
+ * uploaded over the normal attachment route, and sent here as an id alone for
+ * the same reason {@link LiveVoiceClientAttachImageFrame} sends one.
+ *
+ * The id is *parked* on the session rather than persisted. It rides the next
+ * spoken turn's own user message, and the slot is cleared as that turn starts,
+ * so a frame that arrives mid-turn belongs to the turn after it. Nothing the
+ * user asked for happened here: a frame nobody ever speaks over must leave no
+ * trace in the conversation, and a frame that does get words must be part of
+ * the same message as those words. Riding the newest user message is also what
+ * carries it through a context-overflow retry, the only message media survives
+ * on (`conversation-media-retry.ts`).
+ *
+ * Latest wins. A second frame overwrites the first, because what matters is
+ * what the camera is pointed at when the user speaks.
+ */
+export interface LiveVoiceClientAttachFrameFrame {
+  readonly type: "attach_frame";
   readonly attachmentId: string;
 }
 
@@ -253,6 +280,7 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientEndFrame
   | LiveVoiceClientUpdateConfigFrame
   | LiveVoiceClientAttachImageFrame
+  | LiveVoiceClientAttachFrameFrame
   | LiveVoiceClientTextTurnFrame;
 
 interface LiveVoiceBinaryAudioFrame {
@@ -513,11 +541,11 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    * daemons predating the field.
    *
    * It exists so an `unknown_type` is attributable. A client that sends more
-   * than one optional frame (today: `update_config` and `attach_image`) gets
-   * the same code for either, and without this has to assume which one was
-   * refused. The wrong assumption is silent in both directions: settings stop
-   * applying for a session, or a photo the user watched themselves take is
-   * dropped with nothing said.
+   * than one optional frame (today: `update_config`, `attach_image`,
+   * `attach_frame`, and `text`) gets the same code for any of them, and
+   * without this has to assume which one was refused. The wrong assumption is
+   * silent in both directions: settings stop applying for a session, or a
+   * photo the user watched themselves take is dropped with nothing said.
    */
   readonly frameType?: string;
   /**
@@ -654,6 +682,8 @@ export function validateLiveVoiceClientFrame(
       return validateUpdateConfigFrame(value);
     case "attach_image":
       return validateAttachImageFrame(value);
+    case "attach_frame":
+      return validateAttachFrameFrame(value);
     case "text":
       return validateTextTurnFrame(value);
   }
@@ -747,6 +777,33 @@ function validateAttachImageFrame(
   return {
     ok: true,
     frame: { type: "attach_image", attachmentId: value.attachmentId },
+  };
+}
+
+function validateAttachFrameFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientAttachFrameFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "attach_frame frame is missing required field attachmentId",
+      "attachmentId",
+      "attach_frame",
+    );
+  }
+
+  if (!isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "attach_frame frame field attachmentId must be a non-empty string",
+      "attachmentId",
+      "attach_frame",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "attach_frame", attachmentId: value.attachmentId },
   };
 }
 

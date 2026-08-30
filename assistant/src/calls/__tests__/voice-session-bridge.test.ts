@@ -39,6 +39,24 @@ mock.module("../../plugin-api/vision-support.js", () => ({
   doesSupportVision: () => pinProfileSupportsVision,
 }));
 
+// Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
+// ids exist; anything else resolves to nothing, which is how an id the client
+// invented reaches the bridge.
+import * as realAttachmentsStore from "../../persistence/attachments-store.js";
+
+mock.module("../../persistence/attachments-store.js", () => ({
+  ...realAttachmentsStore,
+  resolveAttachmentsForPersist: (ids: string[]) =>
+    ids
+      .filter((id) => id.startsWith("att-frame-"))
+      .map((id) => ({
+        id,
+        filename: `${id}.png`,
+        mimeType: "image/png",
+        data: "ZnJhbWU=",
+      })),
+}));
+
 // Conversation-CRUD doubles for the teardown transcript-hygiene pass. The
 // real module is spread so every other export keeps its production behavior;
 // only the functions the hygiene pass (and discard) touch are recorded.
@@ -132,6 +150,7 @@ interface FakeConversation {
     content: string;
     requestId: string;
     metadata?: Record<string, unknown>;
+    attachments?: Array<Record<string, unknown>>;
   }) => Promise<{ id: string }>;
   workingDir: string;
   addEventObserver: (observer: unknown) => () => void;
@@ -167,7 +186,12 @@ function makeFakeConversation(opts: {
   let clientCallback: ((msg: unknown) => Promise<void>) | undefined;
   let persistCount = 0;
   let lastPersistOpts:
-    | { content: string; requestId: string; metadata?: Record<string, unknown> }
+    | {
+        content: string;
+        requestId: string;
+        metadata?: Record<string, unknown>;
+        attachments?: Array<Record<string, unknown>>;
+      }
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
@@ -493,6 +517,66 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     // Only live-voice sessions pass `voiceTelemetry`; a phone call has no
     // live-voice session id to attribute a turn to.
     expect(fake.lastPersistOpts()?.metadata).not.toHaveProperty("client");
+  });
+});
+
+describe("startVoiceTurn camera-frame attachments", () => {
+  test("hydrates parked ids onto the turn's own user message", async () => {
+    // The live-voice session parks an ambient camera frame and hands the id
+    // over; the row it lands on is the one carrying the user's words, so the
+    // picture and the sentence about it are one message.
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      attachments: ["att-frame-1"],
+    });
+
+    expect(fake.lastPersistOpts()?.attachments).toEqual([
+      {
+        id: "att-frame-1",
+        filename: "att-frame-1.png",
+        mimeType: "image/png",
+        data: "ZnJhbWU=",
+      },
+    ]);
+    // `UserMessageAttachment` carries no metadata of its own, so which of a
+    // row's attachments were ambient frames is recorded on the message.
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      voiceSessionTurn: true,
+      sightFrameAttachmentIds: ["att-frame-1"],
+    });
+  });
+
+  test("an id that resolves to nothing costs the caller no turn", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what is this",
+      attachments: ["att-missing"],
+    });
+
+    expect(fake.persistCount()).toBe(1);
+    expect(fake.lastPersistOpts()).not.toHaveProperty("attachments");
+    expect(fake.lastPersistOpts()?.metadata).not.toHaveProperty(
+      "sightFrameAttachmentIds",
+    );
+  });
+
+  test("a turn with no parked frame persists exactly as before", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({ ...makeTurnOptions(), content: "what is this" });
+
+    expect(fake.lastPersistOpts()).not.toHaveProperty("attachments");
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+    });
   });
 });
 
