@@ -116,8 +116,8 @@ export interface FileContent {
  *
  * Every producer of a media block faces the same choice: it either knows the
  * attachment row the block came from, or it does not, and the field has to be
- * absent rather than present-and-empty in the second case. Spelling that out at
- * each site is how the checks drifted apart, so they share this one instead.
+ * absent rather than present-and-empty in the second case. This helper is the
+ * one place that decision lives, so every producer answers it the same way.
  * Callers pass whatever id they hold: the source block's own
  * ({@link ImageContent._attachmentId}) when carrying it across a rebuild, or an
  * upload's row id when stamping a fresh block.
