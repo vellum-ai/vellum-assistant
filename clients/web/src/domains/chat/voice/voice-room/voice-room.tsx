@@ -589,11 +589,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
   // Sight rides the viewfinder the shutter already put on screen: while it is
-  // open the gate keeps the frames worth keeping and parks the freshest one on
-  // each turn, so the call can be asked about what the camera is pointed at
-  // without anyone pressing anything. Inert unless the flag and the session's
-  // assistant both allow it, and it acquires no camera of its own, so the
-  // native shells (where this `<video>` never mounts) simply sample nothing.
+  // open the gate keeps the frames worth keeping and parks each one on the
+  // session as it lands, so whatever turn comes next carries the current view
+  // and the call can be asked about what the camera is pointed at without
+  // anyone pressing anything. Inert unless the flag and the session's assistant
+  // both allow it, and it acquires no camera of its own, so the native shells
+  // (where this `<video>` never mounts) simply sample nothing.
   const { heldFrame } = useVoiceRoomSight(assistantId, viewfinderRef, {
     cameraOpen,
     facing: camera.facing,
@@ -1197,11 +1198,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                   ))}
                 </ul>
               ) : null}
-              {/* What the call will see when the user next stops talking.
+              {/* The view the call is holding right now.
 
                   A photo in the strip is a receipt for something the user did;
-                  this is the opposite, a frame nobody asked for that is about
-                  to ride a turn, so it has to be visible while that is still
+                  this is the opposite, a frame nobody asked for that the next
+                  turn can carry, so it has to be visible while that is still
                   true rather than after the fact. It wears the strip's shape so
                   the two read as one row, and the capture accent so they are
                   not read as the same thing. Keyed on the id, which replays the
