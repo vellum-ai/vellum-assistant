@@ -8,7 +8,9 @@ const resolveLocalAssistantPlatformIdentityMock = mock(
 const resolvePairedAssistantPlatformIdMock = mock(
   async (_assistantId: string) => null as string | null,
 );
-const fetchPlatformStatusMock = mock(async () => null);
+const fetchPlatformStatusMock = mock(
+  async (): Promise<{ assistantId: string } | null> => null,
+);
 let remoteGatewayMode = false;
 
 mock.module("@/lib/local-platform-identity", () => ({
