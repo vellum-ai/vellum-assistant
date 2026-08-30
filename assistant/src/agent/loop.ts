@@ -797,6 +797,22 @@ export interface AgentLoopConstructorOptions {
    * result-time pass and the post-turn truncation covers the turn instead.
    */
   resolveConversationDir?: () => string | null;
+  /**
+   * Trim a freshly compacted history before it becomes the loop's working set.
+   *
+   * Compaction rebuilds history from the stored rows, so it can reintroduce
+   * content the caller had already trimmed out of the array it handed to
+   * `run()` (camera-frame retention is the case this exists for: the compaction
+   * model may retain any number of older frames, and the rebuilt history is
+   * sent on the very next request). The caller closes over whatever
+   * conversation state its trimming needs, which is what keeps this module free
+   * of any dependency on the daemon's conversation layer.
+   *
+   * Must be total: the loop treats a throw as "no trim" rather than failing the
+   * turn. Callers that hold no conversation (workflow leaf runs) omit it and
+   * the compacted history is installed as built.
+   */
+  transformCompactedHistory?: (messages: Message[]) => Message[];
 }
 
 export class AgentLoop {
@@ -818,6 +834,11 @@ export class AgentLoop {
   /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
   private readonly resolveConversationDir: (() => string | null) | null;
 
+  /** See {@link AgentLoopConstructorOptions.transformCompactedHistory}. */
+  private readonly transformCompactedHistory:
+    | ((messages: Message[]) => Message[])
+    | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -837,6 +858,7 @@ export class AgentLoop {
       resolveTools,
       conversationId,
       resolveConversationDir,
+      transformCompactedHistory,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -846,6 +868,7 @@ export class AgentLoop {
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
+    this.transformCompactedHistory = transformCompactedHistory ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -922,6 +945,34 @@ export class AgentLoop {
         { err: recordError, requestId },
         "Recording a compaction outcome against the circuit breaker failed; suppressing to keep the agent loop alive",
       );
+    }
+  }
+
+  /**
+   * Run the caller's post-compaction trim over a freshly compacted history,
+   * falling back to the untrimmed array when no transform is configured or the
+   * transform throws.
+   *
+   * The trim narrows what the next request carries, so failing it is strictly
+   * worse than skipping it: the turn still has a valid history either way, and
+   * the caller's own passes cover the next turn. Kept best-effort for the same
+   * reason the caller's pre-run pass is.
+   */
+  private applyCompactedHistoryTransform(
+    compacted: Message[],
+    rlog: ReturnType<typeof getLogger>,
+  ): Message[] {
+    if (!this.transformCompactedHistory) {
+      return compacted;
+    }
+    try {
+      return this.transformCompactedHistory(compacted);
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Post-compaction history transform failed (non-fatal); keeping the compacted history as built",
+      );
+      return compacted;
     }
   }
 
@@ -1363,7 +1414,14 @@ export class AgentLoop {
                   overflowSignal ?? undefined,
                 );
                 if (attempt.history) {
-                  history = attempt.history;
+                  // Trim before anything else reads the rebuilt array: the
+                  // provider call further down this same iteration sends it, so
+                  // content compaction reintroduced has to be brought back
+                  // within the caller's bounds here or it ships un-trimmed.
+                  history = this.applyCompactedHistoryTransform(
+                    attempt.history,
+                    rlog,
+                  );
                   // The compacted, re-injected array is the new base; output
                   // produced after this point is what the wrapper persists.
                   newMessagesStart = history.length;

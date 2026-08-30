@@ -759,12 +759,16 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
  * assembled copy the turn is about to send, keeps the stored transcript and its
  * attachments intact.
  *
- * The tag that names the frames is per-row metadata, which the assembled
- * `Message[]` no longer carries, so the ids are read back from the rows and
+ * The tag that names the frames is per-row metadata, and the assembled
+ * `Message[]` omits row metadata, so the ids are read back from the rows and
  * matched against the attachment id each image block carries: `workspace_ref`
  * on a reloaded block, `_attachmentId` on the live copy a turn pushed. One
  * uninterrupted call and a reloaded conversation therefore trim from the same
  * pool. A conversation with no tagged rows returns the input array unchanged.
+ *
+ * Called twice over a turn that compacts: once before the run, and again on the
+ * rebuilt history the agent loop installs, since compaction reads the stored
+ * rows and can retain frames this pass had already stubbed.
  *
  * Best-effort: this trims cost, it does not decide what the turn means, so a
  * failed read degrades to the untrimmed history rather than failing the turn.

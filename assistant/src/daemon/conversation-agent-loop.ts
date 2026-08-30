@@ -1263,8 +1263,11 @@ export async function runAgentLoopImpl(
     // Camera-frame retention: keep only the newest few ambient frames as real
     // images. Applied to the per-turn copy, after every hook and the repair, so
     // every turn this loop drives inherits it and the stored transcript keeps
-    // its attachments. The overflow ladder's media stubbing still governs
-    // everything the user deliberately attached.
+    // its attachments. The loop re-runs the same pass on any history its
+    // in-place compaction rebuilds (see the `transformCompactedHistory` closure
+    // the conversation supplies), so the bound holds across a compaction rather
+    // than only from the next turn. The overflow ladder's media stubbing still
+    // governs everything the user deliberately attached.
     const runMessages = applySightFrameRetention(
       repairedMessages,
       ctx.conversationId,

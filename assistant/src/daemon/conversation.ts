@@ -137,6 +137,7 @@ import type {
 } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
+  applySightFrameRetention,
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
   getSlackWatermarkAdvanceForRowPrefix,
@@ -887,6 +888,16 @@ export class Conversation {
           conv.createdAt,
         );
       },
+      // Compaction rebuilds history from the stored rows, so it can retain
+      // camera frames the turn's pre-run pass had already stubbed, and the
+      // rebuilt array is sent on the next request of that same turn. Re-running
+      // the retention pass here is what holds the frame bound across a
+      // compaction instead of only from the next turn onward. The row read
+      // repeats rather than sharing the pre-run pass's map: compactions are
+      // rare, and a map captured before the turn's awaits would describe a
+      // conversation that has since gained rows.
+      transformCompactedHistory: (messages) =>
+        applySightFrameRetention(messages, this.conversationId),
     });
     createContextWindowManager({
       provider,
