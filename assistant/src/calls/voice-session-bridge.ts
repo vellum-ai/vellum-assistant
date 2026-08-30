@@ -1038,6 +1038,9 @@ export async function startVoiceTurn(
 
   const requestId = uuidv7();
   const turnId = crypto.randomUUID();
+  // Ids this turn's row actually links, read back by `discardFn` so a rollback
+  // does not take the attachments down with the row.
+  let linkedAttachmentIds: string[] = [];
   const persistTurnUserMessage = async (): Promise<string> => {
     // Resolved inside the persist, not once outside it, so the retry after a
     // lost lock race stores exactly what the first attempt would have.
@@ -1045,6 +1048,7 @@ export async function startVoiceTurn(
       opts.attachments && opts.attachments.length > 0
         ? resolveAttachmentsForPersist([...opts.attachments])
         : [];
+    linkedAttachmentIds = turnAttachments.map((a) => a.id);
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
@@ -1895,7 +1899,18 @@ export async function startVoiceTurn(
       // Same rollback pattern as the pointer-turn runner: delete the row,
       // then rebuild in-memory history from the clean DB (a plain pop is
       // fragile against concurrent compaction reassigning the array).
-      deleteMessageById(messageId);
+      //
+      // The row's own attachments are exempted from the orphan cleanup. A
+      // discard unwinds the turn as though it never ran, so an ambient camera
+      // frame goes back to being uploaded-but-unsent, which is exactly what
+      // the live-voice session's parked slot expects to find when the held
+      // utterance is replayed. Collecting it here would delete the row and
+      // the bytes, and the replay would silently speak without the picture.
+      deleteMessageById(messageId, {
+        ...(linkedAttachmentIds.length > 0
+          ? { retainAttachmentIds: linkedAttachmentIds }
+          : {}),
+      });
       await conversation.loadFromDb();
       publishConversationMessagesChanged(opts.conversationId);
     } catch (err) {

@@ -331,6 +331,42 @@ describe("live-voice camera frames parked for the next turn", () => {
     expect(parkedFrameId(session)).toBeNull();
   });
 
+  test("a rolled-back turn hands the frame back for the replay", async () => {
+    // A turn that never reached the bridge (and a speculative one the hold
+    // verdict unwinds) must not take the frame down with it: the utterance is
+    // about to be sent again, and the user is still holding the thing up.
+    // The other half of this, that the rollback leaves the attachment itself
+    // alive, is `voice-session-bridge.test.ts`'s discard suite.
+    const attachmentId = await uploadFrame();
+    const turns: VoiceTurnOptions[] = [];
+    let dispatches = 0;
+    const startVoiceTurn: LiveVoiceTurnStarter = mock(
+      async (options: VoiceTurnOptions) => {
+        dispatches += 1;
+        if (dispatches === 1) {
+          throw new Error("bridge unavailable");
+        }
+        turns.push(options);
+        options.callbacks?.message_complete?.(makeMessageComplete());
+        return { turnId: `bridge-turn-${turns.length}`, abort: mock() };
+      },
+    );
+    const { session } = createSessionHarness(startVoiceTurn);
+    await session.start();
+
+    await session.handleClientFrame({ type: "attach_frame", attachmentId });
+    await speakAndRelease(session, () => dispatches, 8_000);
+
+    // Claimed by the failed turn, then handed straight back.
+    expect(parkedFrameId(session)).toBe(attachmentId);
+
+    await speakAndRelease(session, () => dispatches, 9_000);
+
+    expect(turns[0]?.attachments).toEqual([attachmentId]);
+
+    await session.close("websocket_close");
+  });
+
   test("an unknown attachment id is refused and nothing is parked", async () => {
     const turns: VoiceTurnOptions[] = [];
     const startVoiceTurn: LiveVoiceTurnStarter = mock(

@@ -4082,8 +4082,18 @@ export function relinkAttachments(
  *
  * Returns segment IDs so the caller can clean up the corresponding
  * Qdrant vector entries.
+ *
+ * `retainAttachmentIds` exempts attachments from the orphan cleanup below, for
+ * a caller rolling a message back rather than deleting it: the attachment
+ * returns to the uploaded-but-unlinked state it was in before the row existed,
+ * which is a live state (that is where every attachment sits between upload and
+ * send), not a leak. Callers deleting a message for good pass nothing and the
+ * attachments it alone referenced are collected.
  */
-export function deleteMessageById(messageId: string): DeletedMemoryIds {
+export function deleteMessageById(
+  messageId: string,
+  options?: { retainAttachmentIds?: readonly string[] },
+): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
@@ -4145,7 +4155,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     ...purgeMessageSegments([messageId], "deleteMessageById:post-delete"),
   );
 
-  deleteOrphanAttachments(candidateAttachmentIds);
+  const retainAttachmentIds = options?.retainAttachmentIds;
+  deleteOrphanAttachments(
+    retainAttachmentIds && retainAttachmentIds.length > 0
+      ? candidateAttachmentIds.filter((id) => !retainAttachmentIds.includes(id))
+      : candidateAttachmentIds,
+  );
 
   // Remove the deleted message's point from the lexical index. Enqueued only
   // when the row actually existed (`msgRow` set), after the transaction and

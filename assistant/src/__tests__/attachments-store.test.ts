@@ -22,6 +22,7 @@ import {
 import {
   addMessage,
   createConversation,
+  deleteMessageById,
 } from "../persistence/conversation-crud.js";
 import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -676,6 +677,59 @@ describe("deleteOrphanAttachments", () => {
 });
 
 // ---------------------------------------------------------------------------
+// deleteMessageById orphan cleanup
+// ---------------------------------------------------------------------------
+
+describe("deleteMessageById attachment cleanup", () => {
+  beforeEach(resetTables);
+
+  test("collects an attachment the deleted message alone referenced", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "With attachment");
+    const stored = await uploadAttachment("shot.txt", "text/plain", "ZGF0YQ==");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+    const filePath = getFilePathForAttachment(stored.id);
+
+    deleteMessageById(msg.id);
+
+    expect(getAttachmentById(stored.id)).toBeNull();
+    expect(existsSync(filePath!)).toBe(false);
+  });
+
+  test("retained ids survive the delete, row and bytes", async () => {
+    // A caller rolling a message back rather than deleting it: the attachment
+    // returns to the uploaded-but-unlinked state every attachment sits in
+    // between upload and send, so a later message can still reference it.
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "Rolled back");
+    const stored = await uploadAttachment("shot.txt", "text/plain", "ZGF0YQ==");
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+    const filePath = getFilePathForAttachment(stored.id);
+
+    deleteMessageById(msg.id, { retainAttachmentIds: [stored.id] });
+
+    expect(getAttachmentById(stored.id)).not.toBeNull();
+    expect(existsSync(filePath!)).toBe(true);
+    // The row is gone even though its attachment stayed.
+    expect(getAttachmentsForMessage(msg.id)).toHaveLength(0);
+  });
+
+  test("retaining one id does not spare the others on the row", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "Two attachments");
+    const kept = await uploadAttachment("kept.txt", "text/plain", "AAAA");
+    const dropped = await uploadAttachment("dropped.txt", "text/plain", "BBBB");
+    linkAttachmentToMessage(msg.id, kept.id, 0);
+    linkAttachmentToMessage(msg.id, dropped.id, 1);
+
+    deleteMessageById(msg.id, { retainAttachmentIds: [kept.id] });
+
+    expect(getAttachmentById(kept.id)).not.toBeNull();
+    expect(getAttachmentById(dropped.id)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateAttachmentUpload
 // ---------------------------------------------------------------------------
 
@@ -735,9 +789,9 @@ describe("validateAttachmentUpload", () => {
   test("accepts shell scripts as text attachments", () => {
     expect(validateAttachmentUpload("script.sh", "text/plain").ok).toBe(true);
     expect(validateAttachmentUpload("script.SH", "text/plain").ok).toBe(true);
-    expect(
-      validateAttachmentUpload("setup.sh", "application/x-sh").ok,
-    ).toBe(true);
+    expect(validateAttachmentUpload("setup.sh", "application/x-sh").ok).toBe(
+      true,
+    );
     expect(
       validateAttachmentUpload("run.sh", "application/x-shellscript").ok,
     ).toBe(true);
@@ -760,9 +814,9 @@ describe("validateAttachmentUpload", () => {
     expect(
       validateAttachmentUpload("PROGRAM.EXE", "application/octet-stream").ok,
     ).toBe(false);
-    expect(validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok).toBe(
-      false,
-    );
+    expect(
+      validateAttachmentUpload("INSTALL.DMG", "application/octet-stream").ok,
+    ).toBe(false);
   });
 
   test("rejects unsupported MIME types", () => {
