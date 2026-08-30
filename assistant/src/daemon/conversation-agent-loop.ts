@@ -113,6 +113,7 @@ import {
   drainConversationNotices,
 } from "./conversation-notices.js";
 import {
+  applySightFrameRetention,
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
   resolveTurnInboundActorContext,
@@ -1255,8 +1256,17 @@ export async function runAgentLoopImpl(
     // immediately before the call, after every hook (memory injection, title,
     // user plugins) has settled its shape. Runs unconditionally — a malformed
     // history is a hard provider rejection, never a per-conversation opt-in.
-    const runMessages = repairHistoryForRun(
+    const repairedMessages = repairHistoryForRun(
       finalUserPromptCtx.latestMessages,
+      ctx.conversationId,
+    );
+    // Camera-frame retention: keep only the newest few ambient frames as real
+    // images. Applied to the per-turn copy, after every hook and the repair, so
+    // every turn this loop drives inherits it and the stored transcript keeps
+    // its attachments. The overflow ladder's media stubbing still governs
+    // everything the user deliberately attached.
+    const runMessages = applySightFrameRetention(
+      repairedMessages,
       ctx.conversationId,
     );
 

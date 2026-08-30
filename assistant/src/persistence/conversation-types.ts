@@ -228,6 +228,34 @@ export function isVoiceSessionUserMessage(
 }
 
 /**
+ * Metadata key naming which of a row's attachments arrived as ambient camera
+ * frames rather than files the user picked. Exported so the SQL prefilter that
+ * finds candidate rows and the reader below name the same key.
+ */
+export const SIGHT_FRAME_ATTACHMENT_IDS_KEY = "sightFrameAttachmentIds";
+
+/**
+ * The row's attachments that arrived as ambient camera frames, by attachment
+ * id. A user attachment carries no metadata of its own, so the marking lives on
+ * the message and refers to the attachments by id.
+ *
+ * Tolerant of any metadata shape: a row without the key, or one whose value is
+ * not an array of ids, yields nothing. Retention consumers therefore treat an
+ * untagged conversation exactly like one that predates the tag.
+ */
+export function sightFrameAttachmentIdsFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string[] {
+  const ids = metadata?.[SIGHT_FRAME_ATTACHMENT_IDS_KEY];
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+  return ids.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+/**
  * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *

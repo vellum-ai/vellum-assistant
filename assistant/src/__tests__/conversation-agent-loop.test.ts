@@ -346,6 +346,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateMessageMetadata: updateMessageMetadataMock,
   setConversationHistoryStrippedAt: setConversationHistoryStrippedAtMock,
   getMessages: () => mockStoredMessages,
+  // Read by the pre-run camera-frame retention pass for any history holding
+  // attachment references. This suite seeds none, so an empty map is the same
+  // answer the real accessor would give.
+  selectSightFrameCaptureTimes: () => new Map<string, number>(),
   getConversation: () => mockConversationRow,
   provenanceFromTrustContext: () => ({
     source: "user",

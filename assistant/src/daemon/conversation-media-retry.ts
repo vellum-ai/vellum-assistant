@@ -4,6 +4,12 @@
  * When the provider rejects a request because the context is too large,
  * this module replaces older image and file content blocks with lightweight
  * text stubs to shrink the payload before retrying.
+ *
+ * The proactive counterpart, applied on every assembly and only to ambient
+ * camera frames, is `stripAgedSightFrames` in `conversation-sight-frames.ts`;
+ * its stub wording mirrors {@link imageBlockToStub} below. A block that path
+ * already stubbed is plain text here, so it is neither counted as media nor
+ * stubbed twice.
  */
 
 import { estimateContentBlockTokens } from "../context/token-estimator.js";

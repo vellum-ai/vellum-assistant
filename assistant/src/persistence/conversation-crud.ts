@@ -93,6 +93,8 @@ import {
   isHiddenMessageMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
+  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
+  sightFrameAttachmentIdsFromMetadata,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
@@ -2492,6 +2494,41 @@ export function selectProviderMetaCandidateMetadata(
     }
   }
   return out;
+}
+
+/**
+ * Every attachment the conversation's rows tagged as an ambient camera frame,
+ * mapped to the `createdAt` of the row that carried it.
+ *
+ * Like the Slack prefilter above, the `LIKE` is an indexable narrowing only:
+ * each candidate row is parsed and validated before an id is taken, so a row
+ * that merely mentions the key contributes nothing. Any row state qualifies
+ * because the tag is written with the insert, and the lineage filter is what
+ * lets a fork see the frames it inherited.
+ */
+export function selectSightFrameCaptureTimes(
+  conversationId: string,
+): Map<string, number> {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all();
+  const captureTimes = new Map<string, number>();
+  for (const row of rows) {
+    const metadata = parseMessageMetadata(row.metadata);
+    for (const id of sightFrameAttachmentIdsFromMetadata(metadata)) {
+      captureTimes.set(id, row.createdAt);
+    }
+  }
+  return captureTimes;
 }
 
 /**

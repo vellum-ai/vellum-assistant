@@ -48,6 +48,7 @@ import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
+  selectSightFrameCaptureTimes,
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
@@ -76,8 +77,10 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { getLogger } from "../util/logger.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import { stripAgedSightFrames } from "./conversation-sight-frames.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {} from "./message-protocol.js";
@@ -88,6 +91,8 @@ import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
 export { stripInjectionsForCompaction } from "../context/strip-injections.js";
+
+const log = getLogger("conversation-runtime-assembly");
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -735,6 +740,59 @@ function injectVoiceCallControlContext(
 /** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
+}
+
+// ---------------------------------------------------------------------------
+// Camera-frame retention
+// ---------------------------------------------------------------------------
+
+/**
+ * Trim the conversation's ambient camera frames down to the newest few
+ * (`KEEP_LATEST_SIGHT_FRAMES`), replacing the rest with text stubs.
+ *
+ * A camera call samples a frame about once per spoken turn, and history resends
+ * every inline image on every later request, so an hour-long call otherwise
+ * grows its own context until the provider rejects it. Trimming here, on the
+ * assembled copy the turn is about to send, keeps the stored transcript and its
+ * attachments intact.
+ *
+ * The tag that names the frames is per-row metadata, which the assembled
+ * `Message[]` no longer carries, so the ids are read back from the rows and
+ * matched against the `workspace_ref` blocks the history holds. A conversation
+ * with no tagged rows returns the input array unchanged.
+ *
+ * Best-effort: this trims cost, it does not decide what the turn means, so a
+ * failed read degrades to the untrimmed history rather than failing the turn.
+ */
+export function applySightFrameRetention(
+  messages: Message[],
+  conversationId: string,
+): Message[] {
+  // A frame is always an attachment reference, so a history holding none can be
+  // answered without reading any rows. That is the overwhelming majority of
+  // turns, and this pass sits on the per-turn critical path.
+  const hasReferencedImage = messages.some((message) =>
+    message.content.some(
+      (block) =>
+        block.type === "image" && block.source.type === "workspace_ref",
+    ),
+  );
+  if (!hasReferencedImage) {
+    return messages;
+  }
+  try {
+    const captureTimes = selectSightFrameCaptureTimes(conversationId);
+    if (captureTimes.size === 0) {
+      return messages;
+    }
+    return stripAgedSightFrames(messages, captureTimes).messages;
+  } catch (err) {
+    log.warn(
+      { conversationId, err },
+      "Camera-frame retention failed (non-fatal)",
+    );
+    return messages;
+  }
 }
 
 /**
