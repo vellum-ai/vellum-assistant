@@ -2328,6 +2328,20 @@ export class Conversation {
   }
 
   /**
+   * Trim this conversation's aged camera frames out of a history about to be
+   * sent to a provider, keeping only the newest few as real images.
+   *
+   * Thin binding of {@link applySightFrameRetention} to the conversation's own
+   * id, for the send paths that hold the instance rather than a turn context:
+   * the compaction pipeline's summarizer input, and the wake, which sends its
+   * run input itself. Best-effort inside, so a failed row read degrades to the
+   * untrimmed history.
+   */
+  trimAgedSightFrames(messages: Message[]): Message[] {
+    return applySightFrameRetention(messages, this.conversationId);
+  }
+
+  /**
    * Auto-threshold compaction gate. Runs the same durable compaction
    * pipeline as {@link forceCompact} (summary call, circuit-breaker
    * accounting, Slack provenance, in-memory + DB commit) but honors the
@@ -2426,8 +2440,16 @@ export class Conversation {
             },
           )
         : null;
-    const messagesToCompact =
-      slackChronologicalContext?.messages ?? this.messages;
+    // Trim aged camera frames out of the summarizer's own input. Compaction
+    // sends this array to a provider like any other request, so a long camera
+    // session would otherwise put every frame it ever captured into the summary
+    // call, which is the payload-size and many-image rejection retention exists
+    // to prevent. Safe against the caller-fixed boundary below: the pass
+    // replaces blocks inside messages and never adds, drops, or reorders one,
+    // so `fixedTailStartIndex` still names the same message.
+    const messagesToCompact = this.trimAgedSightFrames(
+      slackChronologicalContext?.messages ?? this.messages,
+    );
     const compactedRowCountAtCall = this.contextCompactedMessageCount;
     let result = await defaultCompact({
       conversationId: this.conversationId,

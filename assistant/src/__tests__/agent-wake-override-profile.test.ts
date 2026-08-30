@@ -90,6 +90,9 @@ function makeTarget(): {
       },
     },
     messages,
+    // The wake trims its own run input; no row here is tagged as a camera
+    // frame, so the real pass would return the array unchanged too.
+    trimAgedSightFrames: (msgs: Message[]) => msgs,
     getMessages: () => messages,
     isProcessing: () => processing,
     waitForIdle: async () => !processing,

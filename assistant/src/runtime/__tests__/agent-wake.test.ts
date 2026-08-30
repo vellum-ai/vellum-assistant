@@ -347,6 +347,7 @@ import {
   deleteConversation,
   setConversation,
 } from "../../daemon/conversation-registry.js";
+import { stripAgedSightFrames } from "../../daemon/conversation-sight-frames.js";
 import { ContextOverflowError, type Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
@@ -521,6 +522,11 @@ function makeWakeConversation(options: {
         return runBody(input, onEvent, options);
       },
     },
+    // The wake trims its own run input, the way the orchestrator's pre-run
+    // pass trims a normal turn's. Empty capture times leave the array
+    // untouched, which is what every case but the camera one wants.
+    trimAgedSightFrames: (msgs: Message[]) =>
+      stripAgedSightFrames(msgs, wakeSightFrameCaptureTimes).messages,
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
@@ -605,8 +611,12 @@ function makeWakeConversation(options: {
   return conversation as unknown as WakeConversation;
 }
 
+/** Tagged camera frames the fake conversation's trim resolves against. */
+let wakeSightFrameCaptureTimes = new Map<string, number>();
+
 beforeEach(() => {
   __resetWakeChainForTests();
+  wakeSightFrameCaptureTimes = new Map();
   wakeConvRegistry.clear();
   recordRequestLogCalls.length = 0;
   recordUsageCalls.length = 0;
@@ -932,6 +942,62 @@ describe("wakeAgentForOpportunity", () => {
 
     expect(conversation.runCalls[0]!.personaOverride).toBeUndefined();
     expect(conversation.personaOverrideSets).toEqual([]);
+  });
+
+  test("bounds camera frames in the run input it sends", async () => {
+    // The wake sends its run input itself and keeps the in-loop budget gate
+    // disabled, so neither the orchestrator's pre-run pass nor the loop's
+    // post-compaction transform ever sees this array. Without its own trim a
+    // long camera session would send every frame it captured.
+    wakeSightFrameCaptureTimes = new Map([
+      ["f1", 1000],
+      ["f2", 2000],
+      ["f3", 3000],
+      ["f4", 4000],
+    ]);
+    const frame = (attachmentId: string): Message => ({
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AAAAAAAA" },
+          _attachmentId: attachmentId,
+        },
+      ],
+    });
+    const conversation = makeWakeConversation({
+      baseline: [frame("f1"), frame("f2"), frame("f3"), frame("f4")],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "look around",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    const input = conversation.runCalls[0]!.input;
+    const images = input.flatMap((message) =>
+      message.content.filter((block) => block.type === "image"),
+    );
+    const stubs = input.flatMap((message) =>
+      message.content.filter(
+        (block) =>
+          block.type === "text" &&
+          block.text.startsWith("[Camera frame omitted from context:"),
+      ),
+    );
+    expect(images).toHaveLength(2);
+    expect(stubs).toHaveLength(2);
+    // The trim replaces blocks in place, so the wake's tail accounting still
+    // indexes the same positions.
+    expect(input.filter((m) => m.role === "user").length).toBeGreaterThan(0);
   });
 
   test("silent no-op when agent produces no tool calls and no text", async () => {
