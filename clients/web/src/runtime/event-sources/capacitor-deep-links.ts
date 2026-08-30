@@ -10,6 +10,7 @@ import {
   parseOpenCameraDeepLink,
   parseOpenConversationsDeepLink,
   parseOpenThreadDeepLink,
+  parseShareDeepLink,
   parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
 
@@ -27,10 +28,11 @@ import {
  * `deeplink.sendToThread` (or `deeplink.openThread` when it carries no
  * usable message); the Home Screen widgets' `vellum-assistant://camera`
  * and `vellum-assistant://new-chat` publish `deeplink.openCamera` /
- * `deeplink.newChat`, and the unread chip and unread line send
- * `vellum-assistant://conversations`, which publishes
- * `deeplink.openConversations`; any other URL publishes
- * `deeplink.unknown { url }` on the bus (query/fragment stripped).
+ * `deeplink.newChat`, the unread chip and unread line send
+ * `vellum-assistant://conversations` (`deeplink.openConversations`),
+ * and the share extension's `vellum-assistant://share/<id>` publishes
+ * `deeplink.share`; any other URL publishes `deeplink.unknown { url }`
+ * on the bus (query/fragment stripped).
  *
  * Off Capacitor the function is a no-op; Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
@@ -135,6 +137,12 @@ function handleUrl(url: string): void {
   const openConversations = parseOpenConversationsDeepLink(url, parseOptions);
   if (openConversations !== null) {
     publish("deeplink.openConversations", openConversations);
+    return;
+  }
+
+  const share = parseShareDeepLink(url);
+  if (share !== null) {
+    publish("deeplink.share", share);
     return;
   }
 
