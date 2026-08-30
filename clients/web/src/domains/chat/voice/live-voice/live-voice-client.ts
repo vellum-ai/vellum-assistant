@@ -423,9 +423,12 @@ export class LiveVoiceChannelClient {
 
   /**
    * Park a camera frame for the next turn to carry, by the id its upload
-   * already returned. Unlike `attachImage` the daemon persists nothing on its
-   * own: the id waits in a one-slot latest-wins holder and rides whichever turn
-   * launches next, or is given back if none ever does.
+   * already returned, or unpark with `null`. Unlike `attachImage` the daemon
+   * persists nothing on its own: the id waits in a one-slot latest-wins holder
+   * and rides whichever turn launches next, or is given back if none ever does.
+   *
+   * `null` clears that slot, which is what a closing viewfinder sends so a
+   * frame from a camera the user put away cannot ride a later turn.
    *
    * Returns whether the frame went out, which is all a caller can act on. The
    * frame is ambient context rather than something the user asked to send, so
@@ -436,7 +439,7 @@ export class LiveVoiceChannelClient {
    * below keeps that out of the `update_config` bucket, an ungated sampler
    * would still be sending a frame every few seconds into a void.
    */
-  attachFrame(attachmentId: string): boolean {
+  attachFrame(attachmentId: string | null): boolean {
     if (this.state !== "active") {
       return false;
     }

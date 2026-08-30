@@ -215,14 +215,14 @@ export interface LiveVoiceSessionControls {
    * Park a camera frame the viewfinder sampled, by the id its upload already
    * returned, so the next turn carries it. Latest wins: a second frame
    * replaces the first, because what matters is what the camera was pointed at
-   * when the user spoke.
+   * when the user spoke. `null` unparks, for a viewfinder that has closed.
    *
    * Returns whether it reached the session. Unlike `attachImage` a false needs
    * no report: nobody pressed anything, and the next keep parks a newer frame.
    *
    * Callers must gate on `useSupportsSightFrames`.
    */
-  attachFrame: (attachmentId: string) => boolean;
+  attachFrame: (attachmentId: string | null) => boolean;
 }
 
 /**
@@ -983,15 +983,17 @@ export function attachLiveVoiceImage(
 
 /**
  * Park a sampled camera frame on the active session, by attachment id, so the
- * next turn carries it. `sessionGeneration` is the generation read when the
- * frame was captured: the upload between the keep and this call can outlive
- * the session it was sampled in, and a frame from an ended session is refused
- * here rather than parked on whichever session is current. Returns whether it
- * reached that session. Module-level for the same stable-identity reasons as
- * {@link endLiveVoiceSession}.
+ * next turn carries it, or unpark the session's slot with `null`.
+ * `sessionGeneration` is the generation read when the frame was captured: the
+ * upload between the keep and this call can outlive the session it was sampled
+ * in, and a frame from an ended session is refused here rather than parked on
+ * whichever session is current. An unpark carries the same generation for the
+ * same reason: it speaks for one session's slot, never its successor's.
+ * Returns whether it reached that session. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
  */
 export function attachLiveVoiceFrame(
-  attachmentId: string,
+  attachmentId: string | null,
   sessionGeneration: number,
 ): boolean {
   const state = useLiveVoiceStore.getState();

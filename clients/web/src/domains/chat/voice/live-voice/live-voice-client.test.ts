@@ -551,6 +551,18 @@ describe("server frame dispatch", () => {
     });
   });
 
+  test("attachFrame unparks with a null id", async () => {
+    // What a closing viewfinder sends, so the session stops holding a view of
+    // something the user can no longer see.
+    const { client, ws } = await ready();
+
+    expect(client.attachFrame(null)).toBe(true);
+    expect(ws.sentJson.at(-1)).toEqual({
+      type: "attach_frame",
+      attachmentId: null,
+    });
+  });
+
   test("a rejected attach_frame is swallowed, not filed as a settings or session error", async () => {
     // The bucket problem: an `unknown_type` from a stale build would otherwise
     // latch config updates off, and the daemon's own recoverable refusal would

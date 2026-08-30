@@ -94,7 +94,6 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
-import { captureError } from "@/lib/sentry/capture-error";
 import {
   isLiveVoiceSessionActive,
   type LiveVoiceErrorRecovery,
@@ -139,49 +138,6 @@ const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
  * attempts — after the last one the session fails.
  */
 const RECONNECT_BACKOFF_MS = [1200, 3000, 6000];
-
-// ---------------------------------------------------------------------------
-// Utterance-end seam
-// ---------------------------------------------------------------------------
-
-/** Registered through {@link onLiveVoiceUtteranceEnd}. */
-const utteranceEndListeners = new Set<() => void>();
-
-/**
- * Run `listener` each time the server VAD closes an utterance that is becoming
- * a turn. Returns an unsubscribe.
- *
- * The one signal a surface can hang "the user just finished saying something"
- * on. Deliberately NOT the store's `utteranceOpen` flag: a discarded utterance
- * (a cough, a door) closes that flag too, and a subscriber watching it would
- * fire for turns that never happen. Only the transport can tell the two apart,
- * and `utterance_discarded` never reaches here.
- *
- * Fires only for hands-free sessions, which are the only ones the server VAD
- * closes utterances for. Listeners must be cheap and must not block: this runs
- * inside the transport's frame dispatch, ahead of the turn it belongs to.
- */
-export function onLiveVoiceUtteranceEnd(listener: () => void): () => void {
-  utteranceEndListeners.add(listener);
-  return () => {
-    utteranceEndListeners.delete(listener);
-  };
-}
-
-function emitUtteranceEnd(): void {
-  // Copied, so a listener unsubscribing itself while it runs cannot disturb
-  // the iteration, and caught, so one cannot take the frame dispatch down.
-  for (const listener of [...utteranceEndListeners]) {
-    try {
-      listener();
-    } catch (error) {
-      captureError(error, {
-        context: "live-voice: utterance-end listener",
-        bestEffort: true,
-      });
-    }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -672,12 +628,12 @@ export function useLiveVoice(
   }, []);
 
   /**
-   * Park a sampled camera frame for the next turn. Returns whether it reached
-   * the transport, which the caller may ignore: a frame dropped in the
-   * reconnect gap is replaced by the next keep a few seconds later, and unlike
-   * a photo nobody pressed anything to produce it.
+   * Park a sampled camera frame for the next turn, or unpark with `null`.
+   * Returns whether it reached the transport, which the caller may ignore: a
+   * frame dropped in the reconnect gap is replaced by the next keep a few
+   * seconds later, and unlike a photo nobody pressed anything to produce it.
    */
-  const attachFrame = useCallback((attachmentId: string): boolean => {
+  const attachFrame = useCallback((attachmentId: string | null): boolean => {
     return sessionRef.current?.client.attachFrame(attachmentId) ?? false;
   }, []);
 
@@ -961,11 +917,6 @@ export function useLiveVoice(
           session.speechEndedAtMs = performance.now();
           // Server VAD closed the utterance; its transcription is finishing.
           s.setState("transcribing");
-          // Last call for anything that rides this turn. Announced from the
-          // transport event rather than the store flag it just wrote, because
-          // `utterance_discarded` clears the same flag for speech that never
-          // becomes a turn. See `onLiveVoiceUtteranceEnd`.
-          emitUtteranceEnd();
         }),
         client.on("utteranceDiscarded", () => {
           if (!live() || !session.handsFree) {
