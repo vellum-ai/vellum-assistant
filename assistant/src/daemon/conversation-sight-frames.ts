@@ -39,13 +39,53 @@ import type { ContentBlock, Message } from "../providers/types.js";
 export const KEEP_LATEST_SIGHT_FRAMES = 2;
 
 /**
+ * The attachment row an image block came from, or null when it came from none.
+ *
+ * Two shapes carry the same fact, because a turn sends its uploads inline while
+ * persisting them as references: a reloaded block names the row on
+ * `source.attachmentId`, and the live in-memory block a turn pushed names it on
+ * `_attachmentId` (see `attachmentsToContentBlocks`). Matching on both is what
+ * lets one uninterrupted call and a reloaded conversation share a single pool
+ * of frames.
+ *
+ * Tool-generated and assistant-authored images carry neither and resolve to
+ * null, so they can never be mistaken for a tagged frame.
+ */
+export function imageAttachmentId(
+  block: Extract<ContentBlock, { type: "image" }>,
+): string | null {
+  if (block.source.type === "workspace_ref") {
+    return block.source.attachmentId;
+  }
+  return block._attachmentId ?? null;
+}
+
+/**
+ * True when any image in the history can be traced back to an attachment row.
+ *
+ * The retention pass reads rows to learn which attachments were camera frames;
+ * a history holding no attributable image has nothing those rows could match,
+ * so callers use this to skip the read entirely. Shares
+ * {@link imageAttachmentId} with the matcher so the two cannot disagree about
+ * what is skippable.
+ */
+export function hasAttributableImages(messages: Message[]): boolean {
+  return messages.some((message) =>
+    message.content.some(
+      (block) => block.type === "image" && imageAttachmentId(block) !== null,
+    ),
+  );
+}
+
+/**
  * Replace every camera frame in `messages` except the newest
  * {@link KEEP_LATEST_SIGHT_FRAMES} with a text stub.
  *
  * `frameCaptureTimes` maps an attachment id the conversation tagged as a camera
  * frame to when the row carrying it was written; an image block counts as a
- * frame only when it references one of those ids. Every other attachment
- * (picked files, pasted images, shutter photos) is left alone here.
+ * frame only when {@link imageAttachmentId} resolves it to one of those ids.
+ * Every other attachment (picked files, pasted images, shutter photos) is left
+ * alone here.
  *
  * Frames are ranked by their position in the history rather than by capture
  * time, so a row backdated by `sentAt` cannot displace a frame the model saw
@@ -66,10 +106,14 @@ export function stripAgedSightFrames(
   }> = [];
   for (const [messageIndex, message] of messages.entries()) {
     for (const [blockIndex, block] of message.content.entries()) {
-      if (block.type !== "image" || block.source.type !== "workspace_ref") {
+      if (block.type !== "image") {
         continue;
       }
-      const capturedAt = frameCaptureTimes.get(block.source.attachmentId);
+      const attachmentId = imageAttachmentId(block);
+      if (attachmentId === null) {
+        continue;
+      }
+      const capturedAt = frameCaptureTimes.get(attachmentId);
       if (capturedAt === undefined) {
         continue;
       }

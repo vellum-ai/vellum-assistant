@@ -109,6 +109,7 @@ export async function unsendableImageReplacement(
       return {
         type: "image",
         source: { ...block.source, media_type: effectiveMediaType },
+        ...attachmentIdOf(block),
       };
     }
     return null;
@@ -128,9 +129,27 @@ export async function unsendableImageReplacement(
         media_type: optimized.mediaType,
         data: optimized.data,
       },
+      ...attachmentIdOf(block),
     };
   }
   return { type: "text", text: UNSENDABLE_IMAGE_NOTE };
+}
+
+/**
+ * The block's internal attachment id, as a spreadable fragment.
+ *
+ * A relabel or resize above rebuilds the block, and both forms are written back
+ * to the stored row. Carrying the id across keeps the rewritten block traceable
+ * to its attachment, which is what camera-frame retention matches on; dropping
+ * it would untag a frame for good. Mirrors the same re-attachment
+ * `resolveFileBlock` does in `providers/media-resolve.ts`.
+ */
+function attachmentIdOf(block: Extract<ContentBlock, { type: "image" }>): {
+  _attachmentId?: string;
+} {
+  return block._attachmentId !== undefined
+    ? { _attachmentId: block._attachmentId }
+    : {};
 }
 
 /**

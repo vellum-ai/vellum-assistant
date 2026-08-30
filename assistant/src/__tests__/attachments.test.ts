@@ -152,6 +152,42 @@ describe("attachmentsToContentBlocks", () => {
     const blocks = await attachmentsToContentBlocks([]);
     expect(blocks).toHaveLength(0);
   });
+
+  test("stamps the attachment id on image and file blocks alike", async () => {
+    const blocks = await attachmentsToContentBlocks([
+      {
+        id: "att-img",
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "imgdata",
+      },
+      {
+        id: "att-doc",
+        filename: "doc.pdf",
+        mimeType: "application/pdf",
+        data: "pdfdata",
+      },
+    ]);
+
+    expect(blocks[0].type).toBe("image");
+    expect((blocks[0] as { _attachmentId?: string })._attachmentId).toBe(
+      "att-img",
+    );
+    expect(blocks[1].type).toBe("file");
+    expect((blocks[1] as { _attachmentId?: string })._attachmentId).toBe(
+      "att-doc",
+    );
+  });
+
+  test("omits the attachment id when the upload has none", async () => {
+    const blocks = await attachmentsToContentBlocks([
+      { filename: "photo.jpg", mimeType: "image/jpeg", data: "imgdata" },
+      { filename: "doc.pdf", mimeType: "application/pdf", data: "pdfdata" },
+    ]);
+
+    expect("_attachmentId" in blocks[0]).toBe(false);
+    expect("_attachmentId" in blocks[1]).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

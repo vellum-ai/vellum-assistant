@@ -80,7 +80,10 @@ import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
-import { stripAgedSightFrames } from "./conversation-sight-frames.js";
+import {
+  hasAttributableImages,
+  stripAgedSightFrames,
+} from "./conversation-sight-frames.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {} from "./message-protocol.js";
@@ -758,8 +761,10 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
  *
  * The tag that names the frames is per-row metadata, which the assembled
  * `Message[]` no longer carries, so the ids are read back from the rows and
- * matched against the `workspace_ref` blocks the history holds. A conversation
- * with no tagged rows returns the input array unchanged.
+ * matched against the attachment id each image block carries: `workspace_ref`
+ * on a reloaded block, `_attachmentId` on the live copy a turn pushed. One
+ * uninterrupted call and a reloaded conversation therefore trim from the same
+ * pool. A conversation with no tagged rows returns the input array unchanged.
  *
  * Best-effort: this trims cost, it does not decide what the turn means, so a
  * failed read degrades to the untrimmed history rather than failing the turn.
@@ -768,16 +773,11 @@ export function applySightFrameRetention(
   messages: Message[],
   conversationId: string,
 ): Message[] {
-  // A frame is always an attachment reference, so a history holding none can be
-  // answered without reading any rows. That is the overwhelming majority of
-  // turns, and this pass sits on the per-turn critical path.
-  const hasReferencedImage = messages.some((message) =>
-    message.content.some(
-      (block) =>
-        block.type === "image" && block.source.type === "workspace_ref",
-    ),
-  );
-  if (!hasReferencedImage) {
+  // A frame always traces back to an attachment row, so a history holding no
+  // attributable image can be answered without reading any rows. That is the
+  // overwhelming majority of turns, and this pass sits on the per-turn critical
+  // path.
+  if (!hasAttributableImages(messages)) {
     return messages;
   }
   try {

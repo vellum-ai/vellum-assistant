@@ -88,6 +88,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
+  // The batched-drain attachment cases put real image blocks in the history,
+  // which is what makes the camera-frame retention pass read rows. None of
+  // them is tagged, so an empty map is the answer the real accessor gives.
+  selectSightFrameCaptureTimes: () => new Map<string, number>(),
   getConversation: () => ({
     id: "conv-1",
     contextSummary: null,

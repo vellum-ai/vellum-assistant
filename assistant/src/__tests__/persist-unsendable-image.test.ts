@@ -392,6 +392,25 @@ describe("unsendableImageReplacement", () => {
     });
   });
 
+  /** Relabeling rebuilds the block, and the rebuilt form is written back to
+   *  the stored row. Losing the internal attachment id there would untag a
+   *  camera frame for good, so the relabel carries it across. */
+  test("relabeling preserves the internal attachment id", async () => {
+    const pngData = makePngBase64(1024, 768);
+    const mislabeled = {
+      ...(imageBlock(pngData, "image/jpeg") as Extract<
+        ContentBlock,
+        { type: "image" }
+      >),
+      _attachmentId: "att-frame-1",
+    };
+    const replacement = await unsendableImageReplacement(mislabeled);
+    expect(replacement).toMatchObject({
+      type: "image",
+      _attachmentId: "att-frame-1",
+    });
+  });
+
   /** Relabeling a persisted (workspace_ref) image keeps the reference shape —
    *  inlining it would bake the full payload into the stored message row. */
   test("relabels a mislabeled workspace_ref without inlining the payload", async () => {

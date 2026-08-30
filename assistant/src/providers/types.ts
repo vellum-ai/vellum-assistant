@@ -80,6 +80,19 @@ export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
 export interface ImageContent {
   type: "image";
   source: MediaSource;
+  /**
+   * Internal id linking a base64 image block to a row in the attachments table,
+   * the same correlation {@link FileContent._attachmentId} carries. A live turn
+   * sends its uploads inline while persisting them as references, so this is
+   * the only handle on the in-memory copy of an image whose stored form is a
+   * `workspace_ref`; camera-frame retention matches on it. Redundant once the
+   * block is a reference (use `source.attachmentId`).
+   *
+   * Never reaches a provider: every client builds its image payload out of
+   * `source` alone (see the `case "image"` arms of the Anthropic, Gemini, and
+   * both OpenAI clients), so top-level fields are dropped by construction.
+   */
+  _attachmentId?: string;
 }
 
 export interface FileContent {

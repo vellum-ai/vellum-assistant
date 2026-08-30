@@ -39,6 +39,21 @@ function inlineImage(): Extract<ContentBlock, { type: "image" }> {
   };
 }
 
+/**
+ * The live in-memory copy of an upload: inline bytes plus the attachment id
+ * that ties it to the row persisted as a reference. `data` is 8 base64 chars,
+ * so `mediaSourceByteLength` reports 6 bytes.
+ */
+function liveImage(
+  attachmentId: string,
+): Extract<ContentBlock, { type: "image" }> {
+  return {
+    type: "image",
+    source: { type: "base64", media_type: "image/jpeg", data: "AAAAAAAA" },
+    _attachmentId: attachmentId,
+  };
+}
+
 function user(...blocks: ContentBlock[]): Message {
   return { role: "user", content: blocks };
 }
@@ -172,9 +187,9 @@ describe("stripAgedSightFrames", () => {
     const messages: Message[] = [
       user({ type: "text", text: "look" }, referenceImage("a1")),
       assistant("ok"),
-      user(inlineImage(), referenceImage("a2"), referenceImage("a3")),
+      user(inlineImage(), referenceImage("a2"), liveImage("a3")),
       assistant("ok"),
-      user(referenceImage("a4"), { type: "text", text: "and this" }),
+      user(liveImage("a4"), { type: "text", text: "and this" }),
     ];
     const before = structuredClone(messages);
 
@@ -184,6 +199,79 @@ describe("stripAgedSightFrames", () => {
     expect(result.replacedBlocks).toBe(0);
     expect(result.messages).toBe(messages);
     expect(result.messages).toEqual(before);
+  });
+
+  test("stubs live inline frames on a call that never reloaded", () => {
+    // Every frame is the in-memory copy a turn pushed, so nothing in this
+    // history is a `workspace_ref`. This is the uninterrupted-call case.
+    const messages: Message[] = [
+      user({ type: "text", text: "one" }, liveImage("f1")),
+      assistant("ok"),
+      user({ type: "text", text: "two" }, liveImage("f2")),
+      assistant("ok"),
+      user({ type: "text", text: "three" }, liveImage("f3")),
+      assistant("ok"),
+      user({ type: "text", text: "four" }, liveImage("f4")),
+    ];
+
+    const result = stripAgedSightFrames(
+      messages,
+      captureTimes("f1", "f2", "f3", "f4"),
+    );
+
+    expect(result.modified).toBe(true);
+    expect(result.replacedBlocks).toBe(2);
+    expect(textOf(result.messages[0], 1)).toBe(
+      "[Camera frame omitted from context: captured 2026-08-30T14:25:00.000Z, image/jpeg, 6 bytes]",
+    );
+    expect(textOf(result.messages[2], 1)).toBe(
+      "[Camera frame omitted from context: captured 2026-08-30T14:25:01.000Z, image/jpeg, 6 bytes]",
+    );
+    expect(result.messages[4].content[1]).toEqual(liveImage("f3"));
+    expect(result.messages[6].content[1]).toEqual(liveImage("f4"));
+  });
+
+  test("ranks live and reloaded frames in one pool", () => {
+    // A conversation reloaded mid-call: the older turns came back from the DB
+    // as references, the newer ones are still the live copies. The newest two
+    // survive regardless of which shape they are.
+    const messages: Message[] = [
+      user(referenceImage("f1")),
+      user(referenceImage("f2")),
+      user(liveImage("f3")),
+      user(referenceImage("f4")),
+      user(liveImage("f5")),
+    ];
+
+    const result = stripAgedSightFrames(
+      messages,
+      captureTimes("f1", "f2", "f3", "f4", "f5"),
+    );
+
+    expect(result.replacedBlocks).toBe(3);
+    expect(result.messages[0].content[0].type).toBe("text");
+    expect(result.messages[1].content[0].type).toBe("text");
+    expect(result.messages[2].content[0].type).toBe("text");
+    expect(result.messages[3].content[0]).toEqual(referenceImage("f4"));
+    expect(result.messages[4].content[0]).toEqual(liveImage("f5"));
+  });
+
+  test("ignores an inline image whose id was never tagged", () => {
+    const messages: Message[] = [
+      user(liveImage("picked-1")),
+      user(liveImage("f1")),
+      user(liveImage("f2")),
+      user(liveImage("f3")),
+    ];
+
+    const result = stripAgedSightFrames(
+      messages,
+      captureTimes("f1", "f2", "f3"),
+    );
+
+    expect(result.replacedBlocks).toBe(1);
+    expect(result.messages[0].content[0]).toEqual(liveImage("picked-1"));
+    expect(result.messages[1].content[0].type).toBe("text");
   });
 
   test("leaves a conversation at or under the budget untouched", () => {

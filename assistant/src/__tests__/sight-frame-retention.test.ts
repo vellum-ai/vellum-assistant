@@ -133,6 +133,38 @@ describe("applySightFrameRetention", () => {
     expect(retained[3].content[0]).toEqual(referenceImage("att-c"));
   });
 
+  test("reaches live inline frames that never reloaded from the DB", async () => {
+    const conversationId = "conv-sight-frame-retention-live";
+    ensureConversation(conversationId);
+    for (const attachmentId of ["live-a", "live-b", "live-c"]) {
+      await addMessage(conversationId, "user", frameContent(attachmentId), {
+        metadata: { sightFrameAttachmentIds: [attachmentId] },
+      });
+    }
+
+    // What `persistQueuedMessageBody` pushes into `ctx.messages`: inline bytes
+    // carrying the id of the row persisted as a reference.
+    const liveImage = (
+      attachmentId: string,
+    ): Extract<ContentBlock, { type: "image" }> => ({
+      type: "image",
+      source: { type: "base64", media_type: "image/jpeg", data: "AAAAAAAA" },
+      _attachmentId: attachmentId,
+    });
+    const assembled: Message[] = [
+      { role: "user", content: [liveImage("live-a")] },
+      { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      { role: "user", content: [liveImage("live-b")] },
+      { role: "user", content: [liveImage("live-c")] },
+    ];
+
+    const retained = applySightFrameRetention(assembled, conversationId);
+
+    expect(retained[0].content[0].type).toBe("text");
+    expect(retained[2].content[0]).toEqual(liveImage("live-b"));
+    expect(retained[3].content[0]).toEqual(liveImage("live-c"));
+  });
+
   test("returns the same array for a conversation with no tagged rows", async () => {
     const conversationId = "conv-sight-frame-retention-untagged";
     ensureConversation(conversationId);

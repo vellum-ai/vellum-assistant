@@ -2974,6 +2974,62 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests - internal `_attachmentId` never reaches the wire
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider - internal attachment id", () => {
+  let provider: AnthropicProvider;
+
+  beforeEach(() => {
+    lastStreamParams = null;
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+  });
+
+  test("drops _attachmentId from image and file blocks", async () => {
+    // The declared media type matches the bytes, so `resolveMediaReferences`
+    // takes its identity fast path and hands the block through untouched. What
+    // keeps the field off the wire is the client rebuilding each payload out of
+    // `source` alone.
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this" },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: PNG_B64,
+            },
+            _attachmentId: "att-image-1",
+          },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "cGRm",
+              filename: "notes.pdf",
+            },
+            _attachmentId: "att-file-1",
+          },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = JSON.stringify(lastStreamParams!.messages);
+    expect(sent).not.toContain("_attachmentId");
+    expect(sent).not.toContain("att-image-1");
+    expect(sent).not.toContain("att-file-1");
+    // The image itself still went out.
+    expect(sent).toContain(PNG_B64);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests — Orphaned UTF-16 surrogate sanitization
 // ---------------------------------------------------------------------------
 
