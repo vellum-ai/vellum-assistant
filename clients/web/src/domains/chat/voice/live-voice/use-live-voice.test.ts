@@ -45,7 +45,7 @@ import {
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
 // static import graph.
-const { useLiveVoice } =
+const { useLiveVoice, onLiveVoiceUtteranceEnd } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
 const {
   useLiveVoiceStore,
@@ -1622,6 +1622,85 @@ describe("published utterance boundary", () => {
       await h.view.result.current.stop();
     });
     expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Utterance-end seam
+// ---------------------------------------------------------------------------
+
+describe("onLiveVoiceUtteranceEnd", () => {
+  test("announces an utterance that is becoming a turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    const heard = mock(() => {});
+    const unsubscribe = onLiveVoiceUtteranceEnd(heard);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+    });
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 4,
+        reason: "silence",
+      });
+    });
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  test("says nothing for an utterance the server discarded", async () => {
+    // The whole reason this is an event rather than a subscription to the
+    // store's `utteranceOpen`: a cough closes that flag too, and anything
+    // riding the boundary would attach itself to a turn that never happens.
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    const heard = mock(() => {});
+    const unsubscribe = onLiveVoiceUtteranceEnd(heard);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 3,
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+    expect(heard).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  test("a throwing listener does not take the frame down with it", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    const unsubscribeThrower = onLiveVoiceUtteranceEnd(() => {
+      throw new Error("listener blew up");
+    });
+    const heard = mock(() => {});
+    const unsubscribe = onLiveVoiceUtteranceEnd(heard);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+    });
+
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(h.view.result.current.state).toBe("transcribing");
+    unsubscribeThrower();
+    unsubscribe();
   });
 });
 
