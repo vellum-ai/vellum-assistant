@@ -1440,6 +1440,7 @@
     "providerCountMeta": "{count, plural, one {# провайдер} few {# провайдера} many {# провайдеров} other {# провайдера}}",
     "providerLabel": "Провайдер",
     "setUpTag": "Настроить",
+    "showOlderVersions": "{count, plural, one {Показать старую версию (#)} few {Показать старые версии (#)} many {Показать старых версий (#)} other {Показать старые версии (#)}}",
     "signInTag": "Войти",
     "soleProviderHint": "Эту модель обслуживает только {name}."
   },

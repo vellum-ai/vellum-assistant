@@ -1,5 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import {
+  Fragment,
   useId,
   useMemo,
   useRef,
@@ -27,6 +28,27 @@ export interface SearchableSelectOption {
    * nobody finds.
    */
   readonly sticky?: boolean;
+  /**
+   * Section this row belongs to. Rows carrying the same heading are drawn
+   * together under it, sections in the order their first row appears, and a
+   * section whose rows are all filtered out disappears with them. Leave unset
+   * for a flat list; mixing set and unset headings puts the ungrouped rows in
+   * their own unlabelled section, in the same first-appearance order.
+   */
+  readonly group?: string;
+  /**
+   * Held back from the list until a query asks for it, for a list that
+   * discloses itself progressively (an older version of a model behind the
+   * newest). Typing finds it like any other row.
+   */
+  readonly folded?: boolean;
+  /**
+   * A row that acts on the list rather than answering it ("Show older
+   * versions"). Picking it reports the value and leaves the list open, and it
+   * is offered only while the list is being browsed, since a query has
+   * already shown what it would have unfolded.
+   */
+  readonly listAction?: boolean;
 }
 
 export interface SearchableSelectProps {
@@ -112,27 +134,55 @@ export function SearchableSelect({
   const selectedOption = options.find((option) => option.value === value);
   const trimmedQuery = (query ?? "").trim().toLowerCase();
 
-  const { visibleOptions, stickyOptions } = useMemo(() => {
-    const sticky = options.filter((option) => option.sticky);
-    const matchable = options.filter((option) => !option.sticky);
-    const matches =
-      trimmedQuery === ""
-        ? matchable
-        : matchable.filter(
-            (option) =>
-              option.label.toLowerCase().includes(trimmedQuery) ||
-              option.value.toLowerCase().includes(trimmedQuery),
-          );
-    return { visibleOptions: matches, stickyOptions: sticky };
-  }, [options, trimmedQuery]);
+  const searching = trimmedQuery !== "";
 
-  // What the arrow keys walk, in the order the rows render. The pinned rows
-  // are walkable but they are not matches, so the announced count is the
-  // matches alone: otherwise every count is one too high, and a query that
-  // matched nothing announces the escape hatch as a result.
+  const { sections, visibleOptions, stickyOptions } = useMemo(() => {
+    const offered = options.filter((option) =>
+      option.folded || option.listAction
+        ? Boolean(option.folded) === searching
+        : true,
+    );
+    const sticky = offered.filter((option) => option.sticky);
+    const matchable = offered.filter((option) => !option.sticky);
+    const matches = searching
+      ? matchable.filter(
+          (option) =>
+            option.label.toLowerCase().includes(trimmedQuery) ||
+            option.value.toLowerCase().includes(trimmedQuery),
+        )
+      : matchable;
+    // Sections in the order their first surviving row appears, so a heading
+    // never outlives the rows it names.
+    const byGroup = new Map<string | undefined, SearchableSelectOption[]>();
+    for (const option of matches) {
+      const rows = byGroup.get(option.group);
+      if (rows) {
+        rows.push(option);
+        continue;
+      }
+      byGroup.set(option.group, [option]);
+    }
+    return {
+      sections: [...byGroup.entries()].map(([group, rows]) => ({
+        group,
+        rows,
+      })),
+      visibleOptions: matches,
+      stickyOptions: sticky,
+    };
+  }, [options, trimmedQuery, searching]);
+
+  // What the arrow keys walk, in the order the rows render: sections first,
+  // then the pinned rows. The pinned rows are walkable but they are not
+  // matches, so the announced count is the matches alone: otherwise every
+  // count is one too high, and a query that matched nothing announces the
+  // escape hatch as a result.
   const walkableValues = useMemo(
-    () => [...visibleOptions, ...stickyOptions].map((option) => option.value),
-    [visibleOptions, stickyOptions],
+    () =>
+      [...sections.flatMap((section) => section.rows), ...stickyOptions].map(
+        (option) => option.value,
+      ),
+    [sections, stickyOptions],
   );
 
   const invalid = Boolean(errorText);
@@ -152,9 +202,20 @@ export function SearchableSelect({
     setQuery(null);
   }
 
+  // Set by a pick that acted on the list rather than answering it, and
+  // consumed by the close that the pick itself triggers: `Combobox` closes on
+  // every commit, which for such a row would shut the list the user was still
+  // reading. One flag rather than a per-row click handler, so the keyboard
+  // commit behaves the same as the pointer one.
+  const keepOpenAfterSelect = useRef(false);
+
   function handleOpenChange(next: boolean) {
     if (next) {
       setOpen(true);
+      return;
+    }
+    if (keepOpenAfterSelect.current) {
+      keepOpenAfterSelect.current = false;
       return;
     }
     close();
@@ -216,8 +277,13 @@ export function SearchableSelect({
         options={walkableValues}
         value={value === "" ? null : value}
         onSelect={(next) => {
+          keepOpenAfterSelect.current =
+            options.find((option) => option.value === next)?.listAction ===
+            true;
           onChange(next);
-          close();
+          if (!keepOpenAfterSelect.current) {
+            close();
+          }
         }}
         open={open}
         onOpenChange={handleOpenChange}
@@ -289,7 +355,21 @@ export function SearchableSelect({
                   the pinned row, which is where it belongs anyway. */}
               {visibleOptions.length === 0
                 ? emptyMessage
-                : visibleOptions.map(renderRow)}
+                : sections.map((section) =>
+                    section.group === undefined ? (
+                      <Fragment key="ungrouped">
+                        {section.rows.map(renderRow)}
+                      </Fragment>
+                    ) : (
+                      <Combobox.Group
+                        key={section.group}
+                        label={section.group}
+                        labelClassName="uppercase tracking-wide"
+                      >
+                        {section.rows.map(renderRow)}
+                      </Combobox.Group>
+                    ),
+                  )}
               {stickyOptions.length > 0 ? (
                 <div
                   role="presentation"

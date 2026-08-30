@@ -184,7 +184,7 @@ export const CreateModelFirstSeveralProviders: Story = {
     const modelField = await screen.findByRole("combobox", { name: "Model" });
     await userEvent.click(modelField);
     await userEvent.click(
-      await screen.findByRole("option", { name: /Claude Opus 4\.8/ }),
+      await screen.findByRole("option", { name: /Claude Opus 5/ }),
     );
     await waitFor(() =>
       expect(screen.getAllByRole("radio").length).toBeGreaterThan(1),

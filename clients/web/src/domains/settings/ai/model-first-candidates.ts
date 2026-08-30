@@ -19,12 +19,17 @@
  * caller-supplied for the same reason.
  */
 
-import { getVisibleModelsForProvider } from "@/assistant/llm-model-catalog";
+import {
+  getVisibleModelsForProvider,
+  MODELS_BY_PROVIDER,
+  type LlmCatalogModel,
+} from "@/assistant/llm-model-catalog";
 import {
   CHATGPT_CONNECTION_PROVIDER,
   OPENAI_COMPATIBLE_PROVIDER,
 } from "@/domains/settings/ai/constants";
 import {
+  CATALOG_PROVIDERS,
   entryPickerValue,
   expandEndpointEntries,
   isProviderSelectableForAssistant,
@@ -65,6 +70,15 @@ export interface ProviderCandidate {
 export interface ModelFirstOption {
   /** Cross-provider identity of the model, and the picker's option value. */
   readonly displayName: string;
+  /**
+   * The provider the model is filed under: the first in catalog order that
+   * lists it. For a model several providers host this is the one that made
+   * it available first, which for a first-party model is its vendor and for
+   * an open-weights model is whichever host the catalog lists first.
+   */
+  readonly owner: ConnectionProvider;
+  /** The model line this belongs to, or null when it has no older siblings. */
+  readonly family: string | null;
   /** Every route that can serve it, connected ones first. */
   readonly candidates: readonly ProviderCandidate[];
   /** Distinct provider kinds among the candidates. */
@@ -190,6 +204,37 @@ function selectableKinds(input: ModelFirstInput): CandidateKinds {
   };
 }
 
+interface CatalogEntry {
+  readonly owner: ConnectionProvider;
+  readonly family: string | null;
+  /** Position within the owner's own catalog, which is authored newest first. */
+  readonly rank: number;
+}
+
+/**
+ * Where each model is filed, keyed by the display name that identifies it
+ * across providers. Built from the raw catalog rather than
+ * `getModelsForProvider`, because who lists a model first is a fact about the
+ * catalog and does not move with a feature flag or a routing identity.
+ */
+const CATALOG_INDEX: ReadonlyMap<string, CatalogEntry> = (() => {
+  const index = new Map<string, CatalogEntry>();
+  for (const provider of CATALOG_PROVIDERS) {
+    const models: readonly LlmCatalogModel[] = MODELS_BY_PROVIDER[provider];
+    models.forEach((model, rank) => {
+      if (index.has(model.displayName)) {
+        return;
+      }
+      index.set(model.displayName, {
+        owner: provider as ConnectionProvider,
+        family: model.family ?? null,
+        rank,
+      });
+    });
+  }
+  return index;
+})();
+
 /**
  * Every model the assistant can use, deduplicated by display name, in the
  * order a person should meet them: the models their connected routes already
@@ -273,13 +318,111 @@ export function resolveModelFirstOptions(
           ? first.label
           : input.labelFor(first.provider)
         : null;
+    // A model the static catalog does not know (a custom endpoint's own list)
+    // is filed under the route that serves it, which is the only answer
+    // available and the one the user picked it from.
+    const entry = CATALOG_INDEX.get(displayName);
     return {
       displayName,
+      owner: entry?.owner ?? first?.provider ?? OPENAI_COMPATIBLE_PROVIDER,
+      family: entry?.family ?? null,
       candidates,
       providerCount: providerKinds.size,
       soleProviderLabel,
     };
   });
+}
+
+export interface ModelFirstGroup {
+  /** The provider the section is named for. */
+  readonly provider: ConnectionProvider;
+  readonly label: string;
+  /** The section's models, in the owner's own catalog order. */
+  readonly options: readonly ModelFirstOption[];
+}
+
+/**
+ * The model list as sections, which is how a list this long stays readable:
+ * one heading per owning provider, the sections the user's own connections
+ * reach first and the rest of the catalog after.
+ *
+ * Within a section the models keep the owner's catalog order, so the newest
+ * of each line leads and {@link collapseSupersededVersions} can fold the rest
+ * away.
+ */
+export function resolveModelFirstGroups(
+  input: ModelFirstInput,
+): ModelFirstGroup[] {
+  const options = resolveModelFirstOptions(input);
+  const byOwner = new Map<ConnectionProvider, ModelFirstOption[]>();
+  for (const option of options) {
+    const existing = byOwner.get(option.owner);
+    if (existing) {
+      existing.push(option);
+      continue;
+    }
+    byOwner.set(option.owner, [option]);
+  }
+
+  const served = providersServedByConnections([...input.connections]);
+  const ordered: ConnectionProvider[] = [];
+  for (const provider of served) {
+    if (byOwner.has(provider) && !ordered.includes(provider)) {
+      ordered.push(provider);
+    }
+  }
+  for (const provider of CATALOG_PROVIDERS) {
+    const owner = provider as ConnectionProvider;
+    if (byOwner.has(owner) && !ordered.includes(owner)) {
+      ordered.push(owner);
+    }
+  }
+  // A section whose owner the catalog does not list at all still gets drawn,
+  // rather than dropping models the picker just offered.
+  for (const owner of byOwner.keys()) {
+    if (!ordered.includes(owner)) {
+      ordered.push(owner);
+    }
+  }
+
+  return ordered.map((provider) => ({
+    provider,
+    label: input.labelFor(provider),
+    options: (byOwner.get(provider) ?? [])
+      .slice()
+      .sort(
+        (a, b) =>
+          (CATALOG_INDEX.get(a.displayName)?.rank ?? 0) -
+          (CATALOG_INDEX.get(b.displayName)?.rank ?? 0),
+      ),
+  }));
+}
+
+/**
+ * Split a section into the models it shows and the ones it folds away: the
+ * first member of each line stays, its older siblings go behind the section's
+ * own "show older versions" row. A model with no line always shows, having
+ * nothing newer to stand behind.
+ */
+export function collapseSupersededVersions(
+  options: readonly ModelFirstOption[],
+): { shown: ModelFirstOption[]; hidden: ModelFirstOption[] } {
+  const shown: ModelFirstOption[] = [];
+  const hidden: ModelFirstOption[] = [];
+  const led = new Set<string>();
+  for (const option of options) {
+    if (option.family === null) {
+      shown.push(option);
+      continue;
+    }
+    if (led.has(option.family)) {
+      hidden.push(option);
+      continue;
+    }
+    led.add(option.family);
+    shown.push(option);
+  }
+  return { shown, hidden };
 }
 
 /**

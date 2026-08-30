@@ -1453,6 +1453,7 @@
     "providerCountMeta": "{count, plural, one {# proveedor} other {# proveedores}}",
     "providerLabel": "Proveedor",
     "setUpTag": "Configurar",
+    "showOlderVersions": "{count, plural, one {Mostrar versión anterior (#)} other {Mostrar versiones anteriores (#)}}",
     "signInTag": "Iniciar sesión",
     "soleProviderHint": "Solo {name} ofrece este modelo."
   },

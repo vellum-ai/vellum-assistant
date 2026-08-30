@@ -22,6 +22,38 @@ const MODELS: SearchableSelectOption[] = [
 ];
 
 /**
+ * The same list disclosed progressively: one section per vendor, the older
+ * version of a line folded away behind the row that unfolds it.
+ */
+const GROUPED_MODELS: SearchableSelectOption[] = [
+  { value: "claude-opus-4-8", label: "Claude Opus 4.8", group: "Anthropic" },
+  { value: "claude-fable-5", label: "Claude Fable 5", group: "Anthropic" },
+  {
+    value: "claude-opus-4-7",
+    label: "Claude Opus 4.7",
+    group: "Anthropic",
+    folded: true,
+  },
+  {
+    value: "claude-opus-4-6",
+    label: "Claude Opus 4.6",
+    group: "Anthropic",
+    folded: true,
+  },
+  {
+    value: "__older-anthropic__",
+    label: "Show older versions (2)",
+    group: "Anthropic",
+    listAction: true,
+  },
+  { value: "gpt-5-6", label: "GPT-5.6", group: "OpenAI" },
+  { value: "gpt-5-6-mini", label: "GPT-5.6 Mini", group: "OpenAI" },
+  { value: "gemini-3-pro", label: "Gemini 3 Pro", group: "Google Gemini" },
+  { value: "gemini-3-flash", label: "Gemini 3 Flash", group: "Google Gemini" },
+  { value: "__custom__", label: "Enter a custom model ID…", sticky: true },
+];
+
+/**
  * A `Select` whose list is filtered by typing. Use it once the option list
  * outgrows what a person can scan in a dropdown; below about a dozen rows,
  * plain `Select` is the simpler control.
@@ -172,5 +204,68 @@ export const NoMatches: Story = {
     await waitFor(() =>
       expect(status(canvasElement)).toContain("0 results are available"),
     );
+  },
+};
+
+/**
+ * Sections and progressive disclosure. Headings come from each row's `group`,
+ * in the order their first row appears; a `folded` row waits for a query or
+ * for the `listAction` row that stands in for it, which is the one row a pick
+ * leaves the list open on.
+ *
+ * The state a `listAction` row toggles belongs to the caller, so this story
+ * owns it locally rather than through args.
+ */
+export const Grouped: Story = {
+  args: { value: "" },
+  parameters: { controls: { disable: true } },
+  render: function RenderGrouped(args) {
+    const [value, setValue] = useState("");
+    const [unfolded, setUnfolded] = useState(false);
+    const options = unfolded
+      ? GROUPED_MODELS.filter((option) => !option.listAction).map((option) =>
+          option.folded ? { ...option, folded: false } : option,
+        )
+      : GROUPED_MODELS;
+    return (
+      <SearchableSelect
+        {...args}
+        options={options}
+        value={value}
+        onChange={(next) => {
+          if (next === "__older-anthropic__") {
+            setUnfolded(true);
+            return;
+          }
+          setValue(next);
+        }}
+      />
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const field = canvasElement.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    );
+    if (!field) {
+      throw new Error("expected the combobox field");
+    }
+    await userEvent.click(field);
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).not.toContain("Claude Opus 4.7"),
+    );
+
+    await userEvent.click(await screen.findByText("Show older versions (2)"));
+
+    // The list stays open on the row that acted on it, and the folded rows
+    // take the place of the row that stood in for them.
+    await waitFor(() => {
+      const labels = screen
+        .getAllByRole("option")
+        .map((option) => option.textContent);
+      expect(labels).toContain("Claude Opus 4.7");
+      expect(labels).not.toContain("Show older versions (2)");
+    });
   },
 };

@@ -1453,6 +1453,7 @@
     "providerCountMeta": "{count, plural, one {# provider} other {# providers}}",
     "providerLabel": "Provider",
     "setUpTag": "Set up",
+    "showOlderVersions": "{count, plural, one {Show older version (#)} other {Show older versions (#)}}",
     "signInTag": "Sign in",
     "soleProviderHint": "Only {name} serves this model."
   },

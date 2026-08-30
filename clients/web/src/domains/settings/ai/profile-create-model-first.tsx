@@ -3,7 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
-import { SearchableSelect } from "@vellumai/design-library/components/searchable-select";
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from "@vellumai/design-library/components/searchable-select";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -11,10 +14,12 @@ import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import { CHATGPT_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
 import {
+  collapseSupersededVersions,
   customModelProviderCandidates,
   defaultProviderCandidate,
-  resolveModelFirstOptions,
+  resolveModelFirstGroups,
   type ModelFirstInput,
+  type ModelFirstOption,
   type ProviderCandidate,
 } from "@/domains/settings/ai/model-first-candidates";
 import { entryPickerValue } from "@/domains/settings/ai/provider-availability";
@@ -30,6 +35,13 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
  * never collide with a model's display name.
  */
 const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
+
+/**
+ * Prefix for the row that unfolds one section's older versions. Namespaced the
+ * same way, and carrying the section it acts on, so picking it is told apart
+ * from picking a model.
+ */
+const SHOW_OLDER_PREFIX = "__show-older__:";
 
 /**
  * What the user has answered to the flow's first question. A catalog pick is
@@ -87,10 +99,19 @@ export function ProfileCreateModelFirst({
     ],
   );
 
-  const options = useMemo(
-    () => resolveModelFirstOptions(resolverInput),
+  const groups = useMemo(
+    () => resolveModelFirstGroups(resolverInput),
     [resolverInput],
   );
+  const options = useMemo(
+    () => groups.flatMap((group) => group.options),
+    [groups],
+  );
+
+  // Sections the user has unfolded. A section stays unfolded for the rest of
+  // the visit: folding it back under them would move the row they were about
+  // to click.
+  const [unfoldedGroups, setUnfoldedGroups] = useState<readonly string[]>([]);
 
   // "Save As New" opens create mode on a profile that already has a provider
   // and a model, so the flow starts on whichever answer that model is: a
@@ -212,6 +233,14 @@ export function ProfileCreateModelFirst({
       openCandidatesFor({ kind: "custom", modelId: "" });
       return;
     }
+    if (value.startsWith(SHOW_OLDER_PREFIX)) {
+      // Acts on the list rather than answering it, so the draft is untouched.
+      const group = value.slice(SHOW_OLDER_PREFIX.length);
+      setUnfoldedGroups((previous) =>
+        previous.includes(group) ? previous : [...previous, group],
+      );
+      return;
+    }
     openCandidatesFor({ kind: "catalog", displayName: value });
   }
 
@@ -241,32 +270,59 @@ export function ProfileCreateModelFirst({
     setSetupOpenFor(candidate.value);
   }
 
-  const modelOptions = useMemo(
-    () => [
-      ...options.map((option) => ({
-        value: option.displayName,
-        label: option.displayName,
-        suffix: (
-          <PickerMeta
-            text={
-              option.soleProviderLabel ??
-              t("profileCreateModelFirst.providerCountMeta", {
-                count: option.providerCount,
-              })
-            }
-          />
-        ),
-      })),
-      {
-        value: CUSTOM_MODEL_OPTION_VALUE,
-        label: t("profileCreateModelFirst.customModelOption"),
-        // The catalog outgrows the menu's height, so the escape hatch is
-        // pinned rather than left at the end of a scroll.
-        sticky: true,
-      },
-    ],
-    [options, t],
-  );
+  const modelOptions = useMemo<SearchableSelectOption[]>(() => {
+    const rows: SearchableSelectOption[] = [];
+    const modelRow = (
+      option: ModelFirstOption,
+      group: string,
+      folded: boolean,
+    ): SearchableSelectOption => ({
+      value: option.displayName,
+      label: option.displayName,
+      group,
+      folded,
+      suffix: (
+        <PickerMeta
+          text={
+            option.soleProviderLabel ??
+            t("profileCreateModelFirst.providerCountMeta", {
+              count: option.providerCount,
+            })
+          }
+        />
+      ),
+    });
+    for (const group of groups) {
+      const { shown, hidden } = collapseSupersededVersions(group.options);
+      const unfolded = unfoldedGroups.includes(group.provider);
+      for (const option of shown) {
+        rows.push(modelRow(option, group.label, false));
+      }
+      for (const option of hidden) {
+        // Folded away while the list is being browsed, but never hidden from
+        // a query: someone who types a version's name means that version.
+        rows.push(modelRow(option, group.label, !unfolded));
+      }
+      if (hidden.length > 0 && !unfolded) {
+        rows.push({
+          value: `${SHOW_OLDER_PREFIX}${group.provider}`,
+          label: t("profileCreateModelFirst.showOlderVersions", {
+            count: hidden.length,
+          }),
+          group: group.label,
+          listAction: true,
+        });
+      }
+    }
+    rows.push({
+      value: CUSTOM_MODEL_OPTION_VALUE,
+      label: t("profileCreateModelFirst.customModelOption"),
+      // The catalog outgrows the menu's height, so the escape hatch is
+      // pinned rather than left at the end of a scroll.
+      sticky: true,
+    });
+    return rows;
+  }, [groups, unfoldedGroups, t]);
 
   const fieldLabelClass =
     "block text-body-small-default text-[var(--content-tertiary)]";

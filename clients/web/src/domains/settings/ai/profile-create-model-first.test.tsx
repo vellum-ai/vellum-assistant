@@ -181,6 +181,42 @@ function modelRows(): { label: string; meta: string }[] {
   });
 }
 
+/** Row labels of the already-open list, in order. */
+function modelOptionLabels(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).map(optionLabel);
+}
+
+/** Section headings on the open list, in order. */
+function groupHeadings(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
+  ).map((group) =>
+    (group.firstElementChild?.textContent ?? "").trim(),
+  );
+}
+
+/** Type into the model field, which is the list's own search box. */
+function searchModels(query: string): void {
+  openModelList();
+  fireEvent.change(modelField(), { target: { value: query } });
+}
+
+function clickModelOption(label: string): void {
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => optionLabel(o) === label);
+  if (!option) {
+    throw new Error(
+      `expected a Model list offering "${label}" - saw ${
+        document.querySelectorAll('[role="option"]').length
+      } rows`,
+    );
+  }
+  fireEvent.click(option);
+}
+
 function selectModel(label: string): void {
   openModelList();
   const option = Array.from(
@@ -367,7 +403,7 @@ describe("the model list", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
     const rows = modelRows();
-    const opus = rows.filter((row) => row.label === "Claude Opus 4.8");
+    const opus = rows.filter((row) => row.label === "Claude Opus 5");
     expect(opus).toHaveLength(1);
     expect(opus[0].meta).toBe("3 providers");
 
@@ -380,6 +416,61 @@ describe("the model list", () => {
     expect(modelRows().map((row) => row.label)).toContain(
       "Enter a custom model ID…",
     );
+  });
+
+  test("files models under the provider that owns them, connected first", () => {
+    renderCreate([makeConnection("gemini-key", "gemini")]);
+    openModelList();
+
+    const headings = groupHeadings();
+    expect(headings.slice(0, 2)).toEqual(["Google Gemini", "Anthropic"]);
+    // Together hosts models but owns none, so it never becomes a heading.
+    expect(headings).not.toContain("Together AI");
+  });
+
+  test("folds older versions behind a row that unfolds the section", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+    openModelList();
+
+    expect(modelOptionLabels()).not.toContain("Claude Opus 4.8");
+    expect(modelOptionLabels()).toContain("Claude Opus 5");
+    expect(modelOptionLabels()).toContain("Show older versions (6)");
+
+    clickModelOption("Show older versions (6)");
+
+    // The list stays open on the row that was just acted on, and the older
+    // versions take the place of the row that stood in for them.
+    expect(modelOptionLabels()).toContain("Claude Opus 4.8");
+    expect(modelOptionLabels()).not.toContain("Show older versions (6)");
+    // Unfolding is not an answer: no model is chosen by it.
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a query reaches a folded version and drops the unfold row", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    searchModels("Opus 4.8");
+
+    expect(modelOptionLabels()).toContain("Claude Opus 4.8");
+    expect(modelOptionLabels()).not.toContain("Show older versions (6)");
+    // The headings survive a query, so a match is still placed.
+    expect(groupHeadings()).toEqual(["Anthropic"]);
+  });
+
+  test("a folded version picked from a query is the model chosen", async () => {
+    const saveCalls = renderCreate([makeConnection("anthropic-personal")]);
+
+    searchModels("Opus 4.8");
+    clickModelOption("Claude Opus 4.8");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
   });
 });
 
@@ -413,7 +504,7 @@ describe("the provider step", () => {
       makeConnection("anthropic-personal"),
     ]);
 
-    selectModel("Claude Opus 4.8");
+    selectModel("Claude Opus 5");
 
     expect(candidateValues()).toEqual([
       "anthropic",
@@ -433,7 +524,7 @@ describe("the provider step", () => {
       makeConnection("openrouter-key", "openrouter"),
     ]);
 
-    selectModel("Claude Opus 4.8");
+    selectModel("Claude Opus 5");
     pickCandidate("openrouter");
 
     await waitFor(() => {
@@ -444,7 +535,7 @@ describe("the provider step", () => {
       expect(saveCalls.length).toBe(1);
     });
     expect(saveCalls[0].entry.provider).toBe("openrouter");
-    expect(saveCalls[0].entry.model).toBe("anthropic/claude-opus-4.8");
+    expect(saveCalls[0].entry.model).toBe("anthropic/claude-opus-5");
   });
 
   test("names the key a route with siblings would use", () => {
@@ -453,7 +544,7 @@ describe("the provider step", () => {
       makeConnection("anthropic-personal", "anthropic", { label: "Personal" }),
     ]);
 
-    selectModel("Claude Opus 4.8");
+    selectModel("Claude Opus 5");
 
     expect(candidateValues().slice(0, 3)).toEqual([
       "anthropic",
@@ -470,7 +561,7 @@ describe("a route with no connection yet", () => {
   test("blocks Save and expands its own connect form", async () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    selectModel("Claude Opus 4.8");
+    selectModel("Claude Opus 5");
     await waitFor(() => {
       expect(getSaveBtn().disabled).toBe(false);
     });
@@ -492,7 +583,7 @@ describe("a route with no connection yet", () => {
     createdConnection = makeConnection("openrouter-key", "openrouter");
     const saveCalls = renderCreate([makeConnection("anthropic-personal")]);
 
-    selectModel("Claude Opus 4.8");
+    selectModel("Claude Opus 5");
     pickCandidate("openrouter");
 
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
@@ -508,10 +599,10 @@ describe("a route with no connection yet", () => {
       expect(saveCalls.length).toBe(1);
     });
     expect(saveCalls[0].entry.provider).toBe("openrouter");
-    expect(saveCalls[0].entry.model).toBe("anthropic/claude-opus-4.8");
+    expect(saveCalls[0].entry.model).toBe("anthropic/claude-opus-5");
     expect(saveCalls[0].entry.provider_connection).toBe("openrouter-key");
     // The Name still comes from the model's display name, not its raw id.
-    expect(saveCalls[0].name).toBe("claude-opus-4-8");
+    expect(saveCalls[0].name).toBe("claude-opus-5");
   });
 
   test("re-keys the connect form when the lone route changes", () => {
