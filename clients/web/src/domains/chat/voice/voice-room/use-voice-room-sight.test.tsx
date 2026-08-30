@@ -449,6 +449,37 @@ describe("useVoiceRoomSight: transport reconnect", () => {
     revoke.mockRestore();
   });
 
+  test("refuses a frame whose transport reconnected under the upload", async () => {
+    // The generation survives a reconnect by design and nothing is held to
+    // outrank a late resolve, so only the capture epoch can refuse an upload
+    // that stalled across the gap and landed after the fresh session was
+    // ready. Parking it would stage a view from seconds before the drop.
+    uploadsResolveImmediately = false;
+    const { view } = renderSight();
+
+    act(() => {
+      samplerOptions?.onDecision(KEEP, performance.now());
+    });
+    await flush();
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(false);
+    });
+    await act(async () => {
+      pendingUploads[0]!({ ok: true, id: "att-gapped" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(controls.attachFrame).not.toHaveBeenCalled();
+    expect(view.result.current.heldFrame).toBeNull();
+    expect(deleteChatAttachment).toHaveBeenCalledWith(
+      ASSISTANT_ID,
+      "att-gapped",
+    );
+  });
+
   test("parks the next keep on the reconnected session", async () => {
     const { view } = renderSight();
     await keepFrame();

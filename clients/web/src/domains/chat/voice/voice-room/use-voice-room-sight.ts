@@ -124,13 +124,15 @@ export function useVoiceRoomSight(
   const gateRef = useRef<FrameGate | null>(null);
   const frameCountRef = useRef(0);
   /**
-   * Which camera this is. Bumped when sampling stops and when the camera
-   * flips, so a capture that was already encoding can tell that the view it
-   * came from is gone.
+   * Which camera and transport this capture chain feeds. Bumped when sampling
+   * stops, when the camera flips, and when the transport drops into a
+   * reconnect, so a capture that was already encoding can tell that the world
+   * it was headed for is gone.
    *
-   * The session generation does not cover either case: both leave the call
-   * running, and a flip deliberately keeps the sampler on the same element, so
-   * a front-camera frame could otherwise be parked as the rear camera's view.
+   * The session generation covers none of the three: each leaves the logical
+   * call running, a flip deliberately keeps the sampler on the same element,
+   * and a reconnect deliberately keeps the generation, so a stalled upload
+   * from before any of them could otherwise be parked as the current view.
    */
   const captureEpochRef = useRef(0);
 
@@ -337,11 +339,18 @@ export function useVoiceRoomSight(
   // fresh session exists. This effect re-runs only when it changes, so the
   // early return is what confines the work to the transition INTO the gap:
   // coming back out of one must not clear a frame parked since.
+  //
+  // The epoch bump is for the upload still in flight when the transport
+  // dropped: the generation survives the gap by design, so it can resolve
+  // after the fresh session is ready with every other guard passing, and with
+  // nothing held to outrank it a view from seconds before the gap would be
+  // parked as the current one.
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   useEffect(() => {
     if (!reconnecting) {
       return;
     }
+    captureEpochRef.current += 1;
     hold(null);
     gateRef.current?.reset(performance.now());
   }, [hold, reconnecting]);
