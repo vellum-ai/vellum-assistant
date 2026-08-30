@@ -201,7 +201,7 @@ regularly. Example:
 
 - `GEMINI_API_KEY`: Enables editor verdicts and transcription. Without it,
   fixed-cadence wakes use evenly spaced frames and no editor transcription.
-- `GEMINI_MODEL`: Editor model. Defaults to `gemini-3-flash-preview`.
+- `GEMINI_MODEL`: Editor model. Defaults to `gemini-3.7-flash`.
 - `WATCH_MAX_HOLD`: Maximum seconds between wakes. Defaults to `240`.
 - `WATCH_MAX_FRAMES`: Maximum frames attached per wake. Defaults to `8`.
 - `WATCH_MPV_ARGS`: Extra mpv arguments for source mode. Quoted arguments use

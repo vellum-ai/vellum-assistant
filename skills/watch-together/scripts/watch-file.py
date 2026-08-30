@@ -113,6 +113,26 @@ def find_text_sub_stream(media):
     return None
 
 
+def media_duration(media):
+    """Duration in seconds via ffprobe, or None if unavailable."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(media),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def load_subtitles(media, session_dir):
     """Sidecar .srt, else first embedded text track. Returns entries or None."""
     sidecar = media.with_suffix(".srt")
@@ -364,6 +384,7 @@ def main():
     next_idx = None
     last_pos = None
     last_wall = None
+    last_speed = 1.0
     try:
         while mpv.poll() is None:
             time.sleep(POLL_S)
@@ -382,6 +403,7 @@ def main():
                     # window; processed windows are skip-guarded by their
                     # verdict files.
                     speed = ipc.get_property("speed") or 1.0
+                    last_speed = speed
                     expected = (now - last_wall) * speed
                     if abs((pos - last_pos) - expected) > max(10.0, 0.5 * expected):
                         resync = int(pos // chunk_s)
@@ -403,20 +425,26 @@ def main():
         ipc.close()
         if mpv.poll() is None:
             mpv.terminate()
-        if (
-            next_idx is not None
-            and last_pos is not None
-            and last_pos - next_idx * chunk_s >= MIN_FINAL_WINDOW_S
-        ):
-            process_window(
-                media,
-                session_dir,
-                conv,
-                chunk_s,
-                next_idx,
-                subs,
-                duration=last_pos - next_idx * chunk_s,
-            )
+        if next_idx is not None and last_pos is not None:
+            # Polling can lag mpv's exit by a poll interval (more while a
+            # window is processing), so a file watched to the end may have
+            # unseen windows past the last polled position. When the end of
+            # the file was reachable within that gap, credit playback to the
+            # end; otherwise (early quit) trust the last polled position.
+            end_pos = last_pos
+            duration = media_duration(media)
+            if duration is not None:
+                gap_s = (time.monotonic() - last_wall + POLL_S) * last_speed
+                if duration - last_pos <= gap_s:
+                    end_pos = max(duration, last_pos)
+            while end_pos >= (next_idx + 1) * chunk_s:
+                process_window(media, session_dir, conv, chunk_s, next_idx, subs)
+                next_idx += 1
+            tail = end_pos - next_idx * chunk_s
+            if tail >= MIN_FINAL_WINDOW_S:
+                process_window(
+                    media, session_dir, conv, chunk_s, next_idx, subs, duration=tail
+                )
         editor.flush(session_dir, conv, chunk_s)
         print()
         print("✅ Session complete!")

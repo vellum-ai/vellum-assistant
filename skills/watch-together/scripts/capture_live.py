@@ -256,7 +256,7 @@ def main():
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
-    editor_name = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+    editor_name = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
     if not os.environ.get("GEMINI_API_KEY"):
         editor_name = "disabled"
         print("GEMINI_API_KEY is not set. The assistant will use fixed-cadence wakes.")
