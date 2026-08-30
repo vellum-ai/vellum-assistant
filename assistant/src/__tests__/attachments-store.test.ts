@@ -16,6 +16,7 @@ import {
   isValidBase64,
   linkAttachmentToMessage,
   MAX_UPLOAD_BYTES,
+  resolveAttachmentsForPersist,
   uploadAttachment,
   validateAttachmentUpload,
 } from "../persistence/attachments-store.js";
@@ -673,6 +674,62 @@ describe("deleteOrphanAttachments", () => {
     // The unrelated attachment should still exist
     const fetched = getAttachmentById(unrelated.id);
     expect(fetched).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAttachmentsForPersist
+// ---------------------------------------------------------------------------
+
+describe("resolveAttachmentsForPersist", () => {
+  beforeEach(resetTables);
+
+  // One implementation behind every send path that turns ids into a persisted
+  // user message (HTTP send, processMessage, the voice bridge), so its shape is
+  // pinned here rather than at each caller.
+  test("hydrates ids into the shape a persisted message stores", async () => {
+    const stored = await uploadAttachment("photo.png", "image/png", "ZnJhbWU=");
+
+    expect(resolveAttachmentsForPersist([stored.id])).toEqual([
+      {
+        id: stored.id,
+        filename: "photo.png",
+        mimeType: "image/png",
+        data: "ZnJhbWU=",
+      },
+    ]);
+  });
+
+  test("carries the source path only for attachments that have one", async () => {
+    const withPath = await uploadAttachment(
+      "from-disk.txt",
+      "text/plain",
+      "AA==",
+    );
+    const plain = await uploadAttachment("typed.txt", "text/plain", "BB==");
+    rawRun(
+      "test:setSourcePath",
+      "UPDATE attachments SET source_path = ? WHERE id = ?",
+      "/tmp/from-disk.txt",
+      withPath.id,
+    );
+
+    const resolved = resolveAttachmentsForPersist([withPath.id, plain.id]);
+
+    expect(resolved[0]).toMatchObject({ filePath: "/tmp/from-disk.txt" });
+    expect(resolved[1]).not.toHaveProperty("filePath");
+  });
+
+  test("drops ids with no attachment row", async () => {
+    const stored = await uploadAttachment("kept.txt", "text/plain", "AA==");
+
+    const resolved = resolveAttachmentsForPersist([stored.id, "att-missing"]);
+
+    expect(resolved.map((a) => a.id)).toEqual([stored.id]);
+  });
+
+  test("returns nothing for an empty id list", () => {
+    expect(resolveAttachmentsForPersist([])).toEqual([]);
   });
 });
 

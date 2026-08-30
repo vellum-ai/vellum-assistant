@@ -19,10 +19,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
-import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
-} from "../persistence/attachments-store.js";
+import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,
@@ -362,19 +359,7 @@ async function prepareConversationForMessage(
   });
 
   const attachments = attachmentIds
-    ? (() => {
-        const resolved = getAttachmentsByIds(attachmentIds, {
-          hydrateFileData: true,
-        });
-        const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-        return resolved.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-          ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-        }));
-      })()
+    ? resolveAttachmentsForPersist(attachmentIds)
     : [];
 
   return { conversation, attachments };

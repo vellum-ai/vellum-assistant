@@ -103,7 +103,7 @@ import {
   getAttachmentById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
-  getSourcePathsForAttachments,
+  resolveAttachmentsForPersist,
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
@@ -3027,20 +3027,6 @@ async function handleSearchConversations({
 const suggestionCache = new Map<string, string>();
 const suggestionInFlight = new Map<string, Promise<string | null>>();
 
-function resolveAttachments(attachmentIds: string[]) {
-  const resolved = getAttachmentsByIds(attachmentIds, {
-    hydrateFileData: true,
-  });
-  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-  return resolved.map((a) => ({
-    id: a.id,
-    filename: a.originalFilename,
-    mimeType: a.mimeType,
-    data: a.dataBase64,
-    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -3260,7 +3246,7 @@ export const ROUTES: RouteDefinition[] = [
         sendMessageDeps: {
           getOrCreateConversation: getOrCreateConversationInstance,
           assistantEventHub,
-          resolveAttachments,
+          resolveAttachments: resolveAttachmentsForPersist,
         },
         approvalConversationGenerator: createApprovalConversationGenerator(),
       }),
