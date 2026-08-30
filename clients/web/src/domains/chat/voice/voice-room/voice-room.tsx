@@ -159,6 +159,7 @@ import {
   CAMERA_MEDIA_GLASS_CLASS,
   CAMERA_SCRIM_BOTTOM,
   CAMERA_SCRIM_TOP,
+  cameraModeStyle,
 } from "./camera-mode-paint";
 import {
   CameraStatusPill,
@@ -170,6 +171,7 @@ import { useChatHeaderBottom } from "./use-chat-header-bottom";
 import { OVERLAY_HOST_ID, useInertBehindSheet } from "./use-inert-behind-sheet";
 import { isVoiceCameraSupported } from "./voice-camera";
 import { useVoiceRoomCamera } from "./use-voice-room-camera";
+import { useVoiceRoomSight } from "./use-voice-room-sight";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -586,6 +588,16 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // as the status pill's word below.
   const errorMessage = errorKey ? t(errorKey) : null;
   const cameraOpen = camera.open;
+  // Sight rides the viewfinder the shutter already put on screen: while it is
+  // open the gate keeps the frames worth keeping and parks the freshest one on
+  // each turn, so the call can be asked about what the camera is pointed at
+  // without anyone pressing anything. Inert unless the flag and the session's
+  // assistant both allow it, and it acquires no camera of its own, so the
+  // native shells (where this `<video>` never mounts) simply sample nothing.
+  const { heldFrame } = useVoiceRoomSight(assistantId, viewfinderRef, {
+    cameraOpen,
+    facing: camera.facing,
+  });
   // What every control in the room is sitting on. One value passed down rather
   // than a boolean per control, so the row cannot end up half in camera mode.
   const controlSurface: VoiceRoomControlSurface = cameraOpen
@@ -1154,34 +1166,62 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               the assistant has it. Aligned left so it never sits under the
               shutter, and `aria-hidden` because the live region already
               announces failures in words. */}
-          {photos.length > 0 ? (
-            <ul
-              aria-hidden
-              data-testid="voice-room-photo-strip"
-              className="flex items-center gap-2 self-start pl-6"
-            >
-              {photos.map((photo) => (
-                <li key={photo.id} className="relative">
-                  <img
-                    src={photo.previewUrl}
-                    alt=""
-                    data-testid="voice-room-photo"
-                    data-status={photo.status}
-                    className={cn(
-                      "size-11 rounded-lg border object-cover transition",
-                      "border-[var(--room-border)]",
-                      photo.status === "sending" && "opacity-50",
-                      photo.status === "failed" && "opacity-40 grayscale",
-                    )}
-                  />
-                  {photo.status === "failed" ? (
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <X className="size-5 text-red-300" strokeWidth={3} />
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+          {photos.length > 0 || heldFrame ? (
+            <div className="flex items-center gap-2 self-start pl-6">
+              {photos.length > 0 ? (
+                <ul
+                  aria-hidden
+                  data-testid="voice-room-photo-strip"
+                  className="flex items-center gap-2"
+                >
+                  {photos.map((photo) => (
+                    <li key={photo.id} className="relative">
+                      <img
+                        src={photo.previewUrl}
+                        alt=""
+                        data-testid="voice-room-photo"
+                        data-status={photo.status}
+                        className={cn(
+                          "size-11 rounded-lg border object-cover transition",
+                          "border-[var(--room-border)]",
+                          photo.status === "sending" && "opacity-50",
+                          photo.status === "failed" && "opacity-40 grayscale",
+                        )}
+                      />
+                      {photo.status === "failed" ? (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <X className="size-5 text-red-300" strokeWidth={3} />
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {/* What the call will see when the user next stops talking.
+
+                  A photo in the strip is a receipt for something the user did;
+                  this is the opposite, a frame nobody asked for that is about
+                  to ride a turn, so it has to be visible while that is still
+                  true rather than after the fact. It wears the strip's shape so
+                  the two read as one row, and the capture accent so they are
+                  not read as the same thing. Keyed on the id, which replays the
+                  ring whenever a newer frame takes the slot.
+
+                  `aria-hidden` for the same reason as the strip: the frame
+                  reaches the transcript with the turn it rides, which is the
+                  accessible record of it. */}
+              {heldFrame ? (
+                <img
+                  key={heldFrame.attachmentId}
+                  src={heldFrame.previewUrl}
+                  alt=""
+                  aria-hidden
+                  data-testid="voice-room-sight-frame"
+                  style={cameraModeStyle()}
+                  className="sight-frame-kept size-11 rounded-lg object-cover ring-2 ring-[var(--camera-accent)]"
+                />
+              ) : null}
+            </div>
           ) : null}
 
           {/* The shutter is centred on the room, with flip parked off to the
