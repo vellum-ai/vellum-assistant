@@ -260,6 +260,16 @@ export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
 const SHEET_LAYER = "z-30";
 
 /**
+ * The sheet's tier while it is flush for the camera. A takeover rather than a
+ * surface under the header, so it rises above the tier the other mobile
+ * overlays share with it in the portal host: one of those mounting mid-camera
+ * would otherwise paint over the viewfinder in DOM order, inert and dead. The
+ * drawer's tier, which the flush sheet follows in the DOM, and still under the
+ * palette a hotkey can raise.
+ */
+const SHEET_FLUSH_LAYER = "z-40";
+
+/**
  * Marks a `role="dialog"` element as belonging to the room, so the global
  * Escape handler can tell the room's own dialog apart from one layered over it.
  * Carried by whichever element is the dialog for the variant: the room's box
@@ -438,7 +448,7 @@ function VoiceRoomSheet({
         // the bottom edge.
         className={cn(
           "top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0",
-          SHEET_LAYER,
+          flushToTop ? SHEET_FLUSH_LAYER : SHEET_LAYER,
           // Corners belong to a sheet that stops below the header. Against the
           // top of the screen they would cut two notches out of the feed.
           flushToTop && "rounded-t-none",

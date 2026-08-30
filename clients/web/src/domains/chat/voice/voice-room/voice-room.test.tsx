@@ -721,6 +721,12 @@ describe("VoiceRoom: mobile sheet", () => {
       expect(header.hasAttribute("inert")).toBe(true);
       expect(parkedOverlay.hasAttribute("inert")).toBe(true);
       expect(sheet.closest("[inert]")).toBeNull();
+      // A takeover now: above the tier the host's other overlays share, so
+      // one mounting mid-camera cannot paint over the viewfinder, and still
+      // under the palette.
+      expect(sheet.className).toContain("z-40");
+      expect(sheet.className).not.toContain("z-30");
+      expect(sheet.className).not.toContain("z-50");
 
       // The pull-down survives the mode switch, and the band it shares with the
       // camera pill clears the notch the sheet now reaches.
@@ -742,6 +748,8 @@ describe("VoiceRoom: mobile sheet", () => {
 
       expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
       expect(sheet.className).not.toContain("rounded-t-none");
+      expect(sheet.className).toContain("z-30");
+      expect(sheet.className).not.toContain("z-40");
       expect(header.hasAttribute("inert")).toBe(false);
       expect(parkedOverlay.hasAttribute("inert")).toBe(false);
       // Back below the header, where nothing above the sheet is the notch.
