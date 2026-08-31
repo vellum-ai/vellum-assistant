@@ -338,11 +338,7 @@ function makeClient(
   return client;
 }
 
-function renderCard(
-  subscription: SubscriptionResponse,
-  plans: PlanListResponse,
-): string {
-  const client = makeClient(subscription, plans);
+function renderCardWith(client: QueryClient): string {
   return renderToStaticMarkup(
     // MemoryRouter supplies the router context PlanCard's useNavigate needs.
     <reactRouter.MemoryRouter>
@@ -351,6 +347,20 @@ function renderCard(
       </QueryClientProvider>
     </reactRouter.MemoryRouter>,
   );
+}
+
+function renderCard(
+  subscription: SubscriptionResponse,
+  plans: PlanListResponse,
+): string {
+  return renderCardWith(makeClient(subscription, plans));
+}
+
+/** Detached DOM node holding the given static markup. */
+function toDom(markup: string): HTMLElement {
+  const host = document.createElement("div");
+  host.innerHTML = markup;
+  return host;
 }
 
 /**
@@ -362,9 +372,15 @@ function renderCardDom(
   subscription: SubscriptionResponse,
   plans: PlanListResponse,
 ): HTMLElement {
-  const host = document.createElement("div");
-  host.innerHTML = renderCard(subscription, plans);
-  return host;
+  return toDom(renderCard(subscription, plans));
+}
+
+/**
+ * The card with both queries still pending: nothing is seeded into the cache
+ * and a static render never runs the effects that would start a fetch.
+ */
+function renderLoadingCardDom(): HTMLElement {
+  return toDom(renderCardWith(new QueryClient()));
 }
 
 /** The current-plan tile, which inherits the app theme. */
@@ -1510,5 +1526,38 @@ describe("PlanCard with obscure-credits on", () => {
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("Free Forever");
+  });
+});
+
+describe("PlanCard loading state", () => {
+  test("keeps the card chrome and stands the layout in with shimmer", () => {
+    const host = renderLoadingCardDom();
+    expect(host.querySelector("h2")?.textContent).toBe("Plan");
+    // Plan name, renewal line, usage bar, and one per plan tile.
+    expect(host.querySelectorAll('[data-slot="skeleton"]').length).toBe(5);
+    expect(host.querySelectorAll(".animate-spin").length).toBe(0);
+    expect(host.textContent).not.toContain("Loading plan");
+  });
+
+  test("stacks the tile placeholders the way the resolved tiles stack", () => {
+    const host = renderLoadingCardDom();
+    const tiles = Array.from(
+      host.querySelectorAll('[data-slot="skeleton"]'),
+    ).slice(-2);
+    const row = tiles[0]?.parentElement;
+    expect(tiles[1]?.parentElement).toBe(row);
+    expect(row?.className).toContain("flex-col");
+    expect(row?.className).toContain("lg:flex-row");
+  });
+
+  test("announces the placeholder region", () => {
+    const status = renderLoadingCardDom().querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-label")).toBe("Loading plan");
+  });
+
+  test("drops the placeholders once the queries resolve", () => {
+    const host = renderCardDom(baseSubscription(), basePlansResponse());
+    expect(host.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    expect(host.querySelector('[data-testid="plan-card-name"]')).not.toBeNull();
   });
 });

@@ -1287,7 +1287,7 @@
     "freeForever": "永久免費",
     "heading": "方案",
     "loadError": "載入方案失敗。",
-    "loading": "正在載入方案...",
+    "loadingAriaLabel": "正在載入方案",
     "manageSubscription": "管理訂閱",
     "nextPlan": "下一個方案",
     "powerUp": "升級",

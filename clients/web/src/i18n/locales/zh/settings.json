@@ -1287,7 +1287,7 @@
     "freeForever": "永久免费",
     "heading": "套餐",
     "loadError": "加载套餐失败。",
-    "loading": "正在加载套餐...",
+    "loadingAriaLabel": "正在加载套餐",
     "manageSubscription": "管理订阅",
     "nextPlan": "下一套餐",
     "powerUp": "升级",
