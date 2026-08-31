@@ -24,6 +24,9 @@ const slack = {
 };
 const telegram = {
   editTelegramMessage: mock((..._args: unknown[]) => Promise.resolve()),
+  sendTelegramReaction: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true }),
+  ),
   sendTelegramReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramRichReply: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramTypingIndicator: mock((..._args: unknown[]) => Promise.resolve()),
@@ -48,6 +51,9 @@ const discord = {
     Promise.resolve(true),
   ),
   editDiscordMessage: mock((..._args: unknown[]) => Promise.resolve()),
+  sendDiscordReaction: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true }),
+  ),
   sendDiscordAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 }),
   ),
@@ -226,9 +232,43 @@ describe("react dispatch", () => {
 
   test("supportsChannelReaction follows the transport declaration", () => {
     expect(supportsChannelReaction("slack")).toBe(true);
+    expect(supportsChannelReaction("telegram")).toBe(true);
+    expect(supportsChannelReaction("discord")).toBe(true);
     expect(supportsChannelReaction("whatsapp")).toBe(false);
     expect(supportsChannelReaction("some-plugin-channel")).toBe(false);
     expect(supportsChannelReaction(undefined)).toBe(false);
+  });
+
+  test("sendChannelReaction routes to the Telegram reaction sender", async () => {
+    const result = await sendChannelReaction("telegram", {
+      chatId: "12345",
+      messageId: "678",
+      emoji: "👍",
+      action: "add",
+    });
+    expect(result.ok).toBe(true);
+    expect(telegram.sendTelegramReaction).toHaveBeenCalledWith(
+      "12345",
+      "👍",
+      "678",
+      "add",
+    );
+  });
+
+  test("sendChannelReaction routes to the Discord reaction sender", async () => {
+    const result = await sendChannelReaction("discord", {
+      chatId: "C9",
+      messageId: "M9",
+      emoji: "<:vex:12345>",
+      action: "remove",
+    });
+    expect(result.ok).toBe(true);
+    expect(discord.sendDiscordReaction).toHaveBeenCalledWith(
+      "C9",
+      "<:vex:12345>",
+      "M9",
+      "remove",
+    );
   });
 
   test("a channel without react resolves to nothing and sends nothing", async () => {

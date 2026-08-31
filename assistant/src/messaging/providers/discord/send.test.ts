@@ -33,6 +33,7 @@ mock.module("../../../util/logger.js", () => ({
 const {
   sendDiscordReply,
   sendDiscordAttachments,
+  sendDiscordReaction,
   editDiscordMessage,
   DiscordPartialSendError,
 } = await import("./send.js");
@@ -73,6 +74,40 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+describe("sendDiscordReaction", () => {
+  test("adds via PUT on the @me reaction route, emoji URL-encoded", async () => {
+    stubFetch(204, null);
+    const result = await sendDiscordReaction("C1", "👍", "M1", "add");
+    expect(result).toEqual({ ok: true });
+    expect(calls[0].method).toBe("PUT");
+    expect(calls[0].url).toBe(
+      `https://discord.com/api/v10/channels/C1/messages/M1/reactions/${encodeURIComponent("👍")}/@me`,
+    );
+    expect(calls[0].body).toBeUndefined();
+  });
+
+  test("a custom emoji mention form travels as bare name:id", async () => {
+    stubFetch(204, null);
+    await sendDiscordReaction("C1", "<:vex:12345>", "M1", "add");
+    expect(calls[0].url).toContain(
+      `/reactions/${encodeURIComponent("vex:12345")}/@me`,
+    );
+  });
+
+  test("remove routes as DELETE", async () => {
+    stubFetch(204, null);
+    const result = await sendDiscordReaction("C1", "👍", "M1", "remove");
+    expect(result).toEqual({ ok: true });
+    expect(calls[0].method).toBe("DELETE");
+  });
+
+  test("a rejection reports ok false without throwing", async () => {
+    stubFetch(403, { message: "Missing Permissions", code: 50013 });
+    const result = await sendDiscordReaction("C1", "👍", "M1", "add");
+    expect(result).toEqual({ ok: false });
+  });
 });
 
 describe("sendDiscordReply", () => {
