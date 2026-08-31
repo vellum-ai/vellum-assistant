@@ -65,7 +65,7 @@ export const providerMessageMetadataSchema = z
      * Provider ids of the further posts this row's delivery produced beyond
      * `messageId`: one stored reply split at tool boundaries or length
      * limits posts several provider messages, and they all belong to this
-     * one row. A reaction or delete naming any of them resolves here.
+     * one row. A reaction naming any of them resolves here.
      */
     additionalMessageIds: z.array(z.string()).optional(),
     /**

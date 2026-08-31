@@ -389,7 +389,7 @@ async function deliverPersistedAssistantMessageViaCallback(
   // The assistant row is written BEFORE the gateway POST, so its pre-send
   // envelope names no id of its own: a Slack row's partial `slackMeta` lacks
   // `channelTs` and reads as null through `readSlackMetadata`, and a
-  // neutral-envelope row lacks the `messageId` a later reaction or delete
+  // neutral-envelope row lacks the `messageId` a later reaction
   // naming it resolves by. A reply split into several segments reports one
   // id per posted provider message, all reconciled onto this one row; see
   // `makeSentMessageIdReconciler` for the per-envelope rules.
@@ -497,7 +497,7 @@ export async function deliverReplyViaCallback(
  * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` plus
  * `additionalMessageIds` for a row carrying the neutral envelope (Discord
  * today, any transport whose delivery result reports the sent id). The
- * back-filled ids are what let a later reaction or delete naming the
+ * back-filled ids are what let a later reaction naming the
  * assistant's own post resolve back to this row.
  *
  * Behavior:
