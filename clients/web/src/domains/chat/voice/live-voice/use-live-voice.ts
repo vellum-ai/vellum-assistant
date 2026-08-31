@@ -793,6 +793,14 @@ export function useLiveVoice(
         onChunk: (buf) => handleChunk(session, buf),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
+        // Full-duplex capture runs without AGC. Barge-in is decided on the
+        // daemon by comparing mean absolute amplitude against a threshold on
+        // the absolute 16-bit scale, and AGC is a moving gain in front of that
+        // fixed number: it lifts a quiet room's noise floor toward the level
+        // speech reaches in a loud one, so ordinary room noise clears the gate
+        // and cancels the reply. Every other consumer of this capture pipeline
+        // is half-duplex and keeps the default (JARVIS-1694).
+        autoGainControl: false,
       });
       session.capture = capture;
       sessionRef.current = session;
