@@ -347,7 +347,8 @@ export function findConversationByProviderMessageId(
     const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
     if (
       meta?.conversationExternalId === externalChatId &&
-      meta.messageId === providerMessageId
+      (meta.messageId === providerMessageId ||
+        meta.additionalMessageIds?.includes(providerMessageId))
     ) {
       return row.conversationId;
     }

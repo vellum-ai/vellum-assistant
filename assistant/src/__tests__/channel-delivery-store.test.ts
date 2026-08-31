@@ -139,6 +139,7 @@ describe("channel-delivery-store", () => {
             source: "discord",
             conversationExternalId: chatId,
             messageId: "1234567890123456789",
+            additionalMessageIds: ["2234567890123456789"],
             eventKind: "message",
           }),
         }),
@@ -150,6 +151,15 @@ describe("channel-delivery-store", () => {
         "discord",
         chatId,
         "1234567890123456789",
+      ),
+    ).toBe(minted.conversationId);
+    // A split reply posts several provider messages from one row; any of
+    // their ids resolves it.
+    expect(
+      findConversationByProviderMessageId(
+        "discord",
+        chatId,
+        "2234567890123456789",
       ),
     ).toBe(minted.conversationId);
     // The scan is scoped to the reaction's own channel address: the same id
