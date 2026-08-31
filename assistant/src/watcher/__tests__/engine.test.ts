@@ -250,6 +250,8 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
     // persistence, which fails every watcher tick that has events.
     const prompt = opts.prompt as string;
     expect(prompt.trim()).not.toBe("");
+    // The postamble is identical on every tick, so it must not be indexed.
+    expect(opts.skipPromptIndexing).toBe(true);
 
     // SECURITY assertions: attacker-controllable content (watcher name,
     // event payload, action prompt) lives in `assistantSandwich.content`,

@@ -454,6 +454,10 @@ export async function runWatchersOnce(
       // is passed as the prompt rather than pre-persisted alongside the other
       // two slices.
       prompt: postamble,
+      // The postamble is a static disposition contract repeated verbatim on
+      // every tick, so indexing it would write the same segment into memory
+      // and search once per watcher poll.
+      skipPromptIndexing: true,
       systemHint: `Watcher: ${watcher.name}`,
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       callSite: "mainAgent",
