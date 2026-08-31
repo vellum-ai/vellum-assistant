@@ -465,17 +465,24 @@ async function prepareUserAttachmentReferences(
 }
 
 /**
- * Translate the caller's ambient-camera-frame ids into the ids the row is
- * actually linked to, by walking the materialized attachments back to the
- * input each one came from.
+ * Translate the caller's ambient-camera-frame ids into the ids the persisted
+ * blocks are attributable by, walking each materialized attachment back to the
+ * input it came from.
  *
- * Only the final id is named. On this row the persisted content block and the
- * `message_attachments` link both carry it, so there is a single vocabulary to
- * match, unlike a fork's copied rows where content keeps the source ids while
- * links point at clones of the same image (`widenForkSightFrameTags`). The
- * pre-clone id here names a row belonging to a DIFFERENT conversation, so
- * naming it too would mark that attachment as an ambient frame if it ever
- * entered this lineage, stubbing an image someone deliberately attached.
+ * Which id that is depends on how the attachment landed. A stored one is named
+ * by its linked row, which is also what its `workspace_ref` block carries. One
+ * that fell back to inline base64 has no row, and its block carries the
+ * caller's own id on `_attachmentId`, so that is the id to name: retention
+ * reads both shapes through `mediaBlockAttachmentId`, and an inline frame is
+ * the heaviest thing in every later request precisely because its bytes are in
+ * the row.
+ *
+ * Exactly one id per frame, never both. A stored attachment's pre-clone id
+ * belongs to a DIFFERENT conversation's row, so naming it as well would mark
+ * that attachment as an ambient frame if it ever entered this lineage and stub
+ * an image someone deliberately attached. That is what separates this from a
+ * fork's widened tag (`widenForkSightFrameTags`), where the two ids are two
+ * names for the same image.
  */
 function sightFrameTagIds(
   requestedIds: readonly string[] | undefined,
@@ -488,13 +495,11 @@ function sightFrameTagIds(
   const requested = new Set(requestedIds);
   const tagged = new Set<string>();
   for (const p of prepared) {
-    if (!p.link) {
+    const inputId = attachmentInputs[p.position]?.id;
+    if (inputId === undefined || !requested.has(inputId)) {
       continue;
     }
-    const inputId = attachmentInputs[p.position]?.id;
-    if (inputId !== undefined && requested.has(inputId)) {
-      tagged.add(p.link.attachmentId);
-    }
+    tagged.add(p.link ? p.link.attachmentId : inputId);
   }
   return [...tagged];
 }
@@ -787,10 +792,13 @@ export interface PersistMessageOptions {
    * ahead of that names a row the retention pass can never match, and the
    * frame then rides every later request forever.
    *
-   * An attachment that ended up inlined (a recoverable store failure left it
-   * as base64 with no row) has no id to name and is left out; retention
-   * matches on attachment ids, so an inlined frame is outside its reach
-   * either way.
+   * The tag names whatever id the persisted block is attributable by: the
+   * linked row's id for a materialized attachment, and the caller's own id
+   * for one a recoverable store failure left as inline base64, which is the
+   * id `attachmentsToContentBlocks` stamps on that block. The inline case is
+   * the one that matters most, because such a block carries its full bytes in
+   * `messages.content`, so the frame heaviest in every later request is
+   * exactly the one retention has to be able to stub.
    */
   sightFrameAttachmentIds?: readonly string[];
 }
