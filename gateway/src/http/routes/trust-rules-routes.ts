@@ -28,6 +28,12 @@ const TrustRuleSchema = z.object({
   origin: z.enum(["default", "user_defined"]),
   userModified: z.boolean(),
   deleted: z.boolean(),
+  /**
+   * Optional directory scope. When non-null the rule applies only when the
+   * tool is invoked from within this directory (or a subdirectory). Null
+   * means global.
+   */
+  scope: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -405,6 +405,7 @@ export function AssistantSideMenu({
 
   const listContext: ConversationListContextValue = {
     overlayCards: variant === "overlay",
+    scrollParent: variant === "overlay" ? (bodyElement ?? undefined) : undefined,
     activeConversationId,
     activeConversationProcessing,
     processingConversationIds,
@@ -485,12 +486,14 @@ export function AssistantSideMenu({
       }
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot}
-      // Only the bottom-most section ever claims the sidebar's leftover
-      // space (see `unbounded` on `ConversationRowList`): flex-grow doesn't
-      // know which open section "needs" the room, so giving every open
-      // section a share stretched a small one (e.g. a two-row group) into a
-      // near-empty box the same size as a busy one beside it.
-      isLast={index === sidebar.sections.length - 1}
+      // The rail's bottom-most section claims leftover space (see
+      // `unbounded` on `ConversationRowList`): flex-grow doesn't know
+      // which open section "needs" the room, so giving every open section
+      // a share stretched a small one (e.g. a two-row group) into a
+      // near-empty box the same size as a busy one beside it. The overlay
+      // skips that fill: its lists scroll with the drawer body so rows
+      // can travel clear of the floating action pills.
+      isLast={variant === "rail" && index === sidebar.sections.length - 1}
     />
   );
 
@@ -649,13 +652,18 @@ export function AssistantSideMenu({
                   action. */}
                 <CollapsibleNavSection.Root
                   type="multiple"
-                  /* min-h-0 flex-1: the root must claim the body's height so
+                  /* On the rail, min-h-0 flex-1 claims the body's height so
                      the bottom-most open card's flex-fill has leftover space
                      to take. Without it every layer below sizes to content,
                      and a windowed row list (which renders only what fits a
                      bounded viewport) resolves to zero height and draws no
-                     rows at all. */
-                  className={cn(SIDEBAR_STACK_GAP, "min-h-0 flex-1")}
+                     rows at all. The overlay sizes to content instead: a
+                     flex-1 root would pin the body to the viewport and trap
+                     Chats under the floating pills. */
+                  className={cn(
+                    SIDEBAR_STACK_GAP,
+                    variant === "rail" && "min-h-0 flex-1",
+                  )}
                   value={sidebar.effectiveOpenSections}
                   onValueChange={sidebar.onOpenSectionsChange}
                 >

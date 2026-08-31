@@ -17,6 +17,7 @@ const loadBuilderConfig = (environment: string) => {
       extraResources: Array<{ from: string; to: string }>;
       win: { icon: string };
       nsis: { installerIcon: string; uninstallerIcon: string };
+      toolsets: { winCodeSign: string };
     };
   } finally {
     if (previous === undefined) {
@@ -77,4 +78,8 @@ test("packages CLI runtime dependencies with a dedicated file matcher", () => {
     from: "resources/cli-runtime/node_modules",
     to: "cli-runtime/node_modules",
   });
+});
+
+test("uses the modular Windows code-signing toolset", () => {
+  expect(loadBuilderConfig("local").toolsets.winCodeSign).toBe("1.1.0");
 });

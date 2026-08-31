@@ -24,7 +24,13 @@ import {
   type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import {
+  modalSnapshotFor,
+  paymentMethodCards,
+  type PaymentModalSnapshot,
+} from "@/domains/settings/utils/payment-method-cards";
 import { usePaymentMethodSavedSync } from "@/domains/settings/hooks/use-payment-method-saved-poll";
+import { useSetupIntentReturnStore } from "@/domains/settings/setup-intent-return-store";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import { useTranslation } from "@/i18n";
@@ -59,6 +65,9 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
   has_payment_method: false,
   payment_method_brand: null,
   payment_method_last4: null,
+  payment_method_exp_month: null,
+  payment_method_exp_year: null,
+  billing_address: null,
   stripe_payment_method_updated_at: null,
   last_charge_at: null,
   last_failure_at: null,
@@ -70,6 +79,32 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
   next_trigger_amount_usd: null,
   stubbed: false,
 };
+
+/**
+ * The payment-method fields neither the auto-reload PUT response nor the
+ * disable response carries. Both writers below seed the GET cache from their
+ * own response, so these come forward from the prior cached config until the
+ * next GET: without them the saved-card row loses its expiry and the payment
+ * modal loses its address prefill right after a Save or a Disable.
+ */
+function preservePaymentMethodFields(
+  prior: AutoTopUpConfigResponse | undefined,
+): Pick<
+  AutoTopUpConfigResponse,
+  | "payment_method_brand"
+  | "payment_method_last4"
+  | "payment_method_exp_month"
+  | "payment_method_exp_year"
+  | "billing_address"
+> {
+  return {
+    payment_method_brand: prior?.payment_method_brand ?? null,
+    payment_method_last4: prior?.payment_method_last4 ?? null,
+    payment_method_exp_month: prior?.payment_method_exp_month ?? null,
+    payment_method_exp_year: prior?.payment_method_exp_year ?? null,
+    billing_address: prior?.billing_address ?? null,
+  };
+}
 
 /**
  * Neutral pill shared by the enabled-state summary row — the "add $X under
@@ -120,6 +155,10 @@ export function AutoTopUpCard() {
     organizationsBillingAutoTopUpDisableCreateMutation(),
   );
   const syncPaymentMethodSaved = usePaymentMethodSavedSync();
+  // A 3DS redirect return that is still resolving keeps both add-a-card gates
+  // below disabled: its outcome replays into `PaymentMethodsCard`'s modal, so
+  // one opened here would stack on that one and start an orphan SetupIntent.
+  const returnPending = useSetupIntentReturnStore.use.pending();
   // Native Android configures auto-reload on the web app's billing page in
   // the browser; the deep link below reopens this same configurator there.
   const isNativeAndroid = useIsNativeAndroid();
@@ -132,7 +171,7 @@ export function AutoTopUpCard() {
   const [confirmingDisable, setConfirmingDisable] = useState(false);
   const [showAddPm, setShowAddPm] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const [pmModalOpen, setPmModalOpen] = useState(false);
+  const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
 
   // Removing the card (in `PaymentMethodsCard`) disables auto-reload
   // server-side, so when the shared config's PM goes away, leave the add-card
@@ -295,6 +334,17 @@ export function AutoTopUpCard() {
   };
 
   /**
+   * Open the setup modal from either gate below, in the mode the config calls
+   * for: the no-PM gate adds a card, while the repeated-declines cutoff still
+   * has the declined card attached and is replacing it. Snapshotted on the
+   * click for the same reason `PaymentMethodsCard` does it: a successful save
+   * writes the new card into the config cache before the modal closes.
+   */
+  const openPmModal = () => {
+    setPmModal(modalSnapshotFor(paymentMethodCards(config)));
+  };
+
+  /**
    * Dismiss the disable-confirm dialog. Also clears any prior
    * `disableMutation` error so the user doesn't see a stale failure
    * banner persist after they've decided not to retry.
@@ -329,21 +379,16 @@ export function AutoTopUpCard() {
         // refetch lands.
         //
         // The PUT response intentionally skips the Stripe PM retrieve to
-        // avoid a ~100-300ms latency tax per save, so its
-        // `payment_method_brand` / `payment_method_last4` come back null.
-        // Merge with the prior cache value to preserve those fields (a
-        // config edit doesn't change the PM), then invalidate to refresh
-        // brand/last4 from GET in the background — that keeps them in
-        // sync if the user just changed cards.
+        // avoid a ~100-300ms latency tax per save, so the payment-method
+        // fields come back null. Merge with the prior cache value to preserve
+        // them (a config edit doesn't change the PM), then invalidate to
+        // refresh them from GET in the background, which keeps them in sync
+        // if the user just changed cards.
         onSuccess: (data) => {
           organizationsBillingAutoTopUpRetrieveSetQueryData(
             queryClient,
             undefined,
-            (prior) => ({
-              ...data,
-              payment_method_brand: prior?.payment_method_brand ?? null,
-              payment_method_last4: prior?.payment_method_last4 ?? null,
-            }),
+            (prior) => ({ ...data, ...preservePaymentMethodFields(prior) }),
           );
           void queryClient.invalidateQueries({
             queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
@@ -386,9 +431,8 @@ export function AutoTopUpCard() {
             undefined,
             (prior) => ({
               ...DISABLED_CONFIG,
+              ...preservePaymentMethodFields(prior),
               has_payment_method: prior?.has_payment_method ?? false,
-              payment_method_brand: prior?.payment_method_brand ?? null,
-              payment_method_last4: prior?.payment_method_last4 ?? null,
               // Preserve the SetupIntent staleness marker. The disable
               // endpoint flips `enabled=False` but does NOT clear
               // `stripe_payment_method_id` or its updated_at marker — so
@@ -453,14 +497,16 @@ export function AutoTopUpCard() {
    * Once the config reflects the fresh PM, drop the no-PM gate and, if the
    * user got here via the toggle, advance straight into the configure form.
    * The gate effect above may already have run off the seeded cache; both
-   * paths land on the same state.
+   * paths land on the same state. Resolves with the saved card so the modal
+   * can title its success panel with it.
    */
   const handlePmSaved = async (args: { setupIntentId: string | null }) => {
-    await syncPaymentMethodSaved(args);
+    const card = await syncPaymentMethodSaved(args);
     setShowAddPm(false);
     if (pendingEnable) {
       enterFormMode();
     }
+    return card;
   };
 
   const isFormMode = mode === "form";
@@ -539,7 +585,8 @@ export function AutoTopUpCard() {
           actions={
             <Button
               variant="outlined"
-              onClick={() => setPmModalOpen(true)}
+              onClick={openPmModal}
+              disabled={returnPending}
               data-testid="auto-top-up-add-pm-button"
             >
               {t("autoTopUpCard.addPaymentMethod")}
@@ -588,7 +635,8 @@ export function AutoTopUpCard() {
             )}
             <Button
               variant="primary"
-              onClick={() => setPmModalOpen(true)}
+              onClick={openPmModal}
+              disabled={returnPending}
               data-testid="auto-top-up-add-pm-button"
               className="self-start"
             >
@@ -644,8 +692,11 @@ export function AutoTopUpCard() {
       />
 
       <AutoTopUpPaymentMethodModal
-        open={pmModalOpen}
-        onClose={() => setPmModalOpen(false)}
+        open={pmModal != null}
+        onClose={() => setPmModal(null)}
+        mode={pmModal?.mode ?? "add"}
+        cardOnFile={pmModal?.cardOnFile ?? null}
+        billingAddress={config.billing_address ?? null}
         onSavedOptimistic={handlePmSaved}
       />
     </div>

@@ -201,7 +201,13 @@ export function createTrustRulesCreateHandler() {
     }
 
     try {
-      const rule = store.create({ tool, pattern, risk, description });
+      const rule = store.create({
+        tool,
+        pattern,
+        risk,
+        description,
+        scope: typeof scope === "string" ? scope : null,
+      });
       invalidateTrustRuleCache();
       return Response.json({ rule }, { status: 201 });
     } catch (err) {

@@ -132,10 +132,10 @@ matching GitHub release is downloaded and verified. Bump the pins there when
 the Bun version changes.
 
 `build:preview-handler` installs its manifest dependencies before invoking
-MSBuild. It resolves vcpkg from `VCPKG_ROOT`, the local Vellum build-tools
-checkout, or `PATH`, in that order. The checkout must contain full Git history
-for the manifest's pinned dependency baseline. The Visual Studio-bundled vcpkg
-may be too old for that baseline.
+MSBuild. It installs the manifest's pinned vcpkg baseline in the ignored
+`clients/windows/.build-tools` directory and reuses it for future builds. This
+keeps packaging independent of vcpkg copies exposed by Visual Studio,
+environment variables, or `PATH`.
 
 Local and CI packs are unsigned. `.github/workflows/windows-package-smoke.yaml`
 runs the same steps per architecture, then install-, launch-, and

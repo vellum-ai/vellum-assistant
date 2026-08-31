@@ -5559,6 +5559,49 @@ paths:
                   - runs
                   - nextCursor
                 additionalProperties: false
+  /v1/contact_prompt_claim:
+    post:
+      operationId: contact_prompt_claim_post
+      summary: Claim a pending contact form for one submission
+      description:
+        Marks a pending form as answered so a second client submitting the same form writes nothing. Returns
+        claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is
+        pending. A granted claim carries the window its write has to report back in.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: The pending contact_request id.
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claimed:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - already_claimed
+                      - unknown
+                  settleMs:
+                    description: How long a granted claim has to report its write back before the waiting call gives up.
+                    type: number
+                required:
+                  - claimed
+                additionalProperties: false
   /v1/contact_prompt_flags:
     post:
       operationId: contact_prompt_flags_post
@@ -6482,7 +6525,7 @@ paths:
       summary: Prompt user to register a contact channel
       description:
         Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway.
-        The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.
+        The gateway owns the contact write and reports it back via resolve_contact_prompt.
       tags:
         - contacts
       requestBody:
@@ -6516,8 +6559,17 @@ paths:
                     - trusted-contact
                     - unknown
                 verify:
-                  description: When true, submitting the address also marks the channel verified. Same attest as Contacts Verify me.
+                  description:
+                    Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an
+                    unchecked box leaves the channel unverified.
                   type: boolean
+                timeoutMs:
+                  description:
+                    How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is
+                    what ends the wait. Defaults to 300000.
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 3600000
       responses:
         "200":
           description: Successful response
@@ -6538,6 +6590,106 @@ paths:
                     type: string
                   address:
                     type: string
+                  verified:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+  /v1/contacts/record-prompt:
+    post:
+      operationId: contacts_recordprompt_post
+      summary: Ask the guardian to confirm a contact record write
+      description:
+        Broadcasts a contact_record_request to connected clients and waits for the guardian to submit the form. The
+        gateway owns the write and reports it back via resolve_contact_prompt. Nothing is written if nobody answers.
+      tags:
+        - contacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum:
+                    - create
+                    - update
+                    - delete
+                  description: Which record write the guardian is being asked to confirm.
+                contactId:
+                  description: Target contact. Required for update and delete.
+                  type: string
+                currentDisplayName:
+                  description:
+                    The target's current name, resolved by the caller, so the form can show what is changing. Gateway-owned
+                    facts are not read here.
+                  type: string
+                currentNotes:
+                  description:
+                    The target's current notes, resolved by the caller. The form submits a field only when it differs from what
+                    is stored.
+                  type: string
+                channels:
+                  description:
+                    The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show
+                    what access is about to be lost.
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      address:
+                        type: string
+                    required:
+                      - type
+                      - address
+                displayName:
+                  description: Proposed name, prefilled into the form. The guardian can edit it.
+                  type: string
+                notes:
+                  description: Proposed notes, prefilled into the form. The guardian can edit them.
+                  type: string
+                notesProposed:
+                  description:
+                    Whether the caller asked for these notes explicitly, so the form submits them even when they match what is
+                    stored.
+                  type: boolean
+                label:
+                  description: Display label shown in the form.
+                  type: string
+                description:
+                  description: Longer description shown in the form.
+                  type: string
+                timeoutMs:
+                  description:
+                    How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is
+                    what ends the wait. Defaults to 300000.
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 3600000
+              required:
+                - operation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  error:
+                    type: string
+                  contactId:
+                    type: string
+                  notesSaved:
+                    type: boolean
+                  nothingWritten:
+                    type: boolean
                 required:
                   - ok
                 additionalProperties: false
@@ -26026,7 +26178,7 @@ paths:
     post:
       operationId: resolve_contact_prompt_post
       summary: "Gateway callback: resolve a pending contact prompt"
-      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.
+      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt call.
       tags:
         - contacts
       responses:

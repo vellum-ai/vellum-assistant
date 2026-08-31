@@ -34,18 +34,6 @@ import {
 // Temp directory for metadata / encrypted store fixtures
 // ---------------------------------------------------------------------------
 
-function metadataDir(): string {
-  return join(testWorkspaceDir, "data", "credentials");
-}
-
-function writeMetadata(
-  credentials: { service: string; field: string }[],
-): void {
-  const dir = metadataDir();
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "metadata.json"), JSON.stringify({ credentials }));
-}
-
 const ALGORITHM = "aes-256-gcm";
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
@@ -221,11 +209,6 @@ describe("readServiceCredentials", () => {
   };
 
   test("returns correct Record<string, string> for a valid spec", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
     writeEncryptedStore({
       [credentialKey("telegram", "bot_token")]: "my-bot-token",
       [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
@@ -238,39 +221,14 @@ describe("readServiceCredentials", () => {
     });
   });
 
-  test("returns null when metadata is missing", async () => {
-    // No metadata file written at all
+  test("returns null when required secrets are missing", async () => {
     const result = await readServiceCredentials(telegramSpec);
     expect(result).toBeNull();
   });
 
-  test("returns null when metadata has no entries for the service", async () => {
-    writeMetadata([{ service: "github", field: "token" }]);
-
-    const result = await readServiceCredentials(telegramSpec);
-    expect(result).toBeNull();
-  });
-
-  test("returns null when metadata exists but encrypted values cannot be read", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-    // No encrypted store written — secrets are unreadable
-
-    const result = await readServiceCredentials(telegramSpec);
-    expect(result).toBeNull();
-  });
-
-  test("returns null when only some required fields exist in metadata", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      // webhook_secret is missing from metadata
-    ]);
-
+  test("returns null when only some required secrets can be read", async () => {
     writeEncryptedStore({
       [credentialKey("telegram", "bot_token")]: "my-bot-token",
-      [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
     });
 
     const result = await readServiceCredentials(telegramSpec);
@@ -282,11 +240,6 @@ describe("readServiceCredentials", () => {
       service: "test_service",
       requiredFields: ["api_key", "secret"],
     };
-
-    writeMetadata([
-      { service: "test_service", field: "api_key" },
-      { service: "test_service", field: "secret" },
-    ]);
 
     writeEncryptedStore({
       [credentialKey("test_service", "api_key")]: "custom-api-key",
@@ -301,11 +254,6 @@ describe("readServiceCredentials", () => {
   });
 
   test("works with v2 encrypted store", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
     writeEncryptedStoreV2({
       [credentialKey("telegram", "bot_token")]: "v2-bot-token",
       [credentialKey("telegram", "webhook_secret")]: "v2-webhook-secret",
@@ -316,6 +264,95 @@ describe("readServiceCredentials", () => {
       bot_token: "v2-bot-token",
       webhook_secret: "v2-webhook-secret",
     });
+  });
+
+  test("CES HTTP requires metadata records even when secrets exist", async () => {
+    writeEncryptedStore({
+      [credentialKey("telegram", "bot_token")]: "my-bot-token",
+      [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
+    });
+
+    const previousUrl = process.env.CES_CREDENTIAL_URL;
+    const previousToken = process.env.CES_SERVICE_TOKEN;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (req.method === "GET" && url.pathname.startsWith("/v1/metadata/")) {
+          return Response.json({ error: "Record not found" }, { status: 404 });
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    });
+    process.env.CES_CREDENTIAL_URL = `http://127.0.0.1:${server.port}`;
+    process.env.CES_SERVICE_TOKEN = "test-ces-service-token";
+    try {
+      const result = await readServiceCredentials(telegramSpec);
+      expect(result).toBeNull();
+    } finally {
+      server.stop(true);
+      if (previousUrl === undefined) {
+        delete process.env.CES_CREDENTIAL_URL;
+      } else {
+        process.env.CES_CREDENTIAL_URL = previousUrl;
+      }
+      if (previousToken === undefined) {
+        delete process.env.CES_SERVICE_TOKEN;
+      } else {
+        process.env.CES_SERVICE_TOKEN = previousToken;
+      }
+    }
+  });
+
+  test("CES HTTP reads secrets after metadata records are present", async () => {
+    writeEncryptedStore({
+      [credentialKey("telegram", "bot_token")]: "my-bot-token",
+      [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
+    });
+
+    const previousUrl = process.env.CES_CREDENTIAL_URL;
+    const previousToken = process.env.CES_SERVICE_TOKEN;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (req.method === "GET" && url.pathname.startsWith("/v1/metadata/")) {
+          return Response.json({
+            record: {
+              credentialId: "cred-1",
+              service: "telegram",
+              field: "ignored",
+              allowedTools: [],
+              allowedDomains: [],
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          });
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    });
+    process.env.CES_CREDENTIAL_URL = `http://127.0.0.1:${server.port}`;
+    process.env.CES_SERVICE_TOKEN = "test-ces-service-token";
+    try {
+      const result = await readServiceCredentials(telegramSpec);
+      expect(result).toEqual({
+        bot_token: "my-bot-token",
+        webhook_secret: "my-webhook-secret",
+      });
+    } finally {
+      server.stop(true);
+      if (previousUrl === undefined) {
+        delete process.env.CES_CREDENTIAL_URL;
+      } else {
+        process.env.CES_CREDENTIAL_URL = previousUrl;
+      }
+      if (previousToken === undefined) {
+        delete process.env.CES_SERVICE_TOKEN;
+      } else {
+        process.env.CES_SERVICE_TOKEN = previousToken;
+      }
+    }
   });
 });
 
@@ -345,10 +382,6 @@ describe("secret leak prevention", () => {
   test("service credential read does not leak secret values into logs", async () => {
     const secretValue = "super-secret-telegram-token";
 
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
     writeEncryptedStore({
       [credentialKey("telegram", "bot_token")]: secretValue,
       [credentialKey("telegram", "webhook_secret")]: "webhook-secret-value",

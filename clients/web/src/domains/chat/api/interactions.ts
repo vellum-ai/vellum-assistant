@@ -13,7 +13,10 @@ import {
   questionresponsePost,
   secretPost,
 } from "@/generated/daemon/sdk.gen";
-import { assistantContactsPromptSubmit } from "@/generated/gateway/sdk.gen";
+import {
+  assistantContactsPromptSubmit,
+  assistantContactsRecordSubmit,
+} from "@/generated/gateway/sdk.gen";
 import type {
   PendinginteractionsGetResponse,
   QuestionresponsePostData,
@@ -140,6 +143,90 @@ export async function submitSecretResponse(
 }
 
 /**
+ * Dismiss an address form. Unblocks the parked command without writing, and
+ * closes the form on every other client showing it.
+ */
+export async function cancelContactPrompt(
+  assistantId: string,
+  requestId: string,
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
+  try {
+    const { data, error, response } = await assistantContactsPromptSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, cancelled: true },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to dismiss the contact prompt");
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: extractErrorMessage(error, response),
+        transient: false,
+      };
+    }
+    // Somebody answered the form before this dismissal reached it, so the
+    // dismissal did not decide anything.
+    return { ok: true, duplicate: data?.duplicate === true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
+    };
+  }
+}
+
+/**
+ * Submit the guardian's answer to a proposed contact record write, or their
+ * dismissal of it. The gateway performs the write and unblocks the parked
+ * command; a dismissal unblocks it without writing.
+ */
+export async function submitContactRecord(
+  assistantId: string,
+  requestId: string,
+  input:
+    | {
+        operation: "create" | "update" | "delete";
+        contactId?: string;
+        displayName?: string;
+        notes?: string;
+        expectedChannels?: Array<{ type: string; address: string }>;
+      }
+    | { cancelled: true },
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
+  try {
+    const { data, error, response } = await assistantContactsRecordSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, ...input },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to submit contact record");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response);
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
+    }
+    // Somebody else answered this form first. The request succeeded in the
+    // sense that nothing is wrong, but none of these values were written, so
+    // the caller must not present them as saved.
+    return { ok: true, duplicate: data?.duplicate === true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
+    };
+  }
+}
+
+/**
  * Cancel a pending secret prompt. Posts ONLY `{ requestId }` (no `value`,
  * no `delivery`) so the daemon resolves the awaiting interaction as cancelled
  * — the daemon treats an absent `value` as cancellation.
@@ -214,11 +301,16 @@ export async function submitContactPrompt(
   channelType: string,
   role?: string,
   displayName?: string,
-): Promise<SubmitSecretResponseResult> {
+  /**
+   * The verify checkbox as the guardian left it. Sent explicitly (rather than
+   * read back from the parked command) so the attest matches the form.
+   */
+  verify?: boolean,
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
-    const { error, response } = await assistantContactsPromptSubmit({
+    const { data, error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
-      body: { requestId, address, channelType, role, displayName },
+      body: { requestId, address, channelType, role, displayName, verify },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to submit contact prompt");
@@ -231,7 +323,9 @@ export async function submitContactPrompt(
         transient: false,
       };
     }
-    return { ok: true };
+    // Somebody else answered this form first: nothing is wrong, but none of
+    // these values were written, so the caller must not present them as saved.
+    return { ok: true, duplicate: data?.duplicate === true };
   } catch (err) {
     return {
       ok: false,

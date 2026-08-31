@@ -23,6 +23,8 @@ import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-op
 import { ConfigChangedEventSchema } from "./events/config-changed.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state-changed.js";
+import { ContactFormClosedEventSchema } from "./events/contact-form-closed.js";
+import { ContactRecordRequestEventSchema } from "./events/contact-record-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ContextCompactedEventSchema } from "./events/context-compacted.js";
@@ -285,6 +287,14 @@ export {
   type ConfirmationStateChangedEvent,
   ConfirmationStateChangedEventSchema,
 } from "./events/confirmation-state-changed.js";
+export {
+  type ContactFormClosedEvent,
+  ContactFormClosedEventSchema,
+} from "./events/contact-form-closed.js";
+export {
+  type ContactRecordRequestEvent,
+  ContactRecordRequestEventSchema,
+} from "./events/contact-record-request.js";
 export {
   type ContactRequestEvent,
   ContactRequestEventSchema,
@@ -952,6 +962,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ConfigChangedEventSchema,
   ConfirmationRequestEventSchema,
   ConfirmationStateChangedEventSchema,
+  ContactFormClosedEventSchema,
+  ContactRecordRequestEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
   ContextCompactedEventSchema,

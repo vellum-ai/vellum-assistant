@@ -499,6 +499,9 @@
     "toolLabel": "Herramienta:"
   },
   "contactActions": {
+    "cancelFailed": "No se pudo descartar el formulario. Inténtalo de nuevo.",
+    "recordCancelFailed": "No se pudo descartar el formulario. Inténtalo de nuevo.",
+    "recordSaveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo.",
     "saveFailed": "No se pudo guardar el contacto. Inténtalo de nuevo."
   },
   "contactPromptCard": {
@@ -507,8 +510,26 @@
     "contactSaved": "Contacto guardado",
     "dismiss": "Descartar",
     "enterAddress": "Introduce la dirección de {channel}",
+    "markVerified": "Marcar esta dirección como verificada",
+    "markVerifiedHelp": "Una dirección verificada puede enviar mensajes a tu asistente.",
     "save": "Guardar",
     "saving": "Guardando…"
+  },
+  "contactRecordCard": {
+    "cancel": "Cancelar",
+    "contactDeleted": "Contacto eliminado",
+    "contactSaved": "Contacto guardado",
+    "createTitle": "Añadir un contacto",
+    "delete": "Eliminar",
+    "deleteTitle": "¿Eliminar a {name}?",
+    "deleteWarning": "Esto también elimina sus canales, por lo que ya no podrá contactar con tu asistente.",
+    "dismiss": "Descartar",
+    "namePlaceholder": "Nombre",
+    "noChannels": "Este contacto no tiene canales.",
+    "notesPlaceholder": "Notas (opcional)",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "updateTitle": "Actualizar a {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "Borrar contexto",

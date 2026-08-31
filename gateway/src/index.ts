@@ -90,7 +90,10 @@ import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-contr
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
-import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
+import {
+  handleContactPromptSubmit,
+  handleContactRecordSubmit,
+} from "./http/routes/contact-prompt.js";
 import {
   handleListDevices,
   handleRevokeDevice,
@@ -908,6 +911,7 @@ async function main() {
     ...buildContactsControlPlaneRoutes({
       contactsControlPlaneProxy,
       handleContactPromptSubmit,
+      handleContactRecordSubmit,
     }),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──

@@ -271,14 +271,29 @@
     "thresholdLabel": "Auto-reload when balance below"
   },
   "autoTopUpPaymentMethodModal": {
+    "addSubtitle": "Kept on file for auto-reload and your Pro plan.",
+    "addTitle": "Add a card",
     "addressFormLoadError": "Failed to load the billing address form. Please close and reopen this dialog.",
     "cancel": "Cancel",
+    "cardOnFile": "{brand} •••• {last4}",
+    "cardOnFileExpiry": "· {month} / {year}",
+    "cardOnFileNote": "Replaced on save",
+    "close": "Close",
     "confirmFailed": "Failed to save payment method.",
+    "confirmingWithBank": "Confirming with your bank…",
+    "declined": "Your bank declined this card. Try another, or contact them.",
     "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
-    "save": "Save",
-    "savedToast": "Payment method saved.",
+    "primaryAdd": "Save card",
+    "primaryReplace": "Replace card",
+    "primarySubmitting": "Saving",
+    "replaceSubtitle": "The new card takes over immediately.",
+    "replaceTitle": "Replace your card",
+    "savedSubtitle": "Auto-reload is active again",
+    "savedTitle": "{brand} •••• {last4} saved",
+    "savedTitleGeneric": "Card saved",
     "setupError": "Failed to start card setup. Please try again.",
-    "title": "Save Payment Method",
+    "termsAdd": "Vellum can charge this card for auto-reload and subscription renewals. Remove it any time from Billing.",
+    "termsReplace": "Your old card stays with Stripe until you remove it from Billing; Vellum stops charging it now.",
     "tryAgain": "Try again",
     "unavailable": "Payment method setup is currently unavailable. Please try again later."
   },
@@ -1245,8 +1260,8 @@
   },
   "paymentMethodRow": {
     "endingIn": "Ending in {last4}",
-    "savedCard": "Saved card",
-    "updateCard": "Update Card"
+    "replaceCard": "Replace card",
+    "savedCard": "Saved card"
   },
   "paymentMethodsCard": {
     "addButton": "Add Payment Method",

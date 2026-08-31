@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.11.6",
+    "version": "0.11.7",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -1329,7 +1329,7 @@
         "operationId": "contactsPromptSubmit",
         "summary": "Submit a contact-prompt address",
         "tags": ["contacts"],
-        "description": "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+        "description": "Completes a contact_request the assistant broadcast: writes the contact and channel gateway-first, then unblocks the waiting prompt.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1339,14 +1339,28 @@
                 "properties": {
                   "requestId": {
                     "type": "string",
-                    "description": "The contact_request id broadcast by the daemon"
+                    "description": "The contact_request id broadcast by the assistant"
                   },
-                  "address": { "type": "string" },
-                  "channelType": { "type": "string" },
+                  "address": {
+                    "description": "Required unless cancelled is true",
+                    "type": "string"
+                  },
+                  "channelType": {
+                    "description": "Required unless cancelled is true",
+                    "type": "string"
+                  },
                   "role": { "type": "string" },
-                  "displayName": { "type": "string" }
+                  "displayName": { "type": "string" },
+                  "verify": {
+                    "description": "The form's 'mark verified' checkbox as the guardian left it. Omit only from clients that predate the checkbox; the parked command's flag is then used instead.",
+                    "type": "boolean"
+                  },
+                  "cancelled": {
+                    "description": "The guardian dismissed the form. Unblocks the waiting command without writing.",
+                    "type": "boolean"
+                  }
                 },
-                "required": ["requestId", "address", "channelType"]
+                "required": ["requestId"]
               }
             }
           }
@@ -1360,7 +1374,87 @@
                   "type": "object",
                   "properties": {
                     "accepted": { "type": "boolean" },
-                    "error": { "type": "string" }
+                    "error": { "type": "string" },
+                    "duplicate": {
+                      "description": "Another client answered this form first. Nothing is wrong, but none of this submission's values were written.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["accepted"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contacts/record/submit": {
+      "post": {
+        "operationId": "contactsRecordSubmit",
+        "summary": "Submit a contact-record form",
+        "tags": ["contacts"],
+        "description": "Completes a contact_record_request the assistant broadcast: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command. A cancelled submission unblocks it without writing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "description": "The contact_record_request id broadcast by the assistant"
+                  },
+                  "operation": {
+                    "description": "Required unless cancelled is true",
+                    "type": "string",
+                    "enum": ["create", "update", "delete"]
+                  },
+                  "contactId": {
+                    "description": "Required to update or delete",
+                    "type": "string"
+                  },
+                  "displayName": { "type": "string" },
+                  "notes": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  },
+                  "expectedChannels": {
+                    "description": "The channels the delete confirmation listed. The delete is refused if the contact's channels changed since.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": { "type": "string" },
+                        "address": { "type": "string" }
+                      },
+                      "required": ["type", "address"]
+                    }
+                  },
+                  "cancelled": {
+                    "description": "The guardian dismissed the form. Unblocks the waiting command without writing.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["requestId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": { "type": "boolean" },
+                    "error": { "type": "string" },
+                    "duplicate": {
+                      "description": "Another client answered this form first. Nothing is wrong, but none of this submission's values were written.",
+                      "type": "boolean"
+                    }
                   },
                   "required": ["accepted"],
                   "additionalProperties": false

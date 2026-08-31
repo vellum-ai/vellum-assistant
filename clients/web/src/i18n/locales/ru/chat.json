@@ -250,6 +250,31 @@
     "profileSwitchFailed": "Профиль создан, но переключиться на него не удалось",
     "profileSwitchFallback": "Не удалось сменить профиль. Повторите попытку."
   },
+  "contactActions": {
+    "cancelFailed": "Не удалось закрыть форму. Попробуйте ещё раз.",
+    "recordCancelFailed": "Не удалось закрыть форму. Попробуйте ещё раз.",
+    "recordSaveFailed": "Не удалось сохранить контакт. Попробуйте ещё раз."
+  },
+  "contactPromptCard": {
+    "markVerified": "Отметить этот адрес как подтверждённый",
+    "markVerifiedHelp": "Подтверждённый адрес может писать вашему ассистенту."
+  },
+  "contactRecordCard": {
+    "cancel": "Отмена",
+    "contactDeleted": "Контакт удалён",
+    "contactSaved": "Контакт сохранён",
+    "createTitle": "Добавить контакт",
+    "delete": "Удалить",
+    "deleteTitle": "Удалить {name}?",
+    "deleteWarning": "Вместе с ним удаляются его каналы, и он больше не сможет связаться с вашим ассистентом.",
+    "dismiss": "Закрыть",
+    "namePlaceholder": "Имя",
+    "noChannels": "У этого контакта нет каналов.",
+    "notesPlaceholder": "Заметки (необязательно)",
+    "save": "Сохранить",
+    "saving": "Сохранение…",
+    "updateTitle": "Обновить: {name}"
+  },
   "conversationActions": {
     "archive": "В архив",
     "copyConversation": "Скопировать весь диалог",

@@ -271,14 +271,29 @@
     "thresholdLabel": "Recargar automáticamente cuando el saldo esté por debajo de"
   },
   "autoTopUpPaymentMethodModal": {
+    "addSubtitle": "Se guarda para la recarga automática y tu plan Pro.",
+    "addTitle": "Añadir una tarjeta",
     "addressFormLoadError": "No se pudo cargar el formulario de dirección de facturación. Cierra y vuelve a abrir este diálogo.",
     "cancel": "Cancelar",
+    "cardOnFile": "{brand} •••• {last4}",
+    "cardOnFileExpiry": "· {month} / {year}",
+    "cardOnFileNote": "Se reemplaza al guardar",
+    "close": "Cerrar",
     "confirmFailed": "No se pudo guardar el método de pago.",
+    "confirmingWithBank": "Confirmando con tu banco…",
+    "declined": "Tu banco rechazó esta tarjeta. Prueba con otra o comunícate con ellos.",
     "paymentFormLoadError": "No se pudo cargar el formulario de pago. Cierra y vuelve a abrir este diálogo.",
-    "save": "Guardar",
-    "savedToast": "Método de pago guardado.",
+    "primaryAdd": "Guardar tarjeta",
+    "primaryReplace": "Reemplazar tarjeta",
+    "primarySubmitting": "Guardando",
+    "replaceSubtitle": "La nueva tarjeta se aplica de inmediato.",
+    "replaceTitle": "Reemplaza tu tarjeta",
+    "savedSubtitle": "La recarga automática está activa de nuevo",
+    "savedTitle": "{brand} •••• {last4} guardada",
+    "savedTitleGeneric": "Tarjeta guardada",
     "setupError": "No se pudo iniciar la configuración de la tarjeta. Inténtalo de nuevo.",
-    "title": "Guardar método de pago",
+    "termsAdd": "Vellum puede cobrar en esta tarjeta la recarga automática y las renovaciones de la suscripción. Puedes eliminarla cuando quieras desde Facturación.",
+    "termsReplace": "Tu tarjeta anterior seguirá en Stripe hasta que la elimines desde Facturación; Vellum deja de cobrarla ahora.",
     "tryAgain": "Intentar de nuevo",
     "unavailable": "La configuración del método de pago no está disponible en este momento. Inténtalo de nuevo más tarde."
   },
@@ -1245,8 +1260,8 @@
   },
   "paymentMethodRow": {
     "endingIn": "Termina en {last4}",
-    "savedCard": "Tarjeta guardada",
-    "updateCard": "Actualizar tarjeta"
+    "replaceCard": "Reemplazar tarjeta",
+    "savedCard": "Tarjeta guardada"
   },
   "paymentMethodsCard": {
     "addButton": "Añadir método de pago",

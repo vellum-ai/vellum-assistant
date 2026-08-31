@@ -271,14 +271,29 @@
     "thresholdLabel": "当余额低于此值时自动充值"
   },
   "autoTopUpPaymentMethodModal": {
+    "addSubtitle": "保存后用于自动充值和您的专业版套餐。",
+    "addTitle": "添加银行卡",
     "addressFormLoadError": "未能加载账单地址表单。请关闭并重新打开此对话框。",
     "cancel": "取消",
+    "cardOnFile": "{brand} •••• {last4}",
+    "cardOnFileExpiry": "· {month} / {year}",
+    "cardOnFileNote": "保存后将被替换",
+    "close": "关闭",
     "confirmFailed": "未能保存付款方式。",
+    "confirmingWithBank": "正在与您的银行确认…",
+    "declined": "您的银行拒绝了这张卡。请换一张卡，或联系银行。",
     "paymentFormLoadError": "未能加载付款表单。请关闭并重新打开此对话框。",
-    "save": "保存",
-    "savedToast": "付款方式已保存。",
+    "primaryAdd": "保存银行卡",
+    "primaryReplace": "替换银行卡",
+    "primarySubmitting": "保存中",
+    "replaceSubtitle": "新卡将立即生效。",
+    "replaceTitle": "替换您的银行卡",
+    "savedSubtitle": "自动充值已重新启用",
+    "savedTitle": "{brand} •••• {last4} 已保存",
+    "savedTitleGeneric": "银行卡已保存",
     "setupError": "未能启动银行卡设置。请重试。",
-    "title": "保存付款方式",
+    "termsAdd": "Vellum 可以使用这张卡收取自动充值和订阅续费的费用。您可以随时在账单设置中移除它。",
+    "termsReplace": "在您从账单设置中移除之前，旧卡会保留在 Stripe；Vellum 现在起不再从旧卡扣款。",
     "tryAgain": "重试",
     "unavailable": "付款方式设置目前不可用。请稍后重试。"
   },
@@ -1245,8 +1260,8 @@
   },
   "paymentMethodRow": {
     "endingIn": "尾号 {last4}",
-    "savedCard": "已保存卡片",
-    "updateCard": "更新卡片"
+    "replaceCard": "替换卡片",
+    "savedCard": "已保存卡片"
   },
   "paymentMethodsCard": {
     "addButton": "添加支付方式",

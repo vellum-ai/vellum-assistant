@@ -13,6 +13,7 @@ import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confirmation-row";
+import { PendingContactRecordRequestRow } from "@/domains/chat/transcript/pending-contact-record-request-row";
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
@@ -279,6 +280,9 @@ export const TranscriptRow = memo(function TranscriptRow({
 
     case "pendingContactRequest":
       return <PendingContactRequestRow />;
+
+    case "pendingContactRecordRequest":
+      return <PendingContactRecordRequestRow />;
 
     case "ephemeralMeta":
       return (

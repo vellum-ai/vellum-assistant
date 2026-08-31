@@ -1720,6 +1720,78 @@ describe("AssistantSideMenu · equal section treatment", () => {
     }
   });
 
+  test("the overlay drawer lets the body scroll Chats clear of the floating pills", () => {
+    const { container } = render(
+      createElement(SideMenuUnderTest, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "overlay",
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+        onStartNewConversation: () => {},
+        footerAction: createElement("span", null, "Preferences"),
+      }),
+    );
+    try {
+      const root = container.querySelector<HTMLElement>(
+        '[data-slot="collapsible"]',
+      );
+      expect(root?.classList.contains("flex-1")).toBe(false);
+
+      const sections = sectionElements(container);
+      const labels = sectionLabels(container);
+      const chats = sections[labels.indexOf("Chats")];
+      if (!chats) {
+        throw new Error("expected the Chats section");
+      }
+
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the overlay windows a long Chats list against the drawer body", async () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    const { container } = render(
+      createElement(SideMenuUnderTest, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "overlay",
+        conversations: Array.from(
+          { length: CONVERSATION_LIST_VIRTUALIZE_THRESHOLD + 1 },
+          (_, index) =>
+            makeConversation({
+              conversationId: `r${index}`,
+              title: `Recent ${index}`,
+            }),
+        ),
+        onSelectConversation: () => {},
+        onStartNewConversation: () => {},
+      }),
+    );
+    try {
+      const chats = sectionElements(container)[
+        sectionLabels(container).indexOf("Chats")
+      ];
+      if (!chats) {
+        throw new Error("expected the Chats section");
+      }
+
+      await waitFor(() => {
+        expect(chats.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+      });
+      expect(chats.querySelector(".overflow-y-auto")).toBeNull();
+      expect(
+        chats.querySelector('[data-slot="virtual-list"]')?.parentElement
+          ?.style.minHeight,
+      ).toBe("");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("ungrouped, Chats is bottom-most and fills instead of capping", () => {
     // The reported 0.11.3 case: no channel sections, so Chats sits last and
     // holds every conversation the curated sections didn't claim.

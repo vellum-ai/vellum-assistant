@@ -1,15 +1,18 @@
 /**
  * Credential metadata store.
  *
- * Reads stay on the workspace `metadata.json` file (sync). When a CES
- * record backend is injected, upserts and deletes also write-through to
- * CES so the CES catalog stays current.
+ * Production: CES owns identity + policy records. This module keeps a
+ * synchronous in-process cache so existing call sites stay sync, and
+ * write-throughs to CES when a record backend is injected.
+ *
+ * The cache is filled lazily: the first catalog read or write starts a
+ * single-flight CES `list()`. Leftover workspace `metadata.json` is not
+ * read. CES import (003) may leave that file in place; this module
+ * ignores it.
  *
  * Tests: `_setMetadataPath` keeps the file-backed store and skips CES
- * write-through.
+ * load and write-through.
  */
-
-import { join } from "node:path";
 
 import {
   credentialKey,
@@ -19,7 +22,6 @@ import type { CredentialRecord } from "@vellumai/service-contracts/credential-rp
 
 import type { CredentialRecordBackend } from "../../security/ces-rpc-record-backend.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir } from "../../util/platform.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
 
 const log = getLogger("credential-metadata-store");
@@ -48,15 +50,23 @@ export interface CredentialMetadata {
 // Singleton store instance
 // ---------------------------------------------------------------------------
 
+const CES_MEMORY_PATH = "ces-in-memory-credential-metadata";
+
 let _store: StaticCredentialMetadataStore | undefined;
 let _overridePath: string | null = null;
 let _recordBackend: CredentialRecordBackend | undefined;
+let _cesRecordsLoaded = false;
+let _cesLoad: Promise<void> | undefined;
+let _cesLoadGeneration = 0;
 
 function getStore(): StaticCredentialMetadataStore {
   if (!_store) {
-    const path =
-      _overridePath ?? join(getDataDir(), "credentials", "metadata.json");
-    _store = new StaticCredentialMetadataStore(path);
+    if (_overridePath) {
+      _store = new StaticCredentialMetadataStore(_overridePath);
+    } else {
+      _store = new StaticCredentialMetadataStore(CES_MEMORY_PATH);
+      _store.useMemory([]);
+    }
   }
   return _store;
 }
@@ -74,6 +84,12 @@ function toRecord(metadata: CredentialMetadata): CredentialRecord {
     createdAt: metadata.createdAt,
     updatedAt: metadata.updatedAt,
   };
+}
+
+function resetCesLoad(): void {
+  _cesRecordsLoaded = false;
+  _cesLoad = undefined;
+  _cesLoadGeneration += 1;
 }
 
 async function persistCredentialMetadata(
@@ -96,6 +112,77 @@ export function setCredentialRecordBackend(
   backend: CredentialRecordBackend | undefined,
 ): void {
   _recordBackend = backend;
+  resetCesLoad();
+}
+
+function ensureCesRecordsLoaded(): Promise<void> {
+  if (_overridePath || !_recordBackend || _cesRecordsLoaded) {
+    return Promise.resolve();
+  }
+  if (_cesLoad) {
+    return _cesLoad;
+  }
+  const generation = _cesLoadGeneration;
+  _cesLoad = loadCesRecords(generation).finally(() => {
+    if (_cesLoadGeneration === generation) {
+      _cesLoad = undefined;
+    }
+  });
+  return _cesLoad;
+}
+
+async function loadCesRecords(generation: number): Promise<void> {
+  try {
+    if (!_recordBackend || _overridePath || generation !== _cesLoadGeneration) {
+      return;
+    }
+    let available = false;
+    try {
+      available = _recordBackend.isAvailable();
+    } catch {
+      available = false;
+    }
+    if (!available) {
+      log.warn("CES record backend unavailable; keeping in-process cache");
+      return;
+    }
+
+    const remote = await _recordBackend.list();
+    if (generation !== _cesLoadGeneration) {
+      return;
+    }
+    if (remote === null) {
+      log.warn("CES record list failed; keeping in-process cache");
+      return;
+    }
+
+    const store = getStore();
+    const localByAccount = new Map(
+      store
+        .list()
+        .map((record) => [credentialKey(record.service, record.field), record]),
+    );
+    const merged = remote.map((entry) => {
+      const local = localByAccount.get(entry.account);
+      if (local) {
+        localByAccount.delete(entry.account);
+        return local;
+      }
+      return entry.record;
+    });
+    for (const leftover of localByAccount.values()) {
+      merged.push(leftover);
+    }
+    store.useMemory(merged);
+    _cesRecordsLoaded = true;
+    log.info({ count: remote.length }, "Loaded credential records from CES");
+  } catch (err) {
+    log.warn({ err }, "CES record load failed");
+  }
+}
+
+function touchCesCache(): void {
+  void ensureCesRecordsLoaded();
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +195,7 @@ export function setCredentialRecordBackend(
  * so the operation fails cleanly before any side effects.
  */
 export function assertMetadataWritable(): void {
+  touchCesCache();
   getStore().assertWritable();
 }
 
@@ -130,6 +218,7 @@ export function upsertCredentialMetadata(
     injectionTemplates?: CredentialInjectionTemplate[] | null;
   },
 ): CredentialMetadata {
+  touchCesCache();
   const record = getStore().upsert(service, field, policy) as CredentialMetadata;
   void persistCredentialMetadata(record);
   return record;
@@ -142,6 +231,7 @@ export function getCredentialMetadata(
   service: string,
   field: string,
 ): CredentialMetadata | undefined {
+  touchCesCache();
   return getStore().getByServiceField(service, field) as
     | CredentialMetadata
     | undefined;
@@ -153,6 +243,7 @@ export function getCredentialMetadata(
 export function getCredentialMetadataById(
   credentialId: string,
 ): CredentialMetadata | undefined {
+  touchCesCache();
   return getStore().getById(credentialId) as CredentialMetadata | undefined;
 }
 
@@ -160,6 +251,7 @@ export function getCredentialMetadataById(
  * List all credential metadata records.
  */
 export function listCredentialMetadata(): CredentialMetadata[] {
+  touchCesCache();
   return getStore().list() as CredentialMetadata[];
 }
 
@@ -170,6 +262,7 @@ export function deleteCredentialMetadata(
   service: string,
   field: string,
 ): boolean {
+  touchCesCache();
   const deleted = getStore().delete(service, field);
   if (deleted && _recordBackend && !_overridePath) {
     void _recordBackend.delete(credentialKey(service, field));
@@ -177,9 +270,15 @@ export function deleteCredentialMetadata(
   return deleted;
 }
 
+/** @internal Test-only: wait for the in-flight CES list to populate the cache. */
+export function _ensureCesRecordsLoaded(): Promise<void> {
+  return ensureCesRecordsLoaded();
+}
+
 /** @internal Test-only: override the metadata file path. */
 export function _setMetadataPath(path: string | null): void {
   _overridePath = path;
+  resetCesLoad();
   if (_store) {
     if (path) {
       _store.setPath(path);

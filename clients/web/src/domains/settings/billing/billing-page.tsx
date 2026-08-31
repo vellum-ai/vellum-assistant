@@ -21,6 +21,8 @@ import { GracePeriodBanner } from "@/domains/settings/components/grace-period-ba
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
 import { PlanCard } from "@/domains/settings/components/plan-card";
+import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
+import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -354,7 +356,12 @@ export function BillingPage() {
   const billingGate = usePlatformGate();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { hash } = useLocation();
+  const location = useLocation();
+  // Driven here rather than in `PaymentMethodsCard`, which replays the
+  // outcome: that card sits inside the billing tab panel, and a switch to
+  // Usage would unmount the resolution after the params have already been
+  // stripped from the URL. This component owns `Tabs.Root` and survives it.
+  useSetupIntentReturn();
   // Shown when signed in (`"full"`); for a signed-out-but-reachable viewer
   // (`"disabled"`) it stays reachable only when the URL carries billing intent
   // (a deeplink / upgrade CTA / Stripe return), so the BillingTab login notice
@@ -384,19 +391,14 @@ export function BillingPage() {
       return;
     }
     if (searchParams.get("tab") !== activeTab) {
-      const next = new URLSearchParams(searchParams);
-      next.set("tab", activeTab);
-      // Not `setSearchParams` — that drops the URL hash, and anchor deep
-      // links (`#daily-credit-limit` from the daily-limit email) must survive
-      // this normalization however late the anchored card mounts.
-      void navigate({ search: `?${next}`, hash }, { replace: true });
+      replaceSearchParams(navigate, location, (next) =>
+        next.set("tab", activeTab),
+      );
     }
-  }, [isPlatformSessionSettled, searchParams, activeTab, navigate, hash]);
+  }, [isPlatformSessionSettled, searchParams, activeTab, navigate, location]);
 
   const handleTabChange = (value: string) => {
-    const next = new URLSearchParams(searchParams);
-    next.set("tab", value);
-    void navigate({ search: `?${next}`, hash }, { replace: true });
+    replaceSearchParams(navigate, location, (next) => next.set("tab", value));
   };
 
   return (

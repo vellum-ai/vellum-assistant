@@ -263,7 +263,7 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 **Top-level invariants:**
 
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads/writes trust rules via the gateway's HTTP trust API — no direct filesystem access to `trust.json`.
-- **Credentials** are owned by the CES. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither has filesystem access to `keys.enc` / `store.key`.
+- **Credentials** are owned by the CES. Secret values live in `keys.enc`. Identity and policy records live in `<cesDataRoot>/metadata.json`. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`) or CES RPC. Neither has filesystem access to `keys.enc` / `store.key`.
 - **Meet bots in Docker mode** are not yet supported. The assistant container has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN` are absent). In bare-metal mode, meet bots are sibling containers on the host's Docker engine.
 - **CES socket auth is intentionally absent**: the CES Unix socket (managed-mode `emptyDir` volume or local-mode sibling `ces.sock`) does not require a handshake auth token. All processes on the host/pod are trusted — the security boundary is rules-based access control on credential operations inside CES, not network-level socket auth. Assistant subprocesses (tools, skills) are expected to be able to connect to CES; preventing credential exfiltration requires per-credential policy enforcement, not hiding the socket path.
 
