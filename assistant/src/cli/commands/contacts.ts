@@ -2,10 +2,10 @@ import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import {
-  CONTACT_FORM_DEFAULT_TIMEOUT_MS,
-  CONTACT_FORM_MAX_TIMEOUT_MS,
-  contactFormCallBudgetMs,
-} from "../../util/contact-form-timeouts.js";
+  GUARDIAN_FORM_DEFAULT_TIMEOUT_MS,
+  GUARDIAN_FORM_MAX_TIMEOUT_MS,
+  guardianFormCallBudgetMs,
+} from "../../util/guardian-form-timeouts.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { shouldOutputJson, writeError, writeOutput } from "../output.js";
@@ -175,7 +175,7 @@ function parseFormTimeout(
   cmd: Command,
 ): number | null {
   if (raw === undefined) {
-    return CONTACT_FORM_DEFAULT_TIMEOUT_MS;
+    return GUARDIAN_FORM_DEFAULT_TIMEOUT_MS;
   }
   // The whole token has to be digits: parseInt takes a valid prefix, so
   // "1e3" would pass as 1 and "100.5" as 100, quietly giving a form a
@@ -189,10 +189,10 @@ function parseFormTimeout(
     process.exitCode = 1;
     return null;
   }
-  if (parsed > CONTACT_FORM_MAX_TIMEOUT_MS) {
+  if (parsed > GUARDIAN_FORM_MAX_TIMEOUT_MS) {
     writeError(
       cmd,
-      `Invalid --timeout "${raw}": the longest a form stays open is ${CONTACT_FORM_MAX_TIMEOUT_MS}ms`,
+      `Invalid --timeout "${raw}": the longest a form stays open is ${GUARDIAN_FORM_MAX_TIMEOUT_MS}ms`,
     );
     process.exitCode = 1;
     return null;
@@ -280,7 +280,7 @@ async function runRecordPrompt(
   }>(
     "contacts_record_prompt",
     { body: { ...body, timeoutMs } },
-    { timeoutMs: contactFormCallBudgetMs(timeoutMs) },
+    { timeoutMs: guardianFormCallBudgetMs(timeoutMs) },
   );
 
   if (!r.ok) {
@@ -619,7 +619,7 @@ export function registerContactsCommand(program: Command): void {
                 timeoutMs,
               },
             },
-            { timeoutMs: contactFormCallBudgetMs(timeoutMs) },
+            { timeoutMs: guardianFormCallBudgetMs(timeoutMs) },
           );
 
           if (!r.ok) {

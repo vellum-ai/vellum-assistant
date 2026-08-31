@@ -10,7 +10,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { CONTACT_FORM_SETTLE_MS } from "../../util/contact-form-timeouts.js";
+import { GUARDIAN_FORM_SETTLE_MS } from "../../util/guardian-form-timeouts.js";
 
 interface IpcCall {
   operationId: string;
@@ -184,7 +184,7 @@ describe("contacts record prompts", () => {
     // starts the settle window from there. Giving up sooner would report a
     // failure while the write went on to commit.
     expect(call!.callOptions?.timeoutMs).toBeGreaterThan(
-      1000 + CONTACT_FORM_SETTLE_MS,
+      1000 + GUARDIAN_FORM_SETTLE_MS,
     );
   });
 
