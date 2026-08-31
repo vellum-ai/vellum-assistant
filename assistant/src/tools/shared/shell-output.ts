@@ -46,9 +46,12 @@ export function formatShellOutput(
     statusParts.push(msg);
   }
 
-  const truncated = options?.truncated === true || output.length > MAX_OUTPUT_LENGTH;
+  const truncated =
+    options?.truncated === true || output.length > MAX_OUTPUT_LENGTH;
   if (truncated) {
-    output = safeStringSlice(output, 0, MAX_OUTPUT_LENGTH) + `\n${OUTPUT_TRUNCATED_TAG}`;
+    output =
+      safeStringSlice(output, 0, MAX_OUTPUT_LENGTH) +
+      `\n${OUTPUT_TRUNCATED_TAG}`;
     statusParts.push(OUTPUT_TRUNCATED_TAG);
   }
 
@@ -104,8 +107,12 @@ export class BoundedStdioCollector {
       return;
     }
 
+    // Copy a prefix so a single oversized chunk can be GC'd. subarray()
+    // would keep the whole allocation alive through the kept view.
     const kept =
-      chunk.length <= remaining ? chunk : chunk.subarray(0, remaining);
+      chunk.length <= remaining
+        ? chunk
+        : Buffer.from(chunk.subarray(0, remaining));
     if (stream === "stdout") {
       this.stdoutParts.push(kept);
     } else {

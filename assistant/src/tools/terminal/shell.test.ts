@@ -1,15 +1,14 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import type { ToolContext } from "../types.js";
 import {
   MAX_OUTPUT_LENGTH,
   OUTPUT_TRUNCATED_TAG,
 } from "../shared/shell-output.js";
+import type { ToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Singleton mocks — must precede the tool import so bun's module mock applies.

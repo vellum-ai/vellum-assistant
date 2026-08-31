@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -24,6 +23,7 @@ describe("BoundedStdioCollector", () => {
     const collector = new BoundedStdioCollector();
     const huge = Buffer.alloc(MAX_OUTPUT_LENGTH + 50_000, 0x78);
     collector.consume("stdout", huge);
+    huge.fill(0x79);
     expect(collector.keptByteLength).toBe(MAX_OUTPUT_LENGTH);
     expect(collector.didTruncate).toBe(true);
     const result = collector.format(0, false, 120);
@@ -60,10 +60,8 @@ describe("BoundedStdioCollector", () => {
     const seen: string[] = [];
     const collector = new BoundedStdioCollector();
     collector.consume("stdout", Buffer.from("abc"), (text) => seen.push(text));
-    collector.consume(
-      "stdout",
-      Buffer.alloc(MAX_OUTPUT_LENGTH, 0x78),
-      (text) => seen.push(text),
+    collector.consume("stdout", Buffer.alloc(MAX_OUTPUT_LENGTH, 0x78), (text) =>
+      seen.push(text),
     );
     collector.consume("stdout", Buffer.from("TAIL"), (text) => seen.push(text));
     const forwarded = seen.join("");
