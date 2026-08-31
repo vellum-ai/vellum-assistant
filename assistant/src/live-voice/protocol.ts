@@ -9,6 +9,7 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "update_config",
   "attach_image",
   "attach_frame",
+  "sight_frame",
   "text",
 ] as const;
 
@@ -248,6 +249,37 @@ export interface LiveVoiceClientAttachFrameFrame {
 }
 
 /**
+ * An ambient camera frame the client's gate kept, already uploaded over the
+ * normal attachment route and sent here as an id alone for the same reason
+ * {@link LiveVoiceClientAttachImageFrame} sends one.
+ *
+ * Three client frames carry an image and they mean three different things:
+ *
+ * - `attach_image` is a photo the user deliberately snapped. It persists
+ *   standalone the moment it arrives and drives the client's receipt strip.
+ * - `attach_frame` parks one frame on the session for the next spoken turn's
+ *   own user message to carry, and persists nothing by itself.
+ * - `sight_frame` persists an ambient keep immediately as its own user
+ *   message, tagged as a camera frame, and runs no turn.
+ *
+ * A keep is tagged so retention can age it out of the model's context (newest
+ * few stay images, older ones become timestamped stubs) while the transcript
+ * keeps every one of them. The transcript is therefore the record of what the
+ * assistant saw, and the model correlates a frame with speech by adjacency
+ * rather than by any attachment to a turn.
+ *
+ * A frame the attachment store does not know is refused with `frameType:
+ * "sight_frame"` and `recoverable: true`: the session is fine and only this
+ * frame failed. Attributing it is what lets the client retract the preview it
+ * already showed instead of filing the error with the transient transcriber
+ * and TTS blips that share `recoverable`.
+ */
+export interface LiveVoiceClientSightFrameFrame {
+  readonly type: "sight_frame";
+  readonly attachmentId: string;
+}
+
+/**
  * A user turn the client already has as text, taken without the microphone.
  *
  * The session runs it through the same pipeline a spoken turn takes, joining
@@ -295,6 +327,7 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientUpdateConfigFrame
   | LiveVoiceClientAttachImageFrame
   | LiveVoiceClientAttachFrameFrame
+  | LiveVoiceClientSightFrameFrame
   | LiveVoiceClientTextTurnFrame;
 
 interface LiveVoiceBinaryAudioFrame {
@@ -556,10 +589,11 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    *
    * It exists so an `unknown_type` is attributable. A client that sends more
    * than one optional frame (today: `update_config`, `attach_image`,
-   * `attach_frame`, and `text`) gets the same code for any of them, and
-   * without this has to assume which one was refused. The wrong assumption is
-   * silent in both directions: settings stop applying for a session, or a
-   * photo the user watched themselves take is dropped with nothing said.
+   * `attach_frame`, `sight_frame`, and `text`) gets the same code for any of
+   * them, and without this has to assume which one was refused. The wrong
+   * assumption is silent in both directions: settings stop applying for a
+   * session, or a photo the user watched themselves take is dropped with
+   * nothing said.
    */
   readonly frameType?: string;
   /**
@@ -698,6 +732,8 @@ export function validateLiveVoiceClientFrame(
       return validateAttachImageFrame(value);
     case "attach_frame":
       return validateAttachFrameFrame(value);
+    case "sight_frame":
+      return validateSightFrameFrame(value);
     case "text":
       return validateTextTurnFrame(value);
   }
@@ -818,6 +854,35 @@ function validateAttachFrameFrame(
   return {
     ok: true,
     frame: { type: "attach_frame", attachmentId: value.attachmentId },
+  };
+}
+
+function validateSightFrameFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightFrameFrame> {
+  if (!("attachmentId" in value)) {
+    return protocolError(
+      "missing_required_field",
+      "sight_frame frame is missing required field attachmentId",
+      "attachmentId",
+      "sight_frame",
+    );
+  }
+
+  // No null form, unlike `attach_frame`. Nothing is staged for a keep to give
+  // up: it persisted on arrival, so a closing viewfinder has nothing to clear.
+  if (!isNonEmptyString(value.attachmentId)) {
+    return protocolError(
+      "invalid_field",
+      "sight_frame frame field attachmentId must be a non-empty string",
+      "attachmentId",
+      "sight_frame",
+    );
+  }
+
+  return {
+    ok: true,
+    frame: { type: "sight_frame", attachmentId: value.attachmentId },
   };
 }
 

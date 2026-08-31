@@ -1,11 +1,17 @@
 /**
- * Persisting a photo taken during a live-voice call.
+ * Persisting an image that arrives during a live-voice call, on its own.
  *
- * A photo lands in the conversation as its own user message, the moment the
- * shutter fires, and **runs no turn**. That single choice is what makes the
- * order of shutter and speech irrelevant: whatever the user says next, before
- * or after the snap, is answered by a model whose history already contains the
- * image.
+ * Two kinds arrive this way and both take the same route: a photo the user
+ * snapped with the shutter, and an ambient camera frame the client's gate kept.
+ * Each lands in the conversation as its own user message, the moment it
+ * arrives, and **runs no turn**. That single choice is what makes the order of
+ * image and speech irrelevant: whatever the user says next, before or after,
+ * is answered by a model whose history already contains the picture.
+ *
+ * A kept frame carries the sight tag as well, which is what lets retention age
+ * it out of the model's context while the transcript keeps it. A shutter photo
+ * carries no tag: the user chose to take it, so it is not the retention pass's
+ * to trim.
  *
  * The alternatives were both worse and both were tried. Attaching the photo to
  * the *next* spoken turn strands it whenever the user speaks first: the
@@ -27,6 +33,7 @@ import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
+import { SIGHT_FRAME_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -35,18 +42,24 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("live-voice-photo");
 
 /**
- * How long to wait for an in-flight turn before giving up on a photo.
+ * How long to wait for an in-flight turn before giving up on an image.
  *
  * Persisting takes the conversation's processing lock, which a running turn
  * holds for as long as it runs, tools included. The wait is generous because
  * the alternative is dropping a photo the user watched themselves take, and
- * the photo is not urgent: nothing is blocked on it except the next thing they
+ * the image is not urgent: nothing is blocked on it except the next thing they
  * say.
  */
 const PROCESSING_WAIT_MS = 30_000;
 const PROCESSING_POLL_MS = 100;
 
 const PHOTO_MESSAGE_CONTENT = "here's a photo:";
+
+/**
+ * Text the kept frame's row carries. Neutral rather than first person: nobody
+ * spoke this message, the camera simply had something worth showing.
+ */
+const SIGHT_FRAME_MESSAGE_CONTENT = "(camera frame)";
 
 export interface LiveVoicePhotoResult {
   readonly ok: boolean;
@@ -68,24 +81,34 @@ async function waitForIdle(conversation: {
 }
 
 /**
- * Persist a photo into the conversation as a user message, running no turn.
+ * Persist one image into the conversation as a user message, running no turn.
  *
  * Takes and releases the processing lock the way the built-in slash commands
  * do: they are the existing precedent for "persist a user message and answer
  * without the agent loop", and the lock is what keeps this write from
- * interleaving with a turn's own persist.
+ * interleaving with a turn's own persist. An image that arrives mid-reply
+ * therefore lands after that reply's rows rather than between them.
  *
- * Never throws. A photo that cannot be stored must not take the call down with
- * it, and the caller reports the failure to the user instead.
+ * Never throws. An image that cannot be stored must not take the call down
+ * with it, and the caller reports the failure to the user instead.
  */
-export async function persistLiveVoicePhoto(
+async function persistStandaloneImage(
   conversationId: string,
   attachmentId: string,
+  options: {
+    readonly kind: "photo" | "sight_frame";
+    readonly content: string;
+    readonly metadata: Record<string, unknown>;
+  },
 ): Promise<LiveVoicePhotoResult> {
+  const { kind, content } = options;
   try {
     const attachments = resolveAttachmentsForPersist([attachmentId]);
     if (attachments.length === 0) {
-      log.warn({ attachmentId }, "Live-voice photo attachment did not resolve");
+      log.warn(
+        { attachmentId, kind },
+        "Live-voice image attachment did not resolve",
+      );
       return { ok: false };
     }
 
@@ -96,8 +119,8 @@ export async function persistLiveVoicePhoto(
     // must not cause.
     if (!(await waitForIdle(conversation))) {
       log.warn(
-        { conversationId, attachmentId },
-        "Live-voice photo timed out waiting for the conversation to go idle",
+        { conversationId, attachmentId, kind },
+        "Live-voice image timed out waiting for the conversation to go idle",
       );
       return { ok: false };
     }
@@ -105,23 +128,18 @@ export async function persistLiveVoicePhoto(
     conversation.setProcessing(true);
     try {
       const persisted = await persistQueuedMessageBody(conversation, {
-        content: PHOTO_MESSAGE_CONTENT,
+        content,
         attachments,
         requestId: uuidv7(),
-        metadata: {
-          // Marks the row as something the user did on a call rather than
-          // typed, the same way a voice turn's own user message is marked.
-          voiceSessionTurn: true,
-          livePhoto: true,
-        },
+        metadata: options.metadata,
       });
 
       // The row exists but no turn will announce it, so the clients that
-      // render this conversation have to be told directly, or the photo does
+      // render this conversation have to be told directly, or the image does
       // not appear until something else forces a refetch.
       broadcastMessage({
         type: "user_message_echo",
-        text: PHOTO_MESSAGE_CONTENT,
+        text: content,
         conversationId,
         messageId: persisted.id,
       });
@@ -132,15 +150,60 @@ export async function persistLiveVoicePhoto(
     } finally {
       conversation.setProcessing(false);
       // Anything queued behind the lock we just held still has to run. Without
-      // this a message queued during the photo's write sits until the next
+      // this a message queued during the image's write sits until the next
       // turn ends.
-      void conversation.kickDrainQueue("loop_complete", "live_voice_photo");
+      void conversation.kickDrainQueue("loop_complete", `live_voice_${kind}`);
     }
   } catch (err) {
     log.warn(
-      { err, conversationId, attachmentId },
-      "Failed to persist a live-voice photo",
+      { err, conversationId, attachmentId, kind },
+      "Failed to persist a live-voice image",
     );
     return { ok: false };
   }
+}
+
+/**
+ * Persist a photo the user took mid-call.
+ *
+ * Carries `livePhoto`, which is what the client reads to show the snap on its
+ * receipt strip, and no sight tag: a deliberate photo is not retention's to
+ * age out.
+ */
+export async function persistLiveVoicePhoto(
+  conversationId: string,
+  attachmentId: string,
+): Promise<LiveVoicePhotoResult> {
+  return persistStandaloneImage(conversationId, attachmentId, {
+    kind: "photo",
+    content: PHOTO_MESSAGE_CONTENT,
+    metadata: {
+      // Marks the row as something the user did on a call rather than
+      // typed, the same way a voice turn's own user message is marked.
+      voiceSessionTurn: true,
+      livePhoto: true,
+    },
+  });
+}
+
+/**
+ * Persist an ambient camera frame the client's gate kept.
+ *
+ * The sight tag names the attachment on the row that carries it, because an
+ * attachment holds no metadata of its own. Retention reads the tag to decide
+ * which images a turn still sends in full and which become timestamped stubs,
+ * so an untagged frame would sit in every later request forever.
+ */
+export async function persistLiveVoiceSightFrame(
+  conversationId: string,
+  attachmentId: string,
+): Promise<LiveVoicePhotoResult> {
+  return persistStandaloneImage(conversationId, attachmentId, {
+    kind: "sight_frame",
+    content: SIGHT_FRAME_MESSAGE_CONTENT,
+    metadata: {
+      voiceSessionTurn: true,
+      [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: [attachmentId],
+    },
+  });
 }
