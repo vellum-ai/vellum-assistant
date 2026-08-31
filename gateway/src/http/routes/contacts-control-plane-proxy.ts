@@ -1589,7 +1589,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       const assistantMeta = body.assistantMetadata as
-        { species?: unknown; metadata?: unknown } | undefined;
+        | { species?: unknown; metadata?: unknown }
+        | undefined;
 
       if (body.contactType === "assistant") {
         if (!assistantMeta) {
@@ -1746,14 +1747,21 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                 species: assistantMeta.species as string,
                 metadata:
                   (assistantMeta.metadata as
-                    Record<string, unknown> | null | undefined) ?? null,
+                    | Record<string, unknown>
+                    | null
+                    | undefined) ?? null,
               }
             : undefined,
         channels: channelInputs?.map((ch) => ({
           type: ch.type,
           address: ch.address,
           isPrimary: ch.isPrimary,
-          externalChatId: ch.externalChatId ?? null,
+          // Omit-vs-null is load-bearing: syncChannels preserves the stored
+          // delivery chat id when the field is undefined and writes when it
+          // is not, so an omitted field must stay omitted (a channel upsert
+          // that never mentions the chat id must not blank it) and an
+          // explicit null stays a deliberate clear.
+          externalChatId: ch.externalChatId,
           status: ch.status,
           policy: ch.policy,
         })),

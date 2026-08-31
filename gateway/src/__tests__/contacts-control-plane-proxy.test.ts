@@ -663,6 +663,43 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(params.autoApproveThreshold).toBeUndefined();
   });
 
+  test("a channel omitting externalChatId stays omitted; an explicit null stays a clear", async () => {
+    // Omit-vs-null is load-bearing: syncChannels preserves the stored
+    // delivery chat id when the field is undefined and writes when it is
+    // not, so conflating an omitted field with null makes every channel
+    // upsert that never mentions the chat id (e.g. link-account) blank it.
+    contactStoreUpsertMock = mock(async () => ({
+      contact: DEFAULT_MOCK_CONTACT,
+      created: false,
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const upsert = (channel: Record<string, unknown>) =>
+      handler.handleUpsertContact(
+        new Request("http://localhost:7830/v1/contacts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            displayName: "Alice",
+            channels: [{ type: "slack", address: "U123", ...channel }],
+          }),
+        }),
+      );
+
+    expect((await upsert({})).status).toBe(200);
+    const [omitted] = contactStoreUpsertMock.mock.calls[0] as [
+      { channels: Array<Record<string, unknown>> },
+    ];
+    expect("externalChatId" in omitted.channels[0]).toBe(true);
+    expect(omitted.channels[0].externalChatId).toBeUndefined();
+
+    expect((await upsert({ externalChatId: null })).status).toBe(200);
+    const [cleared] = contactStoreUpsertMock.mock.calls[1] as [
+      { channels: Array<Record<string, unknown>> },
+    ];
+    expect(cleared.channels[0].externalChatId).toBeNull();
+  });
+
   test("passes a valid autoApproveThreshold through to the store", async () => {
     const mockContact = {
       ...DEFAULT_MOCK_CONTACT,
