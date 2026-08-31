@@ -9,6 +9,7 @@
  * values from the context payload.
  */
 
+import { describeBillingFailureCopy } from "../util/billing-failure-copy.js";
 import { normalizeTitle } from "../util/short-title.js";
 import { truncate } from "../util/truncate.js";
 import {
@@ -44,13 +45,19 @@ type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 
 /**
  * Failure prose for an `activity.failed` payload with no authored
- * classification message. The classified kind supplies the readable part,
- * and the raw error text is appended only when it reads as prose: a
- * stack-shaped or constant-shaped message (PROVIDER_BILLING and friends)
- * says nothing to the person reading the notification and never lands in
- * the body.
+ * classification message. Classified billing codes get the same user-facing
+ * copy the turn classifier would have written, so a schedule that dies on
+ * credits is not described as a silent provider outage. For every other
+ * kind the classified kind supplies the readable part, and the raw error
+ * text is appended only when it reads as prose: a stack-shaped or
+ * constant-shaped message (PROVIDER_RATE_LIMIT and friends) says nothing
+ * to the person reading the notification and never lands in the body.
  */
 function describeUnclassifiedFailure(payload: Record<string, unknown>): string {
+  const billingCopy = describeBillingFailureCopy(payload);
+  if (billingCopy !== null) {
+    return billingCopy;
+  }
   const kind = str(payload.errorKind, "exception");
   const opening =
     kind === "timeout"

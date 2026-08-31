@@ -78,17 +78,81 @@ describe("activity.failed copy", () => {
     expect(copy.vellum?.body).toEndWith("...");
   });
 
-  test("constant-shaped raw detail never reaches the body", () => {
+  test("PROVIDER_BILLING without a summary uses the credits fallback", () => {
     const copy = composeFallbackCopy(
       failedSignal({
         jobName: "heartbeat",
         errorKind: "model_provider",
         errorMessage: "Agent turn failed (PROVIDER_BILLING)",
+        failureCode: "PROVIDER_BILLING",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toBe(
+      "You're out of credits. Add credits in Settings → Billing to continue.",
+    );
+    expect(copy.vellum?.body).not.toContain("PROVIDER_BILLING");
+  });
+
+  test("a namespaced credits_exhausted category uses the credits fallback", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "schedule:sniper",
+        errorKind: "model_provider",
+        errorMessage: "Agent turn failed during its LLM call (PROVIDER_BILLING)",
+        errorCategory: "billing.credits_exhausted",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toBe(
+      "You're out of credits. Add credits in Settings → Billing to continue.",
+    );
+  });
+
+  test("daily_limit_reached without a summary uses the daily-limit fallback", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "schedule:nightly",
+        errorKind: "model_provider",
+        errorMessage: "Agent turn failed (PROVIDER_BILLING)",
+        failureCode: "PROVIDER_BILLING",
+        errorCategory: "daily_limit_reached",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toBe(
+      "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+    );
+  });
+
+  test("provider_billing without a summary uses the provider-wallet fallback", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "schedule:byok",
+        errorKind: "model_provider",
+        errorMessage: "Agent turn failed (PROVIDER_BILLING)",
+        failureCode: "PROVIDER_BILLING",
+        errorCategory: "provider_billing",
+      }),
+      CHANNELS,
+    );
+    expect(copy.vellum?.body).toBe(
+      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
+    );
+  });
+
+  test("constant-shaped raw detail never reaches the body", () => {
+    const copy = composeFallbackCopy(
+      failedSignal({
+        jobName: "heartbeat",
+        errorKind: "model_provider",
+        errorMessage: "Agent turn failed (PROVIDER_RATE_LIMIT)",
+        failureCode: "PROVIDER_RATE_LIMIT",
       }),
       CHANNELS,
     );
     expect(copy.vellum?.body).toBe("The model provider did not respond.");
-    expect(copy.vellum?.body).not.toContain("PROVIDER_BILLING");
+    expect(copy.vellum?.body).not.toContain("PROVIDER_RATE_LIMIT");
   });
 
   test("readable raw detail is appended to the kind prose", () => {

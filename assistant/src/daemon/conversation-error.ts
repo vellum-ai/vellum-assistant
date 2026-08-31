@@ -19,6 +19,11 @@ import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
 import {
+  CREDITS_EXHAUSTED_USER_MESSAGE,
+  DAILY_LIMIT_USER_MESSAGE,
+  PROVIDER_BILLING_USER_MESSAGE,
+} from "../util/billing-failure-copy.js";
+import {
   type ProviderCredentialSource,
   ProviderError,
   type ProviderErrorReason,
@@ -781,8 +786,7 @@ function managedBalanceClassification(): Omit<
     // Keep the wording context-neutral so it is true in both places; the
     // terminal persist site in conversation-agent-loop.ts swaps in
     // assistant-voice copy for the synthetic assistant row.
-    userMessage:
-      "You're out of credits. Add credits in Settings → Billing to continue.",
+    userMessage: CREDITS_EXHAUSTED_USER_MESSAGE,
     retryable: false,
     errorCategory: "credits_exhausted",
   };
@@ -794,8 +798,7 @@ function providerBillingClassification(): Omit<
 > {
   return {
     code: "PROVIDER_BILLING",
-    userMessage:
-      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
+    userMessage: PROVIDER_BILLING_USER_MESSAGE,
     retryable: false,
     errorCategory: "provider_billing",
   };
@@ -807,8 +810,7 @@ function dailyLimitClassification(): Omit<
 > {
   return {
     code: "PROVIDER_BILLING",
-    userMessage:
-      "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+    userMessage: DAILY_LIMIT_USER_MESSAGE,
     retryable: false,
     errorCategory: "daily_limit_reached",
   };
