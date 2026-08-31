@@ -33,10 +33,12 @@ type ResolveOAuthConnection =
   typeof actualConnectionResolver.resolveOAuthConnection;
 let resolveOAuthConnectionImpl: ResolveOAuthConnection =
   actualConnectionResolver.resolveOAuthConnection;
+const resolveOAuthConnectionMock = mock(((
+  ...args: Parameters<ResolveOAuthConnection>
+) => resolveOAuthConnectionImpl(...args)) as ResolveOAuthConnection);
 mock.module("../../../oauth/connection-resolver.js", () => ({
   ...actualConnectionResolver,
-  resolveOAuthConnection: ((...args: Parameters<ResolveOAuthConnection>) =>
-    resolveOAuthConnectionImpl(...args)) as ResolveOAuthConnection,
+  resolveOAuthConnection: resolveOAuthConnectionMock,
 }));
 
 const { gmailNormalizer } = await import("./gmail.js");
@@ -58,6 +60,7 @@ function gmailItem(payload: Record<string, unknown> = {}): WatcherItem {
       snippet: "Just checking in",
       labelIds: ["INBOX"],
       mailboxAddress: "owner@example.com",
+      credentialService: "google",
       ...payload,
     },
     timestamp: 1_700_000_000_000,
@@ -69,6 +72,7 @@ beforeEach(() => {
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
   resolveOAuthConnectionImpl = (async () => ({}) as never) as never;
+  resolveOAuthConnectionMock.mockClear();
   batchGetMessagesImpl = async () => [];
   batchGetMessagesMock.mockClear();
 });
@@ -136,6 +140,20 @@ describe("gmailNormalizer.normalize", () => {
     expect(gmailNormalizer.normalize(gmailItem())!.sender?.contactId).toBe(
       contact.id,
     );
+  });
+
+  test("carries the credential service the watcher polled with", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ credentialService: "google-work" }),
+    );
+    expect(result!.credentialService).toBe("google-work");
+  });
+
+  test("leaves the credential service null when the payload has none", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ credentialService: undefined }),
+    );
+    expect(result!.credentialService).toBeNull();
   });
 
   test("leaves contactId null when the sender is unknown", () => {
@@ -213,6 +231,48 @@ describe("gmailNormalizer category mapping", () => {
       gmailItem({ to: "owner@example.com", mailboxAddress: undefined }),
     );
     expect(result!.content.category).toBe("fyi");
+  });
+
+  test("a quoted comma in a display name is one recipient, so a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ to: '"Owner, The" <owner@example.com>' }),
+    );
+    expect(result!.content.category).toBe("dm");
+  });
+
+  test("a quoted comma alongside another recipient is not a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        to: '"Owner, The" <owner@example.com>, other@example.com',
+      }),
+    );
+    expect(result!.content.category).toBe("fyi");
+  });
+
+  test("a mixed list of quoted, named and bare forms is not a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        to: '"Owner, The" <owner@example.com>, Other Person <other@example.com>, third@example.com',
+      }),
+    );
+    expect(result!.content.category).toBe("fyi");
+  });
+
+  test("a quoted comma in Cc leaves a dm a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        to: "owner@example.com",
+        cc: '"Colleague, A" <colleague@example.com>',
+      }),
+    );
+    expect(result!.content.category).toBe("dm");
+  });
+
+  test("an escaped quote inside a display name does not end the quoting", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ to: '"Owner \\", The" <owner@example.com>' }),
+    );
+    expect(result!.content.category).toBe("dm");
   });
 
   test("In-Reply-To on a multi-recipient thread is a reply", () => {
@@ -309,6 +369,28 @@ describe("gmailNormalizer.fetchFull", () => {
     await expect(gmailNormalizer.fetchFull!(normalized())).resolves.toBe(
       "The whole body\n\nSecond & last",
     );
+  });
+
+  test("resolves the credential service the record carries", async () => {
+    batchGetMessagesImpl = async () => [FULL_MESSAGE];
+    const record = gmailNormalizer.normalize(
+      gmailItem({ credentialService: "google-work" }),
+    )!;
+
+    await gmailNormalizer.fetchFull!(record);
+
+    expect(resolveOAuthConnectionMock.mock.calls[0]![0]).toBe("google-work");
+  });
+
+  test("falls back to the default service when the record carries none", async () => {
+    batchGetMessagesImpl = async () => [FULL_MESSAGE];
+    const record = gmailNormalizer.normalize(
+      gmailItem({ credentialService: undefined }),
+    )!;
+
+    await gmailNormalizer.fetchFull!(record);
+
+    expect(resolveOAuthConnectionMock.mock.calls[0]![0]).toBe("google");
   });
 
   test("returns null when the fetch fails", async () => {

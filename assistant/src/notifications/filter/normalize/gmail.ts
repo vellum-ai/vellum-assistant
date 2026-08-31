@@ -26,8 +26,11 @@ import type {
 
 const log = getLogger("notification-filter:gmail");
 
-/** Credential service backing the Gmail watcher provider. */
-const GMAIL_CREDENTIAL_SERVICE = "google";
+/**
+ * Credential service a Gmail record falls back to when it carries none of its
+ * own, matching `gmailProvider.requiredCredentialService`.
+ */
+const DEFAULT_GMAIL_CREDENTIAL_SERVICE = "google";
 
 /** Gmail labels that mark bulk mail regardless of who it is addressed to. */
 const BROADCAST_LABEL_IDS = ["CATEGORY_PROMOTIONS", "CATEGORY_UPDATES"];
@@ -62,19 +65,62 @@ function headerReader(
 }
 
 /**
- * The addresses in an RFC 5322 address list, lowercased.
+ * The entries of an RFC 5322 address list.
  *
- * Splitting on commas is enough for the comparison below: a display name that
- * contains a comma is quoted, so the fragments it splits into still carry the
- * angle-bracketed address, and a fragment with no address at all cannot match
- * the mailbox anyway.
+ * A comma separates entries only outside a quoted display name and outside an
+ * angle-bracketed address, so `"User, Example" <owner@example.com>` is the one
+ * address it is written as rather than two.
+ */
+function splitAddressList(value: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let quoted = false;
+  let escaped = false;
+  let bracketed = false;
+
+  for (const char of value) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (quoted && char === "\\") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      current += char;
+      continue;
+    }
+    if (!quoted && (char === "<" || char === ">")) {
+      bracketed = char === "<";
+      current += char;
+      continue;
+    }
+    if (char === "," && !quoted && !bracketed) {
+      entries.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  entries.push(current);
+
+  return entries;
+}
+
+/**
+ * The addresses in an RFC 5322 address list, lowercased. An entry yields its
+ * angle-bracketed address when it has one and the entry itself otherwise,
+ * which is the bare-address form.
  */
 function parseAddressList(value: string | null): string[] {
   if (!value) {
     return [];
   }
-  return value
-    .split(",")
+  return splitAddressList(value)
     .map((entry) => {
       const bracketed = entry.match(/<([^>]+)>/);
       return (bracketed?.[1] ?? entry).trim().toLowerCase();
@@ -125,6 +171,14 @@ function categorize(
   return header("In-Reply-To") ? "reply" : "fyi";
 }
 
+/** The credential service the watcher polled this message with. */
+function readCredentialService(
+  payload: Record<string, unknown>,
+): string | null {
+  const value = payload.credentialService;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 /** The authenticated mailbox address the watcher stamped on the payload. */
 function readMailboxAddress(payload: Record<string, unknown>): string | null {
   const value = payload.mailboxAddress;
@@ -160,6 +214,7 @@ export const gmailNormalizer: NotificationNormalizer = {
     return {
       source: "gmail",
       externalId: item.externalId,
+      credentialService: readCredentialService(payload),
       sender: parsedFrom
         ? attachContactId(
             {
@@ -193,8 +248,11 @@ export const gmailNormalizer: NotificationNormalizer = {
 
   async fetchFull(item: NormalizedNotification): Promise<string | null> {
     try {
+      // The same connection the poll read the message over: a workspace can
+      // hold more than one Gmail credential, and the default service would be
+      // a different account.
       const connection = await resolveOAuthConnection(
-        GMAIL_CREDENTIAL_SERVICE,
+        item.credentialService ?? DEFAULT_GMAIL_CREDENTIAL_SERVICE,
         {
           requiredScopes: GMAIL_REQUIRED_SCOPES,
         },

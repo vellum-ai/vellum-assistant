@@ -58,6 +58,9 @@ export const linearNormalizer: NotificationNormalizer = {
     return {
       source: "linear",
       externalId: item.externalId,
+      // Linear's poll returns the body, so nothing here resolves a connection
+      // a second time.
+      credentialService: null,
       sender: null,
       container: issueId
         ? {

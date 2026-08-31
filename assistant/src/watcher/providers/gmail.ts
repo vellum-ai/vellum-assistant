@@ -110,6 +110,7 @@ async function resolveMailboxAddress(
 export function messageToItem(
   msg: GmailMessage,
   mailboxAddress: string | null,
+  credentialService: string,
 ): WatcherItem {
   const headers: Record<string, string> = {};
   for (const name of METADATA_HEADERS) {
@@ -136,6 +137,9 @@ export function messageToItem(
       subject,
       date: headers.Date ?? "",
       headers,
+      // The normalizer carries this onto its record so a follow-up body fetch
+      // resolves the account this poll read, not the default Gmail credential.
+      credentialService,
       ...(mailboxAddress ? { mailboxAddress } : {}),
       snippet: msg.snippet ?? "",
       labelIds: msg.labelIds ?? [],
@@ -261,7 +265,9 @@ export const gmailProvider: WatcherProvider = {
         inboxMessages.length > 0
           ? await resolveMailboxAddress(connection, credentialService)
           : null;
-      const items = inboxMessages.map((m) => messageToItem(m, mailboxAddress));
+      const items = inboxMessages.map((m) =>
+        messageToItem(m, mailboxAddress, credentialService),
+      );
       log.info(
         { count: items.length, watermark: newWatermark },
         "Gmail: fetched new messages",
@@ -314,7 +320,9 @@ async function fallbackFetch(
   rememberMailboxAddress(credentialService, profile);
 
   const mailboxAddress = profile.emailAddress ?? null;
-  const items = messages.map((m) => messageToItem(m, mailboxAddress));
+  const items = messages.map((m) =>
+    messageToItem(m, mailboxAddress, credentialService),
+  );
 
   return { items, watermark: profile.historyId ?? "0" };
 }

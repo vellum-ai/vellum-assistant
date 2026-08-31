@@ -117,12 +117,11 @@ function findPartBody(part: GmailMessagePart, mimeType: string): string | null {
 /**
  * The message body as plain text.
  *
- * `text/plain` wins when the message carries one, which is the common case and
- * the only one that used to be handled. An HTML-only message is converted
- * rather than skipped: the snippet is a truncated preview, so falling back to
- * it would hand a caller that asked for the full body the same few hundred
- * characters it already had. The snippet stays as the last resort, for a
- * message with no readable body part at all.
+ * `text/plain` wins when the message carries one. Otherwise a `text/html` part
+ * is converted: tags are stripped, block-level ones become line breaks, and
+ * entities are decoded. The snippet is the last resort, for a message with no
+ * readable body part at all, and it is a truncated preview rather than the
+ * body a caller asked for.
  */
 export function extractPlainTextBody(msg: GmailMessage): string {
   if (!msg.payload) {

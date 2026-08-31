@@ -18,6 +18,7 @@ import { messageToItem, METADATA_HEADERS } from "./gmail.js";
 await initializeDb();
 
 const MAILBOX = "owner@example.com";
+const CREDENTIAL_SERVICE = "google";
 
 function gmailMessage(headers: Record<string, string>): GmailMessage {
   return {
@@ -41,7 +42,11 @@ function categoryOf(
   headers: Record<string, string>,
   mailbox: string | null = MAILBOX,
 ) {
-  const item = messageToItem(gmailMessage({ From: FROM, ...headers }), mailbox);
+  const item = messageToItem(
+    gmailMessage({ From: FROM, ...headers }),
+    mailbox,
+    CREDENTIAL_SERVICE,
+  );
   return gmailNormalizer.normalize(item)?.content.category;
 }
 
@@ -72,6 +77,7 @@ describe("messageToItem", () => {
         "List-Unsubscribe": "<mailto:unsub@example.com>",
       }),
       MAILBOX,
+      CREDENTIAL_SERVICE,
     );
 
     expect(item.payload.headers).toEqual({
@@ -89,6 +95,7 @@ describe("messageToItem", () => {
     const item = messageToItem(
       gmailMessage({ From: FROM, Subject: "Hello", Date: "today" }),
       MAILBOX,
+      CREDENTIAL_SERVICE,
     );
 
     expect(item.payload.from).toBe(FROM);
@@ -102,18 +109,32 @@ describe("messageToItem", () => {
   });
 
   test("omits headers the message does not carry", () => {
-    const item = messageToItem(gmailMessage({ From: FROM }), MAILBOX);
+    const item = messageToItem(
+      gmailMessage({ From: FROM }),
+      MAILBOX,
+      CREDENTIAL_SERVICE,
+    );
     expect(item.payload.headers).toEqual({ From: FROM });
   });
 
   test("stamps the mailbox address, and omits it when unknown", () => {
     expect(
-      messageToItem(gmailMessage({ From: FROM }), MAILBOX).payload
-        .mailboxAddress,
+      messageToItem(gmailMessage({ From: FROM }), MAILBOX, CREDENTIAL_SERVICE)
+        .payload.mailboxAddress,
     ).toBe(MAILBOX);
     expect(
-      messageToItem(gmailMessage({ From: FROM }), null).payload,
+      messageToItem(gmailMessage({ From: FROM }), null, CREDENTIAL_SERVICE)
+        .payload,
     ).not.toHaveProperty("mailboxAddress");
+  });
+
+  test("stamps the credential service the poll used", () => {
+    const item = messageToItem(
+      gmailMessage({ From: FROM }),
+      MAILBOX,
+      "google-work",
+    );
+    expect(item.payload.credentialService).toBe("google-work");
   });
 });
 
@@ -150,5 +171,20 @@ describe("the payload the normalizer categorizes", () => {
 
   test("without a mailbox address a sole recipient does not reach dm", () => {
     expect(categoryOf({ To: MAILBOX }, null)).toBe("fyi");
+  });
+
+  test("a quoted comma in a recipient display name still reaches dm", () => {
+    expect(categoryOf({ To: `"Owner, The" <${MAILBOX}>` })).toBe("dm");
+  });
+
+  test("the credential service reaches the normalized record", () => {
+    const item = messageToItem(
+      gmailMessage({ From: FROM, To: MAILBOX }),
+      MAILBOX,
+      "google-work",
+    );
+    expect(gmailNormalizer.normalize(item)?.credentialService).toBe(
+      "google-work",
+    );
   });
 });

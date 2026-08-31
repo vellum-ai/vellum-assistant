@@ -79,6 +79,14 @@ export const NotificationMetaSchema = z.object({
 export const NormalizedNotificationSchema = z.object({
   source: NotificationSourceSchema,
   externalId: z.string(),
+  /**
+   * The credential service the watcher polled this item with, next to the rest
+   * of the record's provenance. A workspace can hold several connections of
+   * one kind, so a `fetchFull` that resolved the source's default service
+   * would read a different account than the poll did. Null when the source
+   * stamps none, and a normalizer that needs one falls back to its default.
+   */
+  credentialService: z.string().nullable().default(null),
   sender: NotificationSenderSchema.nullable(),
   container: NotificationContainerSchema.nullable(),
   content: NotificationContentSchema,
