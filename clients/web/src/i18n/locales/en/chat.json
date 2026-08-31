@@ -1237,7 +1237,7 @@
     "railAria": "Progress",
     "stepCounter": "{current} of {total}",
     "title": "Progress",
-    "toggleAria": "Progress"
+    "titleFinished": "Finished"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."

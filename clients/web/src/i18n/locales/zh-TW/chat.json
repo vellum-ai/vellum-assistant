@@ -1215,7 +1215,7 @@
     "railAria": "進度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "進度",
-    "toggleAria": "進度"
+    "titleFinished": "已完成"
   },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"

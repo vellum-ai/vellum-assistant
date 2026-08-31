@@ -29,7 +29,7 @@
  * there is no label to sweep. See {@link ShimmerSurface}.
  */
 
-import { CircleCheck } from "lucide-react";
+import { Circle, CircleCheck } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -49,13 +49,21 @@ export function ProgressCard() {
   const surface = useLatestTaskProgress();
   const progress = surface ? parseTaskProgress(surface) : null;
 
-  // Either signal counts. `status` is the model's own assertion about the card
-  // and it is not always set mid-run, while the steps always say what is
-  // happening, so a plan with a step in flight counts as running even if the
-  // card header hasn't caught up.
+  // A terminal card is settled whatever its steps say. The model can mark a
+  // plan done and leave a step reading `in_progress` behind it, which is the
+  // same mismatch `effectiveStepStatus` resolves inside the body: without this
+  // the pill would shimmer and read "Progress" under a finished plan forever.
+  //
+  // Short of that, either signal counts. `status` is the model's assertion and
+  // is not always set mid-run, while the steps always say what is happening, so
+  // a plan with a step in flight is running even if the header has not caught
+  // up.
+  const isTerminal =
+    progress?.status === "completed" || progress?.status === "failed";
   const isRunning =
-    progress?.status === "in_progress" ||
-    (progress?.steps.some((step) => step.status === "in_progress") ?? false);
+    !isTerminal &&
+    (progress?.status === "in_progress" ||
+      (progress?.steps.some((step) => step.status === "in_progress") ?? false));
 
   const surfaceId = surface?.surfaceId ?? null;
   const acknowledged = useProgressAckStore((s) =>
@@ -92,17 +100,28 @@ export function ProgressCard() {
   // otherwise unmount the panel mid-interaction.
   const visible = progress != null && (isRunning || !acknowledged || open);
 
+  // The control names its own state: a running plan reads "Progress", a
+  // settled one "Finished". The glyph follows, an open circle while the work is
+  // outstanding and a check once it is not, so the pill says the same thing
+  // twice over rather than leaving the label to carry it alone.
+  const label = isRunning
+    ? t("progressRail.title")
+    : t("progressRail.titleFinished");
+
   const trigger = (
     // `leftIcon` rather than `iconOnly`, so the glyph and the label share the
-    // pill. No `tooltip`: it would only repeat the label now beside it.
+    // pill. No `tooltip`: it would only repeat the label beside it. The
+    // accessible name is that same label, since an `aria-label` that disagreed
+    // with the visible text would leave the two audiences reading different
+    // states.
     <SideControlButton
       loading={isRunning}
-      aria-label={t("progressRail.toggleAria")}
+      aria-label={label}
       data-testid="progress-card-toggle"
-      leftIcon={<CircleCheck />}
+      leftIcon={isRunning ? <Circle /> : <CircleCheck />}
       className="px-3"
     >
-      {t("progressRail.title")}
+      {label}
     </SideControlButton>
   );
 

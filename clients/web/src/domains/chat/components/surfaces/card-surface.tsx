@@ -11,7 +11,6 @@ import {
 import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -147,9 +146,9 @@ function StepIcon({ status }: { status: string | undefined }) {
       icon = <CircleCheck aria-hidden className={iconClass} />;
       break;
     case "in_progress":
-      // The mock's in-flight step is the same pulsing three dots every other
-      // in-flight affordance uses, not a spinner (Figma 8136-149041).
-      icon = <ThreeDotIndicator dotSize={4} gap={2} />;
+      // The same spinner the plan's own title carries, so a step in flight and
+      // a plan in flight read as one state rather than two vocabularies.
+      icon = <Loader2 aria-hidden className={cn(iconClass, "animate-spin")} />;
       break;
     case "waiting":
       icon = <Clock aria-hidden className={iconClass} />;
