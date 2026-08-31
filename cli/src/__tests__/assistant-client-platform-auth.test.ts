@@ -41,7 +41,9 @@ function seedCloud(token?: string): void {
     cloud: "vellum",
     species: "vellum",
   });
-  if (token) savePlatformToken(token);
+  if (token) {
+    savePlatformToken(token);
+  }
 }
 
 interface Call {
@@ -198,7 +200,9 @@ describe("AssistantClient platform-managed auth", () => {
     seedCloud("sess-tok-3");
     let assistantAttempts = 0;
     const calls = stubFetch((url) => {
-      if (isOrgFetch(url)) return orgResponse();
+      if (isOrgFetch(url)) {
+        return orgResponse();
+      }
       assistantAttempts++;
       return new Response("", { status: 401 }); // always 401
     });
