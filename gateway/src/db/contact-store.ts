@@ -1553,6 +1553,86 @@ export class ContactStore {
   }
 
   /**
+   * Ensure a plain `role='contact'` row exists for `contactId`. A conflict on
+   * the id is a no-op, so an existing contact (any role, any curated name) is
+   * never touched. Plain statement, composable inside a caller transaction.
+   *
+   * This is the single "make the target contact exist" write for channel
+   * binding paths; identity seeding stays on {@link seedInboundChannel},
+   * whose contact insert is atomic with a channel insert.
+   */
+  ensureContactRow(contactId: string, displayName: string, now: number): void {
+    this.db
+      .insert(contacts)
+      .values({
+        id: contactId,
+        displayName,
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  /**
+   * Re-parent the `(type, address)` channel to `toContactId`, ensuring the
+   * target contact row exists first. Matches by the logical key, not a
+   * channel id: the gateway row can live under a different UUID than the
+   * assistant mirror's, and an id-only update would re-parent nothing.
+   *
+   * Returns the previous owner's contact id when the channel actually moved
+   * (null when no row exists or the target already owns it). Callers that
+   * commit a move MUST hand that donor id to the post-commit orphan GC
+   * (`deleteContactIfOrphaned`) once every re-parent write, gateway AND
+   * assistant mirror, has landed: a re-parent that strips a seed contact's
+   * only channel otherwise leaves a channel-less duplicate in the Contacts
+   * pane. The verified-channel mirror plan carries the id for exactly that
+   * purpose.
+   *
+   * Plain statements, composable inside a caller transaction. ACL columns
+   * are untouched: moving a channel between contacts changes ownership, not
+   * its verification state.
+   */
+  reassignChannelOwner(params: {
+    type: string;
+    /** Canonical address (callers canonicalize via canonicalizeInboundIdentity). */
+    address: string;
+    toContactId: string;
+    /** Name for the target contact only when it has to be created. */
+    displayName: string;
+    now: number;
+  }): { donorContactId: string | null } {
+    this.ensureContactRow(params.toContactId, params.displayName, params.now);
+
+    const current = this.db
+      .select({ contactId: contactChannels.contactId })
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, params.type),
+          sql`${contactChannels.address} = ${params.address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
+    if (!current || current.contactId === params.toContactId) {
+      return { donorContactId: null };
+    }
+
+    this.db
+      .update(contactChannels)
+      .set({ contactId: params.toContactId, updatedAt: params.now })
+      .where(
+        and(
+          eq(contactChannels.type, params.type),
+          sql`${contactChannels.address} = ${params.address} COLLATE NOCASE`,
+        ),
+      )
+      .run();
+    return { donorContactId: current.contactId };
+  }
+
+  /**
    * Merge two contacts: move channels from donor to survivor, delete the
    * donor. The assistant-DB identity mirror is best-effort.
    *

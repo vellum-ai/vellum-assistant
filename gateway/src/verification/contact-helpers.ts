@@ -160,17 +160,7 @@ function writeVerifiedGatewayChannel(params: {
   // verified channel. onConflictDoNothing preserves an existing blocked/revoked
   // row (it conflicts on the (type,address) unique index), so this never
   // reactivates a blocked actor.
-  gwDb
-    .insert(gwContacts)
-    .values({
-      id: contactId,
-      displayName: address,
-      role: "contact",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing()
-    .run();
+  new ContactStore().ensureContactRow(contactId, address, now);
   const inserted = gwDb
     .insert(gwContactChannels)
     .values({
@@ -191,9 +181,16 @@ function writeVerifiedGatewayChannel(params: {
 }
 
 /**
- * Re-parent a gateway channel to the invite's target contact, ensuring the
- * target contact row exists first. Best-effort: a gateway DB error is logged,
- * not thrown, so a legitimate activation still proceeds.
+ * Re-parent a gateway channel to the invite's target contact via
+ * `ContactStore.reassignChannelOwner` (which ensures the target contact row
+ * exists first and matches by the (type,address) logical key). Best-effort:
+ * a gateway DB error is logged, not thrown, so a legitimate activation still
+ * proceeds.
+ *
+ * Returns the stripped previous owner's contact id when the channel actually
+ * moved, so the caller can thread it onto the mirror plan for the
+ * post-commit orphan GC. Null when nothing moved (or on the best-effort
+ * failure, where there is no committed move to clean up after).
  */
 function reassignChannelContact(params: {
   type: string;
@@ -201,36 +198,13 @@ function reassignChannelContact(params: {
   toContactId: string;
   displayName: string;
   now: number;
-}): void {
-  const { type, address, toContactId, displayName, now } = params;
+}): string | null {
   try {
-    const gwDb = getGatewayDb();
-    gwDb
-      .insert(gwContacts)
-      .values({
-        id: toContactId,
-        displayName,
-        role: "contact",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-    // Match by the (type,address) logical key, not the assistant channel id:
-    // the gateway row can live under a different UUID (m0006 reconcile), and an
-    // id-only update would re-parent nothing.
-    gwDb
-      .update(gwContactChannels)
-      .set({ contactId: toContactId, updatedAt: now })
-      .where(
-        and(
-          eq(gwContactChannels.type, type),
-          sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
-        ),
-      )
-      .run();
+    const { donorContactId } = new ContactStore().reassignChannelOwner(params);
+    return donorContactId;
   } catch (gwErr) {
     log.warn({ err: gwErr }, "Gateway channel reassignment dual-write failed");
+    return null;
   }
 }
 
@@ -479,6 +453,16 @@ export interface VerifiedChannelMirrorPlan {
   externalChatId: string;
   displayName: string;
   reassignConflictingChannels: boolean;
+  /**
+   * Contact the committed gateway re-parent stripped the channel from, if
+   * any. {@link mirrorVerifiedChannel} garbage-collects it once the mirror
+   * re-parent has landed too, so a seed contact whose only channel was bound
+   * to an invite's target does not linger as a channel-less duplicate. On
+   * the plan rather than at a call site so every executor of the plan
+   * (verification relay, invite redemption, guardian-request decide) gets
+   * the GC without remembering to ask.
+   */
+  orphanedDonorContactId?: string;
 }
 
 export type VerifiedChannelGatewayResult =
@@ -595,8 +579,9 @@ export function applyVerifiedChannelGatewayWrites(params: {
     // the mirror must mirror THAT decision (not the call path) so the two stores
     // never disagree about channel ownership.
     const gatewayReparented = boundContactId !== row.contactId;
+    let orphanedDonorContactId: string | null = null;
     if (gatewayReparented) {
-      reassignChannelContact({
+      orphanedDonorContactId = reassignChannelContact({
         type: sourceChannel,
         address,
         toContactId: boundContactId,
@@ -640,6 +625,7 @@ export function applyVerifiedChannelGatewayWrites(params: {
         externalChatId,
         displayName: contactDisplayName,
         reassignConflictingChannels: gatewayReparented,
+        ...(orphanedDonorContactId ? { orphanedDonorContactId } : {}),
       },
     };
   }
@@ -658,13 +644,14 @@ export function applyVerifiedChannelGatewayWrites(params: {
   // For the channel, resolve by logical key so an existing non-blocked gateway
   // row (e.g. a gateway-created unverified contact) is UPDATED to active/verified
   // rather than silently no-op'd by the (type,address) unique index.
+  let orphanedDonorContactId: string | null = null;
   if (targetContactId) {
     // The assistant mirror missed, but the gateway may already hold this
     // (type,address) row under a different contact. Re-parent it to the
     // target by logical key (writeVerifiedGatewayChannel's update set omits
     // contactId), so the gateway source of truth lands under the invite's
     // contact. No-ops when no gateway row exists.
-    reassignChannelContact({
+    orphanedDonorContactId = reassignChannelContact({
       type: sourceChannel,
       address,
       toContactId: contactId,
@@ -672,17 +659,7 @@ export function applyVerifiedChannelGatewayWrites(params: {
       now,
     });
   } else {
-    getGatewayDb()
-      .insert(gwContacts)
-      .values({
-        id: contactId,
-        displayName: contactDisplayName,
-        role: "contact",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
+    new ContactStore().ensureContactRow(contactId, contactDisplayName, now);
   }
 
   const wrote = writeVerifiedGatewayChannel({
@@ -718,6 +695,7 @@ export function applyVerifiedChannelGatewayWrites(params: {
       externalChatId,
       displayName: contactDisplayName,
       reassignConflictingChannels: gatewayReparented,
+      ...(orphanedDonorContactId ? { orphanedDonorContactId } : {}),
     },
   };
 }
@@ -727,6 +705,14 @@ export function applyVerifiedChannelGatewayWrites(params: {
  * Identity/info columns only (ACL columns are gateway-owned); idempotent
  * under retries. Throws on IPC failure — callers choose the soft/hard
  * posture.
+ *
+ * When the committed gateway writes re-parented the channel away from
+ * another contact, the stripped donor is garbage-collected here, AFTER the
+ * mirror re-parent lands: `deleteContactIfOrphaned` inspects the mirror and
+ * vetoes while it still shows the pre-claim channel, so this is the earliest
+ * safe point. A mirror IPC failure skips the GC (the throw propagates before
+ * it), which is the veto-equivalent safe posture: the donor lingers until
+ * the next bind rather than being deleted while the stores disagree.
  */
 export async function mirrorVerifiedChannel(
   plan: VerifiedChannelMirrorPlan,
@@ -742,6 +728,10 @@ export async function mirrorVerifiedChannel(
       reassignConflictingChannels: plan.reassignConflictingChannels,
     },
   });
+
+  if (plan.orphanedDonorContactId) {
+    await deleteContactIfOrphaned(plan.orphanedDonorContactId);
+  }
 }
 
 /**

@@ -9,7 +9,15 @@
  * mocked out — it is a best-effort info mirror and not under test here.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { sql } from "drizzle-orm";
 
@@ -59,22 +67,16 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   lookupContactChannelIdentity: () => identityLookupImpl(),
 }));
 
-
 await import("./test-preload.js");
 
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
-const { contacts, contactChannels, ingressInvites } = await import(
-  "../db/schema.js"
-);
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
+const { contacts, contactChannels, ingressInvites } =
+  await import("../db/schema.js");
 const { ContactStore } = await import("../db/contact-store.js");
-const { redeemInviteByCode, redeemInviteByToken } = await import(
-  "../verification/invite-redemption.js"
-);
-const { inviteRow, seedInvite } = await import(
-  "./helpers/contact-fixtures.js"
-);
+const { redeemInviteByCode, redeemInviteByToken } =
+  await import("../verification/invite-redemption.js");
+const { inviteRow, seedInvite } = await import("./helpers/contact-fixtures.js");
 
 const CHANNEL = "telegram";
 const CODE = "123456";
@@ -107,7 +109,13 @@ function seedContact(id: string, displayName = `name-${id}`): void {
   const now = Date.now();
   getGatewayDb()
     .insert(contacts)
-    .values({ id, displayName, role: "contact", createdAt: now, updatedAt: now })
+    .values({
+      id,
+      displayName,
+      role: "contact",
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
 }
 
@@ -367,6 +375,49 @@ describe("redeemInviteByCode", () => {
     if (result.status !== "redeemed") throw new Error("unreachable");
     expect(result.outcome.contactId).toBe("c1");
     expect(inviteRow(inviteId).useCount).toBe(1);
+    // The bind stripped c2's only channel: the orphan GC riding the mirror
+    // plan reclaims it, so no channel-less duplicate lingers in the pane.
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(["c1"]);
+  });
+
+  test("a donor keeping another channel survives the re-parent GC", async () => {
+    seedContact("c1");
+    seedContact("c2");
+    seedChannel({
+      id: "ch-1",
+      contactId: "c2",
+      address: "U_SENDER",
+      status: "active",
+    });
+    seedChannel({
+      id: "ch-2",
+      contactId: "c2",
+      address: "U_OTHER",
+      status: "active",
+    });
+    seedInvite(); // targets c1
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+    expect(result.status).toBe("redeemed");
+
+    // c2 still parents ch-2, so it is a real contact, not an orphaned seed.
+    expect(gwChannel("U_SENDER")!.contactId).toBe("c1");
+    expect(gwChannel("U_OTHER")!.contactId).toBe("c2");
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .map((c) => c.id)
+        .sort(),
+    ).toEqual(["c1", "c2"]);
   });
 
   test("blocked gateway channel is NEVER reactivated: generic failure, no use consumed", async () => {
