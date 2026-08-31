@@ -111,6 +111,35 @@ describe("slackMessageRawText", () => {
     );
   });
 
+  test("extracts markdown block text", () => {
+    expect(
+      slackMessageRawText({
+        text: "",
+        blocks: [
+          { type: "markdown", text: "**Deploy failed** on `main`" },
+          { type: "divider" },
+        ],
+      }),
+    ).toBe("**Deploy failed** on `main`");
+  });
+
+  test("extracts blocks nested inside an attachment", () => {
+    expect(
+      slackMessageRawText({
+        text: "",
+        attachments: [
+          {
+            fallback: "plain summary",
+            blocks: [
+              { type: "section", text: { type: "mrkdwn", text: "Run #7 red" } },
+              { type: "markdown", text: "3 tests failing" },
+            ],
+          },
+        ],
+      }),
+    ).toBe("Run #7 red\n3 tests failing");
+  });
+
   test("returns empty string when nothing carries text", () => {
     expect(
       slackMessageRawText({
