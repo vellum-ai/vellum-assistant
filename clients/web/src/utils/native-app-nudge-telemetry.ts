@@ -41,3 +41,50 @@ export function emitNativeAppNudgeEvent(
     },
   );
 }
+
+const IMPRESSIONS_SEEN_KEY = "nativeAppNudge.impressionsSeen";
+
+function readImpressionsSeen(): string[] {
+  try {
+    const raw = sessionStorage.getItem(IMPRESSIONS_SEEN_KEY);
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((v) => typeof v === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Emit an impression at most once per browser session per nudge.
+ *
+ * Session scope, not component scope: the funnel's `session_id` lives in
+ * sessionStorage, so a ref on the calling component would reset on every
+ * remount (leaving chat for Settings and coming back) and bill a second
+ * impression inside one session, inflating the denominator the click-through
+ * rate divides by.
+ *
+ * When storage is unavailable the read yields `[]` and the write is dropped,
+ * so the nudge degrades to emitting per mount rather than going silent.
+ * Telemetry is best-effort and a missing impression is worse than a repeat.
+ */
+export function emitNativeAppNudgeImpressionOnce(
+  surface: NudgeSurface,
+  target: NudgeTelemetryTarget,
+): void {
+  const key = `${surface}:${target}`;
+  const seen = readImpressionsSeen();
+  if (seen.includes(key)) {
+    return;
+  }
+  try {
+    sessionStorage.setItem(
+      IMPRESSIONS_SEEN_KEY,
+      JSON.stringify([...seen, key]),
+    );
+  } catch {
+    // Storage disabled; emit anyway rather than lose the impression.
+  }
+  emitNativeAppNudgeEvent("impression", surface, target);
+}

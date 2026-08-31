@@ -20,8 +20,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
   telemetryIngestCreate: ingestMock,
 }));
 
-const { emitNativeAppNudgeEvent, NATIVE_APP_NUDGE_FUNNEL_VERSION } =
-  await import("@/utils/native-app-nudge-telemetry");
+const {
+  emitNativeAppNudgeEvent,
+  emitNativeAppNudgeImpressionOnce,
+  NATIVE_APP_NUDGE_FUNNEL_VERSION,
+} = await import("@/utils/native-app-nudge-telemetry");
 
 function eventFromCall(callIndex: number): Record<string, unknown> {
   const options = ingestMock.mock.calls[callIndex]?.[0] as
@@ -82,5 +85,65 @@ describe("emitNativeAppNudgeEvent", () => {
     emitNativeAppNudgeEvent("click", "banner", "ios");
 
     expect(ingestMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("emitNativeAppNudgeImpressionOnce", () => {
+  it("emits the first impression for a nudge", () => {
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    expect(eventFromCall(0)).toMatchObject({
+      step_name: "impression",
+      screen: "banner:ios",
+    });
+  });
+
+  it("suppresses a repeat within the same browser session", () => {
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes per nudge, not globally", () => {
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+    emitNativeAppNudgeImpressionOnce("banner", "macos");
+    emitNativeAppNudgeImpressionOnce("settings", "ios");
+
+    expect(ingestMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("survives a garbage value left in session storage", () => {
+    sessionStorage.setItem("nativeAppNudge.impressionsSeen", "not json");
+
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still emits when session storage is unavailable", () => {
+    const original = Object.getOwnPropertyDescriptor(
+      window,
+      "sessionStorage",
+    ) as PropertyDescriptor;
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new Error("storage disabled");
+      },
+    });
+
+    try {
+      emitNativeAppNudgeImpressionOnce("banner", "ios");
+      emitNativeAppNudgeImpressionOnce("banner", "ios");
+    } finally {
+      Object.defineProperty(window, "sessionStorage", original);
+    }
+
+    // Degrades to one per call rather than going silent: a missing impression
+    // is worse than a repeated one.
+    expect(ingestMock).toHaveBeenCalledTimes(2);
   });
 });
