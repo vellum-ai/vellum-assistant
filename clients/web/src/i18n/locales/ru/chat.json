@@ -806,5 +806,8 @@
     "takePhoto": "Сделать фото",
     "unmuteAssistant": "Включить звук ассистента",
     "unmuteMicrophone": "Включить микрофон"
+  },
+  "transcript": {
+    "noResponse": "Решил не отвечать"
   }
 }

@@ -607,6 +607,12 @@ export const ConversationMessageSchema = z.object({
    *  system notices — no avatar, no persona bubble — and never group them
    *  with adjacent assistant turns. */
   systemCard: z.boolean().optional(),
+  /** Set on a turn whose whole reply was the `<no_response/>` sentinel
+   *  (`metadata.messageKind === "no_response"`): the assistant deliberately
+   *  chose silence. Clients render a quiet standalone notice instead of the
+   *  sentinel text, and treat the row as the turn's reply so nothing keeps
+   *  waiting for one. */
+  noResponse: z.boolean().optional(),
   /** Present when this assistant row is a daemon-persisted provider-failure
    *  notice (`metadata.messageKind === "provider_error"`); clients may render
    *  a themed card instead of a persona bubble. `code` is the stable

@@ -186,6 +186,9 @@ export function mapRuntimeToDisplayMessage(
   if (m.systemCard) {
     msg.isSystemCard = true;
   }
+  if (m.noResponse) {
+    msg.isNoResponse = true;
+  }
   if (m.providerError) {
     msg.providerError = {
       code: m.providerError.code,

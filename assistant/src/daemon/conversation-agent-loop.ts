@@ -51,8 +51,10 @@ import {
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
+  updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
+import { NO_RESPONSE_MESSAGE_KIND } from "../persistence/conversation-types.js";
 import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
@@ -73,6 +75,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { isNoResponseOnlyText } from "../runtime/no-response.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import {
@@ -1576,6 +1579,32 @@ export async function runAgentLoopImpl(
     // of why the turn stopped.
     const hasAssistantResponse =
       newMessages[newMessages.length - 1]?.role === "assistant";
+    // A reply that is nothing but the `<no_response/>` sentinel is deliberate
+    // silence. Stamp the persisted row so clients render a quiet notice and
+    // resolve their pending-response state, instead of showing the raw
+    // sentinel or waiting forever; the content keeps the sentinel so the
+    // model reads its own convention back from history.
+    if (hasAssistantResponse && state.lastAssistantMessageId) {
+      const tail = newMessages[newMessages.length - 1]!;
+      const tailText = Array.isArray(tail.content)
+        ? tail.content
+            .filter((b) => b.type === "text")
+            .map((b) => (b.type === "text" ? b.text : ""))
+            .join("\n")
+        : "";
+      if (isNoResponseOnlyText(tailText)) {
+        try {
+          updateMessageMetadata(state.lastAssistantMessageId, {
+            messageKind: NO_RESPONSE_MESSAGE_KIND,
+          });
+        } catch (err) {
+          rlog.warn(
+            { err, messageId: state.lastAssistantMessageId },
+            "Failed to stamp deliberate-silence marker (non-fatal)",
+          );
+        }
+      }
+    }
     if (
       !hasAssistantResponse &&
       state.providerErrorUserMessage &&

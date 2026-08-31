@@ -20830,6 +20830,8 @@ paths:
                           additionalProperties: false
                         systemCard:
                           type: boolean
+                        noResponse:
+                          type: boolean
                         providerError:
                           type: object
                           properties:

@@ -163,6 +163,10 @@ export interface DisplayMessage {
    *  summarize-up-to results). Rendered as a standalone system notice —
    *  no avatar, no persona bubble — never as assistant speech. */
   isSystemCard?: boolean;
+  /** Deliberate-silence turn: the whole reply was the no-response sentinel.
+   *  Mirrors `ConversationMessage["noResponse"]`; renders as a quiet marker
+   *  and counts as the turn's reply. */
+  isNoResponse?: boolean;
   /** Provider-failure notice metadata, carried from the wire
    *  `ConversationMessage["providerError"]`. `code` is the stable classified
    *  error code (e.g. `"PROVIDER_BILLING"`), `category` the classified

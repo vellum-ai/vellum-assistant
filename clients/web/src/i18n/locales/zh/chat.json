@@ -1728,5 +1728,8 @@
   },
   "workspacePathLink": {
     "openTitle": "打开 {path}"
+  },
+  "transcript": {
+    "noResponse": "决定不回复"
   }
 }

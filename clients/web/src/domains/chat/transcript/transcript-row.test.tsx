@@ -44,6 +44,25 @@ const PROACTIVE_ITEM: CreditsUpsellItem = {
   key: "credits-upsell-proactive",
 };
 
+describe("TranscriptRow deliberate-silence dispatch", () => {
+  test("an isNoResponse message renders the quiet marker, never its sentinel content", () => {
+    const message: DisplayMessage = {
+      id: "m-silent",
+      role: "assistant",
+      ...textBody("<no_response/>"),
+      isNoResponse: true,
+    };
+    const { getByTestId, queryByText } = render(
+      <TranscriptRow
+        item={{ kind: "message", key: "m-silent", message }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+    expect(getByTestId("no-response-row")).toBeTruthy();
+    expect(queryByText("<no_response/>")).toBeNull();
+  });
+});
+
 describe("TranscriptRow creditsUpsell dispatch", () => {
   test("renders a creditsUpsell item via CreditsUpsellCard", () => {
     const { getByTestId } = render(
@@ -63,8 +82,9 @@ describe("TranscriptRow creditsUpsell dispatch", () => {
 
     const anchor = container.querySelector("#msg-m1");
     expect(anchor).toBeTruthy();
-    expect(anchor!.querySelector('[data-testid="credits-upsell-card-stub"]'))
-      .toBeTruthy();
+    expect(
+      anchor!.querySelector('[data-testid="credits-upsell-card-stub"]'),
+    ).toBeTruthy();
   });
 
   test("the proactive card (no backing message) renders without a msg anchor", () => {

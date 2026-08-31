@@ -158,6 +158,27 @@ export function isSystemCardMetadata(
 }
 
 /**
+ * Marker for a turn whose whole reply was the `<no_response/>` sentinel: the
+ * assistant deliberately chose silence. The row's content keeps the raw
+ * sentinel (the model reads its own convention back from history); clients
+ * switch on the marker to render a quiet standalone notice and to resolve
+ * their pending-response state, instead of showing the sentinel text or
+ * waiting forever for a reply that was never coming.
+ */
+export const NO_RESPONSE_MESSAGE_KIND = "no_response";
+
+/**
+ * Shared predicate for the deliberate-silence marker, mirroring
+ * {@link isSystemCardMetadata} so display merging, transcript rendering, and
+ * turn grouping cannot drift.
+ */
+export function isNoResponseMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === NO_RESPONSE_MESSAGE_KIND;
+}
+
+/**
  * True when a role-`"user"` row is internal scaffolding rather than a person's
  * prompt: a daemon-injected run lifecycle notification (subagent
  * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the

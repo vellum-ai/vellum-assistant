@@ -16,6 +16,7 @@ import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confir
 import { PendingContactRecordRequestRow } from "@/domains/chat/transcript/pending-contact-record-request-row";
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
+import { NoResponseRow } from "@/domains/chat/transcript/no-response-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -201,6 +202,11 @@ export const TranscriptRow = memo(function TranscriptRow({
         return (
           <SystemCardRow message={item.message} assistantId={assistantId} />
         );
+      }
+      // A deliberate-silence turn renders as a quiet marker with fixed copy;
+      // the row's stored content is the raw sentinel and never shows.
+      if (item.message.isNoResponse) {
+        return <NoResponseRow />;
       }
       return (
         <TranscriptMessageBody

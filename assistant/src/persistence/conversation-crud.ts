@@ -91,6 +91,7 @@ import {
   type ConversationCreateType,
   type ConversationOrigin,
   isHiddenMessageMetadata,
+  isNoResponseMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
@@ -460,7 +461,9 @@ export {
  * alongside the schema that carries them.
  */
 export {
+  isNoResponseMetadata,
   isSystemCardMetadata,
+  NO_RESPONSE_MESSAGE_KIND,
   SYSTEM_CARD_MESSAGE_KIND,
 } from "./conversation-types.js";
 
@@ -501,7 +504,11 @@ export function isStandaloneAssistantMessage(
   }
   try {
     const parsed = JSON.parse(metadata) as Record<string, unknown>;
-    return isSystemCardMetadata(parsed) || isProviderErrorMetadata(parsed);
+    return (
+      isSystemCardMetadata(parsed) ||
+      isProviderErrorMetadata(parsed) ||
+      isNoResponseMetadata(parsed)
+    );
   } catch {
     return false;
   }

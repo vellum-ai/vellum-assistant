@@ -1761,5 +1761,8 @@
   },
   "workspacePathLink": {
     "openTitle": "Open {path}"
+  },
+  "transcript": {
+    "noResponse": "Chose not to respond"
   }
 }

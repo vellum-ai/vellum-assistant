@@ -172,6 +172,18 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isSystemCard).toBe(true);
   });
 
+  test("flags a noResponse message as isNoResponse", () => {
+    const plain = makeMessage({ id: "m-plain", role: "assistant" });
+    expect(mapRuntimeToDisplayMessage(plain).isNoResponse).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-silent",
+      role: "assistant",
+      noResponse: true,
+    });
+    expect(mapRuntimeToDisplayMessage(m).isNoResponse).toBe(true);
+  });
+
   test("carries providerError code and category onto the display message", () => {
     const plain = makeMessage({ id: "m-plain", role: "assistant" });
     expect(mapRuntimeToDisplayMessage(plain).providerError).toBeUndefined();
@@ -179,7 +191,10 @@ describe("mapRuntimeToDisplayMessage", () => {
     const m = makeMessage({
       id: "m-err",
       role: "assistant",
-      providerError: { code: "PROVIDER_BILLING", category: "credits_exhausted" },
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
     });
     expect(mapRuntimeToDisplayMessage(m).providerError).toEqual({
       code: "PROVIDER_BILLING",

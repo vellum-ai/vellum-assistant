@@ -12,6 +12,15 @@
 /** Matches a message whose entire content is the sentinel. */
 const NO_RESPONSE_ONLY_RE = /^\s*<no_response\s*\/?>\s*$/i;
 
+/**
+ * Whether `text` is nothing but the sentinel: the whole reply is a
+ * deliberate non-response, as opposed to real content with an inline
+ * sentinel mixed in.
+ */
+export function isNoResponseOnlyText(text: string): boolean {
+  return NO_RESPONSE_ONLY_RE.test(text);
+}
+
 /** Matches every sentinel occurrence for stripping it out of mixed content. */
 export const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
 

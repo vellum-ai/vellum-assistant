@@ -127,6 +127,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
@@ -997,6 +998,7 @@ export async function handleListMessages({
       {};
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
+    let noResponse: boolean | undefined;
     let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
@@ -1008,6 +1010,9 @@ export async function handleListMessages({
         // render as standalone system notices, not persona speech.
         if (isSystemCardMetadata(meta)) {
           systemCard = true;
+        }
+        if (isNoResponseMetadata(meta)) {
+          noResponse = true;
         }
         // Daemon-persisted provider-failure notices carry the classified
         // error code/category so clients can render a themed card instead
@@ -1061,6 +1066,7 @@ export async function handleListMessages({
       backgroundEventNotification: notifications.backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
+      noResponse,
       providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -1271,6 +1277,7 @@ export async function handleListMessages({
           ? { backgroundToolCompletion: m.backgroundToolCompletion }
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
+        ...(m.noResponse ? { noResponse: true } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
       };

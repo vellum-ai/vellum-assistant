@@ -1750,5 +1750,8 @@
   },
   "workspacePathLink": {
     "openTitle": "Abrir {path}"
+  },
+  "transcript": {
+    "noResponse": "Decidió no responder"
   }
 }
