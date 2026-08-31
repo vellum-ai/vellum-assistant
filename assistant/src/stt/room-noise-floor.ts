@@ -26,9 +26,9 @@
  * continuous.** Any ten seconds of a real conversation contains at least one
  * second in which nobody is speaking, and in that second the microphone hears
  * the room and nothing else. So: average within a one-second block, then take
- * the *minimum* across the retained blocks. Block-averaging first matters —
- * a minimum taken over raw chunks would latch onto the quietest 50 ms gap
- * between two syllables, which is a pause inside speech, not the room.
+ * the *minimum* across the retained blocks. Block-averaging first matters,
+ * because a minimum taken over raw chunks would latch onto the quietest 50 ms
+ * gap between two syllables, which is a pause inside speech, not the room.
  *
  * The estimate degrades honestly rather than dangerously. Ten unbroken seconds
  * of speech (a monologue with no breath) raises the floor, because there was
