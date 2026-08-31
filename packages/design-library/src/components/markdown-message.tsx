@@ -18,6 +18,7 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Components } from "react-markdown";
 
+import { asyncOnce } from "../utils/async-once";
 import { cn } from "../utils/cn";
 import { writeSelectionClipboard } from "../utils/selection-clipboard";
 
@@ -25,34 +26,31 @@ type RehypeKatexPlugin = typeof import("rehype-katex").default;
 
 /**
  * KaTeX (the rehype plugin, the katex renderer it pulls in, and the
- * stylesheet — ~445 kB raw) loads on demand instead of with this module:
- * markdown renders on the boot path, and most messages carry no math.
- * Module-level cache so the page pays the load once, and so a synchronous
- * render (renderToStaticMarkup, and any tree already warmed by
- * {@link preloadMarkdownMath}) can pick the plugin up without an effect.
+ * stylesheet, ~445 kB raw) loads on demand: markdown renders on the boot
+ * path, and most messages carry no math. Cached at module level so the page
+ * pays the load once, and so a synchronous render (renderToStaticMarkup,
+ * and any tree already warmed by {@link preloadMarkdownMath}) can pick the
+ * plugin up via `peek()` without an effect. A failed chunk load is not
+ * cached (see {@link asyncOnce}): the next math-bearing mount or preload
+ * call retries, which current engines honor with a real refetch
+ * (whatwg/html#10327 evicts failed fetches from the module map).
  */
-let cachedRehypeKatex: RehypeKatexPlugin | null = null;
-let rehypeKatexLoad: Promise<RehypeKatexPlugin> | null = null;
-
-function loadRehypeKatex(): Promise<RehypeKatexPlugin> {
-  rehypeKatexLoad ??= Promise.all([
+const rehypeKatexOnce = asyncOnce<RehypeKatexPlugin>(async () => {
+  const [mod] = await Promise.all([
     import("rehype-katex"),
     // Vite turns this into an on-demand stylesheet chunk alongside the JS.
     import("katex/dist/katex.min.css"),
-  ]).then(([mod]) => {
-    cachedRehypeKatex = mod.default;
-    return mod.default;
-  });
-  return rehypeKatexLoad;
-}
+  ]);
+  return mod.default;
+});
 
 /**
  * Warms the math pipeline. Await it before rendering when math output must be
- * present synchronously — server/static rendering, or a surface that knows
+ * present synchronously: server/static rendering, or a surface that knows
  * its content is math-heavy and wants to skip the raw-TeX flash.
  */
 export function preloadMarkdownMath(): Promise<void> {
-  return loadRehypeKatex().then(() => undefined);
+  return rehypeKatexOnce.load().then(() => undefined);
 }
 
 /**
@@ -60,19 +58,26 @@ export function preloadMarkdownMath(): Promise<void> {
  * TeX text until the chunk arrives, then formats on the re-render).
  */
 function useRehypeKatex(needed: boolean): RehypeKatexPlugin | null {
-  const [plugin, setPlugin] = useState<RehypeKatexPlugin | null>(
-    () => cachedRehypeKatex,
+  const [plugin, setPlugin] = useState<RehypeKatexPlugin | null>(() =>
+    rehypeKatexOnce.peek(),
   );
   useEffect(() => {
     if (!needed || plugin !== null) {
       return;
     }
     let cancelled = false;
-    void loadRehypeKatex().then((loaded) => {
-      if (!cancelled) {
-        setPlugin(() => loaded);
-      }
-    });
+    rehypeKatexOnce.load().then(
+      (loaded) => {
+        if (!cancelled) {
+          setPlugin(() => loaded);
+        }
+      },
+      () => {
+        // Math stays raw TeX on this mount. Deliberately no same-mount
+        // retry, which would loop while offline; the uncached failure means
+        // the next math-bearing mount attempts a fresh load.
+      },
+    );
     return () => {
       cancelled = true;
     };
