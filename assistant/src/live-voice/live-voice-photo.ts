@@ -25,6 +25,23 @@
  * photo can be stripped where one riding the spoken turn would have survived.
  * Stranding is the worse failure, and it happens every time rather than only
  * under overflow.
+ *
+ * Persists are serialized per conversation ({@link enqueueStandaloneImagePersist}),
+ * because the processing flag they take is a boolean rather than a counted
+ * lock. Two images in flight at once interleave across the awaits that sit
+ * between reading the flag and taking it, so both read idle and both take it.
+ * The first to finish then clears it while the second is still writing, which
+ * leaves a spoken turn free to launch into a half-written row, and the second
+ * finisher goes on to clear THAT turn's flag. Ambient frames make this
+ * routine rather than exotic: they arrive every few seconds for as long as
+ * the camera is up, and a shutter photo can land between any two of them. The
+ * chain holds the flag to one standalone job at a time, which is what makes
+ * the set/clear pairing correct rather than merely usually correct.
+ *
+ * A narrower race is left alone: a real turn can still start inside the 100 ms
+ * gap between the idle poll and `setProcessing(true)`. Closing it means
+ * changing what the flag is in `conversation.ts`, which governs every turn in
+ * the daemon, not just these writes.
  */
 
 import { v7 as uuidv7 } from "uuid";
@@ -68,6 +85,100 @@ export interface LiveVoicePhotoResult {
   readonly messageId?: string;
 }
 
+/**
+ * One conversation's chain of standalone-image persists.
+ *
+ * `queuedSightFrame` holds the keep that is chained but has not begun, and is
+ * what bounds the chain: keeps arrive every few seconds while each job can
+ * wait out a turn for {@link PROCESSING_WAIT_MS}, so without replacement the
+ * chain grows for as long as a turn runs. A job clears the slot as it starts,
+ * so the slot only ever refers to work that can still be called off.
+ */
+interface StandaloneImageQueue {
+  tail: Promise<void>;
+  queuedSightFrame: { superseded: boolean } | null;
+  outstanding: number;
+}
+
+const standaloneImageQueues = new Map<string, StandaloneImageQueue>();
+
+/**
+ * Run `job` after every standalone-image persist already queued for this
+ * conversation has settled.
+ *
+ * Keeps are latest-wins while they wait: a new one supersedes a queued keep
+ * that has not begun, which resolves `ok: false` so its caller reports the one
+ * lost frame. The camera is about to shoot another anyway, and what matters is
+ * the view at the moment the user speaks. Photos are never superseded: the
+ * user watched themselves take each one.
+ *
+ * The map entry is dropped once the chain drains, so a conversation that ends
+ * leaves nothing behind.
+ */
+async function enqueueStandaloneImagePersist(
+  conversationId: string,
+  kind: "photo" | "sight_frame",
+  job: () => Promise<LiveVoicePhotoResult>,
+): Promise<LiveVoicePhotoResult> {
+  let queue = standaloneImageQueues.get(conversationId);
+  if (!queue) {
+    queue = {
+      tail: Promise.resolve(),
+      queuedSightFrame: null,
+      outstanding: 0,
+    };
+    standaloneImageQueues.set(conversationId, queue);
+  }
+  const chained = queue;
+
+  const ticket = { superseded: false };
+  if (kind === "sight_frame") {
+    if (chained.queuedSightFrame) {
+      chained.queuedSightFrame.superseded = true;
+    }
+    chained.queuedSightFrame = ticket;
+  }
+
+  chained.outstanding += 1;
+  const running = chained.tail.then(() => {
+    // Started, so nothing can call it off from here on.
+    if (chained.queuedSightFrame === ticket) {
+      chained.queuedSightFrame = null;
+    }
+    if (ticket.superseded) {
+      log.debug(
+        { conversationId },
+        "A newer camera frame replaced one still waiting to persist",
+      );
+      return { ok: false };
+    }
+    return job();
+  });
+  // The tail must survive a failed job, or one rejection would strand every
+  // image queued behind it.
+  chained.tail = running.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  try {
+    return await running;
+  } finally {
+    chained.outstanding -= 1;
+    if (
+      chained.outstanding === 0 &&
+      standaloneImageQueues.get(conversationId) === chained
+    ) {
+      standaloneImageQueues.delete(conversationId);
+    }
+  }
+}
+
+/** Conversations with a standalone-image persist still in flight. */
+export function _standaloneImageQueueSizeForTests(): number {
+  return standaloneImageQueues.size;
+}
+
 /** Resolve once the conversation is not mid-turn, or false on timeout. */
 async function waitForIdle(conversation: {
   isProcessing: () => boolean;
@@ -91,10 +202,23 @@ async function waitForIdle(conversation: {
  * interleaving with a turn's own persist. An image that arrives mid-reply
  * therefore lands after that reply's rows rather than between them.
  *
- * Never throws. An image that cannot be stored must not take the call down
- * with it, and the caller reports the failure to the user instead.
+ * Queued behind this conversation's other standalone images, so only one of
+ * them ever holds the flag. Never throws. An image that cannot be stored must
+ * not take the call down with it, and the caller reports the failure to the
+ * user instead.
  */
-async function persistStandaloneImage(
+function persistStandaloneImage(
+  conversationId: string,
+  attachmentId: string,
+  kind: "photo" | "sight_frame",
+  persistOptions: Omit<PersistMessageOptions, "attachments" | "requestId">,
+): Promise<LiveVoicePhotoResult> {
+  return enqueueStandaloneImagePersist(conversationId, kind, () =>
+    writeStandaloneImage(conversationId, attachmentId, kind, persistOptions),
+  );
+}
+
+async function writeStandaloneImage(
   conversationId: string,
   attachmentId: string,
   kind: "photo" | "sight_frame",

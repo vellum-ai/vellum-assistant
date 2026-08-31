@@ -33,6 +33,7 @@ import { initializeDb } from "../../persistence/db-init.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
+  _standaloneImageQueueSizeForTests,
   persistLiveVoicePhoto,
   persistLiveVoiceSightFrame,
 } from "../live-voice-photo.js";
@@ -71,6 +72,37 @@ function liveConversation(title: string) {
 
 function metadataOf(row: MessageRow): Record<string, unknown> {
   return JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Record every `setProcessing` on a conversation and track how many holders
+ * the flag believes it has. A boolean flag cannot count, so a depth above one
+ * is two writers thinking they own it, and the first to finish clearing it
+ * out from under the other.
+ */
+function watchProcessing(conversation: Conversation): {
+  readonly calls: boolean[];
+  depth: number;
+  maxDepth: number;
+} {
+  const seen = { calls: [] as boolean[], depth: 0, maxDepth: 0 };
+  const original = conversation.setProcessing.bind(conversation);
+  conversation.setProcessing = (value: boolean): void => {
+    seen.calls.push(value);
+    seen.depth += value ? 1 : -1;
+    seen.maxDepth = Math.max(seen.maxDepth, seen.depth);
+    original(value);
+  };
+  return seen;
+}
+
+async function uploadFrame(name: string): Promise<string> {
+  const attachment = await uploadAttachment(name, "image/png", IMAGE_BASE64);
+  return attachment.id;
 }
 
 /** The attachment id the row's persisted image block actually references. */
@@ -364,6 +396,142 @@ describe("persistLiveVoiceSightFrame", () => {
 
       const rows = getMessages(live.id);
       expect(rows.map((row) => row.role)).toEqual(["assistant", "user"]);
+    } finally {
+      live.dispose();
+    }
+  });
+});
+
+describe("standalone image persists are serialized per conversation", () => {
+  test("two images arriving together take the flag one at a time", async () => {
+    // The window the boolean flag cannot survive. Both persists interleave
+    // across the awaits between reading the flag and taking it, so both read
+    // idle and both take it; unserialized the calls come out
+    // [true, true, false, false], and that first `false` lands while the
+    // second write is still going, leaving a spoken turn free to launch into
+    // a half-written row and the second finisher free to clear that turn's
+    // flag.
+    const live = liveConversation("Live voice concurrent images");
+    const seen = watchProcessing(live.activeConversation);
+    try {
+      const photo = await uploadFrame("snap.png");
+      const frame = await uploadFrame("ambient.png");
+
+      const photoWrite = persistLiveVoicePhoto(live.id, photo);
+      const frameWrite = persistLiveVoiceSightFrame(live.id, frame);
+
+      expect(await photoWrite).toMatchObject({ ok: true });
+      expect(await frameWrite).toMatchObject({ ok: true });
+
+      // One holder at a time, so no release lands while another write is in
+      // flight, and every take is answered before the next one.
+      expect(seen.calls).toEqual([true, false, true, false]);
+      expect(seen.maxDepth).toBe(1);
+      expect(seen.depth).toBe(0);
+      expect(getMessages(live.id)).toHaveLength(2);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("two frames waiting out one turn write one at a time", async () => {
+    // The same invariant across the wait path: both jobs sit behind a running
+    // turn, and the chain still hands the flag over one at a time when it
+    // ends.
+    const live = liveConversation("Live voice serialized keeps");
+    const seen = watchProcessing(live.activeConversation);
+    try {
+      const first = await uploadFrame("first.png");
+      const second = await uploadFrame("second.png");
+
+      live.activeConversation.setProcessing(true);
+      const firstKeep = persistLiveVoiceSightFrame(live.id, first);
+      // Long enough for the first keep to reach the idle wait, so the second
+      // queues behind a job that has already begun rather than replacing it.
+      await sleep(30);
+      const secondKeep = persistLiveVoiceSightFrame(live.id, second);
+      await sleep(30);
+      live.activeConversation.setProcessing(false);
+
+      expect(await firstKeep).toMatchObject({ ok: true });
+      expect(await secondKeep).toMatchObject({ ok: true });
+
+      expect(seen.maxDepth).toBe(1);
+      expect(seen.depth).toBe(0);
+      expect(getMessages(live.id)).toHaveLength(2);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("a newer keep replaces one that is still waiting to start", async () => {
+    // The chain is bounded this way: keeps arrive every few seconds while each
+    // job can wait out a turn for far longer, so a queued keep that a newer
+    // one has already made stale is given up rather than stacked.
+    const live = liveConversation("Live voice coalesced keeps");
+    try {
+      const running = await uploadFrame("running.png");
+      const stale = await uploadFrame("stale.png");
+      const newest = await uploadFrame("newest.png");
+
+      live.activeConversation.setProcessing(true);
+      const runningKeep = persistLiveVoiceSightFrame(live.id, running);
+      await sleep(30);
+      const staleKeep = persistLiveVoiceSightFrame(live.id, stale);
+      const newestKeep = persistLiveVoiceSightFrame(live.id, newest);
+      await sleep(30);
+      live.activeConversation.setProcessing(false);
+
+      // The one that had already begun still lands; the one it displaced is
+      // reported to its caller as the single lost frame it is.
+      expect(await runningKeep).toMatchObject({ ok: true });
+      expect(await staleKeep).toEqual({ ok: false });
+      expect(await newestKeep).toMatchObject({ ok: true });
+
+      expect(
+        [...selectSightFrameCaptureTimes(live.id).keys()].sort(),
+      ).toHaveLength(2);
+      expect(getMessages(live.id)).toHaveLength(2);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("queued photos are never replaced", async () => {
+    // The user watched themselves take each one, so none of them is stale.
+    const live = liveConversation("Live voice queued photos");
+    try {
+      const ids = [
+        await uploadFrame("one.png"),
+        await uploadFrame("two.png"),
+        await uploadFrame("three.png"),
+      ];
+
+      live.activeConversation.setProcessing(true);
+      const writes = ids.map((id) => persistLiveVoicePhoto(live.id, id));
+      await sleep(30);
+      live.activeConversation.setProcessing(false);
+
+      for (const result of await Promise.all(writes)) {
+        expect(result).toMatchObject({ ok: true });
+      }
+      expect(getMessages(live.id)).toHaveLength(3);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("the conversation's chain is dropped once it drains", async () => {
+    const live = liveConversation("Live voice chain cleanup");
+    try {
+      const frame = await uploadFrame("cleanup.png");
+
+      const pending = persistLiveVoiceSightFrame(live.id, frame);
+      expect(_standaloneImageQueueSizeForTests()).toBe(1);
+      expect(await pending).toMatchObject({ ok: true });
+
+      // Nothing is left behind for a call that ended.
+      expect(_standaloneImageQueueSizeForTests()).toBe(0);
     } finally {
       live.dispose();
     }
