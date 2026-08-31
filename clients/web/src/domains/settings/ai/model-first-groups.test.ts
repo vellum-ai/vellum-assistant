@@ -1,14 +1,14 @@
 /**
  * How the model-first list is shaped before anyone types: one section per
- * owning provider, and the older members of a model line folded away behind
- * the newest.
+ * owning provider, three models offered in each, and the rest of the section
+ * folded away behind them.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import {
-  collapseSupersededVersions,
+  collapseSectionRows,
   resolveModelFirstGroups,
   type ModelFirstInput,
 } from "@/domains/settings/ai/model-first-candidates";
@@ -192,21 +192,21 @@ describe("resolveModelFirstGroups", () => {
   });
 });
 
-describe("collapseSupersededVersions", () => {
+describe("collapseSectionRows", () => {
   function optionsFor(provider: string) {
     return groupFor([], provider).options;
   }
 
-  test("shows the newest of each line and folds the rest away", () => {
-    const { shown, hidden } = collapseSupersededVersions(
-      optionsFor("anthropic"),
-    );
+  test("offers three models and folds the rest of the section away", () => {
+    const options = optionsFor("anthropic");
+    const { shown, hidden } = collapseSectionRows(options);
     expect(shown.map((option) => option.displayName)).toEqual([
       "Claude Fable 5",
       "Claude Opus 5",
       "Claude Sonnet 5",
-      "Claude Haiku 4.5",
     ]);
+    // The rest follows in catalog order, so revealing it reads as the section
+    // carrying on rather than as a second list.
     expect(hidden.map((option) => option.displayName)).toEqual([
       "Claude Opus 4.8",
       "Claude Opus 4.7",
@@ -214,22 +214,24 @@ describe("collapseSupersededVersions", () => {
       "Claude Sonnet 4.6",
       "Claude Sonnet 4.5",
       "Claude Opus 4.5",
+      "Claude Haiku 4.5",
     ]);
+    expect(shown.length + hidden.length).toBe(options.length);
   });
 
-  test("always shows a model with no older siblings", () => {
-    const { shown } = collapseSupersededVersions(optionsFor("gemini"));
+  test("spends the three rows on three lines, not three versions of one", () => {
+    // Every OpenAI line's newest member is a 5.6, so the section leads with
+    // those rather than walking down through 5.5 and 5.4.
+    const { shown } = collapseSectionRows(optionsFor("openai"));
     expect(shown.map((option) => option.displayName)).toEqual([
-      "Gemini 3.6 Flash",
-      "Gemini 3.5 Flash-Lite",
-      "Gemini 3.1 Pro Preview",
+      "GPT-5.6 Sol",
+      "GPT-5.6 Terra",
+      "GPT-5.6 Luna",
     ]);
   });
 
-  test("folds nothing when a section holds one member per line", () => {
-    const { shown, hidden } = collapseSupersededVersions(
-      optionsFor("poolside"),
-    );
+  test("folds nothing when a section holds three models or fewer", () => {
+    const { shown, hidden } = collapseSectionRows(optionsFor("poolside"));
     expect(shown).toHaveLength(2);
     expect(hidden).toHaveLength(0);
   });

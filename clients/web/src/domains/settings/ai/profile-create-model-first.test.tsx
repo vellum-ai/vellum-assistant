@@ -232,19 +232,13 @@ function clickModelOption(label: string): void {
   fireEvent.click(option);
 }
 
+/**
+ * Picks a model by name through the query that finds it, which is the one
+ * path that reaches every model: a section offers three and folds the rest.
+ */
 function selectModel(label: string): void {
-  openModelList();
-  const option = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((o) => optionLabel(o) === label);
-  if (!option) {
-    throw new Error(
-      `expected a Model list offering "${label}" - saw ${
-        document.querySelectorAll('[role="option"]').length
-      } rows`,
-    );
-  }
-  fireEvent.click(option);
+  searchModels(label);
+  clickModelOption(label);
 }
 
 function candidateCards(): HTMLElement[] {
@@ -452,38 +446,41 @@ describe("the model list", () => {
     expect(sectionRowLabels("MiniMax")).toContain("MiniMax M3");
   });
 
-  test("folds older versions behind a row that unfolds the section", () => {
+  test("offers three models per section and folds the rest behind See more", () => {
     renderCreate([makeConnection("anthropic-personal")]);
     openModelList();
 
-    expect(sectionRowLabels("Anthropic")).not.toContain("Claude Opus 4.8");
-    expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 5");
-    expect(sectionRowLabels("Anthropic")).toContain("Show older versions (6)");
+    // Three rows and the unfold row, whatever the section holds behind it.
+    expect(sectionRowLabels("Anthropic")).toEqual([
+      "Claude Fable 5",
+      "Claude Opus 5",
+      "Claude Sonnet 5",
+      "See more",
+    ]);
 
-    clickModelOption("Show older versions (6)");
+    clickModelOption("See more");
 
-    // The list stays open on the row that was just acted on, and the older
-    // versions take the place of the row that stood in for them.
+    // The list stays open on the row that was just acted on, and the rest of
+    // the section takes the place of the row that stood in for it.
+    expect(sectionRowLabels("Anthropic")).toContain("Claude Haiku 4.5");
     expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 4.8");
-    expect(sectionRowLabels("Anthropic")).not.toContain(
-      "Show older versions (6)",
-    );
+    expect(sectionRowLabels("Anthropic")).not.toContain("See more");
     // Unfolding is not an answer: no model is chosen by it.
     expect(getSaveBtn().disabled).toBe(true);
   });
 
-  test("a query reaches a folded version and drops the unfold row", () => {
+  test("a query reaches a folded model and drops the unfold row", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
     searchModels("Opus 4.8");
 
     expect(modelOptionLabels()).toContain("Claude Opus 4.8");
-    expect(modelOptionLabels()).not.toContain("Show older versions (6)");
+    expect(modelOptionLabels()).not.toContain("See more");
     // The headings survive a query, so a match is still placed.
     expect(groupHeadings()).toEqual(["Anthropic"]);
   });
 
-  test("a folded version picked from a query is the model chosen", async () => {
+  test("a folded model picked from a query is the model chosen", async () => {
     const saveCalls = renderCreate([makeConnection("anthropic-personal")]);
 
     searchModels("Opus 4.8");

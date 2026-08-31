@@ -366,8 +366,7 @@ const VENDOR_KEYS: ReadonlySet<string> = new Set(
  * can already dispatch into first and the rest of the catalog after.
  *
  * Within a section the models keep the owner's catalog order, so the newest
- * of each line leads and {@link collapseSupersededVersions} can fold the rest
- * away.
+ * of each line leads and {@link collapseSectionRows} can fold the rest away.
  */
 export function resolveModelFirstGroups(
   input: ModelFirstInput,
@@ -438,30 +437,41 @@ export function resolveModelFirstGroups(
 }
 
 /**
- * Split a section into the models it shows and the ones it folds away: the
- * first member of each line stays, its older siblings go behind the section's
- * own "show older versions" row. A model with no line always shows, having
- * nothing newer to stand behind.
+ * How many models a section offers before the rest go behind its own "see
+ * more" row. Three is what a section can show without any one of them
+ * turning the list into a wall of a single vendor's work.
  */
-export function collapseSupersededVersions(
+const SECTION_ROW_LIMIT = 3;
+
+/**
+ * Split a section into the models it shows and the ones it folds away.
+ *
+ * Which three show is a question about lines, not about count: each line
+ * collapses to its newest member first, so a section spends its three rows on
+ * three different models rather than on three versions of one. The rest of the
+ * section follows behind its "see more" row, in catalog order, so revealing it
+ * reads as the section carrying on.
+ */
+export function collapseSectionRows(
   options: readonly ModelFirstOption[],
 ): { shown: ModelFirstOption[]; hidden: ModelFirstOption[] } {
-  const shown: ModelFirstOption[] = [];
-  const hidden: ModelFirstOption[] = [];
+  const leads: ModelFirstOption[] = [];
   const led = new Set<string>();
   for (const option of options) {
-    if (option.family === null) {
-      shown.push(option);
-      continue;
+    if (option.family !== null) {
+      if (led.has(option.family)) {
+        continue;
+      }
+      led.add(option.family);
     }
-    if (led.has(option.family)) {
-      hidden.push(option);
-      continue;
-    }
-    led.add(option.family);
-    shown.push(option);
+    leads.push(option);
   }
-  return { shown, hidden };
+  const shown = leads.slice(0, SECTION_ROW_LIMIT);
+  const shownSet = new Set(shown);
+  return {
+    shown,
+    hidden: options.filter((option) => !shownSet.has(option)),
+  };
 }
 
 /**

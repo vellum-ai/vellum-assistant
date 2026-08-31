@@ -208,10 +208,10 @@ export const CreateModelFirstListOpenShort: Story = {
 };
 
 /**
- * A section with its older versions revealed: the block the unfold row opened
- * is set off by a hairline, and the list stays where the user left it.
+ * A section with the rest of its models revealed: the block the unfold row
+ * opened is set off by a hairline, and the list stays where the user left it.
  */
-export const CreateModelFirstOlderVersions: Story = {
+export const CreateModelFirstSeeMore: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
   play: async () => {
@@ -219,10 +219,10 @@ export const CreateModelFirstOlderVersions: Story = {
       await screen.findByRole("combobox", { name: "Model" }),
     );
     // Scoped to the section: every section that folds anything offers a row
-    // of the same shape, and several fold the same number.
+    // of the same shape, spelled the same way.
     const anthropic = await screen.findByRole("group", { name: "Anthropic" });
     await userEvent.click(
-      within(anthropic).getByRole("option", { name: /Show older versions/ }),
+      within(anthropic).getByRole("option", { name: "See more" }),
     );
     await waitFor(() =>
       expect(

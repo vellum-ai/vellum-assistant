@@ -15,7 +15,7 @@ import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
 import { CHATGPT_CONNECTION_PROVIDER } from "@/domains/settings/ai/constants";
 import {
-  collapseSupersededVersions,
+  collapseSectionRows,
   customModelProviderCandidates,
   defaultProviderCandidate,
   resolveModelFirstGroups,
@@ -38,16 +38,15 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
 
 /**
- * Prefix for the row that unfolds one section's older versions. Namespaced the
+ * Prefix for the row that unfolds the rest of one section. Namespaced the
  * same way, and carrying the section it acts on, so picking it is told apart
  * from picking a model.
  */
-const SHOW_OLDER_PREFIX = "__show-older__:";
+const SEE_MORE_PREFIX = "__see-more__:";
 
 /**
- * Where one model row stands in its section's disclosure: the newest of its
- * line, an older one still folded away, or an older one the section's unfold
- * row has revealed.
+ * Where one model row stands in its section's disclosure: one of the rows the
+ * section offers, one still folded away, or one the unfold row has revealed.
  */
 type ModelRowState = "current" | "folded" | "disclosed";
 
@@ -272,9 +271,9 @@ export function ProfileCreateModelFirst({
       openCandidatesFor({ kind: "custom", modelId: "" });
       return;
     }
-    if (value.startsWith(SHOW_OLDER_PREFIX)) {
+    if (value.startsWith(SEE_MORE_PREFIX)) {
       // Acts on the list rather than answering it, so the draft is untouched.
-      const group = value.slice(SHOW_OLDER_PREFIX.length);
+      const group = value.slice(SEE_MORE_PREFIX.length);
       setUnfoldedGroups((previous) =>
         previous.includes(group) ? previous : [...previous, group],
       );
@@ -333,24 +332,22 @@ export function ProfileCreateModelFirst({
       ),
     });
     for (const group of groups) {
-      const { shown, hidden } = collapseSupersededVersions(group.options);
+      const { shown, hidden } = collapseSectionRows(group.options);
       const unfolded = unfoldedGroups.includes(group.key);
       for (const option of shown) {
         rows.push(modelRow(option, group.label, "current"));
       }
       for (const option of hidden) {
         // Folded away while the list is being browsed, but never hidden from
-        // a query: someone who types a version's name means that version.
+        // a query: someone who types a model's name means that model.
         rows.push(
           modelRow(option, group.label, unfolded ? "disclosed" : "folded"),
         );
       }
       if (hidden.length > 0 && !unfolded) {
         rows.push({
-          value: `${SHOW_OLDER_PREFIX}${group.key}`,
-          label: t("profileCreateModelFirst.showOlderVersions", {
-            count: hidden.length,
-          }),
+          value: `${SEE_MORE_PREFIX}${group.key}`,
+          label: t("profileCreateModelFirst.seeMore"),
           group: group.label,
           listAction: true,
         });

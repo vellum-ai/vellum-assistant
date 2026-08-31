@@ -1440,8 +1440,8 @@
     "modelResultsAnnouncement": "{count, plural, one {# модель доступна} few {# модели доступны} many {# моделей доступно} other {# модели доступно}}. Стрелки вверх и вниз для перехода, Enter для выбора.",
     "providerCountMeta": "{count, plural, one {# провайдер} few {# провайдера} many {# провайдеров} other {# провайдера}}",
     "providerLabel": "Провайдер",
+    "seeMore": "Показать ещё",
     "setUpTag": "Настроить",
-    "showOlderVersions": "{count, plural, one {Показать старую версию (#)} few {Показать старые версии (#)} many {Показать старых версий (#)} other {Показать старые версии (#)}}",
     "signInTag": "Войти",
     "soleProviderHint": "Эту модель обслуживает только {name}."
   },
