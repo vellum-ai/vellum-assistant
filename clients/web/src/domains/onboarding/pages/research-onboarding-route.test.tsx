@@ -141,10 +141,8 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => false,
 }));
 
-const markLockfileOnboardedMock = mock(async (..._args: unknown[]) => {});
 mock.module("@/lib/local-mode", () => ({
   isLocalClient: () => false,
-  markLockfileAssistantOnboarded: markLockfileOnboardedMock,
 }));
 
 // The real module builds its destinations from `routes` at import time, and the
@@ -628,7 +626,6 @@ describe("ResearchOnboardingRoute resume guard", () => {
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalled());
     expect(readOnboardedAt("asst-1")).toBeTruthy();
-    expect(markLockfileOnboardedMock).toHaveBeenCalled();
   });
 
   test("keeping an established assistant stamps it too", async () => {
