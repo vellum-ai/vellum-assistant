@@ -38,6 +38,10 @@ import {
   normalizeImageBytes,
 } from "../../util/image-conversion.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import {
+  getCanonicalRecordingDirectories,
+  isPathWithinDirectory,
+} from "../../util/recording-paths.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -76,27 +80,20 @@ function resolveCanonicalPath(filePath: string): string {
   }
 }
 
-function isPathWithinDirectory(filePath: string, allowedDir: string): boolean {
-  return filePath === allowedDir || filePath.startsWith(allowedDir + sep);
-}
-
 function resolveAllowedAttachmentDirectories(): string[] {
   const workspaceAttachmentsDir = join(
     getWorkspaceDir(),
     "data",
     "attachments",
   );
-  const recordingsDir = join(
-    process.env.HOME ?? "",
-    "Library/Application Support/vellum-assistant/recordings",
-  );
-  return [workspaceAttachmentsDir, recordingsDir].map((dir) => {
+  const workspaceDirs = [workspaceAttachmentsDir].map((dir) => {
     try {
       return realpathSync(dir);
     } catch {
       return resolve(dir);
     }
   });
+  return [...workspaceDirs, ...getCanonicalRecordingDirectories()];
 }
 
 /**

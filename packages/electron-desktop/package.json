@@ -74,6 +74,8 @@
     "./sentry": "./src/sentry.ts",
     "./settings": "./src/settings.ts",
     "./session-token-store": "./src/session-token-store.ts",
+    "./screen-recording": "./src/screen-recording.ts",
+    "./screen-recording-preload": "./src/screen-recording-preload.ts",
     "./status": "./src/status.ts",
     "./status-icon": "./src/status-icon.ts",
     "./text-context-menu": "./src/text-context-menu.ts",

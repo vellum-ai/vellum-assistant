@@ -9,6 +9,7 @@ import { createLocalModeBridge } from "@vellumai/electron-desktop/local-mode-bri
 import {
   createFileOpenPreloadBridge,
 } from "@vellumai/electron-desktop/file-open-preload";
+import { createScreenRecordingPreloadBridge } from "@vellumai/electron-desktop/screen-recording-preload";
 
 import type {
   Lockfile,
@@ -299,6 +300,7 @@ const bridge: VellumBridge = {
     shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
       ipcRenderer.invoke("vellum:share:file", bytes, filename),
   },
+  screenRecording: createScreenRecordingPreloadBridge(ipcRenderer),
   downloads: createDownloadsBridge(ipcRenderer),
   localMode: createLocalModeBridge(ipcRenderer),
   menu: {

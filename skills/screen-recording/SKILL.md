@@ -7,6 +7,7 @@ metadata:
   vellum:
     platforms:
       - macos
+      - windows
     category: "content"
     display-name: "Screen Recording"
 ---
@@ -59,7 +60,7 @@ Recording is managed through dedicated HTTP endpoints (`/v1/recordings/*`) rathe
 
 ### 1. `commandIntent` (structured command) - highest priority
 
-The macOS client can send structured intents with `domain: 'screen_recording'` and `action: 'start' | 'stop' | 'restart' | 'pause' | 'resume'`. These bypass text parsing entirely. The assistant checks for `commandIntent` before any text analysis.
+Desktop clients can send structured intents with `domain: 'screen_recording'` and `action: 'start' | 'stop' | 'restart' | 'pause' | 'resume'`. These bypass text parsing entirely. The assistant checks for `commandIntent` before any text analysis.
 
 ### 2. HTTP endpoints
 
@@ -81,15 +82,15 @@ If no recording intent is detected, the message flows to the classifier and comp
 1. **Do not invoke computer use** for recording-only requests. The assistant handles these directly.
 2. **One recording at a time.** If a recording is already active, starting another returns an "already recording" message.
 3. **Conversation-linked.** Each recording is linked to the conversation that started it for attachment purposes. However, since only one recording can be active at a time, stop commands from any conversation will stop the active recording regardless of which conversation started it.
-4. **Permission required.** Screen recording requires macOS Screen Recording permission. If denied, the user sees actionable guidance to enable it in System Settings.
+4. **Permission required.** macOS requires Screen Recording permission. Windows uses the system source picker, and microphone capture prompts separately when requested. A denied or canceled permission request is reported without creating an attachment.
 5. **Mixed-intent prompts** (recording + other task) are NOT intercepted by the standalone route - the recording action is deferred and executed alongside the task.
 6. **Restart always reopens the source picker** and requires source reselection.
 7. **Restart cancel** (user closes the source picker) leaves state idle - no false "recording started" message.
-8. **Pause/resume toggle the recording** without stopping it. The HUD shows paused state.
+8. **Pause/resume toggle the recording** without stopping it.
 
 ## What This Skill Does NOT Do
 
-- This skill does not contain recorder logic - the `RecordingManager` and `ScreenRecorder` in the macOS app handle the actual recording.
+- This skill does not contain recorder logic - the Electron desktop client handles capture and file creation.
 - This skill does not provide shell commands or scripts for recording.
 - This skill does not fall back to computer use for recording tasks.
 - This skill does not handle informational questions about recording - those flow through to normal AI response.

@@ -58,6 +58,7 @@ import {
   installNotifications,
 } from "@vellumai/electron-desktop/notifications";
 import { installPowerEvents } from "@vellumai/electron-desktop/power-events";
+import { installScreenRecording } from "@vellumai/electron-desktop/screen-recording";
 import { configurePresenceRuntime } from "@vellumai/electron-desktop/presence-runtime";
 import {
   installConnectivityIpc,
@@ -456,6 +457,10 @@ app
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads({ handle });
     installPowerEvents();
+    installScreenRecording({
+      appDataDir: app.getPath("appData"),
+      handle,
+    });
     configureNotifications({
       ipc: { handle },
       ensureVisible: ensureMainWindowVisible,

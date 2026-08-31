@@ -70,6 +70,7 @@ import type {
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  VellumBridge,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -205,6 +206,7 @@ declare global {
       share?: {
         shareFile(bytes: Uint8Array, filename: string): Promise<void>;
       };
+      screenRecording?: VellumBridge["screenRecording"];
       downloads?: {
         onDone(callback: (event: DownloadDoneEvent) => void): () => void;
         reveal(id: string): Promise<void>;

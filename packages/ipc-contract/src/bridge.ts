@@ -78,6 +78,12 @@ export interface LocalUpgradeOptions {
 
 export type ElectronHostOS = "macos" | "windows";
 
+export interface ScreenRecordingSourceOptions {
+  captureScope?: "display" | "window";
+  displayId?: string;
+  windowId?: number;
+}
+
 /**
  * What a pairing step failed on, for callers picking recovery copy. The
  * bridge's name for `@vellumai/service-contracts`'s `PairingFailureReason`,
@@ -285,6 +291,15 @@ export interface VellumBridge {
   };
   share: {
     shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+  };
+  screenRecording: {
+    begin(recordingId: string): Promise<void>;
+    append(recordingId: string, chunk: Uint8Array): Promise<void>;
+    finish(recordingId: string): Promise<{ filePath: string }>;
+    abort(recordingId: string): Promise<void>;
+    resolveSource(
+      options: ScreenRecordingSourceOptions,
+    ): Promise<string | null>;
   };
   downloads: {
     /** Terminal reports for downloads this window initiated. */
@@ -625,6 +640,7 @@ export const VELLUM_BRIDGE_KEYS = [
   "icon",
   "dock",
   "share",
+  "screenRecording",
   "downloads",
   "localMode",
   "menu",

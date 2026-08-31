@@ -10,6 +10,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
+import { captureError } from "@/lib/sentry/capture-error";
+import { handleScreenRecordingEvent } from "@/runtime/screen-recording";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleOpenUrl,
@@ -572,14 +574,20 @@ export function useStreamEventHandler(
         case "show_platform_login":
         case "platform_disconnected":
           break;
-        // Notification-created broadcasts and recording lifecycle
-        // instructions. The web chat handler is a no-op for these — they target
-        // the CLI/desktop clients or are handled elsewhere.
+        // Notification-created broadcasts are handled outside chat. Recording
+        // lifecycle instructions are forwarded to the desktop recorder.
         case "notification_conversation_created":
+          break;
         case "recording_start":
         case "recording_stop":
         case "recording_pause":
         case "recording_resume":
+          void handleScreenRecordingEvent(event).catch((error) => {
+            captureError(error, {
+              context: "screen_recording_lifecycle",
+              tags: { eventType: event.type },
+            });
+          });
           break;
         case "unknown":
           break;

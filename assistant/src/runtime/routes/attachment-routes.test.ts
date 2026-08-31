@@ -19,6 +19,9 @@ const testWorkspaceDir = realpathSync(
 const testHomeDir = realpathSync(
   mkdtempSync(join(tmpdir(), "attachment-routes-home-")),
 );
+const testAppDataDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "attachment-routes-appdata-")),
+);
 
 const attachmentsDir = join(testWorkspaceDir, "data", "attachments");
 const conversationsDir = join(testWorkspaceDir, "conversations");
@@ -26,10 +29,17 @@ const recordingsDir = join(
   testHomeDir,
   "Library/Application Support/vellum-assistant/recordings",
 );
+const windowsRecordingsDir = join(
+  testAppDataDir,
+  "vellum-assistant",
+  "recordings",
+);
 const outsideDir = mkdtempSync(join(tmpdir(), "attachment-routes-outside-"));
 
 const originalHome = process.env.HOME;
+const originalAppData = process.env.APPDATA;
 process.env.HOME = testHomeDir;
+process.env.APPDATA = testAppDataDir;
 
 mock.module("../../util/platform.js", () => ({
   getWorkspaceDir: () => testWorkspaceDir,
@@ -41,12 +51,19 @@ beforeAll(() => {
   mkdirSync(attachmentsDir, { recursive: true });
   mkdirSync(conversationsDir, { recursive: true });
   mkdirSync(recordingsDir, { recursive: true });
+  mkdirSync(windowsRecordingsDir, { recursive: true });
 });
 
 afterAll(() => {
   process.env.HOME = originalHome;
+  if (originalAppData === undefined) {
+    delete process.env.APPDATA;
+  } else {
+    process.env.APPDATA = originalAppData;
+  }
   rmSync(testWorkspaceDir, { recursive: true, force: true });
   rmSync(testHomeDir, { recursive: true, force: true });
+  rmSync(testAppDataDir, { recursive: true, force: true });
   rmSync(outsideDir, { recursive: true, force: true });
 });
 
@@ -62,6 +79,15 @@ describe("resolveAllowedFileBackedAttachmentPath", () => {
 
   test("allows files in recordings directory", () => {
     const recordingFile = join(recordingsDir, "recording.mov");
+    writeFileSync(recordingFile, "ok");
+
+    expect(resolveAllowedFileBackedAttachmentPath(recordingFile)).toBe(
+      recordingFile,
+    );
+  });
+
+  test("allows files in the Windows recordings directory", () => {
+    const recordingFile = join(windowsRecordingsDir, "recording.webm");
     writeFileSync(recordingFile, "ok");
 
     expect(resolveAllowedFileBackedAttachmentPath(recordingFile)).toBe(
