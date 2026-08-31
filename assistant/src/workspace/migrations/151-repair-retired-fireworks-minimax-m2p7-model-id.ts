@@ -12,8 +12,8 @@ import type { WorkspaceMigration } from "./types.js";
  * `accounts/fireworks/models/minimax-m2p7` (2026-08): the model page still
  * claims serverless support, but chat/completions calls fail with a 404
  * "Model not found, inaccessible, and/or not deployed". Existing configs
- * can pin the ID in `llm.default`, `llm.callSites.*`, and `llm.profiles.*`
- * — both from picking it directly and from migration 137, which wrote it
+ * can pin the ID in `llm.default`, `llm.callSites.*`, and `llm.profiles.*`,
+ * both from picking it directly and from migration 137, which wrote it
  * over retired `minimax-m2p5` pins.
  *
  * Repair those leaves only on an exact stale match, replacing with
@@ -22,7 +22,7 @@ import type { WorkspaceMigration } from "./types.js";
  * deliberately avoided m3 because rewriting a hand-edited `custom-*`
  * profile onto the balanced-intent template's model can make it read as
  * unedited to `ensureByokDefaultProfiles`; with no other live MiniMax entry
- * that trade-off is now unavoidable, and it is benign — a copy that reads
+ * that trade-off is now unavoidable, and it is benign: a copy that reads
  * as unedited collapses into the balanced default, which routes to the same
  * model.
  *
