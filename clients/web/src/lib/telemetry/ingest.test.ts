@@ -5,7 +5,8 @@
  * client emitting something the server contract does not permit is
  * indistinguishable from a healthy one unless the drop counts are read. These
  * tests assert that they are read in every build, that a benign drop stays
- * quiet, and that a systemic failure is reported once rather than per flush.
+ * quiet, and that a systemic failure is reported once per condition rather
+ * than per flush or per reason combination.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -83,15 +84,13 @@ describe("postTelemetryEvents", () => {
   });
 
   test("reports an accepted-but-dropped batch, naming the server's reason", async () => {
-    result = ok(1, 0, { check_name_not_allowed_for_session: 1 });
+    result = ok(1, 0, { type_not_allowed_for_session: 1 });
 
     postTelemetryEvents([{ type: "watchdog" }]);
     await flush();
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
-    expect(reportedMessages()[0]).toContain(
-      "check_name_not_allowed_for_session",
-    );
+    expect(reportedMessages()[0]).toContain("type_not_allowed_for_session");
     const opts = captureErrorMock.mock.calls[0]![1] as {
       context: string;
       level?: string;
@@ -140,11 +139,41 @@ describe("postTelemetryEvents", () => {
     postTelemetryEvents([{ type: "turn" }]);
     await flush();
 
-    result = ok(1, 0, { check_name_not_allowed_for_session: 1 });
+    result = ok(1, 0, { unauthenticated: 1 });
     postTelemetryEvents([{ type: "watchdog" }]);
     await flush();
 
     expect(captureErrorMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("dedupes per reason, not per reason combination", async () => {
+    result = ok(2, 0, { type_not_allowed_for_session: 1, unauthenticated: 1 });
+    postTelemetryEvents([{ type: "turn" }, { type: "watchdog" }]);
+    await flush();
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(reportedMessages()[0]).toContain("type_not_allowed_for_session");
+    expect(reportedMessages()[0]).toContain("unauthenticated");
+
+    result = ok(1, 0, { type_not_allowed_for_session: 1 });
+    postTelemetryEvents([{ type: "turn" }]);
+    await flush();
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a known reason arriving beside a new one reports only the new one", async () => {
+    result = ok(1, 0, { type_not_allowed_for_session: 1 });
+    postTelemetryEvents([{ type: "turn" }]);
+    await flush();
+
+    result = ok(2, 0, { type_not_allowed_for_session: 1, unauthenticated: 1 });
+    postTelemetryEvents([{ type: "turn" }, { type: "watchdog" }]);
+    await flush();
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(2);
+    expect(reportedMessages()[1]).toContain("unauthenticated");
+    expect(reportedMessages()[1]).not.toContain("type_not_allowed_for_session");
   });
 
   test("reports a non-2xx response with its status", async () => {
