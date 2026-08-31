@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 export interface BillingSectionHeaderProps {
-  title: string;
-  subtitle?: string;
+  /** Text on every resolved section; a card's skeleton passes a placeholder. */
+  title: ReactNode;
+  subtitle?: ReactNode;
   actions?: ReactNode;
 }
 

@@ -250,6 +250,7 @@
     "disableError": "未能禁用自动充值。请重试。",
     "dismiss": "忽略",
     "loadError": "未能加载自动充值配置。",
+    "loadingLabel": "正在加载自动充值配置",
     "summary": "当余额低于 {threshold} 时，自动充值 {amount}",
     "toggleHelper": "自动充值仅在套餐用量耗尽时发生",
     "toggleLabel": "启用自动充值",
@@ -318,6 +319,7 @@
     "degradedNotice": "待处理费用无法计算。显示的余额可能不完整。",
     "earnCreditsButton": "赚取免费积分",
     "loadError": "加载账单摘要失败。请稍后重试。",
+    "loadingLabel": "正在加载积分余额",
     "lowBalanceToggle": "自定义低余额提醒",
     "noInfo": "无可用账单信息。",
     "subtitle": "达到使用限制后使用的积分",
@@ -928,6 +930,7 @@
     "loadError": "加载发票失败。",
     "loadMore": "加载更多",
     "loadMoreError": "加载更多发票失败。",
+    "loadingLabel": "正在加载发票",
     "retry": "重试",
     "showButton": "显示发票",
     "showLess": "显示更少",
@@ -953,6 +956,7 @@
     "helperText": "未设置时默认为 {amount}",
     "label": "当我的余额低于以下金额时提醒我",
     "loadError": "加载低余额提醒设置失败。",
+    "loadingLabel": "正在加载低余额提醒设置",
     "reset": "重置为默认值",
     "save": "保存",
     "saveError": "保存低余额提醒失败。请重试。"
@@ -1263,6 +1267,7 @@
     "addButton": "添加支付方式",
     "empty": "未保存支付方式。添加一个以使用自动充值。",
     "loadError": "加载支付方式失败。",
+    "loadingLabel": "正在加载支付方式",
     "title": "支付方式"
   },
   "pendingPairingRequests": {
@@ -1281,6 +1286,7 @@
     "freeForever": "永久免费",
     "heading": "套餐",
     "loadError": "加载套餐失败。",
+    "loadingLabel": "正在加载套餐",
     "manageSubscription": "管理订阅",
     "nextPlan": "下一套餐",
     "powerUp": "升级",

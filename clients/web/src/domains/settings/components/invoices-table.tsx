@@ -278,12 +278,12 @@ export function InvoicesTable() {
 
         {!expanded ? null : invoicesQuery.isLoading ? (
           // `py-6` keeps the loading section as tall as the branches it
-          // stands in for. Presentational: the tab's own skeleton stack
-          // carries the label, so this must not announce the wait again.
+          // stands in for.
           <SkeletonLines
             lines={3}
             lineClassName="h-9 rounded-md"
             className="py-6"
+            label={t("invoicesTable.loadingLabel")}
           />
         ) : invoicesQuery.isLoadingError ? (
           <Notice tone="error">{t("invoicesTable.loadError")}</Notice>

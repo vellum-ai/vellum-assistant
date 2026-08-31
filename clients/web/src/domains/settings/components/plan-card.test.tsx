@@ -1550,11 +1550,15 @@ describe("PlanCard loading state", () => {
     expect(row?.className).toContain("lg:flex-row");
   });
 
-  test("leaves the announcement to the surface that mounts it", () => {
-    // The billing tab labels one region around the whole card stack, so a
-    // second live region here would nest inside it.
+  test("announces the wait it is standing in for", () => {
+    // The card loads on its own inside the settled tab, where nothing else
+    // announces the wait. The tab's own skeleton stack mounts this card
+    // without a label and announces the whole stack once instead.
     const host = renderLoadingCardDom();
-    expect(host.querySelector('[role="status"]')).toBeNull();
+    const announced = host.querySelectorAll('[role="status"]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]?.getAttribute("aria-label")).toBe("Loading plan");
+    expect(host.textContent).not.toContain("Loading plan");
   });
 
   test("drops the placeholders once the queries resolve", () => {

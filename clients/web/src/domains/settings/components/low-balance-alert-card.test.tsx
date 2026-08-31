@@ -122,14 +122,16 @@ describe("LowBalanceAlertCard", () => {
     expect(card.textContent).toBe("");
   });
 
-  test("the pending placeholder announces nothing of its own", () => {
-    // Several cards skeleton at once inside the Credits card, so the single
-    // loading announcement lives on the tab-level stack instead.
+  test("the pending placeholder announces the wait it is standing in for", () => {
     const { getByTestId } = renderCard(null);
 
     const card = getByTestId("low-balance-alert-card");
-    expect(card.getAttribute("aria-hidden")).toBe("true");
-    expect(card.querySelector('[role="status"][aria-label]')).toBeNull();
+    expect(card.hasAttribute("aria-hidden")).toBe(false);
+    const announced = card.querySelectorAll('[role="status"]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]?.getAttribute("aria-label")).toBe(
+      "Loading low-balance alert settings",
+    );
   });
 
   test("out-of-bounds input shows an error and does not call the API", () => {

@@ -298,10 +298,12 @@ export function AutoTopUpCard() {
   // error state below.
   if (configQuery.isPending) {
     return (
-      // Presentational: the tab-level skeleton stack owns the single loading
-      // announcement, so this placeholder stays out of the accessibility tree.
-      <div data-testid="auto-top-up-card" aria-hidden>
-        <SkeletonLines lines={2} lineClassName="h-6" />
+      <div data-testid="auto-top-up-card">
+        <SkeletonLines
+          lines={2}
+          lineClassName="h-6"
+          label={t("autoTopUpCard.loadingLabel")}
+        />
       </div>
     );
   }

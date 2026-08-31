@@ -190,9 +190,11 @@ describe("InvoicesTable loading", () => {
 
     fireEvent.click(getByTestId("invoices-toggle"));
 
-    // Presentational: the tab's skeleton stack owns the one labelled loading
-    // region for this surface, so these rows must not announce it again.
-    expect(container.querySelector('[role="status"][aria-label]')).toBeNull();
+    // The table loads on its own inside the settled tab, where nothing else
+    // announces the wait.
+    const announced = container.querySelectorAll('[role="status"]');
+    expect(announced.length).toBe(1);
+    expect(announced[0]?.getAttribute("aria-label")).toBe("Loading invoices");
     const rows = container.querySelectorAll('[data-slot="skeleton"]');
     expect(rows.length).toBe(3);
     // The padding the spinner branch carried, so the section keeps its height.

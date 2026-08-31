@@ -115,8 +115,14 @@ mock.module("@/hooks/use-platform-gate", () => ({
     }
     return platformSessionPending ? "disabled" : "full";
   },
-  usePlatformGateWithPending: () =>
-    platformSessionPending ? "pending" : "full",
+  // The real hook decides `"gated"` without consulting the session, so the
+  // gated case never reports the pre-settle window.
+  usePlatformGateWithPending: () => {
+    if (billingGateGated) {
+      return "gated";
+    }
+    return platformSessionPending ? "pending" : "full";
+  },
   useActiveAssistantIsPlatformHosted: () => activeAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading: () => lifecycleIsLoading,
 }));
@@ -204,7 +210,6 @@ mock.module("@/domains/settings/components/plan-card", () => ({
   PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
     <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
   ),
-  PlanCardSkeleton: () => <div data-testid="plan-card-skeleton" />,
 }));
 
 const { BillingPage } = await import("./billing-page");
@@ -569,11 +574,22 @@ describe("BillingTab lifecycle loading", () => {
     expect(
       stack.querySelectorAll('[data-slot="skeleton"]').length,
     ).toBeGreaterThan(0);
-    // The plan block is the card's own skeleton, not a generic stand-in, so
-    // the stack is as tall as what replaces it.
+    // Every block is the matching card's own exported skeleton, not a generic
+    // stand-in, so the stack is as tall as what replaces it and stacks the
+    // same way below `sm`.
     expect(
       stack.querySelector('[data-testid="plan-card-skeleton"]'),
     ).toBeTruthy();
+    expect(
+      stack.querySelector('[data-testid="payment-methods-card-skeleton"]'),
+    ).toBeTruthy();
+    expect(
+      stack.querySelector('[data-testid="billing-panel-skeleton"]'),
+    ).toBeTruthy();
+    // The stack is the one announced region: the cards it composes are
+    // mounted without labels, so none of them nests a second one inside it.
+    expect(stack.getAttribute("role")).toBe("status");
+    expect(stack.querySelectorAll('[role="status"]').length).toBe(0);
     expect(stack.getAttribute("aria-label")).toBe("Loading billing");
     // The loading copy exists only as the aria-label above, never as visible text.
     expect(queryByText("Loading billing")).toBeNull();
@@ -582,6 +598,22 @@ describe("BillingTab lifecycle loading", () => {
     // never needs the page-level stand-in.
     expect(queryByTestId("billing-page-skeleton")).toBeNull();
     expect(stack.closest('[data-slot="tabs-panel"]')).toBeTruthy();
+  });
+
+  test("stands the credits card in with its own nested row groups", () => {
+    lifecycleIsLoading = true;
+    const { getByTestId } = renderPage();
+
+    // The header the real panel paints from its first frame, so settling only
+    // swaps the body below it.
+    expect(getByTestId("billing-panel-skeleton").textContent).toContain(
+      "Extra Usage Credits",
+    );
+    // Balance tile, then the auto-reload, daily-limit and low-balance rows the
+    // real panel nests inside the card, the last two behind its dividers.
+    const body = getByTestId("billing-panel-skeleton-body");
+    expect(body.children.length).toBe(4);
+    expect(body.querySelectorAll(".border-t").length).toBe(2);
   });
 });
 

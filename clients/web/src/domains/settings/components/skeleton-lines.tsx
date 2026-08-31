@@ -1,14 +1,13 @@
 import { Skeleton, cn } from "@vellumai/design-library";
 
-const DEFAULT_LINE_CLASSES = "w-full rounded-md";
-
 export interface SkeletonLinesProps {
   lines: number;
   lineClassName?: string;
   className?: string;
   /**
-   * Announces the stack as a live region. Leave it off inside a surface that
-   * already labels an outer region, so a screen reader hears one announcement
+   * Announces the stack as a live region. Cards pass it whenever they load on
+   * their own; a surface that already labels an outer region around several
+   * placeholders leaves it off, so a screen reader hears one announcement
    * instead of one per placeholder.
    */
   label?: string;
@@ -34,7 +33,7 @@ export function SkeletonLines({
         <Skeleton
           key={index}
           aria-hidden
-          className={cn(DEFAULT_LINE_CLASSES, lineClassName)}
+          className={cn("w-full rounded-md", lineClassName)}
         />
       ))}
     </div>
