@@ -9,6 +9,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
 import { ContentReveal } from "@/components/content-reveal";
+import { PaymentMethodsActionSlot } from "@/domains/settings/components/payment-methods-action-slot";
 import { PaymentMethodsCardSkeleton } from "@/domains/settings/components/payment-methods-card-skeleton";
 import {
   modalSnapshotFor,
@@ -115,24 +116,6 @@ export function PaymentMethodsCard() {
     });
   }, [outcome, queryClient]);
 
-  // Contents of the always-mounted action slot below: the Add button, or
-  // nothing when a card is already on file.
-  const renderHeaderAction = () => {
-    if (!showAddButton) {
-      return null;
-    }
-    return (
-      <Button
-        variant="outlined"
-        onClick={openPaymentModal}
-        disabled={returnPending}
-        data-testid="payment-methods-add"
-      >
-        {t("paymentMethodsCard.addButton")}
-      </Button>
-    );
-  };
-
   const renderBody = () => {
     if (configQuery.isError || config == null) {
       return <Notice tone="error">{t("paymentMethodsCard.loadError")}</Notice>;
@@ -164,9 +147,8 @@ export function PaymentMethodsCard() {
   return (
     <>
       {configPending ? (
-        // The card's own skeleton, so the tab-level stack and this branch
-        // cannot drift apart. It carries the loading announcement: in the
-        // settled tree no outer region announces this wait.
+        // It carries the loading announcement: in the settled tree no outer
+        // region announces this wait.
         <PaymentMethodsCardSkeleton
           label={t("paymentMethodsCard.loadingLabel")}
         />
@@ -175,17 +157,20 @@ export function PaymentMethodsCard() {
           <BillingSectionHeader
             title={t("paymentMethodsCard.title")}
             actions={
-              // The slot is mounted at button height whether or not it holds
-              // an action, matching the one the skeleton reserves: a slot that
-              // appeared only when it had something to show would take its
-              // whole row back out of the header (about 44px, stacked below
-              // `sm`) as soon as a card-on-file config landed.
-              <div
-                className="flex h-8 items-center"
-                data-testid="payment-methods-action-slot"
-              >
-                {renderHeaderAction()}
-              </div>
+              // The slot holds the Add button, or nothing once a card is on
+              // file; either way it keeps its height.
+              <PaymentMethodsActionSlot>
+                {showAddButton && (
+                  <Button
+                    variant="outlined"
+                    onClick={openPaymentModal}
+                    disabled={returnPending}
+                    data-testid="payment-methods-add"
+                  >
+                    {t("paymentMethodsCard.addButton")}
+                  </Button>
+                )}
+              </PaymentMethodsActionSlot>
             }
           />
 

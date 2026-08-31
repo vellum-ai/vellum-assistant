@@ -6,7 +6,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AddCreditsModal } from "@/components/add-credits-modal";
 import { ContentReveal } from "@/components/content-reveal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
-import { BillingPanelSkeleton } from "@/domains/settings/components/billing-panel-skeleton";
+import { BillingPanelBalanceSkeleton } from "@/domains/settings/components/billing-panel-balance-skeleton";
+import { BillingPanelHeader } from "@/domains/settings/components/billing-panel-header";
+import { BillingPanelRowGroup } from "@/domains/settings/components/billing-panel-row-group";
 import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
@@ -20,7 +22,6 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { useTranslation } from "@/i18n";
-import { BillingSectionHeader } from "./billing-section-header";
 import {
   DAILY_CREDIT_LIMIT_ANCHOR_ID,
   DailyCreditLimitCard,
@@ -112,9 +113,7 @@ export function BillingPanel() {
   ]);
 
   const creditsHeader = (
-    <BillingSectionHeader
-      title={t("billingPanel.title")}
-      subtitle={t("billingPanel.subtitle")}
+    <BillingPanelHeader
       actions={
         <>
           <Button
@@ -128,7 +127,7 @@ export function BillingPanel() {
           <Button
             variant="primary"
             onClick={() => setAddCreditsOpen(true)}
-            disabled={!summary}
+            disabled={isLoading || !summary}
             data-testid="add-credits-button"
           >
             {t("billingPanel.addCreditsButton")}
@@ -167,6 +166,14 @@ export function BillingPanel() {
   };
 
   const renderBalanceBody = (): ReactNode => {
+    // Only the balance swaps to a placeholder: the header, the nested cards and
+    // the daily-limit anchor stay mounted, so those cards' own queries start
+    // alongside this one instead of behind it.
+    if (isLoading) {
+      return (
+        <BillingPanelBalanceSkeleton label={t("billingPanel.loadingLabel")} />
+      );
+    }
     if (isError) {
       return (
         <div className="mt-4">
@@ -195,36 +202,29 @@ export function BillingPanel() {
 
   return (
     <>
-      {isLoading ? (
-        // The panel's own skeleton, so the tab-level stack and this branch
-        // cannot drift apart. It carries the loading announcement: in the
-        // settled tree no outer region announces this wait.
-        <BillingPanelSkeleton label={t("billingPanel.loadingLabel")} />
-      ) : (
-        <Card padding="md">
-          {creditsHeader}
-          {renderBalanceBody()}
-          <div className="mt-6">
-            <AutoTopUpCard />
+      <Card padding="md">
+        {creditsHeader}
+        {renderBalanceBody()}
+        <div className="mt-6">
+          <AutoTopUpCard />
+        </div>
+        <BillingPanelRowGroup
+          id={DAILY_CREDIT_LIMIT_ANCHOR_ID}
+          className="scroll-mt-4"
+        >
+          <DailyCreditLimitCard />
+        </BillingPanelRowGroup>
+        <BillingPanelRowGroup>
+          <div className="flex flex-col gap-4">
+            <Toggle
+              checked={lowBalanceExpanded}
+              onChange={setLowBalanceExpanded}
+              label={t("billingPanel.lowBalanceToggle")}
+            />
+            {lowBalanceExpanded && <LowBalanceAlertCard />}
           </div>
-          <div
-            id={DAILY_CREDIT_LIMIT_ANCHOR_ID}
-            className="mt-6 scroll-mt-4 border-t border-[var(--border-subtle)] pt-6"
-          >
-            <DailyCreditLimitCard />
-          </div>
-          <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
-            <div className="flex flex-col gap-4">
-              <Toggle
-                checked={lowBalanceExpanded}
-                onChange={setLowBalanceExpanded}
-                label={t("billingPanel.lowBalanceToggle")}
-              />
-              {lowBalanceExpanded && <LowBalanceAlertCard />}
-            </div>
-          </div>
-        </Card>
-      )}
+        </BillingPanelRowGroup>
+      </Card>
 
       <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
       <ReferralModal open={referralOpen} onOpenChange={setReferralOpen} />

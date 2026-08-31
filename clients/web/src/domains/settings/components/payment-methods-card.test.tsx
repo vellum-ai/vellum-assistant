@@ -361,23 +361,22 @@ describe("PaymentMethodsCard org readiness", () => {
 });
 
 describe("PaymentMethodsCard loading skeleton", () => {
-  test("mirrors the card row and reserves the header action slot while pending", () => {
+  test("mounts the card's own skeleton, labeled, while the config is pending", () => {
     holdRetrieve();
     const { container } = render(wrap());
 
-    // The card loads on its own inside the settled tab, where nothing else
-    // announces the wait. The tab's own skeleton stack mounts it without a
-    // label and announces the whole stack once instead.
+    // Geometry is the skeleton's own contract; what belongs here is that this
+    // card reaches for it and labels it. The card loads on its own inside the
+    // settled tab, where nothing else announces the wait; the tab's skeleton
+    // stack mounts it without a label and announces the stack once instead.
+    expect(
+      container.querySelector('[data-testid="payment-methods-card-skeleton"]'),
+    ).not.toBeNull();
     const announced = container.querySelectorAll('[role="status"]');
     expect(announced.length).toBe(1);
     expect(announced[0]?.getAttribute("aria-label")).toBe(
       "Loading payment method",
     );
-    // The title and action placeholders plus the one card-row line.
-    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
-    expect(
-      container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
-    ).not.toBeNull();
     expect(
       container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();
@@ -392,10 +391,6 @@ describe("PaymentMethodsCard loading skeleton", () => {
     const client = makeClient();
     const { container } = render(wrapWith(client));
 
-    const slot = container.querySelector(
-      '[data-testid="payment-methods-action-slot"]',
-    );
-    expect(slot?.className).toContain("h-8");
     expect(
       container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
     ).not.toBeNull();
@@ -411,13 +406,11 @@ describe("PaymentMethodsCard loading skeleton", () => {
       }
     });
     // The skeleton hands the slot over to the resolved header, which keeps it
-    // button-tall while holding nothing.
+    // mounted while holding nothing.
     const resolvedSlot = container.querySelector(
       '[data-testid="payment-methods-action-slot"]',
     );
     expect(resolvedSlot).not.toBeNull();
-    expect(resolvedSlot?.className).toBe(slot?.className);
-    expect(resolvedSlot?.className).toContain("h-8");
     expect(resolvedSlot?.children.length).toBe(0);
     expect(
       container.querySelector('[data-testid="payment-methods-add"]'),

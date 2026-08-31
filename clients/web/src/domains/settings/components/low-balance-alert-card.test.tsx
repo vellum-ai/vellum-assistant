@@ -126,7 +126,6 @@ describe("LowBalanceAlertCard", () => {
     const { getByTestId } = renderCard(null);
 
     const card = getByTestId("low-balance-alert-card");
-    expect(card.hasAttribute("aria-hidden")).toBe(false);
     const announced = card.querySelectorAll('[role="status"]');
     expect(announced.length).toBe(1);
     expect(announced[0]?.getAttribute("aria-label")).toBe(

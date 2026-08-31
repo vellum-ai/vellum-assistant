@@ -60,6 +60,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { ContentReveal } from "@/components/content-reveal";
 import { PlanCardSkeleton } from "@/domains/settings/components/plan-card-skeleton";
 import { PlanHeading } from "@/domains/settings/components/plan-heading";
+import { PlanTileRow } from "@/domains/settings/components/plan-tile-row";
 import {
   formatDollars,
   priceLabelFromCents,
@@ -566,7 +567,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
               : t("planCard.manageSubscription")}
           </Button>
         </div>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+        <PlanTileRow>
           <PlanTile
             testId="plan-tile-current"
             tierKey={currentTier}
@@ -588,7 +589,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             onManage={onManage}
             onTierUpgraded={onTierUpgraded}
           />
-        </div>
+        </PlanTileRow>
       </ContentReveal>
       <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
     </Card>

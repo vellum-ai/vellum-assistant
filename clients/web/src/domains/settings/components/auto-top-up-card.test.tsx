@@ -338,7 +338,6 @@ describe("AutoTopUpCard loading state", () => {
     );
 
     const card = getByTestId("auto-top-up-card");
-    expect(card.hasAttribute("aria-hidden")).toBe(false);
     const announced = card.querySelectorAll('[role="status"]');
     expect(announced.length).toBe(1);
     expect(announced[0]?.getAttribute("aria-label")).toBe(

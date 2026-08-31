@@ -22,6 +22,15 @@ describe("PaymentMethodsCardSkeleton", () => {
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
   });
 
+  test("stands the title in with phrasing content the heading can hold", () => {
+    const { container } = render(<PaymentMethodsCardSkeleton />);
+
+    const title = container.querySelector('h2 > [data-slot="skeleton"]');
+    expect(title?.tagName).toBe("SPAN");
+    // The 20px line the resolved title renders at.
+    expect(title?.className).toContain("h-5");
+  });
+
   test("announces only when it is given a label", () => {
     const { container, rerender } = render(<PaymentMethodsCardSkeleton />);
     expect(container.querySelector('[role="status"]')).toBeNull();
