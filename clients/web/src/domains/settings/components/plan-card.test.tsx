@@ -1539,6 +1539,17 @@ describe("PlanCard loading state", () => {
     expect(host.textContent).not.toContain("Loading plan");
   });
 
+  test("stacks the tile placeholders the way the resolved tiles stack", () => {
+    const host = renderLoadingCardDom();
+    const tiles = Array.from(
+      host.querySelectorAll('[data-slot="skeleton"]'),
+    ).slice(-2);
+    const row = tiles[0]?.parentElement;
+    expect(tiles[1]?.parentElement).toBe(row);
+    expect(row?.className).toContain("flex-col");
+    expect(row?.className).toContain("lg:flex-row");
+  });
+
   test("announces the placeholder region", () => {
     const status = renderLoadingCardDom().querySelector('[role="status"]');
     expect(status?.getAttribute("aria-label")).toBe("Loading plan");

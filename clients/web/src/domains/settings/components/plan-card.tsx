@@ -111,9 +111,12 @@ function PlanCardSkeleton() {
           <Skeleton aria-hidden className="h-4 w-56 rounded-md" />
         </div>
         <Skeleton aria-hidden className="h-3 w-full rounded-full" />
-        <div className="grid grid-cols-2 gap-4">
-          <Skeleton aria-hidden className="h-24 rounded-lg" />
-          <Skeleton aria-hidden className="h-24 rounded-lg" />
+        {/* Same container as the resolved tile row, so the placeholders stack
+            below `lg` exactly as the tiles do. The height is a real tile's:
+            tag, avatar row, three spec chips and a footer row. */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+          <Skeleton aria-hidden className="h-84 rounded-xl lg:flex-1" />
+          <Skeleton aria-hidden className="h-84 rounded-xl lg:flex-1" />
         </div>
       </div>
     </Card>
