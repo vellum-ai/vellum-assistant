@@ -20832,6 +20832,27 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        reaction:
+                          type: object
+                          properties:
+                            emoji:
+                              type: string
+                            op:
+                              type: string
+                              enum:
+                                - added
+                                - removed
+                            targetMessageId:
+                              type: string
+                            actorDisplayName:
+                              type: string
+                            selfAuthored:
+                              type: boolean
+                          required:
+                            - emoji
+                            - op
+                            - targetMessageId
+                          additionalProperties: false
                         providerError:
                           type: object
                           properties:

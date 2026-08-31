@@ -8,9 +8,14 @@
  * renders regardless of when it was written and no formatting is frozen
  * into persistence.
  *
- * The actor's display name and the quoted target are sender-authored, so
- * the rendered line is fenced as untrusted content the same way channel
- * message text is fenced at ingress (`inbound-content-prep.ts`).
+ * Two authorship contracts share the renderer. An inbound row (role user)
+ * is sender activity: the actor's display name and the quoted target are
+ * sender-authored, so the whole line is fenced as untrusted content the
+ * same way channel text is fenced at ingress (`inbound-content-prep.ts`).
+ * A self-authored row (role assistant, written by the react tool) renders
+ * second-person with the verb unfenced, but the quoted target stays
+ * fenced: the emoji and act are the model's own output, the text it
+ * reacted to is not.
  *
  * Serves consumers of `Conversation.loadFromDb` history. Slack channel
  * turns build their provider history from rows instead and render
@@ -83,9 +88,16 @@ export function renderReactionHistoryText(
       op === "removed"
         ? `removed your ${formatEmoji(emoji)} reaction from`
         : `reacted with ${formatEmoji(emoji)} to`;
-    return snippet
-      ? `You ${verb} the message "${snippet}"`
-      : `You ${verb} an earlier message`;
+    if (!snippet) {
+      return `You ${verb} an earlier message`;
+    }
+    // The quoted target is sender-authored text entering an assistant-role
+    // message; unfenced it would replay as trusted content, so a sender
+    // could plant instructions and induce a reaction to launder them.
+    const fencedSnippet = wrapUntrustedContent(snippet, {
+      source: meta.source === "slack" ? "slack" : "webhook",
+    });
+    return `You ${verb} this message: ${fencedSnippet}`;
   }
 
   const actor = meta.reaction.actorDisplayName ?? meta.displayName ?? "Someone";

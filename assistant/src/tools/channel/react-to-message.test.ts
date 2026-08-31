@@ -15,31 +15,32 @@ mock.module("../../messaging/providers/index.js", () => ({
   },
 }));
 
-let persisted: Array<{
-  conversationId: string;
-  role: string;
-  content: string;
-  metadata: Record<string, unknown> | undefined;
-}> = [];
-const actualCrud = await import("../../persistence/conversation-crud.js");
-mock.module("../../persistence/conversation-crud.js", () => ({
-  ...actualCrud,
-  addMessage: async (
-    conversationId: string,
-    role: string,
-    content: string,
-    opts?: { metadata?: Record<string, unknown> },
-  ) => {
-    persisted.push({ conversationId, role, content, metadata: opts?.metadata });
-    return { id: `persisted-${persisted.length}` };
-  },
+import type { QueuedReactionRecord } from "../../daemon/reaction-record.js";
+
+let queued: Array<{ conversationId: string; record: QueuedReactionRecord }> =
+  [];
+let conversationResident = true;
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: (id: string) =>
+    conversationResident
+      ? {
+          queueReactionRecord: (record: QueuedReactionRecord) =>
+            queued.push({ conversationId: id, record }),
+        }
+      : undefined,
 }));
 
-let staleMarked: string[] = [];
-mock.module("../../daemon/conversation-registry.js", () => ({
-  findConversation: (id: string) => ({
-    markHistoryStale: () => staleMarked.push(id),
-  }),
+let directPersists: Array<{
+  conversationId: string;
+  records: readonly QueuedReactionRecord[];
+}> = [];
+mock.module("../../daemon/reaction-record.js", () => ({
+  persistReactionRecords: async (
+    conversationId: string,
+    records: readonly QueuedReactionRecord[],
+  ) => {
+    directPersists.push({ conversationId, records });
+  },
 }));
 
 const { reactToMessageTool } = await import("./react-to-message.js");
@@ -61,8 +62,9 @@ describe("react_to_message", () => {
     reactCalls = [];
     reactResultOk = true;
     channelSupported = true;
-    persisted = [];
-    staleMarked = [];
+    queued = [];
+    directPersists = [];
+    conversationResident = true;
   });
 
   test("reacts to the triggering message by default", async () => {
@@ -143,47 +145,44 @@ describe("react_to_message", () => {
     expect(result.isError).toBe(true);
   });
 
-  test("a delivered reaction persists as a standalone reaction row", async () => {
+  test("a delivered reaction queues its durable record on the conversation", async () => {
     await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
-    expect(persisted).toHaveLength(1);
-    const row = persisted[0]!;
-    expect(row.conversationId).toBe("conv-1");
-    expect(row.role).toBe("assistant");
-    expect(row.content).toBe("[reaction]");
-    expect(row.metadata?.messageKind).toBe("reaction");
-    expect(row.metadata?.provenanceTrustClass).toBe("guardian");
-    expect(row.metadata?.provenanceSourceChannel).toBe("slack");
-    const envelope = JSON.parse(String(row.metadata?.providerMeta)) as {
-      source: string;
-      eventKind: string;
-      reaction: { targetMessageId: string; emoji: string; op: string };
-    };
-    expect(envelope.source).toBe("slack");
-    expect(envelope.eventKind).toBe("reaction");
-    expect(envelope.reaction).toEqual({
-      targetMessageId: "1700000000.111111",
-      emoji: "thumbsup",
-      op: "added",
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toEqual({
+      conversationId: "conv-1",
+      record: {
+        channel: "slack",
+        chatId: "C123",
+        messageId: "1700000000.111111",
+        emoji: "thumbsup",
+        op: "added",
+        provenanceTrustClass: "guardian",
+      },
     });
-    expect(staleMarked).toEqual(["conv-1"]);
+    expect(directPersists).toHaveLength(0);
   });
 
-  test("a removed reaction persists op removed", async () => {
+  test("a removed reaction queues op removed", async () => {
     await reactToMessageTool.execute(
       { emoji: "thumbsup", action: "remove" },
       channelContext(),
     );
-    const envelope = JSON.parse(
-      String(persisted[0]?.metadata?.providerMeta),
-    ) as { reaction: { op: string } };
-    expect(envelope.reaction.op).toBe("removed");
+    expect(queued[0]?.record.op).toBe("removed");
   });
 
-  test("a rejected reaction persists nothing", async () => {
+  test("with no resident conversation the record persists directly", async () => {
+    conversationResident = false;
+    await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
+    expect(queued).toHaveLength(0);
+    expect(directPersists).toHaveLength(1);
+    expect(directPersists[0]?.records[0]?.emoji).toBe("thumbsup");
+  });
+
+  test("a rejected reaction records nothing", async () => {
     reactResultOk = false;
     await reactToMessageTool.execute({ emoji: "thumbsup" }, channelContext());
-    expect(persisted).toHaveLength(0);
-    expect(staleMarked).toHaveLength(0);
+    expect(queued).toHaveLength(0);
+    expect(directPersists).toHaveLength(0);
   });
 
   test("rejects input with no emoji", async () => {

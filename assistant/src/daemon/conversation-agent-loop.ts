@@ -137,6 +137,7 @@ import {
   unregisterInflightTurn,
 } from "./inflight-turn-registry.js";
 import type { UsageStats } from "./message-protocol.js";
+import { persistReactionRecords } from "./reaction-record.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
@@ -1577,6 +1578,16 @@ export async function runAgentLoopImpl(
     // assistant message. Testing only the tail keeps the synthetic error row
     // below reachable for mid-turn failures, which is the only durable record
     // of why the turn stopped.
+    // Reactions the turn delivered get their durable rows now, after the
+    // turn's own rows are settled, so they never land inside a
+    // tool_use/tool_result pair. The resident history misses them until the
+    // next reload, so the conversation is stale-marked.
+    if (ctx.pendingReactionRecords.length > 0) {
+      const queuedReactions = ctx.pendingReactionRecords.splice(0);
+      await persistReactionRecords(ctx.conversationId, queuedReactions);
+      ctx.markHistoryStale();
+    }
+
     const hasAssistantResponse =
       newMessages[newMessages.length - 1]?.role === "assistant";
     // A reply that is nothing but the `<no_response/>` sentinel is deliberate

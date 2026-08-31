@@ -189,6 +189,9 @@ export function mapRuntimeToDisplayMessage(
   if (m.noResponse) {
     msg.isNoResponse = true;
   }
+  if (m.reaction) {
+    msg.reaction = m.reaction;
+  }
   if (m.providerError) {
     msg.providerError = {
       code: m.providerError.code,

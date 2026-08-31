@@ -613,6 +613,20 @@ export const ConversationMessageSchema = z.object({
    *  sentinel text, and treat the row as the turn's reply so nothing keeps
    *  waiting for one. */
   noResponse: z.boolean().optional(),
+  /** Present on a reaction row, either direction: an inbound reaction the
+   *  daemon persisted, or the assistant's own (`selfAuthored`). Clients
+   *  render a reaction line from this instead of the row's stored sentinel
+   *  text. Slack rows additionally carry their own `slackMessage` envelope,
+   *  which Slack-aware renderers may prefer. */
+  reaction: z
+    .object({
+      emoji: z.string(),
+      op: z.enum(["added", "removed"]),
+      targetMessageId: z.string(),
+      actorDisplayName: z.string().optional(),
+      selfAuthored: z.boolean().optional(),
+    })
+    .optional(),
   /** Present when this assistant row is a daemon-persisted provider-failure
    *  notice (`metadata.messageKind === "provider_error"`); clients may render
    *  a themed card instead of a persona bubble. `code` is the stable

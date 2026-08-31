@@ -97,6 +97,7 @@ import {
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { readProviderMetadata } from "../../messaging/read-provider-metadata.js";
 import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.js";
 import {
   classifyKind,
@@ -998,6 +999,7 @@ export async function handleListMessages({
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
     let noResponse: boolean | undefined;
+    let reaction: ConversationMessage["reaction"];
     let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
@@ -1012,6 +1014,22 @@ export async function handleListMessages({
         }
         if (isNoResponseMetadata(meta)) {
           noResponse = true;
+        }
+        // A reaction row, either direction, projects its structured fact so
+        // clients never render the stored "[reaction]" sentinel.
+        if (msg.metadata.includes("reaction")) {
+          const reactionMeta = readProviderMetadata(msg.metadata);
+          if (reactionMeta?.eventKind === "reaction" && reactionMeta.reaction) {
+            reaction = {
+              emoji: reactionMeta.reaction.emoji,
+              op: reactionMeta.reaction.op,
+              targetMessageId: reactionMeta.reaction.targetMessageId,
+              ...(reactionMeta.reaction.actorDisplayName
+                ? { actorDisplayName: reactionMeta.reaction.actorDisplayName }
+                : {}),
+              ...(msg.role === "assistant" ? { selfAuthored: true } : {}),
+            };
+          }
         }
         // Daemon-persisted provider-failure notices carry the classified
         // error code/category so clients can render a themed card instead
@@ -1066,6 +1084,7 @@ export async function handleListMessages({
       backgroundToolCompletion,
       systemCard,
       noResponse,
+      reaction,
       providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -1275,6 +1294,7 @@ export async function handleListMessages({
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
         ...(m.noResponse ? { noResponse: true } : {}),
+        ...(m.reaction ? { reaction: m.reaction } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
       };

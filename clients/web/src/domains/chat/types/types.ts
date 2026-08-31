@@ -167,6 +167,15 @@ export interface DisplayMessage {
    *  Mirrors `ConversationMessage["noResponse"]`; renders as a quiet marker
    *  and counts as the turn's reply. */
   isNoResponse?: boolean;
+  /** Reaction row, either direction. Mirrors `ConversationMessage["reaction"]`;
+   *  renders as a reaction line, never the stored sentinel text. */
+  reaction?: {
+    emoji: string;
+    op: "added" | "removed";
+    targetMessageId: string;
+    actorDisplayName?: string;
+    selfAuthored?: boolean;
+  };
   /** Provider-failure notice metadata, carried from the wire
    *  `ConversationMessage["providerError"]`. `code` is the stable classified
    *  error code (e.g. `"PROVIDER_BILLING"`), `category` the classified

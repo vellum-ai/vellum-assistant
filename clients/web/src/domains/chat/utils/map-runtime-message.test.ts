@@ -184,6 +184,25 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isNoResponse).toBe(true);
   });
 
+  test("carries the reaction fact onto the display message", () => {
+    const m = makeMessage({
+      id: "m-react",
+      role: "assistant",
+      reaction: {
+        emoji: "🎉",
+        op: "added",
+        targetMessageId: "555.1",
+        selfAuthored: true,
+      },
+    });
+    expect(mapRuntimeToDisplayMessage(m).reaction).toEqual({
+      emoji: "🎉",
+      op: "added",
+      targetMessageId: "555.1",
+      selfAuthored: true,
+    });
+  });
+
   test("carries providerError code and category onto the display message", () => {
     const plain = makeMessage({ id: "m-plain", role: "assistant" });
     expect(mapRuntimeToDisplayMessage(plain).providerError).toBeUndefined();

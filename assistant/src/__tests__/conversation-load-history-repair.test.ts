@@ -697,10 +697,11 @@ describe("loadFromDb history repair", () => {
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
     expect(allText).not.toContain("[reaction]");
-    expect(allText).toContain(
-      'You reacted with 🎉 to the message "great work"',
-    );
-    expect(allText).not.toContain("<external_content");
+    expect(allText).toContain("You reacted with 🎉 to this message:");
+    // The quoted target is sender text and stays fenced even in the
+    // assistant's own row.
+    expect(allText).toContain("great work");
+    expect(allText).toContain("<external_content");
   });
 
   test("a reaction row does not count as a turn on rehydration", async () => {
