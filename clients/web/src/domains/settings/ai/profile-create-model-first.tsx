@@ -294,7 +294,7 @@ export function ProfileCreateModelFirst({
     });
     for (const group of groups) {
       const { shown, hidden } = collapseSupersededVersions(group.options);
-      const unfolded = unfoldedGroups.includes(group.provider);
+      const unfolded = unfoldedGroups.includes(group.key);
       for (const option of shown) {
         rows.push(modelRow(option, group.label, false));
       }
@@ -305,7 +305,7 @@ export function ProfileCreateModelFirst({
       }
       if (hidden.length > 0 && !unfolded) {
         rows.push({
-          value: `${SHOW_OLDER_PREFIX}${group.provider}`,
+          value: `${SHOW_OLDER_PREFIX}${group.key}`,
           label: t("profileCreateModelFirst.showOlderVersions", {
             count: hidden.length,
           }),

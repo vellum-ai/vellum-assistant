@@ -192,9 +192,24 @@ function modelOptionLabels(): string[] {
 function groupHeadings(): string[] {
   return Array.from(
     document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
-  ).map((group) =>
-    (group.firstElementChild?.textContent ?? "").trim(),
+  ).map((group) => (group.firstElementChild?.textContent ?? "").trim());
+}
+
+/** Row labels inside one section, which is where a label is unambiguous. */
+function sectionRowLabels(heading: string): string[] {
+  const section = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="combobox-group"]'),
+  ).find(
+    (group) => (group.firstElementChild?.textContent ?? "").trim() === heading,
   );
+  if (!section) {
+    throw new Error(
+      `expected a "${heading}" section - saw ${groupHeadings().join(", ")}`,
+    );
+  }
+  return Array.from(
+    section.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).map(optionLabel);
 }
 
 /** Type into the model field, which is the list's own search box. */
@@ -418,30 +433,48 @@ describe("the model list", () => {
     );
   });
 
-  test("files models under the provider that owns them, connected first", () => {
+  test("files models under whoever made them, reachable sections first", () => {
     renderCreate([makeConnection("gemini-key", "gemini")]);
     openModelList();
 
     const headings = groupHeadings();
     expect(headings.slice(0, 2)).toEqual(["Google Gemini", "Anthropic"]);
-    // Together hosts models but owns none, so it never becomes a heading.
+    // Grok is xAI's work, whichever gateway happens to serve it, and no
+    // gateway names a section of its own.
+    expect(headings).toContain("xAI");
+    expect(sectionRowLabels("xAI")).toContain("Grok 4.6");
+    expect(headings).not.toContain("OpenRouter");
+    expect(headings).not.toContain("Fireworks");
     expect(headings).not.toContain("Together AI");
+  });
+
+  test("draws one section for a vendor several providers serve", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+    openModelList();
+
+    expect(
+      groupHeadings().filter((heading) => heading === "MiniMax"),
+    ).toHaveLength(1);
+    // Fireworks lists the newest MiniMax and OpenRouter the older ones.
+    expect(sectionRowLabels("MiniMax")).toContain("MiniMax M3");
   });
 
   test("folds older versions behind a row that unfolds the section", () => {
     renderCreate([makeConnection("anthropic-personal")]);
     openModelList();
 
-    expect(modelOptionLabels()).not.toContain("Claude Opus 4.8");
-    expect(modelOptionLabels()).toContain("Claude Opus 5");
-    expect(modelOptionLabels()).toContain("Show older versions (6)");
+    expect(sectionRowLabels("Anthropic")).not.toContain("Claude Opus 4.8");
+    expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 5");
+    expect(sectionRowLabels("Anthropic")).toContain("Show older versions (6)");
 
     clickModelOption("Show older versions (6)");
 
     // The list stays open on the row that was just acted on, and the older
     // versions take the place of the row that stood in for them.
-    expect(modelOptionLabels()).toContain("Claude Opus 4.8");
-    expect(modelOptionLabels()).not.toContain("Show older versions (6)");
+    expect(sectionRowLabels("Anthropic")).toContain("Claude Opus 4.8");
+    expect(sectionRowLabels("Anthropic")).not.toContain(
+      "Show older versions (6)",
+    );
     // Unfolding is not an answer: no model is chosen by it.
     expect(getSaveBtn().disabled).toBe(true);
   });

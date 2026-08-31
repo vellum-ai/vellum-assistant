@@ -22,6 +22,7 @@
 import {
   getVisibleModelsForProvider,
   MODELS_BY_PROVIDER,
+  vendorDisplayName,
   type LlmCatalogModel,
 } from "@/assistant/llm-model-catalog";
 import {
@@ -71,12 +72,16 @@ export interface ModelFirstOption {
   /** Cross-provider identity of the model, and the picker's option value. */
   readonly displayName: string;
   /**
-   * The provider the model is filed under: the first in catalog order that
-   * lists it. For a model several providers host this is the one that made
-   * it available first, which for a first-party model is its vendor and for
-   * an open-weights model is whichever host the catalog lists first.
+   * The provider that lists the model first in catalog order. It decides
+   * where the model sorts, and names its section when no vendor does.
    */
   readonly owner: ConnectionProvider;
+  /**
+   * The organisation that made the model, when that is not the provider
+   * listing it. This is what names the model's section, so Grok is filed
+   * under xAI rather than under whichever gateway happens to serve it.
+   */
+  readonly vendor: string | null;
   /** The model line this belongs to, or null when it has no older siblings. */
   readonly family: string | null;
   /** Every route that can serve it, connected ones first. */
@@ -206,6 +211,7 @@ function selectableKinds(input: ModelFirstInput): CandidateKinds {
 
 interface CatalogEntry {
   readonly owner: ConnectionProvider;
+  readonly vendor: string | null;
   readonly family: string | null;
   /** Position within the owner's own catalog, which is authored newest first. */
   readonly rank: number;
@@ -227,6 +233,7 @@ const CATALOG_INDEX: ReadonlyMap<string, CatalogEntry> = (() => {
       }
       index.set(model.displayName, {
         owner: provider as ConnectionProvider,
+        vendor: model.vendor ?? null,
         family: model.family ?? null,
         rank,
       });
@@ -325,6 +332,7 @@ export function resolveModelFirstOptions(
     return {
       displayName,
       owner: entry?.owner ?? first?.provider ?? OPENAI_COMPATIBLE_PROVIDER,
+      vendor: entry?.vendor ?? null,
       family: entry?.family ?? null,
       candidates,
       providerCount: providerKinds.size,
@@ -334,17 +342,28 @@ export function resolveModelFirstOptions(
 }
 
 export interface ModelFirstGroup {
-  /** The provider the section is named for. */
-  readonly provider: ConnectionProvider;
+  /**
+   * Identity of the section: the vendor slug when the catalog names who made
+   * the models, and the owning provider when it does not. Two providers that
+   * list the same vendor's work share one section under this key.
+   */
+  readonly key: string;
   readonly label: string;
-  /** The section's models, in the owner's own catalog order. */
+  /** The section's models, in catalog order. */
   readonly options: readonly ModelFirstOption[];
 }
 
+/** Every vendor slug the catalog uses, for telling one from a provider id. */
+const VENDOR_KEYS: ReadonlySet<string> = new Set(
+  [...CATALOG_INDEX.values()]
+    .map((entry) => entry.vendor)
+    .filter((vendor): vendor is string => vendor !== null),
+);
+
 /**
  * The model list as sections, which is how a list this long stays readable:
- * one heading per owning provider, the sections the user's own connections
- * reach first and the rest of the catalog after.
+ * one heading per organisation that made the models, the sections the user
+ * can already dispatch into first and the rest of the catalog after.
  *
  * Within a section the models keep the owner's catalog order, so the newest
  * of each line leads and {@link collapseSupersededVersions} can fold the rest
@@ -354,48 +373,68 @@ export function resolveModelFirstGroups(
   input: ModelFirstInput,
 ): ModelFirstGroup[] {
   const options = resolveModelFirstOptions(input);
-  const byOwner = new Map<ConnectionProvider, ModelFirstOption[]>();
+  const byKey = new Map<string, ModelFirstOption[]>();
+  const appearance: string[] = [];
   for (const option of options) {
-    const existing = byOwner.get(option.owner);
+    const key = option.vendor ?? option.owner;
+    const existing = byKey.get(key);
     if (existing) {
       existing.push(option);
       continue;
     }
-    byOwner.set(option.owner, [option]);
+    byKey.set(key, [option]);
+    appearance.push(key);
   }
 
-  const served = providersServedByConnections([...input.connections]);
-  const ordered: ConnectionProvider[] = [];
-  for (const provider of served) {
-    if (byOwner.has(provider) && !ordered.includes(provider)) {
-      ordered.push(provider);
-    }
-  }
-  for (const provider of CATALOG_PROVIDERS) {
-    const owner = provider as ConnectionProvider;
-    if (byOwner.has(owner) && !ordered.includes(owner)) {
-      ordered.push(owner);
-    }
-  }
-  // A section whose owner the catalog does not list at all still gets drawn,
-  // rather than dropping models the picker just offered.
-  for (const owner of byOwner.keys()) {
-    if (!ordered.includes(owner)) {
-      ordered.push(owner);
-    }
+  function ownerIndex(option: ModelFirstOption): number {
+    const index = (CATALOG_PROVIDERS as readonly string[]).indexOf(
+      option.owner,
+    );
+    // A provider the catalog does not list sorts after every one it does.
+    return index < 0 ? CATALOG_PROVIDERS.length : index;
   }
 
-  return ordered.map((provider) => ({
-    provider,
-    label: input.labelFor(provider),
-    options: (byOwner.get(provider) ?? [])
-      .slice()
-      .sort(
-        (a, b) =>
-          (CATALOG_INDEX.get(a.displayName)?.rank ?? 0) -
-          (CATALOG_INDEX.get(b.displayName)?.rank ?? 0),
+  const groups = appearance.map((key) => {
+    const members = byKey.get(key) ?? [];
+    return {
+      key,
+      // The vendor names the section wherever the catalog gives one; the
+      // provider does the rest, and the two share a namespace, so a
+      // first-party vendor resolves to the name the picker already uses.
+      label: VENDOR_KEYS.has(key)
+        ? vendorDisplayName(key)
+        : input.labelFor(key as ConnectionProvider),
+      // A section leads when the user can already dispatch something in it.
+      // That is a question about the models, not their owner: once several
+      // providers merge into one vendor, no single owner answers it.
+      reachable: members.some((option) =>
+        option.candidates.some((candidate) => candidate.connected),
       ),
-  }));
+      rank: Math.min(...members.map(ownerIndex)),
+      options: members
+        .slice()
+        .sort(
+          (a, b) =>
+            ownerIndex(a) - ownerIndex(b) ||
+            (CATALOG_INDEX.get(a.displayName)?.rank ?? 0) -
+              (CATALOG_INDEX.get(b.displayName)?.rank ?? 0),
+        ),
+    };
+  });
+
+  return groups
+    .map((group, index) => ({ group, index }))
+    .sort(
+      (a, b) =>
+        Number(b.group.reachable) - Number(a.group.reachable) ||
+        a.group.rank - b.group.rank ||
+        a.index - b.index,
+    )
+    .map(({ group }) => ({
+      key: group.key,
+      label: group.label,
+      options: group.options,
+    }));
 }
 
 /**

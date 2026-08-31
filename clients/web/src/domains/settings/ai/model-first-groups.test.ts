@@ -47,12 +47,12 @@ function groupLabels(connections: ProviderConnection[]): string[] {
   return resolveModelFirstGroups(input(connections)).map((group) => group.label);
 }
 
-function groupFor(connections: ProviderConnection[], provider: string) {
+function groupFor(connections: ProviderConnection[], key: string) {
   const group = resolveModelFirstGroups(input(connections)).find(
-    (entry) => entry.provider === provider,
+    (entry) => entry.key === key,
   );
   if (!group) {
-    throw new Error(`expected a "${provider}" group`);
+    throw new Error(`expected a "${key}" group`);
   }
   return group;
 }
@@ -64,37 +64,82 @@ function namesOf(connections: ProviderConnection[], provider: string) {
 }
 
 describe("resolveModelFirstGroups", () => {
-  test("files a model under the first provider the catalog lists it", () => {
+  test("names a section for the organisation that made the models", () => {
+    // A first-party lab lists its own work, so its own name stands.
+    expect(groupFor([], "anthropic").label).toBe("Anthropic");
     expect(namesOf([], "anthropic")).toContain("Claude Opus 5");
-    // OpenRouter and Vercel host it too, but neither owns it.
-    expect(namesOf([], "openrouter")).not.toContain("Claude Opus 5");
-    // An open-weights model is filed under whichever host the catalog reaches
-    // first, which is a host rather than the lab that trained it.
-    expect(namesOf([], "fireworks")).toContain("Kimi K3");
+    // Kimi is Moonshot's, Grok is xAI's, whichever gateway serves them.
+    expect(groupFor([], "moonshot").label).toBe("Moonshot AI");
+    expect(namesOf([], "moonshot")).toContain("Kimi K3");
+    expect(groupFor([], "xai").label).toBe("xAI");
+    expect(namesOf([], "xai")).toContain("Grok 4.6");
+  });
+
+  test("never names a section for a gateway", () => {
+    const labels = groupLabels([]);
+    for (const gateway of [
+      "Fireworks",
+      "OpenRouter",
+      "Together AI",
+      "Vercel AI Gateway",
+      "Ollama",
+      "Baseten",
+    ]) {
+      expect(labels, `${gateway} still names a section`).not.toContain(gateway);
+    }
+  });
+
+  test("merges the providers that list one vendor's work", () => {
+    // Fireworks lists the newest MiniMax, OpenRouter the older ones, and
+    // MiniMax hosts its own: one section, each model once.
+    const minimax = namesOf([], "minimax");
+    expect(minimax).toContain("MiniMax M3");
+    expect(minimax).toContain("MiniMax-01");
+    expect(minimax.filter((name) => name === "MiniMax M3")).toHaveLength(1);
+    expect(groupLabels([]).filter((label) => label === "MiniMax")).toHaveLength(
+      1,
+    );
+    // A model two providers list still lands in one section, once.
+    expect(namesOf([], "xai").filter((name) => name === "Grok 4.3")).toHaveLength(
+      1,
+    );
+    // And a variant only a gateway lists joins its maker's section.
+    expect(namesOf([], "openai")).toContain("GPT-5.6 Sol Pro");
   });
 
   test("leads with the sections the user's own connections reach", () => {
-    expect(groupLabels([connection("openrouter-key", "openrouter")])[0]).toBe(
-      "OpenRouter",
-    );
     expect(groupLabels([connection("gemini-key", "gemini")])[0]).toBe(
       "Google Gemini",
+    );
+    // Fireworks serves four vendors; the first of them in catalog order leads.
+    expect(groupLabels([connection("fw-key", "fireworks")])[0]).toBe(
+      "Moonshot AI",
     );
     // With nothing connected the catalog's own order stands.
     expect(groupLabels([])[0]).toBe("Anthropic");
   });
 
-  test("omits a provider that owns no model the assistant can use", () => {
-    // Together hosts MiniMax M3, but Fireworks lists it first and so owns it.
-    expect(groupLabels([connection("together-key", "together")])).not.toContain(
-      "Together AI",
+  test("sinks a section the user's connections cannot reach", () => {
+    const labels = groupLabels([connection("openrouter-key", "openrouter")]);
+    // OpenRouter serves Grok and Claude but no Gemini, so Gemini goes below
+    // every section it does serve.
+    expect(labels.indexOf("Google Gemini")).toBeGreaterThan(
+      labels.indexOf("xAI"),
     );
-    expect(groupLabels([])).toContain("Ollama");
+    expect(labels.indexOf("Google Gemini")).toBeGreaterThan(
+      labels.indexOf("Anthropic"),
+    );
+  });
+
+  test("omits a section whose models the assistant cannot use", () => {
+    // Ollama serves Llama 3.2, which only a self-hosted assistant reaches.
+    expect(namesOf([], "meta")).toContain("Llama 3.2");
+    const platformHosted = resolveModelFirstGroups(
+      input([], { activeAssistantIsSelfHosted: false }),
+    ).find((group) => group.key === "meta");
     expect(
-      resolveModelFirstGroups(
-        input([], { activeAssistantIsSelfHosted: false }),
-      ).map((group) => group.label),
-    ).not.toContain("Ollama");
+      platformHosted?.options.map((option) => option.displayName),
+    ).not.toContain("Llama 3.2");
   });
 
   test("keeps a section in its owner's catalog order", () => {
@@ -103,6 +148,21 @@ describe("resolveModelFirstGroups", () => {
       "Claude Opus 5",
       "Claude Opus 4.8",
     ]);
+  });
+
+  test("carries the vendor on each option", () => {
+    const byName = new Map(
+      groupFor([], "xai").options.map((option) => [
+        option.displayName,
+        option.vendor,
+      ]),
+    );
+    expect(byName.get("Grok 4.6")).toBe("xai");
+    expect(
+      groupFor([], "anthropic").options.every(
+        (option) => option.vendor === null,
+      ),
+    ).toBe(true);
   });
 
   test("carries the family on each option", () => {
@@ -125,7 +185,7 @@ describe("resolveModelFirstGroups", () => {
           models: [{ id: "local-mixtral", displayName: "Local Mixtral" }],
         }),
       ]),
-    ).find((group) => group.provider === "openai-compatible");
+    ).find((group) => group.key === "openai-compatible");
     expect(custom?.options.map((option) => option.displayName)).toEqual([
       "Local Mixtral",
     ]);
