@@ -1197,8 +1197,10 @@ export class Conversation {
       // A reaction row's stored content is the "[reaction]" sentinel; the
       // fact lives in its metadata. Rendered here rather than at persist
       // time so every stored row reads legibly to the model, whenever it
-      // was written.
-      if (role === "user") {
+      // was written. The substring guard keeps the per-row metadata parse
+      // off rows that cannot be reactions: every reaction envelope carries
+      // the literal key, in providerMeta and in nested slackMeta alike.
+      if (role === "user" && m.metadata?.includes("reaction")) {
         const providerMeta = readProviderMetadata(m.metadata);
         if (providerMeta?.eventKind === "reaction") {
           const rendered = renderReactionHistoryText(

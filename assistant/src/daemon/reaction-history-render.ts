@@ -11,9 +11,18 @@
  * The actor's display name and the quoted target are sender-authored, so
  * the rendered line is fenced as untrusted content the same way channel
  * message text is fenced at ingress (`inbound-content-prep.ts`).
+ *
+ * Serves consumers of `Conversation.loadFromDb` history. Slack channel
+ * turns build their provider history from rows instead and render
+ * reactions through their own transcript renderer
+ * (`messaging/providers/slack/render-transcript.ts`), whose tag-line
+ * format references targets by alias rather than by quote.
  */
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
-import { wrapUntrustedContent } from "../security/untrusted-content.js";
+import {
+  unwrapExternalContentForDisplay,
+  wrapUntrustedContent,
+} from "../security/untrusted-content.js";
 
 /**
  * Slack-style emoji names render in colon form. Anything else (a unicode
@@ -28,12 +37,12 @@ function formatEmoji(emoji: string): string {
 }
 
 /**
- * Flatten a quoted target to one line: ingress fences are markup around the
- * target's own text, not part of it, so they are dropped rather than quoted.
+ * Flatten a quoted target to one line: the ingress fence is markup around
+ * the target's own text, not part of it, so it is unwrapped rather than
+ * quoted.
  */
 function snippetOf(text: string): string {
-  const flat = text
-    .replace(/<\/?external_content[^>]*>/g, " ")
+  const flat = unwrapExternalContentForDisplay(text)
     .replace(/\s+/g, " ")
     .trim();
   if (flat.length <= TARGET_SNIPPET_MAX_CHARS) {
