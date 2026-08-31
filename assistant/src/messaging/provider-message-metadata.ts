@@ -55,6 +55,13 @@ export const providerMessageMetadataSchema = z
      */
     conversationExternalId: z.string(),
     /**
+     * Display name of the external chat, when the provider reported one at
+     * ingress (e.g. a Slack channel's name, without the `#`). Absent for
+     * DMs and for providers that never report one; never synthesized from
+     * `conversationExternalId`.
+     */
+    conversationName: z.string().optional(),
+    /**
      * Provider id of this row itself. Absent on a reaction, which no channel
      * gives an id of its own: a reaction event names the chat, the message it
      * was attached to, the actor and the emoji, and nothing identifies the

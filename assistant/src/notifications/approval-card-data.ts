@@ -151,7 +151,11 @@ function sourceMetadataRow(
   channel: string | undefined,
   slackChatId: string | undefined,
   isSlackDm: boolean,
+  chatName?: string,
 ): { label: string; value: string } | undefined {
+  if (channel === "slack" && !isSlackDm && chatName) {
+    return { label: "Source", value: `Slack · #${chatName}` };
+  }
   if (channel === "slack" && slackChatId) {
     return {
       label: "Source",
@@ -298,6 +302,7 @@ function extractToolApprovalCard(
     nonEmpty(p.sourceChannel),
     sourceView?.chatId,
     sourceView?.isSlackDm ?? false,
+    sourceView?.chatName,
   );
   if (sourceRow) {
     metadata.push(sourceRow);
@@ -364,6 +369,7 @@ function extractQuestionCard(
     nonEmpty(p.sourceChannel),
     sourceView?.chatId,
     sourceView?.isSlackDm ?? false,
+    sourceView?.chatName,
   );
   if (sourceRow) {
     metadata.push(sourceRow);

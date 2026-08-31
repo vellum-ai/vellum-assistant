@@ -185,10 +185,17 @@ function intentFromInstructionMode(
 function describeApprovalSourceContext(view: {
   channel: string;
   chatId?: string | null;
+  chatName?: string | null;
   isSlackDm: boolean;
 }): string {
+  if (view.channel === "slack" && view.isSlackDm) {
+    return "Slack direct message";
+  }
+  if (view.channel === "slack" && view.chatName) {
+    return `#${view.chatName}`;
+  }
   if (view.channel === "slack" && view.chatId) {
-    return view.isSlackDm ? "Slack direct message" : `Slack #${view.chatId}`;
+    return `Slack #${view.chatId}`;
   }
   return view.channel;
 }

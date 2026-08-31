@@ -524,6 +524,50 @@ export interface LatestInboundEventReference {
 }
 
 /**
+ * Display name of the external chat a conversation's channel rows report,
+ * from the newest row that carries one. The name is frozen at ingress into
+ * each row's provider metadata, so this is a pure local read: no provider
+ * API call, and a rename converges on the next inbound message. Null when
+ * no row names the chat (DMs, providers without names, pre-capture rows).
+ *
+ * The `LIKE` is an indexable prefilter only (same contract as
+ * `selectProviderMetaCandidateMetadata`); every candidate is parsed and
+ * source-checked before its name is trusted.
+ */
+export function getLatestExternalConversationName(
+  conversationId: string,
+  sourceChannel: string,
+): string | null {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        or(
+          like(messages.metadata, '%"conversationName"%'),
+          like(messages.metadata, '%"channelName"%'),
+        ),
+      ),
+    )
+    .orderBy(desc(sql`rowid`))
+    .limit(20)
+    .all();
+  for (const row of rows) {
+    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
+    if (meta?.source !== sourceChannel) {
+      continue;
+    }
+    const name = meta.conversationName?.trim();
+    if (name) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
  * Find the most recent inbound event for a conversation on a channel.
  * Used to anchor guardian-facing approval cards to the channel message
  * that triggered the request.

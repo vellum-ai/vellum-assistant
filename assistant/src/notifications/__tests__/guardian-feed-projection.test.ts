@@ -130,6 +130,14 @@ describe("buildPendingGuardianProjection", () => {
     expect(projection?.status).toBe("pending");
   });
 
+  test("a captured channel name becomes the source context label", () => {
+    const projection = buildPendingGuardianProjection({
+      ...toolApprovalPayload,
+      sourceChatName: "user-feedback",
+    });
+    expect(projection?.sourceContextLabel).toBe("#user-feedback");
+  });
+
   test("a sent Slack delivery yields the card deep link", () => {
     const projection = buildPendingGuardianProjection(toolApprovalPayload, {
       channel: "slack",

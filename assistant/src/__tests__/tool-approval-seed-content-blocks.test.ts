@@ -236,6 +236,19 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     });
   });
 
+  test("Slack channel source prefers the captured channel name", () => {
+    const payload = {
+      ...toolApprovalPayload,
+      sourceChatId: "C01ABC",
+      sourceChatName: "user-feedback",
+    };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "Slack · #user-feedback",
+    });
+  });
+
   test("Slack source falls back to requesterChatId and omits the link without one", () => {
     const payload = {
       ...toolApprovalPayload,
