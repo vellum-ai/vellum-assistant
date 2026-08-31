@@ -5,9 +5,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
 import { BillingSectionHeader } from "@/domains/settings/components/billing-section-header";
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import {
   modalSnapshotFor,
   paymentMethodCards,
@@ -109,35 +112,46 @@ export function PaymentMethodsCard() {
     });
   }, [outcome, queryClient]);
 
-  const renderBody = () => {
-    // `isPending` rather than `isLoading`: the query idles with no data until
-    // the org store is ready, and that gap must read as loading, not as the
-    // error state below.
+  // The action slot holds a button-sized placeholder while the config is
+  // pending, so the header row keeps its height when `showAddButton` resolves.
+  const renderHeaderAction = () => {
     if (configQuery.isPending) {
       return (
-        <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("paymentMethodsCard.loading")}
-        </p>
+        <Skeleton
+          aria-hidden
+          className="h-8 w-24 rounded-md"
+          data-testid="payment-methods-add-skeleton"
+        />
       );
     }
+    if (!showAddButton) {
+      return undefined;
+    }
+    return (
+      <Button
+        variant="outlined"
+        onClick={openPaymentModal}
+        disabled={returnPending}
+        data-testid="payment-methods-add"
+      >
+        {t("paymentMethodsCard.addButton")}
+      </Button>
+    );
+  };
+
+  const renderBody = () => {
     if (configQuery.isError || config == null) {
-      return (
-        <div className="mt-4">
-          <Notice tone="error">{t("paymentMethodsCard.loadError")}</Notice>
-        </div>
-      );
+      return <Notice tone="error">{t("paymentMethodsCard.loadError")}</Notice>;
     }
     if (cards.length === 0) {
       return (
-        <div className="mt-4">
-          <Notice tone="info" data-testid="payment-methods-empty">
-            {t("paymentMethodsCard.empty")}
-          </Notice>
-        </div>
+        <Notice tone="info" data-testid="payment-methods-empty">
+          {t("paymentMethodsCard.empty")}
+        </Notice>
       );
     }
     return (
-      <div className={cards.length > 1 ? "mt-4 flex flex-col gap-1" : "mt-4"}>
+      <div className="flex flex-col gap-1">
         {cards.map((card) => (
           <PaymentMethodRow
             key={card.id}
@@ -157,21 +171,22 @@ export function PaymentMethodsCard() {
     <Card padding="md" data-testid="payment-methods-card">
       <BillingSectionHeader
         title={t("paymentMethodsCard.title")}
-        actions={
-          showAddButton ? (
-            <Button
-              variant="outlined"
-              onClick={openPaymentModal}
-              disabled={returnPending}
-              data-testid="payment-methods-add"
-            >
-              {t("paymentMethodsCard.addButton")}
-            </Button>
-          ) : undefined
-        }
+        actions={renderHeaderAction()}
       />
 
-      {renderBody()}
+      {/* `isPending` rather than `isLoading`: the query idles with no data
+          until the org store is ready, and that gap must read as loading,
+          not as the error state. */}
+      {configQuery.isPending ? (
+        <SkeletonLines
+          lines={1}
+          lineClassName="h-10 rounded-lg"
+          className="mt-4"
+          label={t("paymentMethodsCard.loadingAriaLabel")}
+        />
+      ) : (
+        <ContentReveal className="mt-4">{renderBody()}</ContentReveal>
+      )}
 
       <AutoTopUpPaymentMethodModal
         open={pmModal != null}

@@ -930,7 +930,7 @@
     "loadError": "加载发票失败。",
     "loadMore": "加载更多",
     "loadMoreError": "加载更多发票失败。",
-    "loading": "正在加载发票...",
+    "loadingAriaLabel": "正在加载发票",
     "retry": "重试",
     "showButton": "显示发票",
     "showLess": "显示更少",
@@ -1267,7 +1267,7 @@
     "addButton": "添加支付方式",
     "empty": "未保存支付方式。添加一个以使用自动充值。",
     "loadError": "加载支付方式失败。",
-    "loading": "正在加载…",
+    "loadingAriaLabel": "正在加载支付方式",
     "title": "支付方式"
   },
   "pendingPairingRequests": {

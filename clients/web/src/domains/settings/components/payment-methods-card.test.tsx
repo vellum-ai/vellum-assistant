@@ -37,6 +37,9 @@
  *    hydrates the card shows the loading state, never the Add button or the
  *    error notice, so a headerless request can't mislabel the org as having
  *    no saved card.
+ *  - That loading state is a skeleton mirroring the card row, and the header
+ *    action slot holds a button-sized placeholder, so the header keeps its
+ *    height when the config resolves and decides whether Add is offered.
  *
  * Strategy: pre-populate the React Query cache so `useQuery` resolves
  * synchronously; mock the SDK boundary so any background refetch is
@@ -326,11 +329,14 @@ describe("PaymentMethodsCard add button", () => {
 });
 
 describe("PaymentMethodsCard org readiness", () => {
-  test("shows loading while the org store hydrates, never the Add button or the error notice", () => {
+  test("shows the loading skeleton while the org store hydrates, never the Add button or the error notice", () => {
     orgReadiness = "resolving";
     const { container } = render(wrap());
 
-    expect(container.textContent).toContain("Loading…");
+    expect(
+      container.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("Loading");
     expect(
       container.querySelector('[data-testid="payment-methods-add"]'),
     ).toBeNull();
@@ -353,13 +359,58 @@ describe("PaymentMethodsCard org readiness", () => {
   });
 });
 
+describe("PaymentMethodsCard loading skeleton", () => {
+  test("mirrors the card row and reserves the header action slot while pending", () => {
+    holdRetrieve();
+    const { container } = render(wrap());
+
+    const status = container.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-label")).toBe("Loading payment method");
+    expect(status?.querySelectorAll('[data-slot="skeleton"]').length).toBe(1);
+    expect(
+      container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="payment-methods-add"]'),
+    ).toBeNull();
+  });
+
+  test("swaps the reserved slot for the real header action once the config lands", async () => {
+    holdRetrieve();
+    const client = makeClient();
+    const { container } = render(wrapWith(client));
+
+    expect(
+      container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
+    ).not.toBeNull();
+
+    releaseHeldRetrieve();
+    await settleConfigQuery(client);
+
+    await waitFor(() => {
+      if (
+        container.querySelector('[data-testid="payment-methods-add"]') == null
+      ) {
+        throw new Error("Add button not rendered");
+      }
+    });
+    expect(
+      container.querySelector('[data-testid="payment-methods-add-skeleton"]'),
+    ).toBeNull();
+    // The info Notice also carries role="status", so the shimmer nodes are
+    // what prove the skeleton is gone.
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
+    expect(
+      container.querySelector('[data-testid="payment-methods-empty"]'),
+    ).not.toBeNull();
+  });
+});
+
 describe("PaymentMethodsCard modal wiring", () => {
   test("Add Payment Method opens the setup modal", () => {
     const { container, getByTestId } = render(wrap(DISABLED_CONFIG));
 
-    expect(
-      container.querySelector('[data-testid="pm-modal-stub"]'),
-    ).toBeNull();
+    expect(container.querySelector('[data-testid="pm-modal-stub"]')).toBeNull();
 
     fireEvent.click(getByTestId("payment-methods-add"));
 

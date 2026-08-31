@@ -95,6 +95,7 @@ const STRUCTURAL_PROPS = new Set([
   // Layout-only className props (`w-32 shrink-0`) read as copy to
   // `looksLikeCopy` because of spaces, but they are never user-facing text.
   "iconOnlyGlyphClassName",
+  "lineClassName",
   "wrapperClassName",
 ]);
 

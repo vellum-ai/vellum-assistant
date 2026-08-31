@@ -1,6 +1,7 @@
 /**
- * Tests for the Invoices section: the collapsed-by-default toggle plus the
- * cursor-paginated table behind it (Load more, inline error, and retry).
+ * Tests for the Invoices section: the collapsed-by-default toggle, the
+ * shimmer rows the expanded section loads behind, and the cursor-paginated
+ * table (Load more, inline error, and retry).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -19,6 +20,8 @@ let nextPageErrorStatus: number | null;
 let firstPageErrorStatus: number | null;
 // When set, ?starting_after= requests stall until this promise resolves.
 let nextPageGate: Promise<void> | null;
+// When set, cursor-less (first page) requests stall until this resolves.
+let firstPageGate: Promise<void> | null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -29,6 +32,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     const cursor = options?.query?.starting_after;
     if (cursor && nextPageGate) {
       await nextPageGate;
+    }
+    if (!cursor && firstPageGate) {
+      await firstPageGate;
     }
     if (cursor && nextPageErrorStatus !== null) {
       return Promise.resolve({
@@ -120,6 +126,7 @@ beforeEach(() => {
   nextPageErrorStatus = null;
   firstPageErrorStatus = null;
   nextPageGate = null;
+  firstPageGate = null;
 });
 
 afterEach(() => {
@@ -127,8 +134,8 @@ afterEach(() => {
 });
 
 describe("InvoicesTable collapse", () => {
-  test("starts collapsed: header only, no table, no fetch", () => {
-    const { getByText, getByTestId, queryByTestId } = renderTable();
+  test("starts collapsed: header only, no table, no skeleton, no fetch", () => {
+    const { container, getByText, getByTestId, queryByTestId } = renderTable();
 
     getByText("Invoices");
     expect(getByTestId("invoices-toggle").textContent).toContain(
@@ -136,6 +143,7 @@ describe("InvoicesTable collapse", () => {
     );
     expect(queryByTestId("invoices-table")).toBeNull();
     expect(queryByTestId("invoices-download-all")).toBeNull();
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
     expect(listRetrieveCalls.length).toBe(0);
   });
 
@@ -167,6 +175,32 @@ describe("InvoicesTable collapse", () => {
 
     await waitFor(() => expect(queryByTestId("invoices-empty")).not.toBeNull());
     expect(queryByTestId("invoices-download-all")).toBeNull();
+  });
+});
+
+describe("InvoicesTable loading", () => {
+  test("expanding while the first page loads shows shimmer rows, not a spinner", async () => {
+    let releaseFirstPage: () => void = () => {};
+    firstPageGate = new Promise((resolve) => {
+      releaseFirstPage = resolve;
+    });
+    const { container, getByTestId, queryByTestId, queryByText } =
+      renderTable();
+
+    fireEvent.click(getByTestId("invoices-toggle"));
+
+    const status = container.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-label")).toBe("Loading invoices");
+    expect(status?.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
+    expect(queryByText("Loading invoices...")).toBeNull();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(queryByTestId("invoices-table")).toBeNull();
+
+    releaseFirstPage();
+    firstPageGate = null;
+
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
   });
 });
 
