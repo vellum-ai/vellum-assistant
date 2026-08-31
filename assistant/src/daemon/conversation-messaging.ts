@@ -59,6 +59,7 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../persistence/conversation-disk-view.js";
+import { SIGHT_FRAME_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
@@ -463,6 +464,41 @@ async function prepareUserAttachmentReferences(
   return prepared;
 }
 
+/**
+ * Translate the caller's ambient-camera-frame ids into the ids the row is
+ * actually linked to, by walking the materialized attachments back to the
+ * input each one came from.
+ *
+ * Only the final id is named. On this row the persisted content block and the
+ * `message_attachments` link both carry it, so there is a single vocabulary to
+ * match, unlike a fork's copied rows where content keeps the source ids while
+ * links point at clones of the same image (`widenForkSightFrameTags`). The
+ * pre-clone id here names a row belonging to a DIFFERENT conversation, so
+ * naming it too would mark that attachment as an ambient frame if it ever
+ * entered this lineage, stubbing an image someone deliberately attached.
+ */
+function sightFrameTagIds(
+  requestedIds: readonly string[] | undefined,
+  attachmentInputs: MessageAttachmentInput[],
+  prepared: PreparedUserAttachment[],
+): string[] {
+  if (!requestedIds || requestedIds.length === 0) {
+    return [];
+  }
+  const requested = new Set(requestedIds);
+  const tagged = new Set<string>();
+  for (const p of prepared) {
+    if (!p.link) {
+      continue;
+    }
+    const inputId = attachmentInputs[p.position]?.id;
+    if (inputId !== undefined && requested.has(inputId)) {
+      tagged.add(p.link.attachmentId);
+    }
+  }
+  return [...tagged];
+}
+
 function extractTurnChannelContext(
   metadata?: Record<string, unknown>,
 ): TurnChannelContext | null {
@@ -736,6 +772,27 @@ export interface PersistMessageOptions {
    * what a consumer that must not misattribute a turn to a surface needs.
    */
   requestClientOs?: string;
+  /**
+   * Which of `attachments`, by the id the caller holds, arrived as ambient
+   * camera frames rather than files the user picked. Stamps
+   * `SIGHT_FRAME_ATTACHMENT_IDS_KEY` on the persisted row, which is what the
+   * retention pass reads to decide which images a later turn still sends in
+   * full and which become timestamped stubs.
+   *
+   * Named through this option rather than written into `metadata` by the
+   * caller because only the persist knows the id the row ends up linked to.
+   * A pre-uploaded attachment already linked to another conversation is
+   * CLONED into this one under a fresh id, and both the persisted content
+   * block and the `message_attachments` row carry the clone. A tag composed
+   * ahead of that names a row the retention pass can never match, and the
+   * frame then rides every later request forever.
+   *
+   * An attachment that ended up inlined (a recoverable store failure left it
+   * as base64 with no row) has no id to name and is left out; retention
+   * matches on attachment ids, so an inlined frame is outside its reach
+   * either way.
+   */
+  sightFrameAttachmentIds?: readonly string[];
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
@@ -1032,12 +1089,24 @@ export async function persistQueuedMessageBody(
       displayContent,
       preparedAttachments.map((p) => p.block),
     );
+    // Composed here rather than with the rest of the metadata above, because
+    // materialization is what decides the id each frame is stored under.
+    const sightFrameIds = sightFrameTagIds(
+      options.sightFrameAttachmentIds,
+      attachmentInputs,
+      preparedAttachments,
+    );
+    const metadataToPersist =
+      sightFrameIds.length > 0
+        ? { ...mergedMetadata, [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: sightFrameIds }
+        : mergedMetadata;
+
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
       contentToPersist,
       {
-        metadata: mergedMetadata,
+        metadata: metadataToPersist,
         clientMessageId,
         id: requestId,
         ...(skipIndexing ? { skipIndexing: true } : {}),
