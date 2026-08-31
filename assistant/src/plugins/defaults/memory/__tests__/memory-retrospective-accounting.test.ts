@@ -10,6 +10,7 @@ import { getDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { messages } from "../../../../persistence/schema/index.js";
 import {
+  countRetrospectiveMessagesAfter,
   getRetrospectiveMessagesAfter,
   hasQualifyingUserMessageAfter,
   messagesHaveUserActivity,
@@ -28,12 +29,35 @@ const MIXED = JSON.stringify([
   { type: "text", text: "note" },
 ]);
 
+/** A kept camera frame's row: a user-role image the call sampled by itself. */
+const SIGHT_FRAME_CONTENT = JSON.stringify([
+  { type: "text", text: "(camera frame)" },
+  {
+    type: "image",
+    source: {
+      type: "workspace_ref",
+      media_type: "image/jpeg",
+      attachmentId: "att-frame",
+      sizeBytes: 1024,
+    },
+  },
+]);
+
+function sightFrameMetadata(attachmentId: string): string {
+  return JSON.stringify({
+    voiceSessionTurn: true,
+    scripted: true,
+    sightFrameAttachmentIds: [attachmentId],
+  });
+}
+
 let seq = 0;
 function insertRaw(opts: {
   role: string;
   content: string;
   createdAt: number;
   id?: string;
+  metadata?: string;
 }): string {
   const id = opts.id ?? `msg-${String(++seq).padStart(4, "0")}`;
   getDb()
@@ -44,7 +68,7 @@ function insertRaw(opts: {
       role: opts.role,
       content: opts.content,
       createdAt: opts.createdAt,
-      metadata: null,
+      metadata: opts.metadata ?? null,
     })
     .run();
   return id;
@@ -267,5 +291,69 @@ describe("getRetrospectiveMessagesAfter", () => {
     expect(slice.some((row) => row.finalized === 0)).toBe(false);
     expect(slice.at(-1)?.id).toBe(lastFinalized);
     expect(slice.map((row) => row.id)).not.toContain(streaming);
+  });
+});
+
+describe("ambient camera frames are not retrospective work", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+    createConversation({ id: CONV });
+  });
+
+  /** One kept frame, as the live-voice persist writes it. */
+  function insertSightFrame(createdAt: number, attachmentId: string): string {
+    return insertRaw({
+      role: "user",
+      content: SIGHT_FRAME_CONTENT,
+      createdAt,
+      metadata: sightFrameMetadata(attachmentId),
+    });
+  }
+
+  test("a camera-only tail does not qualify as user activity", () => {
+    // A phone lying face up on a desk persists one of these every few
+    // seconds. Nobody said anything, so there is nothing to review.
+    insertSightFrame(1_000, "att-a");
+    insertSightFrame(2_000, "att-b");
+    insertSightFrame(3_000, "att-c");
+
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(false);
+  });
+
+  test("one real message among the frames does qualify", () => {
+    insertSightFrame(1_000, "att-a");
+    insertRaw({ role: "user", content: TEXT, createdAt: 2_000 });
+    insertSightFrame(3_000, "att-b");
+
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
+  });
+
+  test("frames are left out of the count that decides a run is due", () => {
+    insertSightFrame(1_000, "att-a");
+    insertSightFrame(2_000, "att-b");
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(0);
+
+    insertRaw({ role: "user", content: TEXT, createdAt: 3_000 });
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+  });
+
+  test("frames are left out of the slice a run would review", () => {
+    insertSightFrame(1_000, "att-a");
+    const real = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 2_000,
+    });
+    insertSightFrame(3_000, "att-b");
+
+    const slice = getRetrospectiveMessagesAfter(CONV, null);
+
+    // The cutoff lands on the real message, so the frames are neither
+    // reviewed nor skipped over.
+    expect(slice.map((row) => row.id)).toEqual([real]);
   });
 });
