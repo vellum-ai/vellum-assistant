@@ -1,4 +1,10 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  blob,
+  index,
+  integer,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 export const contacts = sqliteTable("contacts", {
   id: text("id").primaryKey(),
@@ -45,4 +51,32 @@ export const assistantContactMetadata = sqliteTable(
     species: text("species").notNull(), // 'vellum' | 'openclaw'
     metadata: text("metadata"), // JSON blob for species-specific fields
   },
+);
+
+/**
+ * Voice profile for a contact.
+ *
+ * Perception, not authentication: this records who is probably
+ * speaking and must never gate access. The gateway ACL tables are
+ * the only place identity is proven. See migration 374.
+ */
+export const contactVoiceprints = sqliteTable(
+  "contact_voiceprints",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    label: text("label"), // optional human note, e.g. "office mic"
+    embedding: blob("embedding", { mode: "buffer" }).notNull(), // raw float32
+    dim: integer("dim").notNull(),
+    modelId: text("model_id").notNull(), // embeddings are model-specific
+    clipCount: integer("clip_count").notNull().default(1),
+    createdAt: integer("created_at").notNull(), // epoch ms
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_contact_voiceprints_contact_id").on(table.contactId),
+    index("idx_contact_voiceprints_model").on(table.modelId),
+  ],
 );

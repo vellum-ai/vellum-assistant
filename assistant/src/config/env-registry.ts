@@ -123,6 +123,16 @@ export function getBackupKeyPathOverride(): string | undefined {
   return str("VELLUM_BACKUP_KEY_PATH");
 }
 
+/**
+ * VELLUM_VOICEPRINT_MODEL_PATH — string, default: undefined
+ * Path to the ECAPA-TDNN ONNX weights used for speaker embeddings.
+ * Unset, the model is downloaded once into $VELLUM_WORKSPACE_DIR/data/models/.
+ * Point this at a quantized export to trade a little accuracy for size.
+ */
+export function getVoiceprintModelPath(): string | undefined {
+  return str("VELLUM_VOICEPRINT_MODEL_PATH");
+}
+
 // ── Profiler env vars ───────────────────────────────────────────────────
 // These are injected by the platform when running a managed assistant in
 // profiler mode. The runtime uses them to locate, scope, and budget-limit

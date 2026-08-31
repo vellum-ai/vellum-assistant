@@ -157,6 +157,7 @@ import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.j
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as USER_ROUTES } from "./user-routes.js";
 import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
+import { ROUTES as VOICEPRINT_ROUTES } from "./voiceprint-routes.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
 import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
@@ -193,6 +194,9 @@ export const ROUTES: RouteDefinition[] = [
   ...CLIENT_ROUTES,
   ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
+  // Must precede CONTACT_ROUTES: its `contacts/:id` would shadow
+  // `contacts/:id/voiceprints` and `contacts/voiceprints/*`.
+  ...VOICEPRINT_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_CLI_ROUTES,
