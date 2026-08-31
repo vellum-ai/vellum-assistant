@@ -621,6 +621,7 @@
     "helperText": "Resets daily at {time}.",
     "inputLabel": "Stop spending Vellum credits after",
     "loadError": "Failed to load daily credit limit settings.",
+    "loadingLabel": "Loading daily credit limit settings",
     "progress": "{spent} of {limit} spent today",
     "reachedNotice": "Today's Vellum credit spend has reached this limit. Generation resumes at {time} or when you raise the limit.",
     "requiredNote": "A daily credit limit is required while auto-reload is enabled.",
