@@ -60,6 +60,15 @@ describe("eventToAccelerator", () => {
     ).toBe("Super+K");
   });
 
+  it("maps Ctrl to CmdOrCtrl and Super to Super on Linux", () => {
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", ctrlKey: true }), "linux"),
+    ).toBe("CmdOrCtrl+K");
+    expect(
+      eventToAccelerator(keydown({ code: "KeyK", metaKey: true }), "linux"),
+    ).toBe("Super+K");
+  });
+
   it("resolves arrows, digits, and punctuation from the physical code", () => {
     expect(
       eventToAccelerator(keydown({ code: "ArrowUp", metaKey: true })),

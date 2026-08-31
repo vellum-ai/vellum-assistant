@@ -72,11 +72,13 @@ const required = VELLUM_BRIDGE_KEYS.filter(
   (key) => !NOT_APPLICABLE.includes(key),
 );
 
-const LINUX_ONLY_SURFACE = ["menu.popup", "menu.titles"];
-const MACOS_ONLY_SURFACE = [
-  "helper.hotkey.fnPushToTalk",
-  "helper.hotkey.onEvent",
+const LINUX_ONLY_SURFACE = [
+  "helper.hotkey.onRegistrationChange",
+  "helper.hotkey.setVoiceModeChord",
+  "menu.popup",
+  "menu.titles",
 ];
+const MACOS_ONLY_SURFACE = ["helper.hotkey.fnPushToTalk"];
 
 test("the composed Linux bridge satisfies every applicable VellumBridge key", () => {
   const bridge = composeLinuxBridge();

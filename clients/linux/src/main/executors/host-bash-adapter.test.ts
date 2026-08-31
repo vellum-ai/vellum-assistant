@@ -57,9 +57,13 @@ describe("linux host-bash adapter", () => {
       poster,
     );
     await waitFor(() => posts().length > 0);
+    expect(posts().length).toBe(1);
     expect(posts()[0]?.body).toMatchObject({
-      type: "host_bash_result",
       requestId: "req-1",
+      stdout: "hello",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
     });
   });
 });
