@@ -659,8 +659,15 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyMacos": "En este Mac puedo controlar aplicaciones y el escritorio por ti.",
+    "computerUseBodyWindows": "En este PC puedo controlar aplicaciones y el escritorio por ti.",
+    "computerUseTitleMacos": "Déjame usar tu Mac",
+    "computerUseTitleWindows": "Déjame usar tu PC",
     "dismiss": "Descartar",
     "nextTip": "Consejo siguiente",
+    "pluginsBodyMacos": "Desde un copiloto de finanzas personales hasta un modo que vive en la muesca de tu MacBook.",
+    "pluginsBodyWindows": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
+    "quickInputBody": "Pulsa {shortcut} para enviarme un mensaje rápido desde cualquier aplicación.",
     "previousTip": "Consejo anterior"
   },
   "ttsProviderForm": {

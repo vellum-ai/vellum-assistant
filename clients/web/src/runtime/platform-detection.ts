@@ -204,13 +204,6 @@ export function resolveDesktopHostOS(): ElectronHostOS {
   return detectElectronHostOS() ?? "macos";
 }
 
-/** User-facing computer name for desktop copy. */
-export function desktopComputerName(
-  hostOS: ElectronHostOS = resolveDesktopHostOS(),
-): "Mac" | "PC" {
-  return hostOS === "windows" ? "PC" : "Mac";
-}
-
 /**
  * Detect the client's OS surface at runtime.
  *

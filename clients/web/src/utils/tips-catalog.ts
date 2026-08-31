@@ -5,10 +5,8 @@
  * shows when.
  */
 
-import {
-  desktopComputerName,
-  resolveDesktopHostOS,
-} from "@/runtime/platform-detection";
+import type { ParseKeys } from "@/i18n";
+import type { ElectronHostOS } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 export type TipKind = "info"; // future: "action"
@@ -32,13 +30,21 @@ export interface Tip {
   /** Short bold headline, 2-5 words. */
   title: string;
   body: string;
+  localizedCopy?: {
+    title?: ParseKeys<"common">;
+    body?: ParseKeys<"common">;
+  };
+  desktopCopy?: Record<
+    ElectronHostOS,
+    {
+      title?: ParseKeys<"common">;
+      body?: ParseKeys<"common">;
+    }
+  >;
   /** Route path only — navigation must never be state-changing. */
   learnMore?: { label: string; to: string };
   gates?: TipGates;
 }
-
-const desktopHostOS = resolveDesktopHostOS();
-const desktopComputer = desktopComputerName(desktopHostOS);
 
 export const TIPS_CATALOG: readonly Tip[] = [
   {
@@ -56,10 +62,11 @@ export const TIPS_CATALOG: readonly Tip[] = [
     source: "curated",
     eyebrow: "Plugins",
     title: "Change how I behave",
-    body:
-      desktopHostOS === "windows"
-        ? "From a personal-finance copilot to a mode that lives in your taskbar."
-        : "From a personal-finance copilot to a mode that lives in your MacBook notch.",
+    body: "From a personal-finance copilot to a mode that lives in your MacBook notch.",
+    desktopCopy: {
+      macos: { body: "tipCard.pluginsBodyMacos" },
+      windows: { body: "tipCard.pluginsBodyWindows" },
+    },
     learnMore: { label: "Browse plugins", to: routes.plugins },
     gates: { requiresPluginsSurface: true },
   },
@@ -116,8 +123,18 @@ export const TIPS_CATALOG: readonly Tip[] = [
     kind: "info",
     source: "curated",
     eyebrow: "Desktop",
-    title: `Let me use your ${desktopComputer}`,
-    body: `On this ${desktopComputer} I can control apps and the desktop for you.`,
+    title: "Let me use your Mac",
+    body: "On this Mac I can control apps and the desktop for you.",
+    desktopCopy: {
+      macos: {
+        title: "tipCard.computerUseTitleMacos",
+        body: "tipCard.computerUseBodyMacos",
+      },
+      windows: {
+        title: "tipCard.computerUseTitleWindows",
+        body: "tipCard.computerUseBodyWindows",
+      },
+    },
     gates: { requiresElectron: true },
   },
   {
@@ -127,6 +144,7 @@ export const TIPS_CATALOG: readonly Tip[] = [
     eyebrow: "Desktop",
     title: "Message me anywhere",
     body: "Press Cmd+Shift+/ to send me a quick message from any app.",
+    localizedCopy: { body: "tipCard.quickInputBody" },
     gates: { requiresElectron: true, requiresClientFlag: "quickInput" },
   },
   {

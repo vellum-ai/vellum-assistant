@@ -5,8 +5,8 @@ import { useTranslation } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import {
-  desktopComputerName,
   isMacOSBrowser,
+  resolveDesktopHostOS,
 } from "@/runtime/platform-detection";
 import {
   cmdEnterToSend,
@@ -89,9 +89,11 @@ function LaunchAtLoginSection() {
         {t("preferencesModal.launchAtLoginTitle")}
       </h3>
       <p className="text-body-medium-default text-[var(--content-tertiary)]">
-        {t("preferencesModal.launchAtLoginDescription", {
-          computer: desktopComputerName(),
-        })}
+        {t(
+          resolveDesktopHostOS() === "windows"
+            ? "preferencesModal.launchAtLoginDescriptionWindows"
+            : "preferencesModal.launchAtLoginDescription",
+        )}
       </p>
       <div className="mt-2">
         <Toggle

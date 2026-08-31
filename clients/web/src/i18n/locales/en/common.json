@@ -659,8 +659,15 @@
     "velvet": "Velvet"
   },
   "tipCard": {
+    "computerUseBodyMacos": "On this Mac I can control apps and the desktop for you.",
+    "computerUseBodyWindows": "On this PC I can control apps and the desktop for you.",
+    "computerUseTitleMacos": "Let me use your Mac",
+    "computerUseTitleWindows": "Let me use your PC",
     "dismiss": "Dismiss",
     "nextTip": "Next tip",
+    "pluginsBodyMacos": "From a personal-finance copilot to a mode that lives in your MacBook notch.",
+    "pluginsBodyWindows": "From a personal-finance copilot to a daily family briefing.",
+    "quickInputBody": "Press {shortcut} to send me a quick message from any app.",
     "previousTip": "Previous tip"
   },
   "ttsProviderForm": {
