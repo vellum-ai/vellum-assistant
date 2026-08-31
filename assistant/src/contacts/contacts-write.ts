@@ -82,8 +82,11 @@ export function upsertContactChannel(params: {
   upsertContact({
     id: params.contactId,
     displayName,
-    contactType: params.contactType,
-    notes: params.notes,
+    // Classification and notes are create-only on this path (see the param
+    // docs above): applying them on update or on channel-identity adoption
+    // would let an inbound seed clobber guardian-authored record fields.
+    contactTypeOnCreate: params.contactType,
+    notesOnCreate: params.notes,
     userFileOnCreate: params.userFileOnCreate,
     channels: [
       {

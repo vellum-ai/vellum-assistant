@@ -2,12 +2,11 @@
  * Inbound contact seeding must dedupe against the gateway DB (the source of
  * truth) and never mint a channel-less contact.
  *
- * The defect class under test is LUM-2672's second act: seeding used to
- * dedupe via a daemon identity lookup, so an assistant-mirror gap for an
- * already-bound address (the guardian's own Slack identity, after the
- * best-effort binding mirror failed) created a fresh gateway contact whose
- * channel insert then no-op'd on the (type, address) unique index. The
- * guardian saw themselves as a second, unlinkable contact.
+ * The defect class under test: a seed that dedupes via the assistant mirror
+ * mints a fresh gateway contact whenever the mirror is missing a row for an
+ * already-bound address (the guardian's own channel identity included), and
+ * the channel insert then no-ops on the (type, address) unique index. The
+ * guardian sees themselves as a second, unlinkable contact.
  *
  * The gateway DB is real and file-backed, so the assertions count rows
  * rather than calls. The assistant mirror is reduced to a recorder: the seed
@@ -60,8 +59,11 @@ mock.module("../ipc/assistant-client.js", () => ({
 
 // The seed path must not consult the mirror for dedupe. A throwing stub makes
 // any regression to mirror-first dedupe fail loudly rather than pass by
-// coincidence.
+// coincidence. The actual module is spread so unstubbed named exports keep
+// resolving when the transitive import graph grows.
+const actualContactsInfoClient = await import("../ipc/contacts-info-client.js");
 mock.module("../ipc/contacts-info-client.js", () => ({
+  ...actualContactsInfoClient,
   lookupContactChannelIdentity: mock(async () => {
     throw new Error(
       "seed path consulted the assistant mirror for dedupe (gateway DB is the source of truth)",
@@ -90,7 +92,7 @@ function allChannels() {
   return getGatewayDb().select().from(contactChannels).all();
 }
 
-/** Contacts parenting zero channels: the duplicate shape LUM-2672 surfaced. */
+/** Contacts parenting zero channels: the guardian-duplicate shape. */
 function channelLessContacts() {
   const channelOwners = new Set(allChannels().map((ch) => ch.contactId));
   return allContacts().filter((c) => !channelOwners.has(c.id));
@@ -195,8 +197,11 @@ describe("first-seen seeding", () => {
     expect(mirrorUpserts()[0]!.body.contactType).toBe("assistant");
     expect(mirrorUpserts()[0]!.body.notes).toBe("Automated Slack bot");
 
-    // A later seed for the same identity must not resend classification: the
-    // record fields are create-only, so guardian edits are never clobbered.
+    // A later seed for the same identity still carries the classification, so
+    // a mirror missing the row can recreate it faithfully. The daemon applies
+    // these fields on mirror-row CREATE only (create-only semantics pinned in
+    // the assistant's contacts-write suite), so guardian edits on an existing
+    // mirror record are never clobbered.
     mirrorCalls.length = 0;
     await upsertContactChannel({
       sourceChannel: "slack",
@@ -204,8 +209,8 @@ describe("first-seen seeding", () => {
       contactType: "assistant",
       notes: "Automated Slack bot",
     });
-    expect(mirrorUpserts()[0]!.body.contactType).toBeUndefined();
-    expect(mirrorUpserts()[0]!.body.notes).toBeUndefined();
+    expect(mirrorUpserts()[0]!.body.contactType).toBe("assistant");
+    expect(mirrorUpserts()[0]!.body.notes).toBe("Automated Slack bot");
     expect(allContacts()).toHaveLength(1);
   });
 
@@ -248,8 +253,11 @@ describe("re-seen identity", () => {
     // The gateway name is the guardian-curated one; only the mirror tracks
     // the live platform profile.
     expect(allContacts()[0].displayName).toBe("Mom");
+    // The op projects the gateway's owner ids so a mirror gap heals under the
+    // same keys.
     const op = mirrorUpserts()[0];
-    expect(op!.body.contactId).toBeUndefined();
+    expect(op!.body.contactId).toBe("co-1");
+    expect(op!.body.channelId).toBe("ch-1");
     expect(op!.body.displayName).toBe("Alice Example");
     expect(op!.body.refreshDisplayName).toBe(true);
   });
@@ -314,7 +322,7 @@ describe("re-seen identity", () => {
   });
 });
 
-describe("guardian duplicate regression (LUM-2672 second act)", () => {
+describe("guardian duplicate regression", () => {
   test("a mirror gap for a guardian-bound identity mints nothing", async () => {
     // The guardian's Slack identity is bound gateway-side; the assistant
     // mirror knows nothing (the best-effort binding mirror failed). The
@@ -330,21 +338,23 @@ describe("guardian duplicate regression (LUM-2672 second act)", () => {
       sourceChannel: "slack",
       externalUserId: SLACK_USER,
       externalChatId: "D-own-dm",
-      displayName: "Ashlee Radka",
+      displayName: "Alice Example",
     });
 
     // The counts are the assertion: one contact, one channel, zero
-    // channel-less contacts. Before the gateway-first dedupe this seeded a
-    // second "Ashlee Radka" contact with no channel.
+    // channel-less contacts. A mirror-first dedupe seeds a second contact
+    // here, carrying the guardian's platform profile name and no channel.
     expect(allContacts()).toHaveLength(1);
     expect(allChannels()).toHaveLength(1);
     expect(channelLessContacts()).toHaveLength(0);
     expect(allContacts()[0].displayName).toBe("Boss");
-    // The mirror heal op resolves by identity, not by contact id, so a
-    // divergent mirror updates its own row in place.
+    // The mirror heal op carries the gateway owner's ids, so the gap is
+    // recreated under the same keys; the daemon's channel-identity adoption
+    // keeps a divergent mirror from minting an empty contact for them.
     const op = mirrorUpserts()[0];
     expect(op).toBeTruthy();
-    expect(op!.body.contactId).toBeUndefined();
+    expect(op!.body.contactId).toBe("co-guardian");
+    expect(op!.body.channelId).toBe("ch-guardian");
   });
 
   test("a mirror failure never rolls back or duplicates the gateway write", async () => {
@@ -361,5 +371,41 @@ describe("guardian duplicate regression (LUM-2672 second act)", () => {
     expect(allContacts()).toHaveLength(1);
     expect(allChannels()).toHaveLength(1);
     expect(channelLessContacts()).toHaveLength(0);
+  });
+
+  test("a retry after a failed mirror write recovers the mirror faithfully", async () => {
+    // First seed of a bot sender: the gateway commit lands, the mirror op is
+    // lost.
+    mirrorThrow = true;
+    await expect(
+      upsertContactChannel({
+        sourceChannel: "slack",
+        externalUserId: "UBOT99",
+        displayName: "Peer Assistant",
+        contactType: "assistant",
+        notes: "Automated Slack bot",
+      }),
+    ).rejects.toThrow("mirror unavailable");
+    const gwRow = allChannels()[0];
+
+    // The next message from the same sender must hand the mirror the SAME
+    // gateway ids and the same classification, so the recovered mirror row
+    // is not an unrelated human record under divergent keys.
+    mirrorThrow = false;
+    mirrorCalls.length = 0;
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UBOT99",
+      displayName: "Peer Assistant",
+      contactType: "assistant",
+      notes: "Automated Slack bot",
+    });
+
+    expect(allContacts()).toHaveLength(1);
+    const op = mirrorUpserts()[0];
+    expect(op!.body.contactId).toBe(gwRow.contactId);
+    expect(op!.body.channelId).toBe(gwRow.id);
+    expect(op!.body.contactType).toBe("assistant");
+    expect(op!.body.notes).toBe("Automated Slack bot");
   });
 });

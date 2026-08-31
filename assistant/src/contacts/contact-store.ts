@@ -256,6 +256,16 @@ export function upsertContact(params: {
    *  mirror to create faithful null-user_file stubs. `userFile` takes
    *  precedence when both are supplied. */
   userFileOnCreate?: string | null;
+  /** contactType to seed ONLY when inserting a new contact; ignored on update
+   *  (and on channel-identity adoption) so a guardian-curated classification
+   *  is never clobbered by an inbound seed. `contactType` takes precedence
+   *  when both are supplied. */
+  contactTypeOnCreate?: ContactType;
+  /** notes to seed ONLY when inserting a new contact; ignored on update (and
+   *  on channel-identity adoption) so guardian-authored notes are never
+   *  clobbered by an inbound seed. `notes` takes precedence when both are
+   *  supplied. */
+  notesOnCreate?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
    *  contact instead of being skipped. Used by invite redemption to bind a
@@ -321,10 +331,11 @@ export function upsertContact(params: {
   // covers an explicit-id CREATE (the id was not found above) when the caller
   // did not opt into reassignment: syncChannels would skip a channel owned by
   // another contact, so inserting the supplied id would mint a channel-less
-  // duplicate of that contact (LUM-2672 family, mirror side). Adopting the
-  // existing owner instead keeps one contact per channel identity; the
-  // supplied id is dropped. Reassigning callers (invite binding, the guardian
-  // bootstrap mirror) skip this and keep their bind-to-target semantics.
+  // duplicate of that contact. Adopting the existing owner instead keeps one
+  // contact per channel identity; the supplied id is dropped, and the
+  // *OnCreate record fields never apply here. Reassigning callers (invite
+  // binding, the guardian bootstrap mirror) skip this and keep their
+  // bind-to-target semantics.
   if (
     canonicalChannels &&
     canonicalChannels.length > 0 &&
@@ -373,8 +384,8 @@ export function upsertContact(params: {
     .values({
       id: contactId,
       displayName: params.displayName,
-      notes: params.notes ?? null,
-      contactType: params.contactType ?? "human",
+      notes: params.notes ?? params.notesOnCreate ?? null,
+      contactType: params.contactType ?? params.contactTypeOnCreate ?? "human",
       userFile: resolvedUserFile,
       createdAt: now,
       updatedAt: now,

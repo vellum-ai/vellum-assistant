@@ -1429,18 +1429,16 @@ export class ContactStore {
    * Gateway-DB core of inbound contact seeding: resolve a first-seen actor's
    * `(type, address)` identity to a contact, creating one when none exists.
    *
-   * The lookup runs against the gateway DB (the source of truth), never the
-   * assistant mirror. Seeding used to dedupe via a daemon identity lookup, so
-   * any mirror gap for an already-bound address (e.g. the guardian's own
-   * Slack identity after a failed best-effort binding mirror) minted a fresh
-   * gateway contact whose channel insert then no-op'd on the (type, address)
-   * unique index: a channel-less duplicate of an existing contact in the
-   * Contacts pane (LUM-2672 family).
+   * The dedupe lookup runs against the gateway DB (the source of truth),
+   * never the assistant mirror: the mirror is a lossy best-effort copy, and a
+   * dedupe keyed off it can re-mint a contact for an identity the gateway
+   * already binds (including the guardian's own), leaving a channel-less
+   * duplicate in the Contacts pane.
    *
    * One transaction, and the contact row is keyed to its channel landing: a
-   * create either commits contact + channel together or nothing. The belt-and-
-   * suspenders conflict re-check inside the transaction downgrades a raced
-   * create to the update path rather than ever leaving a channel-less contact.
+   * create either commits contact + channel together or nothing. The
+   * conflict re-check inside the transaction downgrades a raced create to
+   * the update path rather than ever leaving a channel-less contact.
    *
    * ACL is untouched: an existing row keeps its status/policy (revoked stays
    * revoked, and a `blocked` row short-circuits with no writes at all); a new

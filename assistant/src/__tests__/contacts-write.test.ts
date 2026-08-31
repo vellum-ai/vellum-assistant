@@ -47,7 +47,7 @@ function contactExists(contactId: string): boolean {
   return row !== null;
 }
 
-/** Contacts parenting zero channels: the duplicate shape LUM-2672 surfaced. */
+/** Contacts parenting zero channels: the guardian-duplicate shape. */
 function channelLessContactCount(): number {
   const row = getSqlite()
     .query(
@@ -238,9 +238,63 @@ describe("mirror channel-reparenting race semantics", () => {
     expect(channelOwnerById("gw-ch-race-2")).toBeUndefined();
     expect(channelCount("slack", "URACE")).toBe(1);
     // The losing seed adopts contact #1 rather than minting a channel-less
-    // contact under its own id (LUM-2672 family, mirror side).
+    // contact under its own id.
     expect(contactExists("co-race-2")).toBe(false);
     expect(channelLessContactCount()).toBe(0);
+  });
+
+  test("adoption and re-seen seeds never clobber curated record fields", () => {
+    // First-seen bot sender: classification and notes land on CREATE.
+    const created = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UCURATED",
+      externalChatId: "DCURATED",
+      displayName: "Peer Assistant",
+      contactId: "co-curated",
+      channelId: "gw-ch-curated",
+      contactType: "assistant",
+      notes: "Automated Slack bot",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    expect(created?.contact.contactType).toBe("assistant");
+    expect(created?.contact.notes).toBe("Automated Slack bot");
+
+    // A later seed for the same identity (mirror row present) carries record
+    // fields for gap recovery, but they are create-only: the stored
+    // classification and notes stand.
+    const reseen = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UCURATED",
+      contactId: "co-curated",
+      displayName: "Peer Assistant",
+      contactType: "human",
+      notes: "seed-refresh notes that must not land",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    expect(reseen?.contact.contactType).toBe("assistant");
+    expect(reseen?.contact.notes).toBe("Automated Slack bot");
+
+    // Adoption (a create-shaped op under a foreign id for the same identity)
+    // is equally forbidden from touching the adopted contact's record fields.
+    const adopted = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UCURATED",
+      contactId: "co-curated-foreign",
+      displayName: "Peer Assistant",
+      contactType: "human",
+      notes: "adoption notes that must not land",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    expect(adopted?.contact.id).toBe("co-curated");
+    expect(adopted?.contact.contactType).toBe("assistant");
+    expect(adopted?.contact.notes).toBe("Automated Slack bot");
+    expect(contactExists("co-curated-foreign")).toBe(false);
   });
 
   test("explicit-id create over a conflicting channel adopts the owner instead of minting an empty contact", () => {

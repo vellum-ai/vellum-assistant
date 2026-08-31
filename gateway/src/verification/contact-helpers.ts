@@ -867,19 +867,21 @@ export async function upsertVerifiedContactChannel(params: {
  *
  * Gateway-first: the gateway DB (source of truth) decides whether this
  * `(type, address)` identity already exists, via the transactional
- * `ContactStore.seedInboundChannel` (contact row atomic with its channel row).
- * The assistant mirror is a best-effort identity follower of that decision,
- * never the dedupe authority. It used to be: the seed deduped via a daemon
- * identity lookup, so a mirror gap for an already-bound address minted a
- * channel-less duplicate gateway contact (LUM-2672 family).
+ * `ContactStore.seedInboundChannel` (contact row atomic with its channel
+ * row). The assistant mirror is a best-effort identity follower of that
+ * decision, never the dedupe authority: the mirror op carries the gateway's
+ * contact/channel ids plus the classification fields, so a mirror missing
+ * the row recreates it faithfully (same ids, same `contactType`/`notes`)
+ * instead of inventing a divergent one. The daemon applies
+ * `contactType`/`notes` on mirror-row CREATE only, so guardian-authored
+ * edits on an existing mirror contact are never clobbered.
  *
  * - Existing channel: refreshes identity fields (canonical address casing,
  *   external_chat_id when provided). ACL columns stay untouched so
  *   blocked/revoked channels stay that way (`blocked` skips even the identity
- *   refresh), and `contactType`/`notes` are left alone so guardian-authored
- *   edits are never clobbered. The mirror op refreshes the mirror display
- *   name to the current platform profile (unlike invite binding, which
- *   preserves a curated name); the gateway contact name is never rewritten.
+ *   refresh). The mirror op refreshes the mirror display name to the current
+ *   platform profile (unlike invite binding, which preserves a curated name);
+ *   the gateway contact name is never rewritten.
  * - New channel: inserts contact + channel, classified via `contactType`
  *   (default 'human') and seeded with `notes` when provided. ACL columns are
  *   gateway-owned (status='unverified', policy='allow').
@@ -917,42 +919,27 @@ export async function upsertContactChannel(params: {
   const { path: socketPath } = resolveIpcSocketPath("assistant");
   if (!existsSync(socketPath)) return;
 
-  if (seeded.outcome === "created") {
-    // Share BOTH gateway-minted ids with the mirror so the two stores key the
-    // contact and channel identically (id-keyed gateway read-backs on later
-    // seed updates match). The mirror contact keeps user_file NULL.
-    await ipcCallAssistant("contacts_mirror_upsert_channel", {
-      body: {
-        contactId: seeded.contactId,
-        channelId: seeded.channelId,
-        type: sourceChannel,
-        address,
-        externalChatId,
-        displayName: contactDisplayName,
-        contactType: params.contactType ?? "human",
-        notes: params.notes,
-        refreshDisplayName: true,
-        // Inbound seed: never reparent a conflicting channel. The gateway
-        // transaction kept exactly one row for this (type,address); the mirror
-        // must not steal a divergent mirror row from whichever contact holds
-        // it, or the two stores would disagree about the channel's contact.
-        reassignConflictingChannels: false,
-      },
-    });
-    return;
-  }
-
-  // Existing channel: identity/display refresh only. The mirror resolves the
-  // row by (type, address) itself (no contactId), so a divergent mirror
-  // updates ITS owner in place, and a mirror gap heals by creating the row
-  // rather than minting anything gateway-side.
+  // One follower op for create and existing alike, projecting the gateway's
+  // decision: both gateway-minted ids (so the two stores key the contact and
+  // channel identically, and a mirror gap recreates the row under the same
+  // ids) plus the classification fields (applied by the daemon on mirror-row
+  // CREATE only, so a curated mirror record is never clobbered). The mirror
+  // contact keeps user_file NULL.
   await ipcCallAssistant("contacts_mirror_upsert_channel", {
     body: {
+      contactId: seeded.contactId,
+      channelId: seeded.channelId,
       type: sourceChannel,
       address,
       externalChatId,
       displayName: contactDisplayName,
+      contactType: params.contactType ?? "human",
+      notes: params.notes,
       refreshDisplayName: true,
+      // Inbound seed: never reparent a conflicting channel. The gateway
+      // transaction kept exactly one row for this (type,address); the mirror
+      // must not steal a divergent mirror row from whichever contact holds
+      // it, or the two stores would disagree about the channel's contact.
       reassignConflictingChannels: false,
     },
   });

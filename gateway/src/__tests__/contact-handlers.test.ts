@@ -96,7 +96,11 @@ mock.module("../ipc/assistant-client.js", () => ({
 
 // resolveGatewayChannel resolves the assistant channel's (type,address) via the
 // typed identity-lookup IPC; serve it from the same fake channel store.
+// Spread the actual module so unstubbed named exports keep resolving when the
+// transitive import graph grows.
+const actualContactsInfoClient = await import("../ipc/contacts-info-client.js");
 mock.module("../ipc/contacts-info-client.js", () => ({
+  ...actualContactsInfoClient,
   lookupContactChannelIdentity: mock(
     async (selector: { channelId?: string }) => {
       if (selector.channelId == null) return null;
