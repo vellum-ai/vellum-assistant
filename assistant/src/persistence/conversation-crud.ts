@@ -490,7 +490,7 @@ export function isProviderErrorMetadata(
 
 /**
  * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice. Standalone rows never merge with adjacent
+ * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.

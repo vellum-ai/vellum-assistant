@@ -1,4 +1,8 @@
 import {
+  isNoResponseOnlyText,
+  isPotentialNoResponsePrefix,
+} from "@vellumai/service-contracts/no-response";
+import {
   Fragment,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -921,7 +925,8 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -1034,6 +1039,19 @@ export function TranscriptMessageBody({
     if (group.type === "text") {
       const isSmoothedTrailing =
         gi === lastGroupIndex && smoothedTrailingText !== null;
+      // A live-streamed sentinel (or a prefix that could still become one)
+      // is held back from display, mirroring the Slack stream's own
+      // partial-sentinel suppression: once the turn settles, the fold marks
+      // the message isNoResponse and the quiet marker takes over.
+      if (
+        isStreaming &&
+        !isUser &&
+        gi === lastGroupIndex &&
+        (isNoResponseOnlyText(group.text.trim()) ||
+          isPotentialNoResponsePrefix(group.text))
+      ) {
+        return null;
+      }
       // `useSmoothStreamText` returns the target string itself (identity,
       // not a copy) once the reveal has drained the backlog — that identity
       // check is what flips the sweep from "revealing" to "caughtUp".

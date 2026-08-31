@@ -164,6 +164,7 @@ import {
   resolveActorPrincipalIdForLocalGuardian,
 } from "../local-actor-identity.js";
 import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
+import { stripNoResponseMarkers } from "../no-response.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   publishConversationListAndMetadataChanged,
@@ -195,8 +196,6 @@ import { RouteResponse } from "./types.js";
 
 const log = getLogger("conversation-routes");
 
-/** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
 
 /** Rewrites a rendered `contentOrder` to reflect attachment alignment. */
@@ -1181,9 +1180,7 @@ export async function handleListMessages({
         const keepIndices: number[] = [];
         const filteredSegments: string[] = [];
         for (let i = 0; i < rendered.textSegments.length; i++) {
-          const cleaned = rendered.textSegments[i]
-            .replace(NO_RESPONSE_INLINE_RE, "")
-            .trim();
+          const cleaned = stripNoResponseMarkers(rendered.textSegments[i]);
           if (cleaned.length > 0) {
             keepIndices.push(i);
             filteredSegments.push(cleaned);
@@ -1207,7 +1204,7 @@ export async function handleListMessages({
             block.type === "text"
               ? {
                   type: "text" as const,
-                  text: block.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
+                  text: stripNoResponseMarkers(block.text),
                 }
               : block,
           )
