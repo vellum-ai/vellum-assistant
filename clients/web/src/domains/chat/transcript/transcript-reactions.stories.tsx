@@ -77,37 +77,38 @@ const REACTION_LINES: TranscriptItem[] = [
   }),
 ];
 
-// Every emoji form a channel can deliver: a unicode emoji renders as itself,
-// a shortcode resolves through the emoji catalog (":shortcode:" while it
-// lazy-loads), and a Discord custom-emoji mention renders as its bare
-// ":name:" without consulting the catalog, even when the name collides with
-// a catalog shortcode, so a guild emoji never swaps into an unrelated
-// standard emoji.
+// Every emoji form a channel can deliver, one row each, distinguishable by
+// its rendered output alone: Alice's unicode emoji renders as itself, Ben's
+// "heart" shortcode resolves through the emoji catalog to the heart emoji,
+// Chris's Discord custom-emoji mention renders as its bare ":vex:", and
+// Dana's custom emoji named "heart" stays ":heart:" right under Ben's
+// resolved heart, because a guild emoji keeps its identity and never swaps
+// into the catalog emoji its name collides with.
 const EMOJI_RESOLUTION: TranscriptItem[] = [
   message("m1", "assistant", "Deployed. Watching the error rates now."),
   reactionRow("e1", "user", {
     emoji: "🎉",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Unicode",
+    actorDisplayName: "Alice",
   }),
   reactionRow("e2", "user", {
-    emoji: "tada",
+    emoji: "heart",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Shortcode",
+    actorDisplayName: "Ben",
   }),
   reactionRow("e3", "user", {
     emoji: "<:vex:12345>",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Custom guild emoji",
+    actorDisplayName: "Chris",
   }),
   reactionRow("e4", "user", {
     emoji: "<:heart:99>",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Custom emoji named like a shortcode",
+    actorDisplayName: "Dana",
   }),
 ];
 
