@@ -12,16 +12,73 @@ import {
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Components } from "react-markdown";
-import "katex/dist/katex.min.css";
 
 import { cn } from "../utils/cn";
 import { writeSelectionClipboard } from "../utils/selection-clipboard";
+
+type RehypeKatexPlugin = typeof import("rehype-katex").default;
+
+/**
+ * KaTeX (the rehype plugin, the katex renderer it pulls in, and the
+ * stylesheet — ~445 kB raw) loads on demand instead of with this module:
+ * markdown renders on the boot path, and most messages carry no math.
+ * Module-level cache so the page pays the load once, and so a synchronous
+ * render (renderToStaticMarkup, and any tree already warmed by
+ * {@link preloadMarkdownMath}) can pick the plugin up without an effect.
+ */
+let cachedRehypeKatex: RehypeKatexPlugin | null = null;
+let rehypeKatexLoad: Promise<RehypeKatexPlugin> | null = null;
+
+function loadRehypeKatex(): Promise<RehypeKatexPlugin> {
+  rehypeKatexLoad ??= Promise.all([
+    import("rehype-katex"),
+    // Vite turns this into an on-demand stylesheet chunk alongside the JS.
+    import("katex/dist/katex.min.css"),
+  ]).then(([mod]) => {
+    cachedRehypeKatex = mod.default;
+    return mod.default;
+  });
+  return rehypeKatexLoad;
+}
+
+/**
+ * Warms the math pipeline. Await it before rendering when math output must be
+ * present synchronously — server/static rendering, or a surface that knows
+ * its content is math-heavy and wants to skip the raw-TeX flash.
+ */
+export function preloadMarkdownMath(): Promise<void> {
+  return loadRehypeKatex().then(() => undefined);
+}
+
+/**
+ * The KaTeX plugin once `needed` and loaded, else null (math renders as raw
+ * TeX text until the chunk arrives, then formats on the re-render).
+ */
+function useRehypeKatex(needed: boolean): RehypeKatexPlugin | null {
+  const [plugin, setPlugin] = useState<RehypeKatexPlugin | null>(
+    () => cachedRehypeKatex,
+  );
+  useEffect(() => {
+    if (!needed || plugin !== null) {
+      return;
+    }
+    let cancelled = false;
+    void loadRehypeKatex().then((loaded) => {
+      if (!cancelled) {
+        setPlugin(() => loaded);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needed, plugin]);
+  return needed ? plugin : null;
+}
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
@@ -1014,9 +1071,20 @@ export function MarkdownMessage({
       }) as Components,
     [Link, imageComponent, extraComponents],
   );
+  // Loosest possible trigger on purpose: every construct remark-math can
+  // treat as math contains a dollar sign after `convertLatexDelimiters`
+  // (which rewrites `\(..\)` / `\[..\]` to the `$` forms), so testing for
+  // the character can over-load KaTeX but can never leave real math
+  // unformatted. Anything cleverer (e.g. skipping escaped `\$`) risks the
+  // reverse, and the only cost of a false positive is a lazy chunk load.
+  const needsMath = processed.includes("$");
+  const katexPlugin = useRehypeKatex(needsMath);
   const rehypePlugins = useMemo(
-    () => [rehypeKatex, ...(extraRehypePlugins ?? [])],
-    [extraRehypePlugins],
+    () => [
+      ...(katexPlugin === null ? [] : [katexPlugin]),
+      ...(extraRehypePlugins ?? []),
+    ],
+    [katexPlugin, extraRehypePlugins],
   );
   return (
     <div

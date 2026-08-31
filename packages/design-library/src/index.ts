@@ -196,6 +196,7 @@ export {
 export {
   MARKDOWN_INLINE_CODE_CLASS,
   MarkdownMessage,
+  preloadMarkdownMath,
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
   quoteBlockquoteContentClassName,
