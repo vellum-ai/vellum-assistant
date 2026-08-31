@@ -122,6 +122,24 @@ export async function pairDeliveryWithConversation(
       };
     }
 
+    // The Slack guardian-DM approval card is a delivery projection of a
+    // canonical guardian request, not conversation content: its in-app
+    // homes are the home-feed "Needs attention" item and the source
+    // conversation's card (the vellum delivery). Pairing it here would
+    // either write the card into the guardian's bound DM transcript or
+    // mint a fresh conversation for a transient work item, so it gets
+    // neither a row nor a conversation. The gateway delivery row (chat
+    // id + message ts) remains its only persisted envelope.
+    if (signal.sourceEventName === "guardian.question" && channel === "slack") {
+      return {
+        conversationId: null,
+        messageId: null,
+        strategy,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+    }
+
     const conversationAction = options?.conversationAction;
     const bindingContext = options?.bindingContext;
 

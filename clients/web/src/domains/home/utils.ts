@@ -1,7 +1,8 @@
-import type {
-  FeedItem,
-  FeedItemCategory,
-  FeedItemStatus,
+import {
+  type FeedItem,
+  type FeedItemCategory,
+  type FeedItemStatus,
+  isPendingGuardianFeedItem,
 } from "@vellumai/assistant-api";
 
 import { flattenSummary } from "./feed-preview";
@@ -13,10 +14,18 @@ import { flattenSummary } from "./feed-preview";
 export type FeedTimeGroup = "today" | "yesterday" | "older";
 
 /**
- * Sort feed items by priority descending, then by createdAt descending.
+ * Sort feed items: pending guardian items first (they block the
+ * assistant on the user, so they are the "Needs attention" head of any
+ * list), then by priority descending, then by createdAt descending.
  */
 export function sortFeedItems(items: FeedItem[]): FeedItem[] {
   return [...items].sort((a, b) => {
+    const guardianDelta =
+      Number(isPendingGuardianFeedItem(b)) -
+      Number(isPendingGuardianFeedItem(a));
+    if (guardianDelta !== 0) {
+      return guardianDelta;
+    }
     if (a.priority !== b.priority) {
       return b.priority - a.priority;
     }
@@ -83,11 +92,17 @@ export function filterByCategory(
 }
 
 /**
- * Exclude items with urgency "high" or "critical".
+ * Exclude items with urgency "high" or "critical", except a pending
+ * guardian item: the notification surfaces are that item's canonical
+ * home (there is no separate channel that renders it), so the
+ * "surfaces through its own channels" rationale below does not apply
+ * to it.
  */
 export function excludeHighUrgency(items: FeedItem[]): FeedItem[] {
   return items.filter(
-    (item) => item.urgency !== "high" && item.urgency !== "critical",
+    (item) =>
+      isPendingGuardianFeedItem(item) ||
+      (item.urgency !== "high" && item.urgency !== "critical"),
   );
 }
 
@@ -170,12 +185,23 @@ export interface FeedMarkAllArgs {
   ids: string[];
 }
 
-/** Bulk payload marking every visible unread item as read. */
+/**
+ * Bulk payload marking every visible unread item as read.
+ *
+ * Pending guardian items stay out of both bulk payloads: marking one
+ * read is not a substitute for resolving it (the unread dot is its
+ * "needs you" signal), and clearing one would hide the only canonical
+ * home an unresolved request has. The daemon enforces the dismissal
+ * half server-side; excluding them here keeps the optimistic cache
+ * update honest.
+ */
 export function markAllReadArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
   return {
     from: ["new"],
     to: "seen",
-    ids: visibleItems.filter((i) => i.status === "new").map((i) => i.id),
+    ids: visibleItems
+      .filter((i) => i.status === "new" && !isPendingGuardianFeedItem(i))
+      .map((i) => i.id),
   };
 }
 
@@ -184,8 +210,32 @@ export function clearAllArgs(visibleItems: FeedItem[]): FeedMarkAllArgs {
   return {
     from: ["new", "seen", "acted_on"],
     to: "dismissed",
-    ids: visibleItems.map((i) => i.id),
+    ids: visibleItems
+      .filter((i) => !isPendingGuardianFeedItem(i))
+      .map((i) => i.id),
   };
+}
+
+/** Catalog keys a guardian row's category chip may carry. */
+export type GuardianCategoryLabelKey =
+  | "category.guardianAction"
+  | "category.guardianQuestion";
+
+/**
+ * Category label override for a guardian-request item. The wire
+ * `category` stays `security` (older clients keep their chip), but a
+ * guardian row names what it actually needs: an action or an answer.
+ * Null for every other item, which keeps its category's own label.
+ */
+export function guardianCategoryLabelKey(
+  item: FeedItem,
+): GuardianCategoryLabelKey | null {
+  if (!item.guardianRequest) {
+    return null;
+  }
+  return item.guardianRequest.intent === "question"
+    ? "category.guardianQuestion"
+    : "category.guardianAction";
 }
 
 /**

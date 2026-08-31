@@ -18,6 +18,7 @@ import {
   GuardianRequestIntegrityError,
   isRequestInConversationScope,
   listDeliveries,
+  listDeliveriesByChat,
   listGuardianRequests,
   listPendingByConversationScope,
   listPendingByDestinationChat,
@@ -930,5 +931,45 @@ describe("getByPendingQuestionId", () => {
 
     expect(getByPendingQuestionId("pq-1")?.id).toBe(req.id);
     expect(getByPendingQuestionId("pq-2")).toBeNull();
+  });
+});
+
+describe("listDeliveriesByChat", () => {
+  test("returns every delivery addressed to the chat, across requests and statuses", () => {
+    const reqA = createRequest();
+    const reqB = createRequest();
+    createDelivery({
+      requestId: reqA.id,
+      destinationChannel: "slack",
+      destinationChatId: "D0AAAAAAAAA",
+      destinationMessageId: "1725100000.000100",
+    });
+    const withdrawn = createDelivery({
+      requestId: reqB.id,
+      destinationChannel: "slack",
+      destinationChatId: "D0AAAAAAAAA",
+      destinationMessageId: "1725100001.000100",
+      status: "withdrawn",
+    });
+    createDelivery({
+      requestId: reqA.id,
+      destinationChannel: "slack",
+      destinationChatId: "D0BBBBBBBBB",
+      destinationMessageId: "1725100002.000100",
+    });
+    createDelivery({
+      requestId: reqA.id,
+      destinationChannel: "telegram",
+      destinationChatId: "D0AAAAAAAAA",
+      destinationMessageId: "42",
+    });
+
+    const rows = listDeliveriesByChat("slack", "D0AAAAAAAAA");
+    expect(rows.map((d) => d.destinationMessageId).sort()).toEqual([
+      "1725100000.000100",
+      "1725100001.000100",
+    ]);
+    // A withdrawn card is still a card: importers must keep excluding it.
+    expect(rows.find((d) => d.id === withdrawn.id)?.status).toBe("withdrawn");
   });
 });

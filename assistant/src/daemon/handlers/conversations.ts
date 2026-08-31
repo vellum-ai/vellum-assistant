@@ -531,6 +531,7 @@ export function supersedePendingInteractionsOnEnqueue(
           requestId: interaction.requestId,
           status: "denied",
           syncContext: "supersede-on-enqueue",
+          terminalReason: "superseded",
         });
       }
     }

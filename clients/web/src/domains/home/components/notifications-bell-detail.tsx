@@ -9,6 +9,7 @@ import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
+import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
@@ -172,6 +173,8 @@ export function NotificationsBellDetail({
       >
         {item.detailPanel?.kind === "toolPermission" ? (
           <HomeToolPermissionCard item={item} />
+        ) : item.detailPanel?.kind === "permissionChat" ? (
+          <HomeGuardianRequestCard item={item} />
         ) : (
           <HomeGenericDetail item={item} className={BODY_LEADING_CLASS} />
         )}

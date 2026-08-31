@@ -10,6 +10,7 @@ import { resolveCategoryStyle } from "../home-feed-filter-bar";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
 import { buildReadToggle } from "../read-toggle";
 import { HomeGenericDetail } from "./home-generic-detail";
+import { HomeGuardianRequestCard } from "./home-guardian-request-card";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
 
 export interface HomeDetailPanelProps {
@@ -133,6 +134,8 @@ export function HomeDetailPanel({
         <div className="flex-1 overflow-y-auto p-4">
           {panelKind === "toolPermission" ? (
             <HomeToolPermissionCard item={item} />
+          ) : panelKind === "permissionChat" ? (
+            <HomeGuardianRequestCard item={item} />
           ) : (
             <HomeGenericDetail item={item} />
           )}
@@ -230,6 +233,8 @@ export function HomeDetailPanel({
     >
       {panelKind === "toolPermission" ? (
         <HomeToolPermissionCard item={item} />
+      ) : panelKind === "permissionChat" ? (
+        <HomeGuardianRequestCard item={item} />
       ) : (
         <HomeGenericDetail item={item} />
       )}

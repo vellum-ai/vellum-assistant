@@ -2332,6 +2332,7 @@ export async function handleSendMessage(
           requestId: interaction.requestId,
           status: "denied",
           syncContext: "auto-deny-idle-send",
+          terminalReason: "superseded",
         });
       }
     }

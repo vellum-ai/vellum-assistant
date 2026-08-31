@@ -9,7 +9,13 @@ let mockIdentityRequests: { id: string }[] = [];
 let routeGuardianReplyCalls: unknown[] = [];
 let deliverChannelReplyCalls: unknown[][] = [];
 
+// Spread the actual module so transitive importers of names this
+// factory does not stub keep resolving (a partial factory breaks at
+// import time when the graph gains a new named import).
+const actualGatewayGuardianRequests =
+  await import("../../../channels/gateway-guardian-requests.js");
 mock.module("../../../channels/gateway-guardian-requests.js", () => ({
+  ...actualGatewayGuardianRequests,
   listPendingRequestsByDestinationOrEmpty: async () =>
     mockDeliveryScopedRequests,
   listGuardianRequestsOrEmpty: async () => mockIdentityRequests,

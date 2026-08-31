@@ -18,7 +18,9 @@
     "email": "电子邮件",
     "scheduling": "日程安排",
     "background": "后台",
-    "system": "系统"
+    "system": "系统",
+    "guardianAction": "需要监护人操作",
+    "guardianQuestion": "监护人问题"
   },
   "homeRecapRow": {
     "actionsTitle": "更新操作"
@@ -71,5 +73,26 @@
   },
   "notificationsBellDetail": {
     "back": "返回通知"
+  },
+  "homeGuardianRequestCard": {
+    "requester": "请求人",
+    "source": "来源",
+    "approve": "批准",
+    "reject": "拒绝",
+    "answerHint": "请在来源对话中回答这个问题。",
+    "viewSourceMessage": "查看消息",
+    "openInSlack": "在 Slack 中打开",
+    "alreadyResolved": "此请求已在其他界面解决。",
+    "decisionFailed": "无法提交决定。请重试。",
+    "receipt": {
+      "approved": "已批准",
+      "approvedBy": "由 {name} 批准",
+      "rejected": "已拒绝",
+      "rejectedBy": "由 {name} 拒绝",
+      "expired": "已过期",
+      "superseded": "已被取代",
+      "cancelled": "已取消",
+      "leftUnverified": "保持未验证"
+    }
   }
 }

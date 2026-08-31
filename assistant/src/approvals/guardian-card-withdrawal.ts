@@ -38,6 +38,7 @@ import { withdrawDiscordApprovalCard } from "../messaging/providers/discord/with
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { withdrawTelegramApprovalCard } from "../messaging/providers/telegram-bot/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
+import { writeGuardianFeedReceipt } from "../notifications/guardian-feed-projection.js";
 import {
   type ApprovalAction,
   resolveDecisionStatusWord,
@@ -98,6 +99,14 @@ export interface WithdrawGuardianCardsParams {
    * outcome the guardian's chat gets.
    */
   hasOriginGuardianReply?: boolean;
+  /**
+   * Non-decision cause of the terminal status, for receipt copy only
+   * (e.g. "superseded" when a newer inbound message auto-denied the
+   * request). Channel card edits render the status word as before; the
+   * feed receipt surfaces the reason so the bell can say "Superseded"
+   * rather than "Rejected".
+   */
+  terminalReason?: string;
 }
 
 /**
@@ -123,6 +132,19 @@ export async function withdrawGuardianRequestCards(
     hasOriginGuardianReply,
   } = params;
 
+  // The canonical "Needs attention" feed item is a projection like any
+  // delivery surface: rewrite it into its terminal receipt first, so it
+  // settles even when the gateway (and thus the delivery list) is
+  // unreachable. A failed local write gates `complete` the same way a
+  // failed surface edit does, so the expiry sweep retries it.
+  let complete = await writeGuardianFeedReceipt({
+    requestId: request.id,
+    status,
+    ...(decidedAction ? { decidedAction } : {}),
+    decidedAtMs: request.updatedAt,
+    ...(params.terminalReason ? { terminalReason: params.terminalReason } : {}),
+  });
+
   let deliveries: GuardianRequestDeliveryWire[];
   try {
     deliveries = await listGuardianRequestDeliveries(request.id);
@@ -133,8 +155,6 @@ export async function withdrawGuardianRequestCards(
     );
     return { complete: false };
   }
-
-  let complete = true;
   for (const delivery of deliveries) {
     if (delivery.status === DELIVERY_STATUS.withdrawn) {
       continue;

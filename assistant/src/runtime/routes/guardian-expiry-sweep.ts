@@ -33,6 +33,7 @@ import {
   type GuardianRequestWire,
   listExpiredPendingGuardianRequests,
 } from "../../channels/gateway-guardian-requests.js";
+import { reconcileGuardianFeedProjections } from "../../notifications/guardian-feed-projection.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("guardian-expiry-sweep");
@@ -60,6 +61,14 @@ let sweepInProgress = false;
  * count of requests whose full cycle completed.
  */
 export async function runGuardianExpirySweep(): Promise<number> {
+  // Converge the home-feed projection against canonical state on the
+  // same cadence: backfill items for pending requests that lost (or
+  // predate) theirs, and receipt any item still actionable for a
+  // terminal request. Never blocks expiry.
+  await reconcileGuardianFeedProjections().catch((err) => {
+    log.warn({ err }, "Guardian feed reconciliation failed");
+  });
+
   let stale: GuardianRequestWire[];
   try {
     stale = await listExpiredPendingGuardianRequests(SWEEP_BATCH_LIMIT);

@@ -18,7 +18,9 @@
     "email": "Почта",
     "scheduling": "Расписания",
     "background": "Фон",
-    "system": "Система"
+    "system": "Система",
+    "guardianAction": "Требуется действие опекуна",
+    "guardianQuestion": "Вопрос опекуну"
   },
   "homeRecapRow": { "actionsTitle": "Действия по обновлению" },
   "homeTopHeader": { "title": "Активность" },
@@ -63,5 +65,26 @@
     "empty": "Уведомлений пока нет.",
     "actionFailed": "Не удалось начать этот диалог. Повторите попытку."
   },
-  "notificationsBellDetail": { "back": "Назад к уведомлениям" }
+  "notificationsBellDetail": { "back": "Назад к уведомлениям" },
+  "homeGuardianRequestCard": {
+    "requester": "Запросил",
+    "source": "Источник",
+    "approve": "Одобрить",
+    "reject": "Отклонить",
+    "answerHint": "Ответьте на этот вопрос в исходной беседе.",
+    "viewSourceMessage": "Просмотреть сообщение",
+    "openInSlack": "Открыть в Slack",
+    "alreadyResolved": "Этот запрос уже был решён на другой поверхности.",
+    "decisionFailed": "Не удалось отправить решение. Попробуйте ещё раз.",
+    "receipt": {
+      "approved": "Одобрено",
+      "approvedBy": "Одобрено: {name}",
+      "rejected": "Отклонено",
+      "rejectedBy": "Отклонено: {name}",
+      "expired": "Истёк срок",
+      "superseded": "Заменён новым",
+      "cancelled": "Отменён",
+      "leftUnverified": "Оставлен без проверки"
+    }
+  }
 }
