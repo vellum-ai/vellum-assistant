@@ -169,5 +169,22 @@
     "you": "you",
     "youNamed": "{name} (you)",
     "thisContact": "this contact"
+  },
+  "voiceprint": {
+    "title": "Voice",
+    "subtitle": "Recognizes this contact when they speak. Never used to grant access.",
+    "enroll": "Record voice",
+    "reenroll": "Re-record",
+    "enrolling": "Enrolling…",
+    "check": "Check a voice",
+    "checking": "Checking…",
+    "stop": "Stop",
+    "recording": "Recording {seconds}s",
+    "enrolledFromClips": "{count, plural, one {Enrolled from # clip} other {Enrolled from # clips}}",
+    "enrollNext": "Record clip {index} of {total}",
+    "bestMatch": "{name} · {score}",
+    "noMatch": "No match above {threshold}",
+    "micDenied": "Microphone unavailable",
+    "recordFailed": "Could not process that recording"
   }
 }
