@@ -76,7 +76,8 @@ export interface WithdrawGuardianCardsParams {
    * the acting conversation's client holds the optimistic completion the
    * broadcast suppression exists to protect; every sibling projection still
    * needs its live `ui_surface_complete`. Absent, every in-app projection is
-   * treated as the acting one (the pre-existing conservative behavior).
+   * treated as the acting one: a vellum-origin decision then suppresses the
+   * broadcast on all of them and only persists their completions.
    */
   originConversationId?: string;
   /**
