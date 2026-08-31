@@ -1,13 +1,13 @@
 /**
- * Voice profile management for one contact.
+ * Voice profile enrollment for one contact.
  *
- * Record a few seconds, enroll, and afterward check a fresh clip
- * against every enrolled contact to see who the assistant thinks
- * is speaking.
+ * Record two clips, which are averaged into a single profile. Averaging
+ * several is the cheapest accuracy win available, so the flow always
+ * captures more than one.
  *
- * The score is shown because it is the honest output: this
- * recognizes a voice, it does not verify an identity, and nothing
- * here grants access.
+ * Enrollment only. Scoring a clip against every contact is a global
+ * question ("who is speaking?"), not a per-contact one, so it does not
+ * belong on a single contact's card.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,12 +15,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-import { useTranslation } from "@/i18n";
-import {
-  type IdentifyResult,
-  type Voiceprint,
-} from "@/domains/contacts/voiceprints-gateway";
+import { type Voiceprint } from "@/domains/contacts/voiceprints-gateway";
 import { type Recorder, startRecording } from "@/domains/contacts/record-wav";
+import { useTranslation } from "@/i18n";
 
 /** Below this a clip is too short for a stable embedding. */
 const MIN_SECONDS = 2;
@@ -32,13 +29,8 @@ interface ContactVoiceprintSectionProps {
   voiceprints: Voiceprint[];
   enrollPending: boolean;
   deletePending: boolean;
-  identifyPending: boolean;
-  identifyResult: IdentifyResult | null;
-  contactId: string;
   onEnroll: (clips: Blob[]) => void;
   onDelete: (voiceprintId: string) => void;
-  onIdentify: (clip: Blob) => void;
-  onClearIdentify: () => void;
 }
 
 type Phase = "idle" | "recording";
@@ -47,22 +39,15 @@ export function ContactVoiceprintSection({
   voiceprints,
   enrollPending,
   deletePending,
-  identifyPending,
-  identifyResult,
-  contactId,
   onEnroll,
   onDelete,
-  onIdentify,
-  onClearIdentify,
 }: ContactVoiceprintSectionProps) {
   const { t } = useTranslation("contacts");
   const [phase, setPhase] = useState<Phase>("idle");
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  // Which flow the in-flight recording feeds once stopped.
-  const [intent, setIntent] = useState<"enroll" | "identify">("enroll");
   const [captured, setCaptured] = useState<Blob[]>([]);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const recorderRef = useRef<Recorder | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -84,31 +69,21 @@ export function ContactVoiceprintSection({
   }, [stopTimer]);
 
   const profile = voiceprints[0] ?? null;
-  const busy = enrollPending || deletePending || identifyPending;
+  const busy = enrollPending || deletePending;
+  const inSequence = captured.length > 0;
 
-  const begin = useCallback(
-    async (nextIntent: "enroll" | "identify") => {
-      setError(null);
-      onClearIdentify();
-      setIntent(nextIntent);
-      // Reset only when leaving the enroll flow. Clearing on every enroll
-      // press would discard the clip just recorded, so the sequence could
-      // never reach its last clip.
-      if (nextIntent === "identify") {
-        setCaptured([]);
-      }
-      try {
-        recorderRef.current = await startRecording();
-      } catch {
-        setError(t("voiceprint.micDenied"));
-        return;
-      }
-      setPhase("recording");
-      setElapsed(0);
-      timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
-    },
-    [onClearIdentify, t],
-  );
+  const begin = useCallback(async () => {
+    setError(null);
+    try {
+      recorderRef.current = await startRecording();
+    } catch {
+      setError(t("voiceprint.micDenied"));
+      return;
+    }
+    setPhase("recording");
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
+  }, [t]);
 
   const finish = useCallback(async () => {
     const recorder = recorderRef.current;
@@ -127,11 +102,6 @@ export function ContactVoiceprintSection({
       return;
     }
 
-    if (intent === "identify") {
-      onIdentify(clip);
-      return;
-    }
-
     const clips = [...captured, clip];
     if (clips.length < ENROLL_CLIPS) {
       setCaptured(clips);
@@ -139,14 +109,13 @@ export function ContactVoiceprintSection({
     }
     setCaptured([]);
     onEnroll(clips);
-  }, [captured, intent, onEnroll, onIdentify, stopTimer, t]);
+  }, [captured, onEnroll, stopTimer, t]);
 
   /**
-   * Drop the in-flight recording without feeding it to a flow.
+   * Drop the in-flight recording without feeding it to the sequence.
    *
-   * Without this the only exit from a recording is Stop, which is disabled
-   * until MIN_SECONDS, so a clip that captured the wrong thing has to be
-   * finished before it can be redone.
+   * Stop is disabled until MIN_SECONDS, so without this a clip that caught
+   * the wrong thing would have to be finished before it could be redone.
    */
   const cancelRecording = useCallback(() => {
     stopTimer();
@@ -160,34 +129,17 @@ export function ContactVoiceprintSection({
   const startOver = useCallback(() => {
     setCaptured([]);
     setError(null);
-    onClearIdentify();
-  }, [onClearIdentify]);
+  }, []);
 
   const tooShort = elapsed < MIN_SECONDS;
 
-  return (
-    <div className="flex flex-col gap-3">
-      {profile ? (
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm">
-            {t("voiceprint.enrolledFromClips", { count: profile.clipCount })}
-          </span>
-          <Button
-            type="button"
-            variant="danger"
-            onClick={() => setConfirmDeleteOpen(true)}
-            disabled={busy || phase === "recording"}
-          >
-            {t("actions.delete")}
-          </Button>
-        </div>
-      ) : null}
-
-      {phase === "recording" ? (
-        <div className="flex items-center gap-3">
-          <span className="text-sm tabular-nums">
-            {t("voiceprint.recording", { seconds: elapsed })}
-          </span>
+  if (phase === "recording") {
+    return (
+      <div className="flex flex-col gap-3">
+        <span className="text-sm tabular-nums">
+          {t("voiceprint.recording", { seconds: elapsed })}
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             onClick={() => void finish()}
@@ -195,50 +147,23 @@ export function ContactVoiceprintSection({
           >
             {t("voiceprint.stop")}
           </Button>
-          {/* Stop stays disabled until MIN_SECONDS, so without this a
-              recording that caught the wrong thing cannot be abandoned. */}
           <Button type="button" variant="outlined" onClick={cancelRecording}>
             {t("actions.cancel")}
           </Button>
         </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            onClick={() => void begin("enroll")}
-            disabled={busy}
-          >
-            {/* Always name the clip about to be captured, so the two-clip
-                sequence is legible before it starts rather than only once
-                the user is already inside it. */}
-            {enrollPending
-              ? t("voiceprint.enrolling")
-              : t("voiceprint.enrollNext", {
-                  index: captured.length + 1,
-                  total: ENROLL_CLIPS,
-                })}
-          </Button>
-          {captured.length > 0 && !enrollPending ? (
-            <Button type="button" variant="outlined" onClick={startOver}>
-              {t("voiceprint.startOver")}
-            </Button>
-          ) : null}
-          {voiceprints.length > 0 ? (
-            <Button
-              type="button"
-              variant="outlined"
-              onClick={() => void begin("identify")}
-              disabled={busy}
-            >
-              {identifyPending
-                ? t("voiceprint.checking")
-                : t("voiceprint.check")}
-            </Button>
-          ) : null}
-        </div>
-      )}
+      </div>
+    );
+  }
 
-      {captured.length > 0 && phase !== "recording" ? (
+  return (
+    <div className="flex flex-col gap-3">
+      {profile && !inSequence ? (
+        <span className="text-sm">
+          {t("voiceprint.enrolledFromClips", { count: profile.clipCount })}
+        </span>
+      ) : null}
+
+      {inSequence ? (
         <span className="text-sm">
           {t("voiceprint.captured", {
             count: captured.length,
@@ -247,14 +172,48 @@ export function ContactVoiceprintSection({
         </span>
       ) : null}
 
-      {error ? <span className="text-sm text-red-600">{error}</span> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" onClick={() => void begin()} disabled={busy}>
+          {enrollPending
+            ? t("voiceprint.enrolling")
+            : inSequence
+              ? t("voiceprint.enrollNext", {
+                  index: captured.length + 1,
+                  total: ENROLL_CLIPS,
+                })
+              : profile
+                ? t("voiceprint.rerecord")
+                : t("voiceprint.record")}
+        </Button>
 
-      {identifyResult ? (
-        <IdentifyReadout result={identifyResult} contactId={contactId} />
+        {inSequence ? (
+          <Button type="button" variant="outlined" onClick={startOver}>
+            {t("voiceprint.startOver")}
+          </Button>
+        ) : null}
+
+        {profile && !inSequence ? (
+          <Button
+            type="button"
+            variant="danger"
+            onClick={() => setConfirmDeleteOpen(true)}
+            disabled={busy}
+          >
+            {t("actions.delete")}
+          </Button>
+        ) : null}
+      </div>
+
+      {/* Re-recording replaces the profile rather than adding to it, which the
+          button alone does not convey. */}
+      {profile && !inSequence ? (
+        <span className="text-xs text-gray-500">
+          {t("voiceprint.replaces")}
+        </span>
       ) : null}
 
-      {/* Deleting a profile costs another recording session to undo, so it
-          confirms rather than firing straight off a danger button. */}
+      {error ? <span className="text-sm text-red-600">{error}</span> : null}
+
       <ConfirmDialog
         open={confirmDeleteOpen}
         title={t("voiceprint.deleteConfirmTitle")}
@@ -269,42 +228,6 @@ export function ContactVoiceprintSection({
         }}
         onCancel={() => setConfirmDeleteOpen(false)}
       />
-    </div>
-  );
-}
-
-function IdentifyReadout({
-  result,
-  contactId,
-}: {
-  result: IdentifyResult;
-  contactId: string;
-}) {
-  const { t } = useTranslation("contacts");
-  const best = result.best;
-
-  return (
-    <div className="flex flex-col gap-1 rounded-md border p-3">
-      <span className="text-sm font-medium">
-        {best
-          ? t("voiceprint.bestMatch", {
-              name: best.displayName,
-              score: best.score.toFixed(3),
-            })
-          : t("voiceprint.noMatch", { threshold: result.threshold.toFixed(2) })}
-      </span>
-      {/* Every score, so a wrong-but-confident match is visible rather
-          than hidden behind the winner. */}
-      {result.ranked.map((match) => (
-        <span
-          key={match.voiceprintId}
-          className={
-            match.contactId === contactId ? "text-sm font-medium" : "text-sm"
-          }
-        >
-          {match.displayName} {match.score.toFixed(3)}
-        </span>
-      ))}
     </div>
   );
 }
