@@ -7,6 +7,7 @@ import {
   getLockfileData,
   isPairedLockfileEntry,
   renameLockfileAssistantIfPresent,
+  stampLockfileAssistantOnboardedIfPresent,
   replacePlatformAssistants,
   upsertLockfileAssistant,
   upsertRendererLockfileAssistant,
@@ -277,6 +278,87 @@ describe("upsertLockfileAssistant", () => {
     if (result.ok) {
       expect(result.lockfile.activeAssistant).toBe("asst_active");
     }
+  });
+});
+
+describe("stampLockfileAssistantOnboardedIfPresent", () => {
+  const entry = {
+    assistantId: "asst_1",
+    cloud: "local",
+    name: "Credence",
+    signingKey: "sk-on-disk-secret",
+  };
+  const AT = "2026-08-31T00:00:00.000Z";
+
+  test("stamps the entry preserving its other fields and activeAssistant", () => {
+    writeOnDisk({ activeAssistant: "asst_other", assistants: [entry] });
+
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_1",
+      AT,
+    );
+
+    expect(result.ok).toBe(true);
+    const onDisk = readOnDisk();
+    expect(onDisk.activeAssistant).toBe("asst_other");
+    expect(onDisk.assistants).toEqual([{ ...entry, onboardedAt: AT }]);
+  });
+
+  // Update-only: a completion racing a CLI retire must not resurrect the row.
+  test("refuses a missing entry without writing the file", () => {
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_gone",
+      AT,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "No lockfile entry for this assistant",
+    });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("keeps an existing stamp: the first completion is the real one", () => {
+    const stamped = { ...entry, onboardedAt: "2026-08-01T00:00:00.000Z" };
+    writeOnDisk({ activeAssistant: null, assistants: [stamped] });
+
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_1",
+      AT,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readOnDisk().assistants).toEqual([stamped]);
+  });
+
+  test("refuses a corrupt on-disk file without clobbering it", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    const result = stampLockfileAssistantOnboardedIfPresent(
+      [lockfilePath],
+      "asst_1",
+      AT,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(409);
+    }
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ not json");
+  });
+
+  test("rejects a missing id or timestamp", () => {
+    expect(
+      stampLockfileAssistantOnboardedIfPresent([lockfilePath], "", AT).ok,
+    ).toBe(false);
+    expect(
+      stampLockfileAssistantOnboardedIfPresent([lockfilePath], "asst_1", "").ok,
+    ).toBe(false);
+    expect(fs.existsSync(lockfilePath)).toBe(false);
   });
 });
 

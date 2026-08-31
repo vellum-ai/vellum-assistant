@@ -377,6 +377,15 @@ const renameLockfileAssistant = (
     assistantId,
     name,
   ) as WriteResult;
+const stampLockfileAssistantOnboarded = (
+  assistantId?: unknown,
+  onboardedAt?: unknown,
+): WriteResult =>
+  handlers["vellum:localMode:stampLockfileAssistantOnboarded"](
+    allowedEvent,
+    assistantId,
+    onboardedAt,
+  ) as WriteResult;
 const writePairedLockfileAssistant = (assistantId: string): void => {
   fs.writeFileSync(
     lockfilePath,
@@ -602,6 +611,85 @@ describe("lockfile IPC handlers", () => {
     expect(renameLockfileAssistant("asst-1", undefined)).toEqual({
       ok: false,
       error: "Missing assistantId or name",
+    });
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+  });
+
+  test("stampLockfileAssistantOnboarded records the completion and refreshes", () => {
+    saveLockfileAssistant(
+      { assistantId: "asst-1", cloud: "local", name: "Credence" },
+      "asst-1",
+    );
+    refreshLockfileNowMock.mockClear();
+
+    const result = stampLockfileAssistantOnboarded(
+      "asst-1",
+      "2026-08-31T00:00:00.000Z",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(refreshLockfileNowMock).toHaveBeenCalledTimes(1);
+    const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Array<Record<string, unknown>>;
+    };
+    expect(onDisk.assistants[0]?.onboardedAt).toBe("2026-08-31T00:00:00.000Z");
+    expect(onDisk.assistants[0]?.name).toBe("Credence");
+  });
+
+  // The whole point of routing this through the host: a completion that lands
+  // after a retire must not re-create the entry from the renderer's snapshot.
+  test("stampLockfileAssistantOnboarded refuses a missing entry without creating the file", () => {
+    const result = stampLockfileAssistantOnboarded(
+      "asst-gone",
+      "2026-08-31T00:00:00.000Z",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fs.existsSync(lockfilePath)).toBe(false);
+    expect(refreshLockfileNowMock).not.toHaveBeenCalled();
+  });
+
+  test("stampLockfileAssistantOnboarded keeps the first stamp", () => {
+    saveLockfileAssistant(
+      {
+        assistantId: "asst-1",
+        cloud: "local",
+        onboardedAt: "2026-08-01T00:00:00.000Z",
+      },
+      "asst-1",
+    );
+
+    const result = stampLockfileAssistantOnboarded(
+      "asst-1",
+      "2026-08-31T00:00:00.000Z",
+    );
+
+    expect(result.ok).toBe(true);
+    const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
+      assistants: Array<Record<string, unknown>>;
+    };
+    expect(onDisk.assistants[0]?.onboardedAt).toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  test("stampLockfileAssistantOnboarded refuses a corrupt file without clobbering it", () => {
+    fs.writeFileSync(lockfilePath, "{ not json");
+
+    const result = stampLockfileAssistantOnboarded(
+      "asst-1",
+      "2026-08-31T00:00:00.000Z",
+    );
+
+    expect(result.ok).toBe(false);
+    expect(fs.readFileSync(lockfilePath, "utf-8")).toBe("{ not json");
+  });
+
+  test("stampLockfileAssistantOnboarded rejects a missing id or timestamp", () => {
+    expect(
+      stampLockfileAssistantOnboarded(undefined, "2026-08-31T00:00:00.000Z"),
+    ).toEqual({ ok: false, error: "Missing assistantId or onboardedAt" });
+    expect(stampLockfileAssistantOnboarded("asst-1", undefined)).toEqual({
+      ok: false,
+      error: "Missing assistantId or onboardedAt",
     });
     expect(fs.existsSync(lockfilePath)).toBe(false);
   });
