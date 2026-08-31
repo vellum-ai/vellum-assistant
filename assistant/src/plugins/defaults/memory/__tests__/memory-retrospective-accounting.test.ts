@@ -43,13 +43,39 @@ const SIGHT_FRAME_CONTENT = JSON.stringify([
   },
 ]);
 
+/**
+ * What `persistLiveVoiceSightFrame` writes: the gate sampled this, nobody
+ * spoke it, so `scripted` rides along with the tag.
+ */
 function sightFrameMetadata(attachmentId: string): string {
   return JSON.stringify({
     voiceSessionTurn: true,
+    provenanceTrustClass: "guardian",
     scripted: true,
     sightFrameAttachmentIds: [attachmentId],
   });
 }
+
+/**
+ * What the voice bridge writes when a parked frame rides real speech
+ * (`calls/voice-session-bridge.ts`, matching its persist test's shape). The
+ * bridge leaves `scripted` absent for a genuine turn and the persist stamps
+ * the `false` default durably, which is what tells the two apart.
+ */
+function riddenTurnMetadata(attachmentId: string): string {
+  return JSON.stringify({
+    voiceSessionTurn: true,
+    provenanceTrustClass: "guardian",
+    scripted: false,
+    sightFrameAttachmentIds: [attachmentId],
+  });
+}
+
+/** An auto-sent row with no camera involvement, e.g. an onboarding prompt. */
+const SCRIPTED_UNTAGGED_METADATA = JSON.stringify({
+  provenanceTrustClass: "guardian",
+  scripted: true,
+});
 
 let seq = 0;
 function insertRaw(opts: {
@@ -355,5 +381,56 @@ describe("ambient camera frames are not retrospective work", () => {
     // The cutoff lands on the real message, so the frames are neither
     // reviewed nor skipped over.
     expect(slice.map((row) => row.id)).toEqual([real]);
+  });
+
+  test("a spoken turn that carried a frame is real work", () => {
+    // Camera mode parks a frame continuously, so in a camera call EVERY
+    // spoken turn carries the tag. Excluding on the tag alone would mean a
+    // conversation held entirely in camera mode never earns a retrospective.
+    const spoken = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 1_000,
+      metadata: riddenTurnMetadata("att-frame-1"),
+    });
+
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+    expect(getRetrospectiveMessagesAfter(CONV, null).map((r) => r.id)).toEqual([
+      spoken,
+    ]);
+  });
+
+  test("an auto-sent row without the tag is untouched by this exclusion", () => {
+    // `scripted` covers onboarding sends and other machine-authored turns.
+    // They counted before the camera existed and must keep counting.
+    const onboarding = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 1_000,
+      metadata: SCRIPTED_UNTAGGED_METADATA,
+    });
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+    expect(getRetrospectiveMessagesAfter(CONV, null).map((r) => r.id)).toEqual([
+      onboarding,
+    ]);
+  });
+
+  test("keeps are excluded even among the speech they punctuate", () => {
+    insertSightFrame(1_000, "att-a");
+    const spoken = insertRaw({
+      role: "user",
+      content: TEXT,
+      createdAt: 2_000,
+      metadata: riddenTurnMetadata("att-frame-1"),
+    });
+    insertSightFrame(3_000, "att-b");
+
+    expect(countRetrospectiveMessagesAfter(CONV, null)).toBe(1);
+    expect(getRetrospectiveMessagesAfter(CONV, null).map((r) => r.id)).toEqual([
+      spoken,
+    ]);
+    expect(hasQualifyingUserMessageAfter(CONV, null)).toBe(true);
   });
 });

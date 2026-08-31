@@ -14,7 +14,7 @@ import {
   stripAgedSightFrames,
 } from "../daemon/conversation-sight-frames.js";
 import {
-  messageMetadataCarriesSightFrames,
+  messageMetadataIsAmbientSightKeep,
   sightFrameAttachmentIdsFromMetadata,
 } from "../persistence/conversation-types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -547,10 +547,11 @@ describe("sightFrameAttachmentIdsFromMetadata", () => {
   });
 });
 
-describe("messageMetadataCarriesSightFrames", () => {
-  test("reads the tag off a stored metadata column", () => {
+describe("messageMetadataIsAmbientSightKeep", () => {
+  test("a standalone keep carries the tag and the scripted marker", () => {
+    // The shape `persistLiveVoiceSightFrame` writes.
     expect(
-      messageMetadataCarriesSightFrames(
+      messageMetadataIsAmbientSightKeep(
         JSON.stringify({
           voiceSessionTurn: true,
           scripted: true,
@@ -560,26 +561,54 @@ describe("messageMetadataCarriesSightFrames", () => {
     ).toBe(true);
   });
 
-  test("an ordinary row is not a frame", () => {
-    expect(messageMetadataCarriesSightFrames(null)).toBe(false);
-    expect(messageMetadataCarriesSightFrames("")).toBe(false);
+  test("a spoken turn that merely carried a frame is not a keep", () => {
+    // The shape the voice bridge writes when a parked frame rides real
+    // speech, which in camera mode is every turn the user takes. Keying on
+    // the tag alone would read all of it as machine output.
     expect(
-      messageMetadataCarriesSightFrames(JSON.stringify({ livePhoto: true })),
+      messageMetadataIsAmbientSightKeep(
+        JSON.stringify({
+          voiceSessionTurn: true,
+          scripted: false,
+          sightFrameAttachmentIds: ["att-frame-1"],
+        }),
+      ),
     ).toBe(false);
+    // Older rows predating the always-stamped default carry no marker at all.
     expect(
-      messageMetadataCarriesSightFrames(
-        JSON.stringify({ sightFrameAttachmentIds: [] }),
+      messageMetadataIsAmbientSightKeep(
+        JSON.stringify({
+          voiceSessionTurn: true,
+          sightFrameAttachmentIds: ["att-frame-1"],
+        }),
       ),
     ).toBe(false);
   });
 
-  test("unreadable metadata is not a frame, so the row keeps its work", () => {
-    // Both callers use this to hold frames BACK, so a row whose marking
-    // cannot be read stays ordinary content and is still indexed or reviewed.
-    expect(messageMetadataCarriesSightFrames("{not json")).toBe(false);
+  test("an auto-sent row without the tag is not a keep", () => {
+    // `scripted` covers every machine-authored send, onboarding prompts
+    // included. Those are none of this predicate's business.
     expect(
-      messageMetadataCarriesSightFrames(
-        JSON.stringify({ sightFrameAttachmentIds: "att-1" }),
+      messageMetadataIsAmbientSightKeep(JSON.stringify({ scripted: true })),
+    ).toBe(false);
+  });
+
+  test("ordinary and unreadable rows are not keeps", () => {
+    expect(messageMetadataIsAmbientSightKeep(null)).toBe(false);
+    expect(messageMetadataIsAmbientSightKeep("")).toBe(false);
+    expect(
+      messageMetadataIsAmbientSightKeep(JSON.stringify({ livePhoto: true })),
+    ).toBe(false);
+    expect(
+      messageMetadataIsAmbientSightKeep(
+        JSON.stringify({ scripted: true, sightFrameAttachmentIds: [] }),
+      ),
+    ).toBe(false);
+    // Unreadable metadata leaves the row ordinary, so it keeps its work.
+    expect(messageMetadataIsAmbientSightKeep("{not json")).toBe(false);
+    expect(
+      messageMetadataIsAmbientSightKeep(
+        JSON.stringify({ scripted: true, sightFrameAttachmentIds: "att-1" }),
       ),
     ).toBe(false);
   });

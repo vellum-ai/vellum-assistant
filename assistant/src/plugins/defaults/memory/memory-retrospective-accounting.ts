@@ -39,7 +39,7 @@ import {
   type MessageRow,
 } from "../../../persistence/conversation-crud.js";
 import {
-  messageMetadataCarriesSightFrames,
+  messageMetadataIsAmbientSightKeep,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
 } from "../../../persistence/conversation-types.js";
 import { getDb } from "../../../persistence/db-connection.js";
@@ -59,7 +59,7 @@ function isExcludedFromRetrospectiveAccounting(row: {
   metadata: string | null;
 }): boolean {
   return (
-    isSkillCardMessage(row) || messageMetadataCarriesSightFrames(row.metadata)
+    isSkillCardMessage(row) || messageMetadataIsAmbientSightKeep(row.metadata)
   );
 }
 
@@ -221,7 +221,7 @@ export function hasQualifyingUserMessageAfter(
 
   return rows.some(
     (row) =>
-      !messageMetadataCarriesSightFrames(row.metadata) &&
+      !messageMetadataIsAmbientSightKeep(row.metadata) &&
       rawUserContentCarriesActivity(row.content),
   );
 }
