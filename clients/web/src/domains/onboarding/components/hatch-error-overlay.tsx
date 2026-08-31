@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 
 import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
 import { useTranslation } from "@/i18n";
-import { useDesktopAppPlatform } from "@/runtime/platform-detection";
+import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 
 interface HatchErrorOverlayProps {
   /** Terminal failure message from the background hatch. */

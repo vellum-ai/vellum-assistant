@@ -3,7 +3,7 @@ import { Download } from "lucide-react";
 
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
-import { useDesktopAppPlatform } from "@/runtime/platform-detection";
+import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 import { emitNativeAppNudgeImpressionOnce } from "@/utils/native-app-nudge-telemetry";
 import { useTranslation } from "@/i18n";
 

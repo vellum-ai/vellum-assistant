@@ -6,7 +6,7 @@ import {
   type AppVersionInfo,
 } from "@/runtime/app-info";
 import { isElectron } from "@/runtime/is-electron";
-import { useDesktopAppPlatform } from "@/runtime/platform-detection";
+import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 import { useTranslation } from "@/i18n";
 
 /**

@@ -32,7 +32,6 @@ mock.module("@capacitor/core", () => ({
 }));
 
 const {
-  detectDesktopAppPlatform,
   detectClientOs,
   isMobileBrowser,
   isNativeAndroid,
@@ -96,9 +95,7 @@ function setPlatform(platform: string): void {
   });
 }
 
-function setUserAgentData(
-  uaData: { mobile?: boolean; platform?: string } | undefined,
-): void {
+function setUserAgentData(uaData: { mobile?: boolean } | undefined): void {
   Object.defineProperty(navigator, "userAgentData", {
     value: uaData,
     configurable: true,
@@ -207,36 +204,6 @@ describe("detectClientOs", () => {
     nativePlatform = true;
     setUserAgent(IPHONE_UA);
     expect(detectClientOs()).toBe("macos");
-  });
-});
-
-describe("detectDesktopAppPlatform", () => {
-  test("uses the Electron host OS", () => {
-    setElectronHost("windows");
-    expect(detectDesktopAppPlatform()).toBe("windows");
-
-    setElectronHost("macos");
-    expect(detectDesktopAppPlatform()).toBe("macos");
-  });
-
-  test("detects Windows from browser platform signals", () => {
-    setUserAgentData({ platform: "Windows" });
-    setPlatform("MacIntel");
-    expect(detectDesktopAppPlatform()).toBe("windows");
-
-    setUserAgentData(undefined);
-    setPlatform("Win32");
-    expect(detectDesktopAppPlatform()).toBe("windows");
-
-    setPlatform("");
-    setUserAgent(WINDOWS_TOUCH_UA);
-    expect(detectDesktopAppPlatform()).toBe("windows");
-  });
-
-  test("defaults unknown browser platforms to macOS", () => {
-    setUserAgentData(undefined);
-    setPlatform("Linux x86_64");
-    expect(detectDesktopAppPlatform()).toBe("macos");
   });
 });
 

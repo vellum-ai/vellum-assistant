@@ -1,0 +1,40 @@
+import type { ElectronHostOS } from "@vellumai/ipc-contract";
+import { useSyncExternalStore } from "react";
+
+import { isElectron } from "@/runtime/is-electron";
+
+export type DesktopAppPlatform = ElectronHostOS;
+
+export function getBrowserPlatform(): string {
+  if (typeof navigator === "undefined") {
+    return "";
+  }
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    }
+  ).userAgentData;
+  return uaData?.platform || navigator.platform;
+}
+
+/** Windows is the only positive match; every other signal defaults to macOS. */
+export function detectDesktopAppPlatform(): DesktopAppPlatform {
+  if (typeof navigator === "undefined") {
+    return "macos";
+  }
+  if (isElectron() && window.vellum?.hostOS) {
+    return window.vellum.hostOS;
+  }
+
+  const platform = getBrowserPlatform();
+  return /win/i.test(platform) || /Windows/i.test(navigator.userAgent)
+    ? "windows"
+    : "macos";
+}
+
+const noop = () => () => {};
+
+/** Hook form of `detectDesktopAppPlatform()`, safe in render bodies. */
+export function useDesktopAppPlatform(): DesktopAppPlatform {
+  return useSyncExternalStore(noop, detectDesktopAppPlatform, () => "macos");
+}

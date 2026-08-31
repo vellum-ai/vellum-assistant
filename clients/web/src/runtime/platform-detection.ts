@@ -2,20 +2,12 @@ import { Capacitor } from "@capacitor/core";
 import type { ElectronHostOS } from "@vellumai/ipc-contract";
 import { useSyncExternalStore } from "react";
 
+import {
+  detectDesktopAppPlatform,
+  getBrowserPlatform,
+} from "@/runtime/desktop-app-platform";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-
-function getBrowserPlatform(): string {
-  if (typeof navigator === "undefined") {
-    return "";
-  }
-  const uaData = (
-    navigator as Navigator & {
-      userAgentData?: { platform?: string };
-    }
-  ).userAgentData;
-  return uaData?.platform || navigator.platform;
-}
 
 /**
  * Returns true when the current browser is running on iOS (iPhone, iPod, or iPad).
@@ -168,7 +160,6 @@ export function isMobileBrowser(): boolean {
  */
 export type ClientOs = ElectronHostOS | "ios" | "android" | "web";
 export type { ElectronHostOS };
-export type DesktopAppPlatform = ElectronHostOS;
 
 const CLIENT_OS_DISPLAY_NAMES: Readonly<Record<ClientOs, string>> = {
   macos: "macOS",
@@ -191,32 +182,7 @@ export function detectElectronHostOS(): ElectronHostOS | null {
   if (!isElectron()) {
     return null;
   }
-  if (window.vellum?.hostOS) {
-    return window.vellum.hostOS;
-  }
-  return getBrowserPlatform().toLowerCase().includes("win")
-    ? "windows"
-    : "macos";
-}
-
-/**
- * Pick the desktop app promoted to the current user. Windows is the only
- * positive match; every other or unavailable browser signal defaults to macOS.
- */
-export function detectDesktopAppPlatform(): DesktopAppPlatform {
-  if (typeof navigator === "undefined") {
-    return "macos";
-  }
-
-  const electronHostOS = detectElectronHostOS();
-  if (electronHostOS) {
-    return electronHostOS;
-  }
-
-  const platform = getBrowserPlatform();
-  return /win/i.test(platform) || /Windows/i.test(navigator.userAgent)
-    ? "windows"
-    : "macos";
+  return detectDesktopAppPlatform();
 }
 
 /**
@@ -451,11 +417,6 @@ export function useIsMacOSWeb(): boolean {
     () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
-}
-
-/** Hook form of `detectDesktopAppPlatform()`, safe in render bodies. */
-export function useDesktopAppPlatform(): DesktopAppPlatform {
-  return useSyncExternalStore(noop, detectDesktopAppPlatform, () => "macos");
 }
 
 /**
