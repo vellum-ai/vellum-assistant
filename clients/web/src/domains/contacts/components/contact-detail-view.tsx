@@ -15,6 +15,7 @@ import { ContactVoiceprintCard } from "@/domains/contacts/components/contact-voi
 import { isDraftContactName } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 import { useTranslation } from "@/i18n";
+import { useSupportsContactVoiceprints } from "@/lib/backwards-compat/use-supports-contact-voiceprints";
 
 interface ContactDetailViewProps {
   contact: ContactPayload;
@@ -68,6 +69,9 @@ function ContactDetailViewInner({
   onAutoApproveThresholdChange,
 }: ContactDetailViewProps) {
   const { t } = useTranslation("contacts");
+  // Older assistants have no voiceprint routes; the card stays unmounted
+  // rather than inviting clips the enroll POST would 404.
+  const supportsVoiceprints = useSupportsContactVoiceprints(assistantId);
   const isNewContactDraft = isDraftContactName(contact.displayName);
   const [displayName, setDisplayName] = useState(
     isNewContactDraft ? "" : contact.displayName,
@@ -208,7 +212,7 @@ function ContactDetailViewInner({
         />
       </DetailCard>
 
-      {assistantId ? (
+      {assistantId && supportsVoiceprints ? (
         <ContactVoiceprintCard
           assistantId={assistantId}
           contactId={contact.id}
