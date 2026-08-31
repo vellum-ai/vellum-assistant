@@ -22,6 +22,12 @@
  * `value FLOAT`, `detail JSON`, plus `assistant_version`, `organization_id`,
  * and `user_id`, and `stg_telemetry__watchdog` stages it partitioned by day.
  *
+ * Riding a daemon type from a browser is a grant, not a loophole: the platform
+ * accepts `watchdog` from a browser session only for check names under
+ * `client_`, and drops the rest as a forged daemon health series. That makes
+ * the prefix on every name below load-bearing rather than cosmetic; see the
+ * prefix note in `client-perf.ts`.
+ *
  * ## The two families
  *
  * `client_boot.*` is a **cold start** by construction: this module only

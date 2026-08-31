@@ -17,6 +17,17 @@ import {
  * same ride-an-existing-shape move `memory-telemetry.ts` makes on the
  * `onboarding` event type.
  *
+ * ## The `client_` prefix is load-bearing, not a naming convention
+ *
+ * `watchdog` is the one event type both the daemon and the browser write, so
+ * the platform does not accept it wholesale from a browser session: it accepts
+ * only check names under `client_`, and drops anything else as a forged daemon
+ * health series (`SESSION_INGEST_WATCHDOG_CHECK_NAME_PREFIX` in
+ * `telemetry_views.py`, vellum-assistant-platform). A family renamed off that
+ * prefix would keep type-checking here and silently stop persisting, exactly as
+ * these families did before the platform allowed them. Every member of
+ * {@link ClientPerfCheckName} must start with `client_`.
+ *
  * Detail-bag convention, so the families stay queryable together:
  *   - Values are raw JSON scalars. Numbers stay numbers, booleans stay
  *     booleans. Never stringify a numeric, and never use a string sentinel
@@ -34,6 +45,9 @@ import {
  * Every check name the `client_*` perf families emit. Each member is a series
  * queried by name downstream, so the union is closed: a typo is a compile
  * error rather than a silent phantom series.
+ *
+ * Every member must start with `client_`, which the platform enforces on
+ * ingest. See the prefix note in the module docstring.
  */
 export type ClientPerfCheckName =
   | "client_switch.transcript_painted"
