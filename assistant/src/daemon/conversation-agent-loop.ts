@@ -2123,6 +2123,7 @@ export async function applyCompactionResult(
     summaryCacheReadInputTokens?: number;
     summaryRawResponses?: unknown[];
     summaryCallSite?: LLMCallSite;
+    summaryResolutionCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
     summaryActualProvider?: string;
     summaryActualInferenceProfile?: string;
@@ -2213,6 +2214,9 @@ export async function applyCompactionResult(
     // this parameter independently off their own state and never share it.
     {
       callSite: result.summaryCallSite ?? null,
+      ...(result.summaryResolutionCallSite != null
+        ? { profileResolutionCallSite: result.summaryResolutionCallSite }
+        : {}),
       overrideProfile:
         result.summaryActualInferenceProfile ??
         result.summaryOverrideProfile ??

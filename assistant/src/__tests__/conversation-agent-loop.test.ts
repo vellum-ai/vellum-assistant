@@ -4240,6 +4240,7 @@ describe("session-agent-loop", () => {
           summaryModel: "claude-sonnet-5",
           summaryText: "summary",
           summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
           // What the compactor resolved before the call...
           summaryOverrideProfile: "primaryProfile",
           // ...and what the reroute actually served.
@@ -4260,6 +4261,7 @@ describe("session-agent-loop", () => {
       expect(compactorCall?.[3]).toBe("claude-sonnet-5");
       expect(compactorCall?.[12]).toEqual({
         callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
         overrideProfile: "backupProfile",
         forceOverrideProfile: true,
       });
@@ -4286,6 +4288,7 @@ describe("session-agent-loop", () => {
           summaryModel: "mock-model",
           summaryText: "summary",
           summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
           summaryOverrideProfile: "primaryProfile",
           summaryActualProvider: "openai",
         },
@@ -4302,6 +4305,7 @@ describe("session-agent-loop", () => {
       expect(compactorCall?.[3]).toBe("mock-model");
       expect(compactorCall?.[12]).toEqual({
         callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
         overrideProfile: "primaryProfile",
       });
     });
@@ -4331,6 +4335,7 @@ describe("session-agent-loop", () => {
           summaryModel: "mock-model",
           summaryText: "summary",
           summaryCallSite: "compactionAgent",
+          summaryResolutionCallSite: "mainAgent",
           summaryOverrideProfile: "primaryProfile",
         },
         () => {},
@@ -4347,6 +4352,7 @@ describe("session-agent-loop", () => {
       });
       expect(compactorCall?.[12]).toEqual({
         callSite: "compactionAgent",
+        profileResolutionCallSite: "mainAgent",
         overrideProfile: "primaryProfile",
       });
     });

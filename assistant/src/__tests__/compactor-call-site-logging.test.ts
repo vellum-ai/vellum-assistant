@@ -154,6 +154,7 @@ describe("compactor records llm_request_logs with call_site=compactionAgent", ()
     expect(recordRequestLogCalls.length).toBe(1);
     expect(recordRequestLogCalls[0]!.callSite).toBe("compactionAgent");
     expect(result.summaryCallSite).toBe("compactionAgent");
+    expect(result.summaryResolutionCallSite).toBe("mainAgent");
     expect(recordRequestLogCalls[0]!.conversationId).toBe(
       "conv-compaction-log-1",
     );
@@ -231,6 +232,7 @@ describe("compaction result reports what actually served the summary", () => {
     expect(result.summaryOverrideProfile).toBe("primaryProfile");
     // Request log and usage attribution share the observability call site.
     expect(result.summaryCallSite).toBe("compactionAgent");
+    expect(result.summaryResolutionCallSite).toBe("mainAgent");
     expect(recordRequestLogCalls[0]!.callSite).toBe("compactionAgent");
     // Same value the request log recorded: one source of truth, not two.
     expect(recordRequestLogCalls[0]!.provider).toBe("anthropic");

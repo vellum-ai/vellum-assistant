@@ -295,6 +295,32 @@ describe("resolveUsageAttribution — single-winner semantics", () => {
     });
   });
 
+  test("compaction observability site still resolves the profile through mainAgent", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      activeProfile: "mine",
+      callSites: { compactionAgent: { profile: "cost-optimized" } },
+      defaultProvider: { provider: "anthropic" },
+    });
+
+    const snapshot = resolveUsageAttribution({
+      callSite: "compactionAgent",
+      profileResolutionCallSite: "mainAgent",
+    });
+
+    expect(snapshot.callSite).toBe("compactionAgent");
+    expect(snapshot.appliedProfile).toBe("mine");
+    expect(snapshot.profileSource).toBe("active");
+    expect(snapshot.resolvedModel).toBe("gpt-5.5");
+    expect(
+      resolveUsageAttribution({ callSite: "compactionAgent" }),
+    ).toMatchObject({
+      callSite: "compactionAgent",
+      appliedProfile: "cost-optimized",
+      profileSource: "call_site",
+    });
+  });
+
   test("attribution provider/model agree with the resolver", () => {
     setLlmConfig({
       profiles: { mine: completeProfile },
