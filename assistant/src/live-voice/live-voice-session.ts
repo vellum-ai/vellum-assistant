@@ -64,6 +64,7 @@ import {
   voteDominantLanguage,
 } from "../stt/language-metadata.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
+import { RoomNoiseFloor } from "../stt/room-noise-floor.js";
 import {
   DEFAULT_SPEECH_ENERGY_THRESHOLD,
   pcm16MaxNormalizedCorrelation,
@@ -205,6 +206,18 @@ const ECHO_ONSET_ELIGIBILITY_MS = 300;
 // Client buffering makes audible playback trail the server's send-time
 // estimate. Keep the echo window open briefly past that estimate.
 const DEFAULT_ECHO_DRAIN_SLACK_MS = 300;
+// The speech gate's base threshold is raised to this multiple of the room's
+// measured noise floor. Speech has to stand clear of the room it is spoken in,
+// and roughly 3x (about 10dB) is the separation an ordinary talking voice keeps
+// over its own background. Mirrors the liveVoice.vad.noiseFloorMargin default.
+const DEFAULT_NOISE_FLOOR_MARGIN = 3;
+// Ceiling on the adaptive base, as a multiple of the configured threshold. The
+// floor estimate is derived from the microphone, so a pathological room (or a
+// stuck input) could in principle drive it high enough that nothing counts as
+// speech and the user cannot interrupt at all. Barge-in getting harder is a
+// nuisance; barge-in becoming impossible is a broken product, so the adaptation
+// is bounded even though the bound should never be reached.
+const NOISE_FLOOR_MAX_BASE_MULTIPLE = 4;
 // Mirrors MediaTurnDetector's DEFAULT_SILENCE_THRESHOLD_MS: the session
 // tracks the effective trailing-silence threshold (the detector keeps its own
 // copy private) so the endpoint decider can report the pause length.
@@ -334,6 +347,14 @@ export interface LiveVoiceSessionOptions {
    * `DEFAULT_SPEECH_ENERGY_THRESHOLD`.
    */
   speechEnergyThreshold?: number;
+  /**
+   * Multiple of the room's measured noise floor that the speech gate's base
+   * threshold is raised to. The production factory seeds this from
+   * `liveVoice.vad.noiseFloorMargin` config when unset; defaults to
+   * `DEFAULT_NOISE_FLOOR_MARGIN`. Values at or below 0 disable the adaptation,
+   * pinning the gate to `speechEnergyThreshold` (used by fixed-gate tests).
+   */
+  noiseFloorMargin?: number;
   /**
    * Sustained speech (ms) required before speech during assistant playback
    * interrupts it (barge-in); 0 disables the guard. The production factory
@@ -1189,6 +1210,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Base energy gate for server-VAD speech classification. During estimated
   // playback, classifyVadEnergy raises this above the learned echo level.
   private readonly speechEnergyThreshold: number | undefined;
+  private readonly noiseFloorMargin: number;
+  // Quietest recent second of microphone audio, learned only while the
+  // assistant is silent (during playback the microphone hears echo, which is
+  // what echoEnergyEma is for). Raises the base gate in a noisy room so the
+  // room itself stops reading as speech.
+  private readonly roomNoiseFloor = new RoomNoiseFloor();
   private readonly echoBargeInMargin: number;
   private readonly echoEmaHalfLifeMs: number;
   private readonly echoDrainSlackMs: number;
@@ -1406,6 +1433,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
     this.speechEnergyThreshold = options.speechEnergyThreshold;
+    this.noiseFloorMargin =
+      options.noiseFloorMargin ?? DEFAULT_NOISE_FLOOR_MARGIN;
     // Precedence for the two sensitivity knobs: per-session start-frame
     // override (the client's user setting) > daemon `liveVoice.vad` config
     // (seeded into `options` by the factory) > in-code default.
@@ -2284,18 +2313,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * confirmed echo while speech above the learned margin remains frozen out.
    */
   private classifyVadEnergy(chunk: Buffer): VadClassifiedChunk[] {
-    const baseThreshold =
-      this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD;
     const meanAmplitude = pcm16MeanAmplitude(chunk);
+    const chunkMs = pcm16DurationMs(
+      chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    const baseThreshold = this.effectiveBaseThreshold();
     if (
       this.echoBargeInMargin <= 1 ||
       !this.isAssistantPlaybackEchoPossible()
     ) {
       this.resetEchoReference();
+      // Only learn the room while the assistant is silent. The floor is a
+      // minimum over completed blocks, so this chunk cannot lower the
+      // threshold that is about to judge it.
+      this.roomNoiseFloor.observe(meanAmplitude, chunkMs);
       return [
         this.classifyAtFixedThreshold(chunk, baseThreshold, meanAmplitude),
       ];
     }
+    // Playback is starting or ongoing: stop measuring the room, and drop the
+    // partial block rather than let it straddle the silence and the echo.
+    this.roomNoiseFloor.interrupt();
 
     if (this.echoWindowTotalAudioMs === 0) {
       this.echoWindowGuardCarryover =
@@ -2304,10 +2343,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.echoWindowGuardCarryover = false;
     }
 
-    const chunkMs = pcm16DurationMs(
-      chunk.byteLength,
-      this.context.startFrame.audio.sampleRate,
-    );
     const onsetWasEligible =
       !this.echoOnsetLapsed &&
       this.echoWindowTotalAudioMs < ECHO_ONSET_ELIGIBILITY_MS;
@@ -2412,6 +2447,34 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const alpha = 1 - 0.5 ** (chunkMs / this.echoEmaHalfLifeMs);
     this.echoEnergyEma =
       alpha * meanAmplitude + (1 - alpha) * this.echoEnergyEma;
+  }
+
+  /**
+   * The gate a chunk is judged against before any playback-echo adjustment.
+   *
+   * The configured `speechEnergyThreshold` is a floor, never a ceiling: the
+   * adaptation can only make speech classification *stricter*. That asymmetry
+   * is deliberate. A gate that could drop below the configured value would be
+   * able to invent new self-interruption in a room quieter than the one the
+   * constant was chosen for, which is the failure this whole change exists to
+   * remove; a gate that only rises can, at worst, make a soft barge-in need
+   * repeating. The result is bounded so it can never rise far enough to make
+   * interrupting impossible.
+   */
+  private effectiveBaseThreshold(): number {
+    const configured =
+      this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD;
+    if (this.noiseFloorMargin <= 0) {
+      return configured;
+    }
+    const floor = this.roomNoiseFloor.floor;
+    if (floor === null) {
+      return configured;
+    }
+    return Math.min(
+      Math.max(configured, floor * this.noiseFloorMargin),
+      configured * NOISE_FLOOR_MAX_BASE_MULTIPLE,
+    );
   }
 
   private classifyAtFixedThreshold(
@@ -6831,6 +6894,7 @@ export function createLiveVoiceSession(
         : {}),
     speechEnergyThreshold:
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
+    noiseFloorMargin: options.noiseFloorMargin ?? vadConfig?.noiseFloorMargin,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
     echoBargeInMargin:

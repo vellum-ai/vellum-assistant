@@ -937,6 +937,7 @@ describe("AssistantConfigSchema", () => {
       mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
+        noiseFloorMargin: 3,
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
         bargeInMinSpeechMs: 250,
