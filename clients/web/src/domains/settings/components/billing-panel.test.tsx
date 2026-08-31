@@ -116,11 +116,17 @@ describe("BillingPanel balance tile while loading", () => {
   test("stands in a shimmer tile with no spinner or loading copy", () => {
     const { container, queryByTestId } = renderPanel();
 
-    const status = container.querySelector('[role="status"]');
-    expect(status?.getAttribute("aria-label")).toBe("Loading credit balance");
-    expect(status?.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
     expect(queryByTestId("effective-balance")).toBeNull();
     expect(container.textContent).not.toContain("Loading");
+  });
+
+  test("announces nothing of its own, leaving that to the tab-level stack", () => {
+    // Three cards skeleton at once inside the Credits card, so a labelled
+    // status region here would be one of several simultaneous announcements.
+    const { container } = renderPanel();
+
+    expect(container.querySelector('[role="status"][aria-label]')).toBeNull();
   });
 });
 

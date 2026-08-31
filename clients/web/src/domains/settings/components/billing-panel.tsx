@@ -171,11 +171,10 @@ export function BillingPanel() {
       // Built from the resolved tile so the placeholder is exactly as tall as
       // the balance it stands in for.
       return (
-        <div
-          className="mt-4"
-          role="status"
-          aria-label={t("billingPanel.loadingLabel")}
-        >
+        // Presentational: the tab-level skeleton stack owns the single loading
+        // announcement, so this placeholder stays out of the accessibility
+        // tree instead of adding a competing status region.
+        <div className="mt-4" aria-hidden>
           <StatSquare
             icon={<Skeleton aria-hidden className="h-4 w-4 rounded-sm" />}
             value={<Skeleton aria-hidden className="h-5 w-28 rounded-md" />}

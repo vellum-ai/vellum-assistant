@@ -298,12 +298,10 @@ export function AutoTopUpCard() {
   // error state below.
   if (configQuery.isPending) {
     return (
-      <div data-testid="auto-top-up-card">
-        <SkeletonLines
-          lines={2}
-          lineClassName="h-6"
-          label={t("autoTopUpCard.loadingLabel")}
-        />
+      // Presentational: the tab-level skeleton stack owns the single loading
+      // announcement, so this placeholder stays out of the accessibility tree.
+      <div data-testid="auto-top-up-card" aria-hidden>
+        <SkeletonLines lines={2} lineClassName="h-6" />
       </div>
     );
   }
@@ -523,188 +521,189 @@ export function AutoTopUpCard() {
 
   const toggleChecked = enabled || pendingEnable;
 
-  const cardBody = (
-    <div ref={cardRef} data-testid="auto-top-up-card">
-      <div className="flex items-center justify-between gap-4">
-        <Toggle
-          checked={toggleChecked}
-          onChange={handleToggleChange}
-          label={t("autoTopUpCard.toggleLabel")}
-          helperText={
-            toggleChecked ? t("autoTopUpCard.toggleHelper") : undefined
-          }
-        />
-      </div>
+  return (
+    <ContentReveal>
+      <div ref={cardRef} data-testid="auto-top-up-card">
+        <div className="flex items-center justify-between gap-4">
+          <Toggle
+            checked={toggleChecked}
+            onChange={handleToggleChange}
+            label={t("autoTopUpCard.toggleLabel")}
+            helperText={
+              toggleChecked ? t("autoTopUpCard.toggleHelper") : undefined
+            }
+          />
+        </div>
 
-      {enabled && !isFormMode && (
-        <div className="mt-3 flex w-full items-center gap-2">
-          <SummaryChip testId="auto-top-up-summary">
-            <Coins
-              className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
-              aria-hidden="true"
-            />
-            <Typography
-              variant="body-medium-default"
-              className="truncate text-[var(--content-default)]"
-            >
-              {t("autoTopUpCard.summary", {
-                amount: formatUsdShort(config.amount_usd),
-                threshold: formatUsdShort(config.threshold_usd),
-              })}
-            </Typography>
-          </SummaryChip>
-          {config.monthly_cap_usd != null && (
-            <SummaryChip testId="auto-top-up-cap-progress">
+        {enabled && !isFormMode && (
+          <div className="mt-3 flex w-full items-center gap-2">
+            <SummaryChip testId="auto-top-up-summary">
+              <Coins
+                className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+                aria-hidden="true"
+              />
               <Typography
                 variant="body-medium-default"
                 className="truncate text-[var(--content-default)]"
               >
-                <span>
-                  {formatUsdShort(config.current_month_credits_purchased_usd)}
-                </span>
-                <span className="text-[var(--content-tertiary)]">
-                  {t("autoTopUpCard.capProgress", {
-                    cap: formatUsdShort(config.monthly_cap_usd),
-                  })}
-                </span>
+                {t("autoTopUpCard.summary", {
+                  amount: formatUsdShort(config.amount_usd),
+                  threshold: formatUsdShort(config.threshold_usd),
+                })}
               </Typography>
             </SummaryChip>
-          )}
-          <Button
-            variant="outlined"
-            onClick={enterFormMode}
-            data-testid="auto-top-up-edit-button"
-            className="shrink-0"
-          >
-            {t("autoTopUpCard.adjust")}
-          </Button>
-        </div>
-      )}
-
-      {disabledAfterDeclines && (
-        <Notice
-          tone="warning"
-          className="mt-3"
-          data-testid="auto-top-up-declined-cutoff"
-          actions={
-            <Button
-              variant="outlined"
-              onClick={openPmModal}
-              disabled={returnPending}
-              data-testid="auto-top-up-add-pm-button"
-            >
-              {t("autoTopUpCard.addPaymentMethod")}
-            </Button>
-          }
-        >
-          {t("autoTopUpCard.declinedCutoffNotice")}
-        </Notice>
-      )}
-
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-in-out"
-        style={{
-          gridTemplateRows: showAddPm && !disabledAfterDeclines ? "1fr" : "0fr",
-        }}
-      >
-        <div className="overflow-hidden">
-          <div className="mt-3 flex flex-col gap-3">
-            {!bannerDismissed && (
-              <div className="flex h-8 items-center justify-between gap-3 rounded-md bg-[var(--system-mid-weak)] px-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Info
-                    className="h-4 w-4 shrink-0 text-[var(--system-mid-strong)]"
-                    aria-hidden="true"
-                  />
-                  <Typography
-                    variant="body-medium-default"
-                    className="truncate text-[var(--system-mid-strong)]"
-                  >
-                    {t("autoTopUpCard.connectCardBanner")}
-                  </Typography>
-                </div>
-                <button
-                  type="button"
-                  aria-label={t("autoTopUpCard.dismiss")}
-                  onClick={() => setBannerDismissed(true)}
-                  className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[var(--system-mid-strong)] opacity-70 transition-opacity hover:opacity-100"
+            {config.monthly_cap_usd != null && (
+              <SummaryChip testId="auto-top-up-cap-progress">
+                <Typography
+                  variant="body-medium-default"
+                  className="truncate text-[var(--content-default)]"
                 >
-                  <X
-                    className="h-2.5 w-2.5"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
+                  <span>
+                    {formatUsdShort(config.current_month_credits_purchased_usd)}
+                  </span>
+                  <span className="text-[var(--content-tertiary)]">
+                    {t("autoTopUpCard.capProgress", {
+                      cap: formatUsdShort(config.monthly_cap_usd),
+                    })}
+                  </span>
+                </Typography>
+              </SummaryChip>
             )}
             <Button
-              variant="primary"
-              onClick={openPmModal}
-              disabled={returnPending}
-              data-testid="auto-top-up-add-pm-button"
-              className="self-start"
+              variant="outlined"
+              onClick={enterFormMode}
+              data-testid="auto-top-up-edit-button"
+              className="shrink-0"
             >
-              {t("autoTopUpCard.addCreditCard")}
+              {t("autoTopUpCard.adjust")}
             </Button>
           </div>
+        )}
+
+        {disabledAfterDeclines && (
+          <Notice
+            tone="warning"
+            className="mt-3"
+            data-testid="auto-top-up-declined-cutoff"
+            actions={
+              <Button
+                variant="outlined"
+                onClick={openPmModal}
+                disabled={returnPending}
+                data-testid="auto-top-up-add-pm-button"
+              >
+                {t("autoTopUpCard.addPaymentMethod")}
+              </Button>
+            }
+          >
+            {t("autoTopUpCard.declinedCutoffNotice")}
+          </Notice>
+        )}
+
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-in-out"
+          style={{
+            gridTemplateRows:
+              showAddPm && !disabledAfterDeclines ? "1fr" : "0fr",
+          }}
+        >
+          <div className="overflow-hidden">
+            <div className="mt-3 flex flex-col gap-3">
+              {!bannerDismissed && (
+                <div className="flex h-8 items-center justify-between gap-3 rounded-md bg-[var(--system-mid-weak)] px-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Info
+                      className="h-4 w-4 shrink-0 text-[var(--system-mid-strong)]"
+                      aria-hidden="true"
+                    />
+                    <Typography
+                      variant="body-medium-default"
+                      className="truncate text-[var(--system-mid-strong)]"
+                    >
+                      {t("autoTopUpCard.connectCardBanner")}
+                    </Typography>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={t("autoTopUpCard.dismiss")}
+                    onClick={() => setBannerDismissed(true)}
+                    className="flex shrink-0 cursor-pointer items-center justify-center rounded p-0.5 text-[var(--system-mid-strong)] opacity-70 transition-opacity hover:opacity-100"
+                  >
+                    <X
+                      className="h-2.5 w-2.5"
+                      strokeWidth={2}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              )}
+              <Button
+                variant="primary"
+                onClick={openPmModal}
+                disabled={returnPending}
+                data-testid="auto-top-up-add-pm-button"
+                className="self-start"
+              >
+                {t("autoTopUpCard.addCreditCard")}
+              </Button>
+            </div>
+          </div>
         </div>
-      </div>
 
-      {showGenericUpdateError && (
-        <Notice
-          tone="error"
-          className="mt-4"
-          data-testid="auto-top-up-update-error"
-        >
-          {t("autoTopUpCard.updateError")}
-        </Notice>
-      )}
+        {showGenericUpdateError && (
+          <Notice
+            tone="error"
+            className="mt-4"
+            data-testid="auto-top-up-update-error"
+          >
+            {t("autoTopUpCard.updateError")}
+          </Notice>
+        )}
 
-      {disableMutation.isError && (
-        <Notice
-          tone="error"
-          className="mt-4"
-          data-testid="auto-top-up-disable-error"
-        >
-          {t("autoTopUpCard.disableError")}
-        </Notice>
-      )}
+        {disableMutation.isError && (
+          <Notice
+            tone="error"
+            className="mt-4"
+            data-testid="auto-top-up-disable-error"
+          >
+            {t("autoTopUpCard.disableError")}
+          </Notice>
+        )}
 
-      {isFormMode && (
-        <AutoTopUpForm
-          initialValues={
-            enabled
-              ? {
-                  threshold_usd: apiToIntStr(config.threshold_usd),
-                  amount_usd: apiToIntStr(config.amount_usd),
-                  monthly_cap_usd: apiToIntStr(config.monthly_cap_usd),
-                }
-              : undefined
-          }
-          submitting={updateMutation.isPending}
-          serverErrors={fieldErrors}
-          onCancel={exitFormMode}
-          onSave={handleSave}
+        {isFormMode && (
+          <AutoTopUpForm
+            initialValues={
+              enabled
+                ? {
+                    threshold_usd: apiToIntStr(config.threshold_usd),
+                    amount_usd: apiToIntStr(config.amount_usd),
+                    monthly_cap_usd: apiToIntStr(config.monthly_cap_usd),
+                  }
+                : undefined
+            }
+            submitting={updateMutation.isPending}
+            serverErrors={fieldErrors}
+            onCancel={exitFormMode}
+            onSave={handleSave}
+          />
+        )}
+
+        <AutoTopUpDisableConfirm
+          open={confirmingDisable}
+          confirming={disableMutation.isPending}
+          onCancel={dismissDisableConfirm}
+          onConfirm={handleConfirmDisable}
         />
-      )}
 
-      <AutoTopUpDisableConfirm
-        open={confirmingDisable}
-        confirming={disableMutation.isPending}
-        onCancel={dismissDisableConfirm}
-        onConfirm={handleConfirmDisable}
-      />
-
-      <AutoTopUpPaymentMethodModal
-        open={pmModal != null}
-        onClose={() => setPmModal(null)}
-        mode={pmModal?.mode ?? "add"}
-        cardOnFile={pmModal?.cardOnFile ?? null}
-        billingAddress={config.billing_address ?? null}
-        onSavedOptimistic={handlePmSaved}
-      />
-    </div>
+        <AutoTopUpPaymentMethodModal
+          open={pmModal != null}
+          onClose={() => setPmModal(null)}
+          mode={pmModal?.mode ?? "add"}
+          cardOnFile={pmModal?.cardOnFile ?? null}
+          billingAddress={config.billing_address ?? null}
+          onSavedOptimistic={handlePmSaved}
+        />
+      </div>
+    </ContentReveal>
   );
-
-  return <ContentReveal>{cardBody}</ContentReveal>;
 }

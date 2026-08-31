@@ -62,12 +62,13 @@ export function LowBalanceAlertCard() {
 
   if (alertQuery.isLoading) {
     return (
-      <div data-testid="low-balance-alert-card">
+      // Presentational: the tab-level skeleton stack owns the single loading
+      // announcement, so this placeholder stays out of the accessibility tree.
+      <div data-testid="low-balance-alert-card" aria-hidden>
         <SkeletonLines
           lines={1}
           lineClassName="h-14"
           className="w-60 max-w-full"
-          label={t("lowBalanceAlertCard.loadingLabel")}
         />
       </div>
     );
@@ -129,63 +130,63 @@ export function LowBalanceAlertCard() {
   const showGenericError = updateMutation.isError;
   const visibleError = touched ? clientError : undefined;
 
-  const cardBody = (
-    <div data-testid="low-balance-alert-card">
-      <div className="flex flex-wrap items-start gap-2">
-        <div className="w-60 max-w-full">
-          <Input
-            type="number"
-            step="0.01"
-            label={t("lowBalanceAlertCard.label")}
-            helperText={t("lowBalanceAlertCard.helperText", {
-              amount: formatUsd(config.default_threshold_usd),
-            })}
-            placeholder={config.effective_threshold_usd}
-            value={value}
-            onChange={onChange}
-            onBlur={() => setTouched(true)}
-            errorText={visibleError}
-            data-testid="low-balance-alert-input"
-            fullWidth
-          />
-        </div>
-        {/*
-         * `pt-[20px]` centres the buttons against the input box (12px label +
-         * 6px gap before the input starts), matching AutoTopUpForm's row.
-         */}
-        <div className="flex shrink-0 items-center gap-2 pt-[20px]">
-          {config.threshold_usd != null && (
+  return (
+    <ContentReveal>
+      <div data-testid="low-balance-alert-card">
+        <div className="flex flex-wrap items-start gap-2">
+          <div className="w-60 max-w-full">
+            <Input
+              type="number"
+              step="0.01"
+              label={t("lowBalanceAlertCard.label")}
+              helperText={t("lowBalanceAlertCard.helperText", {
+                amount: formatUsd(config.default_threshold_usd),
+              })}
+              placeholder={config.effective_threshold_usd}
+              value={value}
+              onChange={onChange}
+              onBlur={() => setTouched(true)}
+              errorText={visibleError}
+              data-testid="low-balance-alert-input"
+              fullWidth
+            />
+          </div>
+          {/*
+           * `pt-[20px]` centres the buttons against the input box (12px label +
+           * 6px gap before the input starts), matching AutoTopUpForm's row.
+           */}
+          <div className="flex shrink-0 items-center gap-2 pt-[20px]">
+            {config.threshold_usd != null && (
+              <Button
+                variant="outlined"
+                onClick={handleReset}
+                disabled={updateMutation.isPending}
+                data-testid="low-balance-alert-reset-button"
+              >
+                {t("lowBalanceAlertCard.reset")}
+              </Button>
+            )}
             <Button
-              variant="outlined"
-              onClick={handleReset}
+              variant="primary"
+              onClick={handleSave}
               disabled={updateMutation.isPending}
-              data-testid="low-balance-alert-reset-button"
+              data-testid="low-balance-alert-save-button"
             >
-              {t("lowBalanceAlertCard.reset")}
+              {t("lowBalanceAlertCard.save")}
             </Button>
-          )}
-          <Button
-            variant="primary"
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            data-testid="low-balance-alert-save-button"
-          >
-            {t("lowBalanceAlertCard.save")}
-          </Button>
+          </div>
         </div>
+
+        {showGenericError && (
+          <Notice
+            tone="error"
+            className="mt-4"
+            data-testid="low-balance-alert-update-error"
+          >
+            {t("lowBalanceAlertCard.saveError")}
+          </Notice>
+        )}
       </div>
-
-      {showGenericError && (
-        <Notice
-          tone="error"
-          className="mt-4"
-          data-testid="low-balance-alert-update-error"
-        >
-          {t("lowBalanceAlertCard.saveError")}
-        </Notice>
-      )}
-    </div>
+    </ContentReveal>
   );
-
-  return <ContentReveal>{cardBody}</ContentReveal>;
 }
