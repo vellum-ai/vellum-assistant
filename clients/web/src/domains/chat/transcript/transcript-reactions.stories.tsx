@@ -1,11 +1,10 @@
-import type { ReactNode } from "react";
-
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 import { Transcript } from "./transcript";
+import { TranscriptStoryFrame } from "./transcript-story-frame";
 import type { TranscriptItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -78,10 +77,10 @@ const REACTION_LINES: TranscriptItem[] = [
 ];
 
 // Every emoji form a channel can deliver, one row each, distinguishable by
-// its rendered output alone: Alice's unicode emoji renders as itself, Ben's
+// its rendered output alone: Alice's unicode emoji renders as itself, Bob's
 // "heart" shortcode resolves through the emoji catalog to the heart emoji,
-// Chris's Discord custom-emoji mention renders as its bare ":vex:", and
-// Dana's custom emoji named "heart" stays ":heart:" right under Ben's
+// Carol's Discord custom-emoji mention renders as its bare ":vex:", and
+// Dave's custom emoji named "heart" stays ":heart:" right under Bob's
 // resolved heart, because a guild emoji keeps its identity and never swaps
 // into the catalog emoji its name collides with.
 const EMOJI_RESOLUTION: TranscriptItem[] = [
@@ -96,86 +95,83 @@ const EMOJI_RESOLUTION: TranscriptItem[] = [
     emoji: "heart",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Ben",
+    actorDisplayName: "Bob",
   }),
   reactionRow("e3", "user", {
     emoji: "<:vex:12345>",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Chris",
+    actorDisplayName: "Carol",
   }),
   reactionRow("e4", "user", {
     emoji: "<:heart:99>",
     op: "added",
     targetMessageId: "m1",
-    actorDisplayName: "Dana",
+    actorDisplayName: "Dave",
   }),
 ];
 
-function slackReactionRow(
-  id: string,
-  reaction: {
-    emoji: string;
-    op: "added" | "removed";
-    actorDisplayName?: string;
-    targetChannelTs: string;
-  },
-): TranscriptItem {
-  const msg: DisplayMessage = {
-    id,
-    role: "user",
-    ...textBody("[reaction]"),
-    reaction: {
-      emoji: reaction.emoji,
-      op: reaction.op,
-      targetMessageId: reaction.targetChannelTs,
-      actorDisplayName: reaction.actorDisplayName,
-    },
-    slackMessage: {
-      channelId: "C042MSGCHAN",
-      channelName: "release-crew",
-      channelTs: `${id}.000100`,
-      eventKind: "reaction",
-      reaction,
-    },
-  };
-  return { kind: "message", key: id, message: msg };
-}
-
+// A Slack reaction row as the wire delivers it: the neutral `reaction` fact
+// every channel projects, plus Slack's own `slackMessage` envelope with
+// `eventKind: "reaction"`, which Slack-aware rendering prefers.
 const SLACK_SHAPED: TranscriptItem[] = [
   message("s1", "user", "Staging bake looks clean, cutting the release."),
   message("s2", "assistant", "Tag is up and the production run is dispatched."),
-  slackReactionRow("sr1", {
-    emoji: "raised_hands",
-    op: "added",
-    actorDisplayName: "Ben",
-    targetChannelTs: "1725100000.000200",
-  }),
-  slackReactionRow("sr2", {
-    emoji: "raised_hands",
-    op: "removed",
-    actorDisplayName: "Ben",
-    targetChannelTs: "1725100000.000200",
-  }),
+  {
+    kind: "message",
+    key: "sr1",
+    message: {
+      id: "sr1",
+      role: "user",
+      ...textBody("[reaction]"),
+      reaction: {
+        emoji: "raised_hands",
+        op: "added",
+        targetMessageId: "1725100000.000200",
+        actorDisplayName: "Bob",
+      },
+      slackMessage: {
+        channelId: "C042MSGCHAN",
+        channelName: "release-crew",
+        channelTs: "1725100050.000300",
+        eventKind: "reaction",
+        reaction: {
+          emoji: "raised_hands",
+          op: "added",
+          actorDisplayName: "Bob",
+          targetChannelTs: "1725100000.000200",
+        },
+      },
+    },
+  },
+  {
+    kind: "message",
+    key: "sr2",
+    message: {
+      id: "sr2",
+      role: "user",
+      ...textBody("[reaction]"),
+      reaction: {
+        emoji: "raised_hands",
+        op: "removed",
+        targetMessageId: "1725100000.000200",
+        actorDisplayName: "Bob",
+      },
+      slackMessage: {
+        channelId: "C042MSGCHAN",
+        channelName: "release-crew",
+        channelTs: "1725100060.000400",
+        eventKind: "reaction",
+        reaction: {
+          emoji: "raised_hands",
+          op: "removed",
+          actorDisplayName: "Bob",
+          targetChannelTs: "1725100000.000200",
+        },
+      },
+    },
+  },
 ];
-
-/** A sized chat surface; `Transcript` fills its `h-full` parent. */
-function Frame({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        height: 560,
-        width: 780,
-        overflow: "hidden",
-        borderRadius: 12,
-        border: "1px solid var(--border-base)",
-        background: "var(--surface-base)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
 
 /**
  * Reaction rows in the main transcript, on every channel. A reaction row
@@ -196,9 +192,9 @@ const meta: Meta<typeof Transcript> = {
   },
   decorators: [
     (Story) => (
-      <Frame>
+      <TranscriptStoryFrame height={560}>
         <Story />
-      </Frame>
+      </TranscriptStoryFrame>
     ),
   ],
 };

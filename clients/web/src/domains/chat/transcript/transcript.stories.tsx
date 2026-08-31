@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -17,6 +11,7 @@ import {
   type TranscriptHandle,
   type TranscriptProps,
 } from "./transcript";
+import { TranscriptStoryFrame } from "./transcript-story-frame";
 import type { MessageItem, TranscriptItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -90,24 +85,6 @@ const renderAvatar = () => (
   />
 );
 
-/** A sized chat surface; `Transcript` fills its `h-full` parent. */
-function Frame({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        height: 720,
-        width: 780,
-        overflow: "hidden",
-        borderRadius: 12,
-        border: "1px solid var(--border-base)",
-        background: "var(--surface-base)",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 /** Renders the transcript scrolled to the latest message on mount — the resting
  *  state production lands in when a conversation opens. Isolated from the parent
  *  scroll coordinator, the bare component would otherwise open at the top. */
@@ -142,9 +119,9 @@ const meta: Meta<typeof Transcript> = {
   },
   decorators: [
     (Story) => (
-      <Frame>
+      <TranscriptStoryFrame>
         <Story />
-      </Frame>
+      </TranscriptStoryFrame>
     ),
   ],
 };
