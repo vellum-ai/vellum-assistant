@@ -265,6 +265,10 @@ describe("Slack reaction event persistence", () => {
     expect(row.content).toBe("[reaction]");
 
     const envelope = JSON.parse(row.metadata!) as Record<string, unknown>;
+    // Provenance keeps the row visible to actor-scoped history loads:
+    // filterMessagesForUntrustedActor drops rows with no trust class.
+    expect(envelope.provenanceTrustClass).toBe("trusted_contact");
+    expect(envelope.provenanceSourceChannel).toBe("slack");
     const slackMetaRaw = envelope.slackMeta;
     expect(typeof slackMetaRaw).toBe("string");
 

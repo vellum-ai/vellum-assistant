@@ -1173,8 +1173,11 @@ export class Conversation {
         reactionTargetIndexMemo = new Map();
         for (const row of dbMessages) {
           const rowMeta = readProviderMetadata(row.metadata);
+          // A deleted target is a logical erasure (same rule as the Slack
+          // transcript renderer), so its text is never quoted back.
           if (
             rowMeta?.eventKind === "message" &&
+            rowMeta.deletedAt === undefined &&
             rowMeta.messageId &&
             !reactionTargetIndexMemo.has(rowMeta.messageId)
           ) {
@@ -1194,13 +1197,20 @@ export class Conversation {
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
 
-      // A reaction row's stored content is the "[reaction]" sentinel; the
-      // fact lives in its metadata. Rendered here rather than at persist
-      // time so every stored row reads legibly to the model, whenever it
-      // was written. The substring guard keeps the per-row metadata parse
-      // off rows that cannot be reactions: every reaction envelope carries
-      // the literal key, in providerMeta and in nested slackMeta alike.
-      if (role === "user" && m.metadata?.includes("reaction")) {
+      // Channel facts stamped in metadata render at load time rather than
+      // at persist time, so every stored row reads correctly whenever it
+      // was written: a reaction row's "[reaction]" sentinel renders as who
+      // reacted with what to which message, and a deleted row's original
+      // text gives way to a deletion marker (the delete intercepts stamp
+      // metadata and deliberately leave the content column untouched). The
+      // substring guard keeps the per-row metadata parse off rows that can
+      // carry neither fact: both envelopes spell these keys literally, in
+      // providerMeta and in nested slackMeta alike.
+      if (
+        role === "user" &&
+        m.metadata &&
+        (m.metadata.includes("reaction") || m.metadata.includes("deletedAt"))
+      ) {
         const providerMeta = readProviderMetadata(m.metadata);
         if (providerMeta?.eventKind === "reaction") {
           const rendered = renderReactionHistoryText(
@@ -1210,6 +1220,10 @@ export class Conversation {
           if (rendered) {
             content = [{ type: "text", text: rendered }];
           }
+        } else if (providerMeta?.deletedAt !== undefined) {
+          // Neutral marker, no actor: Discord deletes can be authorless
+          // (`actorUnattributed`), so the marker never claims who deleted.
+          content = [{ type: "text", text: "[This message was deleted]" }];
         }
       }
 

@@ -17,7 +17,7 @@ function reactionMeta(
       targetMessageId: "1716000000.000001",
       emoji: "thumbsup",
       op: "added",
-      actorDisplayName: "Ashlee",
+      actorDisplayName: "Alice",
       ...reaction,
     },
     ...rest,
@@ -33,7 +33,7 @@ describe("renderReactionHistoryText", () => {
       () => "Deploy is done",
     );
     expect(rendered).toContain(
-      'Ashlee reacted with :thumbsup: to the message "Deploy is done"',
+      'Alice reacted with :thumbsup: to the message "Deploy is done"',
     );
   });
 
@@ -43,7 +43,7 @@ describe("renderReactionHistoryText", () => {
       noTarget,
     );
     expect(rendered).toContain(
-      "Ashlee removed their :thumbsup: reaction from an earlier message",
+      "Alice removed their :thumbsup: reaction from an earlier message",
     );
   });
 
@@ -109,12 +109,12 @@ describe("renderReactionHistoryText", () => {
   test("prefers the row-level display name over the fallback", () => {
     const rendered = renderReactionHistoryText(
       reactionMeta({
-        displayName: "Vargas",
+        displayName: "Bob",
         reaction: { actorDisplayName: undefined },
       }),
       noTarget,
     );
-    expect(rendered).toContain("Vargas reacted with");
+    expect(rendered).toContain("Bob reacted with");
   });
 
   test("returns null for a message row", () => {

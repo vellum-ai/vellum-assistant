@@ -29,12 +29,16 @@ import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findConversation } from "../../../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
-import { addMessage } from "../../../persistence/conversation-crud.js";
+import {
+  addMessage,
+  provenanceFromTrustContext,
+} from "../../../persistence/conversation-crud.js";
 import {
   findInboundEvent,
   findMessageBySourceId,
@@ -44,6 +48,7 @@ import {
 } from "../../../persistence/delivery-crud.js";
 import { markProcessed } from "../../../persistence/delivery-status.js";
 import { getLogger } from "../../../util/logger.js";
+import { toTrustContext } from "../../actor-trust-resolver.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 import {
   actorTrustContextFromVerdict,
@@ -252,6 +257,7 @@ export async function handleReactionIntercept(
       actorDisplayName,
       reactedMessageTs,
       duplicate: result.duplicate,
+      trustCtx: toTrustContext(trustCtx, conversationExternalId),
     });
     if (!result.duplicate) {
       // Reactions never drive a turn, so a resident conversation would
@@ -292,6 +298,13 @@ async function persistReactionAsMessage(params: {
   actorDisplayName?: string;
   reactedMessageTs: string;
   duplicate: boolean;
+  /**
+   * The reactor's trust context. Persisted as row provenance so actor-scoped
+   * history loads keep the row: `filterMessagesForUntrustedActor` drops any
+   * row with no `provenanceTrustClass`, which would hide every reaction from
+   * non-guardian turns.
+   */
+  trustCtx: TrustContext;
 }): Promise<void> {
   if (params.duplicate) {
     return;
@@ -323,7 +336,10 @@ async function persistReactionAsMessage(params: {
       "user",
       "[reaction]",
       {
-        metadata: { providerMeta: JSON.stringify(providerMeta) },
+        metadata: {
+          ...provenanceFromTrustContext(params.trustCtx),
+          providerMeta: JSON.stringify(providerMeta),
+        },
         skipIndexing: true,
       },
     );
@@ -362,7 +378,10 @@ async function persistReactionAsMessage(params: {
     "user",
     "[reaction]",
     {
-      metadata: { slackMeta: writeSlackMetadata(slackMeta) },
+      metadata: {
+        ...provenanceFromTrustContext(params.trustCtx),
+        slackMeta: writeSlackMetadata(slackMeta),
+      },
       skipIndexing: true,
     },
   );

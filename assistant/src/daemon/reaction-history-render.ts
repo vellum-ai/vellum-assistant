@@ -4,9 +4,9 @@
  * A reaction is stored as a user row whose content is the "[reaction]"
  * sentinel; the fact lives in the row's metadata (`providerMeta.reaction`:
  * who reacted, with which emoji, on which message). The stored row stays
- * canonical and rendering happens at history-load time, so rows persisted
- * before this renderer existed render too, and no formatting is frozen into
- * persistence.
+ * canonical and rendering happens at history-load time, so every stored row
+ * renders regardless of when it was written and no formatting is frozen
+ * into persistence.
  *
  * The actor's display name and the quoted target are sender-authored, so
  * the rendered line is fenced as untrusted content the same way channel
