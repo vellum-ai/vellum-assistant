@@ -154,6 +154,23 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+// The messages-changed invalidation, which is how a client learns a row it was
+// never told about is there. Recorded so a recovery can be shown to announce
+// itself rather than only returning ok.
+import * as resourceSyncNamespace from "../../runtime/sync/resource-sync-events.js";
+
+const realResourceSync = { ...resourceSyncNamespace };
+
+const messagesChangedFor: string[] = [];
+
+mock.module("../../runtime/sync/resource-sync-events.js", () => ({
+  ...realResourceSync,
+  publishConversationMessagesChanged: (conversationId: string) => {
+    messagesChangedFor.push(conversationId);
+    return realResourceSync.publishConversationMessagesChanged(conversationId);
+  },
+}));
+
 import { Conversation } from "../../daemon/conversation.js";
 import {
   deleteConversation,
@@ -369,18 +386,45 @@ describe("a camera frame whose persist throws", () => {
     try {
       const frame = await uploadFrame("throws-late.png");
 
+      messagesChangedFor.length = 0;
       failNextLink = true;
       failNextContentUpdate = true;
-      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
-        ok: false,
-      });
+      const result = await persistLiveVoiceSightFrame(live.id, frame);
       expect(failNextLink).toBe(false);
       expect(failNextContentUpdate).toBe(false);
 
-      // The row landed before the throw, so the frame is not the daemon's to
-      // collect however the call reported itself.
-      expect(getMessages(live.id)).toHaveLength(1);
+      // The row landed, so the result says so: the client keeps the frame it
+      // showed instead of retracting a message the next reload would reveal.
+      const [row] = getMessages(live.id);
+      expect(result).toEqual({ ok: true, messageId: row.id });
       expect(realStore.getAttachmentById(frame)).not.toBeNull();
+      // And the clients rendering this conversation were told.
+      expect(messagesChangedFor).toContain(live.id);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("recovers a photo the same way, since the row is what decides", async () => {
+    // Pre-existing duplicate-photo bug: told the snap failed, the user takes
+    // it again and the first one was in the transcript all along. The caller
+    // sends its retract-style error frame only on ok:false, so reporting the
+    // truth here is all it takes.
+    const live = liveConversation("Live voice photo throw after insert");
+    try {
+      const photo = await uploadFrame("photo-throws-late.png");
+
+      messagesChangedFor.length = 0;
+      failNextLink = true;
+      failNextContentUpdate = true;
+      const result = await persistLiveVoicePhoto(live.id, photo);
+      expect(failNextLink).toBe(false);
+      expect(failNextContentUpdate).toBe(false);
+
+      const [row] = getMessages(live.id);
+      expect(result).toEqual({ ok: true, messageId: row.id });
+      expect(realStore.getAttachmentById(photo)).not.toBeNull();
+      expect(messagesChangedFor).toContain(live.id);
     } finally {
       live.dispose();
     }
@@ -416,6 +460,7 @@ describe("a camera frame whose persist throws", () => {
 
       failNextResolve = true;
       failNextMessageLookup = true;
+      // No success claim either: doubt blocks the delete and the ok alike.
       expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
         ok: false,
       });
@@ -494,9 +539,10 @@ describe("attachments a failed persist attempt cloned for itself", () => {
 
       failNextLink = true;
       failNextContentUpdate = true;
-      expect(await persistLiveVoiceSightFrame(live.id, arrivedAs)).toEqual({
-        ok: false,
-      });
+      // Committed despite the throw, which is what makes the clone the row's.
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
       expect(failNextLink).toBe(false);
       expect(failNextContentUpdate).toBe(false);
 

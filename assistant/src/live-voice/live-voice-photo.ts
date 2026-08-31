@@ -53,6 +53,17 @@
  * still overwrites the keep's hold, and the keep's release then clears the
  * turn's. Fixing that means changing how every turn in the daemon acquires,
  * which belongs in `conversation.ts` rather than here.
+ *
+ * A persist that throws after its row landed is reported as the success it
+ * is, because the transcript has the image and the client's view has to match
+ * what a reload will show. Two things are knowingly left behind in that case.
+ * The live in-memory history may omit the frame, since the persist unwinds its
+ * own push, so the model may not see this one until a reload or a compaction
+ * reassembly; that array belongs to `persistQueuedMessageBody` and is not
+ * pushed into from out here. And when the failure was a link write, the
+ * persisted content can reference an attachment row with no link. The row
+ * survives (nothing reclaims on a committed persist) and collection only ever
+ * considers ids a caller hands it, so the reference keeps resolving.
  */
 
 import { v7 as uuidv7 } from "uuid";
@@ -350,17 +361,7 @@ async function writeStandaloneImage(
         requestId,
       });
 
-      // The row exists but no turn will announce it, so the clients that
-      // render this conversation have to be told directly, or the image does
-      // not appear until something else forces a refetch.
-      broadcastMessage({
-        type: "user_message_echo",
-        text: content,
-        conversationId,
-        messageId: persisted.id,
-      });
-      recordConversationPersistedSeq(conversationId, getCurrentSeq());
-      publishConversationMessagesChanged(conversationId);
+      announcePersistedImage(conversationId, content, persisted.id);
 
       return { ok: true, messageId: persisted.id };
     } finally {
@@ -375,7 +376,24 @@ async function writeStandaloneImage(
       { err, conversationId, attachmentId, kind },
       "Failed to persist a live-voice image",
     );
-    if (kind === "sight_frame" && !messageMayExist(conversationId, requestId)) {
+    const inserted = insertedMessageState(conversationId, requestId);
+    if (inserted === "exists") {
+      // The row is in the transcript, so the result has to say so whatever
+      // went wrong afterwards. Reporting failure here loses the frame twice
+      // over: the client retracts what it showed and stops treating it as
+      // pending, and the row it was told never landed appears on the next
+      // reload.
+      try {
+        announcePersistedImage(conversationId, content, requestId);
+      } catch (announceErr) {
+        log.warn(
+          { err: announceErr, conversationId, messageId: requestId },
+          "Persisted a live-voice image but could not announce it",
+        );
+      }
+      return { ok: true, messageId: requestId };
+    }
+    if (kind === "sight_frame" && inserted === "absent") {
       reclaimDroppedFrame(attachmentId);
     }
     return { ok: false };
@@ -383,27 +401,60 @@ async function writeStandaloneImage(
 }
 
 /**
- * Whether the persist may have inserted its row before throwing.
+ * Tell the clients rendering this conversation that a row landed.
+ *
+ * No turn will announce it, so without this the image does not appear until
+ * something else forces a refetch.
+ */
+function announcePersistedImage(
+  conversationId: string,
+  text: string,
+  messageId: string,
+): void {
+  broadcastMessage({
+    type: "user_message_echo",
+    text,
+    conversationId,
+    messageId,
+  });
+  recordConversationPersistedSeq(conversationId, getCurrentSeq());
+  publishConversationMessagesChanged(conversationId);
+}
+
+/**
+ * Whether the persist's own row is in the conversation.
  *
  * A persist can fail well after `addMessage` succeeded: a link write that
  * fails is repaired by rewriting the content, and that rewrite can throw in
- * turn. The row then exists and references the attachment while no
- * `message_attachments` link was ever written, which is exactly the shape
- * link-awareness reads as collectible, so reclaiming would strip an image out
- * of a message the transcript still shows.
+ * turn.
  *
- * True on a failed lookup as well. Leaking one row costs bytes; deleting one a
- * message references breaks that message for good.
+ * Three-valued because its two readers need opposite answers under doubt, and
+ * a boolean can only serve one of them. Reclaiming an attachment on a guess
+ * deletes bytes a message may reference; reporting success on a guess tells
+ * the client a frame landed when it may not have, and the client stops showing
+ * it as pending and stops retrying on the strength of that word. Neither is
+ * recoverable, so `unknown` refuses both: never act on a fact that could not
+ * be read.
+ *
+ * A row found under this id is provably this persist's own. The deduplicating
+ * branch of `addMessage` fires only for a `clientMessageId`, which no image
+ * here sets, and it returns rather than throws, so it cannot leave a half
+ * finished persist behind an id that resolves to someone else's row.
  */
-function messageMayExist(conversationId: string, messageId: string): boolean {
+function insertedMessageState(
+  conversationId: string,
+  messageId: string,
+): "exists" | "absent" | "unknown" {
   try {
-    return getMessageById(messageId, conversationId) !== null;
+    return getMessageById(messageId, conversationId) !== null
+      ? "exists"
+      : "absent";
   } catch (err) {
     log.warn(
       { err, conversationId, messageId },
-      "Could not tell whether a live-voice image persisted; keeping its attachment",
+      "Could not tell whether a live-voice image persisted; keeping its attachment and reporting failure",
     );
-    return true;
+    return "unknown";
   }
 }
 
