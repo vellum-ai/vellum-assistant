@@ -814,7 +814,7 @@ function normalizeSendMessageOptions(
   }
 
   // Adaptive-thinking-only models (Claude Fable, Fireworks Kimi K3 / GLM 5.3)
-  // always reason and reject an explicit opt-out — Anthropic 400s
+  // always reason and reject an explicit opt-out: Anthropic 400s
   // `thinking: { type: "disabled" }`, and effort-encoding providers 4xx a
   // generated `reasoning_effort: "none"`. Drop a disabled thinking config for
   // these models BEFORE the opt-out is encoded as `effort: "none"` below, so

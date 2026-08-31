@@ -187,7 +187,7 @@ describe("retry normalization: adaptive-only thinking models", () => {
       },
     });
 
-    // THEN no `effort: "none"` is synthesized — the model runs at its own
+    // THEN no `effort: "none"` is synthesized: the model runs at its own
     // default instead of tripping the reasoning opt-out rejection retry
     expect(lastConfig()?.thinking).toBeUndefined();
     expect(lastConfig()?.effort).toBeUndefined();
