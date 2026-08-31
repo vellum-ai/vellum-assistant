@@ -1,0 +1,1732 @@
+{
+  "acpChatPlanBlock": {
+    "plan": "計畫"
+  },
+  "acpChatTerminalBlock": {
+    "atTime": "於 {time}",
+    "cancelled": "已取消",
+    "completed": "已完成",
+    "refused": "已拒絕",
+    "runFailed": "執行失敗",
+    "stoppedLimitReached": "已停止：達到限制"
+  },
+  "acpChatToolCard": {
+    "hideRaw": "隱藏原始輸入/輸出",
+    "rawInput": "原始輸入",
+    "rawOutput": "原始輸出",
+    "showRaw": "顯示原始輸入/輸出"
+  },
+  "acpConnectAffordance": {
+    "connectButton": "連線",
+    "errorFallback": "連線 Claude 失敗。請再試一次。",
+    "pastePlaceholder": "貼上您的金鑰",
+    "saveButton": "儲存",
+    "subtitleConnected": "Claude Code 已連線，正在繼續...",
+    "subtitleExchanging": "正在完成登入...",
+    "subtitleIdle": "使用您的 Claude Code 訂閱",
+    "subtitlePaste": "從開啟的分頁貼上金鑰",
+    "subtitleStarting": "正在開始登入...",
+    "subtitleWaiting": "正在等待 Claude 登入...",
+    "title": "連線 Claude Code"
+  },
+  "acpRunChatView": {
+    "backToConversationAria": "返回對話",
+    "backTooltip": "返回",
+    "closeRunDetail": "關閉執行詳細資料",
+    "goToNewest": "前往最新",
+    "inputLabel": "輸入",
+    "objective": "目標",
+    "outputLabel": "輸出",
+    "sendSteerAria": "傳送引導指令",
+    "steerAria": "引導指令",
+    "steerPlaceholder": "引導執行...",
+    "stopRunAria": "停止執行"
+  },
+  "activeChatView": {
+    "retryConfirm": "重試",
+    "retryMessage": "最新的回應將被捨棄並重新產生。此操作無法復原。",
+    "retryTitle": "重試此回應？",
+    "startingFirst": "正在開始您的首次對話...",
+    "stillWorking": "您的助理仍在工作中...",
+    "summarizeConfirm": "摘要",
+    "summarizeMessage": "助理將摘要此之前的對話，並僅將摘要保留在其工作記憶中。訊息將保持可見，且永不刪除。",
+    "summarizeTitle": "摘要到此處？",
+    "takingLonger": "您的助理回應時間超出預期。",
+    "tryAgain": "再試一次"
+  },
+  "activityStepsPanel": {
+    "backAria": "返回所有步驟",
+    "backTooltip": "所有步驟",
+    "closeSteps": "關閉步驟",
+    "thinkingTitle": "思考中",
+    "viewThinkingAria": "檢視思考過程"
+  },
+  "addToChatSheet": {
+    "camera": "相機",
+    "closeAriaLabel": "關閉",
+    "files": "檔案",
+    "gallery": "相片圖庫",
+    "pickFailed": "無法新增該檔案。請再試一次。",
+    "pickFull": "{count, plural, other {# 個檔案不適合此批次。請單獨新增。}}",
+    "title": "新增至聊天",
+    "tooLarge": "{count, plural, other {# 個檔案過大，無法附加}}"
+  },
+  "allowOptionsMenu": {
+    "allowAndCreateRule": "允許並建立規則",
+    "trigger": "更多允許選項"
+  },
+  "appAssetActions": {
+    "appExported": "應用程式已匯出",
+    "shareFailed": "分享應用程式失敗"
+  },
+  "archiveAllConfirmDialog": {
+    "confirm": "全部封存",
+    "message": "{count, plural, other {封存「{groupName}」中的所有 {count} 個對話？已封存的對話將從側邊欄移除。您可以稍後透過搜尋「is:archived」找到它們。}}",
+    "title": "全部封存"
+  },
+  "assistantContentDisclosure": {
+    "earlierActivity": "較早的活動"
+  },
+  "assistantNavItem": {
+    "newChat": "新增聊天"
+  },
+  "assistantSideMenu": {
+    "bulkActionMembersFailed": "無法載入此區段的所有對話。請再試一次。",
+    "closeNavAria": "關閉導覽",
+    "navAria": "助理導覽",
+    "searchShortcut": "搜尋 ({shortcut})"
+  },
+  "assistantSwitcher": {
+    "collapse": "隱藏助理",
+    "currentAssistant": "{name}，目前助理",
+    "expand": "切換助理",
+    "switchFailed": "無法切換助理。請再試一次。",
+    "switchTo": "切換至 {name}",
+    "unnamedAssistant": "未命名助理"
+  },
+  "attachmentChip": {
+    "removeAria": "移除 {filename}"
+  },
+  "attachmentDownloadOverlay": {
+    "download": "下載",
+    "downloadAria": "下載 {filename}"
+  },
+  "attachmentLoadingChip": {
+    "cancelUploadAria": "取消上傳 {filename}",
+    "uploadingTitle": "正在上傳 {filename}"
+  },
+  "attachmentOverflowSquare": {
+    "moreTitle": "{count} 更多",
+    "showAllAria": "顯示所有檔案 ({count} 更多)"
+  },
+  "attachmentPreviewModal": {
+    "closePreviewAria": "關閉預覽",
+    "downloadAria": "下載 {filename}",
+    "downloadLabel": "下載",
+    "nextAttachmentAria": "下一個附件",
+    "pdfLoadFailed": "無法顯示此 PDF",
+    "previewAria": "{filename} 的預覽",
+    "previousAttachmentAria": "上一個附件"
+  },
+  "attachmentTile": {
+    "cancelUpload": "取消上傳 {filename}",
+    "preview": "預覽 {filename}",
+    "remove": "移除 {filename}",
+    "uploading": "正在上傳 {filename}"
+  },
+  "backgroundTaskDetailPanel": {
+    "closeDetail": "關閉任務詳細資料",
+    "command": "命令",
+    "exitCode": "結束代碼：{code}",
+    "output": "輸出",
+    "stopCommandAria": "停止命令"
+  },
+  "billingErrorBanner": {
+    "dismiss": "關閉"
+  },
+  "cacheBreakpointMapCard": {
+    "description": "此請求前綴中，{count, plural, other {# 個快取中斷點}} 的分佈位置，以及哪些區段是從快取讀取，哪些是重新建立的。",
+    "estimatedTokens": "約 {count} 個權杖",
+    "fullMissBody": "此回合中每個區段都已重新建立。請與上方快取差異中的上一回合進行比較，以找出變更的區塊。",
+    "fullMissTitle": "完整快取未命中",
+    "loadError": "無法載入請求酬載以對應快取中斷點。",
+    "loading": "正在載入請求酬載以對應快取中斷點…",
+    "noBreakpoints": "此請求沒有快取中斷點 - 此呼叫已停用提示快取。",
+    "splitEstimatedNote": " 讀取/建立的劃分是根據區段大小歸因的；提供者僅報告總計。",
+    "statusCreated": "已重新建立",
+    "statusRead": "從快取讀取",
+    "statusUnknown": "已快取",
+    "title": "快取中斷點",
+    "tokenEstimateNote": "權杖計數是根據文字長度估計的。"
+  },
+  "cacheDiffCard": {
+    "changedLabel": "已變更",
+    "changedMessageFallback": "一則訊息",
+    "chipMessages": "訊息",
+    "chipModel": "模型",
+    "chipSettings": "設定",
+    "chipSystem": "系統",
+    "chipTools": "工具",
+    "currentModelFallback": "此模型",
+    "description": "自上一回合的請求以來有何變更 - 重新建立提示快取的區塊。",
+    "diffAnyway": "仍要比較 ({lineCount} 行)",
+    "diffLabel": "{label} 差異",
+    "diffLargeDefault": "變更的文字過大，因此預設不進行比較。",
+    "diffStillTooLarge": "仍然太大無法在此處比較 (超過 {maxLines} 行) - 請開啟「原始」分頁以查看完整酬載。",
+    "diffTooLarge": "變更的文字過大無法在此處比較 - 請開啟「原始」分頁以查看完整酬載。",
+    "loadPreviousCallError": "無法載入上一個呼叫以進行比較。",
+    "loadingPreviousCall": "正在載入上一個呼叫以進行比較…",
+    "messageStatsAppended": "已附加 {count} 則",
+    "messageStatsLeading": "開頭訊息：{parts}",
+    "messageStatsRemoved": "已移除 {count} 則",
+    "messageStatsShared": "已共用 {count} 則",
+    "previousModelFallback": "上一個模型",
+    "previousPromptUnavailable": "上一個呼叫的提示無法用於比較。",
+    "showLess": "顯示較少",
+    "showMoreDiffLines": "顯示 {count} 更多差異行",
+    "statusMessagesEarlierBody": "{label} #{index} 與上一回合不同，因此其後所有快取內容都將在此回合重新處理。",
+    "statusMessagesEarlierTitle": "較早的訊息已變更",
+    "statusMessagesHistoryBody": "此回合中 {removedCount} 則較早的訊息已消失 (可能是歷史記錄壓縮)，因此快取的訊息前綴不再相符。",
+    "statusMessagesHistoryTitle": "訊息歷史記錄已變更",
+    "statusModelBody": "此回合使用 {current}，但上一回合使用 {previous}。不同的模型無法重複使用先前的提示快取，因此整個提示都會重新建立。",
+    "statusModelTitle": "模型已變更",
+    "statusPrefixUnchangedBodyAppended": "快取的前綴與上一回合相符，並附加了 {count} 則新訊息。此處的快取未命中表示快取 TTL 過期，而非內容變更。",
+    "statusPrefixUnchangedBodyIdentical": "快取的前綴與上一回合完全相同。此處的快取未命中表示快取 TTL 過期，而非內容變更。",
+    "statusPrefixUnchangedTitle": "提示前綴未變更",
+    "statusSettingsBody": "只有請求設定 (例如溫度) 與上一回合不同。對於大多數提供者而言，僅此一項不會破壞提示快取。",
+    "statusSettingsTitle": "請求設定已變更",
+    "statusSystemBody": "自上一回合以來，系統提示的一部分已變更。此處的揮發性內容 (時間戳記、記憶體或每回合區塊) 會使快取在每個回合都重新建立。",
+    "statusSystemTitle": "系統提示已變更",
+    "statusToolsBody": "工具集或其定義與上一回合不同。工具位於快取前綴的前面，因此此處的任何變更都會在到達系統提示和訊息之前重新建立快取。",
+    "statusToolsTitle": "工具定義已變更",
+    "title": "快取差異",
+    "unchangedLines": "⋯ {count} 行未變更"
+  },
+  "cacheHealthCard": {
+    "barAriaLabel": "提示詞快取細項：共 {total} 個權杖，其中 {segments}（{percent} 已快取）。",
+    "barSegment": "{count} {label}",
+    "cached": "已快取",
+    "description": "此呼叫的提示詞有多少是從提示詞快取中提供的。",
+    "segmentCreated": "重新建立",
+    "segmentFresh": "新輸入",
+    "segmentRead": "從快取讀取",
+    "statusFullMissBody": "此呼叫的提示詞均未從快取中讀取。",
+    "statusFullMissReCreatedSuffix": " 本輪有 {count} 個權杖寫入快取，但均未被重複使用 - 這通常表示自上一輪以來，快取的前綴已變更。",
+    "statusFullMissTitle": "快取完全未命中",
+    "statusHealthyBody": "此呼叫的提示詞有 {percent}（{count} 個權杖）是從快取中提供的。",
+    "statusHealthyTitle": "健康的快取重複使用",
+    "statusPartialBody": "此呼叫的提示詞有 {percent}（{count} 個權杖）是從快取中提供的；其餘部分在本輪重新處理。",
+    "statusPartialTitle": "部分快取重複使用",
+    "title": "快取健康狀態",
+    "unavailableNote": "此呼叫未回報提示詞快取使用情況。",
+    "unavailableNoteForProvider": "此呼叫未回報 {provider} 的提示詞快取使用情況。"
+  },
+  "callRail": {
+    "callCount": "{count, plural, other {# 次 LLM 呼叫}}",
+    "callLabel": "呼叫 {number}",
+    "compaction": "壓縮",
+    "cost": "成本",
+    "empty": "未記錄任何 LLM 呼叫。",
+    "failed": "失敗",
+    "latest": "最新",
+    "navAriaLabel": "LLM 呼叫",
+    "syntheticAgentLoopError": "代理程式迴圈錯誤",
+    "syntheticAgentLoopErrorWithReason": "代理程式迴圈錯誤 · {reason}",
+    "syntheticYield": "讓步 · 壓縮無法容納下一步",
+    "unrecognizedCall": "無法辨識的呼叫"
+  },
+  "callSummarySurface": {
+    "eventsRecorded": "{count, plural, other {# 個事件已記錄。}}"
+  },
+  "cameraDeepLink": {
+    "captureFailed": "無法拍攝該照片。請再試一次。",
+    "close": "關閉相機",
+    "flip": "切換相機",
+    "openFailed": "無法開啟相機。",
+    "shutter": "拍照",
+    "title": "拍照"
+  },
+  "cameraError": {
+    "captureFailed": "無法拍攝該相片。",
+    "deviceInUse": "另一個應用程式正在使用相機。",
+    "noDevice": "找不到相機。",
+    "notDelivered": "正在重新連線。請重新拍攝。",
+    "permissionDenied": "Vellum 未取得相機存取權限。",
+    "refused": "您的助理目前無法接收相片。",
+    "storeFailed": "無法將該相片新增至對話。",
+    "unknown": "無法開啟相機。",
+    "unsupported": "此裝置無法開啟相機。",
+    "uploadFailed": "無法傳送該相片。"
+  },
+  "cameraStatusPill": {
+    "announceLive": "即時。{status}",
+    "announceLiveMuted": "即時。已靜音。{status}",
+    "announceLiveMutedSpeaking": "即時。已靜音。{name} 正在說話",
+    "announceLiveSpeaking": "即時。{name} 正在說話",
+    "announcePhoto": "相片。{status}",
+    "announcePhotoMuted": "相片。已靜音。{status}",
+    "announcePhotoMutedSpeaking": "相片。已靜音。{name} 正在說話",
+    "announcePhotoSpeaking": "相片。{name} 正在說話",
+    "live": "即時",
+    "photo": "相片",
+    "yourAssistant": "您的助理"
+  },
+  "cardSurface": {
+    "tasksProgress": "已完成 {completed} / 共 {total} 個任務"
+  },
+  "channelReferenceChip": {
+    "heading": "正在參照 {channel} 訊息",
+    "headingWithSender": "正在參照 {channel} 上的 {sender}",
+    "removeAria": "移除參照的訊息"
+  },
+  "channelSetupPanel": {
+    "accountSid": "帳號 SID",
+    "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken": "驗證權杖",
+    "authTokenPlaceholder": "Twilio 驗證權杖",
+    "close": "關閉",
+    "closeSetupAria": "關閉設定面板",
+    "connectedHeading": "{channel} 已連線",
+    "credentialsSaved": "憑證已儲存。返回聊天以完成設定。",
+    "phoneConnected": "您的助理已準備好透過 Twilio 接聽電話。",
+    "phoneLabel": "電話",
+    "save": "儲存",
+    "saving": "正在儲存…",
+    "settingsTitle": "{channel} 設定",
+    "setupTitle": "{channel} 設定",
+    "slackConnected": "您的助理已準備好在 Slack 上接收訊息。",
+    "telegramConnected": "您的助理已準備好在 Telegram 上接收訊息。",
+    "twilioIntro": "從 <consoleLink>Twilio 主控台</consoleLink> 輸入您的 Twilio 憑證。儲存後，返回聊天。您的助理將完成電話號碼和 Webhook 的設定。",
+    "discordConnected": "Discord 已連線。將機器人新增至伺服器後，它將開始在那裡回覆。"
+  },
+  "channelThreadControl": {
+    "closeAria": "關閉 {channel} 執行緒",
+    "label": "{channel} 執行緒",
+    "openAria": "開啟 {channel} 執行緒"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "助理",
+    "closeAria": "關閉頻道執行緒",
+    "closeTooltip": "關閉",
+    "emptyNoMessageDetail": "{channel} 未將此檢視所需的每則訊息詳細資料傳送給 Vellum，因此此處沒有可列出的內容。請在 {channel} 中開啟對話以閱讀完整內容。",
+    "emptyThread": "此對話中尚無 {channel} 訊息。",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "無文字內容",
+    "openInChannel": "在 {channel} 中開啟",
+    "reactionAdded": "已使用 {emoji} 表情符號回應",
+    "reactionRemoved": "已移除 {emoji} 表情符號回應",
+    "readOnly": "唯讀",
+    "readOnlyNote": "這是 {channel} 中的對話現況。Vellum 的撰寫器是您唯一可以寫入的地方。",
+    "reference": "在 Vellum 中參照",
+    "referenceAria": "在 Vellum 中參照此 {channel} 訊息",
+    "referenced": "已參照",
+    "removeReferenceAria": "從 Vellum 撰寫器中移除此參照",
+    "title": "{channel} 執行緒",
+    "unknownSender": "未知寄件者"
+  },
+  "chatAttachments": {
+    "attachFileAria": "附加檔案",
+    "dismiss": "關閉",
+    "removeAria": "移除 {filename}"
+  },
+  "chatBody": {
+    "dropFiles": "拖曳檔案以附加"
+  },
+  "chatComposer": {
+    "addToChat": "新增至聊天",
+    "askAssistantPlaceholder": "詢問 {assistantName}",
+    "configureVoice": "設定語音",
+    "endOtherVoiceSession": "結束並在此開始",
+    "goToVoiceSession": "前往語音工作階段",
+    "recording": "正在錄音",
+    "sendMessage": "傳送訊息",
+    "stopGenerating": "停止產生",
+    "transcribing": "正在轉錄",
+    "transcribingEllipsis": "正在轉錄…",
+    "typeToSend": "輸入訊息以傳送",
+    "uploadingAttachments": "正在上傳附件…"
+  },
+  "chatConversationHeader": {
+    "archived": "[已封存]",
+    "newChat": "新增聊天",
+    "untitled": "未命名"
+  },
+  "chatLayout": {
+    "navigationAria": "導覽"
+  },
+  "chatLayoutHeader": {
+    "backAria": "返回 (Ctrl+[)",
+    "forwardAria": "前進 (Ctrl+])",
+    "openNavigationAria": "開啟導覽",
+    "searchAria": "搜尋 (Ctrl+K)",
+    "toggleSidebarAria": "切換側邊欄"
+  },
+  "chatMarkdownMessage": {
+    "expandImageAria": "展開圖片",
+    "expandImageAriaWithAlt": "展開圖片：{alt}",
+    "imageFailed": "圖片載入失敗",
+    "imageFailedWithAlt": "圖片載入失敗 ({alt})",
+    "loadingImage": "正在載入圖片…",
+    "loadingImageWithAlt": "正在載入圖片… ({alt})"
+  },
+  "chatPage": {
+    "connecting": "正在連線…",
+    "connectingStuck": "仍在連線至您的助理 - 似乎卡住了。請再試一次，如果此問題持續發生，請重新整理頁面。",
+    "retryNow": "立即重試",
+    "selfHostedUnreachable": "無法連線至您的自託管助理。請確認您的助理正在執行，然後再試一次。",
+    "tryAgain": "再試一次"
+  },
+  "chatRouteContent": {
+    "askTheDoctor": "詢問 Doctor",
+    "copyCliFix": "複製 CLI 修正",
+    "goToDoctor": "前往 Doctor",
+    "openPage": "開啟頁面",
+    "suggestionFallback": "建議"
+  },
+  "chatRuleEditorModal": {
+    "applyTo": "套用至",
+    "cancel": "取消",
+    "createTitle": "建立信任規則",
+    "description": "符合的工具呼叫將採用此規則的風險等級，因此您的核准容忍度可以自動核准它們。",
+    "editTitle": "編輯信任規則",
+    "narrowerScopeAria": "更窄的範圍",
+    "orNarrowScope": "或縮小範圍：",
+    "save": "儲存",
+    "saveAsNew": "另存為新規則",
+    "saveRule": "儲存規則",
+    "saving": "正在儲存…",
+    "suggested": "建議：{risk}",
+    "treatAs": "視為"
+  },
+  "choiceSurface": {
+    "continue": "繼續",
+    "recommended": "建議"
+  },
+  "cleanupScreen": {
+    "broomAria": "掃帚",
+    "hatchHint": "完成後，您將能夠孵化新的助理。",
+    "hintAlmostDone": "即將完成…",
+    "hintCleaning": "正在清理您的助理…",
+    "hintWrapping": "正在收尾…",
+    "timeoutBody": "嘗試執行 Vellum Doctor 以診斷問題，或<communityLink>向社群尋求協助</communityLink>。",
+    "timeoutTitle": "清理時間超出預期",
+    "title": "正在清理您的助理…",
+    "warningAria": "警告"
+  },
+  "collapsedGroupIcon": {
+    "noConversations": "無對話"
+  },
+  "compactionCircuitOpenBanner": {
+    "ariaLabel": "自動壓縮已暫停",
+    "message": "自動壓縮已暫停 - 長對話可能會溢出。請使用 /compact 手動壓縮。"
+  },
+  "compactionTab": {
+    "compactedMessages": "{count} 已壓縮",
+    "compactedPreserved": "已壓縮 / 已保留",
+    "contextTokens": "上下文權杖",
+    "duration": "持續時間",
+    "durationMs": "{count} 毫秒",
+    "emptyBody": "壓縮歸因於緊隨其後執行的呼叫。如果您預期此處有壓縮，請檢查對話是否在此呼叫之前超出了其上下文預算。",
+    "emptyTitle": "此呼叫未關聯任何壓縮",
+    "eventIndex": " · {index} / {totalCount}",
+    "hideSummaryText": "隱藏摘要文字",
+    "loadFailedDefault": "載入壓縮失敗。",
+    "loadFailedTitle": "載入失敗",
+    "loading": "正在載入壓縮…",
+    "messageRange": "{before} → {after}",
+    "messages": "訊息",
+    "outcomeCompacted": "已壓縮",
+    "outcomeFailed": "壓縮失敗",
+    "outcomeFailedDetail": "摘要器呼叫發生錯誤，因此上下文保持不變。",
+    "outcomeNoChange": "無變更",
+    "outcomeUnavailable": "結果不可用",
+    "outcomeUnavailableDetail": "未記錄此壓縮的詳細前後指標。",
+    "preservedMessages": "{count} 已保留",
+    "reductionRatio": "縮小 {ratio} 倍",
+    "retry": "重試",
+    "showSummaryText": "顯示摘要文字",
+    "summarizerUsage": "{input} 輸入 / {output} 輸出",
+    "summaryCost": "摘要成本",
+    "summaryModel": "摘要模型",
+    "tokenRange": "{before} → {after}",
+    "tokenRangeWithReduction": "{before} → {after} ({reduction})",
+    "trigger": "觸發器"
+  },
+  "composerDraftNotices": {
+    "draftRestored": "草稿已從您先前的會話中還原。",
+    "waitingUpload": "{count, plural, other {正在等待 # 個附件上傳完成後再傳送。}}"
+  },
+  "composerNotices": {
+    "allowMicrophone": "允許麥克風",
+    "openSettings": "開啟設定"
+  },
+  "composerSecretNotice": {
+    "blockedTitle": "訊息未傳送。它似乎包含一個 API 金鑰。",
+    "body": "在聊天中傳送的憑證在聊天記錄中可見。請改為安全地儲存。",
+    "dismiss": "關閉",
+    "sendAnyway": "仍然傳送",
+    "storeSecurely": "安全地儲存",
+    "warningTitle": "這看起來像一個 API 金鑰"
+  },
+  "composerSettingsMenu": {
+    "accessAria": "助理存取權限：{label}",
+    "assistantAccess": "助理存取權限",
+    "assistantAccessTitle": "助理存取權限",
+    "compactAria": "助理存取權限與模型設定檔",
+    "compactAriaWithSummary": "助理存取權限與模型設定檔：{summary}",
+    "defaultLabel": "{label} (預設)",
+    "defaultSuffix": "(預設)",
+    "loadingProfiles": "正在載入設定檔…",
+    "modelProfile": "模型設定檔",
+    "modelProfileTitle": "模型設定檔",
+    "profileAria": "模型設定檔：{label}",
+    "profileAriaFallback": "模型設定檔",
+    "profileSwitchFailed": "已建立設定檔，但無法切換至該設定檔",
+    "profileSwitchFallback": "切換設定檔失敗。請再試一次。",
+    "quickAdd": "新增模型"
+  },
+  "confirmationActions": {
+    "submitFailed": "提交確認失敗。請再試一次。",
+    "submitFailedRuleAvailable": "提交確認失敗，但您仍然可以建立規則。"
+  },
+  "confirmationPromptCard": {
+    "allow": "允許",
+    "deny": "拒絕",
+    "hideDetails": "隱藏詳細資料",
+    "showDetails": "顯示詳細資料",
+    "titleFallback": "需要確認",
+    "toolLabel": "工具："
+  },
+  "contactActions": {
+    "saveFailed": "儲存聯絡人失敗。請再試一次。"
+  },
+  "contactPromptCard": {
+    "addContact": "新增聯絡人",
+    "cancel": "取消",
+    "contactSaved": "聯絡人已儲存",
+    "dismiss": "關閉",
+    "enterAddress": "輸入 {channel} 位址",
+    "save": "儲存",
+    "saving": "正在儲存…"
+  },
+  "contextWindowIndicator": {
+    "clearContext": "清除上下文",
+    "compactsHint": "{name} 會自動<br></br>壓縮其上下文。",
+    "compactsHintInline": "{name} 會自動壓縮上下文",
+    "defaultAssistantName": "您的助理",
+    "label": "上下文視窗：",
+    "percentFull": "已使用 {percentage}%",
+    "ringAria": "上下文視窗已使用 {percentage}%",
+    "title": "上下文視窗",
+    "tokensUsed": "已使用 {used} / {max} 權杖"
+  },
+  "conversationActions": {
+    "archive": "歸檔",
+    "copyConversation": "複製完整對話",
+    "copyConversationId": "複製對話 ID",
+    "delete": "刪除",
+    "forkConversation": "分支對話",
+    "inspect": "分析對話",
+    "markRead": "標示為已讀",
+    "markUnread": "標示為未讀",
+    "moveToGroup": "移至群組",
+    "newGroup": "新增群組…",
+    "openInNewWindow": "在新視窗中開啟",
+    "pin": "釘選",
+    "refresh": "重新整理",
+    "removeFromGroup": "從群組中移除",
+    "rename": "重新命名",
+    "shareFeedback": "分享意見回饋",
+    "triggerAriaLabel": "對話動作",
+    "unarchive": "取消歸檔",
+    "unpin": "取消釘選"
+  },
+  "conversationActionsSheet": {
+    "closeAriaLabel": "關閉",
+    "title": "對話動作"
+  },
+  "conversationActivityPill": {
+    "activity": "活動",
+    "recent": "最近",
+    "running": "執行中"
+  },
+  "conversationAssetActions": {
+    "delete": "刪除",
+    "downloadPdf": "下載 PDF",
+    "exportAsVellum": "匯出為 .vellum 檔案",
+    "open": "開啟",
+    "optionsFor": "{name} 的選項",
+    "pin": "釘選",
+    "share": "分享",
+    "unpin": "取消釘選"
+  },
+  "conversationAssets": {
+    "ariaLabel": "對話資產，{count, plural, one {# 個項目} other {# 個項目}}",
+    "ariaLabelUnseen": "對話資產，{count, plural, one {# 個項目} other {# 個項目}} (未檢視的變更)",
+    "heading": "資產",
+    "label": "{count, plural, one {# 個資產} other {# 個資產}}"
+  },
+  "conversationRow": {
+    "untitled": "未命名"
+  },
+  "conversationStarterDock": {
+    "caption": "試試這些建議："
+  },
+  "conversationStarterGrid": {
+    "sendAria": "傳送：{label}"
+  },
+  "copyBlockSurface": {
+    "copied": "已複製",
+    "copy": "複製"
+  },
+  "copyButton": {
+    "copied": "已複製",
+    "copyFailed": "無法複製到剪貼簿。"
+  },
+  "copyIdToClipboard": {
+    "conversationCopied": "對話 ID 已複製到剪貼簿。",
+    "conversationFailed": "無法複製對話 ID。",
+    "groupCopied": "群組 ID 已複製到剪貼簿。",
+    "groupFailed": "無法複製群組 ID。"
+  },
+  "creditsCard": {
+    "balanceAria": "{balance} 點數",
+    "balanceShort": "{balance} 點",
+    "credits": "點數"
+  },
+  "creditsUpsellCard": {
+    "loginToAddCredits": "登入 Vellum 平台以新增點數。"
+  },
+  "csvPreview": {
+    "emptyFile": "此檔案為空",
+    "summary": "{rows} 列 x {columns} 欄",
+    "summaryTruncated": "{rows} 列 x {columns} 欄 (已截斷)"
+  },
+  "dailyLimitBanner": {
+    "skipConfirmTitle": "略過今日點數限制？",
+    "skipError": "無法略過今日限制。請再試一次。",
+    "skipForToday": "今日略過",
+    "subtitle": "Vellum 點數花費已暫停，直到您的限制在 {resetPhrase} 重設。",
+    "title": "已達每日點數限制"
+  },
+  "deleteConversationConfirmDialog": {
+    "cancel": "取消",
+    "confirm": "刪除",
+    "message": "刪除「{title}」？這將永久移除對話及其訊息。此動作無法復原。",
+    "title": "刪除對話",
+    "untitled": "未命名"
+  },
+  "documentAssetActions": {
+    "pdfDownloadFailed": "下載 PDF 失敗"
+  },
+  "documentCommentForm": {
+    "send": "傳送",
+    "sending": "傳送中…"
+  },
+  "documentCommentPanel": {
+    "addCommentPlaceholder": "新增留言…",
+    "closeAria": "關閉留言面板",
+    "empty": "尚無留言",
+    "loading": "正在載入留言…",
+    "submitFeedback": "提交意見回饋",
+    "title": "留言"
+  },
+  "documentCommentThread": {
+    "assistantMonogram": "V",
+    "authorAssistant": "助理",
+    "authorYou": "您",
+    "deleteCommentAria": "刪除留言",
+    "jumpToHighlight": "跳至醒目提示文字",
+    "open": "開啟",
+    "reopen": "重新開啟",
+    "reply": "回覆",
+    "replyPlaceholder": "撰寫回覆…",
+    "resolve": "解決",
+    "resolved": "已解決"
+  },
+  "documentPreviewSurface": {
+    "openAria": "開啟 {name}"
+  },
+  "documentReopenLink": {
+    "openAria": "開啟 {name}"
+  },
+  "documentViewerContainer": {
+    "close": "關閉",
+    "closeDocumentAria": "關閉文件",
+    "comments": "留言",
+    "export": "匯出",
+    "hideComments": "隱藏留言",
+    "menuAria": "文件選項",
+    "rename": "重新命名",
+    "renameFailed": "無法重新命名文件。",
+    "renameSave": "儲存",
+    "renameTitle": "重新命名文件",
+    "saved": "已儲存",
+    "saving": "正在儲存…",
+    "wordCount": "{count, plural, other {# 個字}}"
+  },
+  "documentViewerPage": {
+    "exportFailed": "匯出 PDF 失敗",
+    "notFound": "找不到文件。"
+  },
+  "dynamicPageSurface": {
+    "titleFallback": "動態內容"
+  },
+  "exportProgressModal": {
+    "cancel": "取消",
+    "close": "關閉",
+    "defaultError": "匯出檢查器資料失敗。",
+    "descriptionDone": "您的下載應該已自動開始。",
+    "descriptionError": "收集匯出資料時發生錯誤。",
+    "descriptionRunning": "正在收集提供者酬載和標準化內容。對於較長的對話，這可能需要一些時間。",
+    "done": "完成",
+    "progressAriaLabel": "匯出進度",
+    "retry": "重試",
+    "statusDone": "完成",
+    "statusPackaging": "正在打包 ZIP…",
+    "statusProgress": "已完成 {completed} / {total} 次呼叫",
+    "titleDone": "匯出完成",
+    "titleError": "匯出失敗",
+    "titleRunning": "正在匯出檢查器資料"
+  },
+  "fileDiffView": {
+    "diffForAria": "{path} 的差異"
+  },
+  "fileDownload": {
+    "failed": "檔案下載失敗"
+  },
+  "filePreviewContainer": {
+    "closePreviewAria": "關閉預覽",
+    "closeTooltip": "關閉",
+    "download": "下載",
+    "downloadAria": "下載 {name}",
+    "loadError": "無法載入此檔案",
+    "overLimit": "{size}，超出 {limit} 預覽限制",
+    "tooLarge": "此檔案過大，無法預覽",
+    "tryAgain": "再試一次"
+  },
+  "fileUploadSurface": {
+    "accepted": "已接受：{types}",
+    "dropHint": "將檔案拖曳至此，或點擊以瀏覽",
+    "maxSize": "最大大小：{size}",
+    "upload": "上傳",
+    "uploading": "正在上傳..."
+  },
+  "formSurface": {
+    "secureHint": "此值將會安全傳送，且不會儲存在您的瀏覽器中。",
+    "selectPlaceholder": "請選擇..."
+  },
+  "groupActions": {
+    "archiveAll": "全部封存…",
+    "copyGroupId": "複製群組 ID",
+    "deleteGroup": "刪除群組",
+    "deleteGroupWithConversations": "刪除群組…",
+    "groupByChannel": "依頻道分組",
+    "markAllRead": "全部標示為已讀",
+    "moveSectionDown": "向下移動區段",
+    "moveSectionUp": "向上移動區段",
+    "rename": "重新命名",
+    "ungroup": "取消分組"
+  },
+  "groupActionsSheet": {
+    "title": "{name} 動作"
+  },
+  "groupNameDialogFromStore": {
+    "create": "建立",
+    "newTitle": "新增群組",
+    "renameTitle": "重新命名群組",
+    "save": "儲存"
+  },
+  "inChatOnboardingController": {
+    "next": "下一步",
+    "showMeAround": "帶我看看",
+    "skipTour": "跳過導覽"
+  },
+  "inChatPluginPill": {
+    "ariaLabel": "聊天外掛程式，{count} 個啟用中",
+    "costCaption": "變更外掛程式設定可能會產生高額費用。",
+    "countLabel": "{count, plural, other {# 個外掛程式}}",
+    "manage": "管理",
+    "plugins": "外掛程式"
+  },
+  "inlineProcessCard": {
+    "stop": "停止"
+  },
+  "inspectPage": {
+    "accessDenied": "當「內部執行緒動作」功能旗標啟用時，檢查器可用。",
+    "allMessages": "所有訊息",
+    "back": "返回",
+    "backToConversationAria": "返回對話",
+    "chooseCall": "從側邊欄選擇一個呼叫以檢查其上下文。",
+    "conversationScopeSubtitle": "顯示此對話中記錄的所有 LLM 呼叫。",
+    "detailLoadFailed": "載入此呼叫的標準化上下文失敗。",
+    "emptyBodyConversation": "此對話中沒有訊息是由 LLM 呼叫產生，或者請求日誌因保留策略而被截斷。",
+    "emptyBodyMessage": "此訊息不是由 LLM 呼叫產生，或者其請求日誌因保留策略而被截斷。",
+    "emptyTitleConversation": "此對話沒有記錄 LLM 呼叫。",
+    "emptyTitleMessage": "此訊息沒有記錄 LLM 呼叫。",
+    "enableLogging": "啟用日誌記錄",
+    "enableLoggingFailed": "啟用日誌記錄失敗",
+    "enableLoggingFailedWithMessage": "啟用日誌記錄失敗 ({message})",
+    "enabling": "正在啟用…",
+    "exportFailed": "匯出檢查器資料失敗",
+    "exportZip": "匯出 ZIP",
+    "exportZipAria": "將檢查器資料匯出為 ZIP",
+    "exporting": "正在匯出…",
+    "filterToMessage": "篩選至訊息：",
+    "llmCallCount": "{count, plural, other {# 個 LLM 呼叫}}",
+    "loadContextFailed": "載入 LLM 上下文失敗。",
+    "loadFailedTitle": "載入失敗",
+    "loading": "正在載入…",
+    "loggingDisabledBody": "請求和回應酬載未被記錄，因此無可檢查內容。請啟用日誌記錄以擷取未來的 LLM 呼叫。",
+    "loggingDisabledTitle": "LLM 請求日誌記錄已關閉",
+    "loggingEnabledToast": "LLM 請求日誌記錄已啟用",
+    "messageOptionDeepLink": "訊息 {messageId}",
+    "messageOptionNoText": "{index}. (無文字)",
+    "messageOptionWithPreview": "{index}. {preview}",
+    "retry": "重試",
+    "scopedToOneMessage": "範圍限定為一則訊息 · ",
+    "scopedToTurn": "範圍限定為第 {index} 個回合（共 {count} 個） · ",
+    "title": "LLM 上下文檢查器"
+  },
+  "liveVoiceBusy": {
+    "android": "語音已在 Android 應用程式中啟用。",
+    "ios": "語音已在 iOS 應用程式中啟用。",
+    "macos": "語音已在 Mac 應用程式中啟用。",
+    "unknown": "語音已在其他地方啟用。",
+    "web": "語音已在其他瀏覽器分頁中啟用。",
+    "windows": "語音已在 Windows 應用程式中啟用。"
+  },
+  "liveVoiceButton": {
+    "startVoiceMode": "啟動語音模式"
+  },
+  "liveVoiceStatus": {
+    "connecting": "正在連線…",
+    "ending": "正在結束…",
+    "listening": "正在聆聽…",
+    "muted": "已靜音",
+    "reconnecting": "正在重新連線…",
+    "speaking": "正在說話…",
+    "thinking": "正在思考…"
+  },
+  "llmCallErrorCard": {
+    "chipCode": "程式碼",
+    "chipProvider": "提供者",
+    "chipRequestId": "請求 ID",
+    "chipStatus": "狀態",
+    "chipType": "類型",
+    "chipUpstreamCode": "上游程式碼",
+    "chipUpstreamParam": "上游參數",
+    "chipUpstreamType": "上游類型",
+    "noResponse": "提供者拒絕了此呼叫且未傳回任何回應。",
+    "title": "呼叫失敗"
+  },
+  "localFileEmbed": {
+    "loadingAria": "正在載入 {label}",
+    "pictureInPictureUnavailable": "子母畫面無法使用"
+  },
+  "localFileLink": {
+    "unavailable": "此檔案在此處無法使用"
+  },
+  "localFileMenu": {
+    "download": "下載",
+    "fileActionsAria": "檔案動作",
+    "goToFile": "前往檔案",
+    "pictureInPicture": "子母畫面"
+  },
+  "lowBalanceBanner": {
+    "addCredits": "新增點數",
+    "ariaLabel": "您的點數不足。{detail}",
+    "subtitle": "新增點數以避免中斷。",
+    "title": "您的點數不足"
+  },
+  "maintenanceModeBanner": {
+    "body": "您的助理工作區目前已連接至偵錯終端機。在復原模式下，聊天無法使用。",
+    "loginHint": "登入 Vellum 平台以結束復原模式。",
+    "resume": "繼續助理",
+    "title": "助理處於復原模式"
+  },
+  "maintenanceRecoveryCard": {
+    "body": "維護期間，聊天無法使用。",
+    "goToDebug": "前往偵錯設定",
+    "title": "助理處於復原模式"
+  },
+  "memoryRouterPlaygroundPage": {
+    "addOlderPairButton": "+ 新增較舊的配對",
+    "assistantReplyLabel": "[助理]: 回覆",
+    "assistantReplyPlaceholder": "助理在下方使用者訊息之前的回覆。",
+    "configTitle": "設定 {paneId}",
+    "conversationalContextTitle": "對話上下文 (兩個窗格共用)",
+    "customPromptPlaceholder": "自訂路由器系統提示詞。可用預留位置：\n '{ASSISTANT_NAME}, {USER_NAME}, {PAGE_INDEX}'\n留空以使用內建範本。「載入預設」會將內建內容填入文字區域以供編輯。",
+    "description": "使用自訂層級/批次覆寫來試執行 v4 路由器。唯讀模式 - 不會將任何資料列寫入 <code>memory_v2_injection_events</code> 或 <code>memory_v2_activation_logs</code>，也不會變更任何啟用狀態。將覆寫留空以繼承即時設定值；輸入 <code>null</code> 以明確停用某個層級。",
+    "diffLabel": "差異",
+    "diffValue": "{shared} 共用 · {unique} 此窗格獨有",
+    "effectiveConfig": "生效設定",
+    "emaScore": "EMA {score}",
+    "empty": "(空白)",
+    "emptySelectionHint": "路由器傳回了空白選取。請嘗試更具體的查詢，或放寬覆寫值。",
+    "failedToRunSimulation": "執行模擬失敗",
+    "firstTurnAssistantPlaceholder": "首次對話情境請留空。",
+    "inheritActive": "繼承啟用",
+    "inheritActiveWithProfile": "繼承啟用 ({profile})",
+    "inheritPlaceholder": "繼承",
+    "invalidOverrideInput": "無效的覆寫輸入",
+    "justArrivedUserLabel": "剛抵達的 [使用者]: 訊息",
+    "lastUserPlaceholder": "例如，我們接下來應該發布什麼",
+    "legendAOnly": "僅 A",
+    "legendBOnly": "僅 B",
+    "legendInBoth": "兩者皆有",
+    "llmProfilesOverride": "llm.profiles 覆寫",
+    "loadDefault": "載入預設",
+    "loading": "載入中…",
+    "noPagesSelected": "未選取頁面",
+    "notAvailable": "記憶體路由器演練場不可用。",
+    "nowBlockLabel": "'<now>' 區塊",
+    "nowDefaultPlaceholder": "預先填入即時 NOW.md。編輯以測試其他狀態。",
+    "nowLoadingPlaceholder": "正在載入目前的 NOW.md…",
+    "nullValue": "null",
+    "overrideMustBePositiveInteger": "{fieldName} 必須是正整數或 'null' (得到 \"{value}\")",
+    "overrideSuffix": " (覆寫)",
+    "pageCount": "{count, plural, other {# 頁}}",
+    "pairLabel": "第 {index} 個配對，共 {total} 個",
+    "pairMostRecentSuffix": " · 最新",
+    "paneTitle": "窗格 {paneId}",
+    "promptModeBundled": "內建",
+    "promptModeCustom": "自訂",
+    "rawApiExchange": "原始 API 交換",
+    "recentPairsLabel": "最近的 (助理, 使用者) 配對 · 最舊的在前",
+    "reloadNowButton": "重新載入即時 NOW.md",
+    "removeButton": "移除",
+    "requestLabel": "請求 (窗格 {paneId})",
+    "reset": "重設",
+    "responseLabel": "回應 (窗格 {paneId})",
+    "routerFailure": "路由器故障: {reason}",
+    "runBoth": "同時執行",
+    "runPane": "執行 {paneId}",
+    "running": "執行中…",
+    "selectedLabel": "已選取",
+    "selectedValue": "{count} (即時 max_page_ids: {maxPageIds})",
+    "summary": "摘要",
+    "summaryUserMessageLabel": "使用者訊息",
+    "systemPrompt": "系統提示詞",
+    "systemPromptConfigLabel": "系統提示詞",
+    "tier1Label": "層級 1",
+    "tier2Label": "層級 2",
+    "tier3Label": "層級 3 · b{batch}",
+    "title": "記憶體路由器演練場",
+    "totalCandidatePagesLabel": "總候選頁面",
+    "userMessageLabel": "[使用者]: 訊息",
+    "userMessagePlaceholder": "使用者的訊息。"
+  },
+  "memoryTab": {
+    "afterMergeLabel": "合併後",
+    "breakdownCAssistantRerank": "c_助理 · 重新排序 Δ_a",
+    "breakdownCAssistantSim": "c_助理 · sim_a",
+    "breakdownCNowSim": "c_目前 · sim_n",
+    "breakdownCUserRerank": "c_使用者 · 重新排序 Δ_u",
+    "breakdownCUserSim": "c_使用者 · sim_u",
+    "breakdownOwnActivation": "A_o (自身)",
+    "breakdownPriorActivation": "先前 · d",
+    "breakdownRerankScaledRaw": "+{scaled} (原始 {raw})",
+    "breakdownScaledRaw": "{scaled} (原始 {raw})",
+    "breakdownSource": "來源",
+    "breakdownSpreadDelta": "擴散 Δ",
+    "breakdownStatus": "狀態",
+    "candidateScores": "語義 {semantic} · 近期 {recency}",
+    "carriedPill": "攜帶: {count}",
+    "conceptActivationsSubtitle": "依最終啟用排序。技能項目會以 `skills/` 前綴顯示；展開列以查看啟用明細。",
+    "conceptActivationsTitle": "概念啟用 ({count})",
+    "configCAssistant": "c_助理",
+    "configCNow": "c_目前",
+    "configCUser": "c_使用者",
+    "configDDecay": "d (衰減)",
+    "configEpsilon": "epsilon",
+    "configHops": "跳數",
+    "configKSharpening": "k (銳化)",
+    "configSubtitle": "啟用權重與選擇閾值。",
+    "configTitle": "設定",
+    "configTopK": "top_k",
+    "copyAriaLabel": "複製到剪貼簿",
+    "copyAriaLabelCopied": "已複製",
+    "copyButtonCopied": "已複製",
+    "copyButtonCopy": "複製",
+    "copyErrorMessage": "無法複製到剪貼簿。",
+    "copyTitle": "複製",
+    "copyTitleCopied": "已複製！",
+    "corePill": "核心: {count}",
+    "degradationTitle": "降級",
+    "fallbackSourcesLabel": "備用來源",
+    "hybridSearchLabel": "混合搜尋",
+    "inContextPill": "在上下文中: {count}",
+    "injectedMemoryContextTitle": "注入的記憶體上下文",
+    "injectedPill": "已注入: {count}",
+    "injectedTokensLabel": "注入的權杖",
+    "latencyMs": "{ms} 毫秒",
+    "loading": "載入中…",
+    "loggedMemorySelectionSubtitle": "根據 v3 選項呈現，本輪未注入。",
+    "loggedMemorySelectionTitle": "已記錄的記憶體選項",
+    "memoryDisabledDefaultReason": "本輪已停用記憶體回溯。",
+    "memoryDisabledTitle": "記憶體已停用",
+    "missingValue": "-",
+    "modelLabel": "模型",
+    "no": "否",
+    "noDataBody": "此訊息的記憶體回溯資訊不可用。",
+    "noDataTitle": "無記憶體資料",
+    "noEntriesRanked": "無項目排名。",
+    "noPagesSelected": "未選取任何頁面。",
+    "notInjectedPill": "未注入: {count}",
+    "pageContentLabel": "頁面內容",
+    "pageNotFound": "在磁碟上找不到頁面。Slug 可能參照了過時的 Qdrant 項目。",
+    "pillMemoryV2": "記憶體 V2",
+    "pillMemoryV3": "記憶體 V3",
+    "pillRecallV1": "回溯 (v1)",
+    "pinnedChip": "已釘選",
+    "pinnedPill": "已釘選: {count}",
+    "providerLabel": "提供者",
+    "queryContextSubtitle": "作為語義檢索搜尋向量嵌入的文字。",
+    "queryContextTitle": "查詢上下文",
+    "reasonLabel": "原因",
+    "retrievalFunnelSubtitle": "記憶體如何從語義搜尋篩選到注入的過程。",
+    "retrievalFunnelTitle": "檢索漏斗",
+    "searchDetailsTitle": "搜尋詳細資料",
+    "selectedLabel": "已選取",
+    "selectedPagesSubtitle": "已選取 v3 頁面，依顯示它們的通道和匹配的部分（當尋找器通道顯示時）進行標記。",
+    "selectedPagesTitle": "已選取頁面 ({count})",
+    "selectedPill": "已選取: {count}",
+    "semanticHitsLabel": "語義命中",
+    "semanticUnavailableLabel": "語義不可用",
+    "sparseDenseOnly": "僅密集",
+    "sparseUsed": "已使用",
+    "sparseVectorsLabel": "稀疏向量",
+    "statusActive": "啟用中",
+    "statusDegraded": "已降級",
+    "statusLabel": "狀態",
+    "statusSubtitle": "此回溯的提供者、模型和延遲。",
+    "statusTitle": "狀態",
+    "tier1Label": "層級 1",
+    "tier2Label": "層級 2",
+    "topCandidatesSubtitle": "{count, plural, other {# 個候選項目依最終分數排名。}}",
+    "topCandidatesTitle": "熱門候選項目",
+    "totalLatencyLabel": "總延遲",
+    "turnLevelRecallBody": "記憶體回溯每輪執行一次。此資料適用於此訊息的所有 LLM 呼叫。",
+    "turnLevelRecallTitle": "輪級回溯",
+    "turnPill": "輪次 {turn}",
+    "unavailable": "不可用",
+    "unknown": "未知",
+    "v2StatusInContext": "在上下文中",
+    "v2StatusInjected": "已注入",
+    "v2StatusNotInjected": "未注入",
+    "v2StatusPageMissing": "頁面遺失",
+    "v2TurnBody": "傳播啟用記憶體傳遞，用於對本輪的概念和技能進行排名。",
+    "v2TurnTitle": "記憶體 - 輪次 {turn} ({mode})",
+    "v3LiveInjectionBody": "v3 是本輪的即時記憶體來源：下方區塊已注入到上下文中 (v2 已抑制)。",
+    "v3LiveInjectionTitle": "記憶體 V3 - 即時注入",
+    "v3LoggedSelectionBody": "v3 不是此助理的即時記憶體來源：這些選項已記錄但本輪未注入；本輪的記憶體來自 v2。",
+    "v3LoggedSelectionTitle": "記憶體 V3 - 已記錄選項 (未注入)",
+    "v3SourceCarried": "攜帶",
+    "v3SourceCore": "核心",
+    "v3SourceL1L2": "L1+L2",
+    "v3SourceNeedle": "針",
+    "yes": "是"
+  },
+  "messageFilesPanel": {
+    "closeAria": "關閉檔案",
+    "empty": "此訊息沒有檔案",
+    "title": "檔案"
+  },
+  "messageHoverActions": {
+    "bookmark": "書籤",
+    "copied": "已複製",
+    "copy": "複製",
+    "forkFromHere": "從此處分岔",
+    "inspect": "檢查",
+    "openInSlack": "在 Slack 中開啟",
+    "removeBookmark": "移除書籤",
+    "retry": "重試",
+    "summarizeUpToHere": "總結至此"
+  },
+  "messageLongPressActions": {
+    "bookmark": "書籤",
+    "copied": "已複製",
+    "removeBookmark": "移除書籤",
+    "title": "訊息動作"
+  },
+  "micPermissionPrimer": {
+    "cancel": "取消",
+    "continue": "繼續",
+    "description": "語音輸入需要麥克風存取權限。音訊將由您設定的語音轉文字供應商轉錄，如果未設定供應商，則由您裝置的內建聽寫功能轉錄。",
+    "title": "麥克風存取權限"
+  },
+  "missingApiKeyBanner": {
+    "ariaLabel": "需要 API 金鑰",
+    "body": "請在「設定」→「模型與服務」中新增 API 金鑰以開始聊天。",
+    "dismiss": "關閉",
+    "dismissAria": "關閉需要 API 金鑰的提示",
+    "openSettings": "開啟設定",
+    "title": "需要 API 金鑰"
+  },
+  "mobileCallSelector": {
+    "callOfTotal": "第 {number} 個呼叫，共 {total} 個",
+    "llmCallCount": "{count, plural, other {# 個 LLM 呼叫}}",
+    "selectCallAria": "選擇一個 LLM 呼叫以檢查",
+    "sheetTitle": "選擇一個呼叫"
+  },
+  "multiActivityGroup": {
+    "dismissAria": "關閉",
+    "unknownCommandNudge": "此指令無法辨識。<ruleLink>建立規則</ruleLink>以便下次分類。",
+    "viewSteps": "檢視步驟"
+  },
+  "nameInputDialog": {
+    "cancel": "取消",
+    "icon": "圖示",
+    "name": "名稱",
+    "noIcon": "無圖示"
+  },
+  "newChatPluginsPicker": {
+    "heading": "為新聊天新增外掛程式",
+    "managePlugins": "管理外掛程式",
+    "showAll": "顯示全部 (+{count})",
+    "showLess": "顯示較少",
+    "tooltip": "選擇此聊天可使用的外掛程式。您的選擇將在您傳送第一則訊息時套用，並保留在此對話中。"
+  },
+  "newChatPluginsSection": {
+    "managePlugins": "管理外掛程式"
+  },
+  "oauthConnectSurface": {
+    "approvalAria": "關於助理核准",
+    "approvalTooltip": "未經您的核准，{name} 絕不會代表您行事",
+    "connect": "連線",
+    "connectTitle": "連線 {name}",
+    "connected": "已連線",
+    "defaultDescription": "連線 {name}，以便我能將其用於此任務。",
+    "dismiss": "關閉",
+    "missingDetails": "缺少助理或供應商詳細資訊。",
+    "thisAccount": "此帳號",
+    "waiting": "等待中...",
+    "yourAssistant": "您的助理"
+  },
+  "onboardingChoiceCard": {
+    "continue": "繼續",
+    "helpWithHeading": "我能為您提供什麼協助？",
+    "letsChat": "我們來聊聊",
+    "other": "其他",
+    "otherPlaceholder": "您需要什麼協助？",
+    "selectAll": "選取所有適用項目",
+    "somethingElse": "其他事項",
+    "specific": "我有特定需求"
+  },
+  "orphanedHistoryNotice": {
+    "message": "此對話分支所源自的對話已刪除，因此分支點之前的訊息已遺失。此後傳送的所有內容均完好無損。"
+  },
+  "overviewTab": {
+    "cacheTokensLabel": "快取權杖",
+    "conversationSubtitle": "迄今為止所有計費 LLM 呼叫的累計總額。",
+    "conversationTitle": "對話",
+    "createdLabel": "建立時間",
+    "durationLabel": "持續時間",
+    "estimatedCostLabel": "預估費用",
+    "failedStatus": "失敗",
+    "firstTokenKindLabel": "首個權杖類型",
+    "firstTokenLatencySubtitle": "此回合首個權杖回應時間的去向，由助理測量。",
+    "firstTokenLatencyTitle": "首個權杖延遲",
+    "inputTokensLabel": "輸入權杖",
+    "latencyMs": "{ms} 毫秒",
+    "loopExitReasonLabel": "迴圈結束原因",
+    "modelLabel": "模型",
+    "normalizedMetadataSubtitle": "提供者、模型、時間戳記和使用次數。",
+    "normalizedMetadataTitle": "標準化中繼資料",
+    "normalizedSummaryUnavailableSubtitle": "此呼叫仍包含原始請求和回應酬載。",
+    "normalizedSummaryUnavailableTitle": "標準化摘要不可用",
+    "otherLabel": "其他",
+    "outputTokensLabel": "輸出權杖",
+    "providerLabel": "提供者",
+    "requestMessagesLabel": "請求訊息",
+    "statusLabel": "狀態",
+    "stopReasonLabel": "停止原因",
+    "toolCallsLabel": "工具呼叫",
+    "toolsAvailableLabel": "可用工具",
+    "totalCostSoFarLabel": "迄今總費用",
+    "totalToFirstTokenLabel": "至首個權杖總計",
+    "usageSubtitle": "由助理路由標準化的權杖和呼叫次數。",
+    "usageTitle": "用量"
+  },
+  "pageTabs": {
+    "formStepsAria": "表單步驟"
+  },
+  "pdfPageSkeleton": {
+    "loadingPdf": "正在載入 PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {顯示第一頁} other {顯示前 # 頁}}"
+  },
+  "phaseGroupedStepList": {
+    "startedAt": "開始於 {time}"
+  },
+  "pinnedAppColorSwatches": {
+    "colors": {
+      "green": "綠色",
+      "orange": "橘色",
+      "pink": "粉紅色",
+      "purple": "紫色",
+      "teal": "青色",
+      "yellow": "黃色"
+    },
+    "noColor": "無顏色"
+  },
+  "pinnedAppNavItem": {
+    "unpin": "取消釘選",
+    "unpinAria": "取消釘選 {name}"
+  },
+  "pluginPill": {
+    "disableAria": "停用此聊天中的 {name}",
+    "enableAria": "啟用此聊天中的 {name}"
+  },
+  "preferencesMenu": {
+    "admin": "管理員",
+    "preferences": "偏好設定",
+    "settings": "設定",
+    "shareFeedback": "分享意見回饋"
+  },
+  "preferencesUsagePanel": {
+    "addCreditsAriaLabel": "新增點數",
+    "exhausted": "新增點數以繼續。",
+    "extraCredits": "目前使用額外用量點數",
+    "pctUsed": "已使用 {pct}%",
+    "settingsAriaLabel": "用量與帳單設定",
+    "title": "用量"
+  },
+  "previewError": {
+    "cannotPreview": "無法預覽此檔案"
+  },
+  "previewMessageCard": {
+    "download": "下載",
+    "downloadAria": "下載 {filename}"
+  },
+  "previewSkeleton": {
+    "loadingPreview": "正在載入預覽"
+  },
+  "previewTruncationNotice": {
+    "markdown": "顯示前 512 KB",
+    "text": "顯示前 2 MB"
+  },
+  "previewUnsupported": {
+    "downloadFile": "下載檔案",
+    "goToFile": "前往檔案",
+    "noPreviewForType": "此檔案類型無預覽"
+  },
+  "promptSubmission": {
+    "noActiveSession": "無作用中工作階段。請再試一次。"
+  },
+  "promptTab": {
+    "availableTools": "可用工具",
+    "bannerNoSections": "此呼叫尚無標準化提示詞區段。",
+    "bannerSectionsCount": "{count, plural, other {顯示由助理路由傳回的 # 個標準化請求區段。}}",
+    "collapseAll": "全部收合",
+    "copyAriaLabel": "複製 {title}",
+    "emptyBody": "此呼叫無標準化提示詞區段。請使用「原始」分頁檢查完整的請求酬載。",
+    "emptyTitle": "無標準化提示詞區段",
+    "expandAll": "全部展開",
+    "formatJavaScript": "JavaScript",
+    "formatJson": "JSON",
+    "formatMarkdown": "Markdown",
+    "formatTypeScript": "TypeScript",
+    "noContentAvailable": "無可用內容。",
+    "promptSectionsTitle": "提示詞區段"
+  },
+  "providerBillingBanner": {
+    "body": "向您的供應商儲值或降低模型權杖限制。",
+    "title": "您的 API 金鑰需要點數"
+  },
+  "pullRefreshSpinner": {
+    "refreshing": "正在重新整理"
+  },
+  "questionActions": {
+    "submitFailed": "提交回覆失敗。請再試一次。"
+  },
+  "questionPromptCard": {
+    "expandAria": "重新開啟問題",
+    "minimizeAria": "最小化問題",
+    "nextQuestionAria": "下一個問題",
+    "optionAria": "選項 {number}：{label}",
+    "previousQuestionAria": "上一個問題",
+    "position": "{current} / {total}",
+    "sendResponseAria": "傳送回覆",
+    "skip": "跳過",
+    "skipAria": "跳過此問題",
+    "skipped": "已跳過",
+    "skippedHint": "已跳過 - 選擇一個選項以覆寫",
+    "typeDifferentAnswerAria": "輸入不同的答案",
+    "typeSomethingElsePlaceholder": "輸入其他內容"
+  },
+  "queuedMessagesDrawer": {
+    "cancelAll": "全部取消",
+    "cancelAllAria": "取消所有佇列訊息",
+    "cancelAria": "取消佇列訊息",
+    "editAria": "編輯佇列訊息",
+    "pushToAgentAria": "推送給助理",
+    "queueHeading": "佇列 · {count}",
+    "showActionsAria": "顯示佇列訊息動作"
+  },
+  "quoteReplyBubble": {
+    "addToChat": "新增至聊天",
+    "ariaLabel": "引用並回覆",
+    "cancel": "取消",
+    "placeholder": "輸入您的回覆…"
+  },
+  "rawTab": {
+    "copyRequestPayloadAriaLabel": "複製請求酬載",
+    "copyResponsePayloadAriaLabel": "複製回應酬載",
+    "downloadFailedToast": "下載酬載失敗。",
+    "downloadRequestPayloadAriaLabel": "下載請求酬載",
+    "downloadResponsePayloadAriaLabel": "下載回應酬載",
+    "loadErrorTitle": "無法載入原始酬載",
+    "loading": "正在載入原始酬載…",
+    "payloadRequestFailed": "酬載請求失敗。請再試一次。",
+    "request": "請求",
+    "requestPayload": "請求酬載",
+    "response": "回應",
+    "responsePayload": "回應酬載",
+    "retry": "重試"
+  },
+  "redactedCredentialChip": {
+    "clickToReveal": "點擊以顯示",
+    "clickToRevealTitle": "{label} · 點擊以顯示",
+    "copyValue": "複製值",
+    "copyValueAria": "複製 {name} 的值",
+    "hideValue": "隱藏值",
+    "hideValueAria": "隱藏 {name} 的值",
+    "redacted": "已遮蔽",
+    "redactedTitle": "已遮蔽 - 此值未連結至儲存的憑證",
+    "redactionMarkerTitle": "遮蔽標記 - 未經助理驗證",
+    "revealFailed": "無法顯示 {name}。",
+    "revealValueAria": "顯示 {name} 的值"
+  },
+  "refreshFeedbackPill": {
+    "retryAria": "重試重新整理"
+  },
+  "renameDialogFromStore": {
+    "save": "儲存",
+    "title": "重新命名對話"
+  },
+  "researchActivityFeed": {
+    "defaultStatus": "正在搜尋網路以了解您。",
+    "heading": "正在了解您…",
+    "reading": "正在閱讀 <title>{title}</title><domain> · {domain}</domain>",
+    "searchingFor": "正在搜尋 <query>「{query}」</query>",
+    "warmingUp": "正在暖機搜尋…"
+  },
+  "researchFactsCard": {
+    "editRemovalAria": "編輯移除",
+    "keepIt": "保留",
+    "removeAria": "移除",
+    "sources": "來源",
+    "whyRemove": "為何移除此項？"
+  },
+  "researchMockPage": {
+    "heading": "正在了解您…",
+    "mockNote": "（模擬 - 即時流程會在此處顯示搜尋活動摘要）",
+    "resultsTitle": "這是關於您的資訊。您可以移除任何不真實的內容："
+  },
+  "researchResultsOverlay": {
+    "body": "這是關於您的資訊。您可以移除任何不真實的內容：",
+    "loading": "正在了解您…"
+  },
+  "researchResultsView": {
+    "continue": "繼續",
+    "emptyBody": "這次我無法整理出清晰的個人資料。我們可以在後續交流中互相了解。",
+    "emptyTitle": "我們直接開始吧。"
+  },
+  "researchSuggestions": {
+    "heading": "以下是我可以如何協助您開始："
+  },
+  "responseTab": {
+    "argumentsPreview": "引數預覽",
+    "copySectionAria": "複製區段內容",
+    "kindAssistantText": "助理文字",
+    "kindFunctionResponse": "函式回應",
+    "kindReasoning": "推論",
+    "kindToolCall": "工具呼叫",
+    "kindToolResult": "工具結果",
+    "modeResultOnly": "僅結果回應",
+    "modeTextOnly": "僅文字回應",
+    "modeToolCalling": "工具呼叫回應",
+    "noArgumentsPreview": "此工具呼叫沒有可用的結構化引數預覽。",
+    "noAssistantText": "此區段未擷取到助理文字。",
+    "noSectionsFallback": "此回應沒有已呈現的區段。原始酬載仍可在「原始資料」分頁中取得，且任何標準化的回應中繼資料（如果存在）仍將顯示。",
+    "rawTabHint": "需要完整的提供者酬載嗎？開啟「原始資料」分頁以查看請求和回應 JSON。",
+    "responseMetadata": "回應中繼資料",
+    "sectionTitle": "區段 {number}",
+    "sectionUnavailable": "區段呈現不可用",
+    "stopReasonChip": "停止原因：{reason}",
+    "toolChip": "工具：{name}"
+  },
+  "ruleEditorActions": {
+    "saveFailed": "儲存信任規則失敗。請再試一次。"
+  },
+  "scrollToLatestButton": {
+    "aria": "前往最新訊息",
+    "label": "前往最新"
+  },
+  "secretActions": {
+    "submitFailed": "提交金鑰失敗。請再試一次。"
+  },
+  "secretPromptCard": {
+    "cancel": "取消",
+    "domains": "網域：{list}",
+    "placeholder": "輸入金鑰值...",
+    "save": "儲存",
+    "savedSecurely": "已安全儲存",
+    "saving": "正在儲存...",
+    "secretValueFallback": "金鑰值",
+    "sendOnce": "傳送一次（不儲存）",
+    "sending": "正在傳送...",
+    "storedSecurelyNote": "此資訊安全地儲存在您的裝置上，不會傳送到任何伺服器。AI 永遠不會看到此值。",
+    "title": "安全憑證",
+    "tools": "工具：{list}"
+  },
+  "selfHostedScreen": {
+    "body": "自託管助理的對話尚未在網頁端提供。請從設定中管理您的助理。",
+    "openSettings": "開啟設定",
+    "title": "自託管助理"
+  },
+  "setupScreen": {
+    "settingUp": "正在設定您的助理…"
+  },
+  "sideMenuBuiltInNav": {
+    "yourAssistant": "您的助理"
+  },
+  "sideMenuOverlayBottomColumn": {
+    "newChat": "新增聊天"
+  },
+  "sidebarBackToTop": {
+    "label": "返回頂部"
+  },
+  "sidebarConversationError": {
+    "message": "您的對話載入失敗。",
+    "retry": "再試一次"
+  },
+  "sidebarConversationSkeleton": {
+    "loadingAria": "正在載入對話"
+  },
+  "sidebarListContextMenu": {
+    "newGroup": "新增群組…"
+  },
+  "singleActivity": {
+    "webSearch": "網路搜尋"
+  },
+  "skillCreatedCard": {
+    "view": "檢視",
+    "viewAria": "檢視 {name}"
+  },
+  "skillDetailPanel": {
+    "actionsAria": "技能動作",
+    "closeDetails": "關閉技能詳細資料",
+    "goToSkill": "前往技能",
+    "loadError": "此技能無法載入。它可能已被移除。",
+    "moreTooltip": "更多",
+    "removeSkill": "移除技能",
+    "titleFallback": "技能"
+  },
+  "skillExecuteDetail": {
+    "parameters": "參數",
+    "rawInput": "原始輸入",
+    "runningSuffix": " · 執行中"
+  },
+  "skillLoadCard": {
+    "view": "檢視"
+  },
+  "skillLoadDetail": {
+    "loadingAria": "正在載入技能",
+    "provides": "提供",
+    "usedSkill": "已使用技能"
+  },
+  "skillLoadOutput": {
+    "output": "輸出",
+    "outputFormatAria": "輸出格式",
+    "showLess": "顯示較少",
+    "showMore": "顯示更多"
+  },
+  "skillToolList": {
+    "fromSkill": "來自 {name}"
+  },
+  "skillsTab": {
+    "callLink": "呼叫 {number}",
+    "emptyBody": "此分頁列出對話中所有的 <code>skill_load</code> 工具呼叫。在擷取的 LLM 呼叫中未偵測到任何此類呼叫。",
+    "emptyTitle": "此對話中未載入任何技能",
+    "loadCount": "{count, plural, other {# 次載入}}",
+    "summaryStats": "{uniqueCount, plural, other {# 個獨特技能}} · {totalLoads, plural, other {# 次載入呼叫}}",
+    "summaryTitle": "此對話中已載入的技能"
+  },
+  "stagedQuotesStrip": {
+    "editReplyAria": "編輯回覆",
+    "removeQuoteAria": "移除引言",
+    "typeReplyPlaceholder": "輸入您的回覆…"
+  },
+  "storeCredentialDialog": {
+    "successToast": "已安全儲存。金鑰從未進入聊天。"
+  },
+  "subagentAvatarRow": {
+    "details": "詳細資料",
+    "showDetailsAria": "顯示子代理詳細資料"
+  },
+  "subagentDetailPanel": {
+    "backToTimelineAria": "返回時間軸",
+    "backTooltip": "返回",
+    "closeDetail": "關閉子代理詳細資料",
+    "input": "輸入",
+    "noEventsYet": "尚無事件",
+    "objective": "目標",
+    "output": "輸出",
+    "showLess": "顯示較少",
+    "showMore": "顯示更多",
+    "stopSubagentAria": "停止子代理",
+    "timeline": "時間軸"
+  },
+  "subagentPhaseTimeline": {
+    "viewReasoning": "檢視推論",
+    "viewSearchDetails": "檢視搜尋詳細資料",
+    "viewSearchError": "檢視搜尋錯誤",
+    "viewToolDetails": "檢視工具詳細資料",
+    "workedFor": "已執行 {duration}"
+  },
+  "subagentSpawnGroup": {
+    "collapse": "收合",
+    "collapseDetailsAria": "收合子代理詳細資料",
+    "stopSubagentAria": "停止子代理"
+  },
+  "suggestionCard": {
+    "openAria": "開啟建議：{title}"
+  },
+  "suggestionDetailPanel": {
+    "closeAria": "關閉",
+    "letsDoIt": "開始吧！",
+    "thingsWeCanDo": "我們可以做的事：",
+    "whatWellNeed": "我們需要準備的項目："
+  },
+  "suggestionLibrary": {
+    "scrollForMore": "向下捲動以查看更多"
+  },
+  "surfaceActions": {
+    "submitFailed": "提交失敗。請再試一次。"
+  },
+  "surfaceRouter": {
+    "cancelled": "已取消",
+    "displayFailed": "無法顯示此內容。",
+    "displayFailedNamed": "無法顯示「{title}」。",
+    "done": "完成",
+    "unknownSurface": "未知介面",
+    "unsupportedType": "不支援的介面類型：{type}"
+  },
+  "tableSurface": {
+    "copied": "已複製",
+    "copy": "複製",
+    "copyAria": "將表格複製為 Markdown"
+  },
+  "taskPreferencesSurface": {
+    "continue": "繼續",
+    "defaultTitle": "我能為您提供什麼協助？",
+    "other": "其他",
+    "otherPlaceholder": "描述您需要什麼協助...",
+    "selectAll": "選取所有適用項目",
+    "somethingElse": "完全是其他事情"
+  },
+  "textPreview": {
+    "loadFailed": "載入預覽失敗。",
+    "tooLarge": "檔案過大，無法內嵌預覽。"
+  },
+  "textSelectionPopover": {
+    "reply": "回覆"
+  },
+  "tiptapDocumentEditor": {
+    "adding": "正在新增…",
+    "comment": "註解",
+    "feedbackPlaceholder": "新增您的意見回饋…"
+  },
+  "toolCallChip": {
+    "allow": "允許",
+    "confirmationRequired": "需要確認",
+    "copyOutput": "複製輸出",
+    "deny": "拒絕",
+    "hideDetails": "隱藏詳細資料",
+    "output": "輸出",
+    "showDetails": "顯示詳細資料",
+    "technicalDetails": "技術詳細資料",
+    "toolLatency": "工具延遲：",
+    "toolName": "工具名稱"
+  },
+  "toolDefinitionsContent": {
+    "defaultValue": "預設值：{value}",
+    "inputSchema": "輸入結構描述",
+    "intro": "{count, plural, other {# 個工具}}隨此請求傳送。展開工具以查看其定義和輸入結構描述。",
+    "noInputSchema": "無輸入結構描述 - 此工具不接受結構化輸入。",
+    "required": "必填",
+    "settings": "設定"
+  },
+  "toolDetailPanel": {
+    "closeAria": "關閉工具詳細資料",
+    "output": "輸出",
+    "riskLevel": "風險等級",
+    "running": "正在執行…"
+  },
+  "toolStepPill": {
+    "openAria": "開啟 {label}",
+    "viewDetailsAria": "檢視詳細資料：{label}"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "檔案無法下載",
+    "fileUnavailableHostTimeout": "檔案無法下載 (主機檔案核准可能已逾時)",
+    "stopCommand": "停止指令",
+    "stopRun": "停止執行",
+    "stopWorkflow": "停止工作流程"
+  },
+  "transcriptRow": {
+    "thinking": "思考中"
+  },
+  "useConversationLoader": {
+    "authFailed": "使用者驗證失敗。"
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "您的助理正忙。請在回覆完成後再試一次。",
+    "retryFailed": "無法重試回應",
+    "summarizeFailed": "無法摘要對話"
+  },
+  "useNativeWidgetSnapshotSync": {
+    "untitled": "未命名"
+  },
+  "useSendMessage": {
+    "commandFailed": "無法執行該指令。請再試一次。",
+    "doctorUnavailable": "此助理不提供醫生功能。"
+  },
+  "vellumFileActionModal": {
+    "downloadFile": "下載檔案",
+    "goToFile": "前往檔案"
+  },
+  "visualPlaceholder": {
+    "sketching": "正在繪製視覺效果..."
+  },
+  "visualSurface": {
+    "visual": "視覺效果"
+  },
+  "voiceComposerBar": {
+    "ariaLabel": "語音會話",
+    "endSession": "結束語音會話",
+    "muteAssistant": "將助理靜音",
+    "muteMicrophone": "將麥克風靜音",
+    "muted": "已靜音",
+    "openVoiceRoom": "開啟語音聊天室",
+    "unmuteAssistant": "解除助理靜音",
+    "unmuteMicrophone": "解除麥克風靜音"
+  },
+  "voiceEntryGreeting": {
+    "seed": "嗨，我剛與您開始語音對話。此訊息為自動傳送。請用一句簡短的話向我打招呼，然後問我想做什麼。"
+  },
+  "voiceErrors": {
+    "nativeSttNoTranscript": "{clientName} 原生聽寫未傳回文字記錄。請檢查系統設定中的原生語音辨識，然後再試一次。"
+  },
+  "voiceFirstRunCard": {
+    "backAria": "返回",
+    "description": "與 {name} 進行免持語音對話。",
+    "listeningLanguage": "聆聽語言",
+    "listeningLanguageApplies": "從您下次發言時生效。",
+    "liveCaptions": "隨時開啟即時字幕。",
+    "muteMic": "將麥克風靜音，但不要結束會話。",
+    "speakNaturally": "自然說話，{name} 會大聲回應。",
+    "startTalking": "開始說話",
+    "title": "語音模式",
+    "voiceSettings": "語音設定",
+    "yourAssistant": "您的助理"
+  },
+  "voicePickerSurface": {
+    "unavailable": "此助理目前無法選擇語音。"
+  },
+  "voiceRoom": {
+    "ariaLabel": "語音會話",
+    "closeCamera": "關閉相機",
+    "endSessionAria": "結束語音會話",
+    "endSessionTooltip": "結束會話",
+    "flashAuto": "自動閃光燈",
+    "flashAutoBadge": "A",
+    "flashOff": "關閉閃光燈",
+    "flashOn": "開啟閃光燈",
+    "flipCamera": "翻轉相機",
+    "minimizeAria": "最小化語音聊天室",
+    "minimizeTooltip": "最小化 (會話持續進行)",
+    "muteAssistant": "將助理靜音",
+    "muteMicrophone": "將麥克風靜音",
+    "mutedState": "已靜音。{state}",
+    "showCamera": "顯示相機",
+    "takePhoto": "拍照",
+    "unmuteAssistant": "解除助理靜音",
+    "unmuteMicrophone": "解除麥克風靜音"
+  },
+  "voiceSessionPill": {
+    "dismiss": "關閉",
+    "endSession": "結束語音會話",
+    "goToThreadAria": "前往語音會話討論串",
+    "groupAria": "語音會話",
+    "muteAssistant": "將助理靜音",
+    "muteMic": "將麥克風靜音",
+    "unmuteAssistant": "解除助理靜音",
+    "unmuteMic": "解除麥克風靜音"
+  },
+  "voiceSessionPillHost": {
+    "muted": "已靜音"
+  },
+  "weatherForecastDisplay": {
+    "celsius": "°C",
+    "fahrenheit": "°F",
+    "feelsLike": "體感 {temp}°",
+    "highLow": "高:{high}° 低:{low}°",
+    "now": "現在"
+  },
+  "webFetchDetailView": {
+    "content": "內容",
+    "fetchFailed": "擷取失敗。",
+    "fetching": "正在擷取…",
+    "noContent": "未擷取到內容。",
+    "rawResult": "原始結果",
+    "viewExtracted": "檢視已擷取內容",
+    "viewRaw": "檢視原始內容"
+  },
+  "webSearchDetailView": {
+    "noSources": "找不到來源。",
+    "query": "查詢",
+    "sources": "來源",
+    "sourcesWithCount": "來源 ({count})"
+  },
+  "webSearchStepRow": {
+    "moreCount": "另有 {count} 個"
+  },
+  "workResultSurface": {
+    "after": "之後",
+    "before": "之前",
+    "notSet": "未設定",
+    "removed": "已移除"
+  },
+  "workflowDetailPanel": {
+    "agents": "代理程式",
+    "back": "返回",
+    "backToSubagentsAria": "返回子代理程式",
+    "closeDetail": "關閉工作流程詳細資訊",
+    "input": "輸入",
+    "noSubagentsYet": "尚未有子代理程式",
+    "output": "輸出",
+    "stopWorkflow": "停止工作流程",
+    "subagents": "子代理程式"
+  },
+  "workflowLeafDetail": {
+    "input": "輸入",
+    "noPromptSummary": "尚未有提示詞摘要",
+    "noResultSummary": "尚未有結果摘要",
+    "output": "輸出",
+    "prompt": "提示詞",
+    "result": "結果",
+    "running": "執行中…"
+  },
+  "workflowSubagentRow": {
+    "cancelledAria": "已取消",
+    "openDetailsAria": "開啟 {title} 詳細資訊"
+  },
+  "workspacePathLink": {
+    "openTitle": "開啟 {path}"
+  }
+}

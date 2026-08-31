@@ -11,7 +11,7 @@ import {
   type ProfileEditorMode,
 } from "@/domains/settings/ai/use-profile-editor";
 import type {
-  ProfilePatchEntry,
+  ProfilePatchEntryWritable,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
@@ -44,7 +44,7 @@ export interface ProfileEditorModalProps {
   /** See `UseProfileEditorArgs.onSave` for the merge/replace contract. */
   onSave: (
     name: string,
-    entry: ProfilePatchEntry,
+    entry: ProfilePatchEntryWritable,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   onCancel: () => void;
@@ -117,7 +117,7 @@ function ProfileEditorModalInner({
 
   const modalTitle =
     editor.effectiveMode === "create"
-      ? t("profileEditorModal.newProfileTitle")
+      ? t("profileEditorModal.createTitle")
       : editor.effectiveMode === "edit"
         ? t("profileEditorModal.editProfileTitle")
         : (initialValues?.label ??

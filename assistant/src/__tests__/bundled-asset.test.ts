@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { resolveBundledDir } from "../util/bundled-asset.js";
+import { isBunVirtualPath, resolveBundledDir } from "../util/bundled-asset.js";
 
 let tempDir: string;
 
@@ -17,6 +17,13 @@ afterEach(() => {
 });
 
 describe("resolveBundledDir", () => {
+  test("recognizes Bun virtual paths on Unix and Windows", () => {
+    expect(isBunVirtualPath("/$bunfs/root/src/config")).toBeTrue();
+    expect(isBunVirtualPath("B:\\~BUN\\root")).toBeTrue();
+    expect(isBunVirtualPath("B:/~BUN/root/src/config")).toBeTrue();
+    expect(isBunVirtualPath("C:\\dev\\vellum-assistant")).toBeFalse();
+  });
+
   test("source mode: returns join(callerDir, relativePath) when callerDir is a normal path", () => {
     const result = resolveBundledDir(
       "/some/source/path",
@@ -80,6 +87,20 @@ describe("resolveBundledDir", () => {
         "templates",
       );
       expect(result).toBe(join(binDir, "templates"));
+    });
+
+    test("resolves Windows Bun virtual paths beside the executable", () => {
+      const binDir = join(tempDir, "bin");
+      mkdirSync(join(binDir, "default-plugins"), { recursive: true });
+
+      process.execPath = join(binDir, "vellum-daemon.exe");
+
+      const result = resolveBundledDir(
+        "B:\\~BUN\\root",
+        ".",
+        "default-plugins",
+      );
+      expect(result).toBe(join(binDir, "default-plugins"));
     });
 
     test("falls back to source path when neither Resources nor execDir have the asset", () => {

@@ -103,13 +103,16 @@ const auditCalls = {
   denied: [] as any[],
   error: [] as any[],
   executed: [] as any[],
-  prompted: [] as string[],
+  prompted: [] as any[],
+  decided: [] as any[],
 };
 mock.module("../telemetry/tool-audit.js", () => ({
   recordToolDenied: (e: any) => auditCalls.denied.push(e),
   recordToolError: (e: any) => auditCalls.error.push(e),
   recordToolExecuted: (e: any) => auditCalls.executed.push(e),
-  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+  recordToolPermissionPrompted: (e: any) => auditCalls.prompted.push(e),
+  recordToolPermissionDecided: (e: any, outcome: string) =>
+    auditCalls.decided.push({ entry: e, outcome }),
 }));
 
 function resetAuditCalls(): void {
@@ -117,6 +120,7 @@ function resetAuditCalls(): void {
   auditCalls.error.length = 0;
   auditCalls.executed.length = 0;
   auditCalls.prompted.length = 0;
+  auditCalls.decided.length = 0;
 }
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -946,6 +950,8 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     }
 
     // Running code in the workspace is how you write everything else in it.
+    // A room cell cannot lift bash. A contact-level ceiling can; that path
+    // is covered in the contact-ceiling describe below.
     test("sandbox bash", async () => {
       await expectFloored("bash", { command: "ls" });
     });
@@ -1021,6 +1027,144 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
         url: "http://localhost:7821/",
         allow_private_network: true,
       });
+    });
+  });
+
+  describe("contact ceiling lifts sandbox bash", () => {
+    beforeEach(() => {
+      // A Full-access cell still cannot lift bash. These cases pass a
+      // contact ceiling so the lift comes from the person, not the room.
+      thresholdReaderMock.cell = cell("high");
+    });
+
+    test.each(["low", "medium", "high"] as const)(
+      "a %s contact ceiling lifts sandbox bash — no scoped grant required",
+      async (threshold) => {
+        thresholdReaderMock.contactThreshold = threshold;
+        const result = await handler.checkPreExecutionGates(
+          "bash",
+          { command: "ls" },
+          channelContext({ requesterContactId: "contact-1" }),
+          "low",
+          Date.now(),
+        );
+
+        expect(result.allowed).toBe(true);
+        if (!result.allowed) {
+          return;
+        }
+        expect(result.grantConsumed).toBeFalsy();
+        expect(auditCalls.denied.length).toBe(0);
+        // Contact ceiling is already on the turn; the cell is not consulted.
+        expect(thresholdReaderMock.cellLookups).toBe(0);
+      },
+    );
+
+    test("a none contact ceiling leaves sandbox bash on the floor", async () => {
+      thresholdReaderMock.contactThreshold = "none";
+      const result = await handler.checkPreExecutionGates(
+        "bash",
+        { command: "ls" },
+        channelContext({ requesterContactId: "contact-1" }),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(false);
+      if (result.allowed) {
+        return;
+      }
+      expect(result.result.content).toContain("requires guardian approval");
+      expect(thresholdReaderMock.cellLookups).toBe(0);
+    });
+
+    test("an unset contact ceiling leaves sandbox bash on the floor", async () => {
+      const result = await handler.checkPreExecutionGates(
+        "bash",
+        { command: "ls" },
+        channelContext(),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(false);
+      expect(thresholdReaderMock.cellLookups).toBe(0);
+    });
+
+    test("a high contact ceiling does not lift host_bash", async () => {
+      thresholdReaderMock.contactThreshold = "high";
+      const result = await handler.checkPreExecutionGates(
+        "host_bash",
+        { command: "ls" },
+        channelContext({ requesterContactId: "contact-1" }),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(false);
+      if (result.allowed) {
+        return;
+      }
+      expect(result.result.content).toContain("requires guardian approval");
+      expect(thresholdReaderMock.cellLookups).toBe(0);
+    });
+
+    test("a high contact ceiling does not lift a control-plane write", async () => {
+      thresholdReaderMock.contactThreshold = "high";
+      const result = await handler.checkPreExecutionGates(
+        "file_write",
+        { path: "SOUL.md", content: "x" },
+        channelContext({ requesterContactId: "contact-1" }),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(false);
+      if (result.allowed) {
+        return;
+      }
+      expect(result.result.content).toContain("requires guardian approval");
+      expect(thresholdReaderMock.cellLookups).toBe(0);
+    });
+
+    test("a high contact ceiling lifts an ordinary workspace write even when the cell is Strict", async () => {
+      thresholdReaderMock.cell = cell("none");
+      thresholdReaderMock.contactThreshold = "high";
+
+      const result = await handler.checkPreExecutionGates(
+        "file_write",
+        { path: "notes/todo.md", content: "x" },
+        channelContext({ requesterContactId: "contact-1" }),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(true);
+      if (!result.allowed) {
+        return;
+      }
+      expect(result.grantConsumed).toBeFalsy();
+      expect(thresholdReaderMock.cellLookups).toBe(0);
+    });
+
+    test("a none contact ceiling leaves an ordinary workspace write on the floor even when the cell is Full access", async () => {
+      thresholdReaderMock.cell = cell("high");
+      thresholdReaderMock.contactThreshold = "none";
+
+      const result = await handler.checkPreExecutionGates(
+        "file_write",
+        { path: "notes/todo.md", content: "x" },
+        channelContext({ requesterContactId: "contact-1" }),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(false);
+      if (result.allowed) {
+        return;
+      }
+      expect(result.result.content).toContain("requires guardian approval");
+      expect(thresholdReaderMock.cellLookups).toBe(0);
     });
   });
 

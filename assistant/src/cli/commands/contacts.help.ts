@@ -2,6 +2,10 @@
 
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
+/** Shared tail for the three commands that park on a form in the app. */
+const FORM_NOTE = `The form opens in the guardian's desktop or web app. With no app connected
+nobody can answer, and the command exits when the wait elapses.`;
+
 export const contactsHelp: CliCommandHelp = {
   name: "contacts",
   description: "Manage and query the contact graph",
@@ -15,9 +19,21 @@ can be linked to external identifiers — phone numbers,
 Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
+Writes are split in two, and both need the guardian at the app:
+
+  create/update/delete  the record: who someone is (name, notes). Opens a
+                        form in the guardian's app; nothing is written until
+                        they submit it. A record has no channel, so it grants
+                        no access on its own.
+  prompt                the channel: an address the guardian types, bound to
+                        a contact. This is what makes someone reachable.
+
+Granting someone access to message the assistant is 'contacts invites create'.
+
 Examples:
   $ assistant contacts list
   $ assistant contacts get abc-123
+  $ assistant contacts create --name "Alice"
   $ assistant contacts invites list`,
   subcommands: [
     {
@@ -75,17 +91,147 @@ Examples:
 Arguments:
   id   UUID of the contact to retrieve. Run 'assistant contacts list' to find IDs.
 
-Returns the full contact record including role, display name, and all
-channel memberships (phone numbers, Telegram IDs, email addresses, etc.).
-For assistant-type contacts, additional assistant metadata is included.
+Returns the full contact record including role, display name, assistant
+access ceiling, and all channel memberships (phone numbers, Telegram
+IDs, email addresses, etc.). For assistant-type contacts, additional
+assistant metadata is included.
 
 Examples:
   $ assistant contacts get 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant contacts get abc-123 --json`,
     },
     {
+      name: "create",
+      description: "Propose a new contact for the guardian to confirm",
+      options: [
+        {
+          flags: "--name <name>",
+          description: "Proposed display name, prefilled into the form",
+        },
+        {
+          flags: "--notes <notes>",
+          description: "Proposed notes, prefilled into the form",
+        },
+        {
+          flags: "--label <label>",
+          description: "Display label shown on the form",
+        },
+        {
+          flags: "--description <description>",
+          description: "Longer description shown on the form",
+        },
+        {
+          flags: "--timeout <ms>",
+          description:
+            "How long the form stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
+        },
+      ],
+      helpText: `
+Opens an add-contact form in the guardian's app, prefilled with --name and
+--notes. The guardian can edit either field before submitting, and the values
+they submit are what gets written. Nothing is written if they dismiss the form.
+
+The new contact has no channels, so it cannot message the assistant and the
+assistant cannot reach it. It is a name to hang notes on and to address an
+invite to. Use 'contacts prompt' to bind an address, or
+'contacts invites create' to let someone bind their own.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts create --name "Alice"
+  $ assistant contacts create --name "Alice" --notes "Dentist, referred by Bob"
+  $ assistant contacts create --name "Alice" --json`,
+    },
+    {
+      name: "update",
+      args: "<id>",
+      description: "Propose a contact edit for the guardian to confirm",
+      options: [
+        {
+          flags: "--name <name>",
+          description: "Proposed display name, prefilled into the form",
+        },
+        {
+          flags: "--notes <notes>",
+          description: "Proposed notes, prefilled into the form",
+        },
+        {
+          flags: "--label <label>",
+          description: "Display label shown on the form",
+        },
+        {
+          flags: "--description <description>",
+          description: "Longer description shown on the form",
+        },
+        {
+          flags: "--timeout <ms>",
+          description:
+            "How long the form stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
+        },
+      ],
+      helpText: `
+Arguments:
+  id   UUID of the contact to edit. Run 'assistant contacts list' to find IDs.
+
+Opens an edit form in the guardian's app showing the contact's current name
+alongside the proposed change. At least one of --name or --notes is required.
+The guardian can edit either field before submitting; what they submit is what
+gets written.
+
+Edits the record only. Channel access is unaffected: use
+'contacts channels update-status' to revoke or block a channel.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts update 7a3b1c2d-4e5f-6789-abcd-ef0123456789 --name "Alice Chen"
+  $ assistant contacts update abc-123 --notes "Moved to Berlin"`,
+    },
+    {
+      name: "delete",
+      args: "<id>",
+      description: "Propose deleting a contact for the guardian to confirm",
+      options: [
+        {
+          flags: "--label <label>",
+          description: "Display label shown on the confirmation",
+        },
+        {
+          flags: "--description <description>",
+          description: "Longer description shown on the confirmation",
+        },
+        {
+          flags: "--timeout <ms>",
+          description:
+            "How long the confirmation stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
+        },
+      ],
+      helpText: `
+Arguments:
+  id   UUID of the contact to delete. Run 'assistant contacts list' to find IDs.
+
+Opens a confirmation in the guardian's app showing the contact and its
+channels. Nothing is deleted unless they confirm.
+
+Deleting a contact deletes its channels with it, so anyone reaching the
+assistant through those channels loses access. A guardian contact cannot be
+deleted. To merge a duplicate instead of deleting it, use the contact_merge
+tool, which keeps the surviving contact's channels.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts delete 7a3b1c2d-4e5f-6789-abcd-ef0123456789
+  $ assistant contacts delete abc-123 --json`,
+    },
+    {
       name: "prompt",
-      description: "Prompt user to register a contact channel via the app UI",
+      description:
+        "Ask the guardian to enter a channel address and bind it to a contact",
       options: [
         {
           flags: "--channel <channel>",
@@ -117,16 +263,44 @@ Examples:
         {
           flags: "--timeout <ms>",
           description:
-            "How long to wait for the user to submit (ms). Defaults to match the server-side prompt timeout.",
-          defaultValue: String(310_000),
+            "How long the form stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
+        },
+        {
+          flags: "--verify",
+          description:
+            "Pre-check the form's 'mark verified' box. The guardian decides: unchecked, the channel stays unverified.",
         },
       ],
       helpText: `
-Opens a contact address prompt in the user's app. The user enters a channel
-address (phone number, email, Telegram ID, etc.). The address is saved with
-status "unverified". Verification is a separate step.
+Opens an address form in the guardian's app. They enter a channel address
+(phone number, email, Telegram ID, etc.) and it is bound as a channel.
 
-Run \`assistant contacts prompt --help\` for full option details.`,
+Which contact it binds to depends on --role:
+
+  --role guardian    Binds to the guardian contact. An address already bound
+                     to a different contact is rejected as a conflict.
+  anything else      Looks up the submitted (channel type, address). A match
+                     reuses that contact and channel; no match creates a new
+                     contact named after the address. Other --role values are
+                     form hints only: the contact is created with role
+                     "contact" either way.
+
+This cannot add a channel to an arbitrary existing contact. To name a contact
+first, run 'contacts create'; to let someone bind their own address, use
+'contacts invites create'.
+
+The channel is saved unverified unless the guardian leaves the form's "mark
+verified" box checked, which attests it the same way Contacts Verify me does.
+An attested channel is admitted, so --verify only proposes the box state.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts prompt --channel phone --role guardian
+  $ assistant contacts prompt --channel email --label "Alice's email address"
+  $ assistant contacts prompt --channel imessage --role guardian --verify \\
+      --label "Your iMessage number" --placeholder "+15555550142"`,
     },
     {
       name: "channels",

@@ -12,7 +12,7 @@ import {
   appsGetOptions,
   documentsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { usePinnedApps } from "@/hooks/use-pinned-apps";
 
 /**
  * Order apps most-recently-touched first. Sorting by `updatedAt` (not
@@ -26,7 +26,7 @@ const byMostRecentlyUpdated = (
 ) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt;
 
 export function useLibraryData(assistantId: string) {
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const { pinnedAppIds } = usePinnedApps(assistantId);
 
   const {
     data: apps = [],

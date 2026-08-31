@@ -1,0 +1,17 @@
+diff --git a/out/winPackager.js b/out/winPackager.js
+--- a/out/winPackager.js
++++ b/out/winPackager.js
+@@ -181,7 +181,12 @@ class WinPackager extends platformPackager_1.PlatformPackager {
+         }
+         const timer = (0, timer_1.time)("wine&sign");
+         // rcedit crashed of executed using wine, resourcehacker works
+-        if (process.platform === "win32" || process.platform === "darwin") {
++        if (process.platform === "win32") {
++            const vendor = await (0, windows_1.getRceditBundle)((_c = this.config.toolsets) === null || _c === void 0 ? void 0 : _c.winCodeSign);
++            const executable = arch === builder_util_1.Arch.ia32 ? vendor.x86 : vendor.x64;
++            await (0, builder_util_1.exec)(executable, args);
++        }
++        else if (process.platform === "darwin") {
+             await (0, builder_util_1.executeAppBuilder)(["rcedit", "--args", JSON.stringify(args)], undefined /* child-process */, {}, 3 /* retry three times */);
+         }
+         else if (this.info.framework.name === "electron") {

@@ -30,7 +30,12 @@ mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
-const { sendDiscordReply, sendDiscordAttachments } = await import("./send.js");
+const {
+  sendDiscordReply,
+  sendDiscordAttachments,
+  editDiscordMessage,
+  DiscordPartialSendError,
+} = await import("./send.js");
 
 const originalFetch = globalThis.fetch;
 
@@ -122,6 +127,136 @@ describe("sendDiscordReply", () => {
     await sendDiscordReply({ channelId: "C1" }, "   ");
     expect(calls).toHaveLength(0);
   });
+
+  test("an approval card carries its buttons on the shared apr: convention", async () => {
+    await sendDiscordReply({ channelId: "C1" }, "Approve?", {
+      requestId: "req-1",
+      actions: [
+        { id: "approve_once", label: "Approve once" },
+        { id: "reject", label: "Reject" },
+      ],
+      plainTextFallback: "reply approve or reject",
+    });
+
+    const body = JSON.parse(calls[0].body as string);
+    expect(body.components).toEqual([
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 1,
+            label: "Approve once",
+            custom_id: "apr:req-1:approve_once",
+          },
+          {
+            type: 2,
+            style: 4,
+            label: "Reject",
+            custom_id: "apr:req-1:reject",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("buttons ride only the final chunk of a long card", async () => {
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
+    await sendDiscordReply({ channelId: "C1" }, long, {
+      requestId: "req-1",
+      actions: [{ id: "approve_once", label: "Approve once" }],
+      plainTextFallback: "reply approve",
+    });
+
+    expect(calls.length).toBeGreaterThan(1);
+    const withComponents = calls.filter(
+      (c) => JSON.parse(c.body as string).components !== undefined,
+    );
+    // The final chunk's id is the one the delivery row records, so the
+    // message a press arrives on is the message the row can find.
+    expect(withComponents).toHaveLength(1);
+    expect(calls.indexOf(withComponents[0])).toBe(calls.length - 1);
+  });
+
+  test("an action's own emphasis outranks positional styling", async () => {
+    await sendDiscordReply({ channelId: "C1" }, "Meet?", {
+      requestId: "req-1",
+      actions: [
+        { id: "accept", label: "Accept", emphasis: "secondary" },
+        { id: "later", label: "Later" },
+      ],
+      plainTextFallback: "reply accept or later",
+    });
+
+    const row = JSON.parse(calls[0].body as string).components[0];
+    expect(row.components[0].style).toBe(2);
+    expect(row.components[1].style).toBe(2);
+  });
+
+  test("a failure after the first chunk names the undelivered remainder", async () => {
+    const long = Array.from({ length: 400 }, (_, i) => `line ${i}`).join("\n");
+    let posts = 0;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      posts += 1;
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        headers: {},
+        body: init?.body,
+      });
+      if (posts > 1) {
+        return new Response(JSON.stringify({ message: "rejected" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ id: "msg-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    let thrown: unknown;
+    try {
+      await sendDiscordReply({ channelId: "C1" }, long);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(DiscordPartialSendError);
+    const partial = thrown as InstanceType<typeof DiscordPartialSendError>;
+    expect(partial.chunksSent).toBe(1);
+    expect(partial.lastMessageId).toBe("msg-1");
+    // The delivered prefix plus the named remainder reassemble the text, so
+    // a caller completing the card sends no line twice and drops none.
+    const delivered = JSON.parse(calls[0].body as string).content;
+    expect(`${delivered}\n${partial.remainingText}`).toBe(long);
+  });
+
+  test("a failure on the first chunk propagates plainly, so full fallback is safe", async () => {
+    stubFetch(400, { message: "rejected" });
+
+    let thrown: unknown;
+    try {
+      await sendDiscordReply({ channelId: "C1" }, "short card");
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(DiscordPartialSendError);
+  });
+
+  test("a custom_id past Discord's cap throws instead of sending a dead button", async () => {
+    await expect(
+      sendDiscordReply({ channelId: "C1" }, "Approve?", {
+        requestId: "r".repeat(120),
+        actions: [{ id: "approve_once", label: "Approve once" }],
+        plainTextFallback: "reply approve",
+      }),
+    ).rejects.toThrow("100-character limit");
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("sendDiscordAttachments", () => {
@@ -175,5 +310,55 @@ describe("sendDiscordAttachments", () => {
     expect(result.allFailed).toBe(true);
     // Only the failure notice, never a zero-byte upload.
     expect(calls.every((c) => typeof c.body === "string")).toBe(true);
+  });
+});
+
+describe("editDiscordMessage", () => {
+  const bodyOf = (index = 0): Record<string, unknown> =>
+    JSON.parse(String(calls[index]?.body)) as Record<string, unknown>;
+
+  test("an edit always strips components, so a settled card keeps no live buttons", async () => {
+    await editDiscordMessage({ channelId: "C1" }, "m1", "Approved");
+    const body = JSON.parse(calls[0].body as string);
+    expect(body.components).toEqual([]);
+  });
+
+  test("patches the message rather than posting a new one", async () => {
+    await editDiscordMessage({ channelId: "C1" }, "M9", "revised");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.url).toContain("/channels/C1/messages/M9");
+    expect(bodyOf().content).toBe("revised");
+  });
+
+  test("marks every line of a muted edit, not just the first", async () => {
+    // Discord's subtext applies per line, so one marker would render the first
+    // line small and leave the rest at body size.
+    await editDiscordMessage({ channelId: "C1" }, "M9", "Resolved.\nBy Ada.", {
+      emphasis: "muted",
+    });
+
+    expect(bodyOf().content).toBe("-# Resolved.\n-# By Ada.");
+  });
+
+  test("leaves a blank line alone", async () => {
+    // A bare `-# ` renders an empty subtext line rather than a gap.
+    await editDiscordMessage({ channelId: "C1" }, "M9", "One.\n\nTwo.", {
+      emphasis: "muted",
+    });
+
+    expect(bodyOf().content).toBe("-# One.\n\n-# Two.");
+  });
+
+  test("a rejected edit throws rather than posting a replacement", async () => {
+    // The reason editing is its own capability: falling back to a post would
+    // leave the original standing beside a duplicate.
+    stubFetch(400, { message: "Invalid Form Body" });
+
+    await expect(
+      editDiscordMessage({ channelId: "C1" }, "M9", "revised"),
+    ).rejects.toThrow();
+    expect(calls.every((call) => call.method === "PATCH")).toBe(true);
   });
 });

@@ -156,7 +156,7 @@ export const CurrentFreeObscuredCredits: Story = {
   args: {
     ...CurrentFree.args,
     specsWrap: true,
-    footer: <UsageBalancePanel ratio={0.68} resetsAt={null} />,
+    footer: <UsageBalancePanel ratio={0.68} />,
   },
 };
 
@@ -173,7 +173,7 @@ export const CurrentPaid: Story = {
     name: MIGHTY.name,
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
-    specs: packageSpecs(MIGHTY),
+    specs: packageSpecs(MIGHTY, { usageIncludedLabel: "Mighty Usage included" }),
     footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
   },
 };
@@ -196,7 +196,7 @@ export const CurrentObscuredCredits: Story = {
       obscuredUsageLabel: `${MIGHTY.name} usage, reset monthly`,
     }),
     specsWrap: true,
-    footer: <UsageBalancePanel ratio={0.42} resetsAt="2026-09-01T00:00:00Z" />,
+    footer: <UsageBalancePanel ratio={0.42} />,
   },
 };
 
@@ -209,14 +209,7 @@ export const CurrentObscuredCredits: Story = {
 export const CurrentObscuredCreditsExhausted: Story = {
   args: {
     ...CurrentObscuredCredits.args,
-    footer: (
-      <UsageBalancePanel
-        ratio={1}
-        resetsAt="2026-09-01T00:00:00Z"
-        exhausted
-        onAddCredits={() => {}}
-      />
-    ),
+    footer: <UsageBalancePanel ratio={1} exhausted onAddCredits={() => {}} />,
   },
 };
 
@@ -254,7 +247,7 @@ export const NextPlan: Story = {
     tierKey: SUPER.key,
     name: SUPER.name,
     tag: NEXT_PLAN_TAG,
-    specs: packageSpecs(SUPER),
+    specs: packageSpecs(SUPER, { usageIncludedLabel: "Super Usage included" }),
     footer: upgradeCta(),
   },
 };
@@ -296,7 +289,9 @@ export const SideBySide: Story = {
           name={MIGHTY.name}
           nameTestId="plan-card-name"
           tag={CURRENT_TAG}
-          specs={packageSpecs(MIGHTY)}
+          specs={packageSpecs(MIGHTY, {
+            usageIncludedLabel: "Mighty Usage included",
+          })}
           footer={priceFooter(priceLabelFromCents(MIGHTY.total_price_cents))}
         />
         <PlanTile
@@ -305,7 +300,9 @@ export const SideBySide: Story = {
           tierKey={SUPER.key}
           name={SUPER.name}
           tag={NEXT_PLAN_TAG}
-          specs={packageSpecs(SUPER)}
+          specs={packageSpecs(SUPER, {
+            usageIncludedLabel: "Super Usage included",
+          })}
           footer={upgradeCta()}
         />
       </div>

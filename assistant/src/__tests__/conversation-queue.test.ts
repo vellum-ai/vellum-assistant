@@ -88,6 +88,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => [],
+  // The batched-drain attachment cases put real image blocks in the history,
+  // which is what makes the camera-frame retention pass read rows. None of
+  // them is tagged, so an empty map is the answer the real accessor gives.
+  selectSightFrameCaptureTimes: () => new Map<string, number>(),
   getConversation: () => ({
     id: "conv-1",
     contextSummary: null,
@@ -215,19 +219,6 @@ mock.module("../persistence/attachments-store.js", () => ({
   },
   getFilePathForAttachment: () => null,
   setAttachmentThumbnail: () => {},
-}));
-
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({

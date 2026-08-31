@@ -54,6 +54,9 @@ const {
   restoreVoiceRoom,
 } = await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
+const { reconcileMaterializedDrafts } =
+  await import("@/domains/chat/hooks/use-materialized-draft-reconcile");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -1296,6 +1299,36 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
   });
 
+  test("the session generation holds across a retryable reconnect", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    const generation = useLiveVoiceStore.getState().sessionGeneration;
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same logical session is continuing: a photo upload that began
+    // before the blip must still deliver to it (see `attachLiveVoiceImage`).
+    expect(useLiveVoiceStore.getState().sessionGeneration).toBe(generation);
+  });
+
   test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {
     const h = renderController();
     // Ready echoes manual — an older daemon ignored turnDetection.
@@ -1523,6 +1556,72 @@ describe("utterance_discarded", () => {
       });
     });
     expect(h.view.result.current.state).toBe("thinking");
+  });
+});
+
+/**
+ * The VAD boundary the controller publishes. Session-local until a surface
+ * needed it: the camera-mode status pill renders it as "the user is talking",
+ * so the boundary the session acts on and the one the dot draws are one fact.
+ */
+describe("published utterance boundary", () => {
+  test("opens on speech_started and closes on utterance_end", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("closes on an utterance the server discarded", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 3,
+      });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("stays closed for a manual session, which has no server VAD", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("does not survive the session that opened it", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
   });
 });
 
@@ -1950,7 +2049,31 @@ describe("failure", () => {
     expect(h.getCapture().shutdownCount).toBe(1);
   });
 
-  test("busy frame fails the session", async () => {
+  test("busy frame fails the session, naming where the holder is", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("busy", {
+        type: "busy",
+        seq: 2,
+        activeSessionId: "other",
+        holder: { client: "macos", conversationId: "conversation-elsewhere" },
+      });
+    });
+
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe(
+      "Voice is already active in the Mac app.",
+    );
+    // The recovery is what turns the failure from a dead end into an action.
+    expect(useLiveVoiceStore.getState().errorRecovery).toEqual({
+      kind: "reclaim",
+      holderConversationId: "conversation-elsewhere",
+    });
+  });
+
+  test("busy frame from a daemon that names no holder still fails cleanly", async () => {
     const h = renderController();
     await startListening(h);
 
@@ -1964,8 +2087,13 @@ describe("failure", () => {
 
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe(
-      "Another live-voice session is active.",
+      "Voice is already active somewhere else.",
     );
+    // Nowhere to send the user, but the slot can still be taken.
+    expect(useLiveVoiceStore.getState().errorRecovery).toEqual({
+      kind: "reclaim",
+      holderConversationId: null,
+    });
   });
 
   test("mic denial before ready fails the session and closes the socket", async () => {
@@ -2333,6 +2461,71 @@ describe("session context and controls", () => {
     expect(store.controls).toBeNull();
     expect(store.assistantId).toBeNull();
     expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Draft materialization
+// ---------------------------------------------------------------------------
+
+describe("draft materialization", () => {
+  const isDraft = (conversationId: string): boolean =>
+    useConversationStore.getState().draftConversationIds.has(conversationId);
+
+  beforeEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  afterEach(() => {
+    useConversationStore.getState().reset();
+  });
+
+  /** Open a session bound to `conversationId` and drive it to `ready`. */
+  async function startOn(
+    h: ReturnType<typeof renderController>,
+    conversationId: string,
+  ) {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", conversationId);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId,
+      });
+      await Promise.resolve();
+    });
+  }
+
+  /** The frame the daemon sends as a turn begins, ahead of any row. */
+  async function emitThinking(h: ReturnType<typeof renderController>) {
+    await act(async () => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      await Promise.resolve();
+    });
+  }
+
+  // What reconciliation does with a list is `use-materialized-draft-reconcile`'s
+  // own test's subject. What a voice session adds is a turn that can be
+  // cancelled before it dispatches, so that is the only case tested here.
+  test("a turn cancelled before its row exists leaves the draft intact", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-draft");
+    const h = renderController();
+    await startOn(h, "conv-draft");
+    await emitThinking(h);
+    // The frame alone is a promise of a turn, not a row.
+    expect(isDraft("conv-draft")).toBe(true);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    // Cancellation means the turn never dispatched, so no row was written and
+    // every list the client sees from here holds only what existed before.
+    reconcileMaterializedDrafts(["conv-unrelated"]);
+
+    expect(isDraft("conv-draft")).toBe(true);
   });
 });
 
@@ -2991,6 +3184,38 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(h.view.result.current.error).toBeNull();
   });
 
+  test("the session generation holds across a pre-ready retry", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startConnecting(h);
+    const generation = useLiveVoiceStore.getState().sessionGeneration;
+
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    await act(async () => {
+      await sleep(30);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same voice entry is still the one connecting: a photo pressed
+    // before the blip must still deliver once the retry readies (see
+    // `attachLiveVoiceImage`).
+    expect(useLiveVoiceStore.getState().sessionGeneration).toBe(generation);
+  });
+
   test("surfaces failed once the initial-connect retry budget is exhausted", async () => {
     // A single-attempt budget: one retry, then the next failure surfaces.
     const h = renderController({ reconnectBackoffMs: [20] });
@@ -3132,5 +3357,196 @@ describe("echo-cancelling output route", () => {
     // renderer can hold no echo reference at all.
     expect(h.view.result.current.state).toBe("listening");
     expect(h.player.restartOutputRouteCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Speak first: a caller-supplied seed turn, sent once the microphone is live,
+// so the assistant opens the conversation instead of the user having to.
+// ---------------------------------------------------------------------------
+
+describe("speak first (seed turn)", () => {
+  const SEED = "Greet me in one short sentence.";
+  const FAST_BACKOFF = [20, 40, 60];
+
+  /** Start a hands-free session carrying a seed, without readying it. */
+  async function startWithSeed(
+    h: ReturnType<typeof renderController>,
+    options: { textInput: boolean; seedText?: string } = { textInput: true },
+  ): Promise<void> {
+    // The echo the real client sets from `ready.textInput`; the fakes bypass
+    // the frame, so state it directly.
+    h.client.textInputSupported = options.textInput;
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+        ...("seedText" in options
+          ? { seedText: options.seedText }
+          : { seedText: SEED }),
+      });
+    });
+  }
+
+  async function emitReady(
+    h: ReturnType<typeof renderController>,
+    sessionId = "s1",
+  ): Promise<void> {
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId,
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      // Fully drained, not a single microtask: the seed rides behind the
+      // capture-startup await.
+      await flushMicrotasks();
+    });
+  }
+
+  test("takes the seed turn once the session is ready and the mic is up", async () => {
+    const h = renderController();
+    await startWithSeed(h);
+    // Nothing before `ready`: the socket is not active yet, and the daemon
+    // would have no session to run the turn on.
+    expect(h.client.sentText).toEqual([]);
+
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([SEED]);
+    // Hidden: the seed drives the turn and stays in the model's context, but
+    // it is not something the user typed and must not render as though it
+    // were.
+    expect(h.client.sentTextOptions).toEqual([{ hidden: true }]);
+    // The seed does not hold up the mic. Capture is running and the session
+    // is in `listening`, so the user can talk over the greeting.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.getCapture().startCount).toBe(1);
+  });
+
+  test("never greets into a session whose microphone failed", async () => {
+    // A denied mic still gets a `ready` from the server. Seeding on that
+    // alone persists a user message the user never wrote into a conversation
+    // they can neither hear nor talk to, and the session then fails.
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.startResult = { ok: false, error: "permission-denied" };
+      },
+    });
+    await startWithSeed(h);
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("failed");
+  });
+
+  test("greets on a retry after a first attempt lost its microphone", async () => {
+    // The seed outlives a spent attempt: it is owed until some session
+    // actually opens with a mic, so the greeting is not lost to one denial.
+    let failNextCapture = true;
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        if (failNextCapture) {
+          capture.startResult = { ok: false, error: "permission-denied" };
+          failNextCapture = false;
+        }
+      },
+    });
+    await startWithSeed(h);
+    await emitReady(h);
+    expect(h.client.sentText).toEqual([]);
+
+    await startWithSeed(h);
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("opens silent when the caller asks for no greeting", async () => {
+    const h = renderController();
+    await startWithSeed(h, { textInput: true, seedText: undefined });
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("opens silent on an assistant that predates typed turns", async () => {
+    // The `ready` echo is the only way to know: a `text` frame such an
+    // assistant cannot parse comes back as `unknown_type`, indistinguishable
+    // from the `update_config` rejection. Degrading to the silent room is the
+    // right answer, and the session must be otherwise unharmed.
+    const h = renderController();
+    await startWithSeed(h, { textInput: false });
+    await emitReady(h);
+
+    expect(h.client.sentText).toEqual([]);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("does not greet again when a dropped socket reconnects", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startWithSeed(h);
+    await emitReady(h);
+    expect(h.client.sentText).toEqual([SEED]);
+
+    // velay drops its tunnel mid-session. The same logical session comes back,
+    // and it has already said hello; greeting a second time would also land a
+    // second copy of the seed in the user's transcript.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "tunnel disconnected" });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("still greets after a pre-ready connect retry, which never got to", async () => {
+    // The initial-connect resilience path (JARVIS-1282) re-enters the connect
+    // flow before any `ready` landed, so the seed is still owed.
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startWithSeed(h);
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    await act(async () => {
+      await sleep(30);
+    });
+    await emitReady(h, "s2");
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.sentText).toEqual([SEED]);
+  });
+
+  test("a fresh session after one that greeted greets again", async () => {
+    // The arming lives on the hook, not the session context, so the guard that
+    // stops a reconnect must not also stop the next deliberate start.
+    const h = renderController();
+    await startWithSeed(h);
+    await emitReady(h);
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    await startWithSeed(h);
+    await emitReady(h, "s2");
+
+    expect(h.client.sentText).toEqual([SEED, SEED]);
   });
 });

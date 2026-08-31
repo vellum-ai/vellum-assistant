@@ -139,6 +139,10 @@ export interface RemoteWebIngressOptions {
   /** Serving assistant's display name, stamped into the served config so
    *  remote clients can label this origin. Absent in older served configs. */
   assistantName?: string;
+  /** Serving assistant's id, stamped into the served config so a caller can
+   *  confirm which assistant an edge is fronting. Absent in older served
+   *  configs. */
+  assistantId?: string;
   /** Cloud web SPA base the remote client can hand this origin to (see
    *  `cloudWebHubUrl`). Absent in older served configs. */
   hubUrl?: string;
@@ -154,7 +158,10 @@ export function cloudWebHubUrl(env: string | undefined): string {
 }
 
 function remoteWebIngressConfig(
-  opts: Pick<RemoteWebIngressOptions, "config" | "assistantName" | "hubUrl">,
+  opts: Pick<
+    RemoteWebIngressOptions,
+    "config" | "assistantName" | "assistantId" | "hubUrl"
+  >,
 ): Record<string, unknown> {
   return {
     mode: "remote-gateway",
@@ -162,6 +169,7 @@ function remoteWebIngressConfig(
     platformDisabled: true,
     disablePlatform: true,
     ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+    ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
     ...(opts.hubUrl ? { hubUrl: opts.hubUrl } : {}),
     ...opts.config,
   };
@@ -172,7 +180,7 @@ function remoteWebIngressConfig(
  * fingerprint matches, so this must change whenever the generated index or
  * nginx template does.
  */
-const EDGE_TEMPLATE_VERSION = 3;
+export const EDGE_TEMPLATE_VERSION = 6;
 
 /**
  * Stable fingerprint of the SPA config injected into the served index and
@@ -266,6 +274,19 @@ http {
   access_log off;
   default_type application/octet-stream;
 
+  # Compression tuning only. It stays inert here because nginx ships with
+  # gzip off, and only the static SPA locations below turn it on: this server
+  # also proxies authenticated /v1 and /webhooks traffic, and compressing a
+  # response that carries both a secret and attacker-influenced content over
+  # TLS is the BREACH side channel. The SPA bytes are the whole win, so the
+  # boundary is drawn by opting locations in rather than by excluding proxies.
+  # text/html is always compressed once gzip is on, so it must not be
+  # repeated in gzip_types.
+  gzip_vary on;
+  gzip_comp_level 5;
+  gzip_min_length 1024;
+  gzip_types application/javascript application/json application/wasm image/svg+xml text/css text/plain;
+
   types {
     application/javascript js mjs;
     application/json json map;
@@ -337,6 +358,10 @@ function buildRemoteWebIngressLocations(opts: {
 ${proxyBlock}
     }
 
+    location = /readyz {
+${proxyBlock}
+    }
+
     location ^~ /v1/ {
 ${proxyBlock}
     }
@@ -357,10 +382,16 @@ ${proxyBlock}
       rewrite ^ /assistant/__remote-index.html last;
     }
 
+    # The shell and the unhashed files beside it revalidate rather than
+    # refusing storage: they carry no credential, and nginx serves them from
+    # disk with a validator, so a repeat load costs a 304 instead of the whole
+    # document. __config is the exception below: it is returned inline, so
+    # nginx attaches no validator for a revalidation to match against.
     location = /assistant/__remote-index.html {
       internal;
+      gzip on;
       alias ${nginxQuoted(indexHtmlPath, "remote web ingress index path")};
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = /assistant/__config {
@@ -370,15 +401,17 @@ ${proxyBlock}
     }
 
     location ^~ /assistant/assets/ {
+      gzip on;
       alias ${nginxQuoted(nginxDirPath(webAssetsDir), "web assets path")};
       try_files $uri =404;
       add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
     location ^~ /assistant/ {
+      gzip on;
       alias ${nginxQuoted(webDistDir, "web dist path")};
       try_files $uri $uri/ /assistant/__remote-index.html;
-      add_header Cache-Control "no-store";
+      add_header Cache-Control "no-cache";
     }
 
     location = / {
@@ -403,6 +436,7 @@ export function getNginxVersion(): string | null {
   const result = spawnSync(nginxBin(), ["-v"], {
     encoding: "utf-8",
     timeout: 5_000,
+    windowsHide: true,
   });
   if (result.error || result.status !== 0) return null;
   const output = `${result.stderr || ""}${result.stdout || ""}`.trim();
@@ -452,6 +486,7 @@ function isIngressNginxProcess(pid: number, paths: IngressPaths): boolean {
         encoding: "utf-8",
         timeout: 3000,
         stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
       },
     ).trim();
     return (
@@ -592,7 +627,7 @@ export function startIngressNginx(opts: {
   const child = spawn(
     nginxBin(),
     ["-p", paths.dir, "-c", paths.confPath, "-g", "daemon off;"],
-    { detached: true, stdio: ["ignore", fd, fd] },
+    { detached: true, stdio: ["ignore", fd, fd], windowsHide: true },
   );
   closeSync(fd);
 
@@ -755,6 +790,12 @@ export async function startRemoteWebIngress(opts: {
    */
   assistantName?: string;
   /**
+   * Serving assistant's id, stamped into the served remote-web config
+   * (`__VELLUM_CONFIG__.assistantId`) so a caller probing this origin can
+   * confirm which assistant the edge fronts. Omitted when unknown.
+   */
+  assistantId?: string;
+  /**
    * Invoked once, after every preflight check passes and immediately before
    * nginx is spawned, so callers can emit their own "starting" progress line
    * with the resolved version/dist/port (webDistDir is null in webhooks-only
@@ -784,6 +825,7 @@ export async function startRemoteWebIngress(opts: {
     ? {
         hubUrl: cloudWebHubUrl(getCurrentEnvironment().name),
         ...(opts.assistantName ? { assistantName: opts.assistantName } : {}),
+        ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
       }
     : undefined;
   const requestedConfigHash = spaOptions
@@ -1006,6 +1048,7 @@ export async function ensureTunnelEdge(opts: {
     gatewayPort: opts.gatewayPort,
     includeWebApp: true,
     ...(assistantName ? { assistantName } : {}),
+    ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
     ...(opts.onStarting ? { onStarting: opts.onStarting } : {}),
   });
 

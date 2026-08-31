@@ -17,7 +17,7 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getDeviceId } from "@/runtime/device-id";
-import { isElectron } from "@/runtime/is-electron";
+import { detectElectronHostOS } from "@/runtime/platform-detection";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import {
   getActiveOrganizationIdForRequests,
@@ -338,8 +338,12 @@ async function ensureGatewayAccess(
   return { gatewayUrl, actorToken };
 }
 
-async function fetchPlatformStatus(
-  gateway: { gatewayUrl: string; actorToken: string },
+/**
+ * The daemon's `platform/status`, null on any failure. A null `actorToken`
+ * sends no bearer: the paired proxy's trusted host installs its own.
+ */
+export async function fetchPlatformStatus(
+  gateway: { gatewayUrl: string; actorToken: string | null },
   runtimeAssistantId: string,
 ): Promise<LocalPlatformStatus | null> {
   const url = gatewayUrl(
@@ -349,7 +353,9 @@ async function fetchPlatformStatus(
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${gateway.actorToken}`,
+      ...(gateway.actorToken && {
+        Authorization: `Bearer ${gateway.actorToken}`,
+      }),
     },
     credentials: "omit",
   }).catch(() => null);
@@ -449,7 +455,8 @@ async function platformPost<T>(
   });
 
   const sessionToken = getElectronSessionToken();
-  if (isElectron()) {
+  const electronHostOS = detectElectronHostOS();
+  if (electronHostOS) {
     if (!sessionToken) {
       throw new Error("Sign in to Vellum to register this local assistant.");
     }
@@ -464,11 +471,11 @@ async function platformPost<T>(
     {
       method: "POST",
       headers,
-      credentials: isElectron() ? "omit" : "same-origin",
+      credentials: electronHostOS ? "omit" : "same-origin",
       body: JSON.stringify({
         client_installation_id: clientInstallationId,
         runtime_assistant_id: assistant.assistantId,
-        client_platform: isElectron() ? "macos" : "web",
+        client_platform: electronHostOS ?? "web",
       }),
     },
   ).catch((error: unknown) => {
@@ -595,7 +602,7 @@ function gatewayUrl(baseUrl: string, path: string): string {
   return url.toString();
 }
 
-function isUuid(value: string): boolean {
+export function isUuid(value: string): boolean {
   return UUID_RE.test(value);
 }
 

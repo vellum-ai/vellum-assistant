@@ -52,24 +52,22 @@ export function parseCallbackData(
     return null;
   }
   const source =
-    sourceChannel === "whatsapp"
-      ? ("whatsapp_button" as const)
-      : sourceChannel === "slack"
-        ? ("slack_button" as const)
-        : sourceChannel === "vellum"
-          ? ("vellum_surface" as const)
-          : ("telegram_button" as const);
+    sourceChannel === "vellum"
+      ? ("vellum_surface" as const)
+      : ("button" as const);
   return { action, source, requestId };
 }
 
 // ---------------------------------------------------------------------------
-// Reaction callback data parser — format: "reaction:<emoji_name>"
+// Reaction decision vocabulary
 // ---------------------------------------------------------------------------
 
 /**
- * Map of Slack emoji names to approval actions. Multiple emoji names can
- * map to the same action to handle Slack's aliasing (e.g. `+1` and `thumbsup`
- * both represent the thumbs-up emoji).
+ * Map of reaction emoji to approval actions, in each channel's own
+ * vocabulary: Slack reactions carry colon names (with aliasing, e.g. `+1`
+ * and `thumbsup` are both the thumbs-up emoji), Telegram and Discord carry
+ * the unicode character itself. Telegram's fixed reaction set offers the
+ * thumbs but not the check mark or alarm clock; Discord offers all four.
  */
 const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
   ["+1", "approve_once"],
@@ -78,24 +76,24 @@ const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
   ["alarm_clock", "approve_once"],
   ["-1", "reject"],
   ["thumbsdown", "reject"],
+  ["\u{1F44D}", "approve_once"], // thumbs up
+  ["\u2705", "approve_once"], // check mark button
+  ["\u23F0", "approve_once"], // alarm clock
+  ["\u{1F44E}", "reject"], // thumbs down
 ]);
 
 /**
- * Parse a `reaction:<emoji_name>` callback data string into an approval
- * decision. Returns null if the emoji is not mapped to any action.
+ * Map a reaction emoji, in the source channel's own vocabulary, to an
+ * approval decision. Returns null if the emoji is not mapped to any action.
  */
-export function parseReactionCallbackData(
-  data: string,
+export function reactionDecisionForEmoji(
+  emoji: string,
 ): ApprovalDecisionResult | null {
-  if (!data.startsWith("reaction:")) {
-    return null;
-  }
-  const emoji = data.slice("reaction:".length);
   const action = REACTION_EMOJI_MAP.get(emoji);
   if (!action) {
     return null;
   }
-  return { action, source: "slack_reaction" };
+  return { action, source: "reaction" };
 }
 
 // ---------------------------------------------------------------------------

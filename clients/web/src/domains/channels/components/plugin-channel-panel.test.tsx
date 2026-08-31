@@ -7,10 +7,10 @@
  * the panel permanently blank, which is exactly the bug worth catching.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import { PluginChannelPanel } from "@/domains/channels/components/plugin-channel-panel";
@@ -18,8 +18,32 @@ import {
   classifyIngressFailure,
   reportableError,
 } from "@/domains/channels/hooks/use-channel-ingress";
-import { assistantChannelIngressListQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
+import {
+  assistantChannelAdmissionPolicyListQueryKey,
+  assistantChannelIngressListQueryKey,
+} from "@/generated/gateway/@tanstack/react-query.gen";
+import * as admissionApi from "@/lib/channel-admission-policy/api";
+import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { PluginChannelSummary } from "@/types/channel-types";
+
+/**
+ * Spy on the floor write so the trust-floor tests can assert what was (not)
+ * persisted; everything else in the module stays real.
+ */
+const setChannelPolicy = mock<(typeof admissionApi)["setChannelPolicy"]>(
+  async () => ({
+    channelType: "plugin",
+    policy: "strangers",
+    note: null,
+    updatedAt: null,
+  }),
+);
+
+mock.module("@/lib/channel-admission-policy/api", (): typeof admissionApi => ({
+  ...admissionApi,
+  setChannelPolicy,
+}));
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -41,6 +65,8 @@ const ROUTES = [
 
 afterEach(() => {
   cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
+  setChannelPolicy.mockClear();
 });
 
 /** Renders the panel with `sources` already in the ingress cache. */
@@ -70,9 +96,7 @@ function renderPanel(sources?: unknown[]) {
 }
 
 describe("PluginChannelPanel", () => {
-  test("offers approval, and says what approving opens", () => {
-    // Approving exposes these paths to the public internet, so the panel
-    // names them rather than describing the grant in the abstract.
+  test("offers approval without listing the routes it opens", () => {
     renderPanel([
       {
         source: "courier",
@@ -83,26 +107,9 @@ describe("PluginChannelPanel", () => {
     ]);
 
     expect(document.body.textContent).toContain("Ingress awaiting approval");
-    expect(document.body.textContent).toContain("Approve ingress");
-    expect(document.body.textContent).toContain(
+    expect(document.body.textContent).toContain("Approve Channel");
+    expect(document.body.textContent).not.toContain(
       "/webhooks/plugins/courier/events",
-    );
-  });
-
-  test("says deliveries are refused while a declaration waits", () => {
-    // The consequence a guardian is deciding about. Without it, "awaiting
-    // approval" reads as a formality rather than as inbound being down.
-    renderPanel([
-      {
-        source: "courier",
-        state: "pending",
-        digest: "d".repeat(32),
-        routes: ROUTES,
-      },
-    ]);
-
-    expect(document.body.textContent).toContain(
-      "deliveries to them are refused",
     );
   });
 
@@ -117,8 +124,8 @@ describe("PluginChannelPanel", () => {
     ]);
 
     expect(document.body.textContent).toContain("Ingress approved");
-    expect(document.body.textContent).toContain("Revoke ingress");
-    expect(document.body.textContent).not.toContain("Approve ingress");
+    expect(document.body.textContent).toContain("Revoke Channel");
+    expect(document.body.textContent).not.toContain("Approve Channel");
   });
 
   test("reads the decision for its own plugin, not a sibling's", () => {
@@ -134,7 +141,7 @@ describe("PluginChannelPanel", () => {
     ]);
 
     expect(document.body.textContent).not.toContain("Ingress approved");
-    expect(document.body.textContent).not.toContain("Revoke ingress");
+    expect(document.body.textContent).not.toContain("Revoke Channel");
     expect(document.body.textContent).toContain(
       "sees no ingress declaration for Courier",
     );
@@ -149,7 +156,7 @@ describe("PluginChannelPanel", () => {
     expect(document.body.textContent).toContain(
       "sees no ingress declaration for Courier",
     );
-    expect(document.body.textContent).not.toContain("Approve ingress");
+    expect(document.body.textContent).not.toContain("Approve Channel");
   });
 
   test("still offers a way through to the plugin either way", () => {
@@ -157,60 +164,90 @@ describe("PluginChannelPanel", () => {
     // client cannot render one it does not know the shape of.
     renderPanel([]);
 
-    expect(document.body.textContent).toContain("Open plugin page");
+    expect(
+      document.body.querySelector('[aria-label="Navigate to plugin page"]'),
+    ).toBeTruthy();
   });
+});
 
-  test("does not claim a route is refused when approval does not govern it", () => {
-    // The gateway serves a `vellum`-signed route out of a pending declaration,
-    // so folding it into the refusal would tell a guardian that public ingress
-    // is closed while it is open.
-    renderPanel([
+describe("PluginChannelPanel trust floor", () => {
+  /**
+   * Renders the panel with the floor surface live: an assistant version past
+   * the trust-floors gate and the admission-policy list already in the cache.
+   * `staleTime: Infinity` keeps the seeded entry from being refetched against
+   * a gateway that isn't there.
+   */
+  function renderPanelWithFloor(policy: AdmissionPolicy) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Ada", "0.10.0", ASSISTANT_ID);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    queryClient.setQueryData(
+      assistantChannelAdmissionPolicyListQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+      }),
       {
-        source: "courier",
-        state: "pending",
-        digest: "d".repeat(32),
-        routes: [
-          ...ROUTES,
-          {
-            path: "ours",
-            publicPath: "/webhooks/plugins/courier/ours",
-            signer: "vellum",
-          },
+        policies: [
+          { channelType: "plugin", policy, note: null, updatedAt: null },
         ],
       },
-    ]);
-
-    expect(document.body.textContent).toContain(
-      "open whatever you decide, because only Vellum can reach them",
     );
-    expect(document.body.textContent).toContain(
-      "/webhooks/plugins/courier/ours",
+    return render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PluginChannelPanel
+            channel={CHANNEL}
+            assistantId={ASSISTANT_ID}
+            assistantDisplayName="Ada"
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
-    expect(document.body.textContent).toContain(
-      "deliveries to them are refused",
+  }
+
+  function pickFloor(label: string) {
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-slot="select-trigger"]',
     );
-  });
+    if (!trigger) {
+      throw new Error("No trust-floor dropdown rendered");
+    }
+    fireEvent.click(trigger);
+    const option = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((el) => el.textContent?.startsWith(label));
+    if (!option) {
+      throw new Error(`No option labeled "${label}"`);
+    }
+    fireEvent.click(option);
+  }
 
-  test("says nothing about refusal when no address is approval-governed", () => {
-    // Every route already open. There is a decision to record, but claiming
-    // deliveries are refused would be false for all of them.
-    renderPanel([
-      {
-        source: "courier",
-        state: "pending",
-        digest: "d".repeat(32),
-        routes: [
-          {
-            path: "ours",
-            publicPath: "/webhooks/plugins/courier/ours",
-            signer: "vellum",
-          },
-        ],
-      },
-    ]);
+  test("loosening the floor asks first, parity with built-in channels", async () => {
+    // The floor is workspace-wide (one `plugin` row covers every plugin
+    // channel), so an unconfirmed pick would persist a loosening across
+    // all of them at once.
+    renderPanelWithFloor("guardian_only");
 
-    expect(document.body.textContent).not.toContain(
-      "deliveries to them are refused",
+    pickFloor("Strangers");
+    expect(document.body.textContent).toContain("Allow strangers?");
+
+    // `mutate` runs its function a microtask later, so flush before asserting
+    // the pick alone wrote nothing.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(setChannelPolicy).not.toHaveBeenCalled();
+
+    const confirm = document.querySelector<HTMLButtonElement>(
+      "[data-confirm-dialog-confirm]",
+    );
+    expect(confirm).not.toBeNull();
+    fireEvent.click(confirm!);
+
+    await waitFor(() =>
+      expect(setChannelPolicy.mock.calls).toEqual([
+        [ASSISTANT_ID, "plugin", "strangers"],
+      ]),
     );
   });
 });

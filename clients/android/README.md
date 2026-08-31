@@ -51,12 +51,20 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-Launcher colors distinguish production, staging, and dev installs. The launch
-screen follows the saved app appearance, falling back to the Android light or
-dark setting until the web app has stored a preference. Android's app night
-mode keeps the OS splash and native overlay on the same theme. Android 11 and
-older skip the OS preview window so the themed native overlay is the first app
-frame.
+The launcher icon is the `quirky` eye pair from the avatar library in
+`packages/avatar-catalog`, the same design the iOS app
+icon uses. The six paths in `res/drawable/ic_launcher_foreground.xml` and in
+the pre-adaptive `res/mipmap-anydpi/ic_launcher*.xml` fallbacks are copied
+verbatim from that table and only repositioned by a VectorDrawable `<group>`,
+so the icon stays in sync with the in-app avatars. Launcher background colors
+distinguish production (`#4C9B50`, the avatar palette green), staging, and dev
+installs.
+
+The launch screen follows the saved app appearance, falling back to the Android
+light or dark setting until the web app has stored a preference. Android's app
+night mode keeps the OS splash and native overlay on the same theme. Android 11
+and older skip the OS preview window so the themed native overlay is the first
+app frame.
 
 ## HTTPS App Links
 
@@ -91,6 +99,21 @@ adb shell am start -a android.intent.action.VIEW \
 
 Use the suffixed application ID and matching host when checking staging or dev.
 
+## Billing
+
+The Android shell renders the same billing surfaces as iOS (plan card, plans
+takeover, billing settings) but sells nothing in-app: there is no Google Play
+Billing integration, and every purchase CTA opens the matching page on the
+hosted web app in the system browser instead of starting a checkout inside the
+WebView. The handoff lives in
+`clients/web/src/lib/billing/android-billing-handoff.ts`; it goes through the
+Capacitor Browser plugin because a plain navigation would stay in the WebView
+and a bare VIEW intent would bounce straight back via the verified App Links
+above. Because the purchase runs on the hosted web app in a plain browser
+context, Stripe returns to the hosted web page there rather than through the
+custom-scheme `billing/checkout-complete` deep link; the manifest still claims
+that scheme for checkouts launched from a native context.
+
 ## Native Auth
 
 The `NativeAuth` Capacitor plugin opens WorkOS AuthKit in the system browser,
@@ -118,13 +141,17 @@ absent. Scanning a connect link switches the native shell to the validated
 server, opens `<server>/assistant/pair`, and keeps an existing server path
 prefix intact. Cold and warm app launches use the same route.
 
-Only the validated server base is saved after the pairing page loads; the
-same deferred write appends the server, with its label, to the remembered
-list. The one-time device code is kept out of app preferences and the
-generated Capacitor configuration. HTTPS is required except for `localhost`,
-`127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use `adb reverse`
-when a physical development device needs to reach a service through
-`localhost`.
+A server the list does not already hold joins it, with its label, as soon as
+the link is scanned, matching iOS, so the chooser can still offer it when the
+pairing page never loads. What a scan alone cannot claim is deferred until that
+page loads: the active slot, so an unreachable server never displaces the one
+already working, and any label a server is already remembered under, so an
+unpaired link can fill in a missing name but cannot rewrite one an earlier
+pairing established. The one-time device code is kept out of app preferences
+and the generated Capacitor configuration. HTTPS is required except for
+`localhost`, `127.0.0.1`, and the Android emulator host alias `10.0.2.2`. Use
+`adb reverse` when a physical development device needs to reach a service
+through `localhost`.
 
 Paired servers accumulate in a remembered list, stored as JSON `{name?, url}`
 entries in the same `self_hosted_server` SharedPreferences file as the active
@@ -149,9 +176,13 @@ If Android terminates the app before the pairing page loads, scan the connect
 link again. The shell intentionally does not save the one-time code for process
 restoration.
 
-If a saved or newly scanned server cannot load, the native recovery dialog can
-retry it or clear the saved server and return to Vellum Cloud. A failed new
-server is never promoted over the last server that loaded successfully.
+If a saved or newly scanned server cannot load, whether the connection is
+refused outright or a tunnel provider answers on the server's behalf with its
+own error page, the native recovery dialog offers Retry or Choose Assistant.
+Choose Assistant clears the active slot and recreates onto the Vellum Cloud
+chooser, which lists every remembered server including the one that just
+failed. A failed new server is never promoted over the last server that loaded
+successfully.
 
 ## Biometric Session Recovery
 
@@ -231,7 +262,9 @@ clients/
     │   └── src/main/
     │       ├── AndroidManifest.xml
     │       ├── java/ai/vellum/assistant/
+    │       │   ├── Attribution.java
     │       │   ├── ConnectDeepLink.java
+    │       │   ├── InstallReferrerPlugin.java
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
     │       │   ├── NativeBiometricPlugin.java

@@ -74,7 +74,7 @@ See [`clients/web/src/domains/chat/hooks/use-electron-dock-sync.ts`](../src/doma
 
 When extending `window.vellum.*`, three files change together because the three TypeScript projects (main, preload, renderer) don't share a workspace symbol table:
 
-1. **[`clients/macos/src/preload/index.ts`](../../../clients/macos/src/preload/index.ts)** — adds the IPC plumbing + the typed `VellumBridge` field.
+1. **[`clients/macos/src/preload/index.ts`](../../../clients/macos/src/preload/index.ts)**: adds the IPC plumbing + the typed `VellumBridge` field. Write the plumbing once as a `create<Surface>Bridge` factory in [`packages/electron-desktop/src/preload.ts`](../../../packages/electron-desktop/src/preload.ts) and consume it here and in the Windows shell's `preload/features/` module, so the bridge-parity test verifies one implementation instead of two hand-copies (see `createDownloadsBridge` for the shape).
 2. **[`clients/web/src/runtime/is-electron.ts`](../src/runtime/is-electron.ts)** — mirrors the new field on the renderer-side ambient `Window.vellum?` declaration.
 3. **`clients/web/src/runtime/<capability>.ts`** — per-capability wrapper module exposing the no-op-off-Electron functions feature code calls.
 
@@ -88,7 +88,7 @@ The runtime wrapper is the surface for **imperative** access (`setDockBadge(coun
 
 Example (`runtime/power-events.ts` + `BusEventMap`): the system's `powerMonitor` fires `suspend` / `resume` / `lock` / `unlock` / `active`. Multiple renderer subsystems care (SSE reconnect, future auth-refresh on wake, future reachability probe). The right shape is:
 
-1. `clients/macos/src/main/power-events.ts` — subscribes to `powerMonitor`, broadcasts to all renderers via `webContents.send`.
+1. `packages/electron-desktop/src/power-events.ts` subscribes to `powerMonitor`, broadcasts to all renderers via `webContents.send`.
 2. `clients/macos/src/preload/index.ts` — `window.vellum.power.onEvent(callback) → unsubscribe`.
 3. `clients/web/src/runtime/power-events.ts` — `subscribeToPowerEvents(callback)` (the no-op-off-Electron wrapper).
 4. `clients/web/src/hooks/use-event-bus-init.ts` — calls the wrapper once at mount, fans events in as `power.suspend` / `power.resume` / etc. on the bus.
@@ -103,7 +103,7 @@ A subset of push signals — inbound deep links being the canonical case — can
 - **`subscribe<X>(callback)`** — live subscription for post-mount signals.
 - **`drainPending<X>()`** — returns and clears the main-side buffer of signals that arrived during startup.
 
-`use-event-bus-init` calls `subscribe` BEFORE `drainPending` so a signal arriving in flight between the two calls isn't lost. Example: `clients/web/src/runtime/deep-links.ts` paired with the main-side buffer in `clients/macos/src/main/deep-links.ts`.
+`use-event-bus-init` calls `subscribe` BEFORE `drainPending` so a signal arriving in flight between the two calls isn't lost. Example: `clients/web/src/runtime/deep-links.ts` paired with the main-side buffer in `packages/electron-desktop/src/deep-links.ts`.
 
 ---
 

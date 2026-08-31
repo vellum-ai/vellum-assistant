@@ -43,7 +43,7 @@ import { createSelectors } from "@/utils/create-selectors";
  *   turn-boundary `ptt_release` frame in manual mode. Distinct from `thinking`
  *   because it stamps end-of-speech latency and gates the
  *   `utterance_discarded` return to `listening`, though the two share a label
- *   (see {@link LIVE_VOICE_STATE_LABELS}).
+ *   (see {@link LIVE_VOICE_STATE_KEYS}).
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
@@ -60,88 +60,93 @@ export type LiveVoiceSessionState =
   | "failed";
 
 /**
- * User-facing activity label per session state, shared by every surface that
- * shows session activity (the composer's voice bar and the title-bar session
- * pill), so the two always agree.
+ * Catalog key for a session's status word, in the `chat` namespace.
+ */
+export type LiveVoiceStatusKey =
+  | "liveVoiceStatus.connecting"
+  | "liveVoiceStatus.reconnecting"
+  | "liveVoiceStatus.listening"
+  | "liveVoiceStatus.thinking"
+  | "liveVoiceStatus.speaking"
+  | "liveVoiceStatus.ending"
+  | "liveVoiceStatus.muted";
+
+/**
+ * The status key each session state carries, before the surface remaps in
+ * {@link liveVoiceSurfaceLabelKey}. `null` is a phase with no word at all:
+ * hosts unmount their voice UI in `idle` and `failed`.
  *
  * Deliberately minimal treatment (decided 2026-07-06): assistant output
  * streams into the thread transcript like text chat, so surfaces only carry a
- * small label. `idle`/`failed` map to an empty label — hosts unmount their
- * voice UI in those states.
+ * small label.
  *
- * `transcribing` and `thinking` share one label (JARVIS-1559).
+ * `transcribing` and `thinking` share one key (JARVIS-1559).
  * `toVoiceAvatarVisual` collapses both phases to a single visual, so wording
  * unique to `transcribing` puts two words for one phase on screen at once,
  * across a window that is usually under a second and that offers the user
- * nothing to act on. The pairing belongs in this table rather than in
- * {@link liveVoiceSurfaceLabel}: the session pill and the composer's voice bar
- * read the table directly, so it is the only layer every surface shares.
+ * nothing to act on.
+ *
+ * A phase and its wording are paired here and nowhere else. The wording itself
+ * is `liveVoiceStatus` in the `chat` catalog, and every surface resolves the
+ * key through it, so each of them says the same thing in the reader's own
+ * language.
  */
-export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
-  idle: "",
-  connecting: "Connecting…",
-  listening: "Listening…",
-  transcribing: "Thinking…",
-  thinking: "Thinking…",
-  speaking: "Speaking…",
-  ending: "Ending…",
-  failed: "",
+export const LIVE_VOICE_STATE_KEYS: Record<
+  LiveVoiceSessionState,
+  LiveVoiceStatusKey | null
+> = {
+  idle: null,
+  connecting: "liveVoiceStatus.connecting",
+  listening: "liveVoiceStatus.listening",
+  transcribing: "liveVoiceStatus.thinking",
+  thinking: "liveVoiceStatus.thinking",
+  speaking: "liveVoiceStatus.speaking",
+  ending: "liveVoiceStatus.ending",
+  failed: null,
 };
 
 /**
- * User-facing activity label for a session, factoring in the orthogonal
- * `reconnecting` signal. Drives the room's aria-live label. During a retry of a
- * dropped connection the base `connecting` phase relabels to "Reconnecting…" so
- * surfaces distinguish it from the initial connect (the JARVIS-1255 gap);
- * `reconnecting` is ignored for every other phase. {@link LIVE_VOICE_STATE_LABELS}
- * stays the single source of base labels.
- */
-export function liveVoiceStateLabel(
-  state: LiveVoiceSessionState,
-  reconnecting: boolean,
-): string {
-  if (reconnecting && state === "connecting") {
-    return "Reconnecting…";
-  }
-  return LIVE_VOICE_STATE_LABELS[state];
-}
-
-/**
- * The label a *surface* shows for a session: {@link liveVoiceStateLabel} plus
- * the two remaps that keep the words true of what is actually happening.
+ * The catalog key a *surface* shows for a session: the phase's own key plus the
+ * remaps that keep the word true of what is actually happening. Keys exist so
+ * surfaces can localize without forking the decision table.
+ *
+ * `connecting` relabels to "Reconnecting…" while the controller is retrying a
+ * dropped connection, so a surface distinguishes a retry from the initial
+ * connect (the JARVIS-1255 gap). `reconnecting` is ignored for every other
+ * phase.
  *
  * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
  * then went silent while a tool runs. Announcing "Speaking…" while nothing is
  * audible is wrong for the room's caption, wrong for its screen-reader
  * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
- * that renders session activity calls this, the voice room and the iOS Live
- * Activity mirror, so the island always reads exactly what the room reads.
+ * that renders session activity calls this, the room and the out-of-app
+ * mirrors alike, so the island always reads exactly what the room reads.
  *
  * `listening` is the same problem through the microphone: the session holds
  * that phase while the mic is muted, so the surface claims to be listening
  * beside a mute button that says it is not. Muted is a state rather than an
  * activity, so it takes no ellipsis where the phases do.
  *
- * Only `listening` is remapped. Muting the microphone does not make the
- * assistant stop thinking or speaking, and relabelling those would trade one
- * false statement for another.
- *
- * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
- * audio signal to consult.
+ * Only `listening` is remapped for mute. Muting the microphone does not make
+ * the assistant stop thinking or speaking, and relabelling those would trade
+ * one false statement for another.
  */
-export function liveVoiceSurfaceLabel(
+export function liveVoiceSurfaceLabelKey(
   state: LiveVoiceSessionState,
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
-): string {
+): LiveVoiceStatusKey | null {
   if (state === "listening" && muted) {
-    return "Muted";
+    return "liveVoiceStatus.muted";
   }
-  return liveVoiceStateLabel(
-    state === "speaking" && !assistantAudioActive ? "thinking" : state,
-    reconnecting,
-  );
+  if (state === "connecting" && reconnecting) {
+    return "liveVoiceStatus.reconnecting";
+  }
+  if (state === "speaking" && !assistantAudioActive) {
+    return "liveVoiceStatus.thinking";
+  }
+  return LIVE_VOICE_STATE_KEYS[state];
 }
 
 /**
@@ -206,6 +211,18 @@ export interface LiveVoiceSessionControls {
    * older assistant's rejection cannot be told apart from `update_config`'s.
    */
   attachImage: (attachmentId: string) => boolean;
+  /**
+   * Park a camera frame the viewfinder sampled, by the id its upload already
+   * returned, so the next turn carries it. Latest wins: a second frame
+   * replaces the first, because what matters is what the camera was pointed at
+   * when the user spoke. `null` unparks, for a viewfinder that has closed.
+   *
+   * Returns whether it reached the session. Unlike `attachImage` a false needs
+   * no report: nobody pressed anything, and the next keep parks a newer frame.
+   *
+   * Callers must gate on `useSupportsSightFrames`.
+   */
+  attachFrame: (attachmentId: string | null) => boolean;
 }
 
 /**
@@ -243,8 +260,20 @@ export interface LiveVoiceSessionStarter {
   prewarm(): void;
   /** Release playback reserved by a preflight that will not start a session. */
   cancelPrewarm(): void;
-  /** Start a session, consuming the prewarmed player when one exists. */
-  start(assistantId: string, conversationId: string | null): void;
+  /**
+   * Start a session, consuming the prewarmed player when one exists.
+   *
+   * `seedText` takes a first turn on the session's behalf once the microphone
+   * is live, so the assistant speaks without waiting for the user. It becomes
+   * a real user message in the conversation, so a caller passes one only where
+   * that reads honestly. See `voice-entry-greeting.ts` for the rule and the
+   * copy.
+   */
+  start(
+    assistantId: string,
+    conversationId: string | null,
+    options?: { seedText?: string },
+  ): void;
 }
 
 export interface LiveVoiceState {
@@ -298,6 +327,16 @@ export interface LiveVoiceState {
   /** Controls registered by the owning controller, `null` when no session. */
   controls: LiveVoiceSessionControls | null;
   /**
+   * Which session lifetime this is. It moves when a session tears down and
+   * never during one, reconnects included, so an async continuation that read
+   * it mid-session can tell that its session is over. `controls` cannot
+   * answer that question: reconnect attempts republish a fresh controls
+   * object within one session. Never restored to the initial value: a
+   * terminal {@link LiveVoiceActions.reset} bumps it, and a mid-session reset
+   * (`sessionContinues`) leaves it alone.
+   */
+  sessionGeneration: number;
+  /**
    * Session starter registered by the persistently mounted controller hook.
    * `null` only when no controller is mounted (e.g. outside the chat layout).
    * Mount-scoped, not session-scoped: {@link LiveVoiceActions.reset} leaves it
@@ -347,6 +386,15 @@ export interface LiveVoiceState {
    * make, however it was made.
    */
   pendingApprovalRequestId: string | null;
+  /**
+   * Whether the server VAD is holding an utterance open: set on
+   * `speech_started`, cleared on `utterance_end` / `utterance_discarded`. The
+   * session's own answer to "is the user talking right now", published because
+   * a surface renders that boundary directly (the camera-mode status pill's
+   * dot). Only hands-free sessions have one; a manual session leaves it false.
+   * Session-scoped, so `reset()` clears it with everything else.
+   */
+  utteranceOpen: boolean;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -397,7 +445,7 @@ export interface LiveVoiceState {
   /**
    * Latency measurements for the last turn, `null` until a turn is measured.
    * Debug surface only — per the minimal-treatment note on
-   * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
+   * {@link LIVE_VOICE_STATE_KEYS}, no surface renders this: the controller
    * logs one `console.debug("[live-voice] turn latency", …)` line per
    * completed turn and this field waits for a future debug panel.
    */
@@ -406,10 +454,11 @@ export interface LiveVoiceState {
    * Provider for the assistant's TTS *output* amplitude in [0, 1], registered
    * by the controller from the active session's {@link LiveVoiceAudioPlayer}
    * (its output-bus analyser). `null` when there is no session, or on a context
-   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude}; the room
-   * avatar routes between this and the mic amplitude by phase — see
-   * {@link getLiveVoiceAvatarAmplitude}. A registered provider (like `controls`)
-   * so a non-`speaking` read costs nothing and it clears on session reset.
+   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude} by the room's
+   * `responding` band and the output meters on the composer bar and the pill;
+   * the mic amplitude behind `listening` is a separate field. A registered
+   * provider (like `controls`) so a non-`speaking` read costs nothing and it
+   * clears on session reset.
    */
   outputAmplitudeProvider: (() => number) | null;
   /**
@@ -424,6 +473,22 @@ export interface LiveVoiceState {
   playbackProgressProvider: (() => LiveVoicePlaybackProgress | null) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
+  /**
+   * What the user can do about the current failure, beyond dismissing it.
+   * `null` for a failure with no way out but trying again later.
+   *
+   * `reclaim` means another live-voice session holds the daemon's single
+   * slot, and it can be ended from here. `holderConversationId` is where that
+   * session is, when the daemon named it, so a surface can offer to go there
+   * instead of ending it.
+   */
+  errorRecovery: LiveVoiceErrorRecovery | null;
+}
+
+/** See {@link LiveVoiceState.errorRecovery}. */
+export interface LiveVoiceErrorRecovery {
+  kind: "reclaim";
+  holderConversationId: string | null;
 }
 
 export interface LiveVoiceActions {
@@ -472,6 +537,8 @@ export interface LiveVoiceActions {
   setFirstRunCardOpen: (open: boolean) => void;
   /** Publish or clear the pre-open "configure voice" notice. */
   setConfigNotice: (notice: string | null) => void;
+  /** Record whether the server VAD is holding an utterance open. */
+  setUtteranceOpen: (utteranceOpen: boolean) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -506,14 +573,19 @@ export interface LiveVoiceActions {
     provider: (() => LiveVoicePlaybackProgress | null) | null,
   ) => void;
   /** Transition to `failed` with a message. */
-  fail: (message: string) => void;
+  fail: (message: string, recovery?: LiveVoiceErrorRecovery | null) => void;
   /**
    * Reset every session field back to the idle defaults. Deliberately leaves
    * `starter` registered — it belongs to the controller's mount lifecycle,
    * not the session lifecycle, and must survive session teardown so the next
    * session can start.
+   *
+   * Bumps `sessionGeneration`, unless `sessionContinues` says this reset
+   * clears state inside one logical session (the reconnect path re-entering
+   * its connect flow), which keeps work pinned to the session, a photo upload
+   * above all, deliverable once the transport is back.
    */
-  reset: () => void;
+  reset: (opts?: { sessionContinues?: boolean }) => void;
 }
 
 export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
@@ -603,8 +675,14 @@ export function isLiveVoiceSessionOwnedBy(
 // Store
 // ---------------------------------------------------------------------------
 
-/** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
-const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
+/**
+ * Session-scoped fields restored by `reset()`. Excludes `starter`
+ * (mount-scoped) and `sessionGeneration` (monotonic across sessions).
+ */
+const INITIAL_SESSION_STATE: Omit<
+  LiveVoiceState,
+  "starter" | "sessionGeneration"
+> = {
   state: "idle",
   firstRunCardOpen: false,
   configNotice: null,
@@ -619,6 +697,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   photoRejectedSeq: 0,
   photoRejectedReason: null,
   controls: null,
+  utteranceOpen: false,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -632,11 +711,13 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   outputAmplitudeProvider: null,
   playbackProgressProvider: null,
   error: null,
+  errorRecovery: null,
 };
 
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_SESSION_STATE,
   starter: null,
+  sessionGeneration: 0,
 
   setState: (state) => set({ state }),
   setAssistantAudioActive: (assistantAudioActive) =>
@@ -665,6 +746,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setStarter: (starter) => set({ starter }),
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
+  setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
@@ -683,8 +765,18 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ outputAmplitudeProvider }),
   setPlaybackProgressProvider: (playbackProgressProvider) =>
     set({ playbackProgressProvider }),
-  fail: (message) => set({ state: "failed", error: message }),
-  reset: () => set({ ...INITIAL_SESSION_STATE }),
+  fail: (message, recovery = null) =>
+    set({ state: "failed", error: message, errorRecovery: recovery }),
+  // The bump marks the session boundary for anything async that outlives the
+  // session, a photo upload above all (see `attachLiveVoiceImage`). A reset
+  // inside one logical session says so, and the generation holds.
+  reset: (opts) =>
+    set((s) => ({
+      ...INITIAL_SESSION_STATE,
+      sessionGeneration: opts?.sessionContinues
+        ? s.sessionGeneration
+        : s.sessionGeneration + 1,
+    })),
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
@@ -869,15 +961,46 @@ export function updateLiveVoiceSessionConfig(config: {
 
 /**
  * Hand the active session a photo the user took mid-call, by attachment id.
- * Returns whether it reached the session: false when no session exists or the
- * transport is mid-reconnect, which the caller must surface rather than treat
- * as sent. Module-level for the same stable-identity reasons as
- * {@link endLiveVoiceSession}.
+ * `sessionGeneration` is the generation read at the shutter press: the upload
+ * between press and delivery can outlive the session the photo was taken in,
+ * and a photo from an ended session fails here rather than landing in
+ * whichever session is current when the upload resolves. Returns whether it
+ * reached the pressed session: false when that session is over, when no
+ * session exists, or when the transport is mid-reconnect, which the caller
+ * must surface rather than treat as sent. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
  */
-export function attachLiveVoiceImage(attachmentId: string): boolean {
-  return (
-    useLiveVoiceStore.getState().controls?.attachImage(attachmentId) ?? false
-  );
+export function attachLiveVoiceImage(
+  attachmentId: string,
+  sessionGeneration: number,
+): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (state.sessionGeneration !== sessionGeneration) {
+    return false;
+  }
+  return state.controls?.attachImage(attachmentId) ?? false;
+}
+
+/**
+ * Park a sampled camera frame on the active session, by attachment id, so the
+ * next turn carries it, or unpark the session's slot with `null`.
+ * `sessionGeneration` is the generation read when the frame was captured: the
+ * upload between the keep and this call can outlive the session it was sampled
+ * in, and a frame from an ended session is refused here rather than parked on
+ * whichever session is current. An unpark carries the same generation for the
+ * same reason: it speaks for one session's slot, never its successor's.
+ * Returns whether it reached that session. Module-level for the same
+ * stable-identity reasons as {@link endLiveVoiceSession}.
+ */
+export function attachLiveVoiceFrame(
+  attachmentId: string | null,
+  sessionGeneration: number,
+): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (state.sessionGeneration !== sessionGeneration) {
+    return false;
+  }
+  return state.controls?.attachFrame(attachmentId) ?? false;
 }
 
 /**

@@ -23,6 +23,13 @@ export interface ConversationListContextValue {
    * below the menu that knows which variant is mounted.
    */
   overlayCards?: boolean;
+  /**
+   * The overlay drawer's scrollport. Overlay lists grow with this ancestor
+   * and virtualize against it, so conversation rows can travel into the
+   * padding reserved for the floating Preferences and New Chat pills.
+   * Unset on the rail, where each section owns its own scroller.
+   */
+  scrollParent?: HTMLElement;
   activeConversationId?: string;
   /** Whether the *active* conversation is mid-turn (its row shows a spinner). */
   activeConversationProcessing?: boolean;
@@ -38,6 +45,8 @@ export interface ConversationListContextValue {
   onRename?: (conversation: Conversation) => void;
   onArchive?: (conversation: Conversation) => void;
   onUnarchive?: (conversation: Conversation) => void;
+  /** Permanently delete a conversation after the host's confirmation gate. */
+  onDelete?: (conversation: Conversation) => void;
   onMarkRead?: (conversation: Conversation) => void;
   onMarkUnread?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;

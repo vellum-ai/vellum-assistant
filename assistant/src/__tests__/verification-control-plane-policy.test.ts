@@ -42,13 +42,16 @@ const auditCalls = {
   denied: [] as any[],
   error: [] as any[],
   executed: [] as any[],
-  prompted: [] as string[],
+  prompted: [] as any[],
+  decided: [] as any[],
 };
 mock.module("../telemetry/tool-audit.js", () => ({
   recordToolDenied: (e: any) => auditCalls.denied.push(e),
   recordToolError: (e: any) => auditCalls.error.push(e),
   recordToolExecuted: (e: any) => auditCalls.executed.push(e),
-  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+  recordToolPermissionPrompted: (e: any) => auditCalls.prompted.push(e),
+  recordToolPermissionDecided: (e: any, outcome: string) =>
+    auditCalls.decided.push({ entry: e, outcome }),
 }));
 
 function resetAuditCalls(): void {
@@ -56,6 +59,7 @@ function resetAuditCalls(): void {
   auditCalls.error.length = 0;
   auditCalls.executed.length = 0;
   auditCalls.prompted.length = 0;
+  auditCalls.decided.length = 0;
 }
 
 mock.module("../tools/registry.js", () => ({

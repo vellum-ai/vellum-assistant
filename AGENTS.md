@@ -25,6 +25,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
 - **Package manager**: This is a bun workspace. One root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`, `clients/windows`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd, so avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
+- **Windows subprocesses**: Every subprocess that can run inside the packaged Windows client, local assistant, first-party skills, or `clients/windows` tooling must set `windowsHide: true`. This applies to Node child process APIs and `Bun.spawn` / `Bun.spawnSync`. The terminal-facing launcher in `clients/windows/scripts/launch-cli.ts` is the exception because it must preserve normal CLI console behavior.
 
 ```bash
 bun install                          # Install workspace dependencies (any directory works)
@@ -75,7 +76,7 @@ TestFlight builds are produced by the `release-ios.yaml` reusable workflow in th
 
 ## Cutting Releases
 
-**Never cut or promote a release automatically — always get explicit manual confirmation from the user first.** This applies to both release steps: dispatching `create-release-branch.yml` (branch cut + staging bake) and dispatching `release.yml` on a `release/v<X.Y.Z>` branch (production deploy). An explicit user request for the release in the current conversation counts as confirmation; otherwise ask and wait. Never dispatch either workflow as a side effect of other work (merging PRs, completing a plan, scheduled or autonomous agent runs), and standing authorizations (e.g. auto-merge) do not extend to releases. The scheduled Tue/Fri branch cut is the only sanctioned automation; production promotion is always a deliberate human action. Process details: `/release` (`.claude/skills/release/SKILL.md`).
+**Never cut or promote a release automatically. Always get explicit manual confirmation from the user first.** This applies to both release steps: dispatching `create-release-branch.yml` (branch cut + staging bake) and dispatching `release.yml` on a `release/v<X.Y.Z>` branch (production deploy). An explicit user request for the release in the current conversation counts as confirmation; otherwise ask and wait. Never dispatch either workflow as a side effect of other work (merging PRs, completing a plan, scheduled or autonomous agent runs), and standing authorizations (e.g. auto-merge) do not extend to releases. The scheduled Tue/Thu branch cut is the only sanctioned automation; production promotion is always a deliberate human action. Process details: `/release` (`.claude/skills/release/SKILL.md`).
 
 ## Testing
 
@@ -262,7 +263,7 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 **Top-level invariants:**
 
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads/writes trust rules via the gateway's HTTP trust API — no direct filesystem access to `trust.json`.
-- **Credentials** are owned by the CES. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither has filesystem access to `keys.enc` / `store.key`.
+- **Credentials** are owned by the CES. Secret values live in `keys.enc`. Identity and policy records live in `<cesDataRoot>/metadata.json`. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`) or CES RPC. Neither has filesystem access to `keys.enc` / `store.key`.
 - **Meet bots in Docker mode** are not yet supported. The assistant container has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN` are absent). In bare-metal mode, meet bots are sibling containers on the host's Docker engine.
 - **CES socket auth is intentionally absent**: the CES Unix socket (managed-mode `emptyDir` volume or local-mode sibling `ces.sock`) does not require a handshake auth token. All processes on the host/pod are trusted — the security boundary is rules-based access control on credential operations inside CES, not network-level socket auth. Assistant subprocesses (tools, skills) are expected to be able to connect to CES; preventing credential exfiltration requires per-credential policy enforcement, not hiding the socket path.
 

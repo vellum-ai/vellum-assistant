@@ -78,7 +78,7 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
-  getSourcePathsForAttachments: () => new Map(),
+  resolveAttachmentsForPersist: () => [],
   attachmentExists: () => false,
   linkAttachmentToMessage: () => {},
   attachInlineAttachmentToMessage: () => {},

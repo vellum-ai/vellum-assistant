@@ -89,12 +89,14 @@ function slot(
   assistantStateKind = "active",
   assistantId: string | null = "assistant-1",
   hidden = false,
+  assistantName: string | null = null,
 ) {
   return (
     <MemoryRouter>
       <ResourcePressureBannerSlot
         resourcePressure={monitorResult(status)}
         assistantId={assistantId}
+        assistantName={assistantName}
         assistantStateKind={assistantStateKind}
         hidden={hidden}
       />
@@ -132,12 +134,12 @@ describe("ResourcePressureBannerSlot", () => {
     expect(navigateMock).toHaveBeenCalledWith(routes.plans);
   });
 
-  test("hides the Upgrade action on native Android", () => {
+  test("keeps the Upgrade action on native Android, same as iOS", () => {
     nativeAndroid = true;
     render(slot(elevatedStatus));
 
     expect(queryBanner()).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Upgrade" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeTruthy();
   });
 
   test("hides the Upgrade action for non-active assistant states", () => {
@@ -181,11 +183,13 @@ describe("ResourcePressureBannerSlot", () => {
         <ResourcePressureBannerSlot
           resourcePressure={monitorResult(elevatedStatus)}
           assistantId="assistant-1"
+          assistantName={null}
           assistantStateKind="active"
         />
         <ResourcePressureBannerSlot
           resourcePressure={monitorResult(elevatedStatus)}
           assistantId="assistant-1"
+          assistantName={null}
           assistantStateKind="active"
         />
       </MemoryRouter>,
@@ -244,7 +248,7 @@ describe("ResourcePressureBannerSlot", () => {
 
     expect(
       screen.getByText(
-        "Your assistant has been using elevated resources for an extended period, upgrade to power up your assistant.",
+        "Your assistant is working hard and reaching its current resource limits. Upgrade to keep it running smoothly.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/CPU/)).toBeNull();
@@ -253,15 +257,26 @@ describe("ResourcePressureBannerSlot", () => {
   });
 
   test("the body drops the upgrade clause when there is no upgrade path", () => {
-    nativeAndroid = true;
-    render(slot(elevatedStatus));
+    render(slot(elevatedStatus, "retired"));
 
     expect(
       screen.getByText(
-        "Your assistant has been using elevated resources for an extended period.",
+        "Your assistant is working hard and reaching its current resource limits.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/upgrade/i)).toBeNull();
+  });
+
+  test("the title uses the assistant's name when one is set", () => {
+    render(slot(elevatedStatus, "active", "assistant-1", false, "Vel"));
+
+    expect(screen.getByText("Vel needs more power")).toBeTruthy();
+  });
+
+  test("the title falls back to generic copy without a name", () => {
+    render(slot(elevatedStatus, "active", "assistant-1", false, "  "));
+
+    expect(screen.getByText("Your assistant needs more power")).toBeTruthy();
   });
 
   test("switching assistants re-derives dismissal from the new keys", () => {

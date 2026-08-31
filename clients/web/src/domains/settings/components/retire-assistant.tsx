@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 
 import { retireAssistant } from "@/assistant/retire-service";
@@ -14,12 +15,13 @@ interface RetireAssistantProps {
 export function RetireAssistant({ assistantId }: RetireAssistantProps) {
   const { t } = useTranslation("settings");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
 
   const handleRetire = async () => {
     setIsPending(true);
-    const outcome = await retireAssistant(assistantId);
+    const outcome = await retireAssistant(queryClient, assistantId);
     if (outcome.ok) {
       setConfirmOpen(false);
       navigate(outcome.nextRoute, { replace: true });

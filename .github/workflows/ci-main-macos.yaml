@@ -10,9 +10,14 @@ on:
       - 'clients/macos/**'
       - 'packages/electron-utils/**'
       - 'packages/electron-desktop/**'
+      # The macOS main process imports this contract's types directly, so a
+      # change here can break the macOS type check with no macOS file touched.
+      - 'packages/ipc-contract/**'
       - 'packages/native-sidecar/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-catalog/**'
+      - 'packages/avatar-manifest/**'
       - '.github/workflows/ci-main-macos.yaml'
 
 concurrency:

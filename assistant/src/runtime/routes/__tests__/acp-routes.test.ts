@@ -116,6 +116,18 @@ mock.module("../../assistant-event-hub.js", () => ({
   },
 }));
 
+// The credential a spawn would resolve, which every credential-failure marker
+// is compared against before it is served. Only the vault read is stubbed:
+// the comparison itself stays real, and spreading the module keeps every other
+// export intact for consumers that reach for one.
+let fakeStoredCredential: string | undefined;
+const realMarkerStore = await import("../../../acp/acp-auth-marker-store.js");
+const realClaudeOauth = await import("../../../acp/acp-claude-oauth.js");
+mock.module("../../../acp/acp-claude-oauth.js", () => ({
+  ...realClaudeOauth,
+  storedClaudeTokenDigest: async () => fakeStoredCredential,
+}));
+
 /** Drain pending micro/macrotasks so background resume work settles. */
 const flushAsync = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -169,6 +181,7 @@ interface ResponseShape {
     inputTokens?: number;
     outputTokens?: number;
     eventLog?: unknown[];
+    authErrorCode?: string;
   }>;
 }
 
@@ -185,6 +198,7 @@ beforeEach(() => {
   approvalBehavior = "allow";
   confirmationRequests.length = 0;
   broadcasts.length = 0;
+  fakeStoredCredential = undefined;
 });
 
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
@@ -876,5 +890,518 @@ describe("POST /v1/acp/:id/steer: resume approval gate", () => {
     expect(confirmationRequests).toHaveLength(0);
     expect(body).toEqual({ acpSessionId: "live-2", steered: true });
     expect(steerOrResumeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /v1/acp/sessions: a marker answers for itself", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const REPLACEMENT = realMarkerStore.claudeTokenDigest("sk-ant-oat-new");
+
+  function markedRow(overrides: Record<string, unknown> = {}) {
+    insertHistoryRow({
+      id: "hist-auth",
+      agentId: "claude",
+      acpSessionId: "proto-auth",
+      parentConversationId: "conv-auth",
+      startedAt: 5000,
+      completedAt: 6000,
+      status: "failed",
+      eventLogJson: "[]",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+      ...overrides,
+    });
+  }
+
+  test("serves the marker while the refused credential is still the stored one", async () => {
+    markedRow();
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("withholds it once a different credential is stored", async () => {
+    // The user completed Connect. Nothing swept the row; the comparison is
+    // what stops the card rendering, so it needs no ordering to be right.
+    markedRow();
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBeUndefined();
+  });
+
+  test("withholding it twice gives the same answer", async () => {
+    // The sweep this replaced could only run once, which is why a restart or a
+    // second client used to be able to lose the answer.
+    markedRow();
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const first = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+    const second = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(first.sessions[0].authErrorCode).toBeUndefined();
+    expect(second.sessions[0].authErrorCode).toBeUndefined();
+  });
+
+  test("serves a marker naming no credential rather than hiding it", async () => {
+    // Written before the credential column existed. An unknown credential is
+    // no evidence the failure was repaired.
+    markedRow({ authErrorCredential: null });
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("serves the marker when the vault holds nothing", async () => {
+    markedRow();
+    fakeStoredCredential = undefined;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-auth" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+});
+
+describe("GET /v1/acp/sessions: markers resolve against configured tokens too", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const CONFIGURED = "sk-ant-oat-configured-repair";
+
+  function markedRow() {
+    insertHistoryRow({
+      id: "hist-cfg",
+      agentId: "claude",
+      acpSessionId: "proto-cfg",
+      parentConversationId: "conv-cfg",
+      startedAt: 5000,
+      completedAt: 6000,
+      status: "failed",
+      eventLogJson: "[]",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+  }
+
+  test("withholds the marker when config supplies the repaired token", async () => {
+    // The user fixed auth by setting `acp.agents.claude.env`, not by
+    // connecting. Config wins at spawn, so the next run uses the repaired
+    // token and the old failure is not going to repeat. A vault-only
+    // comparison would keep restoring the card forever, since the vault still
+    // holds the refused value.
+    markedRow();
+    fakeStoredCredential = REFUSED;
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: CONFIGURED },
+        },
+      },
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-cfg" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBeUndefined();
+  });
+
+  test("serves it when the configured token is the one that was refused", async () => {
+    markedRow();
+    fakeStoredCredential = undefined;
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-refused" },
+        },
+      },
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-cfg" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("never puts the credential digest on the wire", async () => {
+    markedRow();
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-cfg" },
+    })) as ResponseShape;
+
+    expect(body.sessions[0]).not.toHaveProperty("authErrorCredential");
+  });
+});
+
+describe("GET /v1/acp/sessions: retired markers do not accumulate past the page", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const REPLACEMENT = realMarkerStore.claudeTokenDigest("sk-ant-oat-new");
+
+  test("stale marked rows outside the page are dropped, not carried along", async () => {
+    // Marker columns are retained rather than cleared, so every failure a
+    // conversation has ever had still carries one. Letting them escape the
+    // page before the comparison strikes the repaired ones grows the response
+    // without limit, and a client that reads a full page as truncated then
+    // stops retiring runs missing from it.
+    for (let i = 0; i < 6; i++) {
+      insertHistoryRow({
+        id: `hist-old-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-old-${i}`,
+        parentConversationId: "conv-many",
+        startedAt: 1000 + i,
+        completedAt: 2000 + i,
+        status: "failed",
+        eventLogJson: "[]",
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: REFUSED,
+      });
+    }
+    // Newer unmarked runs fill the page.
+    for (let i = 0; i < 3; i++) {
+      insertHistoryRow({
+        id: `hist-new-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-new-${i}`,
+        parentConversationId: "conv-many",
+        startedAt: 9000 + i,
+        completedAt: 9500 + i,
+        status: "completed",
+        eventLogJson: "[]",
+      });
+    }
+    fakeStoredCredential = REPLACEMENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-many", limit: "3" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(3);
+    expect(body.sessions.map((s) => s.id)).toEqual([
+      "hist-new-2",
+      "hist-new-1",
+      "hist-new-0",
+    ]);
+  });
+
+  test("a marker that is still current does escape the page", async () => {
+    insertHistoryRow({
+      id: "hist-live-marker",
+      agentId: "claude",
+      acpSessionId: "proto-live-marker",
+      parentConversationId: "conv-many",
+      startedAt: 1000,
+      completedAt: 2000,
+      status: "failed",
+      eventLogJson: "[]",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    for (let i = 0; i < 3; i++) {
+      insertHistoryRow({
+        id: `hist-fill-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-fill-${i}`,
+        parentConversationId: "conv-many",
+        startedAt: 9000 + i,
+        completedAt: 9500 + i,
+        status: "completed",
+        eventLogJson: "[]",
+      });
+    }
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-many", limit: "3" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(4);
+    expect(body.sessions.map((s) => s.id)).toContain("hist-live-marker");
+  });
+});
+
+describe("GET /v1/acp/sessions: current markers are bounded too", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+
+  test("only the newest marked run escapes the page", async () => {
+    // Repeated failures against a credential that is still current all keep
+    // their markers, since nothing clears them. The restore path takes the
+    // newest marked run and stops, so letting the rest escape would grow the
+    // response by a full event log apiece for no one's benefit.
+    for (let i = 0; i < 5; i++) {
+      insertHistoryRow({
+        id: `hist-marked-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-marked-${i}`,
+        parentConversationId: "conv-repeat",
+        startedAt: 1000 + i,
+        completedAt: 2000 + i,
+        status: "failed",
+        eventLogJson: "[]",
+        parentToolUseId: `tool-${i}`,
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: REFUSED,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      insertHistoryRow({
+        id: `hist-recent-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-recent-${i}`,
+        parentConversationId: "conv-repeat",
+        startedAt: 9000 + i,
+        completedAt: 9500 + i,
+        status: "completed",
+        eventLogJson: "[]",
+      });
+    }
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-repeat", limit: "2" },
+    })) as ResponseShape;
+
+    // The page, plus exactly one escaped marker: the newest of the five.
+    expect(body.sessions).toHaveLength(3);
+    expect(body.sessions[2].id).toBe("hist-marked-4");
+  });
+
+  test("markers inside the page are all returned", async () => {
+    // The cap is on escaping the page, not on markers as such.
+    for (let i = 0; i < 3; i++) {
+      insertHistoryRow({
+        id: `hist-inpage-${i}`,
+        agentId: "claude",
+        acpSessionId: `proto-inpage-${i}`,
+        parentConversationId: "conv-inpage",
+        startedAt: 1000 + i,
+        completedAt: 2000 + i,
+        status: "failed",
+        eventLogJson: "[]",
+        parentToolUseId: `tool-in-${i}`,
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: REFUSED,
+      });
+    }
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-inpage", limit: "10" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(3);
+    expect(
+      body.sessions.every(
+        (s) => s.authErrorCode === "acp_claude_auth_required",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("GET /v1/acp/sessions: the marker past the page is looked up, not filtered", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+  const CURRENT = realMarkerStore.claudeTokenDigest("sk-ant-oat-current");
+
+  test("reaches the newest current marker past a run of stale ones", async () => {
+    // Newest-first, the markers go: stale, stale, current. Taking the newest
+    // marked row and judging it afterwards would return nothing; the lookup
+    // has to ask for the newest row whose credential still matches.
+    const rows: Array<[string, number, string]> = [
+      ["hist-current", 3000, CURRENT],
+      ["hist-stale-a", 4000, REFUSED],
+      ["hist-stale-b", 5000, REFUSED],
+    ];
+    for (const [id, startedAt, credential] of rows) {
+      insertHistoryRow({
+        id,
+        agentId: "claude",
+        acpSessionId: `proto-${id}`,
+        parentConversationId: "conv-mixed",
+        startedAt,
+        completedAt: startedAt + 1,
+        status: "failed",
+        eventLogJson: "[]",
+        parentToolUseId: `tool-${id}`,
+        authErrorCode: "acp_claude_auth_required",
+        authErrorCredential: credential,
+      });
+    }
+    insertHistoryRow({
+      id: "hist-recent",
+      agentId: "claude",
+      acpSessionId: "proto-recent",
+      parentConversationId: "conv-mixed",
+      startedAt: 9000,
+      completedAt: 9001,
+      status: "completed",
+      eventLogJson: "[]",
+    });
+    fakeStoredCredential = CURRENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-mixed", limit: "1" },
+    })) as ResponseShape;
+
+    expect(body.sessions.map((s) => s.id)).toEqual([
+      "hist-recent",
+      "hist-current",
+    ]);
+    expect(body.sessions[1].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("reaches nothing when every marker is stale", async () => {
+    insertHistoryRow({
+      id: "hist-only-stale",
+      agentId: "claude",
+      acpSessionId: "proto-only-stale",
+      parentConversationId: "conv-all-stale",
+      startedAt: 1000,
+      completedAt: 1001,
+      status: "failed",
+      eventLogJson: "[]",
+      parentToolUseId: "tool-stale",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    insertHistoryRow({
+      id: "hist-newer",
+      agentId: "claude",
+      acpSessionId: "proto-newer",
+      parentConversationId: "conv-all-stale",
+      startedAt: 9000,
+      completedAt: 9001,
+      status: "completed",
+      eventLogJson: "[]",
+    });
+    fakeStoredCredential = CURRENT;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-all-stale", limit: "1" },
+    })) as ResponseShape;
+
+    expect(body.sessions.map((s) => s.id)).toEqual(["hist-newer"]);
+  });
+});
+
+describe("GET /v1/acp/sessions: a marker in the merged overflow", () => {
+  const REFUSED = realMarkerStore.claudeTokenDigest("sk-ant-oat-refused");
+
+  test("surfaces a marker the page cut, even when history was read to the end", async () => {
+    // In-memory sessions merge on top of the history read, so the merged list
+    // can overflow the page while the query still reached the end of the
+    // table. The marker the client needs can be sitting in that overflow, and
+    // the short read is no proof it does not exist.
+    fakeInMemorySessions = [
+      {
+        id: "live-a",
+        agentId: "claude",
+        acpSessionId: "proto-live-a",
+        parentConversationId: "conv-overflow",
+        status: "running",
+        startedAt: 9000,
+      },
+      {
+        id: "live-b",
+        agentId: "claude",
+        acpSessionId: "proto-live-b",
+        parentConversationId: "conv-overflow",
+        status: "running",
+        startedAt: 9001,
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-marked",
+      agentId: "claude",
+      acpSessionId: "proto-marked",
+      parentConversationId: "conv-overflow",
+      startedAt: 1000,
+      completedAt: 1001,
+      status: "failed",
+      eventLogJson: "[]",
+      parentToolUseId: "tool-marked",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    fakeStoredCredential = REFUSED;
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-overflow", limit: "2" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(3);
+    expect(body.sessions[2].id).toBe("hist-marked");
+    expect(body.sessions[2].authErrorCode).toBe("acp_claude_auth_required");
+  });
+
+  test("a stale marker in the overflow is not surfaced", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-c",
+        agentId: "claude",
+        acpSessionId: "proto-live-c",
+        parentConversationId: "conv-overflow-stale",
+        status: "running",
+        startedAt: 9000,
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-stale",
+      agentId: "claude",
+      acpSessionId: "proto-stale",
+      parentConversationId: "conv-overflow-stale",
+      startedAt: 1000,
+      completedAt: 1001,
+      status: "failed",
+      eventLogJson: "[]",
+      parentToolUseId: "tool-stale",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: REFUSED,
+    });
+    fakeStoredCredential = realMarkerStore.claudeTokenDigest("sk-ant-oat-new");
+
+    const handler = getSessionsHandler();
+    const body = (await handler({
+      queryParams: { conversationId: "conv-overflow-stale", limit: "1" },
+    })) as ResponseShape;
+
+    expect(body.sessions).toHaveLength(1);
+    expect(body.sessions[0].id).toBe("live-c");
   });
 });

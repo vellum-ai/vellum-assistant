@@ -111,6 +111,7 @@ describe("normalizeSlackBlockActions", () => {
     const result = normalizeSlackBlockActions(payload, "env-1", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("button");
     expect(result!.event.sourceChannel).toBe("slack");
     expect(result!.event.message.callbackData).toBe("apr:run1:approve");
     expect(result!.event.message.callbackQueryId).toBe("trigger-123");
@@ -379,9 +380,11 @@ describe("normalizeSlackReactionAdded", () => {
     const result = normalizeSlackReactionAdded(event, "evt-1", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("reaction");
     expect(result!.event.sourceChannel).toBe("slack");
-    expect(result!.event.message.callbackData).toBe("reaction:thumbsup");
-    expect(result!.event.message.content).toBe("reaction:thumbsup");
+    expect(result!.event.message.reaction?.emoji).toBe("thumbsup");
+    expect(result!.event.message.reaction?.op).toBe("added");
+    expect(result!.event.message.content).toBe("");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.message.externalMessageId).toBe(
       "C456:1234567890.123456:thumbsup:U123",
@@ -433,9 +436,8 @@ describe("normalizeSlackReactionAdded", () => {
     const result = normalizeSlackReactionAdded(event, "evt-6", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe(
-      "reaction:white_check_mark",
-    );
+    expect(result!.event.message.reaction?.emoji).toBe("white_check_mark");
+    expect(result!.event.message.reaction?.op).toBe("added");
   });
 
   it("normalizes reactions on a non-bot-thread channel message", () => {
@@ -456,7 +458,8 @@ describe("normalizeSlackReactionAdded", () => {
     const result = normalizeSlackReactionAdded(event, "evt-expand", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe("reaction:thumbsup");
+    expect(result!.event.message.reaction?.emoji).toBe("thumbsup");
+    expect(result!.event.message.reaction?.op).toBe("added");
     expect(result!.channel).toBe("C500");
     expect(result!.threadTs).toBe("1700000000.999999");
     expect(result!.routing.assistantId).toBe("ast-1");
@@ -474,10 +477,10 @@ describe("normalizeSlackReactionRemoved", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
-    expect(result!.event.message.callbackData).toBe(
-      "reaction_removed:thumbsup",
-    );
-    expect(result!.event.message.content).toBe("reaction_removed:thumbsup");
+    expect(result!.event.message.reaction?.emoji).toBe("thumbsup");
+    expect(result!.event.message.reaction?.op).toBe("removed");
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.reaction?.op).toBe("removed");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.message.externalMessageId).toBe(
       "C456:1234567890.123456:thumbsup:U123:removed",
@@ -494,9 +497,8 @@ describe("normalizeSlackReactionRemoved", () => {
     const result = normalizeSlackReactionRemoved(event, "evt-r-2", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe(
-      "reaction_removed:white_check_mark",
-    );
+    expect(result!.event.message.reaction?.emoji).toBe("white_check_mark");
+    expect(result!.event.message.reaction?.op).toBe("removed");
   });
 
   it("returns null when user is missing", () => {
@@ -570,9 +572,8 @@ describe("normalizeSlackReactionRemoved", () => {
 
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("D789");
-    expect(result!.event.message.callbackData).toBe(
-      "reaction_removed:thumbsup",
-    );
+    expect(result!.event.message.reaction?.emoji).toBe("thumbsup");
+    expect(result!.event.message.reaction?.op).toBe("removed");
     expect(result!.event.message.externalMessageId).toBe(
       "D789:1700000000.000001:thumbsup:U123:removed",
     );
@@ -787,6 +788,7 @@ describe("Slack text rendering in normalized message content", () => {
     );
 
     expect(result).not.toBeNull();
+    expect(result!.event.source.isDirectMessage).toBe(false);
     expect(result!.event.message.content).toBe(
       "@assistant please continue in #user-feedback",
     );
@@ -1403,7 +1405,8 @@ describe("normalizeSlackMessageEdit", () => {
     const result = normalizeSlackMessageEdit(event, eventId, config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
+    expect(result!.event.message.eventKind).toBe("edit");
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.chatType).toBe("channel");
@@ -1562,8 +1565,9 @@ describe("normalizeSlackMessageDelete", () => {
     const result = normalizeSlackMessageDelete(event, "evt-del-dm", config);
 
     expect(result).not.toBeNull();
+    expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.sourceChannel).toBe("slack");
-    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.message.content).toBe("");
     expect(result!.event.message.externalMessageId).toBe("evt-del-dm");
     expect(result!.event.message.conversationExternalId).toBe("D789");
@@ -1583,7 +1587,7 @@ describe("normalizeSlackMessageDelete", () => {
     const result = normalizeSlackMessageDelete(event, "evt-del-ch", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.eventKind).toBe("delete");
     expect(result!.event.message.content).toBe("");
     expect(result!.event.message.externalMessageId).toBe("evt-del-ch");
     // source.messageId carries the original deleted message's ts
@@ -1782,7 +1786,7 @@ describe("message edit/delete tolerant validation", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("");
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
   });
 
   it("preserves unknown extra keys verbatim in an edit's raw", () => {

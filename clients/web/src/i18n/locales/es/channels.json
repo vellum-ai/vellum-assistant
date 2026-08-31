@@ -2,14 +2,15 @@
   "assistantChannelsList": {
     "drawerTitle": "Canales",
     "disconnectTitle": "¿Desconectar {channel}?",
-    "disconnectConfirm": "Desconectar",
-    "confirmFallback": "Confirmar"
+    "disconnectConfirm": "Desconectar"
   },
   "channelAdapterList": {
     "pluginChannelAria": "{channel}, de un plugin"
   },
   "connectionCard": {
     "connected": "Conectado",
+    "reconnecting": "Reconectando…",
+    "statusUnavailable": "Estado no disponible",
     "disconnecting": "Desconectando…",
     "disconnect": "Desconectar"
   },
@@ -26,7 +27,7 @@
     "connectManually": "o conectar manualmente"
   },
   "pluginChannelPanel": {
-    "openPluginPage": "Abrir la página del plugin",
+    "navigateToPluginPage": "Ir a la página del plugin",
     "ingressLoading": "Comprobando quién puede contactar con {channel}…",
     "ingressUnsupported": "La puerta de enlace de este asistente no informa de las aprobaciones de entrada, así que aquí no hay nada que decidir.",
     "ingressForbidden": "Solo el guardián de este asistente puede ver o cambiar las aprobaciones de entrada.",
@@ -34,19 +35,46 @@
     "ingressNone": "La puerta de enlace no ve ninguna declaración de entrada para {channel}, así que todavía no hay nada que aprobar.",
     "ingressApprovedTag": "Entrada aprobada",
     "ingressPendingTag": "Entrada pendiente de aprobación",
-    "approvedAddresses": "{channel} recibe mensajes en estas direcciones:",
-    "pendingAddresses": "{channel} pide recibir mensajes en estas direcciones. Hasta que lo apruebes, se rechazan las entregas:",
-    "ungovernedAddresses": "Estas direcciones están abiertas decidas lo que decidas, porque solo Vellum puede alcanzarlas:",
-    "deliversInbound": "Lo que llegue aquí se convierte en un mensaje para tu asistente, no solo en una llamada de vuelta que {channel} recibe. Quién consigue pasar lo sigue decidiendo a quién permites escribirle.",
-    "revokeIngress": "Revocar la entrada",
-    "approveIngress": "Aprobar la entrada"
+    "approveChannel": "Aprobar canal",
+    "revokeChannel": "Revocar canal",
+    "approveChannelInfo": "Aprobar este canal significa que abres el acceso a tu asistente a las solicitudes enviadas específicamente por los proveedores de este canal"
   },
   "channelTrustFloor": {
     "heading": "Quién puede escribir a {assistant}",
     "loading": "Cargando…",
     "loadFailed": "No se pudo cargar este ajuste. Prueba a volver a abrir esta página.",
     "selectAria": "Quién puede escribir a {assistant}",
-    "trustedContactsNotice": "Las personas que aún no has verificado (incluso compañeros del mismo canal) no pueden pasar: {assistant} les avisa de que necesitan verificarse y te lo notifica. Puedes verificar personas por adelantado en Contactos."
+    "trustedContactsNotice": "Las personas que aún no has verificado (incluso compañeros del mismo canal) no pueden pasar: {assistant} les avisa de que necesitan verificarse y te lo notifica. Puedes verificar personas por adelantado en Contactos.",
+    "confirmFallback": "Confirmar",
+    "noOne": {
+      "label": "Nadie",
+      "description": "Nadie puede escribir a {assistant} en este canal: se bloquean todos los mensajes, incluidos los tuyos.",
+      "confirmTitle": "¿Bloquear todos los mensajes?",
+      "confirmMessage": "Poner este canal en “Nadie” rechaza de plano todos los mensajes entrantes, incluidos los tuyos.\n\nPuedes revertirlo en cualquier momento.",
+      "confirmAction": "Bloquear todo"
+    },
+    "guardianOnly": {
+      "label": "Solo tú",
+      "description": "Solo tú puedes escribir a {assistant}. Todos los demás son rechazados."
+    },
+    "trustedContacts": {
+      "label": "Contactos verificados",
+      "description": "Tú y las personas que has verificado pueden escribir a {assistant}. A cualquier otra persona se le pide verificarse primero, y se te notifica."
+    },
+    "anyContact": {
+      "label": "Cualquier contacto",
+      "description": "Tú y cualquier contacto conocido pueden escribir a {assistant}, incluidos contactos que aún no has verificado. A los desconocidos se les pide verificarse primero.",
+      "confirmTitle": "¿Permitir cualquier contacto?",
+      "confirmMessage": "“Cualquier contacto” admite a todos los contactos detectados en este canal (incluidos los pendientes sin verificar), no solo a tus contactos verificados.\n\nIdeal para canales formados solo por personas en las que ya confías.",
+      "confirmAction": "Permitir cualquier contacto"
+    },
+    "strangers": {
+      "label": "Desconocidos",
+      "description": "Cualquiera puede escribir a {assistant}, incluidos completos desconocidos.",
+      "confirmTitle": "¿Permitir desconocidos?",
+      "confirmMessage": "¿Seguro que quieres permitir que desconocidos contacten con tu asistente por este canal?\n\nHacerlo podría costarte dinero y exponerte a vulnerabilidades de seguridad y privacidad.\n\nActívalo con extrema precaución.",
+      "confirmAction": "Permitir desconocidos"
+    }
   },
   "slackChannelTypeDefaults": {
     "heading": "Acceso predeterminado",
@@ -103,10 +131,74 @@
       "disconnectMessage": "Esto borra el token de bot de Telegram guardado para este asistente. Puedes volver a conectarlo más tarde.",
       "disconnectedPitch": "Conecta un bot de Telegram para que {assistant} pueda enviar y recibir mensajes en Telegram."
     },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "Conecta un bot de Discord para que {assistant} pueda leer y responder en tu servidor.",
+      "disconnectMessage": "Esto borra el token del bot de Discord de este asistente y el bot deja de recibir mensajes. El bot sigue en tu servidor hasta que lo elimines alli."
+    },
+    "email": {
+      "label": "Correo"
+    },
     "phone": {
       "label": "Llamadas telefónicas",
       "disconnectMessage": "Esto borra las credenciales de Twilio guardadas para este asistente. Puedes volver a conectarlo más tarde.",
       "disconnectedPitch": "Conecta tu cuenta de Twilio para que {assistant} pueda hacer y contestar llamadas."
     }
+  },
+  "emailChannelSection": {
+    "apiKeyConfigured": "Clave API de {providerName} configurada. Para reconfigurar, ejecuta la habilidad <code>{setupSkill}</code>.",
+    "connecting": "Conectando con la plataforma Vellum…",
+    "openProvider": "Abrir {providerName}",
+    "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la configuración de correo.",
+    "providerLabel": "Proveedor",
+    "saveSuccessToast": "Configuración de correo guardada.",
+    "setupInstructions": "Configura {providerName} mediante la CLI del asistente: pídele al asistente que ejecute la habilidad <code>{setupSkill}</code>. Te guiará para guardar la clave API, detectar el dominio y (opcionalmente) configurar un webhook entrante.",
+    "subtitle": "Configura cómo tu asistente envía y recibe correo",
+    "title": "Correo"
+  },
+  "emailManagedContent": {
+    "addressLabel": "Dirección",
+    "checkingSubscription": "Comprobando suscripción…",
+    "confirm": "Confirmar",
+    "create": "Crear",
+    "createEmailFailedFallback": "No se pudo crear la dirección de correo.",
+    "creating": "Creando…",
+    "domainLabel": "Dominio",
+    "domainRegisteredToast": "Dominio {domain} registrado.",
+    "domainReleaseFailedToast": "No se pudo liberar el dominio.",
+    "domainReleasedToast": "Dominio liberado.",
+    "emailAddressLabel": "Dirección de correo",
+    "emailCreatedToast": "Dirección de correo creada.",
+    "emailRemoveFailedToast": "No se pudo eliminar la dirección de correo.",
+    "emailRemovedToast": "Dirección de correo eliminada.",
+    "emailUsernameAriaLabel": "Nombre de usuario del correo",
+    "emailUsernamePlaceholder": "hola",
+    "enterSubdomainError": "Introduce un subdominio.",
+    "enterUsernameError": "Introduce un nombre de usuario de correo.",
+    "register": "Registrar",
+    "registerDomainFailedFallback": "No se pudo registrar el dominio.",
+    "registering": "Registrando…",
+    "releaseConfirm": "Liberar",
+    "releaseDomainAriaLabel": "Liberar dominio",
+    "releaseDomainConfirmMessage": "¿Seguro que quieres liberar <code>{domain}</code>? El subdominio quedará disponible para que otros lo reclamen.",
+    "releaseDomainTitle": "Liberar dominio",
+    "removeAddressFirstToast": "Elimina primero la dirección de correo.",
+    "removeConfirm": "Eliminar",
+    "removeEmailAriaLabel": "Eliminar dirección de correo",
+    "removeEmailConfirmMessage": "¿Seguro que quieres eliminar <code>{address}</code>? Tu asistente ya no podrá enviar ni recibir correo en esta dirección.",
+    "removeEmailTitle": "Eliminar dirección de correo",
+    "retry": "Reintentar",
+    "setSubdomainConfirmMessage": "<code>{subdomain}</code> también será el identificador público de tu asistente. No podrás cambiarlo una vez establecido.",
+    "setSubdomainTitle": "Establecer subdominio",
+    "subdomainExamplePlaceholder": "mi-asistente",
+    "subdomainFallback": "subdominio",
+    "subdomainHint": "Cada asistente tiene su propio subdominio. Solo letras minúsculas, números y guiones.",
+    "subdomainLabel": "Subdominio",
+    "subscriptionWarningBody": "No pudimos contactar con el servicio de facturación. El formulario siguiente asume que el correo gestionado está habilitado para tu organización. Si no lo está, registrar un dominio fallará.",
+    "subscriptionWarningTitle": "No se pudo verificar el estado de la suscripción",
+    "upgradeButton": "Mejorar plan",
+    "upgradeNoticeBody": "Mejora a un plan que incluya una dirección de correo para tu asistente. No hace falta configurar un proveedor.",
+    "upgradeNoticeTitle": "Dale a tu asistente su propia dirección de correo",
+    "usageSummary": "{sent} / {limit} enviados hoy · {received} recibidos"
   }
 }

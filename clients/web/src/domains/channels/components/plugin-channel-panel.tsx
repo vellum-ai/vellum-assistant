@@ -1,13 +1,14 @@
+import { Info, Plug } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
+import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
 import { ChannelTrustFloorSection } from "@/domains/channels/components/channel-trust-floor-section";
 import {
   useChannelIngress,
   type ChannelIngress,
-  type IngressPath,
 } from "@/domains/channels/hooks/use-channel-ingress";
 import { usePluginChannelTrustFloor } from "@/domains/channels/hooks/use-plugin-channel-trust-floor";
 import { useTranslation } from "@/i18n";
@@ -27,15 +28,11 @@ export interface PluginChannelPanelProps {
  * routes are refused until a guardian grants them and this is where someone
  * would look for that. Who may message the assistant once they are open,
  * because a plugin channel's floor seeds stricter than any other inbound
- * channel's — strict enough that a fresh install turns away its first message —
- * and this is the only surface a plugin channel has to make that an explicit
- * choice rather than a wall. And a way through to the plugin, because the built-in
+ * channel's, and this is the only surface a plugin channel has to make that
+ * an explicit choice. And a way through to the plugin, because the built-in
  * adapters each render a credential form this client knows the shape of and a
- * plugin's does not exist here: guessing one would be worse than sending the
- * guardian to the plugin, which owns its own setup surface and its own idea of
- * what "connected" means. The link sits last, under the decision, because the
- * decision is what this page can settle and the plugin page is where someone
- * goes next.
+ * plugin's does not exist here. The plugin page link is a plug icon in the
+ * corner of the card, so the decision stays the thing this page settles.
  *
  * The description is the plugin manifest's, and a manifest need not carry one,
  * so it is omitted rather than filled with copy this client invented.
@@ -51,7 +48,17 @@ export function PluginChannelPanel({
   const trustFloor = usePluginChannelTrustFloor(assistantId);
 
   return (
-    <div className="flex flex-col items-center gap-3 py-10 text-center">
+    <div className="relative flex flex-col items-center gap-3 py-10 text-center">
+      <Button
+        className="absolute top-0 right-0"
+        variant="ghost"
+        size="compact"
+        iconOnly={<Plug />}
+        tooltip={t("pluginChannelPanel.navigateToPluginPage")}
+        aria-label={t("pluginChannelPanel.navigateToPluginPage")}
+        onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}
+      />
+
       <PluginChannelIcon
         icon={channel.icon}
         className="h-8 w-8 text-[color:var(--content-secondary)]"
@@ -87,13 +94,6 @@ export function PluginChannelPanel({
           />
         </div>
       ) : null}
-
-      <Button
-        onClick={() => navigate(`/assistant/plugins/${channel.plugin}`)}
-        variant="outlined"
-      >
-        {t("pluginChannelPanel.openPluginPage")}
-      </Button>
     </div>
   );
 }
@@ -157,34 +157,20 @@ function IngressSection({ channel, ingress }: IngressSectionProps) {
 
     case "pending":
     case "approved":
-      return <IngressDecision channel={channel} ingress={ingress} />;
+      return <IngressDecision ingress={ingress} />;
   }
 }
 
 /**
- * The approve / revoke control, and what it is a decision about.
+ * The approve / revoke control, and a short explanation of what it grants.
  *
- * The addresses are listed rather than summarised: approving opens them to the
- * public internet, so what is being granted should be readable before the
- * click rather than described in the abstract.
- *
- * A declaration can carry addresses the approval does not govern, which the
- * gateway serves whether or not a guardian ever decides. Those are listed
- * apart, because folding them into the refusal would tell a guardian that
- * public ingress is closed while it is open, and because revoking will not
- * close them either.
- *
- * Whether any of them starts conversations is said outright. Opening an
- * address a plugin receives callbacks on and letting that address put messages
- * in front of the assistant are different decisions, and this is the only
- * place the second one is ever made.
+ * Approving opens the plugin's public ingress to the providers behind this
+ * channel. The grant itself is the decision; the addresses and delivery
+ * details live on the plugin page, not here.
  */
-function IngressDecision({ channel, ingress }: IngressSectionProps) {
+function IngressDecision({ ingress }: Pick<IngressSectionProps, "ingress">) {
   const { t } = useTranslation("channels");
   const approved = ingress.status === "approved";
-  const governed = ingress.paths.filter((entry) => entry.approvalGoverned);
-  const ungoverned = ingress.paths.filter((entry) => !entry.approvalGoverned);
-  const delivers = governed.some((entry) => entry.deliversInbound);
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -194,44 +180,26 @@ function IngressDecision({ channel, ingress }: IngressSectionProps) {
           : t("pluginChannelPanel.ingressPendingTag")}
       </Tag>
 
-      {governed.length > 0 ? (
-        <>
-          <Note>
-            {approved
-              ? t("pluginChannelPanel.approvedAddresses", {
-                  channel: channel.label,
-                })
-              : t("pluginChannelPanel.pendingAddresses", {
-                  channel: channel.label,
-                })}
-          </Note>
-          <PathList paths={governed} />
-          {delivers ? (
-            <Note>
-              {t("pluginChannelPanel.deliversInbound", {
-                channel: channel.label,
-              })}
-            </Note>
-          ) : null}
-        </>
-      ) : null}
-
-      {ungoverned.length > 0 ? (
-        <>
-          <Note>{t("pluginChannelPanel.ungovernedAddresses")}</Note>
-          <PathList paths={ungoverned} />
-        </>
-      ) : null}
-
-      <Button
-        onClick={approved ? ingress.revoke : ingress.approve}
-        disabled={ingress.deciding}
-        variant={approved ? "outlined" : "primary"}
-      >
-        {approved
-          ? t("pluginChannelPanel.revokeIngress")
-          : t("pluginChannelPanel.approveIngress")}
-      </Button>
+      <div className="flex items-center gap-1.5">
+        <Button
+          onClick={approved ? ingress.revoke : ingress.approve}
+          disabled={ingress.deciding}
+          variant={approved ? "outlined" : "primary"}
+        >
+          {approved
+            ? t("pluginChannelPanel.revokeChannel")
+            : t("pluginChannelPanel.approveChannel")}
+        </Button>
+        <Tooltip content={t("pluginChannelPanel.approveChannelInfo")}>
+          <span
+            tabIndex={0}
+            className="inline-flex cursor-default p-0.5 text-[color:var(--content-secondary)]"
+            aria-label={t("pluginChannelPanel.approveChannelInfo")}
+          >
+            <Info className="h-4 w-4" aria-hidden="true" />
+          </span>
+        </Tooltip>
+      </div>
 
       {ingress.error ? (
         <p
@@ -253,21 +221,5 @@ function Note({ children }: { children: React.ReactNode }) {
     >
       {children}
     </p>
-  );
-}
-
-function PathList({ paths }: { paths: IngressPath[] }) {
-  return (
-    <ul className="flex flex-col gap-1">
-      {paths.map((entry) => (
-        <li
-          key={entry.path}
-          className="font-mono text-body-small-default"
-          style={{ color: "var(--content-secondary)" }}
-        >
-          {entry.path}
-        </li>
-      ))}
-    </ul>
   );
 }

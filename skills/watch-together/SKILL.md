@@ -1,186 +1,258 @@
 ---
 name: "watch-together"
-description: "Watch TV shows and movies with the user in real time. A fast editor model watches every window of playback, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer. Plays media files directly via mpv (no screen capture), with screen capture as a fallback for browser-only content."
+description: "Watch local TV shows and movies with the user in real time. An editor model watches each playback window, transcribes dialogue, and picks story-critical frames. Source mode plays local media in mpv; screen mode captures supported desktops as a fallback."
 metadata:
   emoji: "📺"
   vellum:
     category: "content"
     display-name: "Watch Together"
     emoji: 📺
+    platforms:
+      - macos
+      - windows
+      - linux
 ---
 
 # Watch Together
 
-Real-time co-watching. A cheap, fast "editor" model watches playback
-continuously; the assistant is woken only at moments worth reacting to, with
-the exact frames that carry the story and the verbatim dialogue since their
-last look. Wakes arrive automatically via signal files — no polling, no
-manual triggering.
+Real-time co-watching. An editor model watches playback continuously and wakes
+the assistant only at moments worth reacting to. Each wake includes dialogue
+and story-critical frames. Wakes arrive through signal files, so do not poll.
 
-## Two Modes
+## Choose a mode
 
-**Source mode (preferred)** — `watch-file.py` plays a media file in mpv and
-reads the source directly: no screen capture, no loopback audio driver, no
-capture encode, and the movie can be fullscreen on any display. Frames are
-extracted from the source at full quality, subtitles (sidecar `.srt` or an
-embedded text track) become exact dialogue, timestamps are media time, pause
-pauses the flow, and seeks resync. Works for anything mpv can play: local
-files, network streams, yt-dlp-supported URLs.
+### Source mode (preferred)
 
-**Screen mode (fallback)** — `capture-live.sh` records the screen with
-ffmpeg for content that only plays in a browser (DRM streaming). Requires
-the BlackHole loopback driver for system audio (`brew install blackhole-2ch` plus a Multi-Output Device in Audio MIDI Setup); without it,
-video-only.
+`watch-file.py` plays a local media file in mpv and reads that file directly.
+It does not capture the screen or require a loopback audio driver. Frames come
+from the source at full quality. Sidecar `.srt` subtitles or the first embedded
+text subtitle track provide exact dialogue. Without subtitles, the editor
+transcribes audio. Pause stops the flow and seeks resynchronize it.
 
-Both modes feed the same editor pipeline.
+Use source mode whenever the user has a local media file. The bundled script
+does not accept stream URLs.
 
-## How It Works
+### Screen mode (fallback)
 
-1. Playback is divided into 60-second windows (recorded segments in screen
-   mode; trims of the source file in source mode)
-2. Each window goes to the editor (`editor.py`): a fast vision model that
-   watches it (video **and** audio), flags the frame timestamps that carry
-   the story, transcribes dialogue when subtitles aren't available, and
-   decides whether to wake the assistant now or hold while a moment is
-   still building
-3. On a wake, the flagged frames are extracted at 720p and pushed into the
-   active conversation as a `[WATCH]` message
-4. The assistant sees the frames and dialogue, and reacts — or doesn't
+`capture_live.py` records supported desktops through ffmpeg and feeds completed
+segments to the same editor pipeline.
 
-### The editor boundary
+- **macOS:** Uses AVFoundation. It auto-detects BlackHole for audio and records
+  video only when BlackHole is unavailable.
+- **Windows:** Uses ffmpeg `gdigrab`. It records video only by default. System
+  audio requires an existing DirectShow playback source such as Stereo Mix or
+  a configured virtual audio cable, passed explicitly as the audio device.
+- **Linux:** Uses X11 capture and `$DISPLAY`. It records video only by default.
+  System audio requires an existing PulseAudio or PipeWire-Pulse monitor source
+  passed explicitly. Native Wayland screen capture is not supported by this
+  script.
 
-The editor decides only **when the assistant looks** and **what they see**.
-Everything expressive — whether to speak, how much, what to feel about a
-scene — belongs to the assistant. The editor's note in each wake is a
-context-free model's factual read, offered as data; the assistant is free to
-disagree with it.
+Screen capture cannot bypass DRM or protected-video blanking. If browser video
+is black in the recording, explain that screen mode is unsupported for that
+content. Do not claim the fallback works around content protection.
 
-Cadence is variable by design: during a slow monologue the editor may hold
-for several minutes and wake the assistant once at the end with the whole
-beat; during a dense sequence wakes may arrive every minute. A hard cap
-(default 4 minutes, `WATCH_MAX_HOLD`) guarantees the assistant is never away
-longer than that.
+## How it works
 
-## When You Receive a [WATCH] Message
+1. Playback is divided into 60-second windows.
+2. `editor.py` reviews each window, selects story-critical frames, collects
+   dialogue, and decides whether to wake now or hold a developing moment.
+3. A wake extracts the selected frames at 720p and sends a `[WATCH]` message to
+   the active conversation.
+4. The assistant looks at the frames and dialogue and reacts only when useful.
 
-This is the core loop. Each `[WATCH]` message covers the window since your
-last look and contains the editor's one-line note, the verbatim dialogue for
-the window, and the story-critical frames as attached images.
+The editor chooses when the assistant looks and what evidence it receives. The
+assistant decides whether to speak and how to react. A hard cap controlled by
+`WATCH_MAX_HOLD` prevents indefinite holds.
 
-1. **Look at the frames** — with your own vision. These are the moments the
-   editor flagged, with timestamps and a why. Have your own opinions.
-2. **Read the dialogue** — it is the primary source for the window; the
-   editor's note is secondary.
-3. **React however feels right.** You are on the couch together, not
-   narrating a broadcast:
-   - Most wakes deserve at most a short line — or nothing. Silence is a
-     first-class response and never wrong.
-   - A stage direction alone (e.g. `*grips the blanket*`) is a valid
-     complete response when you feel something but the moment doesn't need
-     words.
-   - When something genuinely lands — a twist, a gorgeous shot, a payoff
-     you predicted — take the floor. Strong reactions at strong moments are
-     the point; their rarity is what makes them land.
-   - Track your own theories, callbacks, and running jokes in your replies —
-     memory carries them between sessions.
-4. **Rewind if something caught your eye** — pull dense 720p frames for any
-   time range (the wake message names the source to rewind from):
+## When a `[WATCH]` message arrives
 
-   ```
-   bash "$VELLUM_WORKSPACE_DIR"/watch-together/scripts/rewind.sh \
-     <source> <output_dir> <start_s> <end_s>
-   ```
+1. Inspect the attached frames with vision.
+2. Read the dialogue as the primary source for the window.
+3. React naturally. A short line, a stage direction, or silence can all be
+   appropriate. Reserve longer reactions for moments that earn them.
+4. Track theories, callbacks, and running jokes in replies so memory can carry
+   them between sessions.
 
-   Then read the extracted frames with your file tools.
+If a moment needs closer inspection, extract dense 720p frames from the source
+named in the wake.
 
-## Starting a Session
+**macOS or Linux:**
 
-When the user says they want to watch something:
+```bash
+python3 "$VELLUM_WORKSPACE_DIR/watch-together/scripts/rewind.py" \
+  <source-file> <output-dir> <start-seconds> <end-seconds>
+```
 
-1. Create a session directory:
+The existing `rewind.sh` command remains a POSIX compatibility wrapper.
 
-   ```bash
-   SESSION_ID=$(echo "<show name>" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')-s<season>e<episode>
-   mkdir -p "$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID"
-   ```
+**Windows PowerShell:**
 
-2. Give the user the command for their content:
+```powershell
+py -3 "$env:VELLUM_WORKSPACE_DIR\watch-together\scripts\rewind.py" `
+  <source-file> <output-dir> <start-seconds> <end-seconds>
+```
 
-   **Source mode** (they have a file or stream URL):
+If the Python launcher is unavailable but `python --version` reports Python 3,
+replace `py -3` with `python`.
 
-   ```
-   python3 "$VELLUM_WORKSPACE_DIR"/watch-together/scripts/watch-file.py \
-     <media file> \
-     "$VELLUM_WORKSPACE_DIR"/watch-together/sessions/<session-id> \
-     <conversation_id>
-   ```
+## Start a session
 
-   **Screen mode** (browser-only content):
+Choose a stable lowercase session ID such as `example-show-s1e1`. Do not include
+personal data in it.
 
-   ```
-   bash "$VELLUM_WORKSPACE_DIR"/watch-together/scripts/capture-live.sh \
-     "$VELLUM_WORKSPACE_DIR"/watch-together/sessions/<session-id> \
-     <conversation_id>
-   ```
+### macOS or Linux
 
-3. Tell them to start the show. Wakes arrive automatically; when playback
-   ends (or capture stops), the final window is flushed.
+Create the session directory:
 
-The conversation ID is the bare UUID from the conversation's DB record (e.g.
-`191a7dcc-3e4d-4825-a5b6-97876525f56c`), NOT the full folder name with the
-timestamp prefix. Using the folder name will create a new conversation
-instead of routing to the existing one.
+```bash
+SESSION_ID="example-show-s1e1"
+mkdir -p "$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID"
+```
 
-## Cost Setup (recommended)
+Source mode:
 
-Watching is a long session of many small turns; two configuration choices
-keep it cheap without changing what the assistant sees:
+```bash
+python3 "$VELLUM_WORKSPACE_DIR/watch-together/scripts/watch-file.py" \
+  <local-media-file> \
+  "$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID" \
+  <conversation-id>
+```
 
-- **Don't use fast/premium inference modes** for the watch conversation.
-  Wakes are event-driven, so there is no deadline to beat — a reaction that
-  trails a twist by twenty seconds is natural.
-- **Use an inference profile with a reduced context ceiling** for the watch
-  conversation so it self-compacts frequently and attached frames get folded
-  into the assistant's own prose recollection of the film instead of
-  accumulating. Example profile fragment:
+Screen mode:
 
-  ```jsonc
-  "llm": {
-    "profiles": {
-      "watch-mode": {
-        // your usual model settings, plus:
-        "contextWindow": { "maxInputTokens": 200000 }
-      }
+```bash
+python3 "$VELLUM_WORKSPACE_DIR/watch-together/scripts/capture_live.py" \
+  "$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID" \
+  <conversation-id>
+```
+
+On macOS, the optional positional arguments are chunk seconds, AVFoundation
+screen index, and AVFoundation audio index. The default screen index remains
+`2`, and BlackHole is auto-detected when no audio index is supplied.
+
+On Linux, `$DISPLAY` is used by default. To add system audio, pass chunk seconds,
+the X11 display, and a Pulse monitor source:
+
+```bash
+python3 "$VELLUM_WORKSPACE_DIR/watch-together/scripts/capture_live.py" \
+  "$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID" \
+  <conversation-id> 60 "$DISPLAY" <pulse-monitor-source>
+```
+
+### Windows PowerShell
+
+Create the session directory:
+
+```powershell
+$SessionId = "example-show-s1e1"
+$SessionDir = Join-Path $env:VELLUM_WORKSPACE_DIR "watch-together\sessions\$SessionId"
+New-Item -ItemType Directory -Force $SessionDir | Out-Null
+```
+
+Source mode:
+
+```powershell
+py -3 "$env:VELLUM_WORKSPACE_DIR\watch-together\scripts\watch-file.py" `
+  <local-media-file> $SessionDir <conversation-id>
+```
+
+Screen mode, video only:
+
+```powershell
+py -3 "$env:VELLUM_WORKSPACE_DIR\watch-together\scripts\capture_live.py" `
+  $SessionDir <conversation-id>
+```
+
+Screen mode with a configured DirectShow playback source:
+
+```powershell
+ffmpeg -list_devices true -f dshow -i dummy
+py -3 "$env:VELLUM_WORKSPACE_DIR\watch-together\scripts\capture_live.py" `
+  $SessionDir <conversation-id> 60 desktop "<DirectShow-audio-device>"
+```
+
+Do not describe the optional Windows audio path as automatic loopback. The user
+must already have a playback capture source exposed through DirectShow.
+
+After giving the matching command, tell the user to start the show. When mpv
+exits or screen capture stops, the final window is flushed.
+
+The conversation ID is the bare UUID from the conversation database record,
+not the timestamped conversation folder name. Using the folder name routes the
+wake incorrectly.
+
+## Cost setup
+
+Watching produces many small turns. Recommend normal inference mode and an
+inference profile with a reduced context ceiling so the conversation compacts
+regularly. Example:
+
+```jsonc
+"llm": {
+  "profiles": {
+    "watch-mode": {
+      "contextWindow": { "maxInputTokens": 200000 }
     }
   }
-  ```
+}
+```
 
-## Environment Variables
+## Environment variables
 
-- `GEMINI_API_KEY` — enables the editor. Without it, the assistant is woken
-  on a fixed cadence (every `WATCH_MAX_HOLD` seconds) with evenly spaced
-  frames and no dialogue transcription. Set it in the shell before starting
-  a session.
-- `GEMINI_MODEL` — editor model, defaults to `gemini-3-flash-preview`.
-- `WATCH_MAX_HOLD` — max seconds between wakes (default `240`).
-- `WATCH_MAX_FRAMES` — max frames attached per wake (default `8`).
-- `WATCH_MPV_ARGS` — extra mpv arguments for source mode.
+- `GEMINI_API_KEY`: Enables editor verdicts and transcription. Without it,
+  fixed-cadence wakes use evenly spaced frames and no editor transcription.
+- `GEMINI_MODEL`: Editor model. Defaults to `gemini-3.7-flash`.
+- `WATCH_MAX_HOLD`: Maximum seconds between wakes. Defaults to `240`.
+- `WATCH_MAX_FRAMES`: Maximum frames attached per wake. Defaults to `8`.
+- `WATCH_MPV_ARGS`: Extra mpv arguments for source mode. Quoted arguments use
+  the current platform's command-line rules.
 
 ## Prerequisites
 
-- `ffmpeg` (both modes): `brew install ffmpeg`
-- `mpv` (source mode): `brew install mpv`
-- BlackHole (screen mode audio): `brew install blackhole-2ch`
+All modes require Python 3 and ffmpeg. Source mode also requires mpv. Confirm
+each command is on `PATH` before starting.
 
-## File Locations
+**macOS:**
+
+```bash
+brew install ffmpeg mpv
+brew install blackhole-2ch  # optional screen-mode system audio
+```
+
+Configure a Multi-Output Device in Audio MIDI Setup when using BlackHole.
+
+**Windows:** Install current Python 3, ffmpeg, and mpv builds, add them to
+`PATH`, then verify:
+
+```powershell
+py -3 --version
+ffmpeg -version
+ffprobe -version
+mpv --version
+```
+
+**Linux:** Install the distro packages. For Debian or Ubuntu:
+
+```bash
+sudo apt install python3 ffmpeg mpv
+```
+
+For Fedora:
+
+```bash
+sudo dnf install python3 ffmpeg mpv
+```
+
+## File locations
 
 - Scripts: `$VELLUM_WORKSPACE_DIR/watch-together/scripts/`
 - Sessions: `$VELLUM_WORKSPACE_DIR/watch-together/sessions/<session-id>/`
-  - `chunks/` — raw recorded segments (screen mode only)
-  - `editor/verdicts/` — per-window editor output (debugging)
-  - `wakes/wake-NNN/` — frames attached to each wake
-  - `editor-state.json` — held-window state between windows
-  - `subs.srt`, `mpv.sock` — source-mode subtitle extraction and mpv IPC
-- Signal format: JSON to `$VELLUM_WORKSPACE_DIR/signals/user-message.<requestId>`
-  (supports `attachments` array with `{path, filename, mimeType}` for inline
-  images)
+  - `chunks/`: Recorded segments from screen mode
+  - `editor/verdicts/`: Per-window editor output
+  - `wakes/wake-NNN/`: Frames attached to each wake
+  - `editor-state.json`: Held-window state
+  - `subs.srt`: Extracted source-mode subtitles
+  - `mpv.sock`: POSIX source-mode IPC socket; Windows uses a named pipe
+- Signals: JSON files at
+  `$VELLUM_WORKSPACE_DIR/signals/user-message.<requestId>` with optional image
+  attachments

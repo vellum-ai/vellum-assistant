@@ -40,7 +40,23 @@ The script outputs JSON: `{ "configured": boolean, "details": string, "error"?: 
   - `cli_not_found` means the `assistant` command is missing from this environment's PATH. That is an installation problem. Report it as one, quote `details`, and stop.
   - `cli_failed` or `unparseable_output` means the CLI ran but did not answer usefully. Report `details` verbatim and stop.
 - If `configured` is `true` — Discord is already set up. Offer to verify the connection or reconfigure.
-- If `configured` is `false` with no `error`, the check ran and found no token. Continue to Step 1.
+- If `configured` is `false` with no `error`, the check ran and found no token. Continue to Step 0.5.
+
+## Step 0.5: Prefer the In-Product Wizard
+
+If an interactive client is connected, call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "discord" }`. This opens the Discord setup wizard in the side panel: create the app, connect the token through a masked field, and add the bot to a server, all without the token entering chat. The wizard is non-blocking and auto-notifies you when it is closed.
+
+⚠️ **Tool call first, announcement second, in the same turn.** Do not claim the wizard is open until the `ui_show` call has returned success. After success, tell the user:
+
+> I've opened the Discord setup wizard in the side panel. It walks you through creating the app, connecting its bot token, and adding the bot to a server. It will notify me when you close it; ask me here if you hit a snag.
+
+When the wizard-closed notification arrives, re-run the Step 0 check script to confirm a token was stored. A stored token completes Steps 1 through 4; the invite (Step 5) happens on the wizard's last step, and closing the panel does not prove it happened. Ask the user directly:
+
+> Did you add the bot to a server on the wizard's last step? If not, I can give you the install link again.
+
+If they did not, run the Step 5 invite script and have them complete it before continuing. Only then continue at Step 6 (identity verification). Do not mark setup complete while the bot is in no server.
+
+If `ui_show` fails (no interactive client, or the surface is rejected), fall back to the chat-guided flow below: it collects the token through the secure credential prompt instead.
 
 ## Step 1: Create the Discord Application
 
@@ -49,6 +65,12 @@ Tell the user:
 > Open **https://discord.com/developers/applications** and click **New Application** in the top-right. Give it a name (this is how the bot appears to users) and accept the Developer Terms of Service. After creation you'll land on the application's **General Information** page.
 
 Wait for the user to confirm they've created the app before proceeding. Discord does not support manifest-based creation — the rest of the configuration happens step by step in the portal.
+
+**Offer the assistant's avatar as the app icon.** General Information is where Discord takes one, so this is the moment to mention it; the wizard path in Step 0.5 shows the same thing on its own create step. The rendered PNG sits at `$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png` and is 512x512 for a character avatar. Tell the user:
+
+> While you're on **General Information**, you can set the bot's icon to your assistant's avatar. I can point you at the file if you'd like it.
+
+Skip this if the assistant has no avatar set. It is cosmetic, so do not block setup on it.
 
 ## Step 2: Configure the Bot User
 
@@ -119,13 +141,20 @@ Run:
 bun skills/discord-app-setup/scripts/print-invite-url.ts
 ```
 
-This calls `GET /oauth2/applications/@me` with the stored bot token to discover the application ID, then prints a URL of the form:
+This calls `GET /oauth2/applications/@me` with the stored bot token to discover the application and prints the invite URL. Which URL depends on the app:
+
+- **The app has Default Install Settings** (configured on the portal's Installation page): the URL carries only the client ID, so the grant is whatever those settings say. This is Discord's current model, and it means a person who edits those settings sees their edit take effect instead of being silently overridden by parameters in the URL. Because those settings now own the grant, the script re-checks them: it refuses to print a URL when they omit the `bot` scope (installing would add no bot user at all), and it warns on stderr when they request scopes this integration never uses, grant Administrator, or omit permissions the integration exercises. `gdm.join` in particular would let the bot join group DMs, which inbound handling treats as private DMs. Have the user make the named edit on the Installation page rather than proceeding past a warning.
+- **No Default Install Settings**: the URL spells out the grant itself:
 
 ```
-https://discord.com/oauth2/authorize?client_id=<APP_ID>&permissions=277025770560&scope=bot+applications.commands
+https://discord.com/oauth2/authorize?client_id=<APP_ID>&permissions=277025770560&scope=bot
 ```
+
+The `applications.commands` scope is not requested separately: Discord includes it with the `bot` scope, and nothing here registers a command.
 
 The default permission integer (`277025770560`) covers: View Channels, Send Messages, Send Messages in Threads, Embed Links, Attach Files, Read Message History, Add Reactions, Use External Emojis, and Use Slash Commands. It deliberately **does not** include Administrator, Manage Channels, Manage Roles, Manage Threads, Create Public Threads, Kick/Ban Members, or Mention Everyone — request more only if a downstream feature requires it, and document the reason.
+
+When Default Install Settings exist, the same least-privilege bar applies to what the user configures there.
 
 Direct the user:
 
@@ -163,34 +192,31 @@ Discord connected.
 Connected: {bot_username} (application: {application_name})
 Intents: Guilds, Guild Messages, Direct Messages (no privileged intents)
 
-⚠️ The bot will not respond yet. It only acts in channels you explicitly
-   allow, and that list starts empty.
+Ready. Mention the bot in any channel it can see and it will reply
+(for senders its admission policy accepts; see below when verification
+was skipped).
 ```
 
-Then tell the user how to finish:
+Then tell the user how it is scoped:
 
-> In a server the bot replies only when it is **@mentioned in an allow-listed channel**. The allow-list is empty by default, which means it currently ignores everything there, and being invited to a server is not consent to every channel in it.
->
-> DMs are separate: the bot can be messaged directly without any allow-list entry, because a DM is already addressed to it alone. Who it answers in a DM is still governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
->
-> To allow a channel: enable Developer Mode in Discord (**User Settings → Advanced → Developer Mode**), right-click the channel and choose **Copy Channel ID**, then run:
->
-> ```bash
-> assistant config set discord.allowedChannelIds '["<channel id>"]'
-> ```
->
-> Pass the full list to allow more than one channel. Once a channel is on the list, mention the bot there and it will reply.
+> In a server the bot replies when it is **@mentioned in a channel it can see**. Which channels those are is Discord's own setting, not ours: a bot reads a channel only where its role has **View Channel**, exactly as it would for a person.
 
-Two things still gate a reply after that, and are worth naming if the bot stays silent: the mention itself (it does not respond to unmentioned messages), and the channel's admission policy, which by default admits trusted contacts rather than anyone in the server.
+If identity verification was skipped in Step 6, also say so plainly: the default Who-can-message policy admits trusted contacts, so until the user verifies (or the guardian widens the Discord policy in Channels), the bot will see mentions but decline to answer them. Do not present a skipped verification as a fully working setup.
+
+> To keep it out of a channel, deny **View Channel** to the bot's role there, or move the bot's role so it does not have access to a category. To let it in, grant the same permission. Discord's channel settings are the one place that lives, so there is nothing to configure on our side.
+>
+> DMs are separate: the bot can be messaged directly, because a DM is already addressed to it alone. Who it answers there is governed by the channel's admission policy, which admits trusted contacts rather than anyone who shares a server with it.
+
+Two things gate a reply and are worth naming if the bot stays silent: the mention itself (it does not respond to unmentioned messages), and the channel's admission policy, which by default admits trusted contacts rather than anyone in the server.
 
 ## Implementation Rules
 
-- All token collection goes through the assistant's secure credential prompt via `scripts/store-bot-token.ts`. Do NOT ask the user to paste the token in chat.
+- All token collection goes through a masked secure path: the in-product wizard (`ui_show` with `surface_type: "channel_setup"`), or the secure credential prompt via `scripts/store-bot-token.ts` in the chat-guided fallback. Do NOT ask the user to paste the token in chat.
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn. Wait for the user to confirm completion before moving on.
 - **Do NOT collect the bot token before Step 3.** The token is shown once and cannot be retrieved later, so it must be collected in the same turn the user generates it, with the secure prompt already open.
 - **Do NOT request the `Administrator` permission** on the OAuth invite URL. The default permission integer was chosen with the principle of least privilege — only request more if a downstream feature explicitly requires it, and document why.
 - **Do NOT enable any privileged intent.** The client identifies with `GUILDS`, `GUILD_MESSAGES`, and `DIRECT_MESSAGES` only, all three non-privileged, and nothing reads presence, member, or non-mention guild-message events. Enabling one grants access the software never uses and opts the app into Discord's privileged-intent review past 10,000 users.
-- **Do NOT claim the bot can reply once setup finishes.** It goes online, and looks working, while ignoring every message until a channel is on `discord.allowedChannelIds`. Always report that gap (Step 7).
+- **Do NOT claim the bot replies everywhere once setup finishes.** It answers only where it is @mentioned, in channels Discord lets it see. Say which server it joined rather than implying the whole account is wired up (Step 7).
 - **Do NOT instruct the user to set an Interactions Endpoint URL.** Gateway-connected bots receive interactions over the WebSocket — the HTTP endpoint is only needed for HTTP-only interaction handlers.
 - **Do NOT end setup without offering identity verification.** A connected bot that recognises nobody treats its own owner as a stranger. Step 6 is a skip the user declines explicitly, never one taken on their behalf.
 - **Do NOT persist the application ID, public key, or bot user metadata** anywhere outside the credential vault. They are derivable from the bot token on demand and persisting them risks staleness after a token reset.

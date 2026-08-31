@@ -13,8 +13,8 @@ import {
   type LockfileAssistant,
 } from "@vellumai/local-mode/contract";
 import {
-  COMPANION_SIZES,
   type CompanionSize,
+  type CompanionSizeAxis,
   type VellumCommand,
 } from "@vellumai/ipc-contract";
 
@@ -29,7 +29,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
-import { COMPANION_SIZE_LABELS } from "./companion-menu";
+import { companionSizeSubmenus } from "./companion-menu";
 
 export type TrayMenuIcon =
   | "check"
@@ -54,8 +54,8 @@ export interface TrayModelRuntime {
    */
   companionSupported: () => boolean;
   companionHidden: () => boolean;
-  /** Which named size the companion surface is drawn at. */
-  companionSize: () => CompanionSize;
+  /** Which named size one axis of the companion surface is drawn at. */
+  companionSize: (axis: CompanionSizeAxis) => CompanionSize;
   dispatch: (command: VellumCommand) => void;
   featureEnabled: (flag: string) => boolean;
   getLockfile: () => Lockfile;
@@ -64,7 +64,7 @@ export interface TrayModelRuntime {
   openComponentGallery: () => void;
   removePairedLabel: string;
   setCompanionVisible: (visible: boolean) => void;
-  setCompanionSize: (size: CompanionSize) => void;
+  setCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
 }
 
 let runtime: TrayModelRuntime | null = null;
@@ -374,27 +374,18 @@ const buildTrayMenu = (
               trayRuntime.setCompanionVisible(item.checked);
             },
           },
-          {
-            // Named steps rather than a slider, because the avatar's box is not
-            // a style: the canvas, the pill's reach and the card's height are
-            // all derived from it, so a continuous scale would be a layout
-            // nobody had ever looked at. Radio items, since the sizes are one
-            // choice and the menu has to show which one is in effect.
-            //
-            // Disabled rather than hidden while the surface is hidden: the item
-            // says the size is still something the companion has, and an item
-            // that comes and goes with the checkbox above it reads as a bug.
-            label: "Companion Size",
-            enabled: !trayRuntime.companionHidden(),
-            submenu: COMPANION_SIZES.map((size) => ({
-              label: COMPANION_SIZE_LABELS[size],
-              type: "radio" as const,
-              checked: trayRuntime.companionSize() === size,
-              click: () => {
-                trayRuntime.setCompanionSize(size);
-              },
-            })),
-          },
+          // The size pickers the surface's own right-click offers too, from the
+          // one builder both read. Disabled rather than hidden while the
+          // surface is: items that came and went with the checkbox above them
+          // would read as a bug.
+          ...companionSizeSubmenus(
+            {
+              avatar: trayRuntime.companionSize("avatar"),
+              options: trayRuntime.companionSize("options"),
+            },
+            trayRuntime.setCompanionSize,
+            { enabled: !trayRuntime.companionHidden() },
+          ),
         ]
       : []),
     { type: "separator" },

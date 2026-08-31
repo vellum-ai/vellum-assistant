@@ -10,6 +10,7 @@ import {
 } from "./render-text.js";
 import { slackUserActorFields, slackBotSenderInfo } from "./actor.js";
 import { extractSlackAttachments, extractSlackFileMap } from "./attachments.js";
+import type { ChannelConversationType } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
@@ -31,12 +32,23 @@ export function isIgnoredSlackMessageSubtype(
 
 /** The per-event-type differences across the plain-message normalizers. */
 type SlackMessageShape = {
-  /** `source.chatType`; omitted for `app_mention`. */
+  /**
+   * `source.chatType`; omitted for `app_mention`, which Slack sends without
+   * saying which kind of room it came from. `group` is Slack's word for a
+   * private channel, forwarded distinctly so the permission matrix can tell a
+   * private room from a public one.
+   */
   chatType?: "im" | "channel" | "mpim";
   /** Stamp the sender's workspace id onto the actor (channel + app_mention). */
   stampTeam: boolean;
   /** Reply in the message's own ts when it has no `thread_ts` (channel + app_mention). */
   fallbackThreadToTs: boolean;
+  /**
+   * Readership override for events whose surface is known without a
+   * `chatType`: an `app_mention` proves a room (mentions happen where other
+   * people are) even though Slack names no room kind for it.
+   */
+  isDirectMessage?: boolean;
 };
 
 /**
@@ -104,6 +116,7 @@ function buildNormalizedSlackMessage(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "message",
         content,
         conversationExternalId: channel,
         externalMessageId,
@@ -119,6 +132,21 @@ function buildNormalizedSlackMessage(
         updateId: eventId,
         messageId: event.ts,
         ...(shape.chatType ? { chatType: shape.chatType } : {}),
+        // A Slack `im` has one human reader; `channel` and `mpim` have many,
+        // and an app_mention proves a room without naming its kind. Stated
+        // only where the surface is proven, never guessed.
+        ...(shape.isDirectMessage !== undefined
+          ? { isDirectMessage: shape.isDirectMessage }
+          : shape.chatType
+            ? { isDirectMessage: shape.chatType === "im" }
+            : {}),
+        ...(() => {
+          const conversationType = slackConversationVisibility(
+            channel,
+            event.channel_type,
+          );
+          return conversationType ? { conversationType } : {};
+        })(),
         ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
         ...(appContext ? { appContext } : {}),
       },
@@ -184,7 +212,7 @@ export function normalizeSlackDirectMessage(
  * addressed to its participants, so no @-mention or tracked thread is needed)
  * but forwards `chatType: "mpim"` rather than collapsing it to `im`. The
  * daemon reads that value directly: `isGroupChatType` injects group-chat
- * etiquette for it, and `mapChatTypeToConversationType` resolves it to the
+ * etiquette for it, and `slackConversationVisibility` resolves it to the
  * `private` permission-matrix cell. Reporting `im` for a multi-party room
  * would suppress the etiquette and select the looser `dm` cell.
  *
@@ -228,6 +256,43 @@ export function normalizeSlackGroupDirectMessage(
     botToken,
     renderContext,
   );
+}
+
+/**
+ * How visible a Slack conversation is, on the permission matrix's axis.
+ *
+ * Deliberately separate from `chatType`, which stays the multi-party question
+ * every non-DM answers as `channel`. Splitting visibility onto its own field is
+ * what keeps this from changing the meaning of a word the daemon already gates
+ * thread focus and group etiquette on.
+ *
+ * Three signals, because none is always present. `channel_type` is
+ * authoritative but Slack omits it on thread replies, edits and deletes. A `G`
+ * prefix marks a private channel and is always there. A modern multi-person IM
+ * is minted with a plain `C` and would otherwise read as a public room, so the
+ * observed-kind cache settles the case the other two cannot.
+ *
+ * Anything unproven resolves private rather than public: a permissive
+ * public-channel rule must never reach a room nobody vouched for.
+ *
+ * @see https://api.slack.com/types/conversation
+ */
+export function slackConversationVisibility(
+  channelId: string | undefined,
+  channelType?: string,
+): ChannelConversationType | undefined {
+  if (channelType === "im") return "dm";
+  if (channelType === "group" || channelType === "mpim") return "private";
+  if (typeof channelId !== "string") return undefined;
+  if (channelId.startsWith("D")) return "dm";
+  if (channelId.startsWith("G")) return "private";
+  if (channelType === "channel") return "public";
+  // A `C` proves nothing on its own: a modern multi-person IM is minted with
+  // one, so claiming public here would hand a group DM a public-channel rule.
+  // Answering nothing hands it to the caller, which resolves it against Slack
+  // before the event is emitted. This stays free of I/O so it can run on every
+  // inbound event.
+  return undefined;
 }
 
 /**
@@ -301,7 +366,7 @@ export function normalizeSlackAppMention(
     routing,
     msg.channel,
     msg.user,
-    { stampTeam: true, fallbackThreadToTs: true },
+    { stampTeam: true, fallbackThreadToTs: true, isDirectMessage: false },
     botToken,
     renderContext,
   );

@@ -116,6 +116,13 @@ export interface ComboboxRootProps extends Omit<
    * to say nothing.
    */
   announceResults?: (count: number) => string;
+  /**
+   * The count the live region reports, when it is not `options.length`. A
+   * list that walks rows which are not matches (a pinned "enter a custom
+   * value" action) would otherwise announce one result more than it found,
+   * and announce "1 result" for a query that matched nothing.
+   */
+  announceCount?: number;
   children?: ReactNode;
 }
 
@@ -132,6 +139,7 @@ function Root({
   onOpenChange,
   autoActivateFirst = false,
   announceResults = defaultAnnouncement,
+  announceCount,
   className,
   children,
   ...rest
@@ -230,18 +238,19 @@ function Root({
   // keystroke is noise, and a closed list has nothing to report.
   const [announcement, setAnnouncement] = useState("");
   const lastAnnouncedCount = useRef<number | null>(null);
+  const reportedCount = announceCount ?? options.length;
   useEffect(() => {
     if (!isOpen) {
       lastAnnouncedCount.current = null;
       setAnnouncement("");
       return;
     }
-    if (lastAnnouncedCount.current === options.length) {
+    if (lastAnnouncedCount.current === reportedCount) {
       return;
     }
-    lastAnnouncedCount.current = options.length;
-    setAnnouncement(announceResults(options.length));
-  }, [isOpen, options.length, announceResults]);
+    lastAnnouncedCount.current = reportedCount;
+    setAnnouncement(announceResults(reportedCount));
+  }, [isOpen, reportedCount, announceResults]);
 
   const context = useMemo<ComboboxContextValue>(
     () => ({

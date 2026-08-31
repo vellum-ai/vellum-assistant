@@ -2,11 +2,14 @@ import type {
   RemoteWebPairingTokenApprovedResponse,
   RemoteWebPairingTokenPendingResponse,
 } from "@vellumai/service-contracts/remote-web-pairing";
+import { resolveRemoteWebPairingPlatform } from "@vellumai/service-contracts/remote-web-pairing";
 
+import type { RefreshableTokenPair } from "../../auth/guardian-bootstrap.js";
 import {
   ensureVellumGuardianBinding,
   getExternalAssistantId,
   mintAndRecordBrowserTokenPair,
+  mintAndRecordDeviceBoundTokenPair,
   VellumGuardianMintRefusedError,
 } from "../../auth/guardian-bootstrap.js";
 import {
@@ -19,9 +22,13 @@ import {
   remoteWebRefreshCookiePathForPublicBaseUrl,
 } from "../browser-auth-cookies.js";
 import { errorResponse } from "../loopback-guard.js";
-import { methodNotAllowed, readJsonStringField } from "../route-helpers.js";
+import {
+  jsonStringField,
+  methodNotAllowed,
+  readJsonObjectBody,
+} from "../route-helpers.js";
 
-const MAX_TOKEN_BODY_BYTES = 512;
+const MAX_TOKEN_BODY_BYTES = 1024;
 const REMOTE_WEB_PLATFORM = "web";
 
 /** Token-exchange JSON responses, errors included, are never cacheable. */
@@ -47,14 +54,29 @@ export async function handleRemoteWebPairingToken(
     return methodNotAllowed("POST");
   }
 
-  const deviceCode = await readJsonStringField(
-    req,
-    MAX_TOKEN_BODY_BYTES,
-    "deviceCode",
-  );
-  if (deviceCode instanceof Response) {
-    return noStore(deviceCode);
+  const body = await readJsonObjectBody(req, MAX_TOKEN_BODY_BYTES);
+  if (body instanceof Response) {
+    return noStore(body);
   }
+  const deviceCode = jsonStringField(body, "deviceCode");
+  if (!deviceCode) {
+    return noStore(errorResponse("BAD_REQUEST", "deviceCode is required", 400));
+  }
+  // Sent by a trusted host exchanging for itself, never by a browser. The
+  // device code is the credential either way; the id only selects per-device
+  // revocability and body-delivered refresh.
+  const deviceId = jsonStringField(body, "deviceId");
+  // A blank deviceId is a client bug, not a browser exchange: falling through
+  // to the cookie path would hand a host a credential it cannot read.
+  if (deviceId === null && typeof body.deviceId === "string") {
+    return noStore(
+      errorResponse("BAD_REQUEST", "deviceId must not be blank", 400),
+    );
+  }
+  // The single discriminator for both minting and delivery. Everything the
+  // browser path needs beyond it is data, never the branch condition.
+  const deviceBound = deviceId !== null;
+  const clientReportedName = jsonStringField(body, "clientReportedName");
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
   if (challenge.status === "pending") {
@@ -76,18 +98,40 @@ export async function handleRemoteWebPairingToken(
     return invalidDeviceCodeResponse();
   }
 
-  const refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(
-    challenge.publicBaseUrl,
-  );
+  // The exchange request's own User-Agent, not the challenge's stored
+  // requesterUserAgent: in the app-handoff flow the phone's browser mints
+  // the code but the app performs the exchange and holds the credential, so
+  // the exchange request is the one that observed the actual device.
+  const exchangeUserAgent = req.headers.get("user-agent");
+  const identity = {
+    pairingUserAgent: exchangeUserAgent,
+    clientReportedName,
+  };
   let guardianPrincipalId: string;
-  let pair: ReturnType<typeof mintAndRecordBrowserTokenPair>;
+  let pair: RefreshableTokenPair;
+  // Set on the browser path only: a device-bound pairing carries its refresh
+  // token in the body, so there is no cookie to scope.
+  let refreshCookiePath: string | undefined;
   try {
     guardianPrincipalId = await ensureVellumGuardianBinding();
-    pair = mintAndRecordBrowserTokenPair({
-      guardianPrincipalId,
-      platform: REMOTE_WEB_PLATFORM,
-      browserRefreshCookiePath: refreshCookiePath,
-    });
+    if (deviceBound) {
+      pair = mintAndRecordDeviceBoundTokenPair({
+        guardianPrincipalId,
+        deviceId,
+        platform: resolveRemoteWebPairingPlatform(body.platform),
+        identity,
+      });
+    } else {
+      refreshCookiePath = remoteWebRefreshCookiePathForPublicBaseUrl(
+        challenge.publicBaseUrl,
+      );
+      pair = mintAndRecordBrowserTokenPair({
+        guardianPrincipalId,
+        platform: REMOTE_WEB_PLATFORM,
+        browserRefreshCookiePath: refreshCookiePath,
+        identity,
+      });
+    }
   } catch (err) {
     // Release so the approved code stays exchangeable after the failure is
     // repaired (mint refusal) or retried (transient DB error).
@@ -112,14 +156,6 @@ export async function handleRemoteWebPairingToken(
   completeRemoteWebPairingChallengeExchange(deviceCode);
 
   const headers = new Headers({ "Cache-Control": "no-store" });
-  for (const cookie of buildRemoteWebBrowserAuthCookies({
-    refreshToken: pair.refreshToken,
-    refreshTokenExpiresAtMs: pair.refreshTokenExpiresAt,
-    refreshCookiePath,
-  })) {
-    headers.append("Set-Cookie", cookie);
-  }
-
   const approved: RemoteWebPairingTokenApprovedResponse = {
     status: "approved",
     accessToken: pair.accessToken,
@@ -128,5 +164,24 @@ export async function handleRemoteWebPairingToken(
     guardianId: guardianPrincipalId,
     assistantId: getExternalAssistantId(),
   };
+
+  // Delivery follows the same discriminator the mint did. A browser exchange
+  // never serializes its refresh token into the body, whatever the cookie
+  // path helper returns.
+  if (deviceBound) {
+    approved.refreshToken = pair.refreshToken;
+    approved.refreshTokenExpiresAt = new Date(
+      pair.refreshTokenExpiresAt,
+    ).toISOString();
+  } else {
+    for (const cookie of buildRemoteWebBrowserAuthCookies({
+      refreshToken: pair.refreshToken,
+      refreshTokenExpiresAtMs: pair.refreshTokenExpiresAt,
+      refreshCookiePath,
+    })) {
+      headers.append("Set-Cookie", cookie);
+    }
+  }
+
   return Response.json(approved, { headers });
 }

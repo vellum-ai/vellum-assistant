@@ -77,18 +77,18 @@ class SoundManager {
     const pool = eventConfig.sounds.filter(validateSoundFilename);
 
     if (pool.length === 0) {
-      this.playFallbackBlip(volume);
+      void this.playFallbackBlip(volume);
       return;
     }
 
     const filename = pool[Math.floor(Math.random() * pool.length)];
     if (!filename) {
-      this.playFallbackBlip(volume);
+      void this.playFallbackBlip(volume);
       return;
     }
     const ok = await this.playFile(filename, volume);
     if (!ok) {
-      this.playFallbackBlip(volume);
+      await this.playFallbackBlip(volume);
     }
   }
 
@@ -99,16 +99,13 @@ class SoundManager {
     const volume = clampVolume(volumeOverride ?? this.config?.volume ?? 0.7);
     const ok = await this.playFile(filename, volume);
     if (!ok) {
-      this.playFallbackBlip(volume);
+      await this.playFallbackBlip(volume);
     }
   }
 
   async previewFallbackBlip(volumeOverride?: number): Promise<void> {
-    if (!this.featureEnabled) {
-      return;
-    }
     const volume = clampVolume(volumeOverride ?? this.config?.volume ?? 0.7);
-    this.playFallbackBlip(volume);
+    await this.playFallbackBlip(volume);
   }
 
   clearCache(): void {
@@ -172,6 +169,9 @@ class SoundManager {
   }
 
   private playFallbackBlip(volume: number): void {
+    if (typeof window === "undefined") {
+      return;
+    }
     try {
       const AudioContextCtor = getAudioContextCtor();
       if (!AudioContextCtor) {

@@ -1,6 +1,10 @@
-import type { SlackStreamOp, SlackStreamTask } from "@vellumai/gateway-client";
+import type { StreamPlan } from "@vellumai/gateway-client";
 
-import type { AssistantEvent } from "../api/index.js";
+import type {
+  AssistantEvent,
+  ToolResultEvent,
+  ToolUseStartEvent,
+} from "../api/index.js";
 import {
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
@@ -12,19 +16,16 @@ import {
 } from "../daemon/assistant-attachments.js";
 import { sendChannelStreamOp } from "../messaging/providers/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
-import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";
 import { needsBoundarySpace } from "../util/text-spacing.js";
 import {
   hasDeliverableAssistantText,
   NO_RESPONSE_INLINE_RE,
 } from "./no-response.js";
-import type { TaskProgressData } from "./slack-task-progress.js";
 import {
-  getTaskProgressDataFromSurfaceData,
+  getTaskProgressDataFromToolInput,
   mergeTaskProgressData,
-  toSlackStreamTasks,
-} from "./slack-task-progress.js";
+} from "./task-progress.js";
 
 const log = getLogger("slack-reply-session");
 
@@ -155,8 +156,7 @@ export function createSlackReplySession(params: {
   // `renderHistoryContent`'s `joinWithSpacing` on the durable delivery path).
   let pendingSegmentBoundary = false;
 
-  const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
-  let activeProgress: TaskProgressData | undefined;
+  let activeProgress: StreamPlan | undefined;
   // Fingerprint of the plan state last delivered to Slack, so progress that
   // advances without new body text still flushes as a task-only append.
   let deliveredProgressKey: string | undefined;
@@ -187,25 +187,8 @@ export function createSlackReplySession(params: {
     return stripVellumLinks(stable).replace(NO_RESPONSE_INLINE_RE, "");
   };
 
-  const planTasks = (): SlackStreamTask[] | undefined =>
-    activeProgress ? toSlackStreamTasks(activeProgress) : undefined;
-
-  const progressKey = (
-    title: string | undefined,
-    tasks: SlackStreamTask[] | undefined,
-  ): string | undefined =>
-    tasks ? JSON.stringify({ title, tasks }) : undefined;
-
-  // Typed from the stream operation these are passed to, so the element type
-  // follows that contract rather than drifting from it.
-  const imageBlocks = (
-    text: string,
-  ): Extract<SlackStreamOp, { action: "stop" }>["blocks"] => {
-    const blocks = renderSlackBlocks(text)?.filter(
-      (block) => block.type === "image",
-    );
-    return blocks && blocks.length > 0 ? blocks : undefined;
-  };
+  const progressKey = (plan: StreamPlan | undefined): string | undefined =>
+    plan ? JSON.stringify(plan) : undefined;
 
   const enqueue = (op: () => Promise<void>): void => {
     opChain = opChain.catch(() => undefined).then(op);
@@ -218,28 +201,28 @@ export function createSlackReplySession(params: {
         return;
       }
       const firstChunk = clean.slice(0, SLACK_STREAM_MARKDOWN_LIMIT);
-      const title = activeProgress?.title;
-      const tasks = planTasks();
+      const plan = activeProgress;
       try {
         const result = await sendChannelStreamOp(replyCallbackUrl, chatId, {
           action: "start",
-          threadTs,
-          markdownText: firstChunk,
-          // The task display mode is fixed for the stream's lifetime at
-          // start, while a `task_progress` surface usually appears only
-          // after the first text flush has opened the stream. Plan mode
-          // only affects how task chunks render, so a stream that never
-          // carries tasks still reads as a plain message.
-          taskDisplayMode: "plan" as const,
-          ...(title ? { planTitle: title } : {}),
-          ...(tasks ? { tasks } : {}),
-          ...(recipientUserId ? { recipientUserId } : {}),
-          ...(recipientTeamId ? { recipientTeamId } : {}),
+          anchorMessageId: threadTs,
+          text: clean,
+          appended: firstChunk,
+          ...(plan ? { plan } : {}),
+          ...(recipientUserId
+            ? {
+                audience: {
+                  kind: "oneReader" as const,
+                  userId: recipientUserId,
+                  ...(recipientTeamId ? { userOrgId: recipientTeamId } : {}),
+                },
+              }
+            : {}),
         });
         if (result.ok && result.ts) {
           streamTs = result.ts;
           confirmedLength = firstChunk.length;
-          deliveredProgressKey = progressKey(title, tasks);
+          deliveredProgressKey = progressKey(plan);
           state = "streaming";
           // The stream is already open on Slack's side, so an `onStreamOpen`
           // failure must not downgrade to fallback and repost the visible
@@ -270,9 +253,8 @@ export function createSlackReplySession(params: {
         return;
       }
       const clean = streamableText();
-      const title = activeProgress?.title;
-      const tasks = planTasks();
-      const key = progressKey(title, tasks);
+      const plan = activeProgress;
+      const key = progressKey(plan);
       // `chat.appendStream` caps `markdown_text` per call, so a delta wider
       // than the limit drains across successive append calls. Each append
       // carries the current task state, advancing the plan alongside text.
@@ -284,10 +266,10 @@ export function createSlackReplySession(params: {
         try {
           await sendChannelStreamOp(replyCallbackUrl, chatId, {
             action: "append",
-            streamTs,
-            markdownText: chunk,
-            ...(title ? { planTitle: title } : {}),
-            ...(tasks ? { tasks } : {}),
+            streamId: streamTs,
+            text: clean,
+            appended: chunk,
+            ...(plan ? { plan } : {}),
           });
           confirmedLength += chunk.length;
           deliveredProgressKey = key ?? deliveredProgressKey;
@@ -305,13 +287,13 @@ export function createSlackReplySession(params: {
       // A failure disables further task-only appends for the session; the
       // unchanged fingerprint leaves the update pending, so it rides the
       // next text append and `stopStream` carries the final state.
-      if (!taskOnlyAppendsDisabled && tasks && key !== deliveredProgressKey) {
+      if (!taskOnlyAppendsDisabled && plan && key !== deliveredProgressKey) {
         try {
           await sendChannelStreamOp(replyCallbackUrl, chatId, {
             action: "append",
-            streamTs,
-            ...(title ? { planTitle: title } : {}),
-            tasks,
+            streamId: streamTs,
+            text: clean,
+            plan,
           });
           deliveredProgressKey = key;
         } catch (err) {
@@ -363,24 +345,68 @@ export function createSlackReplySession(params: {
     }
   };
 
-  const observeTaskProgress = (msg: AssistantEvent): void => {
-    if (msg.type === "ui_surface_show") {
-      const progress = getTaskProgressDataFromSurfaceData(msg.data);
-      if (!progress) {
-        return;
-      }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else if (msg.type === "ui_surface_update") {
-      const existing = taskProgressBySurfaceId.get(msg.surfaceId);
-      const progress = mergeTaskProgressData(existing, msg.data);
-      if (!progress) {
-        return;
-      }
-      taskProgressBySurfaceId.set(msg.surfaceId, progress);
-    } else {
+  /**
+   * The plan tool calls this turn has made, awaiting their results.
+   *
+   * `ui_show` and `ui_update` are tools the model reaches for, so a plan is
+   * turn output and arrives on this session's own stream. The daemon also
+   * publishes `ui_surface_show`, but that goes to the conversation sink, which
+   * no channel consumes.
+   *
+   * Held rather than applied on sight, because a `tool_use_start` is an
+   * intention: the surface tool rejects a stale `surface_id` or a malformed
+   * payload, and showing a plan the canonical surface refused is worse than
+   * showing none. An update is also merged at result time so it composes onto
+   * the plan actually in effect rather than the one in effect when the call
+   * began.
+   *
+   * `ui_show` carries no surface id in its input, since the id is minted when
+   * the tool runs, so a later `ui_update` cannot be matched to the card it
+   * targets. One plan per turn is tracked instead, which is what a map keyed by
+   * surface id collapsed to in practice: whichever entry was touched last was
+   * the one rendered.
+   */
+  const pendingPlanCalls = new Map<
+    string,
+    {
+      readonly kind: "show" | "update";
+      readonly input: Record<string, unknown>;
+    }
+  >();
+
+  const observePlanToolStart = (msg: ToolUseStartEvent): void => {
+    const kind =
+      msg.toolName === "ui_show"
+        ? "show"
+        : msg.toolName === "ui_update"
+          ? "update"
+          : undefined;
+    if (!kind || !msg.toolUseId) {
       return;
     }
-    activeProgress = taskProgressBySurfaceId.get(msg.surfaceId);
+    pendingPlanCalls.set(msg.toolUseId, { kind, input: msg.input });
+  };
+
+  const observePlanToolResult = (msg: ToolResultEvent): void => {
+    if (!msg.toolUseId) {
+      return;
+    }
+    const pending = pendingPlanCalls.get(msg.toolUseId);
+    if (!pending) {
+      return;
+    }
+    pendingPlanCalls.delete(msg.toolUseId);
+    if (msg.isError === true) {
+      return;
+    }
+    const progress =
+      pending.kind === "show"
+        ? getTaskProgressDataFromToolInput(pending.input)
+        : mergeTaskProgressData(activeProgress, pending.input.data);
+    if (!progress) {
+      return;
+    }
+    activeProgress = progress;
     scheduleFlush();
   };
 
@@ -390,9 +416,15 @@ export function createSlackReplySession(params: {
         return;
       }
 
-      if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
-        observeTaskProgress(msg);
-        return;
+      if (msg.type === "tool_use_start") {
+        observePlanToolStart(msg);
+      }
+      // guard:allow-tool-result-only. This reads `AssistantEvent`, not the
+      // provider content blocks the guard protects: `web_search_tool_result`
+      // is a block type in conversation history and never an event, so no
+      // result can be dropped by omitting it.
+      if (msg.type === "tool_result") {
+        observePlanToolResult(msg);
       }
       if (msg.type === "assistant_text_delta") {
         if (pendingSegmentBoundary && msg.text.length > 0) {
@@ -433,17 +465,17 @@ export function createSlackReplySession(params: {
         }
         const clean = cleanedText();
         const remaining = clean.slice(confirmedLength);
-        const blocks = imageBlocks(clean);
-        const title = activeProgress?.title;
-        const tasks = planTasks();
+        const plan = activeProgress;
         try {
           await sendChannelStreamOp(replyCallbackUrl, chatId, {
             action: "stop",
-            streamTs,
-            ...(remaining.length > 0 ? { markdownText: remaining } : {}),
-            ...(blocks ? { blocks } : {}),
-            ...(title ? { planTitle: title } : {}),
-            ...(tasks ? { tasks } : {}),
+            streamId: streamTs,
+            // The whole reply, not the remainder. A channel that finalizes its
+            // stream in place appends `appended`; one whose preview evaporates
+            // needs this to send the message that stays.
+            text: clean,
+            ...(remaining.length > 0 ? { appended: remaining } : {}),
+            ...(plan ? { plan } : {}),
           });
           confirmedLength = clean.length;
         } catch (err) {

@@ -314,7 +314,7 @@ describe("Slack inbound mention rendering", () => {
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe("@vex @leo edited");
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
     expect(result!.event.message.externalMessageId).toBe("evt-edit-render");
     expect(result!.event.source.messageId).toBe("1700000000.000100");
     expect(result!.event.actor.actorExternalId).toBe("U_USER123");
@@ -339,14 +339,14 @@ function makeMessageChangedEvent(
 }
 
 describe("normalizeSlackMessageEdit", () => {
-  test("normalizes message_changed event with isEdit: true", () => {
+  test("normalizes message_changed event as an edit", () => {
     const config = makeConfig();
     const event = makeMessageChangedEvent();
     const result = normalizeSlackMessageEdit(event, "evt-100", config);
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
     expect(result!.event.message.content).toBe("edited hello world");
   });
 
@@ -483,7 +483,7 @@ describe("normalizeSlackMessageEdit", () => {
     const result = normalizeSlackMessageEdit(event, "evt-108", config);
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
   });
 
   test("resolves an unrouted non-DM edit to the local assistant", () => {
@@ -609,7 +609,7 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.event.message.content).toContain(
       "can you take another look",
     );
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
   });
 
   test("forwards rich-text-only edit when text is identical but edited.ts changes", () => {
@@ -634,7 +634,7 @@ describe("normalizeSlackMessageEdit", () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
   });
 
   test("forwards edit when previous_message is missing (cannot prove no-op)", () => {
@@ -644,6 +644,6 @@ describe("normalizeSlackMessageEdit", () => {
 
     const result = normalizeSlackMessageEdit(event, "evt-no-prev", config);
     expect(result).not.toBeNull();
-    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.eventKind).toBe("edit");
   });
 });

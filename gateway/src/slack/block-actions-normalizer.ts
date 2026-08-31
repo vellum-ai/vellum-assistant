@@ -53,6 +53,7 @@ export function normalizeSlackBlockActions(
       sourceChannel: "slack",
       receivedAt: new Date().toISOString(),
       message: {
+        eventKind: "button",
         content: callbackData,
         conversationExternalId: channelId,
         externalMessageId: `${channelId}:${messageTs ?? envelopeId}:${actionTs}`,

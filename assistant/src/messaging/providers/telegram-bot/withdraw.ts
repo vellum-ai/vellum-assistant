@@ -132,24 +132,31 @@ async function clearInlineKeyboard(
  *
  * Both steps are attempted independently, so a failed keyboard edit does not
  * lose the durable outcome notice. Throws only if the status reply send
- * fails, which the caller treats as non-fatal.
+ * fails, which decision-path callers treat as non-fatal. `complete` reports
+ * whether the keyboard is durably gone: false keeps the expiry sweep's
+ * receipt held back so the still-actionable card is retried. An invalid
+ * recorded message id reports complete, because no retry can ever address
+ * it; a tap on its leftover buttons gets the stale-request handling.
  */
 export async function withdrawTelegramApprovalCard(
   params: WithdrawTelegramApprovalCardParams,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   const parsedMessageId = Number(params.messageId);
   if (!Number.isFinite(parsedMessageId)) {
     log.warn(
       { chatId: params.chatId, messageId: params.messageId },
       "Skipping Telegram card withdrawal due to invalid message id",
     );
-    return;
+    return { complete: true };
   }
 
-  await clearInlineKeyboard(params.chatId, parsedMessageId);
+  const keyboardCleared = await clearInlineKeyboard(
+    params.chatId,
+    parsedMessageId,
+  );
 
   if (!params.postStatusReply) {
-    return;
+    return { complete: keyboardCleared };
   }
 
   // Silent (no push) reply quoting the card. `allow_sending_without_reply`
@@ -163,4 +170,5 @@ export async function withdrawTelegramApprovalCard(
     },
     disable_notification: true,
   });
+  return { complete: keyboardCleared };
 }

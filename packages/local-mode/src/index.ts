@@ -4,8 +4,9 @@
  * hatch/retire/wake lifecycle ops) over a loopback HTTP boundary. Consumed by the
  * CLI `client` server and the web app's dev-server middleware so the local
  * endpoint behaviour is defined exactly once instead of one host reaching into
- * another's source tree. `@vellumai/environments` is its only workspace
- * dependency.
+ * another's source tree. `@vellumai/environments`,
+ * `@vellumai/service-contracts`, and the source-only
+ * `@vellumai/avatar-manifest` are its only workspace dependencies.
  */
 export {
   stripSensitiveFields,
@@ -16,6 +17,11 @@ export {
   resolveDevCliInvocation,
 } from "./util";
 export type { CliInvocation } from "./util";
+export {
+  DAEMON_STOP_TIMEOUT_MS,
+  HOST_WRAPPER_HEADROOM_MS,
+  HOST_WRAPPER_LONG_HEADROOM_MS,
+} from "./lifecycle-budgets";
 export {
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
@@ -59,7 +65,28 @@ export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireOptions, RetireResult } from "./retire";
 export { unpairAssistant } from "./unpair";
-export { decodePairBundle, pairAssistant, connectImport } from "./pair";
+export {
+  pairAssistant,
+  checkPairedAssistantName,
+  pairingStart,
+  pairingPoll,
+  pairingCancel,
+  connectImport,
+} from "./pair";
+export type {
+  PairedAssistantCredentials,
+  PairOptions,
+  PairResult,
+  PairRefusal,
+  PairingFailure,
+  PairingFailureReason,
+  PairingStarted,
+  PairingStartResult,
+  PairingPollOptions,
+  PairingPollResult,
+  ConnectImportOptions,
+  ConnectImportResult,
+} from "./pair";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
@@ -73,6 +100,7 @@ export type {
 export { runUpgrade, isValidReleaseVersion } from "./upgrade";
 export type { UpgradeOptions, UpgradeResult } from "./upgrade";
 export { getLocalAssistantStatus } from "./status";
+export { readLockfileAssistantAvatar } from "./avatar";
 export type {
   LocalAssistantRuntimeState,
   LocalAssistantStatusResult,

@@ -7,6 +7,10 @@
  * the start frame with a `credentials_unavailable` error frame carrying
  * the preflight's user message, before any transcriber is resolved, and
  * leaves the session manager free for a retry.
+ *
+ * They also pin the one exception to that rule: a client that declared
+ * `textInput` opens text-only when the *only* thing missing is the
+ * speech-to-text leg, because a session it can type into beats no session.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -35,6 +39,24 @@ const START_FRAME = {
   },
 } as const satisfies LiveVoiceClientStartFrame;
 
+const START_FRAME_TEXT_INPUT = {
+  ...START_FRAME,
+  textInput: true,
+} as const satisfies LiveVoiceClientStartFrame;
+
+const STT_GAP = {
+  kind: "stt",
+  providerId: "deepgram",
+  reason: 'STT provider "deepgram" is missing credentials (Deepgram API Key)',
+} as const;
+
+const NOT_READY_STT_ONLY: LiveVoiceCredentialReadiness = {
+  status: "not-ready",
+  missing: [STT_GAP],
+  userMessage:
+    'Live voice is unavailable because it requires an API key for the speech-to-text provider "deepgram" (Deepgram API Key).',
+};
+
 const NOT_READY: LiveVoiceCredentialReadiness = {
   status: "not-ready",
   missing: [
@@ -60,7 +82,7 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   stop(): void {}
 }
 
-function createContext(): {
+function createContext(startFrame: LiveVoiceClientStartFrame = START_FRAME): {
   context: LiveVoiceSessionFactoryContext;
   frames: LiveVoiceServerFrame[];
 } {
@@ -71,7 +93,7 @@ function createContext(): {
     frames,
     context: {
       sessionId: "session-123",
-      startFrame: START_FRAME,
+      startFrame,
       sendFrame: mock(async (payload) => {
         const frame = sequencer.next(payload);
         frames.push(frame);
@@ -126,6 +148,130 @@ describe("live-voice session credential preflight gating", () => {
     });
 
     await session.close("websocket_close");
+  });
+
+  test("ready preflight leaves audioInput off the ready frame", async () => {
+    // Absent means "the microphone leg is live", which is what every session
+    // that passes the preflight has. Only a downgraded session says otherwise.
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness: mock(
+        async (): Promise<LiveVoiceCredentialReadiness> => ({
+          status: "ready",
+        }),
+      ),
+    });
+
+    await session.start();
+
+    expect(frames[0]).toMatchObject({ type: "ready", textInput: true });
+    expect("audioInput" in (frames[0] ?? {})).toBe(false);
+
+    await session.close("websocket_close");
+  });
+
+  test("a text-input client opens text-only when only the STT leg is missing", async () => {
+    const { context, frames } = createContext(START_FRAME_TEXT_INPUT);
+    const resolveTranscriber = mock(async () => new MockStreamingTranscriber());
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber,
+      resolveCredentialReadiness: mock(async () => NOT_READY_STT_ONLY),
+    });
+
+    await session.start();
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({
+      type: "ready",
+      sessionId: "session-123",
+      conversationId: "conversation-123",
+      textInput: true,
+      audioInput: false,
+    });
+    // Nothing may arm: resolving a transcriber the preflight just said has no
+    // credential is what would fail the session through armUtterance.
+    expect(resolveTranscriber).not.toHaveBeenCalled();
+
+    await session.close("websocket_close");
+  });
+
+  test("a client without textInput is still rejected on a missing STT leg", async () => {
+    // The downgrade is only safe for a client that can take a turn some other
+    // way. Opening a mute, deaf session for one that cannot is worse than
+    // failing, because nothing in it can ever work.
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness: mock(async () => NOT_READY_STT_ONLY),
+    });
+
+    await expect(session.start()).rejects.toBeInstanceOf(
+      LiveVoiceSessionStartupError,
+    );
+
+    expect(frames).toEqual([
+      {
+        type: "error",
+        seq: 1,
+        code: "credentials_unavailable",
+        message: NOT_READY_STT_ONLY.userMessage,
+      },
+    ]);
+  });
+
+  test("a text-input client is still rejected when the TTS leg is missing", async () => {
+    // Text in, voice out: without the out half there is nothing to downgrade
+    // to, so this fails exactly as it would for any other client.
+    const { context, frames } = createContext(START_FRAME_TEXT_INPUT);
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness: mock(async () => NOT_READY),
+    });
+
+    await expect(session.start()).rejects.toBeInstanceOf(
+      LiveVoiceSessionStartupError,
+    );
+
+    expect(frames[0]).toMatchObject({ code: "credentials_unavailable" });
+  });
+
+  test("a text-input client is still rejected when both legs are missing", async () => {
+    const { context } = createContext(START_FRAME_TEXT_INPUT);
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness: mock(
+        async (): Promise<LiveVoiceCredentialReadiness> => ({
+          ...NOT_READY,
+          missing: [...NOT_READY.missing, STT_GAP],
+        }),
+      ),
+    });
+
+    await expect(session.start()).rejects.toBeInstanceOf(
+      LiveVoiceSessionStartupError,
+    );
+  });
+
+  test("a text-input client is still rejected when not-ready names no gap", async () => {
+    // A verdict that says not-ready and lists nothing is a resolver bug. It
+    // must not be read as "only STT is missing" and quietly opened half-working
+    // on the strength of a vacuously true check.
+    const { context } = createContext(START_FRAME_TEXT_INPUT);
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+      resolveCredentialReadiness: mock(
+        async (): Promise<LiveVoiceCredentialReadiness> => ({
+          status: "not-ready",
+          missing: [],
+          userMessage: "Live voice is unavailable.",
+        }),
+      ),
+    });
+
+    await expect(session.start()).rejects.toBeInstanceOf(
+      LiveVoiceSessionStartupError,
+    );
   });
 
   test("a rejected start frees the manager slot for a retry", async () => {

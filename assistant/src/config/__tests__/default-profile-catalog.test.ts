@@ -8,10 +8,12 @@ import {
   getEffectiveProfile,
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
+  getUserSelectableProfilesForProvider,
   PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
 import {
+  BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   OS_BETA_PROFILE_KEY,
@@ -78,7 +80,7 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [...DEFAULT_PROFILE_KEYS].sort(),
+      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
@@ -152,6 +154,25 @@ describe("getEffectiveProfiles", () => {
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
     expect(after.balanced.model).toBe("claude-sonnet-4-6");
+  });
+});
+
+describe("user-selectable profile view", () => {
+  test("hides managed backups while retaining them in the fallback catalog", () => {
+    const effective = getEffectiveProfilesForProvider(undefined, {
+      provider: "vellum",
+    });
+    const selectable = getUserSelectableProfilesForProvider(undefined, {
+      provider: "vellum",
+    });
+
+    for (const key of DEFAULT_PROFILE_KEYS) {
+      expect(selectable[key]).toBeDefined();
+    }
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(effective[key]).toBeDefined();
+      expect(selectable[key]).toBeUndefined();
+    }
   });
 });
 
@@ -267,6 +288,40 @@ describe("resolver integration", () => {
       }),
     ).not.toThrow();
   });
+
+  test("a user profile cannot shadow a managed backup profile", () => {
+    // Every backup is code-owned for the same reason `latency-optimized` is:
+    // a backup earns its place by pinning a different upstream than the
+    // primary it backs, and a user shadow can repoint it at the primary's
+    // own provider, so the fallback re-sends into the outage it exists to
+    // route around. `latency-optimized-backup` additionally serves the
+    // live-voice path whenever that primary falls back.
+    for (const key of BACKUP_PROFILE_KEYS) {
+      const llm = LLMSchema.parse({
+        profiles: {
+          [key]: {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-6",
+            provider_connection: "anthropic-personal",
+            maxTokens: 32000,
+            effort: "high",
+          },
+        },
+      });
+      const body = CODE_DEFAULT_PROFILE_ENTRIES[key]!;
+      const effective = getEffectiveProfiles(llm.profiles)[key];
+      expect(effective?.model).toBe(body.model);
+      expect(effective?.model).not.toBe("claude-opus-4-6");
+      expect(String(effective?.provider)).toBe("vellum");
+      expect(effective?.provider_connection).toBeUndefined();
+      // Resolution through the managed column agrees with the listing.
+      const resolved = resolveDefaultProfileForProvider(llm.profiles, key, {
+        provider: "vellum",
+      });
+      expect(resolved?.model).toBe(body.model);
+    }
+  });
 });
 
 describe("schema validation", () => {
@@ -301,6 +356,27 @@ describe("schema validation", () => {
     ).toThrow();
   });
 
+  test("managed backup names are valid references without being materialized", () => {
+    // Backups are listed in the effective catalog and are selectable, but
+    // selecting one persists only the reference: nothing lands in
+    // `llm.profiles`. Unless the schema treats the keys as always-available,
+    // the next load strips the selection and silently reverts it.
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(() => LLMSchema.parse({ activeProfile: key })).not.toThrow();
+      expect(() => LLMSchema.parse({ advisorProfile: key })).not.toThrow();
+      expect(() =>
+        LLMSchema.parse({ callSites: { mainAgent: { profile: key } } }),
+      ).not.toThrow();
+    }
+    // The keys stay out of `DEFAULT_PROFILE_KEYS`: that array drives picker
+    // order and the intent x provider matrix.
+    expect(
+      BACKUP_PROFILE_KEYS.some((key) =>
+        (DEFAULT_PROFILE_KEYS as readonly string[]).includes(key),
+      ),
+    ).toBe(false);
+  });
+
   test("defaultProvider accepts any default-capable API-key provider and drops the rest", () => {
     expect(
       LLMSchema.parse({ defaultProvider: { provider: "together" } })
@@ -308,7 +384,12 @@ describe("schema validation", () => {
     ).toEqual({ provider: "together" });
     // Endpoint-supplied and keyless providers have no code-resolvable
     // default profile implementation; the catch drops them atomically.
-    for (const provider of ["litellm", "openai-compatible", "ollama"]) {
+    for (const provider of [
+      "litellm",
+      "opencode",
+      "openai-compatible",
+      "ollama",
+    ]) {
       expect(
         LLMSchema.parse({ defaultProvider: { provider } }).defaultProvider,
       ).toBeUndefined();

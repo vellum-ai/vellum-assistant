@@ -6,6 +6,10 @@ import { Input } from "@vellumai/design-library/components/input";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
+import {
+  canEditContactPermissions,
+  ContactPermissionsSection,
+} from "@/domains/contacts/components/contact-permissions-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { isDraftContactName } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
@@ -19,15 +23,20 @@ interface ContactDetailViewProps {
   mergePending?: boolean;
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
+  channelsLoadFailed?: boolean;
   a2aEnabled?: boolean;
   onSave: (patch: { displayName: string; notes: string }) => void;
   onDelete: () => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
-  onVerifyChannel?: (type: string) => void;
+  onVerifyChannel?: (type: string, address?: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
   /** Opens the roster picker for a linkable channel row. */
   onLinkAccount?: (channelId: string) => void;
+  pendingAutoApproveThreshold?: boolean;
+  onAutoApproveThresholdChange?: (
+    autoApproveThreshold: ContactPayload["autoApproveThreshold"],
+  ) => void;
 }
 
 export function ContactDetailView(props: ContactDetailViewProps) {
@@ -42,6 +51,7 @@ function ContactDetailViewInner({
   mergePending = false,
   canMerge = false,
   availableChannels,
+  channelsLoadFailed,
   a2aEnabled,
   onSave,
   onDelete,
@@ -50,6 +60,8 @@ function ContactDetailViewInner({
   onVerifyChannel,
   onRevokeChannel,
   onLinkAccount,
+  pendingAutoApproveThreshold,
+  onAutoApproveThresholdChange,
 }: ContactDetailViewProps) {
   const { t } = useTranslation("contacts");
   const isNewContactDraft = isDraftContactName(contact.displayName);
@@ -73,7 +85,8 @@ function ContactDetailViewInner({
     contact.interactionCount === 0;
 
   const headerName =
-    trimmedName || (isNewContactDraft ? t("contact.draftName") : contact.displayName);
+    trimmedName ||
+    (isNewContactDraft ? t("contact.draftName") : contact.displayName);
   // ICU `plural` picks the category through `Intl.PluralRules`, so the count
   // agrees in languages with more than the two forms English has.
   const interactionLabel = t("contact.interactions", {
@@ -180,6 +193,7 @@ function ContactDetailViewInner({
         <ContactChannelsSection
           contactChannels={contact.channels}
           availableChannels={availableChannels}
+          channelsLoadFailed={channelsLoadFailed}
           a2aEnabled={a2aEnabled}
           verifyLoading={verifyPending}
           verifySubject="contact"
@@ -189,6 +203,14 @@ function ContactDetailViewInner({
           onLinkAccount={onLinkAccount}
         />
       </DetailCard>
+
+      {canEditContactPermissions(contact) && onAutoApproveThresholdChange ? (
+        <ContactPermissionsSection
+          contact={contact}
+          pending={pendingAutoApproveThreshold}
+          onAutoApproveThresholdChange={onAutoApproveThresholdChange}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={confirmOpen}

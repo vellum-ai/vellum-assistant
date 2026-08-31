@@ -13,12 +13,20 @@ import {
   onHotkeyOverridesChange,
   type VellumCommand,
 } from "@vellumai/electron-desktop/commands";
+import { areChromeDevToolsEnabled } from "@vellumai/electron-desktop/devtools";
 import type { IpcHandle } from "@vellumai/electron-desktop/ipc";
+import {
+  onSettingChange,
+  readSetting,
+} from "@vellumai/electron-desktop/settings";
+import { readOnboardingActive } from "@vellumai/electron-desktop/window-state";
 import {
   MENU_POPUP,
   MENU_SET_PLATFORM_SESSION,
   MENU_TITLES,
 } from "@vellumai/ipc-contract";
+
+import { onOnboardingChange } from "./main-window";
 
 interface WindowsMenuOptions {
   handle: IpcHandle;
@@ -28,6 +36,10 @@ interface WindowsMenuOptions {
 }
 
 let hasPlatformSession = false;
+
+// Same flag the macOS menu reads; the renderer publishes it over IPC.
+const isDeveloperMenuEnabled = (): boolean =>
+  readSetting("featureFlags")?.["developer-menu-items"] === true;
 
 const commandItem = (
   label: string,
@@ -52,11 +64,18 @@ export const buildWindowsMenu = ({
       commandItem("New Conversation", { kind: "newConversation" }),
       commandItem("Current Conversation", { kind: "currentConversation" }),
       { type: "separator" },
+      commandItem("Pin Current Conversation", {
+        kind: "togglePinConversation",
+      }),
       commandItem("Mark Current as Unread", { kind: "markCurrentUnread" }),
       commandItem("Previous Conversation", { kind: "previousConversation" }),
       commandItem("Next Conversation", { kind: "nextConversation" }),
       { type: "separator" },
-      commandItem("Settings...", { kind: "openSettings" }),
+      commandItem(
+        "Settings...",
+        { kind: "openSettings" },
+        !readOnboardingActive(),
+      ),
       ...(app.isPackaged
         ? [
             {
@@ -99,7 +118,9 @@ export const buildWindowsMenu = ({
       { type: "separator" },
       { role: "reload" },
       { role: "forceReload" },
-      ...(!app.isPackaged ? [{ role: "toggleDevTools" as const }] : []),
+      ...(areChromeDevToolsEnabled()
+        ? [{ role: "toggleDevTools" as const }]
+        : []),
       { type: "separator" },
       { role: "resetZoom" },
       { role: "zoomIn" },
@@ -115,10 +136,10 @@ export const buildWindowsMenu = ({
       { role: "minimize" },
       { role: "close" },
       { type: "separator" },
-      commandItem("Pop Out Conversation", { kind: "popOut" }, false),
+      commandItem("Pop Out Conversation", { kind: "popOut" }),
     ],
   },
-  ...(!app.isPackaged
+  ...(isDeveloperMenuEnabled()
     ? [
         {
           id: "developer",
@@ -210,5 +231,7 @@ export const installWindowsMenu = (options: WindowsMenuOptions): void => {
     },
   );
   onHotkeyOverridesChange(apply);
+  onSettingChange("featureFlags", apply);
+  onOnboardingChange(apply);
   apply();
 };

@@ -1,0 +1,812 @@
+{
+  "aboutPage": {
+    "build": "构建",
+    "tagline": "您的 Mac AI 助手",
+    "version": "版本"
+  },
+  "activeAssistantGate": {
+    "connecting": "正在连接到您的助手…",
+    "logIn": "登录",
+    "logOut": "注销"
+  },
+  "addCredentialModal": {
+    "cancel": "取消",
+    "credentialSaved": "凭据已保存。",
+    "description": "添加 API 密钥或令牌，以便工具和集成可以使用它。",
+    "fieldLabel": "字段",
+    "fieldPlaceholder": "例如 api_token",
+    "labelOptional": "标签（可选）",
+    "labelPlaceholder": "例如 GitHub 个人访问令牌",
+    "save": "保存",
+    "saveFailed": "保存凭据失败",
+    "serviceLabel": "服务",
+    "servicePlaceholder": "例如 github",
+    "title": "添加凭据",
+    "valueLabel": "值",
+    "valuePlaceholder": "输入秘密值"
+  },
+  "addCreditsModal": {
+    "amount": "金额",
+    "cancel": "取消",
+    "configureAutoReload": "配置自动充值",
+    "continue": "继续",
+    "description": "您将被重定向到 Stripe 完成支付。",
+    "title": "添加点数"
+  },
+  "appCard": {
+    "openApp": "打开应用",
+    "pin": "置顶",
+    "previewTitle": "{name} 预览",
+    "unpin": "取消置顶"
+  },
+  "appNavBar": {
+    "close": "关闭",
+    "copyLink": "复制链接",
+    "deploy": "部署",
+    "deployToVercel": "部署到 Vercel",
+    "deployToVercelSubtitle": "发布为静态页面",
+    "deployedCopyLinkAria": "已部署到 Vercel，复制链接",
+    "deployedCopyLinkTooltip": "已部署：复制链接",
+    "deployedToVercel": "已部署到 Vercel",
+    "deploying": "正在部署…",
+    "edit": "编辑",
+    "expandApp": "展开应用",
+    "fullscreen": "全屏",
+    "openApp": "打开应用",
+    "redeploy": "重新部署",
+    "redeploySubtitle": "发布当前版本",
+    "share": "分享",
+    "shareAndDeploy": "分享并部署",
+    "shareExportSubtitle": "导出为 .vellum 文件",
+    "sharing": "正在分享…"
+  },
+  "appViewerContainer": {
+    "exitFullscreen": "退出全屏"
+  },
+  "assistantConnect": {
+    "failed": "连接助手失败。"
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "无法更新“{label}”。您的更改已恢复。"
+  },
+  "avatarManagementModal": {
+    "body": "身体",
+    "color": "颜色",
+    "eyes": "眼睛",
+    "keepUploadedDescription": "保存角色会替换它",
+    "keepUploadedLabel": "保留您上传的图片",
+    "loadError": "无法加载头像组件。请确保您的助手正在运行。",
+    "name": "名称",
+    "next": "下一个 {label}",
+    "previous": "上一个 {label}",
+    "randomize": "随机化",
+    "save": "保存",
+    "saving": "正在保存…",
+    "title": "更新头像",
+    "uploadImage": "上传图片",
+    "uploadedAlt": "已上传头像",
+    "useCharacterDescription": "从我们内置的头像中选择",
+    "useCharacterLabel": "改用角色"
+  },
+  "bundleConfirmPage": {
+    "bySigner": "由 {name}",
+    "cancel": "取消",
+    "capabilities": "功能",
+    "createdBy": "创建者",
+    "hideWarnings": "隐藏警告 ({count})",
+    "install": "安装",
+    "installAnyway": "仍然安装",
+    "loading": "正在加载...",
+    "showWarnings": "显示警告 ({count})",
+    "size": "大小"
+  },
+  "byoVoiceNote": {
+    "body": "您的助手通过您自己配置的提供商进行语音交互。请在<settingsLink>模型与服务</settingsLink>中设置其语音。"
+  },
+  "chatAvatar": {
+    "alt": "助手头像",
+    "fallbackLetter": "V"
+  },
+  "chooserAvatarChip": {
+    "alt": "助手头像"
+  },
+  "collapsibleNavSection": {
+    "actionsTitle": "{title} 操作"
+  },
+  "commandPalette": {
+    "ariaLabel": "命令面板",
+    "clear": "清除",
+    "clearSearch": "清除搜索",
+    "closeSearch": "关闭搜索",
+    "noResults": "无结果",
+    "placeholder": "搜索对话、记忆…",
+    "searchAriaLabel": "搜索",
+    "searching": "正在搜索…"
+  },
+  "companionIntro": {
+    "ariaLabel": "介绍您的助手",
+    "done": "知道了",
+    "meet": {
+      "body": "我会在您的桌面上，即使 Vellum 不可见。",
+      "title": "这就是我",
+      "titleNamed": "我是 {name}"
+    },
+    "menu": {
+      "body": "您可以在这里隐藏我或更改我的大小。",
+      "title": "右键点击我"
+    },
+    "next": "下一步",
+    "skip": "跳过",
+    "talk": {
+      "body": "开始语音对话。",
+      "title": "交谈"
+    },
+    "type": {
+      "body": "从这里发送消息，并在这里阅读回复。",
+      "title": "输入"
+    }
+  },
+  "companionSurface": {
+    "allow": "允许",
+    "deny": "拒绝",
+    "endSession": "结束会话",
+    "goBack": "返回",
+    "messagePlaceholder": "向 {name} 发送消息",
+    "muteAssistant": "静音助手",
+    "muteMicrophone": "静音麦克风",
+    "notNow": "暂不",
+    "send": "发送",
+    "showSummary": "显示摘要",
+    "stopTeaching": "停止教学",
+    "summarizing": "正在摘要",
+    "talk": "交谈",
+    "teach": "教学",
+    "type": "输入",
+    "unmuteAssistant": "取消助手静音",
+    "unmuteMicrophone": "取消麦克风静音"
+  },
+  "contentActionBar": {
+    "copiedAria": "已复制",
+    "copyFailed": "无法复制文件内容。",
+    "copyFileContentsAria": "复制文件内容",
+    "downloadFileAria": "下载文件",
+    "editFileAria": "编辑文件"
+  },
+  "createAssistantDialog": {
+    "cancel": "取消",
+    "create": "创建",
+    "description": "配置一个新助手。它将在后台启动。",
+    "namePlaceholder": "助手名称（可选）",
+    "title": "新助手",
+    "toastSuccess": "新助手已创建。"
+  },
+  "dateRangeSelect": {
+    "ariaLabel": "日期范围",
+    "lastDays": "{days, plural, other {过去 # 天}}"
+  },
+  "deleteAppDialog": {
+    "delete": "删除",
+    "deleting": "正在删除…",
+    "message": "\"{name}\" 将被永久删除。",
+    "title": "删除应用"
+  },
+  "deployDialogs": {
+    "confirmLabel": "让您的助手处理",
+    "confirmLabelNamed": "让 {assistantName} 处理",
+    "message": "\"{appName}\" 使用后端服务，这些服务无法在静态 Vercel 页面上运行。您的助手可以使用无服务器函数正确部署它。",
+    "messageNamed": "\"{appName}\" 使用后端服务，这些服务无法在静态 Vercel 页面上运行。{assistantName} 可以使用无服务器函数正确部署它。",
+    "title": "此应用需要完整部署"
+  },
+  "deployStore": {
+    "appExported": "应用已导出",
+    "deployFailed": "部署失败",
+    "deployedToVercel": "已部署到 Vercel",
+    "open": "打开",
+    "shareFailed": "分享应用失败"
+  },
+  "detailPanelStopButton": {
+    "tooltip": "停止"
+  },
+  "detailPrimitives": {
+    "copied": "已复制",
+    "copy": "复制"
+  },
+  "dictationOverlayPage": {
+    "stopRecording": "停止录音"
+  },
+  "discordNudgeBanner": {
+    "ariaLabel": "加入 Vellum Discord 社区",
+    "ctaLong": "加入 Discord",
+    "ctaShort": "加入",
+    "subtitleLong": "与团队交流 - 分享反馈、请求功能、更快获得答案",
+    "subtitleShort": "分享反馈、请求功能、更快获得答案",
+    "title": "加入我们的社区！"
+  },
+  "discordSetupConnectStep": {
+    "instructions": "粘贴您从“机器人”页面复制的机器人令牌。",
+    "botTokenLabel": "机器人令牌",
+    "save": "连接",
+    "saving": "正在连接...",
+    "saved": "已连接。接下来，将机器人添加到服务器。",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "打开 Discord 开发者门户并创建一个新应用程序。在其 <resetLine>机器人</resetLine> 页面上，点击“重置令牌”并立即复制令牌：Discord 只显示一次，之后无法再次查看。",
+    "intentsNote": "关闭所有三个特权网关意图。您的助手只读取直接消息和提及它的消息，Discord 将这些消息排除在“消息内容”意图之外。",
+    "openPortal": "打开 Discord 门户",
+    "continue": "我已拥有令牌"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "您的机器人必须加入服务器才能看到任何内容。此链接使用您应用程序“安装”页面上的安装设置。",
+    "openInvite": "添加到服务器",
+    "noAppId": "请先连接机器人令牌，然后返回此处将其添加到服务器。"
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "创建应用",
+    "stepConnect": "连接",
+    "stepInvite": "添加到服务器"
+  },
+  "diskPressureBanner": {
+    "acknowledge": "确认",
+    "acknowledging": "正在确认...",
+    "cleanupBody": "提示您的助手释放空间，以免空间耗尽并进入锁定状态。",
+    "cleanupTitle": "清理模式已激活",
+    "criticalBody": "如果存储空间耗尽，您的助手将进入锁定状态。",
+    "criticalModalDescription": "如果存储空间耗尽，您的助手将进入锁定状态。您应该提示您的助手释放空间或增加存储空间。",
+    "criticalTitle": "存储空间严重不足",
+    "dontShowAgain": "不再显示",
+    "manageStorage": "管理存储",
+    "review": "查看",
+    "upgrade": "升级",
+    "warningBody": "释放空间以避免中断。",
+    "warningBodyWithUpgrade": "释放空间或增加更多存储空间以避免中断。",
+    "warningTitle": "您的存储空间即将耗尽"
+  },
+  "downloadFeedback": {
+    "failed": "下载失败",
+    "revealMac": "在访达中显示",
+    "revealWindows": "在文件资源管理器中显示",
+    "saved": "已保存到“下载”",
+    "started": "下载已开始",
+    "startedDescription": "请在浏览器的下载内容中查找 {filename}。"
+  },
+  "editFooter": {
+    "discard": "放弃",
+    "save": "保存",
+    "saving": "正在保存…"
+  },
+  "generateInviteLinkDialog": {
+    "copyAriaLabel": "复制邀请链接",
+    "createFailed": "创建邀请链接失败。请确保您的助手已启用 A2A。",
+    "creating": "正在创建邀请链接…",
+    "done": "完成",
+    "shareHint": "与另一位助手所有者分享此链接以建立连接。",
+    "title": "分享连接链接",
+    "tryAgain": "重试"
+  },
+  "githubNudgeBanner": {
+    "ariaLabel": "Vellum 在 GitHub 上开源",
+    "ctaAriaLabel": "在 GitHub 上为 Vellum 点赞",
+    "ctaLabel": "为我们点赞",
+    "subtitle": "在 GitHub 上为我们点赞或贡献代码",
+    "title": "Vellum 是开源的"
+  },
+  "lazyBoundary": {
+    "loadError": "此部分无法加载。请重新加载页面重试。"
+  },
+  "macosAppBanner": {
+    "ariaLabel": "下载 macOS 应用",
+    "ctaAriaLabel": "下载 macOS 应用",
+    "ctaLabel": "下载",
+    "subtitle": "电脑使用 · 终端访问 · 原生自动化",
+    "title": "获取 macOS 应用"
+  },
+  "nativeAppBanner": {
+    "bannerAria": "下载 {appName} 应用",
+    "bannerAriaGeneric": "下载 Vellum 移动应用",
+    "download": "下载",
+    "downloadAppAria": "下载 {appName} 应用",
+    "downloadAppAriaGeneric": "下载 Vellum 移动应用",
+    "subtitle": "推送通知 · 生物识别登录 · 触觉反馈",
+    "title": "获取 {appName} 应用",
+    "titleGeneric": "获取 Vellum 应用"
+  },
+  "nativeSplash": {
+    "logoAlt": "Vellum"
+  },
+  "notFound": {
+    "backToAssistant": "返回您的助手",
+    "badge": "错误 404",
+    "body": "您要查找的页面不存在或可能已移动。",
+    "goBack": "返回",
+    "title": "页面未找到"
+  },
+  "nudgeChatBanner": {
+    "dismissAria": "关闭"
+  },
+  "onboardingBackButton": {
+    "back": "返回"
+  },
+  "platformLoginNotice": {
+    "cancel": "取消",
+    "logIn": "登录"
+  },
+  "profileCard": {
+    "assistantHandleIdleEmpty": "您的助手尚未设置句柄，请设置一个以便提及。",
+    "assistantHandleLabel": "助手句柄",
+    "assistantHandleUpdated": "助手句柄已更新。",
+    "available": "可用",
+    "availableHelper": "可用。",
+    "checkAvailabilityFailed": "无法检查可用性。",
+    "checkingAvailability": "正在检查可用性…",
+    "chooseDifferentHandle": "请选择一个不同的句柄。",
+    "emailLabel": "电子邮件",
+    "handleHelper": "小写字母、数字、连字符和下划线。3–30个字符。",
+    "handleLocked": "您的助手句柄已锁定，因为它被用作其电子邮件子域名。要更改它，请先<releaseLink>释放子域名</releaseLink>。",
+    "loading": "正在加载您的个人资料…",
+    "notAvailable": "不可用",
+    "profileUpdated": "个人资料已更新。",
+    "save": "保存",
+    "saved": "已保存",
+    "saving": "正在保存…",
+    "subtitle": "管理您的账户详情和偏好设置。",
+    "title": "个人资料",
+    "userHandleIdleAutoGenerated": "您的句柄是在注册时自动生成的 - 请选择一个您喜欢的。",
+    "userHandleLabel": "用户句柄"
+  },
+  "profileQuickAddProvider": {
+    "created": "个人资料“{name}”已创建"
+  },
+  "quickInputPage": {
+    "logoAlt": "Vellum",
+    "placeholder": "向 Vellum 提问..."
+  },
+  "removeFromDeviceDialog": {
+    "confirm": "移除",
+    "messageOrigin": "这不会影响 {assistantName} 或让您在那里退出登录。它只会忘记此设备上的条目。您可以随时再次添加。",
+    "messagePaired": "这不会影响 {assistantName} 在其主机上的状态。它只会忘记此设备上的配对。您可以随时使用 vellum connect import 再次配对。",
+    "messagePlatform": "这不会删除 {assistantName}。它只会将其从此设备中移除。登录后它将再次可用。",
+    "title": "从该设备移除？"
+  },
+  "resourcePressureBanner": {
+    "body": "您的助手正在努力工作，并已达到其当前资源限制。请升级以确保其平稳运行。",
+    "bodyNoUpgrade": "您的助手正在努力工作，并已达到其当前资源限制。",
+    "dontShowAgain": "不再显示",
+    "title": "您的助手需要更多算力",
+    "titleNamed": "{assistantName} 需要更多算力",
+    "upgrade": "升级"
+  },
+  "retireConfirmDialog": {
+    "confirmLabel": "停用",
+    "message": "这将永久停用此助手及其所有数据。您需要重新完成引导流程才能创建新助手。此操作无法撤销。",
+    "title": "停用助手"
+  },
+  "rootHydrateFallback": {
+    "loadingAria": "正在加载"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "该助手"
+  },
+  "routeErrorBoundary": {
+    "chunkFailBody": "此部分无法加载。可能是网络故障或版本过旧。请重新加载页面重试。",
+    "reload": "重新加载"
+  },
+  "runtimeUpgradeBanner": {
+    "confirmMessage": "更新到版本 {version}？更新期间助手将暂时不可用。",
+    "confirmTitle": "更新助手运行时",
+    "later": "稍后",
+    "title": "有新的助手版本可用：{version}",
+    "toastComplete": "更新完成。您的助手运行正常。",
+    "toastFailed": "未能触发更新。请重试。",
+    "update": "更新"
+  },
+  "sectionActionsButton": {
+    "ariaLabel": "{name} 操作"
+  },
+  "serviceFormControls": {
+    "reset": "重置",
+    "save": "保存"
+  },
+  "shareConnectionLinkButton": {
+    "label": "分享连接链接"
+  },
+  "shareFeedbackModal": {
+    "aboutDiagnosticsAria": "关于诊断信息",
+    "addFiles": "添加文件",
+    "adminOnlyHint": "仅限管理员 - 在本地构建诊断存档并下载，而不是提交反馈或通知 Slack。",
+    "attachments": "附件",
+    "bugTip": "提示：在我们的 <discordLink>Discord 社区</discordLink> 发布问题可获得更快的支持",
+    "cancel": "取消",
+    "category": "类别",
+    "closeAria": "关闭",
+    "diagnosticsTooltip": "诊断信息包括浏览器上下文、助手日志和时间戳，绝不包含密码或凭据。",
+    "downloadDiagnostics": "直接下载诊断信息",
+    "downloadDiagnosticsAria": "直接下载诊断信息",
+    "downloadDiagnosticsButton": "下载诊断信息",
+    "dropFiles": "拖放文件以附加…",
+    "email": "电子邮件",
+    "featureTip": "提示：在我们的 <roadmapLink>公开路线图</roadmapLink> 上为功能投票",
+    "includeConversation": "包含最近的对话",
+    "includeConversationAria": "包含最近的对话",
+    "includeDiagnostics": "包含诊断信息",
+    "includeDiagnosticsAria": "包含浏览器诊断信息",
+    "messageLabelBug": "哪里出错了？",
+    "messageLabelFeature": "描述您的想法",
+    "messageLabelOther": "您有什么想法？",
+    "messagePlaceholderBug": "您预期会发生什么，实际发生了什么？",
+    "messagePlaceholderFeature": "这将为您解决什么问题？",
+    "messagePlaceholderOther": "分享您的想法...",
+    "preparingDiagnostics": "正在准备诊断信息…",
+    "reasonBugReport": "错误报告",
+    "reasonFeatureRequest": "功能请求",
+    "reasonOther": "其他",
+    "removeAttachmentAria": "移除 {name}",
+    "sendingFeedback": "正在发送反馈…",
+    "submit": "提交",
+    "timeRange": "时间范围",
+    "timeRangeAllTime": "所有时间",
+    "timeRangeAria": "诊断信息时间范围",
+    "timeRangePast24Hours": "过去 24 小时",
+    "timeRangePastHour": "过去一小时",
+    "title": "分享反馈"
+  },
+  "shareFeedbackModalFallback": {
+    "loadingAria": "正在加载反馈表单"
+  },
+  "shareFeedbackModalLoadError": {
+    "close": "关闭",
+    "message": "无法加载反馈表单。",
+    "retry": "重试"
+  },
+  "sideListDrawer": {
+    "closeAria": "关闭",
+    "closeSidebarAria": "关闭侧边栏",
+    "openSidebarAria": "打开侧边栏"
+  },
+  "sidebarShell": {
+    "backFrom": "从 {title} 返回",
+    "backToMenu": "返回 {title} 菜单",
+    "navigationAria": "{title} 导航"
+  },
+  "sidebarTree": {
+    "ariaLabel": "侧边栏导航"
+  },
+  "skillLineageLink": {
+    "label": "从本次对话中学习"
+  },
+  "skillRemovalDialog": {
+    "message": "从该助手移除“{name}”？",
+    "remove": "移除",
+    "title": "移除技能"
+  },
+  "slackSetupCreateStep": {
+    "approvalNotice": "如果 Slack 显示“请求批准”而不是<strong>安装</strong>，则工作区管理员需要先批准该应用。",
+    "createdApp": "我已创建应用",
+    "inSlack": "在 Slack 中：",
+    "stepManifest": "在<strong>或以您自己的方式开始</strong>下，选择<strong>从清单</strong>，然后选择<strong>继续</strong>",
+    "stepPaste": "选择您的工作区并粘贴清单",
+    "stepReview": "审查权限，然后点击<strong>创建并安装</strong>"
+  },
+  "slackSetupNameStep": {
+    "appName": "应用名称",
+    "appNamePlaceholder": "我的助手",
+    "copied": "已复制！",
+    "copyManifest": "复制清单",
+    "description": "描述（可选）",
+    "descriptionHelper": "显示在应用的 Slack 个人资料中。",
+    "descriptionPlaceholder": "此助手提供哪些帮助",
+    "intro": "命名您的 Slack 应用并复制其清单。所有权限和设置均已预配置。",
+    "next": "下一步"
+  },
+  "slackSetupOpenStep": {
+    "body": "在新标签页中打开 Slack 以创建应用，然后返回此处查看后续步骤。",
+    "copied": "已复制！",
+    "copyManifest": "复制清单",
+    "manifestCopiedNotice": "您已在此处复制此应用的清单。如果您在此之后复制了其他内容，请在粘贴前再次复制。",
+    "manifestNotCopiedNotice": "您尚未复制此应用的清单。Slack 的创建应用模态框没有其他方式获取它，因此请在粘贴前复制它。",
+    "next": "下一步",
+    "openSlack": "打开 Slack"
+  },
+  "slackSetupTokensStep": {
+    "appTokenLabel": "应用令牌",
+    "botTokenLabel": "机器人令牌",
+    "connectSlack": "连接 Slack",
+    "connecting": "正在连接…",
+    "credentialsSaved": "凭据已保存。",
+    "instructions": "在 Slack 的确认屏幕上，展开 <credentials>您的应用凭据</credentials> 并复制两个令牌。",
+    "skipNotice": "该屏幕还提供命令行演练和 <download>下载应用文件</download> 按钮。请跳过这两项。它们会设置一个独立的本地应用，而此助手只需要这两个令牌。"
+  },
+  "slackSetupWizard": {
+    "channelLabel": "Slack",
+    "copyError": "无法复制清单。请在继续之前重新复制。",
+    "stepConnect": "连接",
+    "stepCreate": "创建",
+    "stepName": "名称",
+    "stepOpen": "打开"
+  },
+  "stackedBarTooltip": {
+    "total": "总计：{value}"
+  },
+  "startupFailure": {
+    "reloadApp": "重新加载应用"
+  },
+  "statusBanner": {
+    "dismiss": "忽略",
+    "goToDoctor": "前往诊断",
+    "resumeAssistant": "恢复助手",
+    "retryNow": "立即重试",
+    "wakeUp": "唤醒"
+  },
+  "sttLanguagePicker": {
+    "allLanguages": "所有语言",
+    "featured": "精选",
+    "languagesAriaLabel": "语言",
+    "noMatch": "无匹配语言。",
+    "searchAriaLabel": "搜索语言",
+    "searchPlaceholder": "搜索语言",
+    "suggested": "建议"
+  },
+  "sttLanguagePickerModal": {
+    "description": "从您下次语音输入开始生效。"
+  },
+  "sttProviderForm": {
+    "apiKeyLabel": "API 密钥",
+    "apiKeyPlaceholderReplace": "•••••••• (输入新密钥以替换)",
+    "providerAriaLabel": "语音转文本提供商",
+    "providerLabel": "提供商",
+    "saveFailed": "保存语音转文本设置失败",
+    "saveSuccess": "语音转文本设置已保存",
+    "spokenLanguage": "口语语言",
+    "spokenLanguageApplies": "从您下次语音输入开始生效。",
+    "vellumTranscription": "转录通过您的 Vellum 账户运行。",
+    "windowsNativeDisplayName": "Windows 本机听写",
+    "windowsNativeSetupWarning": "需要为您的 Windows 显示语言启用基本语音识别：打开“设置”>“时间和语言”>“语言和区域”，选择显示语言旁边的三个点，选择“语言选项”，然后在“语言功能”下下载“基本语音识别”。",
+    "windowsNativeSubtitle": "Windows 设备上的语音识别，通过 Windows 助手在本地运行。可离线工作，无需 API 密钥。"
+  },
+  "subagentAvatarChip": {
+    "ariaLabel": "子代理 {subagentId}"
+  },
+  "systemPermissionsCard": {
+    "accessibilityDescription": "允许您的助手代表您点击、输入和控制应用程序。",
+    "accessibilityLabel": "辅助功能",
+    "checking": "正在检查权限...",
+    "dockIcon": "程序坞图标",
+    "microphoneDescription": "允许您的助手捕获音频用于语音输入和录音。",
+    "microphoneLabel": "麦克风",
+    "notificationBadgesDescription": "允许您的助手在 {surface} 上显示未读对话计数。",
+    "notificationBadgesLabel": "通知标记",
+    "notificationsDescription": "允许您的助手发送 macOS 提醒，用于审批、消息和任务更新。",
+    "notificationsLabel": "通知",
+    "notificationsWindowsDescription": "允许您的助手显示 Windows 通知，用于审批、消息和任务更新。",
+    "screenDescription": "允许您的助手在计算机使用任务期间捕获屏幕上下文。",
+    "screenLabel": "屏幕录制",
+    "speechRecognitionDescription": "允许您的助手在设备上将您的语音转录为文本。",
+    "speechRecognitionLabel": "语音识别",
+    "speechRecognitionWindowsDescription": "允许您的助手使用 Windows 语音识别将您的语音转录为文本。",
+    "taskbarIcon": "任务栏图标",
+    "title": "系统权限"
+  },
+  "telegramSetupConnectStep": {
+    "botTokenLabel": "机器人令牌",
+    "connectTelegram": "连接 Telegram",
+    "instructions": "粘贴 BotFather 回复中的令牌。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之后的整行内容。",
+    "saving": "正在保存…",
+    "successNotice": "令牌已保存。其余步骤将自动完成。您的助手将在您下次聊天时确认 Telegram 正在发送消息，并确保可以联系到您。"
+  },
+  "telegramSetupCreateStep": {
+    "copied": "已复制！",
+    "copyName": "复制名称",
+    "displayNameHint": "对于显示名称，<strong>{suggestedName}</strong> 可使此机器人与您的助手匹配。用户名是独立的，不必匹配。",
+    "inBotFather": "在 BotFather 中：",
+    "intro": "Telegram 机器人通过向 <strong>@BotFather</strong> 发送消息来创建。打开它，按照提示操作，然后带着它给您的令牌回来。",
+    "next": "下一步",
+    "openBotFather": "打开 BotFather",
+    "stepDisplayName": "给它一个显示名称，这是人们在聊天中看到的名称",
+    "stepSendNewBot": "发送 <strong>/newbot</strong>",
+    "stepTokenReply": "BotFather 会在 <strong>Use this token to access the HTTP API</strong> 之后回复一个令牌",
+    "stepUsername": "给它一个用户名，该用户名必须是唯一的，并以 <strong>bot</strong> 结尾"
+  },
+  "telegramSetupWizard": {
+    "channelLabel": "Telegram",
+    "copyError": "无法复制名称。请改为在 BotFather 中输入。",
+    "stepConnect": "连接",
+    "stepCreate": "创建机器人"
+  },
+  "terminalPanel": {
+    "recoveryModeBanner": "恢复模式已激活：此会话已连接到调试终端。"
+  },
+  "themeStagePage": {
+    "accentFill": "强调色填充",
+    "activeBorder": "活动边框",
+    "activeSurface": "活动表面",
+    "assistantBubble": "助手回复，在页面表面全宽渲染。",
+    "buttonDisabled": "禁用",
+    "buttonPrimary": "主要",
+    "buttonSecondary": "次要",
+    "chatAssistant1": "完成。摘要已准备就绪。收入稳步增长，上季度标记的两个风险已解决，我已将值得展示的三张图表提取到单独的页面中。",
+    "chatAssistant2": "已安排在上午9点。我将包含图表和一个段落版本，供在手机上快速浏览的人查看。",
+    "chatUser1": "你能在明天的会议前总结一下季度报告吗？",
+    "chatUser2": "太好了。早上发给团队。",
+    "composerPlaceholder": "给你的助手发消息",
+    "faintText": "淡文本 - 斜坡上最后一个清晰可见的步骤。",
+    "inputFilled": "已输入到字段中的文本。",
+    "inputPlaceholder": "空字段中的占位符",
+    "newConversation": "新对话",
+    "overlaySurface": "叠加表面",
+    "primaryText": "主要文本 - 应用的主要阅读表面。",
+    "quietText": "安静文本 - 元数据和时间戳。",
+    "raisedCard": "凸起卡片",
+    "raisedCardBody": "凸起表面位于面板和页面背景之上。",
+    "samplerTitle": "主题样本",
+    "secondaryText": "次要文本 - 辅助文案和描述。",
+    "sectionAccent": "强调色",
+    "sectionButtons": "按钮",
+    "sectionInputs": "输入",
+    "sectionMessages": "消息",
+    "sectionSurfaces": "表面和边框",
+    "sectionText": "文本",
+    "send": "发送",
+    "subtleDivider": "此线上方的细分隔线。",
+    "tertiaryText": "三级文本 - 字幕、标签和占位符。",
+    "userBubble": "用户在其气泡中的消息。"
+  },
+  "themeToggle": {
+    "dark": "深色",
+    "label": "主题",
+    "light": "浅色",
+    "system": "系统",
+    "velvet": "丝绒"
+  },
+  "tipCard": {
+    "dismiss": "关闭",
+    "nextTip": "下一条提示",
+    "previousTip": "上一条提示"
+  },
+  "ttsProviderForm": {
+    "apiKey": "API 密钥",
+    "apiKeyRequired": "测试前请为此提供商保存 API 密钥。",
+    "chooseFromCatalog": "从目录中选择",
+    "customVoiceIdAriaLabel": "自定义语音 ID",
+    "noManagedVoices": "目前没有可用的托管语音。",
+    "provider": "提供商",
+    "providerAriaLabel": "TTS 提供商",
+    "saveFailed": "保存文本转语音设置失败",
+    "saved": "文本转语音设置已保存",
+    "test": "测试",
+    "testing": "正在测试…",
+    "voice": "语音",
+    "voiceId": "语音 ID",
+    "voiceIdPlaceholder": "输入语音 ID"
+  },
+  "updateToast": {
+    "available": "有可用更新。正在开始下载…",
+    "closeAriaLabel": "关闭",
+    "downloading": "正在下载更新…",
+    "ready": "Vellum {version} 已准备就绪。",
+    "restartToInstall": "重启以安装",
+    "versionFallback": "更新"
+  },
+  "useAppDelete": {
+    "deleteFailed": "删除应用失败"
+  },
+  "useAppDeployment": {
+    "copyFailed": "无法复制链接。请在 {url} 打开。",
+    "linkCopied": "链接已复制",
+    "open": "打开"
+  },
+  "useAssistantChannels": {
+    "setupPrompt": {
+      "slack": "我想在 Slack 上联系你。我们来设置一下。",
+      "telegram": "我想在 Telegram 上联系你。我们来设置一下。",
+      "discord": "我想在 Discord 上联系你。我们来设置一下。",
+      "email": "我想给你发邮件。我们来设置你的电子邮件地址。",
+      "phone": "我想能够给你打电话。我们来设置你的电话号码。"
+    },
+    "finishPrompt": {
+      "slack": "Slack 已设置但无法工作。你能完成它吗？",
+      "telegram": "Telegram 已设置但无法工作。你能完成它吗？",
+      "discord": "Discord 已设置但无法工作。你能完成它吗？",
+      "email": "我的电子邮件地址已设置但无法工作。你能完成它吗？",
+      "phone": "我的电话号码已设置但无法工作。你能完成它吗？"
+    }
+  },
+  "useBookmarks": {
+    "addFailed": "收藏消息失败。",
+    "removeFailed": "移除收藏失败。"
+  },
+  "useConnectClaude": {
+    "exchangeFailed": "请检查粘贴的密钥并重试。",
+    "failed": "连接 Claude 失败。请重试。",
+    "notStarted": "请先启动连接 Claude 流程。",
+    "pasteEmpty": "请粘贴 Claude 页面上显示的代码。",
+    "popupBlocked": "您的浏览器阻止了登录标签页。请允许此站点的弹窗，然后再次点击连接。",
+    "startFailed": "无法启动连接 Claude。请重试。",
+    "timedOut": "等待 Claude 连接超时。请重试。"
+  },
+  "useOauthConnect": {
+    "accountConnected": "{name} 账户已连接。",
+    "authPopupClosed": "{name} 连接失败：授权弹窗已关闭。",
+    "authorizationError": "{name} 错误：{code}",
+    "authorizationFailed": "{name} 授权失败",
+    "popupBlocked": "弹窗被阻止。请启用弹窗并重试。",
+    "popupClosed": "{name} 连接失败：弹窗已关闭。",
+    "startFailed": "启动 {name} 授权失败。"
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "您的浏览器阻止了助手尝试打开的页面。",
+    "openPage": "打开页面"
+  },
+  "useVoiceSamplePreview": {
+    "playFailed": "无法播放语音样本。"
+  },
+  "useWorkspaceTheme": {
+    "updated": "主题已更新"
+  },
+  "vercelTokenDialog": {
+    "body": "输入您的 Vercel API 令牌，将应用程序部署为静态页面。",
+    "cancel": "取消",
+    "createToken": "在 Vercel 上创建令牌 →",
+    "save": "保存",
+    "saveFailed": "保存 Vercel 令牌失败。",
+    "saving": "正在保存…",
+    "title": "连接 Vercel",
+    "tokenLabel": "API 令牌",
+    "tokenPlaceholder": "Vercel API 令牌"
+  },
+  "voiceList": {
+    "assistantVoiceAriaLabel": "助手语音",
+    "defaultSuffix": "（默认）",
+    "previewVoice": "预览 {description}",
+    "providerAriaLabel": "语音提供商",
+    "stopPreview": "停止预览"
+  },
+  "voicePickerField": {
+    "ariaLabel": "语音",
+    "selectVoice": "选择语音"
+  },
+  "voicePickerModal": {
+    "done": "完成",
+    "title": "语音"
+  },
+  "voiceProvidersNote": {
+    "body": "语音提供商、转录和 API 密钥位于<modelsLink>模型与服务</modelsLink>中。"
+  },
+  "voiceTranscriptToggles": {
+    "recommendedOff": "建议关闭"
+  },
+  "windowsMenuBar": {
+    "developer": "开发者",
+    "file": "文件",
+    "help": "帮助",
+    "view": "视图"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "正在检查域名…",
+    "domainVerified": "域名已验证",
+    "failedTitle": "域名验证失败。DNS 记录可能未正确传播。您可以尝试释放并重新注册该域名。",
+    "unknownStatus": "未知状态",
+    "unknownStatusTitle": "无法检索域名验证状态。",
+    "verificationFailed": "验证失败",
+    "verifiedTitle": "DNS 记录已验证。您的域名已准备好发送和接收电子邮件。",
+    "verifyingDomain": "正在验证域名…",
+    "verifyingTitle": "DNS 记录已配置。正在等待电子邮件提供商验证它们 - 这通常需要几分钟。"
+  },
+  "managedServicesBanner": {
+    "body": "托管服务按量计费，并从您的 Vellum 账户余额中扣除。<link>查看定价</link>"
+  },
+  "serviceCard": {
+    "managedLabel": "托管",
+    "modeToggleAriaLabel": "服务模式",
+    "yourOwnLabel": "自托管"
+  },
+  "channelAvatarDownload": {
+    "previewAlt": "您的助手头像",
+    "download": "下载头像",
+    "prompt": {
+      "slack": "下载您的助手头像以上传为应用图标。",
+      "discord": "下载您的助手头像以上传为机器人图标。",
+      "telegram": "下载您的助手头像，然后使用 /setuserpic 发送给 BotFather。"
+    }
+  }
+}

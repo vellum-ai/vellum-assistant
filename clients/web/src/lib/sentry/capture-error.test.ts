@@ -11,6 +11,7 @@ mock.module("@sentry/react", () => ({
 const { captureError, normalizeToError, isExpectedDaemonTransientError } =
   await import("@/lib/sentry/capture-error");
 const { ApiError } = await import("@/utils/api-errors");
+const { CancelledError } = await import("@tanstack/react-query");
 
 describe("normalizeToError", () => {
   test("returns Error instances unchanged", () => {
@@ -109,6 +110,21 @@ describe("captureError", () => {
   test("silently drops transient network errors", () => {
     captureExceptionMock.mockClear();
     captureError(new TypeError("Failed to fetch"), { context: "test-ctx" });
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  test("silently drops TanStack Query cancellations", () => {
+    captureExceptionMock.mockClear();
+    captureError(new CancelledError({ revert: true }), { context: "test-ctx" });
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  test("silently drops fetch aborts", () => {
+    captureExceptionMock.mockClear();
+    captureError(
+      new DOMException("signal is aborted without reason", "AbortError"),
+      { context: "test-ctx" },
+    );
     expect(captureExceptionMock).not.toHaveBeenCalled();
   });
 

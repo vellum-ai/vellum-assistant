@@ -6,6 +6,7 @@
  * and persisting rules via the trust-rules API.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import {
@@ -18,7 +19,10 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { reportSubmissionFailure } from "@/domains/chat/prompt-submission";
+import {
+  captureSubmissionRejection,
+  reportSubmissionFailure,
+} from "@/domains/chat/prompt-submission";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
@@ -28,7 +32,6 @@ import { toRiskLevel } from "@/domains/chat/utils/risk";
 import { submitConfirmation } from "@/domains/chat/api/interactions";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { TrustRuleItem, TrustRuleRisk } from "@/types/trust-rules";
@@ -42,7 +45,6 @@ export interface TrustRulePayload {
   toolName: string;
   pattern: string;
   riskLevel: TrustRuleRisk;
-  scope: string;
 }
 
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
@@ -53,7 +55,6 @@ export interface ToolCallRuleContext {
   input?: Record<string, unknown>;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
   matchedTrustRuleId?: string;
 }
 
@@ -140,10 +141,42 @@ function buildFullCommandText(input?: Record<string, unknown>): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Persist the editor's rule through the trust-rules API: update the rule
+ * being edited, or create a new one. Errors surface as the save-failed toast.
+ */
+async function persistRule(
+  assistantId: string,
+  strategy: "update-or-create" | "always-create",
+  rule: TrustRulePayload,
+  existingRule: TrustRuleItem | undefined,
+  errorContext: string,
+): Promise<void> {
+  try {
+    if (strategy === "update-or-create" && existingRule) {
+      await updateTrustRule(assistantId, existingRule.id, {
+        risk: rule.riskLevel,
+      });
+    } else {
+      await addTrustRule(assistantId, {
+        tool: rule.toolName,
+        pattern: rule.pattern,
+        risk: rule.riskLevel,
+        description: `${rule.toolName} - ${rule.pattern}`,
+      });
+    }
+  } catch (err) {
+    captureError(err, { context: errorContext });
+    useChatSessionStore
+      .getState()
+      .setError({ message: t("chat:ruleEditorActions.saveFailed") });
+  }
+}
+
+/**
  * Unified save-rule logic. Strategy determines how the rule is persisted:
  * - `update-or-create`: updates an existing rule if one is being edited,
  *   otherwise creates a new one. If a pending confirmation exists (requestId),
- *   resolves it via the confirmation API instead.
+ *   the pending tool call is approved first, then the rule is persisted.
  * - `always-create`: always creates a new rule regardless of existing context.
  */
 async function executeSaveRule(
@@ -157,7 +190,12 @@ async function executeSaveRule(
     return;
   }
 
-  // Confirmation path: resolve via the interaction API rather than direct save.
+  // Confirmation path: approve the pending tool call, then persist the rule.
+  // Two writes on purpose: the confirm route only resolves the interaction,
+  // and the trust-rules API is the one write that carries the rule's risk
+  // level. Approval goes first so a rule-save failure never leaves the tool
+  // call hanging; a failed rule save surfaces as the save-failed toast while
+  // the approved call proceeds.
   if (strategy === "update-or-create" && context.requestId) {
     useRuleEditorStore.getState().setIsSavingRule(true);
     useInteractionStore
@@ -168,32 +206,46 @@ async function executeSaveRule(
         ctx.assistantId,
         context.requestId,
         "allow",
-        { selectedPattern: rule.pattern, selectedScope: rule.scope },
       );
       if (!result.ok) {
+        useRuleEditorStore.getState().setIsSavingRule(false);
         useRuleEditorStore.getState().dismissRuleEditor();
+        captureSubmissionRejection("save_trust_rule", result);
         reportSubmissionFailure(
           "confirmation",
           context.requestId,
-          result.error,
+          "ruleEditorActions.saveFailed",
         );
         return;
       }
     } catch (err) {
       captureError(err, { context: "save_trust_rule" });
+      useRuleEditorStore.getState().setIsSavingRule(false);
       useRuleEditorStore.getState().dismissRuleEditor();
       reportSubmissionFailure(
         "confirmation",
         context.requestId,
-        "Failed to save trust rule. Please try again.",
+        "ruleEditorActions.saveFailed",
       );
       return;
     } finally {
-      useRuleEditorStore.getState().setIsSavingRule(false);
+      // The saving flag deliberately stays true on the success path until
+      // the rule persists below, so the Save button cannot double-fire
+      // between approval and persistence; both failure branches reset it
+      // before returning.
       useInteractionStore
         .getState()
         .releaseSubmission("confirmation", context.requestId);
     }
+
+    await persistRule(
+      ctx.assistantId,
+      strategy,
+      rule,
+      context.existingRule,
+      "save_trust_rule",
+    );
+    useRuleEditorStore.getState().setIsSavingRule(false);
 
     useInteractionStore
       .getState()
@@ -217,34 +269,17 @@ async function executeSaveRule(
 
   // Direct save path: persist rule to the trust-rules API.
   useRuleEditorStore.getState().setIsSavingRule(true);
-  try {
-    if (strategy === "update-or-create" && context.existingRule) {
-      await updateTrustRule(ctx.assistantId, context.existingRule.id, {
-        risk: rule.riskLevel,
-      });
-    } else {
-      await addTrustRule(ctx.assistantId, {
-        tool: rule.toolName,
-        pattern: rule.pattern,
-        risk: rule.riskLevel,
-        description: `${rule.toolName} — ${rule.pattern}`,
-        scope: rule.scope,
-      });
-    }
-  } catch (err) {
-    captureError(err, {
-      context:
-        strategy === "always-create"
-          ? "save_as_new_trust_rule"
-          : "save_trust_rule_direct",
-    });
-    useChatSessionStore
-      .getState()
-      .setError({ message: "Failed to save trust rule. Please try again." });
-  } finally {
-    useRuleEditorStore.getState().setIsSavingRule(false);
-    useRuleEditorStore.getState().dismissRuleEditor();
-  }
+  await persistRule(
+    ctx.assistantId,
+    strategy,
+    rule,
+    context.existingRule,
+    strategy === "always-create"
+      ? "save_as_new_trust_rule"
+      : "save_trust_rule_direct",
+  );
+  useRuleEditorStore.getState().setIsSavingRule(false);
+  useRuleEditorStore.getState().dismissRuleEditor();
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +299,6 @@ export function fireSuggestion(params: {
   riskReason?: string;
   resolvedAllowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
-  directoryScopeOptions: DirectoryScopeOption[];
   existingRule?: TrustRuleItem;
 }): void {
   const abortController = useRuleEditorStore
@@ -290,10 +324,6 @@ export function fireSuggestion(params: {
           reasonDescription: params.riskReason ?? "",
         },
         scopeOptions: scopeOpts,
-        directoryScopeOptions: params.directoryScopeOptions.map((o) => ({
-          scope: o.scope,
-          label: o.label,
-        })),
         intent: "auto_approve",
         existingRule: params.existingRule
           ? {
@@ -340,7 +370,6 @@ export function handleOpenRuleEditorForToolCall(
     riskLevel: toRiskLevel(context.riskLevel),
     allowlistOptions: resolvedAllowlistOptions,
     scopeOptions: context.scopeOptions,
-    directoryScopeOptions: context.directoryScopeOptions,
     commandText: deriveCommandText(context.input, context.toolName),
     commandDescription: context.riskReason ?? "",
   };
@@ -380,7 +409,6 @@ export function handleOpenRuleEditorForToolCall(
       riskReason: context.riskReason,
       resolvedAllowlistOptions,
       scopeOptions: context.scopeOptions,
-      directoryScopeOptions: context.directoryScopeOptions,
       existingRule,
     });
   };

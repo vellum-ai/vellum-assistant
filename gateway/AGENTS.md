@@ -179,7 +179,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in _both_ the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
 
-**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`, `discord`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
+**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
 
 - The GET list omits them, and `PUT`/`DELETE` return **403** (`isAdmissionPolicyHiddenChannel`).
 - They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.
@@ -217,7 +217,7 @@ Two orthogonal axes, do not conflate them:
 - **Admission** (above) — _who gets in the door_. `TRUST_CLASS_RANK` vs `ADMISSION_FLOOR`, enforced across gateway + runtime.
 - **Capabilities** — _what an actor may do once admitted_. Resolved in the runtime, never on the gateway.
 
-**Trust classes** (`TrustClass` in `assistant/src/runtime/actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
+**Trust classes** (`TrustClass` in `assistant/src/runtime/trust-class.ts`, re-exported from `actor-trust-resolver.ts`) are the _role_, ranked by `TRUST_CLASS_RANK`:
 
 | Class                | Rank | Meaning                                                                  |
 | -------------------- | ---- | ------------------------------------------------------------------------ |
@@ -242,11 +242,25 @@ The gateway classifies the actor at ingress (keyed on `actorExternalId`) and for
 
 **Intentionally NOT capability-gated** (these are identity / admission-flow decisions, not permissions, and stay raw class checks): `calls/*` guardian-identity call routing, `inbound-message-handler` heartbeat/timezone side-effects, `surface-action-routes` drift-heal re-resolution, and `channel-retry-sweep` trust-class parsing.
 
+## Operator CLI (`gateway contacts`)
+
+The gateway package ships an operator CLI (`gateway/src/cli/`, bin `gateway`) for gateway-owned contact ACL. This is the write surface for a contact's assistant-access ceiling. Do not add that write to `assistant contacts`.
+
+```
+gateway contacts list
+gateway contacts get <contactId>
+gateway contacts set-risk-threshold <contactId> --threshold none|low|medium|high|inherit
+```
+
+The CLI talks to the running gateway over its IPC socket (`set_contact_threshold`, `contacts_list_rich`, `contacts_get_rich`). It does not open `gateway.sqlite` itself.
+
+From the host: `vellum exec --service gateway -- gateway contacts ...`. Do not add a `vellum gateway contacts` verb.
+
 ## Guardian Requests (gateway-owned)
 
 The gateway owns guardian approval requests and their delivery records: the `guardian_requests` and `guardian_request_deliveries` tables (`src/db/guardian-request-store.ts`), fronted by `src/approvals/guardian-request-service.ts` and exposed to the daemon over the `guardian_requests_*` IPC routes (`src/ipc/guardian-request-handlers.ts`; shared contract in `packages/gateway-client/src/guardian-request-contract.ts`). The daemon holds no request state — it relays everything through `assistant/src/channels/gateway-guardian-requests.ts` and keeps the daemon-domain side effects: notifications, card delivery/withdrawal, pending-interaction resume, grant minting into its `scoped_approval_grants`.
 
 - **Decide atomicity (the core invariant).** `guardian_requests_decide` commits the status CAS (`pending → approved|denied`, first-writer-wins) and the decision's ACL outcome (`activate_member`, `seed_unverified`, `block`, `mint_outbound_session`) in ONE gateway transaction. A failed outcome rolls back the CAS — the request stays `pending` and the guardian can decide again; an `approved` request without its ACL write cannot exist, and deciding twice never applies two outcomes. There is no reopen path.
 - **Schema notes.** There is no `source_type` column — the wire DTO's `sourceType` is derived from `source_channel` (`phone` → voice, `vellum` → desktop, else channel), and the list route translates a `sourceType` filter into `source_channel` predicates. The requester-side conversation is `source_conversation_id`. Request ids are caller-supplied and load-bearing (deterministic access-request ids; `tool_approval` rows reuse the pending-interaction id as PK).
-- **Expiry is daemon-keyed for interaction-bound kinds.** `tool_approval`/`pending_question` requests die with the daemon's in-memory `pendingInteractions` map, so the daemon calls `guardian_requests_expire_interaction_bound` at boot; the gateway never expires them on its own restart. Persistent kinds (`access_request`, `tool_grant_request`) expire past `expires_at` via the daemon's 60s `guardian_requests_sweep_expired` sweep, which returns the expired rows for daemon-side card withdrawal and requester notices.
+- **Expiry is daemon-keyed for interaction-bound kinds.** `tool_approval`/`pending_question` requests die with the daemon's in-memory `pendingInteractions` map, so the daemon calls `guardian_requests_expire_interaction_bound` at boot; the gateway never expires them on its own restart, and the boot call never touches persistent kinds. Persistent kinds (`access_request`, `tool_grant_request`) expire via the daemon's 60s sweep: `guardian_requests_list_expired_pending` returns a bounded, read-only batch of past-deadline pending rows, the daemon runs each row's card withdrawal and requester notice, and only then confirms with the per-request `guardian_requests_expire` CAS, so a lost response or crash leaves the row listed for the next round instead of stranding its side effects. The decide CAS carries an `expires_at` guard, so a decision arriving past the deadline loses the arbitration atomically.
 - **Provenance.** The tables moved here from the assistant DB: gateway data migration m0015 backfilled them, and m0016 (checkpoint-gated on m0015, with a final catch-up copy) dropped the assistant-side tables.

@@ -3,7 +3,6 @@ import { useState, type ChangeEvent } from "react";
 
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import {
-  organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveQueryKey,
   organizationsBillingDailyCreditLimitRetrieveSetQueryData,
@@ -11,6 +10,7 @@ import {
   organizationsBillingSummaryRetrieveOptions,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
 import { t, useTranslation } from "@/i18n";
@@ -72,9 +72,7 @@ export function DailyCreditLimitCard() {
     organizationsBillingDailyCreditLimitRetrieveOptions(),
   );
   const summaryQuery = useQuery(organizationsBillingSummaryRetrieveOptions());
-  const autoTopUpQuery = useQuery(
-    organizationsBillingAutoTopUpRetrieveOptions(),
-  );
+  const autoTopUpQuery = useAutoTopUpConfigQuery();
   const updateMutation = useMutation(
     organizationsBillingDailyCreditLimitUpdateMutation(),
   );
@@ -231,6 +229,9 @@ export function DailyCreditLimitCard() {
             updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
           }
           label={t("dailyCreditLimitCard.toggleLabel")}
+          helperText={
+            enabled ? t("dailyCreditLimitCard.toggleSubtitle") : undefined
+          }
         />
 
         {requiredByAutoTopUp && (
@@ -244,7 +245,7 @@ export function DailyCreditLimitCard() {
 
         {enabled && (
           <>
-            <div className="flex flex-wrap items-start gap-3">
+            <div className="flex flex-wrap items-start gap-2">
               <div className="w-60 max-w-full">
                 <Input
                   type="number"
@@ -264,10 +265,10 @@ export function DailyCreditLimitCard() {
                 />
               </div>
               {/*
-               * `pt-[18px]` aligns the button with the input box (12px label +
+               * `pt-[20px]` centres the button against the input box (12px label +
                * 6px gap before the input starts), matching the sibling cards.
                */}
-              <div className="flex shrink-0 items-center gap-2 pt-[18px]">
+              <div className="flex shrink-0 items-center gap-2 pt-[20px]">
                 <Button
                   variant="primary"
                   onClick={handleSave}

@@ -23,7 +23,7 @@ export const DEFAULT_LOCALE = "en";
  * `catalogs.ts` types its registry as `Record<SupportedLocale, …>`, so a
  * missing loader is a type error rather than a runtime 404.
  */
-export const SUPPORTED_LOCALES = ["en", "es"] as const;
+export const SUPPORTED_LOCALES = ["en", "es", "ru", "zh", "zh-TW"] as const;
 
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
@@ -35,6 +35,9 @@ export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 export const LOCALE_LABELS: Record<SupportedLocale, string> = {
   en: "English",
   es: "Español",
+  ru: "Русский",
+  zh: "简体中文",
+  "zh-TW": "繁體中文（台灣）",
 };
 
 export function isSupportedLocale(value: unknown): value is SupportedLocale {
@@ -53,16 +56,33 @@ export function isSupportedLocale(value: unknown): value is SupportedLocale {
  */
 export function negotiateLocale(preferred: readonly string[]): SupportedLocale {
   for (const tag of preferred) {
-    const normalized = tag.trim().toLowerCase();
+    const normalized = tag.trim();
     if (normalized === "") {
       continue;
     }
-    if (isSupportedLocale(normalized)) {
-      return normalized;
+    const matched = (SUPPORTED_LOCALES as readonly string[]).find(
+      (l) => l.toLowerCase() === normalized.toLowerCase(),
+    );
+    if (matched) {
+      return matched as SupportedLocale;
     }
-    const base = normalized.split("-")[0];
-    if (isSupportedLocale(base)) {
-      return base;
+    const lower = normalized.toLowerCase();
+    if (
+      lower === "zh-hant" ||
+      lower.startsWith("zh-hant-") ||
+      lower === "zh-hk" ||
+      lower === "zh-mo"
+    ) {
+      if (isSupportedLocale("zh-TW")) {
+        return "zh-TW";
+      }
+    }
+    const base = normalized.split("-")[0].toLowerCase();
+    const baseMatched = (SUPPORTED_LOCALES as readonly string[]).find(
+      (l) => l.toLowerCase() === base,
+    );
+    if (baseMatched) {
+      return baseMatched as SupportedLocale;
     }
   }
   return DEFAULT_LOCALE;

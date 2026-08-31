@@ -24,6 +24,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
@@ -45,7 +46,6 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -67,7 +67,6 @@ export interface ToolCallChipProps {
     input: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
-    directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
   onConfirmationSubmit?: (
@@ -151,6 +150,7 @@ export function InlineConfirmationCard({
   onSubmit?: (decision: ConfirmationDecision) => void;
   onAllowAndCreateRule?: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const [showDetails, setShowDetails] = useState(false);
 
   const confirmation = toolCall.pendingConfirmation;
@@ -187,7 +187,7 @@ export function InlineConfirmationCard({
         {/* typography: off-scale — 12px meta line per the Figma spec */}
         <div className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-[var(--content-secondary)]">
           <span className="shrink-0 whitespace-nowrap">
-            Confirmation required
+            {t("toolCallChip.confirmationRequired")}
           </span>
           {contextLabel ? (
             <>
@@ -218,7 +218,7 @@ export function InlineConfirmationCard({
               className="rounded-r-none"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Allow
+              {t("toolCallChip.allow")}
             </Button>
             {/* Internal divider between the two halves of the split pill. */}
             <span
@@ -246,7 +246,7 @@ export function InlineConfirmationCard({
             onClick={() => onSubmit?.("allow")}
           >
             {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            Allow
+            {t("toolCallChip.allow")}
           </Button>
         )}
 
@@ -255,7 +255,7 @@ export function InlineConfirmationCard({
           disabled={isSubmitting}
           onClick={() => onSubmit?.("deny")}
         >
-          Deny
+          {t("toolCallChip.deny")}
         </Button>
       </div>
 
@@ -269,7 +269,9 @@ export function InlineConfirmationCard({
             // typography: off-scale — 11px tertiary disclosure per the Figma spec
             className="flex items-center gap-1 self-start text-[11px] font-medium text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
           >
-            {showDetails ? "Hide Details" : "Show Details"}
+            {showDetails
+              ? t("toolCallChip.hideDetails")
+              : t("toolCallChip.showDetails")}
             <ChevronDown
               className={`size-2.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
@@ -296,6 +298,7 @@ export function ToolCallChip({
   onAllowAndCreateRule,
   embedded = false,
 }: ToolCallChipProps) {
+  const { t } = useTranslation("chat");
   const expanded = useChatSessionStore((s) =>
     s.expandedToolCallIds.has(toolCall.id),
   );
@@ -465,8 +468,6 @@ export function ToolCallChip({
                   input: toolCall.input,
                   allowlistOptions: toolCall.riskAllowlistOptions ?? [],
                   scopeOptions: toolCall.scopeOptions ?? [],
-                  directoryScopeOptions:
-                    toolCall.riskDirectoryScopeOptions ?? [],
                   matchedTrustRuleId: toolCall.matchedTrustRuleId,
                 });
               }}
@@ -519,9 +520,11 @@ export function ToolCallChip({
           {/* TECHNICAL DETAILS section */}
           <div className="mt-2.5">
             <div className="mb-1.5 text-label-small-default uppercase tracking-wider text-[var(--content-tertiary)]">
-              Technical Details
+              {t("toolCallChip.technicalDetails")}
             </div>
-            <div className="text-[var(--content-secondary)]">Tool Name</div>
+            <div className="text-[var(--content-secondary)]">
+              {t("toolCallChip.toolName")}
+            </div>
             <div className="text-[var(--content-secondary)]">
               {toolCall.name
                 .replace(/_/g, " ")
@@ -535,7 +538,7 @@ export function ToolCallChip({
             {executionDuration && (
               <div className="mt-0.5">
                 <span className="text-label-medium-default text-[var(--content-default)]">
-                  Tool latency:
+                  {t("toolCallChip.toolLatency")}
                 </span>{" "}
                 <span className="text-[var(--content-tertiary)]">
                   {executionDuration}
@@ -562,7 +565,7 @@ export function ToolCallChip({
           {toolCall.result !== undefined && (
             <div className="mt-3">
               <div className="mb-1.5 text-label-small-default uppercase tracking-wider text-[var(--content-tertiary)]">
-                Output
+                {t("toolCallChip.output")}
               </div>
               <div
                 className={`relative rounded-md border p-3 ${
@@ -589,7 +592,7 @@ export function ToolCallChip({
                     handleCopyOutput();
                   }}
                   className="absolute right-2 top-2 rounded p-1 text-[var(--content-tertiary)] hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
-                  title="Copy output"
+                  title={t("toolCallChip.copyOutput")}
                 >
                   <Clipboard className="h-4 w-4" />
                 </button>

@@ -47,6 +47,11 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  fakeStream,
+  restoreMediaDevices,
+  stubMediaDevices,
+} from "@/domains/chat/voice/voice-room/voice-camera.test-helper";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { MIN_VERSION as CAMERA_MIN_VERSION } from "@/lib/backwards-compat/use-supports-voice-camera";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -137,6 +142,16 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   avatarQueryKey: (id: string) => ["assistantAvatar", id],
 }));
 
+// The field color a custom-image avatar paints the room with is sampled off a
+// canvas, which no test environment decodes. Stubbed with a mutable value so
+// the three states the room actually branches on are all reachable: a resolved
+// sample, a still-pending one, and an image that could not be read.
+let mockCustomFieldHex: string | null = null;
+mock.module("@/domains/chat/voice/voice-room/use-custom-avatar-field", () => ({
+  useCustomAvatarFieldHex: () => mockCustomFieldHex,
+  clearCustomAvatarFieldCache: () => {},
+}));
+
 /** Minimal character components: one body/eye/color of each. */
 const CHARACTER_COMPONENTS = {
   bodyShapes: [
@@ -154,6 +169,23 @@ const CHARACTER_COMPONENTS = {
   ],
   colors: [{ id: "green", hex: "#4C9B50" }],
 };
+
+/**
+ * Point the room at one kind of avatar. `character` brings traits, eyes and a
+ * palette color; `custom` is an uploaded image, whose field color is sampled
+ * (stubbed above) and whose room therefore has no eyes to draw.
+ */
+function seedAvatar(kind: "character" | "custom"): void {
+  mockAvatarData = {
+    components: CHARACTER_COMPONENTS,
+    traits:
+      kind === "character"
+        ? { bodyShape: "sprout", eyeStyle: "curious", color: "green" }
+        : null,
+    customImageUrl: kind === "character" ? null : "blob:custom-avatar",
+  };
+  mockCustomFieldHex = kind === "custom" ? "#3B5C8A" : null;
+}
 
 // Stub the OAuth connect surface (pulls the managed-oauth + generated-SDK
 // graph) so the room-slot tests assert only the wiring: that the room renders
@@ -275,6 +307,7 @@ beforeEach(() => {
   mockMainView = "chat";
   mockIsMobile = false;
   mockAvatarData = { components: null, traits: null, customImageUrl: null };
+  mockCustomFieldHex = null;
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
@@ -407,6 +440,18 @@ const endButton = () =>
 /** The corner chevron: dismisses the room, leaves the call running. */
 const minimizeButton = () =>
   screen.queryByRole("button", { name: "Minimize voice room" });
+/** The row's mic, named for the act it offers, so this is the LIVE one. */
+const micButton = () =>
+  screen.queryByRole("button", { name: "Mute microphone" });
+/** The row's camera: opens and closes the viewfinder. */
+const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
+
+/** An assistant new enough to accept `attach_image`. */
+function seedCameraCapableAssistant() {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
+}
 
 describe("VoiceRoom — visibility", () => {
   test("renders nothing when no session is active", () => {
@@ -531,6 +576,14 @@ describe("VoiceRoom: mobile sheet", () => {
     return () => header.remove();
   }
 
+  /** Stand in for `root-layout.tsx`'s portal container. */
+  function mountOverlayHost() {
+    const host = document.createElement("div");
+    host.id = "viewport-overlays";
+    document.body.appendChild(host);
+    return { host, remove: () => host.remove() };
+  }
+
   /** The room's own box, held by the sheet's content wrapper as its child. */
   function roomBox(): HTMLElement {
     const inner = document.querySelector(
@@ -630,6 +683,89 @@ describe("VoiceRoom: mobile sheet", () => {
     expect(screen.queryByTestId("voice-room-grabber")).toBeNull();
   });
 
+  test("with the viewfinder open the sheet reaches the top edge", async () => {
+    // The camera fills the screen, so the sheet framing it leaves the header's
+    // line: parked there, its corners, its grabber and the chrome line under
+    // them float a third of the way down over a feed that already covers the
+    // rest. Closing the camera puts the sheet back below the header.
+    const overlays = mountOverlayHost();
+    // Another mobile overlay parked in the shared host, beside the sheet.
+    const parkedOverlay = document.createElement("div");
+    overlays.host.append(parkedOverlay);
+    const removeHeader = mountHeader({ top: 47, height: 96 });
+    const header = document.querySelector('[data-slot="chat-layout-header"]')!;
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    try {
+      render(<VoiceRoom variant="sheet" />);
+
+      const sheet = screen.getByRole("dialog", { name: "Voice session" });
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+      expect(overlays.host.contains(sheet)).toBe(true);
+      // Resting below it, the sheet leaves the header usable, which is what
+      // being non-modal buys.
+      expect(header.hasAttribute("inert")).toBe(false);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(false);
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
+      expect(sheet.className).toContain("rounded-t-none");
+      expect(roomBox().className).toContain("rounded-t-none");
+      // Covered by the feed, so out of the tab order and out of VoiceOver's
+      // way rather than lit and reachable behind it. The sheet itself stays
+      // reachable, which is the whole point.
+      expect(header.hasAttribute("inert")).toBe(true);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(true);
+      expect(sheet.closest("[inert]")).toBeNull();
+      // A takeover now: above the tier the host's other overlays share, so
+      // one mounting mid-camera cannot paint over the viewfinder, and still
+      // under the palette.
+      expect(sheet.className).toContain("z-40");
+      expect(sheet.className).not.toContain("z-30");
+      expect(sheet.className).not.toContain("z-50");
+
+      // The pull-down survives the mode switch, and the band it shares with the
+      // camera pill clears the notch the sheet now reaches.
+      const grabber = screen.getByTestId("voice-room-grabber");
+      expect(grabber.className).toContain("top-[var(--room-grabber-top)]");
+      expect(screen.getByTestId("camera-status-pill-slot").className).toContain(
+        "top-[var(--room-chrome-top)]",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-grabber-top: calc(0.5rem + var(--safe-area-inset-top",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-chrome-top: calc(1.25rem + var(--safe-area-inset-top",
+      );
+
+      await act(async () => {
+        fireEvent.click(cameraToggle()!);
+      });
+
+      expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+      expect(sheet.className).not.toContain("rounded-t-none");
+      expect(sheet.className).toContain("z-30");
+      expect(sheet.className).not.toContain("z-40");
+      expect(header.hasAttribute("inert")).toBe(false);
+      expect(parkedOverlay.hasAttribute("inert")).toBe(false);
+      // Back below the header, where nothing above the sheet is the notch.
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-grabber-top: 0.5rem",
+      );
+      expect(roomBox().getAttribute("style")).toContain(
+        "--room-chrome-top: 1.25rem",
+      );
+    } finally {
+      restoreMediaDevices();
+      removeHeader();
+      overlays.remove();
+    }
+  });
+
   test("with no header present the sheet rests at the top edge", () => {
     // Pop-outs render no header. They never show the room, but a zero offset
     // is the right answer for a surface with nothing above it either way.
@@ -710,14 +846,6 @@ describe("VoiceRoom: mobile sheet", () => {
   // navigation drawer opened invisibly behind the room and search opened behind
   // it. The room belongs inside the shell, under both.
   describe("stacking against the surfaces the header opens", () => {
-    /** Stand in for `root-layout.tsx`'s portal container. */
-    function mountOverlayHost() {
-      const host = document.createElement("div");
-      host.id = "viewport-overlays";
-      document.body.appendChild(host);
-      return { host, remove: () => host.remove() };
-    }
-
     test("portals into the app shell's overlay host, not the body", () => {
       const overlays = mountOverlayHost();
       const removeHeader = mountHeader();
@@ -844,25 +972,32 @@ describe("VoiceRoom: mobile sheet", () => {
   });
 });
 
-describe("VoiceRoom — listening waves", () => {
+describe("VoiceRoom: voice bands (avatar still unresolved)", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
-  test("mounts the listening waves while listening (energy coming in)", () => {
+  test("mounts the listening band while listening (energy coming in)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(roomDialog()).not.toBeNull();
     expect(waves()).not.toBeNull();
   });
 
-  test("hides the waves while responding — the avatar emanates instead", () => {
+  test("answers with a band while responding, same as every other look", () => {
     startOwnedSession("speaking");
     render(<VoiceRoom />);
-    // Room is still open (an active phase), but there are no incoming waves.
     expect(roomDialog()).not.toBeNull();
-    expect(waves()).toBeNull();
+    expect(waves()).not.toBeNull();
   });
 
-  test("hides the waves while thinking", () => {
+  test("rides the avatar tint here, not the two-ink vocabulary", () => {
+    // No field has been painted yet, so there is nothing for the dark
+    // assistant ink to be seen against; both voices take the accent instead.
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(waves()?.dataset.color).toBeUndefined();
+  });
+
+  test("leaves the floor empty while thinking", () => {
     startOwnedSession("thinking");
     render(<VoiceRoom />);
     expect(waves()).toBeNull();
@@ -1146,11 +1281,7 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   const eyes = () => screen.queryByTestId("voice-room-eyes");
 
   test("a character avatar gets the color-with-eyes look", () => {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
+    seedAvatar("character");
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(eyes()).not.toBeNull();
@@ -1163,11 +1294,7 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 
   function renderCharacterAt(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
+    seedAvatar("character");
     startOwnedSession(state);
     render(<VoiceRoom />);
     return screen.queryByTestId("listening-waves");
@@ -1211,12 +1338,22 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     expect(eyes()).not.toBeNull();
   });
 
-  test("a custom-image avatar keeps the ambient-void look", () => {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: null,
-      customImageUrl: "blob:custom-avatar",
-    };
+  test("a custom-image avatar fills the room with its sampled color", () => {
+    seedAvatar("custom");
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // No eyes to draw, so the uploaded image takes the centerpiece, and
+    // that is the ONLY thing about the room that differs from a character.
+    expect(eyes()).toBeNull();
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.getByTestId("listening-waves")).toBeTruthy();
+  });
+
+  test("a custom-image avatar holds the void until its color lands", () => {
+    // The sample is a canvas decode: async, and it can fail outright. Either
+    // way the room paints rather than waiting on it.
+    seedAvatar("custom");
+    mockCustomFieldHex = null;
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(eyes()).toBeNull();
@@ -1232,27 +1369,114 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
   });
 });
 
+describe("VoiceRoom: the bands read the same for every avatar", () => {
+  // The bands are the room's account of whose turn it is, so an avatar that
+  // changed where they sit, or what answers the user, would make one session
+  // read as two different rooms.
+  function renderWith(
+    avatar: "character" | "custom",
+    state: LiveVoiceSessionState,
+  ) {
+    seedAvatar(avatar);
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+    const band = screen.queryByTestId("listening-waves");
+    return { placement: band?.dataset.placement, color: band?.dataset.color };
+  }
+
+  test("both voices rise from the floor, whichever avatar is on screen", () => {
+    for (const state of ["listening", "speaking"] as const) {
+      for (const avatar of ["character", "custom"] as const) {
+        expect(renderWith(avatar, state).placement).toBe("bottom");
+        cleanup();
+      }
+    }
+  });
+
+  test("the two-ink vocabulary is the same one in both rooms", () => {
+    const characterListening = renderWith("character", "listening");
+    cleanup();
+    const customListening = renderWith("custom", "listening");
+    cleanup();
+    const characterSpeaking = renderWith("character", "speaking");
+    cleanup();
+    const customSpeaking = renderWith("custom", "speaking");
+    expect(customListening.color).toBe(characterListening.color);
+    expect(customSpeaking.color).toBe(characterSpeaking.color);
+    expect(characterListening.color).not.toBe(characterSpeaking.color);
+  });
+
+  test("no room answers with rings any more", () => {
+    renderWith("custom", "speaking");
+    expect(screen.queryByTestId("voice-responding-rings")).toBeNull();
+    cleanup();
+    renderWith("character", "speaking");
+    expect(screen.queryByTestId("voice-responding-rings")).toBeNull();
+  });
+});
+
+describe("VoiceRoom: live transcript (shared across looks)", () => {
+  // The transcript reads two persisted prefs and nothing about the avatar, so
+  // what is on screen is a property of the account, not of the assistant's
+  // look. These pin that, so a look change cannot make it avatar-dependent.
+  const userHalf = () => screen.queryByTestId("voice-ambient-user");
+  const assistantHalf = () => screen.queryByTestId("voice-ambient-assistant");
+
+  function renderWith(avatar: "character" | "custom") {
+    seedAvatar(avatar);
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({
+      partialTranscript: "what is on my calendar",
+      assistantTranscript: "three meetings today",
+    });
+    render(<VoiceRoom />);
+  }
+
+  test("both prefs default off, so no room shows text", () => {
+    // Read from a fresh store rather than the suite's own seeding, so this
+    // fails if the shipped defaults ever flip.
+    useVoicePrefsStore.persist?.clearStorage?.();
+    const prefs = useVoicePrefsStore.getState();
+    expect(prefs.showUserTranscript).toBe(false);
+    expect(prefs.showAssistantTranscript).toBe(false);
+  });
+
+  test("stays absent for both avatars while the prefs are off", () => {
+    for (const avatar of ["character", "custom"] as const) {
+      renderWith(avatar);
+      expect(userHalf()).toBeNull();
+      expect(assistantHalf()).toBeNull();
+      cleanup();
+    }
+  });
+
+  test("appears in both zones for both avatars once the prefs are on", () => {
+    useVoicePrefsStore.setState({
+      showUserTranscript: true,
+      showAssistantTranscript: true,
+    });
+    for (const avatar of ["character", "custom"] as const) {
+      renderWith(avatar);
+      expect(userHalf()?.textContent).toContain("calendar");
+      expect(assistantHalf()?.textContent).toContain("meetings");
+      cleanup();
+    }
+  });
+});
+
 describe("VoiceRoom — state caption (shared across looks)", () => {
   const caption = () => screen.queryByTestId("voice-state-caption");
 
   function renderCharacterLook(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
+    seedAvatar("character");
     startOwnedSession(state);
     render(<VoiceRoom />);
   }
 
   // The void look (custom-image / unresolved avatar) carries the centered
   // avatar, not the eyes, but shares the same caption beat.
-  function renderVoidLook(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: null,
-      customImageUrl: "blob:custom-avatar",
-    };
+  function renderCustomLook(state: LiveVoiceSessionState) {
+    seedAvatar("custom");
     startOwnedSession(state);
     render(<VoiceRoom />);
   }
@@ -1268,7 +1492,7 @@ describe("VoiceRoom — state caption (shared across looks)", () => {
   });
 
   test("paints no caption in the void look either", () => {
-    renderVoidLook("speaking");
+    renderCustomLook("speaking");
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
     expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
     expect(caption()).toBeNull();
@@ -1309,34 +1533,6 @@ describe("VoiceStateCaption — emphasis", () => {
       render(<VoiceStateCaption visual={visual} emphasis="full" />);
       expect(caption()).toBeNull();
     }
-  });
-});
-
-describe("VoiceRoom — void-look responding rings", () => {
-  const rings = () => screen.queryByTestId("voice-responding-rings");
-
-  function renderVoidLook(state: LiveVoiceSessionState) {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: null,
-      customImageUrl: "blob:custom-avatar",
-    };
-    startOwnedSession(state);
-    render(<VoiceRoom />);
-  }
-
-  test("emits the same concentric rings behind the custom avatar while responding", () => {
-    renderVoidLook("speaking");
-    // The custom avatar (not the eyes) is the centerpiece, but it radiates the
-    // color look's rings — parity with the eyes' responding treatment.
-    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
-    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
-    expect(rings()).toBeTruthy();
-  });
-
-  test("shows no rings outside responding (energy going out only while speaking)", () => {
-    renderVoidLook("listening");
-    expect(rings()).toBeNull();
   });
 });
 
@@ -1388,38 +1584,6 @@ describe("VoiceRoom — no push-to-talk / manual-release affordance (hands-free)
  * inside the room rather than behind the system camera.
  */
 describe("VoiceRoom: camera", () => {
-  const originalMediaDevices = Object.getOwnPropertyDescriptor(
-    navigator,
-    "mediaDevices",
-  );
-
-  /** Present a camera to the room; `null` removes the API entirely. */
-  function stubMediaDevices(
-    getUserMedia:
-      ((constraints?: MediaStreamConstraints) => Promise<unknown>) | null,
-  ) {
-    Object.defineProperty(navigator, "mediaDevices", {
-      configurable: true,
-      value: getUserMedia ? { getUserMedia } : undefined,
-    });
-  }
-
-  // A real `MediaStream`, because happy-dom's `HTMLMediaElement.srcObject`
-  // setter enforces the same instance check the browser does and a duck-typed
-  // stand-in throws where a real camera would not, but happy-dom's
-  // implementation has no `getTracks()`, which release needs, so that one
-  // method is filled in.
-  function fakeStream(getSettings?: () => MediaTrackSettings) {
-    const stream = new MediaStream();
-    Object.defineProperties(stream, {
-      getTracks: { value: () => [] },
-      getVideoTracks: {
-        value: () => (getSettings ? [{ getSettings }] : []),
-      },
-    });
-    return stream;
-  }
-
   /**
    * Make the shutter able to produce a frame.
    *
@@ -1470,22 +1634,10 @@ describe("VoiceRoom: camera", () => {
     };
   }
 
-  /** An assistant new enough to accept `attach_image`. */
-  function seedCameraCapableAssistant() {
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("test-asst", CAMERA_MIN_VERSION, ASSISTANT_ID);
-  }
-
-  const cameraToggle = () => screen.queryByTestId("voice-room-camera-toggle");
   const viewfinder = () => screen.queryByTestId("voice-room-viewfinder");
 
   afterEach(() => {
-    if (originalMediaDevices) {
-      Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
-    } else {
-      stubMediaDevices(null);
-    }
+    restoreMediaDevices();
   });
 
   test("offers no camera when the assistant version is unknown", () => {
@@ -1530,9 +1682,8 @@ describe("VoiceRoom: camera", () => {
       deviceId: "camera-device-id",
       groupId: "camera-group-id",
     }));
-    const getUserMedia = mock(
-      async (_constraints?: MediaStreamConstraints) =>
-        fakeStream(getSettings),
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) =>
+      fakeStream(getSettings),
     );
     const consoleDebug = spyOn(console, "debug").mockImplementation(() => {});
     stubMediaDevices(getUserMedia);
@@ -1616,7 +1767,123 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()?.className).toContain("z-[2]");
   });
 
-  test("the controls take a scrim once they sit over the feed", async () => {
+  test("the status pill and the scrims come up with the camera and go with it", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the look already narrates the session, so the pill would be a
+    // second answer to a question nobody asked.
+    expect(screen.queryByTestId("camera-status-pill")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-top")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("camera-status-pill").textContent).toContain(
+      "Photo",
+    );
+    // Centred on the minimize control's own line, so the room hands it a
+    // ceiling that keeps a long assistant name clear of that corner.
+    expect(
+      screen.getByTestId("camera-status-pill-slot").getAttribute("style"),
+    ).toContain("max-width");
+    // Between the feed (`z-[2]`) and the chrome (`z-10`), and inert: the
+    // bottom scrim lies over the shutter and the whole control row.
+    const bottomScrim = screen.getByTestId("voice-room-scrim-bottom");
+    expect(bottomScrim.className).toContain("z-[3]");
+    expect(bottomScrim.className).toContain("pointer-events-none");
+    expect(screen.getByTestId("voice-room-scrim-top").className).toContain(
+      "pointer-events-none",
+    );
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.queryByTestId("camera-status-pill")).toBeNull();
+    expect(screen.queryByTestId("voice-room-scrim-bottom")).toBeNull();
+  });
+
+  test("one region announces the voice state, camera open or closed", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Closed: the room's own live region carries the label (the "…"-suffixed
+    // one, distinct from the caption's un-suffixed text).
+    const announcer = () => screen.getByTestId("voice-room-state-announcer");
+    expect(announcer().textContent).toBe("Listening…");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the same region takes the mode word, rather than a second region
+    // arriving with its words already in it, which assistive tech would not
+    // reliably announce. The pill draws the state and says nothing.
+    expect(announcer().textContent).toBe("Photo. Listening…");
+    const pill = screen.getByTestId("camera-status-pill");
+    expect(pill.getAttribute("aria-live")).toBeNull();
+    expect(pill.querySelector(".sr-only")).toBeNull();
+  });
+
+  test("the announcement keeps the muted prefix once the camera is open", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    const announcer = () => screen.getByTestId("voice-room-state-announcer");
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "thinking", muted: true });
+    });
+
+    // Closed: the room prefixes the phases the session does not relabel.
+    expect(announcer().textContent).toBe("Muted. Thinking…");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Open: the mode leads and the prefix survives, since the visible row
+    // carries only the phase word and the mic's state would otherwise be lost
+    // for the rest of it.
+    expect(announcer().textContent).toBe("Photo. Muted. Thinking…");
+  });
+
+  test("the pill carries the session's own label, not a fixed listening word", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // A phase the mic cannot take speech in. Saying "Listening" here would tell
+    // the user to keep talking into a session that is tearing itself down.
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "ending" });
+    });
+
+    const pill = () => screen.getByTestId("camera-status-pill");
+    expect(pill().textContent).toContain("Ending…");
+    expect(pill().textContent).not.toContain("Listening");
+
+    await act(async () => {
+      useLiveVoiceStore.setState({ state: "connecting", reconnecting: true });
+    });
+
+    expect(pill().textContent).toContain("Reconnecting…");
+  });
+
+  test("the controls take camera mode's own fills once they sit over the feed", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
     startOwnedSession("listening");
@@ -1624,37 +1891,150 @@ describe("VoiceRoom: camera", () => {
 
     // Closed: the room's own flat color is behind them, and the controls wear
     // the tone-derived hairline treatment.
-    expect(cameraToggle()!.className).not.toContain("bg-black");
+    expect(cameraToggle()!.className).not.toContain("camera-warm");
+    expect(micButton()!.className).not.toContain("bg-white");
 
     await act(async () => {
       fireEvent.click(cameraToggle()!);
     });
 
-    // Open: the background is now arbitrary camera video, where a border-only
-    // control disappears against dark clothing. Every control on the surface
-    // has to carry its own fill, the end button included.
-    const scrimmed = [
-      "Close camera",
-      "Mute microphone",
-      "Mute assistant",
-      "Flip camera",
-      "Minimize voice room",
-    ];
-    for (const name of scrimmed) {
+    // Open: the background is arbitrary camera video, where a border-only
+    // control disappears against dark clothing and five translucent circles
+    // read as one smear. Every control is filled, and color carries the only
+    // distinction that matters at arm's length: what happens if you hit the
+    // wrong one.
+    //
+    // With a viewfinder over the room's face, the mic is the only thing on
+    // screen saying the session can still hear you, so a live one goes solid
+    // white with a dark glyph rather than sitting on the same glass as its
+    // neighbours, where the answer would be an absence of red.
+    const mic = micButton()!;
+    expect(mic.className).toContain("bg-white");
+    expect(mic.className).toContain("text-[var(--camera-ink)]");
+
+    // The camera's own controls take the warm fill: a third hue, because the
+    // row already spends white on "the session is live" and red on "this
+    // changes the call", and these do neither. The engaged toggle (the camera
+    // control, held down for as long as the viewfinder is up) sits a shade
+    // heavier than the resting controls beside it.
+    expect(cameraToggle()!.className).toContain(
+      "bg-[var(--camera-warm-strong)]",
+    );
+    for (const name of ["Mute assistant", "Flip camera"]) {
       expect(screen.getByRole("button", { name }).className).toContain(
-        "bg-black/45",
+        "bg-[var(--camera-warm)]",
       );
     }
-    const end = screen.getByRole("button", { name: "End voice session" });
-    expect(end.className).toContain("bg-red-600/55");
+    // The vars the fills name are published by the control itself, so a
+    // renamed constant surfaces here rather than as a transparent button.
+    expect(cameraToggle()!.getAttribute("style")).toContain("--camera-warm");
 
-    // The shutter is white so it reads on a dark frame, which leaves it
-    // invisible on a bright one unless it carries a dark backing of its own.
-    // It is the only control on the surface with no neutral scrim to fall
-    // back on, so it is asserted separately rather than in the loop above.
+    // Solid red, not the translucent red the room's other surfaces use: a
+    // 55%-opacity red over a red jumper is a button with no edges.
+    const end = screen.getByRole("button", { name: "End voice session" });
+    expect(end.className).toContain("bg-[var(--camera-destructive)]");
+
+    // Corner chrome keeps the glass treatment. The warm fills are how the
+    // bottom row reads as one set of related acts, and a filled circle in the
+    // corner would join a set it is not in.
+    expect(minimizeButton()!.className).toContain("bg-black/45");
+
+    // The shutter carries no fill at all. Legibility over a bright frame is
+    // the bottom scrim's job, and a dark backing here answers a question
+    // already answered while dulling the one control meant to be the
+    // brightest thing on the screen.
     const shutter = screen.getByTestId("voice-room-shutter");
-    expect(shutter.className).toContain("bg-black/30");
-    expect(shutter.className).toContain("shadow-");
+    expect(shutter.className).toContain("border-white");
+    expect(shutter.className).toContain("size-[84px]");
+    expect(shutter.className).not.toContain("bg-black");
+  });
+
+  test("a muted mic drops the white fill for the destructive red", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await act(async () => {
+      useLiveVoiceStore.setState({ muted: true });
+    });
+
+    // The white fill says "the session can hear you", so it cannot survive the
+    // mic being switched off. Muted is the one state where the red slashed
+    // treatment is honest.
+    const mic = screen.getByRole("button", { name: "Unmute microphone" });
+    expect(mic.className).toContain("bg-[var(--camera-destructive)]");
+    expect(mic.className).not.toContain("bg-white");
+  });
+
+  test("the row is one size whether or not the viewfinder is up", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // 52px in both states. A control that resized as the camera opened would
+    // move out from under a thumb already on its way to it.
+    expect(micButton()!.className).toContain("size-13");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(micButton()!.className).toContain("size-13");
+    expect(
+      screen.getByRole("button", { name: "Flip camera" }).className,
+    ).toContain("size-13");
+  });
+
+  test("offers no flash control on the browser fallback path", async () => {
+    // A `getUserMedia` stream has no flash to fire, so the room shows nothing
+    // rather than a control that would do nothing. See `voice-camera.ts` for
+    // the native side, where the camera itself decides.
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(screen.getByTestId("voice-room-shutter")).not.toBeNull();
+    expect(screen.queryByTestId("voice-room-flash")).toBeNull();
+  });
+
+  test("camera mode hands a keyboard the room from the corner down", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    // Corner chrome, then the shutter row, then the session row: the order the
+    // eye reads them in, so a keyboard walks the surface top to bottom. Every
+    // control the camera adds is reachable, and none of them lands between the
+    // two mutes. Flash, absent on this path, joins its own row ahead of the
+    // shutter. The pill is not here on purpose: it answers no press.
+    const order = Array.from(
+      document.querySelectorAll<HTMLElement>("button:not([disabled])"),
+    ).map((button) => button.getAttribute("aria-label"));
+
+    expect(order).toEqual([
+      "Minimize voice room",
+      "Take a photo",
+      "Flip camera",
+      "Mute microphone",
+      "Mute assistant",
+      "Close camera",
+      "End voice session",
+    ]);
   });
 
   test("a failed flip falls back to the camera the user already had", async () => {
@@ -1706,7 +2086,9 @@ describe("VoiceRoom: camera", () => {
       });
 
       expect(uploadChatAttachmentSpy).toHaveBeenCalled();
-      expect(screen.queryByText(/Reconnecting/)).not.toBeNull();
+      expect(screen.getByTestId("voice-room-camera-error").textContent).toMatch(
+        /Reconnecting/,
+      );
       // The viewfinder stays up: the user is being asked to take it again.
       expect(viewfinder()).not.toBeNull();
     } finally {
@@ -1794,7 +2176,9 @@ describe("VoiceRoom: camera", () => {
           .getAllByTestId("voice-room-photo")[0]
           ?.getAttribute("data-status"),
       ).toBe("failed");
-      expect(screen.queryByText(/can't receive photos/)).not.toBeNull();
+      expect(screen.getByTestId("voice-room-camera-error").textContent).toMatch(
+        /can't receive photos/,
+      );
     } finally {
       restoreCapture();
     }
@@ -1839,6 +2223,45 @@ describe("VoiceRoom: camera", () => {
     expect(viewfinder()).toBeNull();
     // The denial is named where the user is looking, rather than leaving a
     // control that appears to do nothing.
-    expect(screen.queryByText(/Camera access is off/)).not.toBeNull();
+    expect(screen.getByTestId("voice-room-camera-error").textContent).toMatch(
+      /Camera access is off/,
+    );
+  });
+
+  test("a camera failure is spoken by a region that was already listening", async () => {
+    stubMediaDevices(async () => {
+      throw new DOMException("denied", "NotAllowedError");
+    });
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    // Mounted and silent before anything fails. Assistive tech announces a
+    // change made inside a region it was already watching, so a region that
+    // arrives with the message already in it is announced by nothing reliable.
+    const announcer = () => screen.getByTestId("voice-room-camera-announcer");
+    expect(announcer().textContent).toBe("");
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+
+    expect(announcer().textContent).toMatch(/Camera access is off/);
+    // A sentence, not the key that names it. The hook classifies the failure
+    // and the room translates it, so a key with no catalog entry would reach
+    // the user as "cameraError.permissionDenied" in every language including
+    // this one.
+    expect(announcer().textContent).not.toContain("cameraError.");
+    // The visible chip says the same words, so it is decoration by then:
+    // announcing both would read the failure twice.
+    expect(
+      screen.getByTestId("voice-room-camera-error").getAttribute("aria-hidden"),
+    ).toBe("true");
+    // And a camera failure never costs the session its own announcement: the
+    // message stands until the camera is opened or closed again, which folded
+    // into one region would silence every state change for that whole time.
+    expect(screen.getByTestId("voice-room-state-announcer").textContent).toBe(
+      "Listening…",
+    );
   });
 });

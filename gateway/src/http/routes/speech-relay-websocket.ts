@@ -58,6 +58,13 @@ const DAEMON_SERVICE_SUB = "svc:daemon:self";
 export type SpeechRelayOperation = "stt" | "tts";
 
 /**
+ * Managed-speech contract version. `v1` is nova-3 and the released Deepgram
+ * dialect; `v2` is Flux, which velay either translates back into that dialect
+ * or (with `contract=flux`) forwards verbatim.
+ */
+export type SpeechRelayVersion = "v1" | "v2";
+
+/**
  * Param allowlists, mirroring velay's own (velay/internal/velay/deepgram.go).
  * Velay would reject unknown params anyway, but this relay is the policy
  * boundary — a buggy or compromised daemon must not get arbitrary query
@@ -80,6 +87,33 @@ const ALLOWED_PARAMS: Record<SpeechRelayOperation, ReadonlySet<string>> = {
   // forwarding it does not widen what the assistant API key can spend on.
   tts: new Set(["encoding", "sample_rate", "container", "model"]),
 };
+
+/**
+ * STT params only the Flux upstream understands: the native-frame opt-in and
+ * the turn-detector tuning. Kept off the v1 list so a nova-3 session cannot
+ * forward them to an upstream that rejects them. None of these select a model,
+ * so they do not widen what the assistant API key can spend on.
+ */
+const STT_V2_ONLY_PARAMS: readonly string[] = [
+  "contract",
+  "eot_threshold",
+  "eager_eot_threshold",
+  "eot_timeout_ms",
+];
+
+const STT_V2_PARAMS: ReadonlySet<string> = new Set([
+  ...ALLOWED_PARAMS.stt,
+  ...STT_V2_ONLY_PARAMS,
+]);
+
+function allowedParams(
+  operation: SpeechRelayOperation,
+  version: SpeechRelayVersion,
+): ReadonlySet<string> {
+  return operation === "stt" && version === "v2"
+    ? STT_V2_PARAMS
+    : ALLOWED_PARAMS[operation];
+}
 
 type WebSocketConstructorWithHeaders = new (
   url: string,
@@ -165,13 +199,14 @@ function velaySpeechUrls(
   velayBaseUrl: string,
   operation: SpeechRelayOperation,
   params: URLSearchParams,
+  version: SpeechRelayVersion,
 ): { wsUrl: string; httpUrl: string } {
   // The velay tunnel client accepts ws(s):// bases too — normalize to the
   // http(s) twin first so the probe URL is always fetchable, then derive
   // the ws(s) dial URL from that.
   const httpBase = velayBaseUrl.replace(/\/+$/, "").replace(/^ws/, "http");
   const query = params.toString();
-  const path = `/v1/speech/${operation}/stream${query ? `?${query}` : ""}`;
+  const path = `/${version}/speech/${operation}/stream${query ? `?${query}` : ""}`;
   return {
     httpUrl: `${httpBase}${path}`,
     wsUrl: `${httpBase.replace(/^http/, "ws")}${path}`,
@@ -226,6 +261,7 @@ export function createSpeechRelayUpgradeHandler(
   config: GatewayConfig,
   operation: SpeechRelayOperation,
   deps: SpeechRelayDeps,
+  version: SpeechRelayVersion = "v1",
 ) {
   return async function handleUpgrade(
     req: Request,
@@ -273,8 +309,9 @@ export function createSpeechRelayUpgradeHandler(
 
     // ?key= is the daemon→gateway auth carrier, not a velay param.
     params.delete("key");
+    const allowed = allowedParams(operation, version);
     for (const param of params.keys()) {
-      if (!ALLOWED_PARAMS[operation].has(param)) {
+      if (!allowed.has(param)) {
         return jsonError(
           400,
           "invalid_request",
@@ -286,6 +323,7 @@ export function createSpeechRelayUpgradeHandler(
       await resolveVelayBaseUrl(config, deps),
       operation,
       params,
+      version,
     );
 
     // Non-upgrade request: this is the daemon's dial-failure probe.

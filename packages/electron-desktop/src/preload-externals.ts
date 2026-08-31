@@ -32,6 +32,7 @@ export const buildPreloadAndScanExternals = async (
     cwd: clientRoot,
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
   if ((await proc.exited) !== 0) {
     const stderr = await new Response(proc.stderr).text();

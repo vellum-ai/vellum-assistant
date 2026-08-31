@@ -6,10 +6,10 @@
  * Both mount points gate that CTA themselves and pass `onUpgradeStorage: null`
  * when there is nowhere to upgrade to:
  *
- *   - chat: `assistantStateKind === "active" && !isNativeAndroid`
- *     (`disk-pressure-banner-slot.tsx:125`)
- *   - settings: `infraGate === "full" && !isNativeAndroid`
- *     (`general-page.tsx:149`)
+ *   - chat: `assistantStateKind === "active"`
+ *     (`disk-pressure-banner-slot.tsx`)
+ *   - settings: `infraGate === "full"`
+ *     (`general-page.tsx`)
  *
  * The settings mount also omits `onDismissWarning`, so it has no dismiss X and
  * no "Don't show again" checkbox. Both variants are storied below.
@@ -81,13 +81,12 @@ export const WarningWithUpgrade: Story = {
 };
 
 /**
- * Self-hosted, or native Android (consumption-only). With
- * `onUpgradeStorage: null` the Upgrade button disappears **and the body copy
- * drops "or add more storage"**. The wall stops advertising a purchase it
- * cannot complete.
+ * Self-hosted. With `onUpgradeStorage: null` the Upgrade button disappears
+ * **and the body copy drops "or add more storage"**. The wall stops
+ * advertising a purchase it cannot complete.
  */
 export const WarningWithoutUpgrade: Story = {
-  name: "Warning · no upgrade path (self-hosted / Android)",
+  name: "Warning · no upgrade path (self-hosted)",
   args: { onUpgradeStorage: null },
 };
 

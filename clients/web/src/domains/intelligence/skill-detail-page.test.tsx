@@ -13,6 +13,9 @@
  *   instead of a false "Skill not found",
  * - the back button restores the My Superpowers list's query string passed
  *   as router state (search/filter/category survive detail navigation),
+ * - a chat origin passed as `backTo` router state wins over the list
+ *   fallback, so Back returns to the conversation the skill was opened
+ *   from (and a malformed value degrades to the list),
  * - the desktop Files/History tab rides `?tab=`: a `?tab=history` deep link
  *   opens on History, and a tab change writes the param back (deleting it
  *   for the default Files tab).
@@ -96,10 +99,11 @@ mock.module(
   "@/domains/intelligence/components/skills/skill-detail",
   (): Partial<typeof SkillDetailModule> => ({
     parseSkillDetailTab,
-    SkillDetail: ({ skill, tab, onTabChange, onBack }) => (
+    SkillDetail: ({ skill, tab, onTabChange, onBack, backToConversation }) => (
       <div>
         <span>Detail: {skill.name}</span>
         <span>Tab: {tab}</span>
+        <span>BackDest: {backToConversation ? "conversation" : "skills"}</span>
         <button type="button" onClick={() => onTabChange("history")}>
           Open history
         </button>
@@ -153,6 +157,15 @@ function SuperpowersListLanding() {
   return <div>Superpowers list at: [{location.search}]</div>;
 }
 
+// Sentinel at the conversation route so tests can prove a chat-origin back
+// navigation landed on the conversation it came from.
+function ConversationLanding() {
+  const location = useLocation();
+  return (
+    <div>Conversation at: [{`${location.pathname}${location.search}`}]</div>
+  );
+}
+
 // Sentinel beside the detail route so tests can prove what a tab change wrote
 // to the URL.
 function DetailSearchProbe() {
@@ -164,18 +177,27 @@ function renderDetail({
   skillId,
   search = "",
   listSearch,
+  backTo,
   client = makeQueryClient(),
 }: {
   skillId: string;
   /** Query string the detail route is entered with, e.g. `?tab=history`. */
   search?: string;
   listSearch?: string;
+  /** Chat-origin location passed as router state, e.g. a conversation URL. */
+  backTo?: string;
   client?: QueryClient;
 }): void {
   const entry = {
     pathname: `/assistant/skills/${skillId}`,
     search,
-    state: listSearch === undefined ? null : { listSearch },
+    state:
+      listSearch === undefined && backTo === undefined
+        ? null
+        : {
+            ...(listSearch === undefined ? null : { listSearch }),
+            ...(backTo === undefined ? null : { backTo }),
+          },
   };
   render(
     <MemoryRouter initialEntries={[entry]}>
@@ -193,6 +215,10 @@ function renderDetail({
           <Route
             path="/assistant/superpowers"
             element={<SuperpowersListLanding />}
+          />
+          <Route
+            path="/assistant/conversations/:conversationId"
+            element={<ConversationLanding />}
           />
         </Routes>
       </QueryClientProvider>
@@ -366,6 +392,90 @@ describe("SkillDetailPage back navigation", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Superpowers list at: []")).toBeTruthy();
+    });
+  });
+
+  test("back returns to the conversation passed as backTo router state", async () => {
+    renderDetail({
+      skillId: "skill-1",
+      backTo: "/assistant/conversations/conv-1?scrollToMessage=msg-9",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    });
+    // The back control announces the conversation destination, not the list.
+    expect(screen.getByText("BackDest: conversation")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Back to skills"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Conversation at: [/assistant/conversations/conv-1?scrollToMessage=msg-9]",
+        ),
+      ).toBeTruthy();
+    });
+  });
+
+  test("the not-found exit is labelled for the conversation origin", async () => {
+    renderDetail({
+      skillId: "missing-skill",
+      backTo: "/assistant/conversations/conv-1",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Skill not found")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to conversation"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Conversation at: [/assistant/conversations/conv-1]"),
+      ).toBeTruthy();
+    });
+  });
+
+  test("a malformed backTo degrades to the list fallback", async () => {
+    // Router state never round-trips through the URL, but the page still
+    // refuses anything that could read as an external or scheme-relative
+    // destination.
+    renderDetail({ skillId: "skill-1", backTo: "//evil.example/phish" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to skills"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Superpowers list at: []")).toBeTruthy();
+    });
+  });
+
+  test("a tab change keeps the chat origin that Back restores", async () => {
+    // Tab changes replace the history entry and carry `location.state`
+    // forward, so the conversation origin has to survive the switch the
+    // same way the list search does.
+    renderDetail({
+      skillId: "skill-1",
+      backTo: "/assistant/conversations/conv-1",
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Tab: files")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Open history"));
+    await waitFor(() => {
+      expect(screen.getByText("Tab: history")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to skills"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("Conversation at: [/assistant/conversations/conv-1]"),
+      ).toBeTruthy();
     });
   });
 });

@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import {
   normalizeHttpPublicBaseUrl,
+  normalizeHttpPublicBaseUrlWithoutTrailingSlash,
   normalizePublicBaseUrl,
+  parseRecordedAssistantId,
+  parseTunnelRecord,
+  selectRestartTunnelRecord,
+  trimmedNonEmptyString,
+  TUNNEL_PROVIDERS,
+  type TunnelRecord,
   velayHostForPlatformHost,
 } from "../ingress.js";
 import {
@@ -85,6 +92,35 @@ describe("normalizeHttpPublicBaseUrl", () => {
   });
 });
 
+describe("normalizeHttpPublicBaseUrlWithoutTrailingSlash", () => {
+  test("drops the root path its sibling always emits", () => {
+    expect(
+      normalizeHttpPublicBaseUrlWithoutTrailingSlash("https://x.test"),
+    ).toBe("https://x.test");
+    expect(
+      normalizeHttpPublicBaseUrlWithoutTrailingSlash("https://x.test/"),
+    ).toBe("https://x.test");
+    expect(
+      normalizeHttpPublicBaseUrlWithoutTrailingSlash(" https://x.test/api/// "),
+    ).toBe("https://x.test/api");
+  });
+
+  test("rejects everything its sibling rejects", () => {
+    for (const value of [
+      "",
+      "   ",
+      "notaurl",
+      "ftp://x.test",
+      "https://x.test?a=b",
+      42,
+    ]) {
+      expect(
+        normalizeHttpPublicBaseUrlWithoutTrailingSlash(value),
+      ).toBeUndefined();
+    }
+  });
+});
+
 describe("Twilio ingress helpers", () => {
   test("resolves public base URL with fallback", () => {
     expect(
@@ -121,5 +157,124 @@ describe("Twilio ingress helpers", () => {
       statusCallbackUrl: "https://example.test/webhooks/twilio/status",
       voiceUrl: "https://example.test/webhooks/twilio/voice",
     });
+  });
+});
+
+describe("parseTunnelRecord", () => {
+  const TUNNEL_URL = "https://assistant-1.example.ts.net";
+
+  test("accepts every provider in the registry", () => {
+    for (const provider of TUNNEL_PROVIDERS) {
+      expect(
+        parseTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
+      ).toEqual({ provider, publicBaseUrl: TUNNEL_URL });
+    }
+  });
+
+  test("returns the URL in the shape its own validator produces", () => {
+    // Padding and trailing slashes are normalized away rather than handed
+    // back, so readers never re-normalize what they were given.
+    for (const publicBaseUrl of [
+      ` ${TUNNEL_URL} `,
+      `${TUNNEL_URL}/`,
+      `${TUNNEL_URL}///`,
+    ]) {
+      expect(
+        parseTunnelRecord({ provider: "ngrok", publicBaseUrl }),
+      ).toEqual({ provider: "ngrok", publicBaseUrl: TUNNEL_URL });
+    }
+  });
+
+  test("rejects values that are not a record", () => {
+    for (const value of [undefined, null, "nonsense", 42, []]) {
+      expect(parseTunnelRecord(value)).toBeNull();
+    }
+  });
+
+  test("rejects a record missing either field", () => {
+    expect(parseTunnelRecord({ provider: "ngrok" })).toBeNull();
+    expect(parseTunnelRecord({ publicBaseUrl: TUNNEL_URL })).toBeNull();
+  });
+
+  test("rejects a provider outside the registry", () => {
+    // Readers render the provider into a `vellum tunnel --provider <name>`
+    // command, so a hand-edited config must not reach a terminal.
+    for (const provider of ["wireguard", "; rm -rf /", "", 42]) {
+      expect(
+        parseTunnelRecord({ provider, publicBaseUrl: TUNNEL_URL }),
+      ).toBeNull();
+    }
+  });
+
+  test("rejects a URL that is not absolute HTTP(S)", () => {
+    for (const publicBaseUrl of [
+      "",
+      "   ",
+      "not-a-url",
+      "example.ts.net",
+      "ftp://x.test",
+      "https://one.ngrok.app?token=x",
+      42,
+    ]) {
+      expect(
+        parseTunnelRecord({ provider: "ngrok", publicBaseUrl }),
+      ).toBeNull();
+    }
+  });
+});
+
+describe("selectRestartTunnelRecord", () => {
+  const PAIRING: TunnelRecord = {
+    provider: "tailscale",
+    publicBaseUrl: "https://assistant-1.example.ts.net",
+  };
+  const LAST: TunnelRecord = {
+    provider: "ngrok",
+    publicBaseUrl: "https://assistant-1.ngrok.app",
+  };
+
+  test("prefers the pairing tunnel over the last one that ran", () => {
+    // The pairing tunnel deliberately left the older public record beside it,
+    // so naming that one would point at an ingress nobody is using.
+    expect(
+      selectRestartTunnelRecord({ lastTunnel: LAST, pairingTunnel: PAIRING }),
+    ).toEqual(PAIRING);
+  });
+
+  test("falls back to the last tunnel and to null", () => {
+    expect(selectRestartTunnelRecord({ lastTunnel: LAST })).toEqual(LAST);
+    for (const ingress of [undefined, null, {}, "nonsense", 42]) {
+      expect(selectRestartTunnelRecord(ingress)).toBeNull();
+    }
+  });
+
+  test("skips a malformed pairing record for a usable last one", () => {
+    expect(
+      selectRestartTunnelRecord({
+        lastTunnel: LAST,
+        pairingTunnel: { provider: "wireguard", publicBaseUrl: "nope" },
+      }),
+    ).toEqual(LAST);
+  });
+});
+
+describe("trimmedNonEmptyString", () => {
+  test("trims and rejects blank or non-string values", () => {
+    expect(trimmedNonEmptyString(" assistant-1 ")).toBe("assistant-1");
+    for (const value of ["", "   ", undefined, null, 42]) {
+      expect(trimmedNonEmptyString(value)).toBeUndefined();
+    }
+  });
+});
+
+describe("parseRecordedAssistantId", () => {
+  test("trims a recorded id", () => {
+    expect(parseRecordedAssistantId(" assistant-1 ")).toBe("assistant-1");
+  });
+
+  test("rejects blank and non-string values", () => {
+    for (const value of ["", "   ", undefined, null, 42]) {
+      expect(parseRecordedAssistantId(value)).toBeNull();
+    }
   });
 });

@@ -329,7 +329,10 @@ async function showDockerLogs(
     // Single container — stream directly to stdout/stderr
     const target = targets[0];
     const args = buildDockerArgs(target.containerName);
-    const child = spawn("docker", args, { stdio: "inherit" });
+    const child = spawn("docker", args, {
+      stdio: "inherit",
+      windowsHide: true,
+    });
 
     await new Promise<void>((resolve, reject) => {
       child.on("close", (code) => {
@@ -356,6 +359,7 @@ async function showDockerLogs(
       const args = buildDockerArgs(target.containerName);
       const child = spawn("docker", args, {
         stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
       });
 
       const prefix = `[${target.name}] `;
@@ -466,7 +470,10 @@ async function showGcpLogs(
 
   if (opts.follow) {
     // For follow mode, stream output directly to terminal
-    const child = spawn("gcloud", args, { stdio: "inherit" });
+    const child = spawn("gcloud", args, {
+      stdio: "inherit",
+      windowsHide: true,
+    });
     await new Promise<void>((resolve, reject) => {
       child.on("close", (code) => {
         if (code !== 0 && code !== null) {
@@ -503,6 +510,7 @@ async function showCustomLogs(
   if (opts.follow) {
     const child = spawn("ssh", [...SSH_OPTS, sshTarget, remoteCmd], {
       stdio: "inherit",
+      windowsHide: true,
     });
     await new Promise<void>((resolve, reject) => {
       child.on("close", (code) => {
@@ -544,6 +552,7 @@ async function showAwsLogs(
   if (opts.follow) {
     const child = spawn("ssh", [...SSH_OPTS, sshTarget, remoteCmd], {
       stdio: "inherit",
+      windowsHide: true,
     });
     await new Promise<void>((resolve, reject) => {
       child.on("close", (code) => {

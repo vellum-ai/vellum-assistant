@@ -66,10 +66,9 @@ export function resolveDestinations(
       continue;
     }
 
-    // After the deliverability check, `channel` is guaranteed to be a
-    // NotificationChannel — TypeScript cannot infer this from the runtime
-    // guard, so we narrow with a switch over known deliverable values.
-    switch (channel as NotificationChannel) {
+    // `isNotificationDeliverable` is a type predicate, so past this point
+    // `channel` is a NotificationChannel and the switch below is exhaustive.
+    switch (channel) {
       case "vellum": {
         // Vellum delivery is local — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
@@ -155,6 +154,44 @@ export function resolveDestinations(
         );
         break;
       }
+      case "discord": {
+        const guardian = resolveGuardian(guardians, "discord");
+        // The endpoint is the guardian's user snowflake: the person, never a
+        // stored room id. User and channel snowflakes are indistinguishable
+        // bare numbers, so the adapter resolves the DM channel from the
+        // person at send time and a guild room can never become a delivery
+        // target. The binding context reuses the conversation the guardian
+        // verified in, which the verification intercept scopes to the DM
+        // lane; delivery stays DM-safe regardless, since it never reads
+        // this id.
+        if (guardian?.address) {
+          result.set("discord", {
+            channel: "discord",
+            endpoint: guardian.address,
+            metadata: {
+              externalUserId: guardian.address,
+            },
+            ...(guardian.externalChatId
+              ? {
+                  bindingContext: {
+                    sourceChannel: "discord" as const,
+                    externalChatId: guardian.externalChatId,
+                    externalUserId: guardian.address,
+                  },
+                }
+              : {}),
+          });
+        }
+        log.debug(
+          {
+            channel: "discord",
+            source: "guardian-delivery",
+            hasEndpoint: !!guardian?.address,
+          },
+          "destination resolved",
+        );
+        break;
+      }
       case "platform": {
         // Platform delivery goes through the daemon's VellumPlatformClient —
         // no external binding needed. Include guardianPrincipalId so the
@@ -180,7 +217,10 @@ export function resolveDestinations(
         break;
       }
       default: {
-        // Future deliverable channels without a resolver — skip silently.
+        // Exhaustive over NotificationChannel: a channel whose policy turns
+        // deliveryEnabled on must answer addressing here at compile time,
+        // because a silent skip is how a half-wired channel disappears.
+        channel satisfies never;
         break;
       }
     }

@@ -11,9 +11,28 @@ import {
 import type { AssistantChannelState } from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
-  { key: "slack", status: "ready", address: "@vex" },
-  { key: "telegram", status: "not_configured" },
-  { key: "phone", status: "not_configured" },
+  {
+    key: "slack",
+    status: "ready",
+    configured: true,
+    canDisconnect: true,
+    canManualEntry: true,
+    address: "@vex",
+  },
+  {
+    key: "telegram",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+    canManualEntry: true,
+  },
+  {
+    key: "phone",
+    status: "not_configured",
+    configured: false,
+    canDisconnect: true,
+    canManualEntry: true,
+  },
 ];
 
 // The Slack panel owns its own queries (`SlackChannelSection`), so list
@@ -144,9 +163,29 @@ describe("assistant channels list", () => {
   test("selecting connected Telegram reveals its trust-floor dropdown", () => {
     renderList({
       channels: [
-        { key: "slack", status: "ready", address: "@vex" },
-        { key: "telegram", status: "ready", address: "@vex_bot" },
-        { key: "phone", status: "not_configured" },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
+        {
+          key: "telegram",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex_bot",
+        },
+        {
+          key: "phone",
+          status: "not_configured",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
       ],
       channelPolicies: { telegram: "trusted_contacts" },
       onChannelPolicyChange: () => {},
@@ -164,9 +203,30 @@ describe("assistant channels list", () => {
   test("connected credential channels show no credential form (Slack parity)", () => {
     renderList({
       channels: [
-        { key: "slack", status: "ready", address: "@vex" },
-        { key: "telegram", status: "ready", address: "@vex_bot" },
-        { key: "phone", status: "ready", address: "+15550100" },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
+        {
+          key: "telegram",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex_bot",
+        },
+        {
+          key: "phone",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "+15550100",
+        },
       ],
       onSaveTelegramToken: async () => {},
       onSaveTwilioCredentials: async () => {},
@@ -213,16 +273,36 @@ describe("assistant channels list", () => {
   });
 
   test("a half-finished channel offers to finish rather than pitching setup", () => {
-    // Credentials stored but not delivering resolves to `incomplete`, which is
-    // reachable on any channel with remote checks: Slack lands here when its
-    // scopes are silently dropped, Telegram when the webhook never registers.
-    // Pitching the channel would hide that setup already happened.
+    // Setup itself did not finish, which is what `configured: false` says:
+    // a stored credential whose partner is missing, or a scope the workspace
+    // silently dropped. Pitching the channel would hide that setup already
+    // started. A channel that finished setup and is merely not delivering is
+    // the other state, and keeps its connection card instead of this pitch.
     const prompts: string[] = [];
     renderList({
       channels: [
-        { key: "slack", status: "ready", address: "@vex" },
-        { key: "telegram", status: "incomplete" },
-        { key: "phone", status: "not_configured" },
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
+        {
+          key: "telegram",
+          status: "incomplete",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
+        {
+          key: "phone",
+          status: "not_configured",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
       ],
       onSetup: (key, incomplete) =>
         prompts.push(`${key}:${incomplete ? "finish" : "fresh"}`),
@@ -241,6 +321,49 @@ describe("assistant channels list", () => {
     // The assistant is told setup is part-done, so it picks up where it left
     // off instead of starting over.
     expect(prompts).toEqual(["telegram:finish"]);
+  });
+
+  test("a configured channel that is not delivering keeps its connection card", () => {
+    // The pair to the test above, on the axis that separates them. Setup is
+    // finished here and only delivery has stopped, so sending the guardian
+    // back to re-enter credentials that are already correct would describe
+    // the wrong problem and lose the Disconnect control while it did so.
+    renderList({
+      channels: [
+        {
+          key: "slack",
+          status: "ready",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          address: "@vex",
+        },
+        {
+          key: "telegram",
+          status: "incomplete",
+          configured: true,
+          canDisconnect: true,
+          canManualEntry: true,
+          health: "failing",
+          address: "@vex_bot",
+        },
+        {
+          key: "phone",
+          status: "not_configured",
+          configured: false,
+          canDisconnect: true,
+          canManualEntry: true,
+        },
+      ],
+    });
+
+    fireEvent.click(adapterRow("Telegram"));
+    expect(document.body.textContent).not.toContain(
+      "Telegram isn't working yet",
+    );
+    expect(document.body.textContent).toContain("Reconnecting");
+    // The badge reports the outage; it does not replace the card's controls.
+    expect(document.body.textContent).toContain("Disconnect");
   });
 
   test("a setup deep link selects that adapter and opens the setup wizard directly", () => {

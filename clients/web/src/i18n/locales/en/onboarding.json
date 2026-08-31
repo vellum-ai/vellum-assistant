@@ -4,7 +4,6 @@
     "back": "Back",
     "forward": "Forward",
     "cancel": "Cancel",
-    "start": "Start",
     "add": "Add",
     "adding": "Adding…",
     "connect": "Connect",
@@ -27,10 +26,11 @@
   "startScreen": {
     "createAssistant": "Create your assistant"
   },
-    "privacyScreen": {
+  "privacyScreen": {
     "title": "Before You Start",
     "body": "Choose your privacy preferences. You can update these anytime in the Settings.",
-    "skipToChat": "Skip to chat"
+    "start": "Start Onboarding",
+    "skipToChat": "Skip to the Assistant"
   },
   "hostingScreen": {
     "title": "Hosting",
@@ -87,15 +87,25 @@
   "addRemoteOriginDialog": {
     "title": "Add a Remote Assistant",
     "body": "Paste the https link your assistant’s pairing page gave you.",
-    "addressLabel": "Assistant address"
+    "addressLabel": "Assistant address",
+    "addFailed": "Failed to add the assistant. Please try again."
   },
   "connectAssistantDialog": {
-    "importedTitle": "Pairing Imported",
-    "importedBody": "This pairing is access-only: its access expires and cannot renew itself. Re-run vellum pair on the assistant’s machine and import the new bundle when it expires.",
     "title": "Connect a Remote Assistant",
-    "bundleLabel": "Pairing bundle",
+    "instruction": "Paste the pairing link from the assistant's Pair a device settings, or just its address, and approve the request there.",
+    "linkGuidance": "This link came from a pairing QR code. To connect this device, paste the pairing link from the assistant's machine here.",
+    "legacyLinkGuidance": "This link came from an older version of the app and can no longer be used. Generate a new pairing link on the assistant's machine and paste it here.",
+    "addressLabel": "Address or pairing link",
+    "addressPlaceholder": "https://your-assistant.ts.net",
     "nameLabel": "Name (optional)",
-    "instruction": "On the assistant’s machine, run <code>vellum pair --url https://...</code> and paste the bundle here."
+    "approveOnHost": "Approve this code on the assistant's machine to finish connecting.",
+    "waitingForApproval": "Waiting for approval…",
+    "retrying": "The assistant isn't ready to pair yet. Still trying until the code expires.",
+    "expiresIn": "Expires in {time}",
+    "retryExpired": "The pairing code expired before the assistant was ready to pair. Start over to get a new one.",
+    "submitError": "Failed to connect to that assistant. Please try again.",
+    "importedTitle": "Pairing Imported",
+    "importedBody": "This pairing is access-only: it works now, but its access expires and cannot renew itself. When it does, generate a fresh pairing link on the assistant's machine and paste it here to pair again."
   },
   "connectRecoveryDialog": {
     "repairTitle": "Repair Assistant?",
@@ -179,7 +189,7 @@
     "stopVoice": "Stop the voice sample"
   },
   "integrationStep": {
-    "title": "Here are some free credits<br></br> to get started."
+    "title": "Here's some initial usage<br></br> to get started."
   },
   "researchOnboardingScreen": {
     "title": "Let's start with you.",

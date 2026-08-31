@@ -4,9 +4,13 @@
  * sidepanel. Hosts render `ProfileEditorFields` with the returned object
  * and their own chrome/footers around `handleSave` / `switchToSaveAsNew`.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { validateInferenceProfileConfig } from "@vellumai/assistant-api";
+
+import { t } from "@/i18n";
 
 import {
   getManagedUpstreamForModel,
@@ -22,7 +26,11 @@ import {
 import { resolveModelDisplayName } from "@/domains/settings/ai/model-display";
 import { connectionServesProvider } from "@/domains/settings/ai/provider-availability";
 import { CONNECTION_PROVIDERS } from "@/domains/settings/ai/provider-editor-constants";
-import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
+import {
+  deriveProfileDefaults,
+  uniqueProfileName,
+} from "@/domains/settings/ai/profile-prefill";
+import { toKebabCase } from "@/domains/settings/ai/slugify";
 import {
   isGeminiThinkingLevel,
   resolveProfileParamVisibility,
@@ -39,13 +47,43 @@ import {
 import type {
   ConnectionProvider,
   ProfileEntry,
-  ProfilePatchEntry,
+  ProfilePatchEntryWritable,
   ProfileStatus,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { assistantSupportsEntryProviderBinding } from "@/lib/backwards-compat/entry-provider-binding";
 import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
 import { badRequestMessage } from "@/utils/api-errors";
+
+/**
+ * The settings surface persists through the generic config PATCH, which is
+ * the deliberately unvalidated escape hatch, so an impossible output budget
+ * must be rejected here before the write or it lands stored. The judgment is
+ * the daemon's own `validateInferenceProfileConfig` (shared via
+ * assistant-api) so the two paths cannot drift; only the copy is local.
+ */
+function maxTokensBudgetError(
+  catalogModel: LlmCatalogModel,
+  maxTokens: number,
+): string | null {
+  const issue = validateInferenceProfileConfig({
+    maxTokens,
+    modelMaxOutputTokens: catalogModel.maxOutputTokens,
+    modelContextWindowTokens: catalogModel.contextWindowTokens,
+  });
+  if (!issue) {
+    return null;
+  }
+  return issue.code === "over_output_cap"
+    ? t("settings:profileEditor.maxTokensOverCap", {
+        maxTokens,
+        cap: catalogModel.maxOutputTokens,
+      })
+    : t("settings:profileEditor.maxTokensNoInputRoom", {
+        maxTokens,
+        window: catalogModel.contextWindowTokens,
+      });
+}
 
 export type ProfileEditorMode = "create" | "edit" | "view";
 export type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
@@ -66,7 +104,7 @@ export interface UseProfileEditorArgs {
    */
   onSave: (
     name: string,
-    entry: ProfilePatchEntry,
+    entry: ProfilePatchEntryWritable,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
 }
@@ -87,7 +125,8 @@ export interface ProfileEditor {
 
   saving: boolean;
   saveError: string | null;
-  keyError: string | null;
+  /** Why the Name field blocks Save, or null when it does not. */
+  nameError: string | null;
   /** Why the Provider field blocks Save, or null when it does not. */
   providerError: string | null;
   isInvalid: boolean;
@@ -142,8 +181,8 @@ export interface ProfileEditor {
   setNewProviderNote: (value: boolean) => void;
 
   handleLabelChange: (value: string) => void;
-  handleKeyChange: (value: string) => void;
-  getDirty: () => boolean;
+  /** Resolve a duplicate Name into "Name (2)" once the user leaves the field. */
+  handleLabelBlur: () => void;
   handleProviderChange: (provider: ConnectionProvider) => void;
   handleConnectionChange: (connection: string) => void;
   handleModelChange: (model: string) => void;
@@ -367,8 +406,16 @@ export function useProfileEditor({
     providerConnection !== "" &&
     !availableConnectionsForProvider.some((c) => c.name === providerConnection);
 
-  const { handleLabelChange, handleKeyChange, resetDirty, getDirty } =
-    useLabelKeySync(effectiveMode, setLabel, setKey);
+  const { handleLabelChange, resetDirty, getDirty } = useLabelKeySync(
+    effectiveMode,
+    setLabel,
+    setKey,
+  );
+
+  // The last Name this editor filled in from a model pick. A Name that still
+  // matches it is the editor's own, so the next model pick may replace it; a
+  // Name the user typed never is.
+  const autoFilledLabelRef = useRef<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -440,6 +487,7 @@ export function useProfileEditor({
   // Reset dirty tracking when the editor re-opens with new values.
   useEffect(() => {
     resetDirty();
+    autoFilledLabelRef.current = null;
     setCreatingProvider(false);
     setPendingCreateProvider(null);
     setNewProviderNote(false);
@@ -517,9 +565,12 @@ export function useProfileEditor({
     // Reset token sliders when model changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
-    // Create-mode pre-fill: seed Name + Key from the model's display name,
-    // but only while the user hasn't manually edited either field.
-    if (effectiveMode === "create" && newModel && !getDirty()) {
+    // Create-mode pre-fill: seed Name (and the Key it derives) from the
+    // model's display name. A Name the user typed is never overwritten; an
+    // empty one, or one this editor filled in for an earlier model pick, is.
+    const labelIsOurs =
+      label.trim() === "" || label === autoFilledLabelRef.current;
+    if (effectiveMode === "create" && newModel && labelIsOurs) {
       const { name, key: derivedKey } = deriveProfileDefaults(
         resolveModelDisplayName(
           provider || undefined,
@@ -528,9 +579,33 @@ export function useProfileEditor({
         ),
         existingNames,
       );
+      autoFilledLabelRef.current = name;
       setLabel(name);
       setKey(derivedKey);
     }
+  }
+
+  // Two profiles cannot share a key, and the key is the slug of the Name, so a
+  // Name that collides is a Name that cannot be saved. With no Key field left
+  // to edit, blocking Save on a duplicate would be a dead end, so the
+  // collision is resolved where the user can watch it happen: leaving the
+  // field appends the lowest free "(N)".
+  //
+  // Create mode only. An existing profile keeps the key it was stored under,
+  // so renaming it cannot collide with anything.
+  function handleLabelBlur() {
+    const trimmed = label.trim();
+    if (effectiveMode !== "create" || isReadOnly || trimmed === "") {
+      return;
+    }
+    const unique = uniqueProfileName(trimmed, existingNames);
+    if (unique === label) {
+      return;
+    }
+    // The user typed this one, so a later model pick must not overwrite it.
+    autoFilledLabelRef.current = null;
+    setLabel(unique);
+    setKey(toKebabCase(unique));
   }
 
   // Inline provider create: bind the new connection as this profile's
@@ -561,10 +636,11 @@ export function useProfileEditor({
     });
   }
 
-  // Validation
+  // Validation. The key is not a field any more: it is the slug of the Name,
+  // so both failures it can have (nothing to slugify, a slug already taken)
+  // are reported against the Name the user can actually act on.
   const keyTrimmed = key.trim();
   const keyEmpty = keyTrimmed.length === 0;
-  const keyHasWhitespace = /\s/.test(key);
   const keyNotUnique =
     effectiveMode === "create"
       ? existingNames.includes(keyTrimmed)
@@ -573,19 +649,7 @@ export function useProfileEditor({
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
   const isInvalid =
-    keyEmpty ||
-    keyHasWhitespace ||
-    keyNotUnique ||
-    providerMissing ||
-    providerWithoutModel;
-
-  const keyError = keyEmpty
-    ? "Key is required"
-    : keyHasWhitespace
-      ? "Key cannot contain whitespace"
-      : keyNotUnique
-        ? "A profile with this key already exists"
-        : null;
+    keyEmpty || keyNotUnique || providerMissing || providerWithoutModel;
 
   // An untouched create form is blank by definition, so flagging its empty
   // fields on open would be scolding the user for not having started. Edit
@@ -594,20 +658,27 @@ export function useProfileEditor({
   // here says "Click to fix", so the reason has to be visible on arrival.
   // The Model field already explains `providerWithoutModel` itself, keyed to
   // why it is empty (no catalog entries, connection not configured, nothing
-  // picked). Provider is the one blocking state with no copy anywhere.
-  //
-  // An untouched create form is blank by definition, so flagging it on open
-  // would be scolding the user for not having started. Edit mode is the
-  // opposite: a profile with no provider is already broken, the resolver
-  // skips it, and the row that links here says "Click to fix", so the
-  // reason has to be visible on arrival.
-  // Read-only (managed) profiles get no field errors, matching how `keyError`
-  // is suppressed for them: the picker is disabled, so naming a problem the
-  // user cannot act on here is just noise.
+  // picked). Provider and Name are the blocking states with no copy anywhere.
+  // Read-only (managed) profiles get no field errors: every control is
+  // disabled, so naming a problem the user cannot act on here is just noise.
+  // A "Save As New" duplicate (`effectiveMode` has moved off the mode the
+  // host opened) is not a blank form either: every field arrives seeded, so a
+  // seeded value that cannot be saved has to say so rather than leave Save
+  // disarmed for a reason nothing on screen gives.
   const showFieldErrors =
-    !isReadOnly && (effectiveMode === "edit" || getDirty());
+    !isReadOnly &&
+    (effectiveMode === "edit" || effectiveMode !== mode || getDirty());
   const providerError =
-    showFieldErrors && providerMissing ? "Select a provider" : null;
+    showFieldErrors && providerMissing
+      ? t("settings:profileEditor.providerRequired")
+      : null;
+  const nameError = !showFieldErrors
+    ? null
+    : keyEmpty
+      ? t("settings:profileEditor.nameRequired")
+      : keyNotUnique
+        ? t("settings:profileEditor.nameTaken")
+        : null;
 
   async function handleSave() {
     if (isInvalid && !isReadOnly) {
@@ -637,10 +708,20 @@ export function useProfileEditor({
       }
       return;
     }
+    // `selectedModel` already resolves the routed `<provider>/<model>` form
+    // to its native catalog entry, so the judgment sees the same model the
+    // save will dispatch.
+    if (visibility.maxTokens && maxTokens !== null && selectedModel) {
+      const budgetError = maxTokensBudgetError(selectedModel, maxTokens);
+      if (budgetError) {
+        setSaveError(budgetError);
+        return;
+      }
+    }
     setSaving(true);
     setSaveError(null);
     try {
-      const entry: ProfilePatchEntry = {};
+      const entry: ProfilePatchEntryWritable = {};
       // Stale bindings are auto-cleared on save; when providerConnection is
       // empty and there's exactly one available connection, resolve to that
       // connection's name so profiles always persist with an explicit binding.
@@ -809,8 +890,22 @@ export function useProfileEditor({
 
   function switchToSaveAsNew() {
     setEffectiveMode("create");
-    setKey("");
     resetDirty();
+    // The duplicate keeps the source profile's Name, which is by definition
+    // already taken, so it opens on the lowest free "(N)" and on the key that
+    // Name slugifies to. Leaving the key empty instead would disarm Save with
+    // no error to explain it: the Key field is gone, and a Name nobody has
+    // touched reports nothing.
+    const base = label.trim() || (profileName ?? "").trim();
+    const { name, key: derivedKey } = deriveProfileDefaults(
+      base,
+      existingNames,
+    );
+    // The editor derived this Name, not the user, so a later model pick may
+    // still replace it.
+    autoFilledLabelRef.current = name;
+    setLabel(name);
+    setKey(derivedKey);
   }
 
   return {
@@ -827,7 +922,7 @@ export function useProfileEditor({
     status,
     saving,
     saveError,
-    keyError,
+    nameError,
     providerError,
     isInvalid,
     maxTokens,
@@ -870,8 +965,7 @@ export function useProfileEditor({
     setPendingCreateProvider,
     setNewProviderNote,
     handleLabelChange,
-    handleKeyChange,
-    getDirty,
+    handleLabelBlur,
     handleProviderChange,
     handleConnectionChange,
     handleModelChange,

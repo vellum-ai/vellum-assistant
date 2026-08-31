@@ -6,6 +6,8 @@
  * channels (telegram, slack) get a direct channel reply.
  */
 
+import { DELIVERY_STATUS } from "@vellumai/gateway-client";
+
 import { addMessage } from "../persistence/conversation-crud.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "../runtime/guardian-action-message-composer.js";
@@ -35,7 +37,10 @@ export async function sendGuardianExpiryNotices(
   assistantId: string,
 ): Promise<void> {
   for (const delivery of deliveries) {
-    if (delivery.status !== "sent" && delivery.status !== "pending") {
+    if (
+      delivery.status !== DELIVERY_STATUS.sent &&
+      delivery.status !== DELIVERY_STATUS.pending
+    ) {
       continue;
     }
 

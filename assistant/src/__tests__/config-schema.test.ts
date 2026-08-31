@@ -959,8 +959,7 @@ describe("AssistantConfigSchema", () => {
         },
       },
       flux: {
-        turnEnd: { enabled: false },
-        model: "flux-general-en",
+        turnEnd: { enabled: true },
         eotThreshold: 0.7,
         eotTimeoutMs: 5000,
       },
@@ -989,7 +988,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
     // A partial liveVoice override leaves Flux turn-end disabled by default.
-    expect(result.liveVoice.flux.turnEnd.enabled).toBe(false);
+    expect(result.liveVoice.flux.turnEnd.enabled).toBe(true);
   });
 
   test("accepts a liveVoice.vad.bargeInMinSpeechMs of 0 (guard disabled)", () => {

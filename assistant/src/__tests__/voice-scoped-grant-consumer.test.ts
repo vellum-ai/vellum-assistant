@@ -135,6 +135,8 @@ function createMockSession(opts?: {
       };
     },
     handleSecretResponse: () => {},
+    // The image-bearing profile pin reads the leg's history.
+    getMessages: () => [],
     runAgentLoop: async (
       _content: string,
       _messageId: string,

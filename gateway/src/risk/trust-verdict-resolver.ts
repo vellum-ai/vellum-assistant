@@ -18,12 +18,14 @@ import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { guardianIntegrityState } from "../auth/guardian-integrity.js";
+import { parseContactAutoApproveThreshold } from "../db/contact-auto-approve-threshold.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
 import { hasInterceptableSession } from "../db/session-store.js";
+import { pluginMemberIdentity } from "../channels/plugin-inbound.js";
 import { canonicalSenderIdFor } from "../verification/identity.js";
 
 export interface ResolveTrustVerdictInput {
@@ -58,9 +60,17 @@ export async function resolveTrustVerdict(
 ): Promise<TrustVerdict> {
   const db = getGatewayDb();
 
+  // Plugin ingress is one channel id (`plugin`) covering every installed
+  // plugin. The contact row the guardian verifies is the plugin's own type
+  // (`imessage`, `meeting-bot`, …) and the unprefixed vendor id.
+  const memberIdentity = input.actorExternalId
+    ? pluginMemberIdentity(input.channelType, input.actorExternalId)
+    : { type: input.channelType, address: input.actorExternalId };
+  const channelType = memberIdentity.type;
+
   const canonicalSenderId = canonicalSenderIdFor(
-    input.channelType,
-    input.actorExternalId,
+    channelType,
+    memberIdentity.address,
   );
 
   // --- Guardian-for-channel binding (independent of THIS actor) ---
@@ -79,7 +89,7 @@ export async function resolveTrustVerdict(
     .where(
       and(
         eq(gwContacts.role, "guardian"),
-        eq(gwContactChannels.type, input.channelType),
+        eq(gwContactChannels.type, channelType),
         eq(gwContactChannels.status, "active"),
       ),
     )
@@ -103,12 +113,13 @@ export async function resolveTrustVerdict(
           memberDisplayName: gwContacts.displayName,
           memberRole: gwContacts.role,
           memberPrincipalId: gwContacts.principalId,
+          autoApproveThreshold: gwContacts.autoApproveThreshold,
         })
         .from(gwContactChannels)
         .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
         .where(
           and(
-            eq(gwContactChannels.type, input.channelType),
+            eq(gwContactChannels.type, channelType),
             sql`${gwContactChannels.address} = ${canonicalSenderId} COLLATE NOCASE`,
           ),
         )
@@ -267,6 +278,9 @@ export async function resolveTrustVerdict(
     verdict.verifiedAt = memberRow.verifiedAt;
     verdict.interactionCount = memberRow.interactionCount;
     verdict.memberDisplayName = memberRow.memberDisplayName;
+    verdict.autoApproveThreshold = parseContactAutoApproveThreshold(
+      memberRow.autoApproveThreshold,
+    );
   }
 
   return verdict;

@@ -1,3 +1,4 @@
+import { eventRefersToAnotherMessage } from "../../channels/inbound-event.js";
 import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
@@ -119,8 +120,13 @@ export function createTelegramWebhookHandler(
     // are blocked even while the first request is still processing.
     const updateId =
       typeof payload.update_id === "number" ? payload.update_id : undefined;
+    let reservedGeneration = dedupCache.currentGeneration;
     if (updateId !== undefined) {
       const status = dedupCache.reserve(updateId);
+      // Captured with the reservation so finalizing can tell whether the bot
+      // changed while this update was in flight. Read off the entry it would
+      // be lost, since a reset clears the map.
+      reservedGeneration = dedupCache.currentGeneration;
       if (status !== "reserved") {
         if (status === "already_processed") {
           // High-water mark rejection — this update_id was fully processed
@@ -163,7 +169,7 @@ export function createTelegramWebhookHandler(
     const respond = (body: Record<string, unknown>, status = 200): Response => {
       const json = JSON.stringify(body);
       if (updateId !== undefined) {
-        dedupCache.set(updateId, json, status);
+        dedupCache.set(updateId, json, status, reservedGeneration);
       }
       return new Response(json, {
         status,
@@ -475,7 +481,8 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "start_command_circuit_open",
           );
-          if (updateId !== undefined) dedupCache.unreserve(updateId);
+          if (updateId !== undefined)
+            dedupCache.unreserve(updateId, reservedGeneration);
           return Response.json(
             { error: SERVICE_UNAVAILABLE_ERROR },
             {
@@ -566,7 +573,6 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
-    const isEdit = !!normalized.message.isEdit;
     const isCallback = !!normalized.message.callbackQueryId;
 
     // Check routing early so we can gate attachments
@@ -578,16 +584,15 @@ export function createTelegramWebhookHandler(
     );
     const routable = !isRejection(routing);
 
-    // Download and upload attachments if present (skip for edits and callback
-    // queries — edits only update text, callbacks have no media to process)
+    // Download and upload attachments if present. An event that refers to
+    // another message (edit, button press) carries no media of its own.
     let attachmentIds: string[] | undefined;
     const eventAttachments = normalized.message.attachments;
     if (
       eventAttachments &&
       eventAttachments.length > 0 &&
       routable &&
-      !isEdit &&
-      !isCallback
+      !eventRefersToAnotherMessage(normalized.message)
     ) {
       try {
         const result = await ingestAttachments(
@@ -632,7 +637,8 @@ export function createTelegramWebhookHandler(
           { err },
           "Attachment processing failed with transient error",
         );
-        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        if (updateId !== undefined)
+          dedupCache.unreserve(updateId, reservedGeneration);
         return Response.json(
           { error: "Attachment processing failed" },
           { status: 500 },
@@ -692,7 +698,8 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "forward_not_forwarded",
           );
-        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        if (updateId !== undefined)
+          dedupCache.unreserve(updateId, reservedGeneration);
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
 
@@ -762,7 +769,8 @@ export function createTelegramWebhookHandler(
             normalized.message.callbackQueryId,
             "circuit_open",
           );
-        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        if (updateId !== undefined)
+          dedupCache.unreserve(updateId, reservedGeneration);
         return Response.json(
           { error: SERVICE_UNAVAILABLE_ERROR },
           {
@@ -780,7 +788,8 @@ export function createTelegramWebhookHandler(
           normalized.message.callbackQueryId,
           "forward_exception",
         );
-      if (updateId !== undefined) dedupCache.unreserve(updateId);
+      if (updateId !== undefined)
+        dedupCache.unreserve(updateId, reservedGeneration);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }
 

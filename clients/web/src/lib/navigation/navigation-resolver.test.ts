@@ -6,6 +6,8 @@ import {
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 
+import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
+
 import {
   postCheckoutHatchReturnTo,
   resolveNavigation,
@@ -33,6 +35,7 @@ const base: NavigationState = {
   // the hydration-gating cases override these explicitly.
   consentHydrated: true,
   assistantsHydrated: true,
+  alreadyOnboarded: false,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -209,6 +212,68 @@ describe("resolveNavigation", () => {
       expect(guard(s({}), "/assistant/onboarding/privacy")).toEqual(ALLOW);
       expect(
         guard(s({ hasAssistants: false }), "/assistant/onboarding/privacy"),
+      ).toEqual(ALLOW);
+    });
+
+    test("bounces an already-onboarded user off first-run privacy", () => {
+      expect(
+        guard(s({ alreadyOnboarded: true }), "/assistant/onboarding/privacy"),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+      expect(
+        guard(
+          s({ alreadyOnboarded: true, hasAssistants: false }),
+          "/assistant/onboarding/privacy?replay=1",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    test("lets a new-assistant walk through privacy despite an onboarded assistant", () => {
+      expect(
+        guard(
+          s({ alreadyOnboarded: true }),
+          `/assistant/onboarding/privacy?hosting=local&${NEW_ASSISTANT_PARAM}=1`,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ alreadyOnboarded: true }),
+          `/assistant/onboarding/privacy?${NEW_ASSISTANT_PARAM}=1`,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // The loop the exemption above exists for.
+    test("without the marker the bounce lands a local client back on the chooser", () => {
+      const state = s({
+        isLocalClient: true,
+        isAuthenticated: false,
+        alreadyOnboarded: true,
+        hasAssistants: true,
+      });
+      expect(
+        guard(
+          { ...state, isAuthenticated: true },
+          "/assistant/onboarding/privacy?hosting=local",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+      expect(guard(state, "/assistant")).toEqual({
+        action: "redirect",
+        to: "/assistant/select-assistant",
+      });
+    });
+
+    test("resumes a paid hatch when bouncing an already-onboarded user off privacy", () => {
+      expect(
+        guard(
+          s({ alreadyOnboarded: true }),
+          `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+        ),
+      ).toEqual({ action: "redirect", to: HATCHING_FUNNEL_URL });
+    });
+
+    test("keeps research reachable on demand for an already-onboarded user", () => {
+      expect(
+        guard(s({ alreadyOnboarded: true }), "/assistant/onboarding/research"),
       ).toEqual(ALLOW);
     });
 
@@ -1428,6 +1493,19 @@ describe("resolveNavigation", () => {
       ).toEqual(ALLOW);
     });
 
+    test("allows an already-onboarded assistant even without local consent flags", () => {
+      expect(
+        intercept(
+          s({
+            alreadyOnboarded: true,
+            tosAccepted: false,
+            privacyConsent: false,
+          }),
+          "/assistant",
+        ),
+      ).toEqual(ALLOW);
+    });
+
     test("stale toggles do not change onboarding-intercept (hasCompletedOnboarding only)", () => {
       expect(
         intercept(
@@ -1770,6 +1848,77 @@ describe("resolveNavigation", () => {
       expect(postAuth("login", "")).toEqual({
         action: "redirect",
         to: "/assistant",
+      });
+    });
+
+    test("signup skips privacy when the assistant is already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "signup",
+          returnTo: "/assistant/home",
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: "/assistant/home" });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("signup with a checkout deep link skips privacy when already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "signup",
+          returnTo: "/assistant/checkout?package=super",
+          fallback: "/assistant",
+        }),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/checkout?package=super",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("login keeps a paid hatch returnTo when already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo: HATCHING_FUNNEL_URL,
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: HATCHING_FUNNEL_URL });
+    });
+
+    test("login skips a privacy or research returnTo when already onboarded", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo: "/assistant/onboarding/privacy",
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: true }), {
+          kind: "post-auth",
+          authIntent: "login",
+          returnTo: "/assistant/onboarding/research?hosting=vellum-cloud",
+          fallback: "/assistant",
+        }),
+      ).toEqual({ action: "redirect", to: "/assistant" });
+    });
+
+    test("signup still goes to privacy for a freshly hatched assistant", () => {
+      expect(
+        resolveNavigation(s({ alreadyOnboarded: false, hasAssistants: true }), {
+          kind: "post-auth",
+          authIntent: "signup",
+          returnTo: "/assistant/home",
+          fallback: "/assistant",
+        }),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
       });
     });
 

@@ -50,13 +50,28 @@ export function SkillDetailPage() {
   const isMobile = useIsMobile();
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
-  // The My Superpowers list passes its current query string
-  // (search/filter/category) as router state so the back button restores the
-  // same filtered view. Direct deep-links carry no state and fall back to
-  // the plain list.
-  const routerState = location.state as { listSearch?: unknown } | null;
+  // Two origins ride in as router state. The My Superpowers list passes its
+  // current query string (search/filter/category) as `listSearch` so the back
+  // button restores the same filtered view. Chat surfaces (the skill-created
+  // card, the panel's "Go to skill" button, and the narrow-viewport panel
+  // hand-off) pass their conversation location as `backTo` so every back
+  // affordance returns to the conversation the skill was opened from. Direct
+  // deep-links carry no state and fall back to the plain list.
+  const routerState = location.state as {
+    listSearch?: unknown;
+    backTo?: unknown;
+  } | null;
   const listSearch =
     typeof routerState?.listSearch === "string" ? routerState.listSearch : "";
+  // In-app pathname+search only. State never round-trips through the URL,
+  // but the guard keeps a malformed value from reading as an external or
+  // scheme-relative destination.
+  const backTo =
+    typeof routerState?.backTo === "string" &&
+    routerState.backTo.startsWith("/") &&
+    !routerState.backTo.startsWith("//")
+      ? routerState.backTo
+      : null;
 
   // The desktop view's Files/History tab rides `?tab=`, so an in-chat card
   // can link straight to a skill's history
@@ -94,15 +109,26 @@ export function SkillDetailPage() {
     refetchOnMount: "always",
   });
 
+  // Where leaving the page lands: the conversation the skill was opened
+  // from when the entry carried one, otherwise the (possibly filtered) list.
+  const exitTarget = backTo ?? `${routes.superpowers}${listSearch}`;
+
   const handleBack = useCallback(() => {
+    // Push, don't replace: the origin is a live page, so history stays
+    // walkable and browser Back can still reach this detail entry.
+    navigate(exitTarget);
+  }, [navigate, exitTarget]);
+
+  const handleRemovedExit = useCallback(() => {
     // Replace (rather than push) so browser Back doesn't bounce the user
-    // back to the detail entry — which may be a not-found page after the
-    // skill was removed via `onRemoved`.
-    navigate(`${routes.superpowers}${listSearch}`, { replace: true });
-  }, [navigate, listSearch]);
+    // back to this detail entry, a not-found page once the skill is
+    // removed.
+    navigate(exitTarget, { replace: true });
+  }, [navigate, exitTarget]);
 
   // Register as the mobile back-swipe owner so a left-edge swipe navigates
-  // back to the skills list instead of opening the nav drawer (`ChatLayout`
+  // to the exit target (the origin conversation when `backTo` is present,
+  // otherwise the skills list) instead of opening the nav drawer (`ChatLayout`
   // only yields the edge while an owner is registered). The container ref is
   // threaded into `SkillDetailMobile`'s portaled overlay root — a page-level
   // wrapper wouldn't contain the overlay's DOM, so the drag transform would
@@ -114,9 +140,9 @@ export function SkillDetailPage() {
     onBack: handleBack,
     enabled: isMobile,
     navKey: pathname,
-    // Path only: the list's search params are carried by `handleBack` and
-    // play no part in matching the route branch to warm.
-    prefetchHref: routes.superpowers,
+    // Path only: the exit target's search params are carried by `handleBack`
+    // and play no part in matching the route branch to warm.
+    prefetchHref: exitTarget.split("?")[0] ?? exitTarget,
   });
 
   const {
@@ -127,7 +153,7 @@ export function SkillDetailPage() {
     skillPendingRemoval,
     confirmRemove,
     cancelRemove,
-  } = useSkillActions(assistantId, { onRemoved: handleBack });
+  } = useSkillActions(assistantId, { onRemoved: handleRemovedExit });
 
   const skills = skillsQuery.data;
   const skill = useMemo(
@@ -188,7 +214,11 @@ export function SkillDetailPage() {
           leftIcon={<ArrowLeft aria-hidden />}
           onClick={handleBack}
         >
-          {t("skillDetailPage.backToSuperpowers")}
+          {t(
+            backTo
+              ? "skillDetailPage.backToConversation"
+              : "skillDetailPage.backToSuperpowers",
+          )}
         </Button>
       </SkillsStateCard>
     );
@@ -198,6 +228,7 @@ export function SkillDetailPage() {
     assistantId,
     skill,
     onBack: handleBack,
+    backToConversation: backTo !== null,
     onInstall: () => handleInstall(skill),
     onRemove: () => handleRemove(skill),
     isInstalling: isInstallingSkill(skill),

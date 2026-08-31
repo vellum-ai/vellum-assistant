@@ -11,6 +11,7 @@ import {
   parsePendingSecretState,
   resolvePostError,
   shouldCleanupSupersededInteractions,
+  turnStartMsFromId,
 } from "@/domains/chat/utils/send-message-utils";
 
 // ---------------------------------------------------------------------------
@@ -392,5 +393,28 @@ describe("newTurnId", () => {
   it("generates unique IDs on successive calls", () => {
     const ids = new Set(Array.from({ length: 50 }, () => newTurnId()));
     expect(ids.size).toBe(50);
+  });
+});
+
+describe("turnStartMsFromId", () => {
+  it("extracts the send stamp newTurnId embeds", () => {
+    expect(turnStartMsFromId("turn-1787774471939-au3bcw")).toBe(1787774471939);
+  });
+
+  it("returns null for null and foreign id shapes", () => {
+    expect(turnStartMsFromId(null)).toBe(null);
+    expect(turnStartMsFromId("")).toBe(null);
+    expect(turnStartMsFromId("some-server-id")).toBe(null);
+    expect(turnStartMsFromId("turn-abc-xyz")).toBe(null);
+    // A short digit run is not an epoch-milliseconds stamp.
+    expect(turnStartMsFromId("turn-123-xyz")).toBe(null);
+  });
+
+  it("round-trips ids newTurnId generates", () => {
+    const before = Date.now();
+    const parsed = turnStartMsFromId(newTurnId());
+    expect(parsed).not.toBe(null);
+    expect(parsed!).toBeGreaterThanOrEqual(before);
+    expect(parsed!).toBeLessThanOrEqual(Date.now());
   });
 });

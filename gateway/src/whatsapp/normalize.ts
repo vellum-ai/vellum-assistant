@@ -316,6 +316,7 @@ export function normalizeWhatsAppWebhook(
           sourceChannel: "whatsapp",
           receivedAt,
           message: {
+            eventKind: callbackData ? "button" : "message",
             content: body,
             // Use sender phone number as the chat identifier for 1:1 conversations
             conversationExternalId: from,
@@ -331,6 +332,8 @@ export function normalizeWhatsAppWebhook(
             updateId: msg.id,
             messageId: msg.id,
             chatType: "private",
+            // WhatsApp reaches the assistant only one-to-one.
+            conversationType: "dm" as const,
           },
           raw: payload,
         },

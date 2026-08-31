@@ -9,11 +9,11 @@
 
 import { type ReactNode } from "react";
 
-import { Typography } from "@vellumai/design-library";
-
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
+import { PreviewTruncationNotice } from "@/domains/chat/components/local-file/preview/preview-truncation-notice";
 import { useTruncatedBlobText } from "@/domains/chat/components/local-file/preview/use-truncated-blob-text";
+import { useTranslation } from "@/i18n";
 
 /**
  * Bytes decoded and laid out at once. A log file runs to whatever length the
@@ -23,14 +23,13 @@ import { useTruncatedBlobText } from "@/domains/chat/components/local-file/previ
  */
 const MAX_DISPLAYED_BYTES = 2 * 1024 * 1024;
 
-const TRUNCATION_NOTICE = "Showing the first 2 MB";
-
 interface TextPreviewProps {
   blob: Blob;
   filename: string;
 }
 
 export function TextPreview({ blob, filename }: TextPreviewProps): ReactNode {
+  const { t } = useTranslation("chat");
   const { text, truncated, decodeFailed } = useTruncatedBlobText(
     blob,
     MAX_DISPLAYED_BYTES,
@@ -49,13 +48,9 @@ export function TextPreview({ blob, filename }: TextPreviewProps): ReactNode {
         {text}
       </pre>
       {truncated && (
-        <Typography
-          as="p"
-          variant="label-small-default"
-          className="border-t border-[var(--border-element)] pt-2 text-[var(--content-tertiary)]"
-        >
-          {TRUNCATION_NOTICE}
-        </Typography>
+        <PreviewTruncationNotice>
+          {t("previewTruncationNotice.text")}
+        </PreviewTruncationNotice>
       )}
     </div>
   );

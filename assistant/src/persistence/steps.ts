@@ -474,6 +474,13 @@ import { migrateBackfillScheduleInferenceProfile } from "./migrations/363-backfi
 import { migrateAddScheduleSourceKey } from "./migrations/364-add-schedule-source-key.js";
 import { migrateAddConversationForkStrategy } from "./migrations/365-add-conversation-fork-strategy.js";
 import { migrateChatgptSubscriptionRowIdentity } from "./migrations/366-chatgpt-subscription-row-identity.js";
+import { migrateCreateWatchTimelineEntries } from "./migrations/367-create-watch-timeline-entries.js";
+import { migrateWatchTimelineScreenshotBlob } from "./migrations/368-watch-timeline-screenshot-blob.js";
+import { migrateCreateAppPins } from "./migrations/369-create-app-pins.js";
+import { migrateAcpSessionHistoryAuthErrorCode } from "./migrations/370-acp-session-history-auth-error-code.js";
+import { migrateAcpSessionHistoryAuthErrorCredential } from "./migrations/371-acp-session-history-auth-error-credential.js";
+import { migrateCreateAcpRefusedCredentials } from "./migrations/372-create-acp-refused-credentials.js";
+import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-index.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1582,4 +1589,11 @@ export const migrationSteps: MigrationStep[] = [
     // permanently checkpoint the no-op.
     dependsOn: ["migrateCreateProviderConnections"],
   },
+  migrateCreateWatchTimelineEntries,
+  migrateWatchTimelineScreenshotBlob,
+  migrateCreateAppPins,
+  migrateAcpSessionHistoryAuthErrorCode,
+  migrateAcpSessionHistoryAuthErrorCredential,
+  migrateCreateAcpRefusedCredentials,
+  migrateAcpAuthMarkerIndex,
 ];

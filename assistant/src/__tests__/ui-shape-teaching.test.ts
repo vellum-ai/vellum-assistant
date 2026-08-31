@@ -159,7 +159,7 @@ describe("ui_show missing-content teaching", () => {
     {
       surfaceType: "channel_setup",
       data: { channel: "email" },
-      expectInError: '"slack", "telegram", "phone"',
+      expectInError: '"slack", "telegram", "discord", "phone"',
     },
     {
       // Snake_case constraint keys are stripped by the schema, so without the

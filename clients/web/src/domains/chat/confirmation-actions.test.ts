@@ -102,6 +102,7 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
       ok: false,
       status: 404,
       error: "No pending interaction found for this requestId",
+      transient: false,
     };
     seedPendingConfirmation("cr-stale");
 
@@ -121,6 +122,7 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
       ok: false,
       status: 500,
       error: "Internal error",
+      transient: false,
     };
     seedPendingConfirmation("cr-500");
 
@@ -130,8 +132,9 @@ describe("handleConfirmationSubmit — stale (404) interaction", () => {
     expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
       "cr-500",
     );
+    // Copy the user can read, not the assistant's rejection text.
     expect(useChatSessionStore.getState().error?.message).toBe(
-      "Internal error",
+      "Failed to submit confirmation. Please try again.",
     );
   });
 });
@@ -208,6 +211,7 @@ describe("handleConfirmationSubmit: a resume that no longer owns the slot", () =
       ok: false,
       status: 500,
       error: "Internal error",
+      transient: false,
     };
     seedPendingConfirmation("cr-reset");
     const { inFlight, release } = submitParked("allow");
@@ -397,7 +401,12 @@ describe("handleAllowAndCreateRule: a resume that no longer owns the slot", () =
     const a = allowParked();
     const b = supersedeWith("cr-b");
 
-    submitConfirmationResult = { ok: false, status: 500, error: "A exploded" };
+    submitConfirmationResult = {
+      ok: false,
+      status: 500,
+      error: "A exploded",
+      transient: false,
+    };
     a.release();
     await a.inFlight;
 
@@ -425,7 +434,12 @@ describe("handleAllowAndCreateRule: a resume that no longer owns the slot", () =
     const b = supersedeWith("cr-b");
     useChatSessionStore.getState().setError({ message: "B exploded" });
 
-    submitConfirmationResult = { ok: false, status: 404, error: "gone" };
+    submitConfirmationResult = {
+      ok: false,
+      status: 404,
+      error: "gone",
+      transient: false,
+    };
     a.release();
     await a.inFlight;
 
@@ -438,11 +452,18 @@ describe("handleAllowAndCreateRule: a resume that no longer owns the slot", () =
   it("still surfaces its own failure when nothing superseded it", async () => {
     // The guard must not swallow the ordinary failure it is scoped around.
     seedPendingConfirmation("cr-solo");
-    submitConfirmationResult = { ok: false, status: 500, error: "boom" };
+    submitConfirmationResult = {
+      ok: false,
+      status: 500,
+      error: "boom",
+      transient: false,
+    };
 
     await handleAllowAndCreateRule();
 
-    expect(useChatSessionStore.getState().error?.message).toBe("boom");
+    expect(useChatSessionStore.getState().error?.message).toBe(
+      "Failed to submit confirmation, but you can still create a rule.",
+    );
     expect(
       useInteractionStore.getState().submittingByKind.confirmation,
     ).toBeNull();

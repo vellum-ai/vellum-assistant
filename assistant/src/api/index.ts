@@ -23,6 +23,8 @@ import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-op
 import { ConfigChangedEventSchema } from "./events/config-changed.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state-changed.js";
+import { ContactFormClosedEventSchema } from "./events/contact-form-closed.js";
+import { ContactRecordRequestEventSchema } from "./events/contact-record-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
 import { ContextCompactedEventSchema } from "./events/context-compacted.js";
@@ -129,6 +131,7 @@ import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
+import { WatchRetroCompletedEventSchema } from "./events/watch-retro-completed.js";
 import { WorkflowCompletedEventSchema } from "./events/workflow-completed.js";
 import { WorkflowLeafFinishedEventSchema } from "./events/workflow-leaf-finished.js";
 import { WorkflowLeafStartedEventSchema } from "./events/workflow-leaf-started.js";
@@ -151,6 +154,11 @@ export {
   type DocumentMutationTool,
   REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
 } from "./constants/document-tools.js";
+export {
+  MIN_INPUT_RESERVE_TOKENS,
+  type ProfileConfigIssue,
+  validateInferenceProfileConfig,
+} from "./constants/profile-config-validation.js";
 export {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
@@ -279,6 +287,14 @@ export {
   type ConfirmationStateChangedEvent,
   ConfirmationStateChangedEventSchema,
 } from "./events/confirmation-state-changed.js";
+export {
+  type ContactFormClosedEvent,
+  ContactFormClosedEventSchema,
+} from "./events/contact-form-closed.js";
+export {
+  type ContactRecordRequestEvent,
+  ContactRecordRequestEventSchema,
+} from "./events/contact-record-request.js";
 export {
   type ContactRequestEvent,
   ContactRequestEventSchema,
@@ -677,6 +693,10 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type WatchRetroCompletedEvent,
+  WatchRetroCompletedEventSchema,
+} from "./events/watch-retro-completed.js";
+export {
   type WorkflowCompletedEvent,
   WorkflowCompletedEventSchema,
   type WorkflowRunStatus,
@@ -942,6 +962,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ConfigChangedEventSchema,
   ConfirmationRequestEventSchema,
   ConfirmationStateChangedEventSchema,
+  ContactFormClosedEventSchema,
+  ContactRecordRequestEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
   ContextCompactedEventSchema,
@@ -1032,6 +1054,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UsageProgressEventSchema,
   UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
+  WatchRetroCompletedEventSchema,
   WorkflowCompletedEventSchema,
   WorkflowLeafFinishedEventSchema,
   WorkflowLeafStartedEventSchema,

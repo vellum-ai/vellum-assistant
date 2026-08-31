@@ -18,13 +18,16 @@
  * arrives.
  *
  * **The lexicon travels with the token.** Phase wording belongs to the web
- * layer — `liveVoiceSurfaceLabel` is the same call the voice room makes, and
- * the native side deliberately owns none of it because the shell ships on App
- * Store cadence while this bundle deploys continuously. A server composing its
- * own strings would reintroduce exactly that drift one layer further out, so
- * registration hands over a phase→label map and the platform only ever looks a
- * phase up in it. The accent and mute state travel the same way and for the
- * same underlying reason. See {@link LiveActivityRegistration}.
+ * layer: `liveVoiceSurfaceLabelKey` is the same call the voice room makes and
+ * the catalog behind it is the same one, and the native side deliberately owns
+ * none of it because the shell ships on App Store cadence while this bundle
+ * deploys continuously. A server composing its own strings would reintroduce
+ * exactly that drift one layer further out, so registration hands over a
+ * phase to label map and the platform only ever looks a phase up in it. The map
+ * is built in the language the app is in, which is what makes a
+ * server-composed push read the way the room did. The accent and mute state
+ * travel the same way and for the same underlying reason. See
+ * {@link LiveActivityRegistration}.
  *
  * Best-effort throughout, like everything else that touches the island: a
  * failure here costs a background update, never a voice session.
@@ -36,21 +39,29 @@ import {
 } from "@/generated/api/sdk.gen";
 import {
   isLiveVoiceSessionActive,
-  LIVE_VOICE_STATE_LABELS,
-  liveVoiceSurfaceLabel,
+  LIVE_VOICE_STATE_KEYS,
+  liveVoiceSurfaceLabelKey,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { fixedT } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { createStorageAccessor } from "@/utils/typed-storage";
 
 /**
- * Every phase an activity can be pushed into, paired with its wording.
+ * Every phase an activity can be pushed into, paired with its wording in the
+ * app's current language.
  *
- * Derived from the label table rather than restated, so a phase added to the
+ * Derived from the key table rather than restated, so a phase added to the
  * session cannot quietly ship without server-side copy. `idle` and `failed` are
  * filtered out for the same reason they have no `ContentState.Phase` case:
  * neither has an activity to address.
+ *
+ * The non-reactive `t`, because this is plain module code on the registration
+ * path rather than a render. The map is a snapshot of the language the
+ * registration was made in, and the caller re-registers whenever anything the
+ * platform composes from moves, the active locale included: a language switch
+ * moves nothing in the session, so the caller keys on it directly.
  *
  * `muted` is baked into the table rather than left at its steady state. The
  * platform composes pushes by looking a phase up in this map, so a table built
@@ -63,15 +74,17 @@ import { createStorageAccessor } from "@/utils/typed-storage";
  * cannot observe them.
  */
 function phaseLabels(muted: boolean): Record<string, string> {
+  const t = fixedT("chat");
   const labels: Record<string, string> = {};
   const phases = (
-    Object.keys(LIVE_VOICE_STATE_LABELS) as LiveVoiceSessionState[]
+    Object.keys(LIVE_VOICE_STATE_KEYS) as LiveVoiceSessionState[]
   ).filter(isLiveVoiceSessionActive);
   for (const phase of phases) {
-    // Read through the same helper the room and the mirror use rather than the
+    // Keyed through the same helper the room and the mirror use rather than the
     // raw table, so a server-pushed label is the string the user would have
     // seen locally, including the relabel rules.
-    labels[phase] = liveVoiceSurfaceLabel(phase, false, true, muted);
+    const key = liveVoiceSurfaceLabelKey(phase, false, true, muted);
+    labels[phase] = key ? t(key) : "";
   }
   return labels;
 }

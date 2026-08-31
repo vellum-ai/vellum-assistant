@@ -5,6 +5,7 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
+import { syncAvatarToPlatform } from "../../platform/sync-avatar.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { isStreamSeqStampingDisabled } from "../assistant-stream-state.js";
@@ -31,6 +32,7 @@ export function publishAvatarChanged(originClientId?: string): void {
     avatarPath: getAvatarImagePath(),
   });
   void publishSyncInvalidation([SYNC_TAGS.assistantAvatar], originClientId);
+  syncAvatarToPlatform();
 }
 
 export function publishIdentityChanged(

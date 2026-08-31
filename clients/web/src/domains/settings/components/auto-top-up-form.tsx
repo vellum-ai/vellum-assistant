@@ -224,13 +224,13 @@ export function AutoTopUpForm({
           />
         </div>
         {/*
-         * `pt-[18px]` aligns buttons with the input box: label is 12px
+         * `pt-[20px]` centres buttons against the input box: label is 12px
          * tall + 6px gap-1.5 in the Input wrapper = 18px before the input
          * starts. Switching the row to `items-start` (so error messages
          * hang below without lifting other columns) means buttons would
          * otherwise render at the very top of the row next to the labels.
          */}
-        <div className="flex shrink-0 items-center gap-2 pt-[18px]">
+        <div className="flex shrink-0 items-center gap-2 pt-[20px]">
           <Button variant="outlined" onClick={onCancel} disabled={submitting}>
             {t("autoTopUpForm.cancel")}
           </Button>

@@ -7,6 +7,7 @@ import type {
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "./connection.js";
+import { isBinaryOAuthBody } from "./connection.js";
 
 const log = getLogger("platform-oauth-connection");
 const MAX_RETRIES = 3;
@@ -82,18 +83,26 @@ export class PlatformOAuthConnection implements OAuthConnection {
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
     const proxyPath = `/v1/assistants/${this.client.platformAssistantId}/external-provider-proxy/${this.connectionId}/`;
 
-    const body: Record<string, unknown> = {
-      request: {
-        method: req.method,
-        path: req.path,
-        query: req.query ?? {},
-        headers: req.headers ?? {},
-        body: req.body ?? null,
-        ...((req.baseUrl ?? this.baseUrl)
-          ? { base_url: req.baseUrl ?? this.baseUrl }
-          : {}),
-      },
+    // The envelope carries the caller's headers and body side by side. A
+    // string body is placed in the envelope as a string, so the proxy forwards
+    // those bytes verbatim under the caller's Content-Type. A Buffer is
+    // base64-encoded so binary uploads survive JSON. An object body travels
+    // as JSON and the proxy serializes it.
+    const request: Record<string, unknown> = {
+      method: req.method,
+      path: req.path,
+      query: req.query ?? {},
+      headers: req.headers ?? {},
+      body: req.body ?? null,
+      ...((req.baseUrl ?? this.baseUrl)
+        ? { base_url: req.baseUrl ?? this.baseUrl }
+        : {}),
     };
+    if (isBinaryOAuthBody(req.body)) {
+      request.body = Buffer.from(req.body).toString("base64");
+      request.body_encoding = "base64";
+    }
+    const body: Record<string, unknown> = { request };
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const response = await this.client.fetch(proxyPath, {
@@ -143,13 +152,10 @@ export class PlatformOAuthConnection implements OAuthConnection {
         status: number;
         headers: Record<string, string>;
         body: unknown;
+        body_encoding?: string | null;
       };
 
-      return {
-        status: json.status,
-        headers: json.headers,
-        body: json.body,
-      };
+      return decodePlatformProxyEnvelope(json);
     }
 
     throw new BackendError("Platform proxy request failed after retries");
@@ -160,4 +166,26 @@ export class PlatformOAuthConnection implements OAuthConnection {
       "Raw token access is not supported for platform-managed connections. Use connection.request() instead.",
     );
   }
+}
+
+function decodePlatformProxyEnvelope(json: {
+  status: number;
+  headers: Record<string, string>;
+  body: unknown;
+  body_encoding?: string | null;
+}): OAuthConnectionResponse {
+  let body = json.body;
+  if (json.body_encoding === "base64") {
+    if (typeof body !== "string") {
+      throw new BackendError(
+        "Platform proxy returned body_encoding=base64 without a string body",
+      );
+    }
+    body = Buffer.from(body, "base64");
+  }
+  return {
+    status: json.status,
+    headers: json.headers ?? {},
+    body,
+  };
 }

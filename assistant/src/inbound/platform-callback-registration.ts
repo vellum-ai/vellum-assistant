@@ -13,15 +13,21 @@
  *   POST {VELLUM_PLATFORM_URL}/v1/internal/gateway/callback-routes/register/
  *
  * It accepts { assistant_id, callback_path, type } and returns a stable
- * callback_url that external services should use.
+ * callback_url that external services should use. Self-hosted assistants
+ * also send callback_base_url (configured or detected public ingress) so
+ * the platform can register a route that points at this instance.
  */
 
 import { getPlatformAssistantId, getPlatformBaseUrl } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
+import { getConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { PublicIngressDisabledError } from "./public-ingress-urls.js";
+import {
+  PublicIngressDisabledError,
+  tryGetPublicBaseUrl,
+} from "./public-ingress-urls.js";
 
 const log = getLogger("platform-callback-registration");
 
@@ -123,6 +129,10 @@ export async function registerCallbackRoute(
   if (sourceIdentifier) {
     payload.source_identifier = sourceIdentifier;
   }
+  const callbackBaseUrl = resolveSelfHostedCallbackBaseUrl();
+  if (callbackBaseUrl) {
+    payload.callback_base_url = callbackBaseUrl;
+  }
   const body = JSON.stringify(payload);
 
   log.debug({ callbackPath, type }, "Registering platform callback route");
@@ -149,6 +159,22 @@ export async function registerCallbackRoute(
   );
 
   return data.callback_url;
+}
+
+/**
+ * Self-hosted assistants must send the public ingress URL when registering
+ * with the platform. Platform pods omit it: Django ignores client-provided
+ * bases and always uses the platform callback URL.
+ */
+function resolveSelfHostedCallbackBaseUrl(): string | undefined {
+  if (getIsPlatform()) {
+    return undefined;
+  }
+  try {
+    return tryGetPublicBaseUrl(getConfig());
+  } catch {
+    return undefined;
+  }
 }
 
 /**

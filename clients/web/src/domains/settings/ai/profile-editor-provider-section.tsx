@@ -4,13 +4,16 @@ import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
+import { SearchableSelect } from "@vellumai/design-library/components/searchable-select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
   getModelsForProvider,
+  getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import {
   codexServableModels,
@@ -22,13 +25,16 @@ import {
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
 import {
+  CATALOG_PROVIDERS,
   entryPickerValue,
   expandEndpointEntries,
   parseEntryPickerValue,
   providersServedByConnections,
-  useSelectableCatalogProviders,
 } from "@/domains/settings/ai/provider-availability";
-import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import {
+  PickerMeta,
+  useProviderPickerAvailability,
+} from "@/domains/settings/ai/provider-picker-availability";
 import type {
   ConnectionModel,
   ConnectionProvider,
@@ -49,18 +55,6 @@ function connectionModelsToCatalog(
  * free-text entry. Namespaced so it can never collide with a real model id.
  */
 const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
-
-/**
- * Right-aligned muted annotation on a provider-picker row: the row answers
- * "whose infrastructure" at the moment of choice (Managed / Custom).
- */
-export function PickerMeta({ text }: { text: string }) {
-  return (
-    <span className="text-body-small-default text-[var(--content-tertiary)]">
-      {text}
-    </span>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -130,6 +124,8 @@ export function ProfileEditorProviderSection({
   // fixed model set.
   const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
+  const developerMode =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
     provider,
@@ -160,8 +156,7 @@ export function ProfileEditorProviderSection({
     onModelChange(value);
   }
 
-  const allProvidersForPicker = useSelectableCatalogProviders();
-  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const providerAvailability = useProviderPickerAvailability();
 
   // Providers backed by at least one connection — picking a provider with zero
   // connections binds a profile to a route the daemon can't dispatch through.
@@ -169,15 +164,12 @@ export function ProfileEditorProviderSection({
   // (see `providersServedByConnections`). The currently-bound `provider` is
   // always kept so editing a stale profile still renders a sensible trigger.
   const visibleProviders = useMemo(() => {
-    const served = providersServedByConnections(
-      connections ?? [],
-      activeAssistantIsSelfHosted,
-    );
+    const served = providersServedByConnections(connections ?? []);
     if (provider && !served.includes(provider)) {
       return [...served, provider];
     }
     return served;
-  }, [connections, provider, activeAssistantIsSelfHosted]);
+  }, [connections, provider]);
 
   // Pre-load fallback: when `connections` is `undefined` the parent hasn't
   // resolved its `listConnections` fetch yet. Fall back to the full catalog
@@ -185,7 +177,7 @@ export function ProfileEditorProviderSection({
   // `connections === []` is distinct: zero connections confirmed, so the
   // filter runs and yields empty — the empty-state hint fires.
   const providerOptionsSource =
-    connections === undefined ? allProvidersForPicker : visibleProviders;
+    connections === undefined ? CATALOG_PROVIDERS : visibleProviders;
 
   // A confirmed-empty connection list. Read-only profiles cannot act on it,
   // so they are not told to.
@@ -217,7 +209,10 @@ export function ProfileEditorProviderSection({
       if (!provider) {
         return [];
       }
-      const catalogModels = getModelsForProvider(provider);
+      const catalogModels = getVisibleModelsForProvider(
+        provider,
+        developerMode,
+      );
       if (catalogModels.length > 0) {
         if (
           restrictsToSubscriptionModels(
@@ -250,7 +245,12 @@ export function ProfileEditorProviderSection({
         }
       }
       return merged;
-    }, [provider, providerConnection, availableConnectionsForProvider]);
+    }, [
+      provider,
+      providerConnection,
+      availableConnectionsForProvider,
+      developerMode,
+    ]);
 
   // The Model dropdown always offers the profile's currently-bound model, even
   // when it's absent from the static catalog — a profile can be bound (via Chat)
@@ -325,7 +325,7 @@ export function ProfileEditorProviderSection({
     if (isEnteringCustomModel) {
       return;
     }
-    const catalogModels = getModelsForProvider(provider);
+    const catalogModels = getVisibleModelsForProvider(provider, developerMode);
     // Connection-derived providers (openai-compatible) have an empty catalog.
     // An id the connection does not list is still a valid bound model.
     if (catalogModels.length === 0) {
@@ -341,7 +341,14 @@ export function ProfileEditorProviderSection({
     ) {
       onModelChange("");
     }
-  }, [model, availableModels, onModelChange, provider, isEnteringCustomModel]);
+  }, [
+    model,
+    availableModels,
+    onModelChange,
+    provider,
+    isEnteringCustomModel,
+    developerMode,
+  ]);
 
   const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
 
@@ -360,6 +367,7 @@ export function ProfileEditorProviderSection({
       value,
       label,
       suffix: meta ? <PickerMeta text={meta} /> : undefined,
+      ...providerAvailability(value),
     }));
     // A bound endpoint whose row was deleted still renders on the
     // trigger; the warning below explains the state.
@@ -394,6 +402,7 @@ export function ProfileEditorProviderSection({
     provider,
     providerConnection,
     defaultEntryMetaLabel,
+    providerAvailability,
     t,
   ]);
 
@@ -517,17 +526,24 @@ export function ProfileEditorProviderSection({
             </Button>
           </>
         ) : (
-          <Select
+          // A catalog provider lists dozens of models, so the field filters as
+          // you type. The free-text escape hatch is `sticky`, which holds it
+          // on screen however far the list is scrolled and keeps it offered
+          // when the query matches no catalog model at all.
+          <SearchableSelect
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
             aria-label={t("profileEditorProviderSection.modelAriaLabel")}
-            // Radix reserves the empty string, and the leading row this used
-            // to fake is what `placeholder` is for: an unset field, not a
-            // choosable option.
             placeholder={
               modelEmptyStateCopy?.placeholder ??
               t("profileEditorProviderSection.selectModelPlaceholder")
+            }
+            emptyText={t("profileEditorProviderSection.modelNoMatches")}
+            announceResults={(count) =>
+              t("profileEditorProviderSection.modelResultsAnnouncement", {
+                count,
+              })
             }
             options={[
               ...modelOptions.map((m) => ({
@@ -538,7 +554,10 @@ export function ProfileEditorProviderSection({
                 ? [
                     {
                       value: CUSTOM_MODEL_OPTION_VALUE,
-                      label: t("profileEditorProviderSection.enterCustomModelIdOption"),
+                      label: t(
+                        "profileEditorProviderSection.enterCustomModelIdOption",
+                      ),
+                      sticky: true,
                     },
                   ]
                 : []),

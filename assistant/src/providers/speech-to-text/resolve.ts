@@ -1,6 +1,7 @@
 import { getConfig } from "../../config/loader.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { createDaemonBatchTranscriber } from "../../stt/daemon-batch-transcriber.js";
+import { sttCatalogKeyForRole, type SttRole } from "../../stt/roles.js";
 import type {
   BatchTranscriber,
   StreamingTranscriber,
@@ -12,6 +13,8 @@ import {
   batchBoundaryGapReason,
   getCredentialProvider,
   getProviderEntry,
+  isManagedSttProvider,
+  resolveSttCatalogKey,
   supportsBoundary,
   supportsDiarization,
 } from "./provider-catalog.js";
@@ -35,6 +38,10 @@ const log = getLogger("stt-resolver");
 const MULTILINGUAL_DEFAULT_PROVIDERS: ReadonlySet<SttProviderId> = new Set([
   "deepgram",
   "vellum",
+  // Managed Flux resolves an absent language to `flux-general-en` relay-side,
+  // so unset is an English pin here too. With "multi" the relay selects
+  // `flux-general-multi` and lets Flux detect and code-switch.
+  "vellum-flux",
 ] as SttProviderId[]);
 
 /**
@@ -76,6 +83,29 @@ export function effectiveSttLanguage(
     : undefined;
 }
 
+/**
+ * Record which provider a role actually dialed, when that differs from the
+ * global setting.
+ *
+ * `assistant config get` reports what was set, not what resolved, and managed
+ * defaulting already substitutes silently. A role override adds a second way
+ * for the two to diverge, so the divergence is logged rather than left to be
+ * inferred from a provider's behaviour.
+ */
+function logRoleSelection(
+  role: SttRole | undefined,
+  resolved: SttProviderId,
+  base: SttProviderId,
+): void {
+  if (role === undefined || resolved === base) {
+    return;
+  }
+  log.info(
+    { role, providerId: resolved, baseProviderId: base },
+    "STT role override selected a provider other than services.stt.provider",
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Batch transcriber resolver (existing public API — unchanged contract)
 // ---------------------------------------------------------------------------
@@ -98,11 +128,14 @@ export function effectiveSttLanguage(
  * "no speech-to-text provider is configured" copy every caller pairs with
  * `null`, which is the opposite of what happened.
  */
-export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
+export async function resolveBatchTranscriber(
+  options: { role?: SttRole } = {},
+): Promise<BatchTranscriber | null> {
   // Snapshot the stt config once, before any await, so a concurrent config
   // change cannot pair one setting's old value with another's new value.
   const stt = getConfig().services.stt;
-  const provider = stt.provider;
+  const provider = sttCatalogKeyForRole(stt, options.role);
+  logRoleSelection(options.role, provider, resolveSttCatalogKey(stt));
   const language = effectiveSttLanguage(
     provider as SttProviderId,
     stt.language,
@@ -177,22 +210,27 @@ export type TelephonySttCapability =
     };
 
 /**
- * Validate whether the configured `services.stt` provider is eligible for
- * future real-time telephony call ingestion.
+ * Validate whether the STT provider serving telephony is eligible for
+ * real-time call ingestion.
  *
- * This resolver does **not** create a live transcriber — it only validates
+ * This resolver does **not** create a live transcriber: it only validates
  * that the configuration, catalog entry, and credentials are all in order.
- * The actual wiring is deferred to a future media-stream call adapter PR.
+ *
+ * The provider is the telephony role's, which is the one a call actually
+ * dials. Reading the global provider instead would answer about a provider
+ * no call uses: a credentialed role selection would be turned away for the
+ * global's missing key, and the inverse would pass preflight and fail at the
+ * dial.
  *
  * Callers can branch on the discriminated `status` field:
- * - `"supported"` — the provider is telephony-eligible and credentials exist.
- * - `"unsupported"` — the provider exists but has `telephonyMode: "none"`.
- * - `"unconfigured"` — the provider is unknown or missing from the catalog.
- * - `"missing-credentials"` — the provider is eligible but has no API key.
+ * - `"supported"`: the provider is telephony-eligible and credentials exist.
+ * - `"unsupported"`: the provider exists but has `telephonyMode: "none"`.
+ * - `"unconfigured"`: the provider is unknown or missing from the catalog.
+ * - `"missing-credentials"`: the provider is eligible but has no API key.
  */
 export async function resolveTelephonySttCapability(): Promise<TelephonySttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = sttCatalogKeyForRole(config.services.stt, "telephony");
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -281,7 +319,7 @@ export type ConversationStreamingSttCapability =
  */
 export async function resolveConversationStreamingSttCapability(): Promise<ConversationStreamingSttCapability> {
   const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider = resolveSttCatalogKey(config.services.stt);
 
   const entry = getProviderEntry(provider as SttProviderId);
   if (!entry) {
@@ -348,6 +386,13 @@ export interface ResolveStreamingTranscriberOptions {
    */
   providerId?: SttProviderId;
   /**
+   * Consumer asking for the transcriber. Selects that role's
+   * `services.stt.roles` override; omitted falls back to the global
+   * `services.stt.provider`. Ignored when `providerId` is given, since that
+   * caller already resolved the provider itself.
+   */
+  role?: SttRole;
+  /**
    * Speaker diarization preference. Default: `"off"`.
    *
    * See {@link DiarizePreference} for semantics.
@@ -409,7 +454,11 @@ export async function resolveStreamingTranscriber(
   // change cannot pair one setting's old value with another's new value
   // (e.g. the old provider with the new language).
   const stt = getConfig().services.stt;
-  const provider = options.providerId ?? (stt.provider as SttProviderId);
+  const provider =
+    options.providerId ?? sttCatalogKeyForRole(stt, options.role);
+  if (options.providerId === undefined) {
+    logRoleSelection(options.role, provider, resolveSttCatalogKey(stt));
+  }
   // Config-level language applies to every streaming caller (live voice,
   // dictation, telephony) unless one overrides it for a single session, so
   // the setting lands in one place rather than at each call site. An unset
@@ -466,11 +515,14 @@ export async function resolveStreamingTranscriber(
     (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
-  const apiKey =
-    provider === "vellum"
-      ? null
-      : await getProviderKeyAsync(credentialProviderName);
-  if (provider === "vellum") {
+  // Both managed entries authenticate with the platform connection, not a
+  // stored API key: there is no key to fetch, and readiness is whether the
+  // connection resolves.
+  const managed = isManagedSttProvider(provider);
+  const apiKey = managed
+    ? null
+    : await getProviderKeyAsync(credentialProviderName);
+  if (managed) {
     if (!(await sttProviderKeyResolves("vellum"))) {
       return null;
     }
@@ -641,18 +693,74 @@ async function createStreamingTranscriber(
           : {}),
       });
     }
+    case "vellum-flux": {
+      // Managed Flux: same relay as `vellum`, but the STT v2 endpoint with
+      // `contract=flux` so the turn events arrive intact instead of being
+      // translated into the released v1 Deepgram dialect. Gated on the local
+      // platform connection for the same reason as `vellum` above.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
+      // The relay maps the language onto a Flux model and refuses the dial
+      // when there is none, so a language outside Flux's roster fails as a
+      // relay param error the caller cannot explain. Refuse here instead, on
+      // the same rule the BYOK twin above applies, so the reason is named
+      // where it can be read.
+      const { fluxModelForLanguage: managedFluxModelForLanguage } =
+        await import("./deepgram-flux-frames.js");
+      if (managedFluxModelForLanguage(options.language) === null) {
+        log.warn(
+          { providerId, language: options.language },
+          "Managed Flux has no model for the configured language; refusing rather than transcribing it as another",
+        );
+        return null;
+      }
+      const { resolveSpeechRelayConnection } =
+        await import("./vellum-speech-relay-connection.js");
+      const connection = await resolveSpeechRelayConnection();
+      if (!connection) {
+        return null;
+      }
+      const { VellumManagedFluxRealtimeTranscriber } =
+        await import("./vellum-managed-flux-realtime.js");
+      return new VellumManagedFluxRealtimeTranscriber(connection, {
+        sampleRate: options.sampleRate,
+        // The relay picks `flux-general-en` or `flux-general-multi` from
+        // this, so it is the only lever over the Flux model from here.
+        // `utteranceBoundaryFinals` is a nova-3 concept and the catalog
+        // keeps this provider off telephony, so it never arrives.
+        ...(options.language ? { language: options.language } : {}),
+      });
+    }
     case "deepgram-flux": {
       // Flux is streaming-only and dials Deepgram's /v2/listen conversational
-      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which
-      // the adapter reads itself, so only the transport-level sample rate is
-      // passed here. No language is forwarded: the spike pins the
-      // English-only `flux-general-en`, and `language_hint` means nothing to
-      // a monolingual model. Diarization is off in the catalog, so a
-      // `"required"` caller never reaches this case.
+      // endpoint. Turn-detection tuning comes from `liveVoice.flux`, which the
+      // adapter reads itself. The language picks the model, so a language Flux
+      // has no model for resolves to nothing rather than being transcribed by
+      // the English one, which returns fluent-looking nonsense the transcript
+      // gives no sign of. Diarization is off in the catalog, so a `"required"`
+      // caller never reaches this case.
+      const { fluxModelForLanguage } =
+        await import("./deepgram-flux-frames.js");
+      // A pinned model is the operator saying which one to run, so the
+      // language check only guards the derived case.
+      if (
+        getConfig().liveVoice.flux.model === undefined &&
+        fluxModelForLanguage(options.language) === null
+      ) {
+        log.warn(
+          { providerId, language: options.language },
+          "Deepgram Flux has no model for the configured language; refusing rather than transcribing it as another",
+        );
+        return null;
+      }
       const { DeepgramFluxRealtimeTranscriber } =
         await import("./deepgram-flux-realtime.js");
       return new DeepgramFluxRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...(options.language ? { language: options.language } : {}),
       });
     }
     default: {

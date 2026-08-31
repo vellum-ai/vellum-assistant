@@ -37,6 +37,7 @@ async function checkVellum(): Promise<void> {
   let proc: ReturnType<typeof Bun.spawn>;
   try {
     proc = Bun.spawn(["assistant", "credentials", "list", "--json"], {
+      windowsHide: true,
       stdout: "pipe",
       stderr: "pipe",
     });

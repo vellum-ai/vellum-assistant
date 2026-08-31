@@ -8,9 +8,11 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import {
   bucketMessagesAdded,
+  bucketTurnAge,
   recordDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
+import { turnStartMsFromId } from "@/domains/chat/utils/send-message-utils";
 import { summarizeRuntimeMessages } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
@@ -42,6 +44,26 @@ interface UseMessageReconciliationArgs {
   latestPageOldestTimestamp: number | null;
 }
 
+/**
+ * Which recovery channel asked for the reconcile. Carried onto the
+ * `sse_poll_reconciled_rescue` Sentry event so the fleet-wide signal says
+ * WHICH channel is doing the rescuing, not just that a rescue happened:
+ *
+ * - `"seq_gap"`: the SSE consumer proved an out-of-ring seq gap.
+ * - `"reopen"`: the stream reopened (visibility resume, reconnect) and the
+ *   post-reopen reconcile ran.
+ * - `"sync_tag"`: another client's `sync_changed` named this conversation's
+ *   messages.
+ * - `"poll"`: the below-events-tail-floor 5s polling loop.
+ * - `"debug"`: the debug API's manual reconcile.
+ */
+export type ReconcileTrigger =
+  | "seq_gap"
+  | "reopen"
+  | "sync_tag"
+  | "poll"
+  | "debug";
+
 /** Result of reconciling the active conversation against the server. */
 export interface ReconcileActiveConversationResult {
   /** The server snapshot carries content the local view does not yet show. */
@@ -68,6 +90,7 @@ interface UseMessageReconciliationReturn {
    *  regardless of whether the snapshot looks changed — set by reconnect
    *  reconciles, where the live suffix may be non-contiguous. */
   reconcileActiveConversation: (
+    trigger: ReconcileTrigger,
     authoritative?: boolean,
   ) => Promise<ReconcileActiveConversationResult>;
 }
@@ -254,9 +277,17 @@ export function useMessageReconciliation({
       snapshotConversationId: string,
       serverSeq: number | null,
       serverProcessing: boolean | undefined,
-      authoritative = false,
-      issuedGeneration: number = getSeqGeneration(),
+      opts: {
+        trigger: ReconcileTrigger;
+        authoritative?: boolean;
+        issuedGeneration?: number;
+      },
     ): ReconcileActiveConversationResult => {
+      const {
+        trigger,
+        authoritative = false,
+        issuedGeneration = getSeqGeneration(),
+      } = opts;
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(
           serverMessages,
@@ -318,11 +349,17 @@ export function useMessageReconciliation({
         // support bundles, biasing the sample toward broken-and-
         // noisy cases. See
         // https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
+        // Turn age at rescue time, from the send stamp the turn id embeds.
+        // An upper bound on how long the user waited: it includes however
+        // long the turn legitimately ran before its terminal event was lost.
+        const turnStartMs = turnStartMsFromId(snapshotTurnId);
+        const turnAgeMs =
+          turnStartMs === null ? null : Date.now() - turnStartMs;
         Sentry.addBreadcrumb({
           category: "sse.terminal",
           level: "warning",
           message: "poll_reconciled_rescue",
-          data: { messagesAdded, turnId: snapshotTurnId },
+          data: { messagesAdded, turnId: snapshotTurnId, trigger },
         });
         Sentry.captureMessage("sse_poll_reconciled_rescue", {
           level: "warning",
@@ -330,8 +367,10 @@ export function useMessageReconciliation({
             context: "sse_terminal",
             platform: resolvePlatformTag(),
             messagesAddedBucket: bucketMessagesAdded(messagesAdded),
+            trigger,
+            turnAgeBucket: bucketTurnAge(turnAgeMs),
           },
-          extra: { messagesAdded, turnId: snapshotTurnId },
+          extra: { messagesAdded, turnId: snapshotTurnId, turnAgeMs },
         });
       }
 
@@ -342,6 +381,7 @@ export function useMessageReconciliation({
 
   const reconcileActiveConversation = useCallback(
     async (
+      trigger: ReconcileTrigger,
       authoritative = false,
     ): Promise<ReconcileActiveConversationResult> => {
       const empty: ReconcileActiveConversationResult = {
@@ -420,8 +460,7 @@ export function useMessageReconciliation({
           ctx.conversationId,
           serverSeq,
           serverProcessing,
-          authoritative,
-          issuedGeneration,
+          { trigger, authoritative, issuedGeneration },
         );
       } catch (err) {
         // Re-throw so callers that await the result (e.g. the
@@ -511,8 +550,7 @@ export function useMessageReconciliation({
               serverSeq,
               serverProcessing,
               // Poll-loop reconciles are never authoritative.
-              false,
-              issuedGeneration,
+              { trigger: "poll", authoritative: false, issuedGeneration },
             );
 
             if (changed) {

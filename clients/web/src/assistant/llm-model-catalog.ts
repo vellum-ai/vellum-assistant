@@ -18,6 +18,8 @@ export interface LlmCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   longContextPricingThresholdTokens?: number;
+  /** When set, the model is hidden unless that assistant flag is on. */
+  featureFlag?: string;
 }
 
 export const MODELS_BY_PROVIDER = {
@@ -513,6 +515,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 272_000,
     },
     {
+      id: "x-ai/grok-4.6",
+      displayName: "Grok 4.6",
+      contextWindowTokens: 500_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 30_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "x-ai/grok-4.5",
       displayName: "Grok 4.5",
       contextWindowTokens: 500_000,
@@ -565,14 +576,6 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 384_000,
-      supportsThinking: true,
-    },
-    {
-      id: "deepseek/deepseek-v3.2-speciale",
-      displayName: "DeepSeek V3.2 Speciale",
-      contextWindowTokens: 163_840,
-      defaultContextWindowTokens: 163_840,
-      maxOutputTokens: 163_840,
       supportsThinking: true,
     },
     {
@@ -692,6 +695,22 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 1_000_000,
     },
     {
+      id: "z-ai/glm-5.3",
+      displayName: "GLM-5.3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
+      id: "z-ai/glm-5.3-flash",
+      displayName: "GLM-5.3 Flash",
+      contextWindowTokens: 1_310_720,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
       id: "z-ai/glm-5.2",
       displayName: "GLM-5.2",
       contextWindowTokens: 1_048_576,
@@ -709,13 +728,6 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "mistralai/mistral-small-2603",
       displayName: "Mistral Small 4",
-      contextWindowTokens: 131_072,
-      defaultContextWindowTokens: 131_072,
-      maxOutputTokens: 16_000,
-    },
-    {
-      id: "mistralai/devstral-2512",
-      displayName: "Devstral 2",
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 16_000,
@@ -740,13 +752,6 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 300_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 5_000,
-    },
-    {
-      id: "openrouter/owl-alpha",
-      displayName: "Owl Alpha",
-      contextWindowTokens: 1_048_576,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 262_144,
     },
   ],
   "vercel-ai-gateway": [
@@ -885,6 +890,7 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   litellm: [],
+  opencode: [],
   baseten: [
     {
       id: "thinkingmachines/inkling",
@@ -913,6 +919,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  vellum: [
+    {
+      id: "qwen/qwen3-8b",
+      displayName: "Qwen3 8B",
+      contextWindowTokens: 32_768,
+      defaultContextWindowTokens: 32_768,
+      maxOutputTokens: 32_768,
+      featureFlag: "settings-developer-nav",
+    },
+  ],
   "openai-compatible": [],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
 
@@ -930,8 +946,10 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
   litellm: "",
+  opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
+  vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
 
@@ -941,9 +959,8 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  // Not catalog providers: the platform-managed routing sentinel and the
-  // subscription-auth pseudo-provider. Cards and pickers render both as
-  // providers, so they need display names.
+  // Routing identities that cards and pickers render as providers.
+  // `vellum` is also the catalog owner of Vellum-hosted GPU models.
   vellum: "Vellum",
   chatgpt: "ChatGPT Subscription",
   anthropic: "Anthropic",
@@ -958,6 +975,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
   litellm: "LiteLLM",
+  opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
 };
@@ -982,8 +1000,10 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   minimax: false,
   atlascloud: false,
   litellm: false,
+  opencode: false,
   baseten: false,
   poolside: false,
+  vellum: true,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
@@ -1000,6 +1020,7 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
+  "vellum",
 ] as const;
 
 /**
@@ -1081,6 +1102,27 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
   "gpt-5.4-mini",
 ]);
 
+export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
+
+export function isCatalogModelVisible(
+  model: Pick<LlmCatalogModel, "featureFlag">,
+  developerMode: boolean,
+): boolean {
+  if (!model.featureFlag) {
+    return true;
+  }
+  return model.featureFlag === DEVELOPER_MODE_CATALOG_FLAG && developerMode;
+}
+
+export function getVisibleModelsForProvider(
+  provider: string,
+  developerMode: boolean,
+): readonly LlmCatalogModel[] {
+  return getModelsForProvider(provider).filter((model) =>
+    isCatalogModelVisible(model, developerMode),
+  );
+}
+
 export function getModelsForProvider(
   provider: string,
 ): readonly LlmCatalogModel[] {
@@ -1105,6 +1147,11 @@ export function getDefaultModelForProvider(
   // users see one consistent "default" for the subscription.
   if (provider === "chatgpt") {
     return "gpt-5.6-luna";
+  }
+  // The Vellum picker serves the union of managed catalogs. The GPU
+  // catalog's defaultModel is not the Vellum connection default.
+  if (provider === "vellum") {
+    return undefined;
   }
   return DEFAULT_MODEL_BY_PROVIDER[provider as LlmProviderId];
 }

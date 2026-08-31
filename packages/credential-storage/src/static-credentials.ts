@@ -216,6 +216,8 @@ export interface StaticCredentialPolicyInput {
  */
 export class StaticCredentialMetadataStore {
   private metadataPath: string;
+  /** When set, reads and writes stay in process and do not touch the file. */
+  private memory: MetadataFile | null = null;
 
   constructor(metadataPath: string) {
     this.metadataPath = metadataPath;
@@ -224,11 +226,37 @@ export class StaticCredentialMetadataStore {
   /** Update the metadata file path (primarily for testing). */
   setPath(path: string): void {
     this.metadataPath = path;
+    this.memory = null;
+  }
+
+  /**
+   * Switch to an in-memory backing filled with `records`.
+   */
+  useMemory(records: StaticCredentialRecord[] = []): void {
+    this.memory = {
+      version: CURRENT_VERSION,
+      credentials: records.map((record) => ({ ...record })),
+    };
   }
 
   /** Get the current metadata file path. */
   getPath(): string {
     return this.metadataPath;
+  }
+
+  private load(): LoadResult {
+    if (this.memory) {
+      return this.memory;
+    }
+    return loadFile(this.metadataPath, saveFile);
+  }
+
+  private persist(data: MetadataFile): void {
+    if (this.memory) {
+      this.memory = data;
+      return;
+    }
+    saveFile(data, this.metadataPath);
   }
 
   /**
@@ -237,7 +265,7 @@ export class StaticCredentialMetadataStore {
    * so the operation fails cleanly before any side effects.
    */
   assertWritable(): void {
-    const result = loadFile(this.metadataPath, saveFile);
+    const result = this.load();
     if (isUnknownVersion(result)) {
       throw new Error(
         "Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss"
@@ -254,7 +282,7 @@ export class StaticCredentialMetadataStore {
     field: string,
     policy?: StaticCredentialPolicyInput
   ): StaticCredentialRecord {
-    const result = loadFile(this.metadataPath, saveFile);
+    const result = this.load();
     if (isUnknownVersion(result)) {
       throw new Error(
         "Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss"
@@ -268,12 +296,15 @@ export class StaticCredentialMetadataStore {
     );
 
     if (existing) {
-      if (policy?.allowedTools !== undefined)
+      if (policy?.allowedTools !== undefined) {
         existing.allowedTools = policy.allowedTools;
-      if (policy?.allowedDomains !== undefined)
+      }
+      if (policy?.allowedDomains !== undefined) {
         existing.allowedDomains = policy.allowedDomains;
-      if (policy?.usageDescription !== undefined)
+      }
+      if (policy?.usageDescription !== undefined) {
         existing.usageDescription = policy.usageDescription;
+      }
       if (policy?.alias !== undefined) {
         if (policy.alias == null) {
           delete existing.alias;
@@ -289,7 +320,7 @@ export class StaticCredentialMetadataStore {
         }
       }
       existing.updatedAt = now;
-      saveFile(data, this.metadataPath);
+      this.persist(data);
       return existing;
     }
 
@@ -307,7 +338,7 @@ export class StaticCredentialMetadataStore {
     };
 
     data.credentials.push(record);
-    saveFile(data, this.metadataPath);
+    this.persist(data);
     return record;
   }
 
@@ -318,7 +349,7 @@ export class StaticCredentialMetadataStore {
     service: string,
     field: string
   ): StaticCredentialRecord | undefined {
-    const result = loadFile(this.metadataPath, saveFile);
+    const result = this.load();
     if (isUnknownVersion(result)) return undefined;
     return result.credentials.find(
       (c) => c.service === service && c.field === field
@@ -329,7 +360,7 @@ export class StaticCredentialMetadataStore {
    * Get metadata for a credential by its opaque ID.
    */
   getById(credentialId: string): StaticCredentialRecord | undefined {
-    const result = loadFile(this.metadataPath, saveFile);
+    const result = this.load();
     if (isUnknownVersion(result)) return undefined;
     return result.credentials.find((c) => c.credentialId === credentialId);
   }
@@ -338,7 +369,7 @@ export class StaticCredentialMetadataStore {
    * List all credential metadata records.
    */
   list(): StaticCredentialRecord[] {
-    const result = loadFile(this.metadataPath, saveFile);
+    const result = this.load();
     if (isUnknownVersion(result)) return [];
     return result.credentials;
   }
@@ -347,7 +378,7 @@ export class StaticCredentialMetadataStore {
    * Delete metadata for a credential.
    */
   delete(service: string, field: string): boolean {
-    const result = loadFile(this.metadataPath, saveFile);
+    const result = this.load();
     if (isUnknownVersion(result)) {
       throw new Error(
         "Credential metadata file has an unrecognized version; refusing to mutate to avoid data loss"
@@ -359,7 +390,7 @@ export class StaticCredentialMetadataStore {
     );
     if (idx === -1) return false;
     data.credentials.splice(idx, 1);
-    saveFile(data, this.metadataPath);
+    this.persist(data);
     return true;
   }
 }

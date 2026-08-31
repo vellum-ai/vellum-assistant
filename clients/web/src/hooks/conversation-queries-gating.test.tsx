@@ -14,11 +14,29 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
+
 const conversationsGetMock = mock(async () => ({
   data: { conversations: [], hasMore: false },
   error: undefined,
   response: new Response(null, { status: 200 }),
 }));
+
+interface GroupsGetResult {
+  data: GroupsGetResponse;
+  error: undefined;
+  response: Response;
+}
+
+function groupsOk(groups: GroupsGetResponse["groups"] = []): GroupsGetResult {
+  return {
+    data: { groups },
+    error: undefined,
+    response: new Response(null, { status: 200 }),
+  };
+}
+
+const groupsGetMock = mock(async (): Promise<GroupsGetResult> => groupsOk());
 
 let podIsServing = true;
 let orgIsReady = true;
@@ -31,6 +49,7 @@ const realDaemonSdk = await import("@/generated/daemon/sdk.gen");
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...realDaemonSdk,
   conversationsGet: conversationsGetMock,
+  groupsGet: groupsGetMock,
 }));
 
 mock.module("@/assistant/operational-status", () => ({
@@ -47,8 +66,11 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgIsReady,
 }));
 
-const { useConversationListQuery, useSectionConversationListQuery } =
-  await import("@/hooks/conversation-queries");
+const {
+  useConversationGroupsQuery,
+  useConversationListQuery,
+  useSectionConversationListQuery,
+} = await import("@/hooks/conversation-queries");
 const { conversationListQueryKey } =
   await import("@/utils/conversation-list-keys");
 
@@ -83,6 +105,8 @@ async function settle() {
 
 beforeEach(() => {
   conversationsGetMock.mockClear();
+  groupsGetMock.mockClear();
+  groupsGetMock.mockImplementation(async () => groupsOk());
   podIsServing = true;
   orgIsReady = true;
 });
@@ -207,5 +231,82 @@ describe("section list query · no filter, no query", () => {
       .getAll()
       .map((query) => query.queryKey);
     expect(keys).toEqual([conversationListQueryKey(ASSISTANT_ID, filter)]);
+  });
+});
+
+/* The groups query serves the same `[]` fallback in three different
+   situations, and a consumer that writes the groups somewhere durable (the iOS
+   widget snapshot, whose rows carry group names as subtitles) has to tell a
+   genuinely group-less assistant apart from the other two. `isLoading` cannot:
+   it is false both for a query that is gated and for one that has failed. */
+describe("groups query · resolution state", () => {
+  test("a gated query reads as pending, never as loaded", async () => {
+    podIsServing = false;
+
+    const { result } = renderHook(
+      () => useConversationGroupsQuery(ASSISTANT_ID),
+      { wrapper },
+    );
+    await settle();
+
+    expect(groupsGetMock).not.toHaveBeenCalled();
+    expect(result.current.conversationGroups).toEqual([]);
+    expect(result.current.isPending).toBe(true);
+    expect(result.current.isError).toBe(false);
+    // The trap this guards: nothing is in flight, so `isLoading` reports "not
+    // loading" for a query that has never run and has no answer to give.
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  test("a terminal error reads as failed, never as loaded", async () => {
+    groupsGetMock.mockImplementation(async () => {
+      throw new Error("groups unavailable");
+    });
+
+    const { result } = renderHook(
+      () => useConversationGroupsQuery(ASSISTANT_ID),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+    expect(result.current.conversationGroups).toEqual([]);
+    expect(result.current.isPending).toBe(false);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  test("a successful fetch reads as resolved", async () => {
+    groupsGetMock.mockImplementation(async () =>
+      groupsOk([
+        { id: "g1", name: "First", sortPosition: 0, isSystemGroup: false },
+      ]),
+    );
+
+    const { result } = renderHook(
+      () => useConversationGroupsQuery(ASSISTANT_ID),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.conversationGroups).toHaveLength(1);
+    });
+    expect(result.current.isPending).toBe(false);
+    expect(result.current.isError).toBe(false);
+  });
+
+  test("an empty list from a successful fetch still reads as resolved", async () => {
+    // The case the flag exists to separate from the other two: an assistant
+    // with no groups answers `[]`, and that answer is trustworthy.
+    const { result } = renderHook(
+      () => useConversationGroupsQuery(ASSISTANT_ID),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
+    });
+    expect(result.current.conversationGroups).toEqual([]);
+    expect(result.current.isError).toBe(false);
   });
 });

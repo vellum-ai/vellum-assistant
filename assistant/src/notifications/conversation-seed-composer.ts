@@ -3,7 +3,7 @@
  *
  * Generates richer seed content for notification conversations than the concise
  * title/body used in native notification popups. Verbosity adapts to the
- * delivery surface: vellum/macos gets flowing prose, telegram gets compact.
+ * delivery surface: Vellum desktop gets flowing prose, Telegram gets compact.
  *
  * Composes from `copy.title/body` rather than hardcoded English templates
  * so LLM-localized copy is preserved for non-English users.
@@ -25,7 +25,12 @@ const CHANNEL_DEFAULT_INTERFACE: Record<string, InterfaceId> = {
   telegram: "telegram",
 };
 
-const RICH_INTERFACES = new Set<InterfaceId>(["macos", "ios", "web"]);
+const RICH_INTERFACES = new Set<InterfaceId>([
+  "macos",
+  "windows",
+  "ios",
+  "web",
+]);
 
 /**
  * Resolve verbosity level from delivery channel + optional interface hint.

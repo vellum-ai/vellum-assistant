@@ -10,6 +10,7 @@ import {
 } from "@/components/disk-pressure-banner";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { ProfileCard } from "@/components/profile-card";
+import { AppIconRow } from "@/domains/settings/components/app-icon-row";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
@@ -46,10 +47,7 @@ import {
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
-import {
-  useIsNativeAndroid,
-  useIsNativeMobile,
-} from "@/runtime/platform-detection";
+import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -88,7 +86,6 @@ export function GeneralPage() {
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
-  const isNativeAndroid = useIsNativeAndroid();
   const diskPressure = useDiskPressureMonitor({
     assistantId: assistant?.id ?? null,
     enabled: infraGate === "full" && isPlatformHosted,
@@ -185,9 +182,7 @@ export function GeneralPage() {
             void navigate(`${routes.workspace}?sort=size`)
           }
           onUpgradeStorage={
-            infraGate === "full" && !isNativeAndroid
-              ? () => void navigate(routes.plans)
-              : null
+            infraGate === "full" ? () => void navigate(routes.plans) : null
           }
         />
       )}
@@ -325,6 +320,7 @@ export function GeneralPage() {
         <div className="flex flex-col gap-5">
           <ThemePicker />
           <ShowTipsRow />
+          <AppIconRow />
         </div>
       </DetailCard>
 

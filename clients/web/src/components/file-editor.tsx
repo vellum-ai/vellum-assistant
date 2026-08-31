@@ -15,7 +15,9 @@ import {
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { saveFile } from "@/runtime/native-file";
 
 export const MONO_FONT =
   "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace";
@@ -39,12 +41,13 @@ export function ContentActionBar({
   onToggleEdit?: () => void;
   extraActions?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCopy = useCallback(() => {
     copyToClipboard(content, {
-      errorMessage: "Couldn't copy the file contents.",
+      errorMessage: t("contentActionBar.copyFailed"),
       onCopied: () => {
         setCopied(true);
         if (timerRef.current) {
@@ -53,17 +56,11 @@ export function ContentActionBar({
         timerRef.current = setTimeout(() => setCopied(false), 1500);
       },
     });
-  }, [content]);
+  }, [content, t]);
 
   const rawContent = downloadContent ?? content;
   const handleDownload = useCallback(() => {
-    const blob = new Blob([rawContent], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
+    void saveFile(new Blob([rawContent], { type: mimeType }), fileName);
   }, [rawContent, fileName, mimeType]);
 
   useEffect(() => {
@@ -86,7 +83,7 @@ export function ContentActionBar({
           size="regular"
           iconOnly={<Pencil aria-hidden />}
           onClick={onToggleEdit}
-          aria-label="Edit file"
+          aria-label={t("contentActionBar.editFileAria")}
           className="hover:bg-[var(--surface-base)]"
         />
       )}
@@ -96,7 +93,11 @@ export function ContentActionBar({
         size="regular"
         iconOnly={copied ? <Check aria-hidden /> : <Copy aria-hidden />}
         onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy file contents"}
+        aria-label={
+          copied
+            ? t("contentActionBar.copiedAria")
+            : t("contentActionBar.copyFileContentsAria")
+        }
         className="hover:bg-[var(--surface-base)]"
       />
       <Button
@@ -104,7 +105,7 @@ export function ContentActionBar({
         size="regular"
         iconOnly={<Download aria-hidden />}
         onClick={handleDownload}
-        aria-label="Download file"
+        aria-label={t("contentActionBar.downloadFileAria")}
         className="hover:bg-[var(--surface-base)]"
       />
     </div>
@@ -150,6 +151,7 @@ export function EditFooter({
   onSave: () => void;
   onDiscard: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex items-center justify-end gap-2 border-t px-3 py-2"
@@ -169,7 +171,7 @@ export function EditFooter({
         disabled={isSaving}
         onClick={onDiscard}
       >
-        Discard
+        {t("editFooter.discard")}
       </Button>
       <Button
         variant="primary"
@@ -177,7 +179,7 @@ export function EditFooter({
         disabled={!isDirty || isSaving}
         onClick={onSave}
       >
-        {isSaving ? "Saving\u2026" : "Save"}
+        {isSaving ? t("editFooter.saving") : t("editFooter.save")}
       </Button>
     </div>
   );

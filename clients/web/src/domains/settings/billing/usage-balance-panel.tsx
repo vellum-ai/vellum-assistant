@@ -5,16 +5,10 @@ import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { useTranslation } from "@/i18n";
-import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
 
 export interface UsageBalancePanelProps {
-  /** Spend against the included bundle, already clamped to 0..1. */
+  /** Used share of the granted usage credit, already clamped to 0..1. */
   ratio: number;
-  /**
-   * ISO timestamp the current billing cycle ends on, or null when the reading
-   * measures granted usage credit rather than a cycle and so never resets.
-   */
-  resetsAt: string | null;
   /**
    * The wallet behind the spent bundle is empty too, so the next turn has
    * nothing to draw on. Raises the add-credits strip, and only that: the bar
@@ -27,24 +21,20 @@ export interface UsageBalancePanelProps {
 
 /**
  * The current-plan tile's footer while `obscure-credits` is on, in place of the
- * price row: how much of a Pro package's included usage this cycle has spent,
- * or how much of a free plan's granted usage credit it has used.
+ * price row: how much of the usage credit the account was granted it has
+ * already used.
  */
 export function UsageBalancePanel({
   ratio,
-  resetsAt,
   exhausted = false,
   onAddCredits,
 }: UsageBalancePanelProps) {
-  const { t, i18n } = useTranslation("settings");
+  const { t } = useTranslation("settings");
   const title = t("planCard.usageBalanceTitle");
   const pct = Math.round(ratio * 100);
   // Spending the whole bundle is the negative reading in its own right,
   // whatever the wallet behind it still holds.
   const spent = ratio >= 1;
-  const resetDate = resetsAt
-    ? formatUsageResetDate(resetsAt, i18n.language)
-    : null;
 
   return (
     <div
@@ -52,24 +42,13 @@ export function UsageBalancePanel({
       className="flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[color-mix(in_srgb,var(--surface-overlay)_40%,transparent)] px-4 py-3"
     >
       <div className="flex w-full items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-col">
-          <Typography
-            as="span"
-            variant="body-large-default"
-            className="text-[var(--content-emphasised)]"
-          >
-            {title}
-          </Typography>
-          {resetDate ? (
-            <Typography
-              as="span"
-              variant="body-small-default"
-              className="text-[var(--content-tertiary)]"
-            >
-              {t("planCard.usageBalanceResets", { date: resetDate })}
-            </Typography>
-          ) : null}
-        </div>
+        <Typography
+          as="span"
+          variant="body-large-default"
+          className="min-w-0 text-[var(--content-emphasised)]"
+        >
+          {title}
+        </Typography>
         <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
           <ProgressBar
             value={ratio}
@@ -92,7 +71,7 @@ export function UsageBalancePanel({
         </div>
       </div>
       {exhausted ? (
-        <div className="flex min-h-8 w-full items-center justify-between gap-2 rounded-lg bg-[var(--system-negative-weak)] px-2 py-1">
+        <div className="flex min-h-8 w-full items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
           <Typography
             as="span"
             variant="body-medium-default"

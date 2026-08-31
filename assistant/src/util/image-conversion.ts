@@ -1,5 +1,5 @@
 /**
- * JPEG conversion for images, backed by macOS `sips`.
+ * JPEG conversion for images, backed by sharp with a macOS `sips` fallback.
  *
  * Two consumers share this converter:
  *   - transport optimization (`agent/image-optimize.ts`) downscales large
@@ -7,10 +7,8 @@
  *   - storage normalization (attachment ingress + history hydration) converts
  *     HEIF/HEIC — which Chromium-based clients cannot decode — to JPEG.
  *
- * Conversion runs `sips` (a macOS builtin); on other platforms or on any
- * failure it returns null and callers keep the original bytes. Results are
- * cached on disk keyed by content hash + conversion options, so repeated
- * conversions of the same image (or daemon restarts) skip the sips call.
+ * Results are cached on disk keyed by content hash + conversion options, so
+ * repeated conversions of the same image skip the encoder call.
  */
 
 import { createHash } from "node:crypto";
@@ -262,6 +260,7 @@ async function runSips(
       stdout: "ignore",
       stderr: "ignore",
       timeout: 15_000,
+      windowsHide: true,
     });
     await proc.exited;
     if (proc.exitCode !== 0) {
@@ -291,9 +290,41 @@ async function runSips(
   }
 }
 
+async function runSharp(
+  inputBytes: Uint8Array,
+  options: ConvertToJpegOptions,
+): Promise<Buffer | null> {
+  try {
+    const { default: sharp } = await import("sharp");
+    let pipeline = sharp(inputBytes, { failOn: "error" }).autoOrient();
+    if (options.resizeToPx != null) {
+      pipeline = pipeline.resize(
+        options.resizeToPx.width,
+        options.resizeToPx.height,
+        { fit: "fill" },
+      );
+    } else if (options.maxDimensionPx != null) {
+      pipeline = pipeline.resize(
+        options.maxDimensionPx,
+        options.maxDimensionPx,
+        {
+          fit: "inside",
+          withoutEnlargement: true,
+        },
+      );
+    }
+    const out = await pipeline
+      .jpeg({ quality: options.quality ?? DEFAULT_JPEG_QUALITY })
+      .toBuffer();
+    return isCompleteJpeg(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Convert an image to JPEG, optionally downscaling. Returns null when
- * conversion is unavailable (non-macOS) or fails; callers keep the original.
+ * conversion is unavailable or fails; callers keep the original.
  */
 export async function convertImageToJpeg(
   bytes: Uint8Array,
@@ -313,7 +344,9 @@ export async function convertImageToJpeg(
     return cached;
   }
 
-  const converted = await runSips(bytes, options);
+  const converted =
+    (await runSharp(bytes, options)) ??
+    (process.platform === "darwin" ? await runSips(bytes, options) : null);
   if (!converted) {
     return null;
   }

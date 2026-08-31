@@ -1,8 +1,10 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { join, sep } from "node:path";
+import { canonicalizePathThroughExistingParent } from "@vellumai/environments/test-path-guard";
+
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import * as schema from "./schema.js";
 import { AdmissionPolicyStore } from "./admission-policy-store.js";
@@ -73,25 +75,6 @@ async function pushSchemaNoPrompt(
 }
 
 let db: GatewayDb | null = null;
-
-function canonicalizePathThroughExistingParent(path: string): string {
-  const resolvedPath = resolve(path);
-  const pendingSegments: string[] = [];
-  let currentPath = resolvedPath;
-
-  while (true) {
-    try {
-      return resolve(realpathSync(currentPath), ...pendingSegments.reverse());
-    } catch {
-      const parentPath = dirname(currentPath);
-      if (parentPath === currentPath) {
-        return resolvedPath;
-      }
-      pendingSegments.push(basename(currentPath));
-      currentPath = parentPath;
-    }
-  }
-}
 
 function assertTestDbIsIsolated(): void {
   if (

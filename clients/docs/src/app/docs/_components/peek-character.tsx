@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 // from the bottom of the viewport under the community speech bubble.
 //
 // The SVG path data and the body/eye transform math mirror the assistant's
-// avatar pipeline (assistant/src/avatar/character-components.ts and
+// avatar pipeline (packages/avatar-catalog and
 // svg-compositor.ts) so this character renders identically to the same
 // urchin composed by the daemon. Keep them in sync if the catalog changes.
 

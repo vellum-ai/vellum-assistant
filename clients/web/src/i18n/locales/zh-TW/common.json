@@ -1,0 +1,812 @@
+{
+  "aboutPage": {
+    "build": "建置",
+    "tagline": "您 Mac 的 AI 助理",
+    "version": "版本"
+  },
+  "activeAssistantGate": {
+    "connecting": "正在連線至您的助理…",
+    "logIn": "登入",
+    "logOut": "登出"
+  },
+  "addCredentialModal": {
+    "cancel": "取消",
+    "credentialSaved": "憑證已儲存。",
+    "description": "新增 API 金鑰或權杖，讓工具和整合功能可以使用它。",
+    "fieldLabel": "欄位",
+    "fieldPlaceholder": "例如 api_token",
+    "labelOptional": "標籤 (選填)",
+    "labelPlaceholder": "例如 GitHub 個人存取權杖",
+    "save": "儲存",
+    "saveFailed": "儲存憑證失敗",
+    "serviceLabel": "服務",
+    "servicePlaceholder": "例如 github",
+    "title": "新增憑證",
+    "valueLabel": "值",
+    "valuePlaceholder": "輸入密碼值"
+  },
+  "addCreditsModal": {
+    "amount": "金額",
+    "cancel": "取消",
+    "configureAutoReload": "設定自動儲值",
+    "continue": "繼續",
+    "description": "您將被重新導向至 Stripe 以完成付款。",
+    "title": "新增點數"
+  },
+  "appCard": {
+    "openApp": "開啟應用程式",
+    "pin": "釘選",
+    "previewTitle": "{name} 預覽",
+    "unpin": "取消釘選"
+  },
+  "appNavBar": {
+    "close": "關閉",
+    "copyLink": "複製連結",
+    "deploy": "部署",
+    "deployToVercel": "部署至 Vercel",
+    "deployToVercelSubtitle": "發佈為靜態頁面",
+    "deployedCopyLinkAria": "已部署至 Vercel，複製連結",
+    "deployedCopyLinkTooltip": "已部署：複製連結",
+    "deployedToVercel": "已部署至 Vercel",
+    "deploying": "正在部署…",
+    "edit": "編輯",
+    "expandApp": "展開應用程式",
+    "fullscreen": "全螢幕",
+    "openApp": "開啟應用程式",
+    "redeploy": "重新部署",
+    "redeploySubtitle": "發佈目前版本",
+    "share": "分享",
+    "shareAndDeploy": "分享並部署",
+    "shareExportSubtitle": "匯出為 .vellum 檔案",
+    "sharing": "正在分享…"
+  },
+  "appViewerContainer": {
+    "exitFullscreen": "結束全螢幕"
+  },
+  "assistantConnect": {
+    "failed": "連線至助理失敗。"
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "無法更新「{label}」。您的變更已還原。"
+  },
+  "avatarManagementModal": {
+    "body": "身體",
+    "color": "顏色",
+    "eyes": "眼睛",
+    "keepUploadedDescription": "儲存角色將會取代它",
+    "keepUploadedLabel": "保留您上傳的圖片",
+    "loadError": "無法載入虛擬替身元件。請確認您的助理正在執行。",
+    "name": "名稱",
+    "next": "下一個 {label}",
+    "previous": "上一個 {label}",
+    "randomize": "隨機化",
+    "save": "儲存",
+    "saving": "正在儲存…",
+    "title": "更新虛擬替身",
+    "uploadImage": "上傳圖片",
+    "uploadedAlt": "已上傳的虛擬替身",
+    "useCharacterDescription": "從我們內建的虛擬替身中選擇",
+    "useCharacterLabel": "改用角色"
+  },
+  "bundleConfirmPage": {
+    "bySigner": "由 {name}",
+    "cancel": "取消",
+    "capabilities": "功能",
+    "createdBy": "建立者",
+    "hideWarnings": "隱藏警告 ({count})",
+    "install": "安裝",
+    "installAnyway": "仍要安裝",
+    "loading": "正在載入...",
+    "showWarnings": "顯示警告 ({count})",
+    "size": "大小"
+  },
+  "byoVoiceNote": {
+    "body": "您的助理透過您自行設定的供應商發聲。請在<settingsLink>模型與服務</settingsLink>中設定其語音。"
+  },
+  "chatAvatar": {
+    "alt": "助理頭像",
+    "fallbackLetter": "V"
+  },
+  "chooserAvatarChip": {
+    "alt": "助理頭像"
+  },
+  "collapsibleNavSection": {
+    "actionsTitle": "{title} 動作"
+  },
+  "commandPalette": {
+    "ariaLabel": "指令面板",
+    "clear": "清除",
+    "clearSearch": "清除搜尋",
+    "closeSearch": "關閉搜尋",
+    "noResults": "沒有結果",
+    "placeholder": "搜尋對話、記憶…",
+    "searchAriaLabel": "搜尋",
+    "searching": "正在搜尋…"
+  },
+  "companionIntro": {
+    "ariaLabel": "介紹您的助理",
+    "done": "知道了",
+    "meet": {
+      "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。",
+      "title": "這就是我",
+      "titleNamed": "我是 {name}"
+    },
+    "menu": {
+      "body": "您可以在這裡隱藏我或變更我的大小。",
+      "title": "右鍵點擊我"
+    },
+    "next": "下一步",
+    "skip": "跳過",
+    "talk": {
+      "body": "開始語音對話。",
+      "title": "交談"
+    },
+    "type": {
+      "body": "從這裡傳送訊息，並在這裡閱讀回覆。",
+      "title": "輸入"
+    }
+  },
+  "companionSurface": {
+    "allow": "允許",
+    "deny": "拒絕",
+    "endSession": "結束會話",
+    "goBack": "返回",
+    "messagePlaceholder": "傳送訊息給 {name}",
+    "muteAssistant": "將助理靜音",
+    "muteMicrophone": "將麥克風靜音",
+    "notNow": "暫不",
+    "send": "傳送",
+    "showSummary": "顯示摘要",
+    "stopTeaching": "停止教學",
+    "summarizing": "正在摘要",
+    "talk": "交談",
+    "teach": "教學",
+    "type": "輸入",
+    "unmuteAssistant": "解除助理靜音",
+    "unmuteMicrophone": "解除麥克風靜音"
+  },
+  "contentActionBar": {
+    "copiedAria": "已複製",
+    "copyFailed": "無法複製檔案內容。",
+    "copyFileContentsAria": "複製檔案內容",
+    "downloadFileAria": "下載檔案",
+    "editFileAria": "編輯檔案"
+  },
+  "createAssistantDialog": {
+    "cancel": "取消",
+    "create": "建立",
+    "description": "佈建一個新助理。它將在背景啟動。",
+    "namePlaceholder": "助理名稱（選填）",
+    "title": "新助理",
+    "toastSuccess": "新助理已建立。"
+  },
+  "dateRangeSelect": {
+    "ariaLabel": "日期範圍",
+    "lastDays": "{days, plural, other {過去 # 天}}"
+  },
+  "deleteAppDialog": {
+    "delete": "刪除",
+    "deleting": "正在刪除…",
+    "message": "\"{name}\" 將會被永久移除。",
+    "title": "刪除應用程式"
+  },
+  "deployDialogs": {
+    "confirmLabel": "讓您的助理處理",
+    "confirmLabelNamed": "讓 {assistantName} 處理",
+    "message": "\"{appName}\" 使用後端服務，這些服務無法在靜態 Vercel 頁面上運作。您的助理可以使用無伺服器函式正確部署它。",
+    "messageNamed": "\"{appName}\" 使用後端服務，這些服務無法在靜態 Vercel 頁面上運作。{assistantName} 可以使用無伺服器函式正確部署它。",
+    "title": "此應用程式需要完整部署"
+  },
+  "deployStore": {
+    "appExported": "應用程式已匯出",
+    "deployFailed": "部署失敗",
+    "deployedToVercel": "已部署至 Vercel",
+    "open": "開啟",
+    "shareFailed": "分享應用程式失敗"
+  },
+  "detailPanelStopButton": {
+    "tooltip": "停止"
+  },
+  "detailPrimitives": {
+    "copied": "已複製",
+    "copy": "複製"
+  },
+  "dictationOverlayPage": {
+    "stopRecording": "停止錄音"
+  },
+  "discordNudgeBanner": {
+    "ariaLabel": "加入 Vellum Discord 社群",
+    "ctaLong": "加入 Discord",
+    "ctaShort": "加入",
+    "subtitleLong": "與團隊交流 - 分享意見回饋、提出功能需求、更快獲得解答",
+    "subtitleShort": "分享意見回饋、提出功能需求、更快獲得解答",
+    "title": "加入我們的社群！"
+  },
+  "discordSetupConnectStep": {
+    "instructions": "貼上您從「機器人」頁面複製的機器人金鑰。",
+    "botTokenLabel": "機器人金鑰",
+    "save": "連線",
+    "saving": "正在連線...",
+    "saved": "已連線。接下來，將機器人新增至伺服器。",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "開啟 Discord 開發者入口網站並建立新的應用程式。在其 <resetLine>機器人</resetLine> 頁面上，點擊「重設金鑰」並立即複製金鑰：Discord 只會顯示一次，之後無法再次讀取。",
+    "intentsNote": "關閉所有三個特權閘道意圖。您的助理只會讀取直接訊息和提及它的訊息，Discord 將這些訊息排除在「訊息內容」意圖之外。",
+    "openPortal": "開啟 Discord 入口網站",
+    "continue": "我已擁有金鑰"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "您的機器人必須加入伺服器才能看到任何內容。此連結使用您應用程式「安裝」頁面上的安裝設定。",
+    "openInvite": "新增至伺服器",
+    "noAppId": "請先連線機器人金鑰，然後再回來將其新增至伺服器。"
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "建立應用程式",
+    "stepConnect": "連線",
+    "stepInvite": "新增至伺服器"
+  },
+  "diskPressureBanner": {
+    "acknowledge": "確認",
+    "acknowledging": "正在確認...",
+    "cleanupBody": "提示您的助理釋出空間，以免空間用盡並進入鎖定狀態。",
+    "cleanupTitle": "清理模式已啟用",
+    "criticalBody": "如果儲存空間用盡，您的助理將進入鎖定狀態。",
+    "criticalModalDescription": "如果儲存空間用盡，您的助理將進入鎖定狀態。您應該提示您的助理釋出空間或增加儲存空間。",
+    "criticalTitle": "儲存空間嚴重不足",
+    "dontShowAgain": "不再顯示",
+    "manageStorage": "管理儲存空間",
+    "review": "檢閱",
+    "upgrade": "升級",
+    "warningBody": "釋出空間以避免中斷。",
+    "warningBodyWithUpgrade": "釋出空間或增加更多儲存空間以避免中斷。",
+    "warningTitle": "您的儲存空間即將用盡"
+  },
+  "downloadFeedback": {
+    "failed": "下載失敗",
+    "revealMac": "在 Finder 中顯示",
+    "revealWindows": "在檔案總管中顯示",
+    "saved": "已儲存至「下載」",
+    "started": "下載已開始",
+    "startedDescription": "請在瀏覽器的下載內容中尋找 {filename}。"
+  },
+  "editFooter": {
+    "discard": "捨棄",
+    "save": "儲存",
+    "saving": "正在儲存…"
+  },
+  "generateInviteLinkDialog": {
+    "copyAriaLabel": "複製邀請連結",
+    "createFailed": "建立邀請連結失敗。請確認您的助理已啟用 A2A。",
+    "creating": "正在建立邀請連結…",
+    "done": "完成",
+    "shareHint": "與另一位助理擁有者分享此連結以建立連線。",
+    "title": "分享連線連結",
+    "tryAgain": "再試一次"
+  },
+  "githubNudgeBanner": {
+    "ariaLabel": "Vellum 在 GitHub 上是開放原始碼",
+    "ctaAriaLabel": "在 GitHub 上為 Vellum 加星",
+    "ctaLabel": "為我們加星",
+    "subtitle": "在 GitHub 上為我們加星或貢獻",
+    "title": "Vellum 是開放原始碼"
+  },
+  "lazyBoundary": {
+    "loadError": "此區段無法載入。請重新載入頁面再試一次。"
+  },
+  "macosAppBanner": {
+    "ariaLabel": "下載 macOS 應用程式",
+    "ctaAriaLabel": "下載 macOS 應用程式",
+    "ctaLabel": "下載",
+    "subtitle": "電腦使用 · 終端機存取 · 原生自動化",
+    "title": "取得 macOS 應用程式"
+  },
+  "nativeAppBanner": {
+    "bannerAria": "下載 {appName} 應用程式",
+    "bannerAriaGeneric": "下載 Vellum 行動應用程式",
+    "download": "下載",
+    "downloadAppAria": "下載 {appName} 應用程式",
+    "downloadAppAriaGeneric": "下載 Vellum 行動應用程式",
+    "subtitle": "推播通知 · 生物辨識登入 · 觸覺回饋",
+    "title": "取得 {appName} 應用程式",
+    "titleGeneric": "取得 Vellum 應用程式"
+  },
+  "nativeSplash": {
+    "logoAlt": "Vellum"
+  },
+  "notFound": {
+    "backToAssistant": "返回您的助理",
+    "badge": "錯誤 404",
+    "body": "您要尋找的頁面不存在或可能已移動。",
+    "goBack": "返回",
+    "title": "找不到頁面"
+  },
+  "nudgeChatBanner": {
+    "dismissAria": "關閉"
+  },
+  "onboardingBackButton": {
+    "back": "返回"
+  },
+  "platformLoginNotice": {
+    "cancel": "取消",
+    "logIn": "登入"
+  },
+  "profileCard": {
+    "assistantHandleIdleEmpty": "您的助理尚未設定識別名稱，請設定一個以便提及。",
+    "assistantHandleLabel": "助理識別名稱",
+    "assistantHandleUpdated": "助理識別名稱已更新。",
+    "available": "可用",
+    "availableHelper": "可用。",
+    "checkAvailabilityFailed": "無法檢查可用性。",
+    "checkingAvailability": "正在檢查可用性…",
+    "chooseDifferentHandle": "請選擇不同的識別名稱。",
+    "emailLabel": "電子郵件",
+    "handleHelper": "小寫字母、數字、連字號和底線。3–30 個字元。",
+    "handleLocked": "您的助理識別名稱已鎖定，因為它被用作電子郵件子網域。若要變更，請先<releaseLink>釋放子網域</releaseLink>。",
+    "loading": "正在載入您的個人資料…",
+    "notAvailable": "不可用",
+    "profileUpdated": "個人資料已更新。",
+    "save": "儲存",
+    "saved": "已儲存",
+    "saving": "正在儲存…",
+    "subtitle": "管理您的帳號詳細資料和偏好設定。",
+    "title": "個人資料",
+    "userHandleIdleAutoGenerated": "您的識別名稱是在註冊時自動產生的 - 請選擇一個您喜歡的。",
+    "userHandleLabel": "使用者識別名稱"
+  },
+  "profileQuickAddProvider": {
+    "created": "已建立個人資料「{name}」"
+  },
+  "quickInputPage": {
+    "logoAlt": "Vellum",
+    "placeholder": "詢問 Vellum 任何問題…"
+  },
+  "removeFromDeviceDialog": {
+    "confirm": "移除",
+    "messageOrigin": "這不會影響 {assistantName} 或讓您在那裡登出。它只會忘記此裝置上的項目。您可以隨時再次新增。",
+    "messagePaired": "這不會影響 {assistantName} 在其主機上的狀態。它只會忘記此裝置上的配對。您可以隨時使用 vellum connect import 再次配對。",
+    "messagePlatform": "這不會刪除 {assistantName}。它只會將其從此裝置移除。登入後它將再次可用。",
+    "title": "從此裝置移除？"
+  },
+  "resourcePressureBanner": {
+    "body": "您的助理正在努力工作並達到其目前的資源限制。請升級以確保其順暢執行。",
+    "bodyNoUpgrade": "您的助理正在努力工作並達到其目前的資源限制。",
+    "dontShowAgain": "不再顯示",
+    "title": "您的助理需要更多資源",
+    "titleNamed": "{assistantName} 需要更多資源",
+    "upgrade": "升級"
+  },
+  "retireConfirmDialog": {
+    "confirmLabel": "停用",
+    "message": "這將永久停用此助理及其所有資料。您需要再次完成引導流程才能建立新的助理。此動作無法復原。",
+    "title": "停用助理"
+  },
+  "rootHydrateFallback": {
+    "loadingAria": "正在載入"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "該助理"
+  },
+  "routeErrorBoundary": {
+    "chunkFailBody": "此區段無法載入。可能是網路瞬斷或版本過舊。請重新載入頁面再試一次。",
+    "reload": "重新載入"
+  },
+  "runtimeUpgradeBanner": {
+    "confirmMessage": "更新至版本 {version}？更新期間助理將暫時無法使用。",
+    "confirmTitle": "更新助理執行環境",
+    "later": "稍後",
+    "title": "有新的助理版本可用：{version}",
+    "toastComplete": "更新完成。您的助理運作正常。",
+    "toastFailed": "無法觸發更新。請再試一次。",
+    "update": "更新"
+  },
+  "sectionActionsButton": {
+    "ariaLabel": "{name} 動作"
+  },
+  "serviceFormControls": {
+    "reset": "重設",
+    "save": "儲存"
+  },
+  "shareConnectionLinkButton": {
+    "label": "分享連線連結"
+  },
+  "shareFeedbackModal": {
+    "aboutDiagnosticsAria": "關於診斷資訊",
+    "addFiles": "新增檔案",
+    "adminOnlyHint": "僅限管理員 - 在本機建立診斷封存檔並下載，而非提交意見回饋或通知 Slack。",
+    "attachments": "附件",
+    "bugTip": "提示：在我們的 <discordLink>Discord 社群</discordLink> 發文可獲得更快的支援",
+    "cancel": "取消",
+    "category": "類別",
+    "closeAria": "關閉",
+    "diagnosticsTooltip": "診斷資訊包含瀏覽器內容、助理日誌和時間戳記 - 絕不包含密碼或憑證。",
+    "downloadDiagnostics": "直接下載診斷資訊",
+    "downloadDiagnosticsAria": "直接下載診斷資訊",
+    "downloadDiagnosticsButton": "下載診斷資訊",
+    "dropFiles": "拖曳檔案以附加…",
+    "email": "電子郵件",
+    "featureTip": "提示：在我們的 <roadmapLink>公開藍圖</roadmapLink> 上為功能投票",
+    "includeConversation": "包含最近的對話",
+    "includeConversationAria": "包含最近的對話",
+    "includeDiagnostics": "包含診斷資訊",
+    "includeDiagnosticsAria": "包含瀏覽器診斷資訊",
+    "messageLabelBug": "哪裡出錯了？",
+    "messageLabelFeature": "描述您的想法",
+    "messageLabelOther": "您有什麼想法？",
+    "messagePlaceholderBug": "您預期會發生什麼，而實際發生了什麼？",
+    "messagePlaceholderFeature": "這將為您解決什麼問題？",
+    "messagePlaceholderOther": "分享您的想法...",
+    "preparingDiagnostics": "正在準備診斷資訊…",
+    "reasonBugReport": "錯誤報告",
+    "reasonFeatureRequest": "功能請求",
+    "reasonOther": "其他",
+    "removeAttachmentAria": "移除 {name}",
+    "sendingFeedback": "正在傳送意見回饋…",
+    "submit": "提交",
+    "timeRange": "時間範圍",
+    "timeRangeAllTime": "所有時間",
+    "timeRangeAria": "診斷資訊時間範圍",
+    "timeRangePast24Hours": "過去 24 小時",
+    "timeRangePastHour": "過去一小時",
+    "title": "分享意見回饋"
+  },
+  "shareFeedbackModalFallback": {
+    "loadingAria": "正在載入意見回饋表單"
+  },
+  "shareFeedbackModalLoadError": {
+    "close": "關閉",
+    "message": "無法載入意見回饋表單。",
+    "retry": "再試一次"
+  },
+  "sideListDrawer": {
+    "closeAria": "關閉",
+    "closeSidebarAria": "關閉側邊欄",
+    "openSidebarAria": "開啟側邊欄"
+  },
+  "sidebarShell": {
+    "backFrom": "從 {title} 返回",
+    "backToMenu": "返回 {title} 選單",
+    "navigationAria": "{title} 導覽"
+  },
+  "sidebarTree": {
+    "ariaLabel": "側邊欄導覽"
+  },
+  "skillLineageLink": {
+    "label": "從此對話中學習"
+  },
+  "skillRemovalDialog": {
+    "message": "從此助理中移除「{name}」？",
+    "remove": "移除",
+    "title": "移除技能"
+  },
+  "slackSetupCreateStep": {
+    "approvalNotice": "如果 Slack 顯示「請求核准」而非 <strong>安裝</strong>，則工作區管理員需要先核准此應用程式。",
+    "createdApp": "我已建立應用程式",
+    "inSlack": "在 Slack 中：",
+    "stepManifest": "在<strong>或以您自己的方式開始</strong>下方，選擇<strong>從資訊清單</strong>，然後<strong>繼續</strong>",
+    "stepPaste": "選擇您的工作區並貼上資訊清單",
+    "stepReview": "檢閱權限，然後點擊<strong>建立並安裝</strong>"
+  },
+  "slackSetupNameStep": {
+    "appName": "應用程式名稱",
+    "appNamePlaceholder": "我的助理",
+    "copied": "已複製！",
+    "copyManifest": "複製資訊清單",
+    "description": "描述 (選填)",
+    "descriptionHelper": "顯示在應用程式的 Slack 個人資料中。",
+    "descriptionPlaceholder": "此助理提供哪些協助",
+    "intro": "為您的 Slack 應用程式命名並複製其資訊清單。所有權限和設定皆已預先配置。",
+    "next": "下一步"
+  },
+  "slackSetupOpenStep": {
+    "body": "在新分頁中開啟 Slack 以建立應用程式，然後返回此處查看後續步驟。",
+    "copied": "已複製！",
+    "copyManifest": "複製資訊清單",
+    "manifestCopiedNotice": "您已在此處複製此應用程式的資訊清單。如果您之後有複製任何其他內容，請在貼上前再次複製。",
+    "manifestNotCopiedNotice": "您尚未複製此應用程式的資訊清單。Slack 的建立應用程式彈出視窗沒有其他方式可以取得，因此請在貼上前複製它。",
+    "next": "下一步",
+    "openSlack": "開啟 Slack"
+  },
+  "slackSetupTokensStep": {
+    "appTokenLabel": "應用程式權杖",
+    "botTokenLabel": "機器人權杖",
+    "connectSlack": "連接 Slack",
+    "connecting": "正在連接…",
+    "credentialsSaved": "憑證已儲存。",
+    "instructions": "在 Slack 的確認畫面中，展開 <credentials>您的應用程式憑證</credentials> 並複製兩個權杖。",
+    "skipNotice": "該畫面也提供命令列逐步說明和一個 <download>下載應用程式檔案</download> 按鈕。請跳過這兩項。它們會設定一個獨立的本機應用程式，而此助理只需要這兩個權杖。"
+  },
+  "slackSetupWizard": {
+    "channelLabel": "Slack",
+    "copyError": "無法複製清單。請在繼續之前重新複製。",
+    "stepConnect": "連接",
+    "stepCreate": "建立",
+    "stepName": "名稱",
+    "stepOpen": "開啟"
+  },
+  "stackedBarTooltip": {
+    "total": "總計：{value}"
+  },
+  "startupFailure": {
+    "reloadApp": "重新載入應用程式"
+  },
+  "statusBanner": {
+    "dismiss": "關閉",
+    "goToDoctor": "前往診斷",
+    "resumeAssistant": "恢復助理",
+    "retryNow": "立即重試",
+    "wakeUp": "喚醒"
+  },
+  "sttLanguagePicker": {
+    "allLanguages": "所有語言",
+    "featured": "精選",
+    "languagesAriaLabel": "語言",
+    "noMatch": "無符合的語言。",
+    "searchAriaLabel": "搜尋語言",
+    "searchPlaceholder": "搜尋語言",
+    "suggested": "建議"
+  },
+  "sttLanguagePickerModal": {
+    "description": "從您下次語音輸入開始生效。"
+  },
+  "sttProviderForm": {
+    "apiKeyLabel": "API 金鑰",
+    "apiKeyPlaceholderReplace": "•••••••• (輸入新金鑰以取代)",
+    "providerAriaLabel": "語音轉文字提供者",
+    "providerLabel": "提供者",
+    "saveFailed": "儲存語音轉文字設定失敗",
+    "saveSuccess": "語音轉文字設定已儲存",
+    "spokenLanguage": "口說語言",
+    "spokenLanguageApplies": "從您下次語音輸入開始生效。",
+    "vellumTranscription": "轉錄會透過您的 Vellum 帳戶執行。",
+    "windowsNativeDisplayName": "Windows 原生聽寫",
+    "windowsNativeSetupWarning": "需要為您的 Windows 顯示語言啟用基本語音辨識：開啟「設定」>「時間與語言」>「語言與區域」，選取顯示語言旁邊的三個點，選擇「語言選項」，然後在「語言功能」下下載「基本語音辨識」。",
+    "windowsNativeSubtitle": "Windows 裝置上的語音辨識，透過 Windows 輔助程式在本機執行。可離線運作且不需要 API 金鑰。"
+  },
+  "subagentAvatarChip": {
+    "ariaLabel": "子助理 {subagentId}"
+  },
+  "systemPermissionsCard": {
+    "accessibilityDescription": "允許您的助理代表您點擊、輸入和控制應用程式。",
+    "accessibilityLabel": "輔助使用",
+    "checking": "正在檢查權限...",
+    "dockIcon": "Dock 圖示",
+    "microphoneDescription": "允許您的助理擷取音訊以進行語音輸入和錄音。",
+    "microphoneLabel": "麥克風",
+    "notificationBadgesDescription": "允許您的助理在 {surface} 上顯示未讀對話計數。",
+    "notificationBadgesLabel": "通知標記",
+    "notificationsDescription": "允許您的助理傳送 macOS 警示以進行核准、訊息和任務更新。",
+    "notificationsLabel": "通知",
+    "notificationsWindowsDescription": "允許您的助理顯示 Windows 通知以進行核准、訊息和任務更新。",
+    "screenDescription": "允許您的助理在電腦使用任務期間擷取螢幕內容。",
+    "screenLabel": "螢幕錄影",
+    "speechRecognitionDescription": "允許您的助理在裝置上將您的語音轉錄為文字。",
+    "speechRecognitionLabel": "語音辨識",
+    "speechRecognitionWindowsDescription": "允許您的助理使用 Windows 語音辨識將您的語音轉錄為文字。",
+    "taskbarIcon": "工作列圖示",
+    "title": "系統權限"
+  },
+  "telegramSetupConnectStep": {
+    "botTokenLabel": "機器人權杖",
+    "connectTelegram": "連接 Telegram",
+    "instructions": "貼上 BotFather 回覆中的權杖。它是 <tokenLine>Use this token to access the HTTP API</tokenLine> 之後的整行內容。",
+    "saving": "正在儲存…",
+    "successNotice": "權杖已儲存。其餘部分將自動完成。您的助理會在您下次聊天時確認 Telegram 正在傳送訊息，並確保可以聯絡到您。"
+  },
+  "telegramSetupCreateStep": {
+    "copied": "已複製！",
+    "copyName": "複製名稱",
+    "displayNameHint": "對於顯示名稱，<strong>{suggestedName}</strong> 可讓此機器人與您的助理相符。使用者名稱是獨立的，不一定要相符。",
+    "inBotFather": "在 BotFather 中：",
+    "intro": "Telegram 機器人是透過傳送訊息給 <strong>@BotFather</strong> 來建立的。開啟它，按照提示操作，然後帶著它給您的權杖回來。",
+    "next": "下一步",
+    "openBotFather": "開啟 BotFather",
+    "stepDisplayName": "給它一個顯示名稱，這是人們在聊天中看到的名稱",
+    "stepSendNewBot": "傳送 <strong>/newbot</strong>",
+    "stepTokenReply": "BotFather 會在 <strong>Use this token to access the HTTP API</strong> 之後回覆一個權杖",
+    "stepUsername": "給它一個使用者名稱，該名稱必須是唯一的並以 <strong>bot</strong> 結尾"
+  },
+  "telegramSetupWizard": {
+    "channelLabel": "Telegram",
+    "copyError": "無法複製名稱。請改為在 BotFather 中輸入。",
+    "stepConnect": "連接",
+    "stepCreate": "建立機器人"
+  },
+  "terminalPanel": {
+    "recoveryModeBanner": "復原模式已啟用：此工作階段已連接到偵錯終端機。"
+  },
+  "themeStagePage": {
+    "accentFill": "強調色填充",
+    "activeBorder": "啟用邊框",
+    "activeSurface": "啟用表面",
+    "assistantBubble": "助理的回覆，以全寬顯示在頁面表面上。",
+    "buttonDisabled": "已停用",
+    "buttonPrimary": "主要",
+    "buttonSecondary": "次要",
+    "chatAssistant1": "完成。摘要已備妥。營收穩定成長，上季標記的兩個風險已解決，我已將值得展示的三張圖表匯出到獨立頁面。",
+    "chatAssistant2": "已排定上午 9 點。我會附上圖表和一段式版本，供手機快速瀏覽者參考。",
+    "chatUser1": "你能在明天的會議前總結季度報告嗎？",
+    "chatUser2": "太好了。早上發送給團隊。",
+    "composerPlaceholder": "傳訊息給你的助理",
+    "faintText": "淡色文字 - 漸層中最後一個清晰可辨的步驟。",
+    "inputFilled": "已輸入到欄位中的文字。",
+    "inputPlaceholder": "空白欄位中的預留位置",
+    "newConversation": "新對話",
+    "overlaySurface": "疊加表面",
+    "primaryText": "主要文字 - 應用程式的主要閱讀表面。",
+    "quietText": "靜態文字 - 中繼資料和時間戳記。",
+    "raisedCard": "凸起卡片",
+    "raisedCardBody": "凸起表面位於面板和頁面背景上方。",
+    "samplerTitle": "主題範例",
+    "secondaryText": "次要文字 - 輔助文案和說明。",
+    "sectionAccent": "強調",
+    "sectionButtons": "按鈕",
+    "sectionInputs": "輸入",
+    "sectionMessages": "訊息",
+    "sectionSurfaces": "表面和邊框",
+    "sectionText": "文字",
+    "send": "傳送",
+    "subtleDivider": "此行上方的細分隔線。",
+    "tertiaryText": "第三層文字 - 標題、標籤和預留位置。",
+    "userBubble": "使用者在其對話框中的訊息。"
+  },
+  "themeToggle": {
+    "dark": "深色",
+    "label": "主題",
+    "light": "淺色",
+    "system": "系統",
+    "velvet": "絲絨"
+  },
+  "tipCard": {
+    "dismiss": "關閉",
+    "nextTip": "下一個提示",
+    "previousTip": "上一個提示"
+  },
+  "ttsProviderForm": {
+    "apiKey": "API 金鑰",
+    "apiKeyRequired": "測試前請為此供應商儲存 API 金鑰。",
+    "chooseFromCatalog": "從目錄中選擇",
+    "customVoiceIdAriaLabel": "自訂語音 ID",
+    "noManagedVoices": "目前沒有可用的受管理語音。",
+    "provider": "供應商",
+    "providerAriaLabel": "TTS 供應商",
+    "saveFailed": "儲存語音轉文字設定失敗",
+    "saved": "語音轉文字設定已儲存",
+    "test": "測試",
+    "testing": "正在測試…",
+    "voice": "語音",
+    "voiceId": "語音 ID",
+    "voiceIdPlaceholder": "輸入語音 ID"
+  },
+  "updateToast": {
+    "available": "有可用的更新。正在開始下載…",
+    "closeAriaLabel": "關閉",
+    "downloading": "正在下載更新…",
+    "ready": "Vellum {version} 已備妥。",
+    "restartToInstall": "重新啟動以安裝",
+    "versionFallback": "更新"
+  },
+  "useAppDelete": {
+    "deleteFailed": "刪除應用程式失敗"
+  },
+  "useAppDeployment": {
+    "copyFailed": "無法複製連結。請在 {url} 開啟。",
+    "linkCopied": "連結已複製",
+    "open": "開啟"
+  },
+  "useAssistantChannels": {
+    "setupPrompt": {
+      "slack": "我想在 Slack 上聯絡你。我們來設定吧。",
+      "telegram": "我想在 Telegram 上聯絡你。我們來設定吧。",
+      "discord": "我想在 Discord 上聯絡你。我們來設定吧。",
+      "email": "我想寄電子郵件給你。我們來設定你的電子郵件地址。",
+      "phone": "我希望能打電話給你。我們來設定你的電話號碼。"
+    },
+    "finishPrompt": {
+      "slack": "Slack 已設定但無法運作。你能完成它嗎？",
+      "telegram": "Telegram 已設定但無法運作。你能完成它嗎？",
+      "discord": "Discord 已設定但無法運作。你能完成它嗎？",
+      "email": "我的電子郵件地址已設定但無法運作。你能完成它嗎？",
+      "phone": "我的電話號碼已設定但無法運作。你能完成它嗎？"
+    }
+  },
+  "useBookmarks": {
+    "addFailed": "加入書籤失敗。",
+    "removeFailed": "移除書籤失敗。"
+  },
+  "useConnectClaude": {
+    "exchangeFailed": "檢查貼上的金鑰，然後再試一次。",
+    "failed": "連線 Claude 失敗。請再試一次。",
+    "notStarted": "請先啟動連線 Claude 流程。",
+    "pasteEmpty": "請貼上 Claude 頁面上顯示的程式碼。",
+    "popupBlocked": "您的瀏覽器阻擋了登入分頁。請允許此網站的彈出視窗，然後再按一下「連線」。",
+    "startFailed": "無法啟動連線 Claude。請再試一次。",
+    "timedOut": "等待 Claude 連線逾時。請再試一次。"
+  },
+  "useOauthConnect": {
+    "accountConnected": "{name} 帳號已連線。",
+    "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
+    "authorizationError": "{name} 錯誤：{code}",
+    "authorizationFailed": "{name} 授權失敗",
+    "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
+    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
+    "startFailed": "無法啟動 {name} 授權。"
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",
+    "openPage": "開啟頁面"
+  },
+  "useVoiceSamplePreview": {
+    "playFailed": "無法播放語音樣本。"
+  },
+  "useWorkspaceTheme": {
+    "updated": "主題已更新"
+  },
+  "vercelTokenDialog": {
+    "body": "輸入您的 Vercel API 金鑰，以將應用程式部署為靜態頁面。",
+    "cancel": "取消",
+    "createToken": "在 Vercel 上建立金鑰 →",
+    "save": "儲存",
+    "saveFailed": "無法儲存 Vercel 金鑰。",
+    "saving": "正在儲存…",
+    "title": "連線 Vercel",
+    "tokenLabel": "API 金鑰",
+    "tokenPlaceholder": "Vercel API 金鑰"
+  },
+  "voiceList": {
+    "assistantVoiceAriaLabel": "助理語音",
+    "defaultSuffix": "(預設)",
+    "previewVoice": "預覽 {description}",
+    "providerAriaLabel": "語音提供者",
+    "stopPreview": "停止預覽"
+  },
+  "voicePickerField": {
+    "ariaLabel": "語音",
+    "selectVoice": "選取語音"
+  },
+  "voicePickerModal": {
+    "done": "完成",
+    "title": "語音"
+  },
+  "voiceProvidersNote": {
+    "body": "語音提供者、轉錄和 API 金鑰位於<modelsLink>模型與服務</modelsLink>中。"
+  },
+  "voiceTranscriptToggles": {
+    "recommendedOff": "建議關閉"
+  },
+  "windowsMenuBar": {
+    "developer": "開發人員",
+    "file": "檔案",
+    "help": "說明",
+    "view": "檢視"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "正在檢查網域…",
+    "domainVerified": "網域已驗證",
+    "failedTitle": "網域驗證失敗。DNS 記錄可能未正確傳播。您可以嘗試釋放並重新註冊網域。",
+    "unknownStatus": "未知狀態",
+    "unknownStatusTitle": "無法擷取網域驗證狀態。",
+    "verificationFailed": "驗證失敗",
+    "verifiedTitle": "DNS 記錄已驗證。您的網域已準備好傳送和接收電子郵件。",
+    "verifyingDomain": "正在驗證網域…",
+    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。"
+  },
+  "managedServicesBanner": {
+    "body": "受管服務按用量計費，並從您的 Vellum 帳戶餘額中扣除。<link>檢視定價</link>"
+  },
+  "serviceCard": {
+    "managedLabel": "受管",
+    "modeToggleAriaLabel": "服務模式",
+    "yourOwnLabel": "自有"
+  },
+  "channelAvatarDownload": {
+    "previewAlt": "您的助理頭像",
+    "download": "下載頭像",
+    "prompt": {
+      "slack": "下載您的助理頭像，以上傳為應用程式圖示。",
+      "discord": "下載您的助理頭像，以上傳為機器人圖示。",
+      "telegram": "下載您的助理頭像，然後透過 /setuserpic 傳送給 BotFather。"
+    }
+  }
+}

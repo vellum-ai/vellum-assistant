@@ -90,6 +90,25 @@ export function isLocalMetaCommand(input: string): boolean {
   return match ? LOCAL_META_COMMAND_NAMES.has(match[1].toLowerCase()) : false;
 }
 
+/**
+ * True when `input` is a command the send resolves on its own, so nothing about
+ * it ever becomes a chat message.
+ *
+ * The union of the two turn-free early returns in `useSendMessage`'s
+ * `sendMessage`: `/doctor`, which navigates to the Doctor panel, and the local
+ * meta commands, which render an ephemeral card. Stated once so a caller that
+ * has to know BEFORE handing content to the send cannot drift from what the
+ * send then does with it. A command added to either of those returns belongs
+ * here too.
+ *
+ * Read it against the same assembled content the send is given, not the raw
+ * draft: a staged quote or channel reference leads the message, which makes
+ * `/status` ordinary text there, and the send agrees.
+ */
+export function isLocallyHandledCommand(input: string): boolean {
+  return parseDoctorCommand(input) !== null || isLocalMetaCommand(input);
+}
+
 /** Returns commands whose name starts with `filter` (case-insensitive). Empty filter returns all. */
 export function filteredCommands(filter: string): SlashCommand[] {
   if (!filter) {

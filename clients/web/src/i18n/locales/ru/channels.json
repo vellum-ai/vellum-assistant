@@ -1,0 +1,204 @@
+{
+  "assistantChannelsList": {
+    "drawerTitle": "Каналы",
+    "disconnectTitle": "Отключить {channel}?",
+    "disconnectConfirm": "Отключить"
+  },
+  "channelAdapterList": {
+    "pluginChannelAria": "{channel}, из плагина"
+  },
+  "connectionCard": {
+    "connected": "Подключено",
+    "reconnecting": "Переподключение…",
+    "statusUnavailable": "Статус недоступен",
+    "disconnecting": "Отключение…",
+    "disconnect": "Отключить"
+  },
+  "slackChannelCard": {
+    "setupHeading": "Настройка Slack"
+  },
+  "channelPanel": {
+    "incompleteTitle": "{channel} ещё не работает",
+    "disconnectedTitle": "{channel} не подключён",
+    "incompleteDescription": "{channel} настроен, но сообщения ещё не доставляет. Ассистент может продолжить настройку и сказать, что не так.",
+    "opening": "Открываем…",
+    "finishSetup": "Закончить настройку с ассистентом",
+    "setUp": "Настроить",
+    "connectManually": "или подключить вручную"
+  },
+  "pluginChannelPanel": {
+    "navigateToPluginPage": "Перейти на страницу плагина",
+    "ingressLoading": "Проверяем, кто может достучаться до {channel}…",
+    "ingressUnsupported": "Шлюз этого ассистента не сообщает о входящих разрешениях, поэтому здесь нечего решать.",
+    "ingressForbidden": "Смотреть и менять входящие разрешения может только опекун этого ассистента.",
+    "ingressUnreadable": "Не удалось прочитать входящее разрешение для {channel}.",
+    "ingressNone": "Шлюз не видит объявления входящего доступа для {channel}, поэтому пока нечего одобрять.",
+    "ingressApprovedTag": "Входящий доступ одобрен",
+    "ingressPendingTag": "Входящий доступ ждёт одобрения",
+    "approveChannel": "Одобрить канал",
+    "revokeChannel": "Отозвать канал",
+    "approveChannelInfo": "Одобрение этого канала открывает доступ к ассистенту для запросов, которые отправляют провайдеры этого канала"
+  },
+  "channelTrustFloor": {
+    "heading": "Кто может писать {assistant}",
+    "loading": "Загрузка…",
+    "loadFailed": "Не удалось загрузить эту настройку. Повторите открытие страницы.",
+    "selectAria": "Кто может писать {assistant}",
+    "trustedContactsNotice": "Люди, которых ещё не подтвердили (даже коллеги в том же канале), не проходят: {assistant} сообщает им, что нужна проверка, и присылает уведомление. Подтвердить людей заранее можно в Контактах.",
+    "confirmFallback": "Подтвердить",
+    "noOne": {
+      "label": "Никто",
+      "description": "Никто не может писать {assistant} в этом канале: блокируются все сообщения, включая ваши.",
+      "confirmTitle": "Заблокировать все сообщения?",
+      "confirmMessage": "Значение «Никто» жёстко отклоняет все входящие сообщения этого канала, включая ваши собственные.\n\nЭто можно отменить в любой момент.",
+      "confirmAction": "Заблокировать все"
+    },
+    "guardianOnly": {
+      "label": "Только вы",
+      "description": "Писать {assistant} можете только вы. Всем остальным отказано."
+    },
+    "trustedContacts": {
+      "label": "Подтверждённые контакты",
+      "description": "Писать {assistant} можете вы и подтверждённые вами люди. Всех остальных сначала просят пройти проверку, а вы получаете уведомление."
+    },
+    "anyContact": {
+      "label": "Любой контакт",
+      "description": "Писать {assistant} можете вы и любой известный контакт, включая ещё не подтверждённые. Незнакомцев сначала просят пройти проверку.",
+      "confirmTitle": "Разрешить любой контакт?",
+      "confirmMessage": "«Любой контакт» допускает всех распознанных участников этого канала (в том числе ожидающих, неподтверждённых), а не только подтверждённые контакты.\n\nЛучше всего подходит для каналов, где есть только люди, которым вы уже доверяете.",
+      "confirmAction": "Разрешить любой контакт"
+    },
+    "strangers": {
+      "label": "Незнакомцы",
+      "description": "Писать {assistant} может кто угодно, включая совершенно незнакомых людей.",
+      "confirmTitle": "Разрешить незнакомцев?",
+      "confirmMessage": "Точно разрешить незнакомцам обращаться к вашему ассистенту через этот канал?\n\nЭто может стоить вам денег и открыть уязвимости безопасности и приватности.\n\nВключайте с крайней осторожностью.",
+      "confirmAction": "Разрешить незнакомцев"
+    }
+  },
+  "slackChannelTypeDefaults": {
+    "heading": "Доступ по умолчанию",
+    "subtitle": "Насколько самостоятельно действует {assistant} в зависимости от типа диалога. Отдельные каналы могут переопределить это ниже, а <trustRules>правила доверия</trustRules> уточняют, когда спрашивать.",
+    "bucketAria": "Доступ ассистента по умолчанию для {bucket}"
+  },
+  "tierPicker": {
+    "defaultSuffix": "по умолчанию",
+    "defaultPlaceholder": "По умолчанию"
+  },
+  "slackChannelTierLegend": {
+    "defaultMarker": "· по умолчанию"
+  },
+  "slackChannelSection": {
+    "overridesLoadFailed": "Не удалось загрузить настройки доступа. Эти элементы останутся недоступны, пока данные не загрузятся. Повторите открытие страницы.",
+    "perChannelOverrides": "Переопределения по каналам"
+  },
+  "slackThreadBehavior": {
+    "heading": "Поведение в ветках",
+    "selectAria": "Поведение Slack в ветках",
+    "mentionsOnly": "Только упоминания",
+    "mentionsOnlyHelp": "Бот отвечает только когда его @упоминают.",
+    "followThreads": "Следить за веткой после первого упоминания",
+    "followThreadsHelp": "После @упоминания в ветке бот слушает остальную ветку."
+  },
+  "slackChannelList": {
+    "presenceHint": "Добавление через <invite>/invite {handle}</invite> или удаление через <remove>/remove {handle}</remove> в этом канале Slack. Здесь видны только каналы, в которых есть {assistant}.",
+    "loading": "Загрузка…",
+    "loadFailed": "Не удалось загрузить каналы. Повторите открытие страницы.",
+    "emptyTitle": "Каналов пока нет",
+    "searchPlaceholder": "Поиск каналов",
+    "searchAria": "Поиск каналов",
+    "filterGroupAria": "Фильтр каналов по типу",
+    "noMatches": "Нет подходящих каналов.",
+    "accessAria": "Доступ ассистента в {channel}",
+    "filterAll": "{count, plural, one {Все (#)} few {Все (#)} many {Все (#)} other {Все (#)}}",
+    "filterPublic": "{count, plural, one {Открытые (#)} few {Открытые (#)} many {Открытые (#)} other {Открытые (#)}}",
+    "filterPrivate": "{count, plural, one {Закрытые (#)} few {Закрытые (#)} many {Закрытые (#)} other {Закрытые (#)}}"
+  },
+  "twilioCredentialEntry": {
+    "accountSid": "Account SID",
+    "authToken": "Auth Token",
+    "authTokenPlaceholder": "Auth-токен Twilio",
+    "saving": "Сохранение…",
+    "save": "Сохранить"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "Это удалит сохранённые токены бота и приложения Slack для этого ассистента. Потом можно подключить снова."
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "Это удалит сохранённый токен бота Telegram для этого ассистента. Потом можно подключить снова.",
+      "disconnectedPitch": "Подключение бота Telegram, чтобы {assistant} мог отправлять и получать сообщения в Telegram."
+    },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "Подключите бота Discord, чтобы {assistant} мог читать и отвечать на вашем сервере.",
+      "disconnectMessage": "Это удалит сохранённый токен бота Discord, и бот перестанет получать сообщения. На сервере бот останется, пока вы не удалите его там."
+    },
+    "email": {
+      "label": "Почта"
+    },
+    "phone": {
+      "label": "Телефонные звонки",
+      "disconnectMessage": "Это удалит сохранённые учётные данные Twilio для этого ассистента. Потом можно подключить снова.",
+      "disconnectedPitch": "Подключение аккаунта Twilio, чтобы {assistant} мог звонить и отвечать на звонки."
+    }
+  },
+  "emailChannelSection": {
+    "apiKeyConfigured": "API-ключ {providerName} настроен. Повторная настройка: запуск навыка <code>{setupSkill}</code>.",
+    "connecting": "Подключение к платформе Vellum…",
+    "openProvider": "Открыть {providerName}",
+    "platformLoginNotice": "Вход на платформу Vellum для управления настройками почты.",
+    "providerLabel": "Провайдер",
+    "saveSuccessToast": "Настройки почты сохранены.",
+    "setupInstructions": "Настройка {providerName} через CLI ассистента: запрос ассистенту запустить навык <code>{setupSkill}</code>. Он поможет сохранить API-ключ, определить домен и (по желанию) подключить входящий webhook.",
+    "subtitle": "Настройка отправки и получения почты ассистентом",
+    "title": "Почта"
+  },
+  "emailManagedContent": {
+    "addressLabel": "Адрес",
+    "checkingSubscription": "Проверка подписки…",
+    "confirm": "Подтвердить",
+    "create": "Создать",
+    "createEmailFailedFallback": "Не удалось создать адрес почты.",
+    "creating": "Создание…",
+    "domainLabel": "Домен",
+    "domainRegisteredToast": "Домен {domain} зарегистрирован.",
+    "domainReleaseFailedToast": "Не удалось освободить домен.",
+    "domainReleasedToast": "Домен освобождён.",
+    "emailAddressLabel": "Адрес почты",
+    "emailCreatedToast": "Адрес почты создан.",
+    "emailRemoveFailedToast": "Не удалось удалить адрес почты.",
+    "emailRemovedToast": "Адрес почты удалён.",
+    "emailUsernameAriaLabel": "Имя пользователя почты",
+    "emailUsernamePlaceholder": "hi",
+    "enterSubdomainError": "Ввод поддомена.",
+    "enterUsernameError": "Ввод имени пользователя почты.",
+    "register": "Зарегистрировать",
+    "registerDomainFailedFallback": "Не удалось зарегистрировать домен.",
+    "registering": "Регистрация…",
+    "releaseConfirm": "Освободить",
+    "releaseDomainAriaLabel": "Освободить домен",
+    "releaseDomainConfirmMessage": "Точно освободить <code>{domain}</code>? Поддомен станет доступен другим.",
+    "releaseDomainTitle": "Освободить домен",
+    "removeAddressFirstToast": "Сначала удаление адреса почты.",
+    "removeConfirm": "Удалить",
+    "removeEmailAriaLabel": "Удалить адрес почты",
+    "removeEmailConfirmMessage": "Точно удалить <code>{address}</code>? Ассистент больше не сможет отправлять и получать почту на этот адрес.",
+    "removeEmailTitle": "Удалить адрес почты",
+    "retry": "Повторить",
+    "setSubdomainConfirmMessage": "<code>{subdomain}</code> также станет публичным идентификатором ассистента. После установки его нельзя сменить.",
+    "setSubdomainTitle": "Задать поддомен",
+    "subdomainExamplePlaceholder": "my-assistant",
+    "subdomainFallback": "поддомен",
+    "subdomainHint": "У каждого ассистента свой поддомен. Только строчные латинские буквы, цифры и дефисы.",
+    "subdomainLabel": "Поддомен",
+    "subscriptionWarningBody": "Не удалось связаться со службой оплаты. Форма ниже считает, что управляемая почта включена для организации. Если это не так, регистрация домена не сработает.",
+    "subscriptionWarningTitle": "Не удалось проверить статус подписки",
+    "upgradeButton": "Повысить план",
+    "upgradeNoticeBody": "Переход на план, в котором у ассистента есть свой адрес почты. Настраивать провайдера не нужно.",
+    "upgradeNoticeTitle": "Адрес почты для ассистента",
+    "usageSummary": "сегодня отправлено {sent} / {limit} · получено {received}"
+  }
+}

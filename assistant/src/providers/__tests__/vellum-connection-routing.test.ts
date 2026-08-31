@@ -52,9 +52,10 @@ describe("vellum connection routing", () => {
     expect(isVellumManagedConnection({ provider: "vellum" })).toBe(true);
   });
 
-  test("the vellum sentinel is not a real provider without an override", () => {
-    // No `provider` override → effective provider is the `vellum` sentinel,
-    // which has no catalog entry / adapter → null.
+  test("the vellum sentinel does not dispatch without an override", () => {
+    // No `provider` override → the connection column is the routing
+    // sentinel and must not build an adapter, even though Vellum-hosted
+    // GPU models share this catalog id.
     const adapter = createAdapterFromConnection(
       vellumConnection,
       resolvedAuth,
@@ -75,6 +76,23 @@ describe("vellum connection routing", () => {
       },
     );
     expect(adapter).not.toBeNull();
+  });
+
+  test("provider override vellum routes GPU models through VellumProvider", () => {
+    const adapter = createAdapterFromConnection(
+      vellumConnection,
+      {
+        kind: "header",
+        headers: { Authorization: "Bearer test-key" },
+        baseUrl: "https://platform.example/v1/runtime-proxy/vellum",
+      },
+      {
+        model: "qwen/qwen3-8b",
+        provider: "vellum",
+      },
+    );
+    expect(adapter).not.toBeNull();
+    expect(adapter?.name).toBe("vellum");
   });
 });
 

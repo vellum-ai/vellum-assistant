@@ -1,6 +1,7 @@
 /**
  * Tests for DailyCreditLimitCard:
  *  - renders the current per-org limit in the input when one is set
+ *  - the extra-usage subtitle shows under the toggle only while it is on
  *  - saving a new value PUTs the two-decimal limit body
  *  - turning the toggle off PUTs `daily_credit_limit_usd: null` to clear it
  *  - below-minimum input shows an inline error and does NOT call the API
@@ -113,6 +114,9 @@ const AUTO_TOP_UP_OFF: AutoTopUpConfigResponse = {
   has_payment_method: false,
   payment_method_brand: null,
   payment_method_last4: null,
+  payment_method_exp_month: null,
+  payment_method_exp_year: null,
+  billing_address: null,
   stripe_payment_method_updated_at: null,
   last_charge_at: null,
   last_failure_at: null,
@@ -339,6 +343,17 @@ describe("DailyCreditLimitCard", () => {
     expect(queryByTestId("daily-credit-limit-input")).toBeNull();
     fireEvent.click(getByRole("switch"));
     expect(queryByTestId("daily-credit-limit-input")).not.toBeNull();
+  });
+
+  test("shows the extra-usage subtitle only while the toggle is on", () => {
+    const { container, getByRole } = renderCard(OFF);
+    expect(container.textContent).not.toContain(
+      "Daily limit only applies to extra usage credits",
+    );
+    fireEvent.click(getByRole("switch"));
+    expect(container.textContent).toContain(
+      "Daily limit only applies to extra usage credits",
+    );
   });
 
   test("saving a new value PUTs the two-decimal limit", async () => {

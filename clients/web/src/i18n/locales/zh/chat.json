@@ -1,0 +1,1732 @@
+{
+  "acpChatPlanBlock": {
+    "plan": "计划"
+  },
+  "acpChatTerminalBlock": {
+    "atTime": "在 {time}",
+    "cancelled": "已取消",
+    "completed": "已完成",
+    "refused": "已拒绝",
+    "runFailed": "运行失败",
+    "stoppedLimitReached": "已停止：达到限制"
+  },
+  "acpChatToolCard": {
+    "hideRaw": "隐藏原始输入/输出",
+    "rawInput": "原始输入",
+    "rawOutput": "原始输出",
+    "showRaw": "显示原始输入/输出"
+  },
+  "acpConnectAffordance": {
+    "connectButton": "连接",
+    "errorFallback": "连接 Claude 失败。请重试。",
+    "pastePlaceholder": "粘贴您的密钥",
+    "saveButton": "保存",
+    "subtitleConnected": "Claude Code 已连接，正在继续...",
+    "subtitleExchanging": "正在完成登录...",
+    "subtitleIdle": "使用您的 Claude Code 订阅",
+    "subtitlePaste": "从打开的标签页粘贴密钥",
+    "subtitleStarting": "正在开始登录...",
+    "subtitleWaiting": "正在等待 Claude 登录...",
+    "title": "连接 Claude Code"
+  },
+  "acpRunChatView": {
+    "backToConversationAria": "返回对话",
+    "backTooltip": "返回",
+    "closeRunDetail": "关闭运行详情",
+    "goToNewest": "前往最新",
+    "inputLabel": "输入",
+    "objective": "目标",
+    "outputLabel": "输出",
+    "sendSteerAria": "发送引导指令",
+    "steerAria": "引导指令",
+    "steerPlaceholder": "引导运行…",
+    "stopRunAria": "停止运行"
+  },
+  "activeChatView": {
+    "retryConfirm": "重试",
+    "retryMessage": "最新回复将被丢弃并重新生成。此操作无法撤销。",
+    "retryTitle": "重试此回复？",
+    "startingFirst": "正在开始您的首次对话…",
+    "stillWorking": "您的助手仍在工作中…",
+    "summarizeConfirm": "总结",
+    "summarizeMessage": "助手将总结此前的对话，并仅在工作记忆中保留摘要。消息将保持可见，永不删除。",
+    "summarizeTitle": "总结到此处？",
+    "takingLonger": "您的助手响应时间超出预期。",
+    "tryAgain": "重试"
+  },
+  "activityStepsPanel": {
+    "backAria": "返回所有步骤",
+    "backTooltip": "所有步骤",
+    "closeSteps": "关闭步骤",
+    "thinkingTitle": "思考中",
+    "viewThinkingAria": "查看思考过程"
+  },
+  "addToChatSheet": {
+    "camera": "相机",
+    "closeAriaLabel": "关闭",
+    "files": "文件",
+    "gallery": "照片图库",
+    "pickFailed": "无法添加该文件。请重试。",
+    "pickFull": "{count, plural, other {# 个文件不适合此批次。请单独添加。}}",
+    "title": "添加到聊天",
+    "tooLarge": "{count, plural, other {# 个文件过大，无法附加}}"
+  },
+  "allowOptionsMenu": {
+    "allowAndCreateRule": "允许并创建规则",
+    "trigger": "更多允许选项"
+  },
+  "appAssetActions": {
+    "appExported": "应用已导出",
+    "shareFailed": "分享应用失败"
+  },
+  "archiveAllConfirmDialog": {
+    "confirm": "全部归档",
+    "message": "{count, plural, other {归档“{groupName}”中的所有 {count} 个对话？归档的对话将从侧边栏移除。您可以通过搜索“is:archived”稍后找到它们。}}",
+    "title": "全部归档"
+  },
+  "assistantContentDisclosure": {
+    "earlierActivity": "更早的活动"
+  },
+  "assistantNavItem": {
+    "newChat": "新建聊天"
+  },
+  "assistantSideMenu": {
+    "bulkActionMembersFailed": "无法加载此部分的所有对话。请重试。",
+    "closeNavAria": "关闭导航",
+    "navAria": "助手导航",
+    "searchShortcut": "搜索 ({shortcut})"
+  },
+  "assistantSwitcher": {
+    "collapse": "隐藏助手",
+    "currentAssistant": "{name}，当前助手",
+    "expand": "切换助手",
+    "switchFailed": "无法切换助手。请重试。",
+    "switchTo": "切换到 {name}",
+    "unnamedAssistant": "未命名助手"
+  },
+  "attachmentChip": {
+    "removeAria": "移除 {filename}"
+  },
+  "attachmentDownloadOverlay": {
+    "download": "下载",
+    "downloadAria": "下载 {filename}"
+  },
+  "attachmentLoadingChip": {
+    "cancelUploadAria": "取消上传 {filename}",
+    "uploadingTitle": "正在上传 {filename}"
+  },
+  "attachmentOverflowSquare": {
+    "moreTitle": "{count} 更多",
+    "showAllAria": "显示所有文件（{count} 更多）"
+  },
+  "attachmentPreviewModal": {
+    "closePreviewAria": "关闭预览",
+    "downloadAria": "下载 {filename}",
+    "downloadLabel": "下载",
+    "nextAttachmentAria": "下一个附件",
+    "pdfLoadFailed": "无法显示此 PDF",
+    "previewAria": "{filename} 的预览",
+    "previousAttachmentAria": "上一个附件"
+  },
+  "attachmentTile": {
+    "cancelUpload": "取消上传 {filename}",
+    "preview": "预览 {filename}",
+    "remove": "移除 {filename}",
+    "uploading": "正在上传 {filename}"
+  },
+  "backgroundTaskDetailPanel": {
+    "closeDetail": "关闭任务详情",
+    "command": "命令",
+    "exitCode": "退出代码：{code}",
+    "output": "输出",
+    "stopCommandAria": "停止命令"
+  },
+  "billingErrorBanner": {
+    "dismiss": "忽略"
+  },
+  "cacheBreakpointMapCard": {
+    "description": "此请求的前缀中，{count, plural, other {# 个缓存断点}} 的分布位置，以及哪些段是从缓存读取的，哪些是重新创建的。",
+    "estimatedTokens": "≈ {count} 个令牌",
+    "fullMissBody": "此轮中每个段都已重新创建。请与上方缓存差异中的上一轮进行比较，以找到发生变化的块。",
+    "fullMissTitle": "完整缓存未命中",
+    "loadError": "无法加载请求负载以映射缓存断点。",
+    "loading": "正在加载请求负载以映射缓存断点…",
+    "noBreakpoints": "此请求没有缓存断点 - 此调用已禁用提示缓存。",
+    "splitEstimatedNote": " 读取/创建的划分是根据段大小归因的；提供商仅报告总计。",
+    "statusCreated": "已重新创建",
+    "statusRead": "从缓存读取",
+    "statusUnknown": "已缓存",
+    "title": "缓存断点",
+    "tokenEstimateNote": "令牌计数是根据文本长度估算的。"
+  },
+  "cacheDiffCard": {
+    "changedLabel": "已更改",
+    "changedMessageFallback": "一条消息",
+    "chipMessages": "消息",
+    "chipModel": "模型",
+    "chipSettings": "设置",
+    "chipSystem": "系统",
+    "chipTools": "工具",
+    "currentModelFallback": "此模型",
+    "description": "自上一轮请求以来发生了什么变化 - 重新创建提示缓存的块。",
+    "diffAnyway": "仍要比较（{lineCount} 行）",
+    "diffLabel": "{label} 差异",
+    "diffLargeDefault": "更改的文本过大，因此默认不进行比较。",
+    "diffStillTooLarge": "仍然太大无法在此处比较（超过 {maxLines} 行）- 请打开“原始”选项卡查看完整负载。",
+    "diffTooLarge": "更改的文本过大无法在此处比较 - 请打开“原始”选项卡查看完整负载。",
+    "loadPreviousCallError": "无法加载上一个调用进行比较。",
+    "loadingPreviousCall": "正在加载上一个调用进行比较…",
+    "messageStatsAppended": "已追加 {count} 条",
+    "messageStatsLeading": "前导消息：{parts}",
+    "messageStatsRemoved": "已移除 {count} 条",
+    "messageStatsShared": "已共享 {count} 条",
+    "previousModelFallback": "上一个模型",
+    "previousPromptUnavailable": "上一个调用的提示不可用，无法比较。",
+    "showLess": "显示更少",
+    "showMoreDiffLines": "显示 {count} 更多差异行",
+    "statusMessagesEarlierBody": "{label} #{index} 与上一轮不同，因此其后所有缓存内容都将在本轮重新处理。",
+    "statusMessagesEarlierTitle": "较早的消息已更改",
+    "statusMessagesHistoryBody": "本轮中 {removedCount} 条较早的消息已消失（可能是历史记录压缩），因此缓存的消息前缀不再匹配。",
+    "statusMessagesHistoryTitle": "消息历史记录已更改",
+    "statusModelBody": "本轮使用了 {current}，但上一轮使用了 {previous}。不同的模型无法重用之前的提示缓存，因此整个提示都将重新创建。",
+    "statusModelTitle": "模型已更改",
+    "statusPrefixUnchangedBodyAppended": "缓存的前缀与上一轮匹配，并追加了 {count} 条新消息。此处的缓存未命中表明是缓存 TTL 过期，而非内容更改。",
+    "statusPrefixUnchangedBodyIdentical": "缓存的前缀与上一轮完全相同。此处的缓存未命中表明是缓存 TTL 过期，而非内容更改。",
+    "statusPrefixUnchangedTitle": "提示前缀未更改",
+    "statusSettingsBody": "只有请求设置（例如温度）与上一轮不同。对于大多数提供商而言，仅此一项不会破坏提示缓存。",
+    "statusSettingsTitle": "请求设置已更改",
+    "statusSystemBody": "自上一轮以来，系统提示的一部分已更改。此处的易变内容（时间戳、内存或每轮块）会使缓存每轮都重新创建。",
+    "statusSystemTitle": "系统提示已更改",
+    "statusToolsBody": "工具集或其定义与上一轮不同。工具位于缓存前缀的前面，因此此处的任何更改都会在到达系统提示和消息之前重新创建缓存。",
+    "statusToolsTitle": "工具定义已更改",
+    "title": "缓存差异",
+    "unchangedLines": "⋯ {count} 行未更改"
+  },
+  "cacheHealthCard": {
+    "barAriaLabel": "提示词缓存细分：{total} 个令牌，其中 {segments}（{percent} 已缓存）。",
+    "barSegment": "{count} {label}",
+    "cached": "已缓存",
+    "description": "此调用的提示词有多少来自提示词缓存。",
+    "segmentCreated": "重新创建",
+    "segmentFresh": "新鲜输入",
+    "segmentRead": "从缓存读取",
+    "statusFullMissBody": "此调用的提示词均未从缓存中读取。",
+    "statusFullMissReCreatedSuffix": " 本轮有 {count} 个令牌写入缓存，但均未被重用 - 这通常意味着自上一轮以来缓存的前缀已更改。",
+    "statusFullMissTitle": "完全缓存未命中",
+    "statusHealthyBody": "此调用的提示词有 {percent}（{count} 个令牌）来自缓存。",
+    "statusHealthyTitle": "健康的缓存重用",
+    "statusPartialBody": "此调用的提示词有 {percent}（{count} 个令牌）来自缓存；其余部分在本轮重新处理。",
+    "statusPartialTitle": "部分缓存重用",
+    "title": "缓存健康状况",
+    "unavailableNote": "此调用未报告提示词缓存使用情况。",
+    "unavailableNoteForProvider": "此调用未报告 {provider} 的提示词缓存使用情况。"
+  },
+  "callRail": {
+    "callCount": "{count, plural, other {# 次 LLM 调用}}",
+    "callLabel": "调用 {number}",
+    "compaction": "压缩",
+    "cost": "成本",
+    "empty": "未记录 LLM 调用。",
+    "failed": "失败",
+    "latest": "最新",
+    "navAriaLabel": "LLM 调用",
+    "syntheticAgentLoopError": "代理循环错误",
+    "syntheticAgentLoopErrorWithReason": "代理循环错误 · {reason}",
+    "syntheticYield": "让步 · 压缩无法适应下一步",
+    "unrecognizedCall": "无法识别的调用"
+  },
+  "callSummarySurface": {
+    "eventsRecorded": "{count, plural, one {# 条事件已记录。} other {# 条事件已记录。}}"
+  },
+  "cameraDeepLink": {
+    "captureFailed": "无法拍摄照片。请重试。",
+    "close": "关闭相机",
+    "flip": "切换摄像头",
+    "openFailed": "无法打开相机。",
+    "shutter": "拍照",
+    "title": "拍照"
+  },
+  "cameraError": {
+    "captureFailed": "无法拍摄该照片。",
+    "deviceInUse": "另一个应用程序正在使用相机。",
+    "noDevice": "未找到相机。",
+    "notDelivered": "正在重新连接。请重新拍摄。",
+    "permissionDenied": "Vellum 未获得相机访问权限。",
+    "refused": "您的助手目前无法接收照片。",
+    "storeFailed": "无法将该照片添加到对话中。",
+    "unknown": "无法打开相机。",
+    "unsupported": "此设备无法打开相机。",
+    "uploadFailed": "无法发送该照片。"
+  },
+  "cameraStatusPill": {
+    "announceLive": "实时。{status}",
+    "announceLiveMuted": "实时。已静音。{status}",
+    "announceLiveMutedSpeaking": "实时。已静音。{name} 正在说话",
+    "announceLiveSpeaking": "实时。{name} 正在说话",
+    "announcePhoto": "照片。{status}",
+    "announcePhotoMuted": "照片。已静音。{status}",
+    "announcePhotoMutedSpeaking": "照片。已静音。{name} 正在说话",
+    "announcePhotoSpeaking": "照片。{name} 正在说话",
+    "live": "实时",
+    "photo": "照片",
+    "yourAssistant": "您的助手"
+  },
+  "cardSurface": {
+    "tasksProgress": "已完成 {completed} / 共 {total} 个任务"
+  },
+  "channelReferenceChip": {
+    "heading": "引用 {channel} 消息",
+    "headingWithSender": "引用 {channel} 上的 {sender}",
+    "removeAria": "移除引用的消息"
+  },
+  "channelSetupPanel": {
+    "accountSid": "账户 SID",
+    "accountSidPlaceholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken": "身份验证令牌",
+    "authTokenPlaceholder": "Twilio 身份验证令牌",
+    "close": "关闭",
+    "closeSetupAria": "关闭设置面板",
+    "connectedHeading": "{channel} 已连接",
+    "credentialsSaved": "凭据已保存。返回聊天以完成设置。",
+    "phoneConnected": "您的助手已准备好通过 Twilio 接听电话。",
+    "phoneLabel": "电话",
+    "save": "保存",
+    "saving": "正在保存…",
+    "settingsTitle": "{channel} 设置",
+    "setupTitle": "{channel} 设置",
+    "slackConnected": "您的助手已准备好在 Slack 上接收消息。",
+    "telegramConnected": "您的助手已准备好在 Telegram 上接收消息。",
+    "twilioIntro": "从 <consoleLink>Twilio 控制台</consoleLink> 输入您的 Twilio 凭据。保存后，返回聊天。您的助手将完成电话号码和 Webhook 的配置。",
+    "discordConnected": "Discord 已连接。将机器人添加到服务器后，它将开始在那里回复。"
+  },
+  "channelThreadControl": {
+    "closeAria": "关闭 {channel} 线程",
+    "label": "{channel} 线程",
+    "openAria": "打开 {channel} 线程"
+  },
+  "channelTranscriptPanel": {
+    "assistantSender": "助手",
+    "closeAria": "关闭渠道线程",
+    "closeTooltip": "关闭",
+    "emptyNoMessageDetail": "{channel} 不会向 Vellum 发送此视图所需的每条消息详细信息，因此此处没有可列出的内容。请在 {channel} 中打开对话以阅读完整内容。",
+    "emptyThread": "此对话中尚无 {channel} 消息。",
+    "namedTitle": "{channel} · {thread}",
+    "noText": "无文本内容",
+    "openInChannel": "在 {channel} 中打开",
+    "reactionAdded": "使用 {emoji} 表情回应",
+    "reactionRemoved": "移除了 {emoji} 表情回应",
+    "readOnly": "只读",
+    "readOnlyNote": "这是 {channel} 中的对话现状。Vellum 的编辑器是您唯一可以写入的地方。",
+    "reference": "在 Vellum 中引用",
+    "referenceAria": "在 Vellum 中引用此 {channel} 消息",
+    "referenced": "已引用",
+    "removeReferenceAria": "从 Vellum 编辑器中移除此引用",
+    "title": "{channel} 线程",
+    "unknownSender": "未知发件人"
+  },
+  "chatAttachments": {
+    "attachFileAria": "附加文件",
+    "dismiss": "关闭",
+    "removeAria": "移除 {filename}"
+  },
+  "chatBody": {
+    "dropFiles": "拖放文件以附加"
+  },
+  "chatComposer": {
+    "addToChat": "添加到聊天",
+    "askAssistantPlaceholder": "询问 {assistantName}",
+    "configureVoice": "配置语音",
+    "endOtherVoiceSession": "结束当前会话并在此开始",
+    "goToVoiceSession": "前往会话",
+    "recording": "正在录音",
+    "sendMessage": "发送消息",
+    "stopGenerating": "停止生成",
+    "transcribing": "正在转录",
+    "transcribingEllipsis": "正在转录…",
+    "typeToSend": "输入消息以发送",
+    "uploadingAttachments": "正在上传附件…"
+  },
+  "chatConversationHeader": {
+    "archived": "[已归档]",
+    "newChat": "新建聊天",
+    "untitled": "无标题"
+  },
+  "chatLayout": {
+    "navigationAria": "导航"
+  },
+  "chatLayoutHeader": {
+    "backAria": "后退 (Ctrl+[)",
+    "forwardAria": "前进 (Ctrl+])",
+    "openNavigationAria": "打开导航",
+    "searchAria": "搜索 (Ctrl+K)",
+    "toggleSidebarAria": "切换侧边栏"
+  },
+  "chatMarkdownMessage": {
+    "expandImageAria": "展开图片",
+    "expandImageAriaWithAlt": "展开图片：{alt}",
+    "imageFailed": "图片加载失败",
+    "imageFailedWithAlt": "图片加载失败 ({alt})",
+    "loadingImage": "正在加载图片…",
+    "loadingImageWithAlt": "正在加载图片… ({alt})"
+  },
+  "chatPage": {
+    "connecting": "正在连接…",
+    "connectingStuck": "仍在连接到您的助手 - 似乎卡住了。请重试，如果此问题持续发生，请刷新页面。",
+    "retryNow": "立即重试",
+    "selfHostedUnreachable": "无法连接到您的自托管助手。请确保您的助手正在运行，然后重试。",
+    "tryAgain": "重试"
+  },
+  "chatRouteContent": {
+    "askTheDoctor": "询问 Doctor",
+    "copyCliFix": "复制 CLI 修复命令",
+    "goToDoctor": "前往 Doctor",
+    "openPage": "打开页面",
+    "suggestionFallback": "建议"
+  },
+  "chatRuleEditorModal": {
+    "applyTo": "应用于",
+    "cancel": "取消",
+    "createTitle": "创建信任规则",
+    "description": "匹配的工具调用将采用此规则的风险级别，因此您的审批容忍度可以自动批准它们。",
+    "editTitle": "编辑信任规则",
+    "narrowerScopeAria": "更窄的范围",
+    "orNarrowScope": "或缩小范围：",
+    "save": "保存",
+    "saveAsNew": "另存为新规则",
+    "saveRule": "保存规则",
+    "saving": "正在保存…",
+    "suggested": "建议：{risk}",
+    "treatAs": "视为"
+  },
+  "choiceSurface": {
+    "continue": "继续",
+    "recommended": "推荐"
+  },
+  "cleanupScreen": {
+    "broomAria": "扫帚",
+    "hatchHint": "完成后，您将能够孵化一个新的助手。",
+    "hintAlmostDone": "即将完成…",
+    "hintCleaning": "正在清理您的助手…",
+    "hintWrapping": "正在收尾…",
+    "timeoutBody": "尝试运行 Vellum Doctor 以诊断问题，或<communityLink>向社区寻求帮助</communityLink>。",
+    "timeoutTitle": "清理时间超出预期",
+    "title": "正在清理您的助手…",
+    "warningAria": "警告"
+  },
+  "collapsedGroupIcon": {
+    "noConversations": "无对话"
+  },
+  "compactionCircuitOpenBanner": {
+    "ariaLabel": "自动压缩已暂停",
+    "message": "自动压缩已暂停 - 长对话可能会溢出。使用 /compact 手动压缩。"
+  },
+  "compactionTab": {
+    "compactedMessages": "{count} 已压缩",
+    "compactedPreserved": "已压缩 / 已保留",
+    "contextTokens": "上下文令牌",
+    "duration": "持续时间",
+    "durationMs": "{count} 毫秒",
+    "emptyBody": "压缩归因于紧随其后运行的调用。如果您在此处预期有压缩，请检查对话是否在此调用之前超出了其上下文预算。",
+    "emptyTitle": "此调用未关联任何压缩",
+    "eventIndex": " · {index} / {totalCount}",
+    "hideSummaryText": "隐藏摘要文本",
+    "loadFailedDefault": "加载压缩失败。",
+    "loadFailedTitle": "加载失败",
+    "loading": "正在加载压缩…",
+    "messageRange": "{before} → {after}",
+    "messages": "消息",
+    "outcomeCompacted": "已压缩",
+    "outcomeFailed": "压缩失败",
+    "outcomeFailedDetail": "摘要器调用出错，因此上下文保持不变。",
+    "outcomeNoChange": "无更改",
+    "outcomeUnavailable": "结果不可用",
+    "outcomeUnavailableDetail": "未记录此压缩的详细前后指标。",
+    "preservedMessages": "{count} 已保留",
+    "reductionRatio": "缩小 {ratio} 倍",
+    "retry": "重试",
+    "showSummaryText": "显示摘要文本",
+    "summarizerUsage": "{input} 输入 / {output} 输出",
+    "summaryCost": "摘要成本",
+    "summaryModel": "摘要模型",
+    "tokenRange": "{before} → {after}",
+    "tokenRangeWithReduction": "{before} → {after} ({reduction})",
+    "trigger": "触发器"
+  },
+  "composerDraftNotices": {
+    "draftRestored": "草稿已从您之前的会话中恢复。",
+    "waitingUpload": "{count, plural, other {正在等待 # 个附件上传完成，然后发送。}}"
+  },
+  "composerNotices": {
+    "allowMicrophone": "允许麦克风",
+    "openSettings": "打开设置"
+  },
+  "composerSecretNotice": {
+    "blockedTitle": "消息未发送。它似乎包含一个 API 密钥。",
+    "body": "在聊天中发送的凭据在聊天记录中可见。请改为安全存储。",
+    "dismiss": "忽略",
+    "sendAnyway": "仍然发送",
+    "storeSecurely": "安全存储",
+    "warningTitle": "这看起来像一个 API 密钥"
+  },
+  "composerSettingsMenu": {
+    "accessAria": "助手访问权限：{label}",
+    "assistantAccess": "助手访问权限",
+    "assistantAccessTitle": "助手访问权限",
+    "compactAria": "助手访问权限和模型配置文件",
+    "compactAriaWithSummary": "助手访问权限和模型配置文件：{summary}",
+    "defaultLabel": "{label} (默认)",
+    "defaultSuffix": "(默认)",
+    "loadingProfiles": "正在加载配置文件…",
+    "modelProfile": "模型配置文件",
+    "modelProfileTitle": "模型配置文件",
+    "profileAria": "模型配置文件：{label}",
+    "profileAriaFallback": "模型配置文件",
+    "profileSwitchFailed": "配置文件已创建，但无法切换到它",
+    "profileSwitchFallback": "切换配置文件失败。请重试。",
+    "quickAdd": "新建模型"
+  },
+  "confirmationActions": {
+    "submitFailed": "提交确认失败。请重试。",
+    "submitFailedRuleAvailable": "提交确认失败，但您仍然可以创建规则。"
+  },
+  "confirmationPromptCard": {
+    "allow": "允许",
+    "deny": "拒绝",
+    "hideDetails": "隐藏详情",
+    "showDetails": "显示详情",
+    "titleFallback": "需要确认",
+    "toolLabel": "工具："
+  },
+  "contactActions": {
+    "saveFailed": "保存联系人失败。请重试。"
+  },
+  "contactPromptCard": {
+    "addContact": "添加联系人",
+    "cancel": "取消",
+    "contactSaved": "联系人已保存",
+    "dismiss": "忽略",
+    "enterAddress": "输入 {channel} 地址",
+    "save": "保存",
+    "saving": "正在保存…"
+  },
+  "contextWindowIndicator": {
+    "clearContext": "清除上下文",
+    "compactsHint": "{name} 自动<br></br>压缩其上下文。",
+    "compactsHintInline": "{name} 自动压缩上下文",
+    "defaultAssistantName": "您的助手",
+    "label": "上下文窗口：",
+    "percentFull": "已使用 {percentage}%",
+    "ringAria": "上下文窗口已使用 {percentage}%",
+    "title": "上下文窗口",
+    "tokensUsed": "已使用 {used} / {max} 令牌"
+  },
+  "conversationActions": {
+    "archive": "归档",
+    "copyConversation": "复制完整对话",
+    "copyConversationId": "复制对话ID",
+    "delete": "删除",
+    "forkConversation": "派生对话",
+    "inspect": "分析对话",
+    "markRead": "标记为已读",
+    "markUnread": "标记为未读",
+    "moveToGroup": "移动到群组",
+    "newGroup": "新建群组…",
+    "openInNewWindow": "在新窗口中打开",
+    "pin": "置顶",
+    "refresh": "刷新",
+    "removeFromGroup": "从群组中移除",
+    "rename": "重命名",
+    "shareFeedback": "分享反馈",
+    "triggerAriaLabel": "对话操作",
+    "unarchive": "取消归档",
+    "unpin": "取消置顶"
+  },
+  "conversationActionsSheet": {
+    "closeAriaLabel": "关闭",
+    "title": "对话操作"
+  },
+  "conversationActivityPill": {
+    "activity": "活动",
+    "recent": "最近",
+    "running": "运行中"
+  },
+  "conversationAssetActions": {
+    "delete": "删除",
+    "downloadPdf": "下载PDF",
+    "exportAsVellum": "导出为.vellum文件",
+    "open": "打开",
+    "optionsFor": "{name}的选项",
+    "pin": "置顶",
+    "share": "分享",
+    "unpin": "取消置顶"
+  },
+  "conversationAssets": {
+    "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
+    "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
+    "heading": "资产",
+    "label": "{count, plural, one {# 个资产} other {# 个资产}}"
+  },
+  "conversationRow": {
+    "untitled": "无标题"
+  },
+  "conversationStarterDock": {
+    "caption": "尝试以下建议："
+  },
+  "conversationStarterGrid": {
+    "sendAria": "发送：{label}"
+  },
+  "copyBlockSurface": {
+    "copied": "已复制",
+    "copy": "复制"
+  },
+  "copyButton": {
+    "copied": "已复制",
+    "copyFailed": "无法复制到剪贴板。"
+  },
+  "copyIdToClipboard": {
+    "conversationCopied": "对话ID已复制到剪贴板。",
+    "conversationFailed": "无法复制对话ID。",
+    "groupCopied": "群组ID已复制到剪贴板。",
+    "groupFailed": "无法复制群组ID。"
+  },
+  "creditsCard": {
+    "balanceAria": "{balance} 积分",
+    "balanceShort": "{balance} 积分",
+    "credits": "积分"
+  },
+  "creditsUpsellCard": {
+    "loginToAddCredits": "登录Vellum平台以添加积分。"
+  },
+  "csvPreview": {
+    "emptyFile": "此文件为空",
+    "summary": "{rows} 行 x {columns} 列",
+    "summaryTruncated": "{rows} 行 x {columns} 列（已截断）"
+  },
+  "dailyLimitBanner": {
+    "skipConfirmTitle": "跳过今日积分限制？",
+    "skipError": "无法跳过今日限制。请重试。",
+    "skipForToday": "今日跳过",
+    "subtitle": "Vellum积分消费已暂停，直到您的限制在{resetPhrase}重置。",
+    "title": "已达到每日积分限制"
+  },
+  "deleteConversationConfirmDialog": {
+    "cancel": "取消",
+    "confirm": "删除",
+    "message": "删除“{title}”？这将永久删除对话及其消息。此操作无法撤消。",
+    "title": "删除对话",
+    "untitled": "无标题"
+  },
+  "documentAssetActions": {
+    "pdfDownloadFailed": "下载PDF失败"
+  },
+  "documentCommentForm": {
+    "send": "发送",
+    "sending": "正在发送…"
+  },
+  "documentCommentPanel": {
+    "addCommentPlaceholder": "添加评论…",
+    "closeAria": "关闭评论面板",
+    "empty": "暂无评论",
+    "loading": "正在加载评论…",
+    "submitFeedback": "提交反馈",
+    "title": "评论"
+  },
+  "documentCommentThread": {
+    "assistantMonogram": "V",
+    "authorAssistant": "助手",
+    "authorYou": "您",
+    "deleteCommentAria": "删除评论",
+    "jumpToHighlight": "跳转到高亮文本",
+    "open": "打开",
+    "reopen": "重新打开",
+    "reply": "回复",
+    "replyPlaceholder": "撰写回复…",
+    "resolve": "解决",
+    "resolved": "已解决"
+  },
+  "documentPreviewSurface": {
+    "openAria": "打开 {name}"
+  },
+  "documentReopenLink": {
+    "openAria": "打开 {name}"
+  },
+  "documentViewerContainer": {
+    "close": "关闭",
+    "closeDocumentAria": "关闭文档",
+    "comments": "评论",
+    "export": "导出",
+    "hideComments": "隐藏评论",
+    "menuAria": "文档选项",
+    "rename": "重命名",
+    "renameFailed": "无法重命名文档。",
+    "renameSave": "保存",
+    "renameTitle": "重命名文档",
+    "saved": "已保存",
+    "saving": "正在保存…",
+    "wordCount": "{count, plural, other {# 个字}}"
+  },
+  "documentViewerPage": {
+    "exportFailed": "导出 PDF 失败",
+    "notFound": "未找到文档。"
+  },
+  "dynamicPageSurface": {
+    "titleFallback": "动态内容"
+  },
+  "exportProgressModal": {
+    "cancel": "取消",
+    "close": "关闭",
+    "defaultError": "导出检查器数据失败。",
+    "descriptionDone": "您的下载应该已自动开始。",
+    "descriptionError": "收集导出数据时发生错误。",
+    "descriptionRunning": "正在收集提供程序负载和标准化上下文。对于长对话，这可能需要一些时间。",
+    "done": "完成",
+    "progressAriaLabel": "导出进度",
+    "retry": "重试",
+    "statusDone": "完成",
+    "statusPackaging": "正在打包 ZIP…",
+    "statusProgress": "已完成 {completed} / {total} 次调用",
+    "titleDone": "导出完成",
+    "titleError": "导出失败",
+    "titleRunning": "正在导出检查器数据"
+  },
+  "fileDiffView": {
+    "diffForAria": "{path} 的差异"
+  },
+  "fileDownload": {
+    "failed": "文件下载失败"
+  },
+  "filePreviewContainer": {
+    "closePreviewAria": "关闭预览",
+    "closeTooltip": "关闭",
+    "download": "下载",
+    "downloadAria": "下载 {name}",
+    "loadError": "无法加载此文件",
+    "overLimit": "{size}，超出 {limit} 预览限制",
+    "tooLarge": "此文件过大，无法预览",
+    "tryAgain": "重试"
+  },
+  "fileUploadSurface": {
+    "accepted": "接受：{types}",
+    "dropHint": "将文件拖放到此处，或点击浏览",
+    "maxSize": "最大大小：{size}",
+    "upload": "上传",
+    "uploading": "正在上传..."
+  },
+  "formSurface": {
+    "secureHint": "此值将安全发送，不会存储在您的浏览器中。",
+    "selectPlaceholder": "选择..."
+  },
+  "groupActions": {
+    "archiveAll": "全部归档…",
+    "copyGroupId": "复制群组 ID",
+    "deleteGroup": "删除群组",
+    "deleteGroupWithConversations": "删除群组…",
+    "groupByChannel": "按渠道分组",
+    "markAllRead": "全部标记为已读",
+    "moveSectionDown": "下移分区",
+    "moveSectionUp": "上移分区",
+    "rename": "重命名",
+    "ungroup": "取消分组"
+  },
+  "groupActionsSheet": {
+    "title": "{name} 操作"
+  },
+  "groupNameDialogFromStore": {
+    "create": "创建",
+    "newTitle": "新建群组",
+    "renameTitle": "重命名群组",
+    "save": "保存"
+  },
+  "inChatOnboardingController": {
+    "next": "下一步",
+    "showMeAround": "带我看看",
+    "skipTour": "跳过导览"
+  },
+  "inChatPluginPill": {
+    "ariaLabel": "聊天插件，{count} 个活跃",
+    "costCaption": "更改插件设置可能会产生高额费用。",
+    "countLabel": "{count, plural, other {# 个插件}}",
+    "manage": "管理",
+    "plugins": "插件"
+  },
+  "inlineProcessCard": {
+    "stop": "停止"
+  },
+  "inspectPage": {
+    "accessDenied": "当“内部线程操作”功能标志启用时，检查器可用。",
+    "allMessages": "所有消息",
+    "back": "返回",
+    "backToConversationAria": "返回对话",
+    "chooseCall": "从侧边栏选择一个调用以检查其上下文。",
+    "conversationScopeSubtitle": "显示此对话中记录的所有 LLM 调用。",
+    "detailLoadFailed": "加载此调用的标准化上下文失败。",
+    "emptyBodyConversation": "此对话中没有消息是由 LLM 调用生成的，或者请求日志因保留策略而被截断。",
+    "emptyBodyMessage": "此消息不是由 LLM 调用生成的，或者其请求日志因保留策略而被截断。",
+    "emptyTitleConversation": "此对话没有记录 LLM 调用。",
+    "emptyTitleMessage": "此消息没有记录 LLM 调用。",
+    "enableLogging": "启用日志记录",
+    "enableLoggingFailed": "启用日志记录失败",
+    "enableLoggingFailedWithMessage": "启用日志记录失败 ({message})",
+    "enabling": "正在启用…",
+    "exportFailed": "导出检查器数据失败",
+    "exportZip": "导出 ZIP",
+    "exportZipAria": "将检查器数据导出为 ZIP",
+    "exporting": "正在导出…",
+    "filterToMessage": "筛选到消息：",
+    "llmCallCount": "{count, plural, other {# 个 LLM 调用}}",
+    "loadContextFailed": "加载 LLM 上下文失败。",
+    "loadFailedTitle": "加载失败",
+    "loading": "正在加载…",
+    "loggingDisabledBody": "请求和响应负载未被记录，因此无可检查内容。请启用日志记录以捕获未来的 LLM 调用。",
+    "loggingDisabledTitle": "LLM 请求日志记录已关闭",
+    "loggingEnabledToast": "LLM 请求日志记录已启用",
+    "messageOptionDeepLink": "消息 {messageId}",
+    "messageOptionNoText": "{index}. (无文本)",
+    "messageOptionWithPreview": "{index}. {preview}",
+    "retry": "重试",
+    "scopedToOneMessage": "范围限定为一条消息 · ",
+    "scopedToTurn": "范围限定为第 {index} 个回合（共 {count} 个） · ",
+    "title": "LLM 上下文检查器"
+  },
+  "liveVoiceBusy": {
+    "android": "语音已在 Android 应用中激活。",
+    "ios": "语音已在 iOS 应用中激活。",
+    "macos": "语音已在 Mac 应用中激活。",
+    "unknown": "语音已在其他地方激活。",
+    "web": "语音已在其他浏览器标签页中激活。",
+    "windows": "语音已在 Windows 应用中激活。"
+  },
+  "liveVoiceButton": {
+    "startVoiceMode": "启动语音模式"
+  },
+  "liveVoiceStatus": {
+    "connecting": "正在连接…",
+    "ending": "正在结束…",
+    "listening": "正在聆听…",
+    "muted": "已静音",
+    "reconnecting": "正在重新连接…",
+    "speaking": "正在说话…",
+    "thinking": "正在思考…"
+  },
+  "llmCallErrorCard": {
+    "chipCode": "代码",
+    "chipProvider": "提供商",
+    "chipRequestId": "请求 ID",
+    "chipStatus": "状态",
+    "chipType": "类型",
+    "chipUpstreamCode": "上游代码",
+    "chipUpstreamParam": "上游参数",
+    "chipUpstreamType": "上游类型",
+    "noResponse": "提供商拒绝了此调用且未返回任何响应。",
+    "title": "调用失败"
+  },
+  "localFileEmbed": {
+    "loadingAria": "正在加载 {label}",
+    "pictureInPictureUnavailable": "画中画不可用"
+  },
+  "localFileLink": {
+    "unavailable": "此文件在此处不可用"
+  },
+  "localFileMenu": {
+    "download": "下载",
+    "fileActionsAria": "文件操作",
+    "goToFile": "转到文件",
+    "pictureInPicture": "画中画"
+  },
+  "lowBalanceBanner": {
+    "addCredits": "添加点数",
+    "ariaLabel": "您的点数不足。{detail}",
+    "subtitle": "添加点数以避免中断。",
+    "title": "您的点数不足"
+  },
+  "maintenanceModeBanner": {
+    "body": "您的助手工作区当前已连接到调试终端。在恢复模式下，聊天不可用。",
+    "loginHint": "登录 Vellum 平台以退出恢复模式。",
+    "resume": "恢复助手",
+    "title": "助手处于恢复模式"
+  },
+  "maintenanceRecoveryCard": {
+    "body": "维护期间，聊天不可用。",
+    "goToDebug": "转到调试设置",
+    "title": "助手处于恢复模式"
+  },
+  "memoryRouterPlaygroundPage": {
+    "addOlderPairButton": "+ 添加更早的对话对",
+    "assistantReplyLabel": "[助手]: 回复",
+    "assistantReplyPlaceholder": "助手在下方用户消息之前给出的回复。",
+    "configTitle": "配置 {paneId}",
+    "conversationalContextTitle": "对话上下文（两窗格共享）",
+    "customPromptPlaceholder": "自定义路由器系统提示词。可用占位符：\n '{ASSISTANT_NAME}, {USER_NAME}, {PAGE_INDEX}'\n留空以使用捆绑模板。“加载默认”会将捆绑内容填充到文本区域以供编辑。",
+    "description": "使用自定义层/批次覆盖来试运行 v4 路由器。只读模式 - 不会向 <code>memory_v2_injection_events</code> 或 <code>memory_v2_activation_logs</code> 写入任何行，也不会修改任何激活状态。将覆盖项留空以继承实时配置值；输入 <code>null</code> 以明确禁用某个层。",
+    "diffLabel": "差异",
+    "diffValue": "{shared} 共享 · {unique} 此窗格独有",
+    "effectiveConfig": "生效配置",
+    "emaScore": "EMA {score}",
+    "empty": "（空）",
+    "emptySelectionHint": "路由器返回了空选择。请尝试更具体的查询，或放宽覆盖值。",
+    "failedToRunSimulation": "运行模拟失败",
+    "firstTurnAssistantPlaceholder": "首次对话场景请留空。",
+    "inheritActive": "继承活动",
+    "inheritActiveWithProfile": "继承活动 ({profile})",
+    "inheritPlaceholder": "继承",
+    "invalidOverrideInput": "无效的覆盖输入",
+    "justArrivedUserLabel": "刚到达的 [用户]: 消息",
+    "lastUserPlaceholder": "例如，我们接下来应该发布什么",
+    "legendAOnly": "仅 A",
+    "legendBOnly": "仅 B",
+    "legendInBoth": "两者都有",
+    "llmProfilesOverride": "llm.profiles 覆盖",
+    "loadDefault": "加载默认",
+    "loading": "加载中…",
+    "noPagesSelected": "未选择页面",
+    "notAvailable": "内存路由器演练场不可用。",
+    "nowBlockLabel": "'<now>' 块",
+    "nowDefaultPlaceholder": "预填充实时 NOW.md。编辑以测试其他状态。",
+    "nowLoadingPlaceholder": "正在加载当前 NOW.md…",
+    "nullValue": "null",
+    "overrideMustBePositiveInteger": "{fieldName} 必须是正整数或 'null'（得到 \"{value}\"）",
+    "overrideSuffix": " （覆盖）",
+    "pageCount": "{count, plural, other {# 页}}",
+    "pairLabel": "第 {index} 对，共 {total} 对",
+    "pairMostRecentSuffix": " · 最新",
+    "paneTitle": "窗格 {paneId}",
+    "promptModeBundled": "捆绑",
+    "promptModeCustom": "自定义",
+    "rawApiExchange": "原始 API 交换",
+    "recentPairsLabel": "最近的（助手，用户）对话对 · 最旧的在前",
+    "reloadNowButton": "重新加载实时 NOW.md",
+    "removeButton": "移除",
+    "requestLabel": "请求（窗格 {paneId}）",
+    "reset": "重置",
+    "responseLabel": "响应（窗格 {paneId}）",
+    "routerFailure": "路由器故障：{reason}",
+    "runBoth": "运行两者",
+    "runPane": "运行 {paneId}",
+    "running": "运行中…",
+    "selectedLabel": "已选择",
+    "selectedValue": "{count} （实时 max_page_ids: {maxPageIds}）",
+    "summary": "摘要",
+    "summaryUserMessageLabel": "用户消息",
+    "systemPrompt": "系统提示词",
+    "systemPromptConfigLabel": "系统提示词",
+    "tier1Label": "层级 1",
+    "tier2Label": "层级 2",
+    "tier3Label": "层级 3 · b{batch}",
+    "title": "内存路由器演练场",
+    "totalCandidatePagesLabel": "总候选页面",
+    "userMessageLabel": "[用户]: 消息",
+    "userMessagePlaceholder": "用户的消息。"
+  },
+  "memoryTab": {
+    "afterMergeLabel": "合并后",
+    "breakdownCAssistantRerank": "c_助手 · 重新排序 Δ_a",
+    "breakdownCAssistantSim": "c_助手 · sim_a",
+    "breakdownCNowSim": "c_当前 · sim_n",
+    "breakdownCUserRerank": "c_用户 · 重新排序 Δ_u",
+    "breakdownCUserSim": "c_用户 · sim_u",
+    "breakdownOwnActivation": "A_o (自身)",
+    "breakdownPriorActivation": "先前 · d",
+    "breakdownRerankScaledRaw": "+{scaled} (原始 {raw})",
+    "breakdownScaledRaw": "{scaled} (原始 {raw})",
+    "breakdownSource": "来源",
+    "breakdownSpreadDelta": "传播 Δ",
+    "breakdownStatus": "状态",
+    "candidateScores": "语义 {semantic} · 近期 {recency}",
+    "carriedPill": "携带: {count}",
+    "conceptActivationsSubtitle": "按最终激活排序。技能条目以 `skills/` 前缀显示；展开一行可查看激活明细。",
+    "conceptActivationsTitle": "概念激活 ({count})",
+    "configCAssistant": "c_助手",
+    "configCNow": "c_当前",
+    "configCUser": "c_用户",
+    "configDDecay": "d (衰减)",
+    "configEpsilon": "epsilon",
+    "configHops": "跳数",
+    "configKSharpening": "k (锐化)",
+    "configSubtitle": "激活权重和选择阈值。",
+    "configTitle": "配置",
+    "configTopK": "top_k",
+    "copyAriaLabel": "复制到剪贴板",
+    "copyAriaLabelCopied": "已复制",
+    "copyButtonCopied": "已复制",
+    "copyButtonCopy": "复制",
+    "copyErrorMessage": "无法复制到剪贴板。",
+    "copyTitle": "复制",
+    "copyTitleCopied": "已复制！",
+    "corePill": "核心: {count}",
+    "degradationTitle": "降级",
+    "fallbackSourcesLabel": "备用来源",
+    "hybridSearchLabel": "混合搜索",
+    "inContextPill": "在上下文中: {count}",
+    "injectedMemoryContextTitle": "注入的记忆上下文",
+    "injectedPill": "已注入: {count}",
+    "injectedTokensLabel": "注入的令牌",
+    "latencyMs": "{ms} 毫秒",
+    "loading": "加载中…",
+    "loggedMemorySelectionSubtitle": "根据 v3 选择渲染，本轮未注入。",
+    "loggedMemorySelectionTitle": "已记录的记忆选择",
+    "memoryDisabledDefaultReason": "本轮已禁用记忆召回。",
+    "memoryDisabledTitle": "记忆已禁用",
+    "missingValue": "-",
+    "modelLabel": "模型",
+    "no": "否",
+    "noDataBody": "此消息的记忆召回信息不可用。",
+    "noDataTitle": "无记忆数据",
+    "noEntriesRanked": "无条目排名。",
+    "noPagesSelected": "未选择任何页面。",
+    "notInjectedPill": "未注入: {count}",
+    "pageContentLabel": "页面内容",
+    "pageNotFound": "磁盘上未找到页面。Slug 可能引用了过时的 Qdrant 条目。",
+    "pillMemoryV2": "记忆 V2",
+    "pillMemoryV3": "记忆 V3",
+    "pillRecallV1": "召回 (v1)",
+    "pinnedChip": "已固定",
+    "pinnedPill": "已固定: {count}",
+    "providerLabel": "提供者",
+    "queryContextSubtitle": "作为语义检索搜索向量嵌入的文本。",
+    "queryContextTitle": "查询上下文",
+    "reasonLabel": "原因",
+    "retrievalFunnelSubtitle": "记忆如何从语义搜索筛选到注入的过程。",
+    "retrievalFunnelTitle": "检索漏斗",
+    "searchDetailsTitle": "搜索详情",
+    "selectedLabel": "已选择",
+    "selectedPagesSubtitle": "已选择的 v3 页面，按显示它们的通道和匹配的部分（当查找器通道显示时）进行标记。",
+    "selectedPagesTitle": "已选择页面 ({count})",
+    "selectedPill": "已选择: {count}",
+    "semanticHitsLabel": "语义命中",
+    "semanticUnavailableLabel": "语义不可用",
+    "sparseDenseOnly": "仅密集",
+    "sparseUsed": "已使用",
+    "sparseVectorsLabel": "稀疏向量",
+    "statusActive": "活跃",
+    "statusDegraded": "已降级",
+    "statusLabel": "状态",
+    "statusSubtitle": "此召回的提供者、模型和延迟。",
+    "statusTitle": "状态",
+    "tier1Label": "层级 1",
+    "tier2Label": "层级 2",
+    "topCandidatesSubtitle": "{count, plural, other {# 个候选按最终得分排名。}}",
+    "topCandidatesTitle": "热门候选",
+    "totalLatencyLabel": "总延迟",
+    "turnLevelRecallBody": "记忆召回每轮运行一次。此数据适用于此消息的所有 LLM 调用。",
+    "turnLevelRecallTitle": "轮级召回",
+    "turnPill": "轮次 {turn}",
+    "unavailable": "不可用",
+    "unknown": "未知",
+    "v2StatusInContext": "在上下文中",
+    "v2StatusInjected": "已注入",
+    "v2StatusNotInjected": "未注入",
+    "v2StatusPageMissing": "页面缺失",
+    "v2TurnBody": "传播激活记忆过程，用于对本轮的概念和技能进行排名。",
+    "v2TurnTitle": "记忆 - 轮次 {turn} ({mode})",
+    "v3LiveInjectionBody": "v3 是本轮的实时记忆来源：下面的块已注入到上下文中（v2 已抑制）。",
+    "v3LiveInjectionTitle": "记忆 V3 - 实时注入",
+    "v3LoggedSelectionBody": "v3 不是此助手的实时记忆来源：这些选择已记录但本轮未注入；本轮的记忆来自 v2。",
+    "v3LoggedSelectionTitle": "记忆 V3 - 已记录选择（未注入）",
+    "v3SourceCarried": "携带",
+    "v3SourceCore": "核心",
+    "v3SourceL1L2": "L1+L2",
+    "v3SourceNeedle": "针",
+    "yes": "是"
+  },
+  "messageFilesPanel": {
+    "closeAria": "关闭文件",
+    "empty": "此消息没有文件",
+    "title": "文件"
+  },
+  "messageHoverActions": {
+    "bookmark": "书签",
+    "copied": "已复制",
+    "copy": "复制",
+    "forkFromHere": "从此分叉",
+    "inspect": "检查",
+    "openInSlack": "在 Slack 中打开",
+    "removeBookmark": "移除书签",
+    "retry": "重试",
+    "summarizeUpToHere": "总结到此处"
+  },
+  "messageLongPressActions": {
+    "bookmark": "书签",
+    "copied": "已复制",
+    "removeBookmark": "移除书签",
+    "title": "消息操作"
+  },
+  "micPermissionPrimer": {
+    "cancel": "取消",
+    "continue": "继续",
+    "description": "语音输入需要麦克风访问权限。音频将由您配置的语音转文本提供商转录，如果未设置提供商，则由您设备的内置听写功能转录。",
+    "title": "麦克风访问权限"
+  },
+  "missingApiKeyBanner": {
+    "ariaLabel": "需要 API 密钥",
+    "body": "请在“设置”→“模型与服务”中添加 API 密钥以开始聊天。",
+    "dismiss": "忽略",
+    "dismissAria": "忽略需要 API 密钥的提醒",
+    "openSettings": "打开设置",
+    "title": "需要 API 密钥"
+  },
+  "mobileCallSelector": {
+    "callOfTotal": "第 {number} 个调用，共 {total} 个",
+    "llmCallCount": "{count, plural, other {# 个 LLM 调用}}",
+    "selectCallAria": "选择一个 LLM 调用进行检查",
+    "sheetTitle": "选择一个调用"
+  },
+  "multiActivityGroup": {
+    "dismissAria": "忽略",
+    "unknownCommandNudge": "此命令无法识别。<ruleLink>创建规则</ruleLink>以便下次分类。",
+    "viewSteps": "查看步骤"
+  },
+  "nameInputDialog": {
+    "cancel": "取消",
+    "icon": "图标",
+    "name": "名称",
+    "noIcon": "无图标"
+  },
+  "newChatPluginsPicker": {
+    "heading": "为新聊天添加插件",
+    "managePlugins": "管理插件",
+    "showAll": "显示全部 (+{count})",
+    "showLess": "显示更少",
+    "tooltip": "选择此聊天可使用的插件。您的选择将在您发送第一条消息时应用，并保留在此对话中。"
+  },
+  "newChatPluginsSection": {
+    "managePlugins": "管理插件"
+  },
+  "oauthConnectSurface": {
+    "approvalAria": "关于助手批准",
+    "approvalTooltip": "未经您的批准，{name} 绝不会代表您行事",
+    "connect": "连接",
+    "connectTitle": "连接 {name}",
+    "connected": "已连接",
+    "defaultDescription": "连接 {name}，以便我能将其用于此任务。",
+    "dismiss": "忽略",
+    "missingDetails": "缺少助手或提供商详细信息。",
+    "thisAccount": "此账户",
+    "waiting": "等待中...",
+    "yourAssistant": "您的助手"
+  },
+  "onboardingChoiceCard": {
+    "continue": "继续",
+    "helpWithHeading": "我能帮您什么？",
+    "letsChat": "我们来聊聊",
+    "other": "其他",
+    "otherPlaceholder": "您需要什么帮助？",
+    "selectAll": "选择所有适用项",
+    "somethingElse": "其他事项",
+    "specific": "我有一个具体事项"
+  },
+  "orphanedHistoryNotice": {
+    "message": "此对话分支所源自的对话已被删除，因此分支点之前的消息已丢失。此后发送的所有内容均完好无损。"
+  },
+  "overviewTab": {
+    "cacheTokensLabel": "缓存令牌",
+    "conversationSubtitle": "迄今为止所有计费LLM调用的累计总额。",
+    "conversationTitle": "对话",
+    "createdLabel": "创建时间",
+    "durationLabel": "持续时间",
+    "estimatedCostLabel": "预估费用",
+    "failedStatus": "失败",
+    "firstTokenKindLabel": "首个令牌类型",
+    "firstTokenLatencySubtitle": "此轮次首个令牌响应时间去向，由助手测量。",
+    "firstTokenLatencyTitle": "首个令牌延迟",
+    "inputTokensLabel": "输入令牌",
+    "latencyMs": "{ms} 毫秒",
+    "loopExitReasonLabel": "循环退出原因",
+    "modelLabel": "模型",
+    "normalizedMetadataSubtitle": "提供商、模型、时间戳和使用计数。",
+    "normalizedMetadataTitle": "标准化元数据",
+    "normalizedSummaryUnavailableSubtitle": "此调用仍包含原始请求和响应负载。",
+    "normalizedSummaryUnavailableTitle": "标准化摘要不可用",
+    "otherLabel": "其他",
+    "outputTokensLabel": "输出令牌",
+    "providerLabel": "提供商",
+    "requestMessagesLabel": "请求消息",
+    "statusLabel": "状态",
+    "stopReasonLabel": "停止原因",
+    "toolCallsLabel": "工具调用",
+    "toolsAvailableLabel": "可用工具",
+    "totalCostSoFarLabel": "迄今总费用",
+    "totalToFirstTokenLabel": "至首个令牌总计",
+    "usageSubtitle": "由助手路由标准化的令牌和调用计数。",
+    "usageTitle": "用量"
+  },
+  "pageTabs": {
+    "formStepsAria": "表单步骤"
+  },
+  "pdfPageSkeleton": {
+    "loadingPdf": "正在加载PDF"
+  },
+  "pdfPreview": {
+    "pageCapNotice": "{count, plural, one {显示第一页} other {显示前 # 页}}"
+  },
+  "phaseGroupedStepList": {
+    "startedAt": "开始于 {time}"
+  },
+  "pinnedAppColorSwatches": {
+    "colors": {
+      "green": "绿色",
+      "orange": "橙色",
+      "pink": "粉色",
+      "purple": "紫色",
+      "teal": "青色",
+      "yellow": "黄色"
+    },
+    "noColor": "无颜色"
+  },
+  "pinnedAppNavItem": {
+    "unpin": "取消固定",
+    "unpinAria": "取消固定 {name}"
+  },
+  "pluginPill": {
+    "disableAria": "为此聊天禁用 {name}",
+    "enableAria": "为此聊天启用 {name}"
+  },
+  "preferencesMenu": {
+    "admin": "管理",
+    "preferences": "偏好设置",
+    "settings": "设置",
+    "shareFeedback": "分享反馈"
+  },
+  "preferencesUsagePanel": {
+    "addCreditsAriaLabel": "添加额度",
+    "exhausted": "添加额度以继续。",
+    "extraCredits": "正在使用额外用量额度",
+    "pctUsed": "已使用 {pct}%",
+    "settingsAriaLabel": "用量和账单设置",
+    "title": "用量"
+  },
+  "previewError": {
+    "cannotPreview": "无法预览此文件"
+  },
+  "previewMessageCard": {
+    "download": "下载",
+    "downloadAria": "下载 {filename}"
+  },
+  "previewSkeleton": {
+    "loadingPreview": "正在加载预览"
+  },
+  "previewTruncationNotice": {
+    "markdown": "显示前 512 KB",
+    "text": "显示前 2 MB"
+  },
+  "previewUnsupported": {
+    "downloadFile": "下载文件",
+    "goToFile": "前往文件",
+    "noPreviewForType": "此文件类型无预览"
+  },
+  "promptSubmission": {
+    "noActiveSession": "无活动会话。请重试。"
+  },
+  "promptTab": {
+    "availableTools": "可用工具",
+    "bannerNoSections": "此调用尚无标准化提示词部分。",
+    "bannerSectionsCount": "{count, plural, other {显示由助手路由返回的 # 个标准化请求部分。}}",
+    "collapseAll": "全部折叠",
+    "copyAriaLabel": "复制 {title}",
+    "emptyBody": "此调用无标准化提示词部分。请使用“原始”选项卡检查完整的请求负载。",
+    "emptyTitle": "无标准化提示词部分",
+    "expandAll": "全部展开",
+    "formatJavaScript": "JavaScript",
+    "formatJson": "JSON",
+    "formatMarkdown": "Markdown",
+    "formatTypeScript": "TypeScript",
+    "noContentAvailable": "无可用内容。",
+    "promptSectionsTitle": "提示词部分"
+  },
+  "providerBillingBanner": {
+    "body": "向您的提供商充值或降低模型令牌限制。",
+    "title": "您的 API 密钥需要充值"
+  },
+  "pullRefreshSpinner": {
+    "refreshing": "正在刷新"
+  },
+  "questionActions": {
+    "submitFailed": "提交回复失败。请重试。"
+  },
+  "questionPromptCard": {
+    "expandAria": "重新打开问题",
+    "minimizeAria": "最小化问题",
+    "nextQuestionAria": "下一个问题",
+    "optionAria": "选项 {number}：{label}",
+    "previousQuestionAria": "上一个问题",
+    "position": "{current} / {total}",
+    "sendResponseAria": "发送回复",
+    "skip": "跳过",
+    "skipAria": "跳过此问题",
+    "skipped": "已跳过",
+    "skippedHint": "已跳过 - 选择一个选项以覆盖",
+    "typeDifferentAnswerAria": "输入不同的答案",
+    "typeSomethingElsePlaceholder": "输入其他内容"
+  },
+  "queuedMessagesDrawer": {
+    "cancelAll": "取消全部",
+    "cancelAllAria": "取消所有排队消息",
+    "cancelAria": "取消排队消息",
+    "editAria": "编辑排队消息",
+    "pushToAgentAria": "推送给助手",
+    "queueHeading": "队列 · {count}",
+    "showActionsAria": "显示排队消息操作"
+  },
+  "quoteReplyBubble": {
+    "addToChat": "添加到聊天",
+    "ariaLabel": "引用并回复",
+    "cancel": "取消",
+    "placeholder": "输入您的回复…"
+  },
+  "rawTab": {
+    "copyRequestPayloadAriaLabel": "复制请求负载",
+    "copyResponsePayloadAriaLabel": "复制响应负载",
+    "downloadFailedToast": "下载负载失败。",
+    "downloadRequestPayloadAriaLabel": "下载请求负载",
+    "downloadResponsePayloadAriaLabel": "下载响应负载",
+    "loadErrorTitle": "无法加载原始负载",
+    "loading": "正在加载原始负载…",
+    "payloadRequestFailed": "负载请求失败。请重试。",
+    "request": "请求",
+    "requestPayload": "请求负载",
+    "response": "响应",
+    "responsePayload": "响应负载",
+    "retry": "重试"
+  },
+  "redactedCredentialChip": {
+    "clickToReveal": "点击显示",
+    "clickToRevealTitle": "{label} · 点击显示",
+    "copyValue": "复制值",
+    "copyValueAria": "复制 {name} 的值",
+    "hideValue": "隐藏值",
+    "hideValueAria": "隐藏 {name} 的值",
+    "redacted": "已遮盖",
+    "redactedTitle": "已遮盖 - 此值未链接到存储的凭据",
+    "redactionMarkerTitle": "遮盖标记 - 未经助手验证",
+    "revealFailed": "无法显示 {name}。",
+    "revealValueAria": "显示 {name} 的值"
+  },
+  "refreshFeedbackPill": {
+    "retryAria": "重试刷新"
+  },
+  "renameDialogFromStore": {
+    "save": "保存",
+    "title": "重命名对话"
+  },
+  "researchActivityFeed": {
+    "defaultStatus": "正在搜索网页以了解您。",
+    "heading": "正在了解您…",
+    "reading": "正在阅读 <title>{title}</title><domain> · {domain}</domain>",
+    "searchingFor": "正在搜索 <query>“{query}”</query>",
+    "warmingUp": "正在预热搜索…"
+  },
+  "researchFactsCard": {
+    "editRemovalAria": "编辑移除",
+    "keepIt": "保留",
+    "removeAria": "移除",
+    "sources": "来源",
+    "whyRemove": "为何移除此项？"
+  },
+  "researchMockPage": {
+    "heading": "正在了解您…",
+    "mockNote": "（模拟 - 实时流程在此处显示搜索活动源）",
+    "resultsTitle": "这是我了解到的关于您的信息。您可以移除任何不真实的内容："
+  },
+  "researchResultsOverlay": {
+    "body": "这是我了解到的关于您的信息。您可以移除任何不真实的内容：",
+    "loading": "正在了解您…"
+  },
+  "researchResultsView": {
+    "continue": "继续",
+    "emptyBody": "这次我无法整理出清晰的个人资料。我们可以在后续交流中互相了解。",
+    "emptyTitle": "我们直接开始吧。"
+  },
+  "researchSuggestions": {
+    "heading": "以下是我可以如何帮助您开始："
+  },
+  "responseTab": {
+    "argumentsPreview": "参数预览",
+    "copySectionAria": "复制章节内容",
+    "kindAssistantText": "助手文本",
+    "kindFunctionResponse": "函数响应",
+    "kindReasoning": "推理",
+    "kindToolCall": "工具调用",
+    "kindToolResult": "工具结果",
+    "modeResultOnly": "仅结果响应",
+    "modeTextOnly": "仅文本响应",
+    "modeToolCalling": "工具调用响应",
+    "noArgumentsPreview": "此工具调用没有可用的结构化参数预览。",
+    "noAssistantText": "此章节未捕获到助手文本。",
+    "noSectionsFallback": "此响应没有渲染的章节。原始负载在“原始数据”选项卡中仍然可用，并且任何规范化的响应元数据（如果存在）仍将显示。",
+    "rawTabHint": "需要完整的提供者负载？打开“原始数据”选项卡查看请求和响应 JSON。",
+    "responseMetadata": "响应元数据",
+    "sectionTitle": "章节 {number}",
+    "sectionUnavailable": "章节渲染不可用",
+    "stopReasonChip": "停止原因：{reason}",
+    "toolChip": "工具：{name}"
+  },
+  "ruleEditorActions": {
+    "saveFailed": "保存信任规则失败。请重试。"
+  },
+  "scrollToLatestButton": {
+    "aria": "前往最新消息",
+    "label": "前往最新"
+  },
+  "secretActions": {
+    "submitFailed": "提交密钥失败。请重试。"
+  },
+  "secretPromptCard": {
+    "cancel": "取消",
+    "domains": "域：{list}",
+    "placeholder": "输入密钥值...",
+    "save": "保存",
+    "savedSecurely": "已安全保存",
+    "saving": "正在保存...",
+    "secretValueFallback": "密钥值",
+    "sendOnce": "发送一次（不保存）",
+    "sending": "正在发送...",
+    "storedSecurelyNote": "此信息安全地存储在您的设备上，不会发送到任何服务器。AI 永远不会看到此值。",
+    "title": "安全凭据",
+    "tools": "工具：{list}"
+  },
+  "selfHostedScreen": {
+    "body": "自托管助手的对话尚未在网页端提供。请从设置中管理您的助手。",
+    "openSettings": "打开设置",
+    "title": "自托管助手"
+  },
+  "setupScreen": {
+    "settingUp": "正在设置您的助手…"
+  },
+  "sideMenuBuiltInNav": {
+    "yourAssistant": "您的助手"
+  },
+  "sideMenuOverlayBottomColumn": {
+    "newChat": "新建聊天"
+  },
+  "sidebarBackToTop": {
+    "label": "返回顶部"
+  },
+  "sidebarConversationError": {
+    "message": "您的对话加载失败。",
+    "retry": "重试"
+  },
+  "sidebarConversationSkeleton": {
+    "loadingAria": "正在加载对话"
+  },
+  "sidebarListContextMenu": {
+    "newGroup": "新建群组…"
+  },
+  "singleActivity": {
+    "webSearch": "网页搜索"
+  },
+  "skillCreatedCard": {
+    "view": "查看",
+    "viewAria": "查看 {name}"
+  },
+  "skillDetailPanel": {
+    "actionsAria": "技能操作",
+    "closeDetails": "关闭技能详情",
+    "goToSkill": "前往技能",
+    "loadError": "此技能无法加载。它可能已被移除。",
+    "moreTooltip": "更多",
+    "removeSkill": "移除技能",
+    "titleFallback": "技能"
+  },
+  "skillExecuteDetail": {
+    "parameters": "参数",
+    "rawInput": "原始输入",
+    "runningSuffix": " · 正在运行"
+  },
+  "skillLoadCard": {
+    "view": "查看"
+  },
+  "skillLoadDetail": {
+    "loadingAria": "正在加载技能",
+    "provides": "提供",
+    "usedSkill": "已用技能"
+  },
+  "skillLoadOutput": {
+    "output": "输出",
+    "outputFormatAria": "输出格式",
+    "showLess": "显示更少",
+    "showMore": "显示更多"
+  },
+  "skillToolList": {
+    "fromSkill": "来自 {name}"
+  },
+  "skillsTab": {
+    "callLink": "调用 {number}",
+    "emptyBody": "此选项卡列出了对话中所有的 <code>skill_load</code> 工具调用。在捕获的 LLM 调用中未检测到任何此类调用。",
+    "emptyTitle": "此对话中未加载任何技能",
+    "loadCount": "{count, plural, other {# 次加载}}",
+    "summaryStats": "{uniqueCount, plural, other {# 个独特技能}} · {totalLoads, plural, other {# 次加载调用}}",
+    "summaryTitle": "此对话中加载的技能"
+  },
+  "stagedQuotesStrip": {
+    "editReplyAria": "编辑回复",
+    "removeQuoteAria": "移除引用",
+    "typeReplyPlaceholder": "输入您的回复…"
+  },
+  "storeCredentialDialog": {
+    "successToast": "已安全存储。密钥从未进入聊天。"
+  },
+  "subagentAvatarRow": {
+    "details": "详情",
+    "showDetailsAria": "显示子代理详情"
+  },
+  "subagentDetailPanel": {
+    "backToTimelineAria": "返回时间线",
+    "backTooltip": "返回",
+    "closeDetail": "关闭子代理详情",
+    "input": "输入",
+    "noEventsYet": "暂无事件",
+    "objective": "目标",
+    "output": "输出",
+    "showLess": "收起",
+    "showMore": "显示更多",
+    "stopSubagentAria": "停止子代理",
+    "timeline": "时间线"
+  },
+  "subagentPhaseTimeline": {
+    "viewReasoning": "查看推理过程",
+    "viewSearchDetails": "查看搜索详情",
+    "viewSearchError": "查看搜索错误",
+    "viewToolDetails": "查看工具详情",
+    "workedFor": "运行了 {duration}"
+  },
+  "subagentSpawnGroup": {
+    "collapse": "收起",
+    "collapseDetailsAria": "收起子代理详情",
+    "stopSubagentAria": "停止子代理"
+  },
+  "suggestionCard": {
+    "openAria": "打开建议：{title}"
+  },
+  "suggestionDetailPanel": {
+    "closeAria": "关闭",
+    "letsDoIt": "开始吧！",
+    "thingsWeCanDo": "我们可以做：",
+    "whatWellNeed": "我们需要："
+  },
+  "suggestionLibrary": {
+    "scrollForMore": "向下滚动查看更多"
+  },
+  "surfaceActions": {
+    "submitFailed": "提交失败。请重试。"
+  },
+  "surfaceRouter": {
+    "cancelled": "已取消",
+    "displayFailed": "无法显示此内容。",
+    "displayFailedNamed": "无法显示“{title}”。",
+    "done": "完成",
+    "unknownSurface": "未知界面",
+    "unsupportedType": "不支持的界面类型：{type}"
+  },
+  "tableSurface": {
+    "copied": "已复制",
+    "copy": "复制",
+    "copyAria": "将表格复制为 Markdown"
+  },
+  "taskPreferencesSurface": {
+    "continue": "继续",
+    "defaultTitle": "我能帮您什么？",
+    "other": "其他",
+    "otherPlaceholder": "描述您需要什么帮助...",
+    "selectAll": "选择所有适用项",
+    "somethingElse": "完全是其他事情"
+  },
+  "textPreview": {
+    "loadFailed": "加载预览失败。",
+    "tooLarge": "文件过大，无法内联预览。"
+  },
+  "textSelectionPopover": {
+    "reply": "回复"
+  },
+  "tiptapDocumentEditor": {
+    "adding": "正在添加…",
+    "comment": "评论",
+    "feedbackPlaceholder": "添加您的反馈…"
+  },
+  "toolCallChip": {
+    "allow": "允许",
+    "confirmationRequired": "需要确认",
+    "copyOutput": "复制输出",
+    "deny": "拒绝",
+    "hideDetails": "隐藏详情",
+    "output": "输出",
+    "showDetails": "显示详情",
+    "technicalDetails": "技术详情",
+    "toolLatency": "工具延迟：",
+    "toolName": "工具名称"
+  },
+  "toolDefinitionsContent": {
+    "defaultValue": "默认值：{value}",
+    "inputSchema": "输入架构",
+    "intro": "{count, plural, other {# 个工具}}随此请求发送。展开工具可查看其定义和输入架构。",
+    "noInputSchema": "无输入架构 - 此工具不接受结构化输入。",
+    "required": "必填",
+    "settings": "设置"
+  },
+  "toolDetailPanel": {
+    "closeAria": "关闭工具详情",
+    "output": "输出",
+    "riskLevel": "风险级别",
+    "running": "正在运行…"
+  },
+  "toolStepPill": {
+    "openAria": "打开 {label}",
+    "viewDetailsAria": "查看详情：{label}"
+  },
+  "transcriptMessageBody": {
+    "fileUnavailable": "文件不可下载",
+    "fileUnavailableHostTimeout": "文件不可下载（主机文件审批可能已超时）",
+    "stopCommand": "停止命令",
+    "stopRun": "停止运行",
+    "stopWorkflow": "停止工作流"
+  },
+  "transcriptRow": {
+    "thinking": "思考中"
+  },
+  "useConversationLoader": {
+    "authFailed": "用户身份验证失败。"
+  },
+  "useConversationSecondaryActions": {
+    "assistantBusy": "您的助手正忙。请在回复完成后重试。",
+    "retryFailed": "无法重试响应",
+    "summarizeFailed": "无法总结对话"
+  },
+  "useNativeWidgetSnapshotSync": {
+    "untitled": "无标题"
+  },
+  "useSendMessage": {
+    "commandFailed": "无法运行该命令。请重试。",
+    "doctorUnavailable": "此助手上无法使用医生功能。"
+  },
+  "vellumFileActionModal": {
+    "downloadFile": "下载文件",
+    "goToFile": "前往文件"
+  },
+  "visualPlaceholder": {
+    "sketching": "正在绘制视觉效果..."
+  },
+  "visualSurface": {
+    "visual": "视觉效果"
+  },
+  "voiceComposerBar": {
+    "ariaLabel": "语音会话",
+    "endSession": "结束语音会话",
+    "muteAssistant": "静音助手",
+    "muteMicrophone": "静音麦克风",
+    "muted": "已静音",
+    "openVoiceRoom": "打开语音房间",
+    "unmuteAssistant": "取消静音助手",
+    "unmuteMicrophone": "取消静音麦克风"
+  },
+  "voiceEntryGreeting": {
+    "seed": "嘿，我刚和你开始了语音对话。此消息是自动发送的。请用一句话问候我，然后问我想做什么。"
+  },
+  "voiceErrors": {
+    "nativeSttNoTranscript": "{clientName} 原生听写未返回转录文本。请检查系统设置中的原生语音识别，然后重试。"
+  },
+  "voiceFirstRunCard": {
+    "backAria": "返回",
+    "description": "与 {name} 进行免提语音对话。",
+    "listeningLanguage": "识别语言",
+    "listeningLanguageApplies": "从您的下一次语音轮次开始生效。",
+    "liveCaptions": "随时开启实时字幕。",
+    "muteMic": "静音麦克风，但不结束会话。",
+    "speakNaturally": "自然说话，{name} 会大声回复。",
+    "startTalking": "开始说话",
+    "title": "语音模式",
+    "voiceSettings": "语音设置",
+    "yourAssistant": "您的助手"
+  },
+  "voicePickerSurface": {
+    "unavailable": "此助手目前无法选择语音。"
+  },
+  "voiceRoom": {
+    "ariaLabel": "语音会话",
+    "closeCamera": "关闭摄像头",
+    "endSessionAria": "结束语音会话",
+    "endSessionTooltip": "结束会话",
+    "flashAuto": "自动闪光灯",
+    "flashAutoBadge": "A",
+    "flashOff": "关闭闪光灯",
+    "flashOn": "开启闪光灯",
+    "flipCamera": "翻转摄像头",
+    "minimizeAria": "最小化语音房间",
+    "minimizeTooltip": "最小化（会话仍在进行）",
+    "muteAssistant": "静音助手",
+    "muteMicrophone": "静音麦克风",
+    "mutedState": "已静音。{state}",
+    "showCamera": "显示摄像头",
+    "takePhoto": "拍照",
+    "unmuteAssistant": "取消静音助手",
+    "unmuteMicrophone": "取消静音麦克风"
+  },
+  "voiceSessionPill": {
+    "dismiss": "关闭",
+    "endSession": "结束语音会话",
+    "goToThreadAria": "前往语音会话线程",
+    "groupAria": "语音会话",
+    "muteAssistant": "静音助手",
+    "muteMic": "静音麦克风",
+    "unmuteAssistant": "取消静音助手",
+    "unmuteMic": "取消静音麦克风"
+  },
+  "voiceSessionPillHost": {
+    "muted": "已静音"
+  },
+  "weatherForecastDisplay": {
+    "celsius": "°C",
+    "fahrenheit": "°F",
+    "feelsLike": "体感 {temp}°",
+    "highLow": "高:{high}° 低:{low}°",
+    "now": "现在"
+  },
+  "webFetchDetailView": {
+    "content": "内容",
+    "fetchFailed": "获取失败。",
+    "fetching": "正在获取…",
+    "noContent": "未提取到内容。",
+    "rawResult": "原始结果",
+    "viewExtracted": "查看已提取内容",
+    "viewRaw": "查看原始内容"
+  },
+  "webSearchDetailView": {
+    "noSources": "未找到来源。",
+    "query": "查询",
+    "sources": "来源",
+    "sourcesWithCount": "来源 ({count})"
+  },
+  "webSearchStepRow": {
+    "moreCount": "另有 {count} 项"
+  },
+  "workResultSurface": {
+    "after": "之后",
+    "before": "之前",
+    "notSet": "未设置",
+    "removed": "已移除"
+  },
+  "workflowDetailPanel": {
+    "agents": "代理",
+    "back": "返回",
+    "backToSubagentsAria": "返回子代理",
+    "closeDetail": "关闭工作流详情",
+    "input": "输入",
+    "noSubagentsYet": "暂无子代理",
+    "output": "输出",
+    "stopWorkflow": "停止工作流",
+    "subagents": "子代理"
+  },
+  "workflowLeafDetail": {
+    "input": "输入",
+    "noPromptSummary": "暂无提示词摘要",
+    "noResultSummary": "暂无结果摘要",
+    "output": "输出",
+    "prompt": "提示词",
+    "result": "结果",
+    "running": "运行中…"
+  },
+  "workflowSubagentRow": {
+    "cancelledAria": "已取消",
+    "openDetailsAria": "打开 {title} 详情"
+  },
+  "workspacePathLink": {
+    "openTitle": "打开 {path}"
+  }
+}

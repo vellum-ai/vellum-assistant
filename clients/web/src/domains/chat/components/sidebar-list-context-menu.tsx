@@ -27,6 +27,7 @@ import type { ReactNode } from "react";
 import { ContextMenu } from "@vellumai/design-library";
 
 import { isPointerCoarse } from "@/utils/pointer";
+import { useTranslation } from "@/i18n";
 
 export interface SidebarListContextMenuProps {
   /** Open the "New group" dialog. Omit to render children unwrapped. */
@@ -38,6 +39,7 @@ export function SidebarListContextMenu({
   onCreateGroup,
   children,
 }: SidebarListContextMenuProps) {
+  const { t } = useTranslation("chat");
   if (!onCreateGroup || isPointerCoarse()) {
     return <>{children}</>;
   }
@@ -60,7 +62,7 @@ export function SidebarListContextMenu({
           leftIcon={<FolderPlus size={14} />}
           onSelect={onCreateGroup}
         >
-          New group…
+          {t("sidebarListContextMenu.newGroup")}
         </ContextMenu.Item>
       </ContextMenu.Content>
     </ContextMenu.Root>

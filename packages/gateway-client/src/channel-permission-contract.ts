@@ -10,7 +10,9 @@
  *
  * Storage lives in the gateway DB (`channel_permission_overrides`) so the
  * assistant cannot tamper with it, matching `channel_admission_policy` and
- * `auto_approve_thresholds`.
+ * `auto_approve_thresholds`. A contact-level ceiling can live on
+ * `contacts.auto_approve_threshold` and is stamped on the trust verdict;
+ * that override is not a matrix cell.
  */
 
 import { z } from "zod";

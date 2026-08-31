@@ -16,6 +16,8 @@ import {
   parseExtensionEnvironment,
   resolveBuildDefaultEnvironment,
   cloudUrlsForEnvironment,
+  createFirstAssistantUrl,
+  CREATE_ASSISTANT_WEB_PATH,
   type ExtensionEnvironment,
 } from '../extension-environment.js';
 
@@ -155,5 +157,26 @@ describe('cloudUrlsForEnvironment', () => {
     const fromProd = cloudUrlsForEnvironment('production');
     expect(fromProd.apiBaseUrl).toBe('https://platform.vellum.ai');
     expect(fromProd.webBaseUrl).toBe('https://www.vellum.ai');
+  });
+});
+
+describe('createFirstAssistantUrl', () => {
+  const cases: Array<{ env: ExtensionEnvironment; webBaseUrl: string }> = [
+    { env: 'production', webBaseUrl: 'https://www.vellum.ai' },
+    { env: 'staging', webBaseUrl: 'https://staging-assistant.vellum.ai' },
+    { env: 'dev', webBaseUrl: 'https://dev-assistant.vellum.ai' },
+    { env: 'local', webBaseUrl: 'http://localhost:3000' },
+  ];
+
+  for (const { env, webBaseUrl } of cases) {
+    test(`${env} opens the hatching entry on ${webBaseUrl}`, () => {
+      expect(createFirstAssistantUrl(env)).toBe(
+        `${webBaseUrl}${CREATE_ASSISTANT_WEB_PATH}`,
+      );
+    });
+  }
+
+  test('points at the platform hatching route, not the local-only chooser create action', () => {
+    expect(CREATE_ASSISTANT_WEB_PATH).toBe('/assistant/onboarding/hatching');
   });
 });

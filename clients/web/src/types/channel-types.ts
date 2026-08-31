@@ -10,12 +10,14 @@ export type ChannelReadinessSnapshot =
 export const SETUP_CHANNEL_IDS = [
   "slack",
   "telegram",
+  "discord",
+  "email",
   "phone",
 ] as const satisfies readonly ChannelReadinessSnapshot["channel"][];
 export type SetupChannelId = (typeof SETUP_CHANNEL_IDS)[number];
 
 export function isSetupChannelId(value: string): value is SetupChannelId {
-  return (SETUP_CHANNEL_IDS as readonly string[]).includes(value);
+  return SETUP_CHANNEL_IDS.some((id) => id === value);
 }
 
 // ---------------------------------------------------------------------------
@@ -27,7 +29,33 @@ export type ChannelStatus = "ready" | "incomplete" | "not_configured";
 
 export interface AssistantChannelState {
   key: SetupChannelId;
+  /** Whether the channel is working right now. Lists render this directly. */
   status: ChannelStatus;
+  /**
+   * Whether setup is finished, regardless of whether it is working.
+   *
+   * Separate from {@link AssistantChannelState.status} because the two answer
+   * different questions and a channel can be configured while down. Required,
+   * so a caller that means "is this set up" cannot reach for the working state
+   * by omission: which one a decision wants has to be stated.
+   */
+  configured: boolean;
+  /**
+   * Whether a route exists that clears this channel's credentials, read off
+   * the channel's declared disconnect copy. Carried on the state row because
+   * surfaces outside the channels domain render disconnect actions and may
+   * not read that domain's metadata directly.
+   */
+  canDisconnect: boolean;
+  /**
+   * Whether the manual credential form can actually save on this daemon.
+   * A channel's declared form is compile-time, but the routes it saves
+   * through are versioned; a daemon that shows the row while lacking the
+   * routes gets guided setup only, instead of a form that 404s on save.
+   */
+  canManualEntry: boolean;
+  /** Absent when the channel measures nothing operational. */
+  health?: ChannelReadinessSnapshot["health"];
   address?: string;
   warning?: string;
 }
@@ -43,8 +71,8 @@ export interface AssistantChannelState {
  * Kept apart from {@link AssistantChannelState} rather than widened into it:
  * the built-in adapters carry a readiness snapshot, a credential form, a
  * disconnect path and a trust floor, and a plugin channel has none of those
- * here. Its id is namespaced (`plugin:<name>`), so the two sets cannot
- * collide in a selection key.
+ * here. Its {@link PluginChannelSummary.key} is namespaced, so the two sets
+ * cannot collide in a selection key.
  */
 export interface PluginChannelSummary {
   /** Directory name of the declaring plugin. */
@@ -72,7 +100,3 @@ export function pluginChannelKey(plugin: string): string {
 
 /** Key of whichever row the Channels rail has selected. */
 export type ChannelRowKey = SetupChannelId | string;
-
-export function isPluginChannelKey(key: string): boolean {
-  return key.startsWith("plugin:");
-}

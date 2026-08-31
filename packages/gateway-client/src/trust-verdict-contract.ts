@@ -78,6 +78,17 @@ export const TrustVerdictSchema = z.object({
   policy: z.string().optional(),
   verifiedAt: z.number().nullable().optional(),
   memberDisplayName: z.string().optional(),
+  /**
+   * Contact-level auto-approve ceiling from the gateway `contacts` row.
+   * Present when a member channel resolves. Null means the contact has no
+   * explicit override (inherit the room / trust-class cascade).
+   * Same vocabulary as `RiskThreshold` (`none` | `low` | `medium` | `high`).
+   * Inlined here so this leaf contract does not import the permission matrix.
+   */
+  autoApproveThreshold: z
+    .enum(["none", "low", "medium", "high"])
+    .nullable()
+    .optional(),
 
   // Gateway-owned interaction telemetry (a trust signal, not an info field per
   // the 2×2) — carried straight off the member `contact_channels` row.

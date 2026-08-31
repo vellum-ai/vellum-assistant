@@ -196,6 +196,39 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void appendIfAbsentAddsUnknownOriginsAndKeepsTheLabelAPairingEarned() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com:443/assistant-123/");
+
+        SelfHostedServer.appendIfAbsent(store, server, "Living Room");
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals(new SelfHostedServer.Entry("Living Room", "https://example.com/assistant-123"), servers.get(0));
+
+        SelfHostedServer.appendIfAbsent(store, SelfHostedServer.validate("https://example.com/assistant-123"), "Kitchen");
+
+        servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals("Living Room", servers.get(0).name);
+    }
+
+    @Test
+    public void appendIfAbsentWritesDownALegacyActiveOriginSoClearingKeepsIt() {
+        FakeStore store = new FakeStore();
+        URI server = SelfHostedServer.validate("https://example.com/assistant-123");
+        SelfHostedServer.store(store, server);
+        assertNull(store.servers);
+
+        SelfHostedServer.appendIfAbsent(store, server, "Living Room");
+        SelfHostedServer.clear(store);
+
+        List<SelfHostedServer.Entry> servers = SelfHostedServer.servers(store);
+        assertEquals(1, servers.size());
+        assertEquals(new SelfHostedServer.Entry("Living Room", "https://example.com/assistant-123"), servers.get(0));
+    }
+
+    @Test
     public void readingDropsInvalidEntriesAndDedupesPreCanonicalDuplicates() {
         FakeStore store = new FakeStore();
         store.servers =

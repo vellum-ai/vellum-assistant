@@ -1580,7 +1580,7 @@ describe("SlackSocketModeClient thread tracking", () => {
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-dm-edit");
-      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].event.message.eventKind).toBe("edit");
     } finally {
       rawDb.close();
     }
@@ -1620,7 +1620,7 @@ describe("SlackSocketModeClient thread tracking", () => {
 
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.source.updateId).toBe("Ev-dm-delete");
-      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].event.message.eventKind).toBe("delete");
     } finally {
       rawDb.close();
     }
@@ -1932,8 +1932,15 @@ describe("SlackSocketModeClient thread tracking", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(1);
+      // Still resolves nothing for display: the name in the response is not
+      // read onto the event, which is what this test is named for.
       expect(emitted[0].event.source.channelName).toBeUndefined();
-      expect(conversationInfoChannels).toEqual([]);
+      // One lookup, and only for room visibility. That is a permission input
+      // and a mention is the ordinary way a channel conversation starts, so
+      // leaving it unresolved let the first turn bypass the channel-type tier.
+      // Asserted as the exact set rather than a count so a second reason to
+      // call this endpoint has to be justified here.
+      expect(conversationInfoChannels).toEqual(["C-thread"]);
 
       await handleInbound(config, emitted[0].event, {
         routingOverride: emitted[0].routing,
@@ -1995,7 +2002,9 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.content).toBe(
         "@Example User continue in #visible-name",
       );
-      expect(conversationInfoChannels).toEqual([]);
+      // The embedded label is used as-is; the one lookup is the visibility
+      // resolution, not a name resolution.
+      expect(conversationInfoChannels).toEqual(["C-thread"]);
     } finally {
       rawDb.close();
     }
@@ -2103,7 +2112,8 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0].event.message.reaction?.op).toBe("added");
     } finally {
       rawDb.close();
     }
@@ -2146,7 +2156,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].event.message.eventKind).toBe("edit");
     } finally {
       rawDb.close();
     }
@@ -2177,7 +2187,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].event.message.eventKind).toBe("delete");
     } finally {
       rawDb.close();
     }
@@ -2220,7 +2230,8 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].event.message.reaction?.emoji).toBe("eyes");
+      expect(emitted[0].event.message.reaction?.op).toBe("added");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();
@@ -2260,7 +2271,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].event.message.eventKind).toBe("edit");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();
@@ -2297,7 +2308,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       );
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].event.message.eventKind).toBe("delete");
       expect(emitted[0].routing.assistantId).toBe("ast-actor");
     } finally {
       rawDb.close();

@@ -43,10 +43,12 @@ struct VoiceSessionAttributes: ActivityAttributes {
 
         /// User-facing activity copy, passed through from the web side.
         ///
-        /// `LIVE_VOICE_STATE_LABELS` and `liveVoiceSurfaceLabel` (including its
+        /// `LIVE_VOICE_STATE_KEYS` and `liveVoiceSurfaceLabelKey` (including its
         /// `reconnecting` → "Reconnecting…" case and its silent-`speaking` →
-        /// "Thinking…" remap) in `live-voice-store.ts` are the single source of
-        /// this copy — it is the same call the voice room makes. **The native
+        /// "Thinking…" remap) in `live-voice-store.ts`, resolved through the
+        /// web's own catalog, are the single source of this copy: it is the
+        /// same call the voice room makes, so the label arrives in the language
+        /// the app is in. **The native
         /// side must never invent its own phase wording** — the shell ships on
         /// App Store cadence while
         /// that copy deploys continuously, so a native `switch` over `phase`
@@ -121,7 +123,7 @@ struct VoiceSessionAttributes: ActivityAttributes {
         ) {
             self.phase = phase
             self.label = label
-            self.accentHex = Self.canonicalAccentHex(accentHex)
+            self.accentHex = canonicalCSSHex(accentHex) ?? Self.neutralAccentHex
             self.muted = muted
             self.outputMuted = outputMuted
             self.detail = detail
@@ -164,26 +166,6 @@ struct VoiceSessionAttributes: ActivityAttributes {
                     forKey: .approvalRequestId
                 ) ?? ""
             )
-        }
-
-        /// Canonicalizes a CSS hex color (`#RGB`, `#RRGGBB`, `#RRGGBBAA`, with
-        /// the `#` optional) to `#` plus uppercase digits, falling back to
-        /// ``neutralAccentHex`` for anything else. The accepted grammar matches
-        /// `UIColor(cssHex:)`, so the canonical form always parses.
-        static func canonicalAccentHex(_ raw: String) -> String {
-            var digits = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            if digits.hasPrefix("#") {
-                digits.removeFirst()
-            }
-            if digits.count == 3 {
-                digits = digits.map { "\($0)\($0)" }.joined()
-            }
-            guard digits.count == 6 || digits.count == 8,
-                  digits.allSatisfy({ $0.isASCII && $0.isHexDigit })
-            else {
-                return neutralAccentHex
-            }
-            return "#" + digits
         }
     }
 

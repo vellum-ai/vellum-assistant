@@ -50,6 +50,15 @@ export class FakeClient {
     bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
+  sentText: string[] = [];
+  /** Per-send options, index-aligned with {@link sentText}. */
+  sentTextOptions: ({ hidden?: boolean } | undefined)[] = [];
+  /**
+   * Mirrors the real client's `ready.textInput` echo. False by default, as the
+   * real one is until a `ready` frame says otherwise, so a test that wants a
+   * typed turn to go out has to say so.
+   */
+  textInputSupported = false;
   pttReleaseCount = 0;
   interruptCount = 0;
   updateConfigCalls: {
@@ -89,6 +98,17 @@ export class FakeClient {
 
   sendAudio(pcm: ArrayBuffer): void {
     this.sentAudio.push(pcm);
+  }
+  sendText(text: string, options?: { hidden?: boolean }): boolean {
+    if (!this.textInputSupported) {
+      return false;
+    }
+    this.sentText.push(text);
+    this.sentTextOptions.push(options);
+    return true;
+  }
+  get supportsTextInput(): boolean {
+    return this.textInputSupported;
   }
   pttRelease(): void {
     this.pttReleaseCount++;
@@ -292,6 +312,7 @@ export function makeControlsSpies() {
     // Defaults to delivered. The reconnect-gap case (false) is asserted by the
     // tests that care, so the common path stays uncluttered.
     attachImage: mock((_attachmentId: string) => true),
+    attachFrame: mock((_attachmentId: string | null) => true),
   } satisfies LiveVoiceSessionControls;
 }
 

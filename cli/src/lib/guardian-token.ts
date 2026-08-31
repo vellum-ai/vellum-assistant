@@ -13,7 +13,7 @@ import {
   writeFileSync,
   writeSync,
 } from "fs";
-import { platform } from "os";
+import { hostname, platform } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS } from "@vellumai/environments";
@@ -77,7 +77,7 @@ function getMacOSPlatformUUID(): string | null {
   try {
     const output = execSync(
       "ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}'",
-      { encoding: "utf-8", timeout: 5000 },
+      { encoding: "utf-8", timeout: 5000, windowsHide: true },
     ).trim();
     const uuid = output.replace(/"/g, "");
     return uuid.length > 0 ? uuid : null;
@@ -98,7 +98,7 @@ function getWindowsMachineGuid(): string | null {
   try {
     const output = execSync(
       'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
-      { encoding: "utf-8", timeout: 5000 },
+      { encoding: "utf-8", timeout: 5000, windowsHide: true },
     ).trim();
     const match = output.match(/MachineGuid\s+REG_SZ\s+(.+)/);
     return match?.[1]?.trim() ?? null;
@@ -316,7 +316,9 @@ function isUnreachableGatewayError(error: unknown): boolean {
   );
 }
 
-function classifyRefreshThrownError(error: unknown): GuardianTokenRefreshResult {
+function classifyRefreshThrownError(
+  error: unknown,
+): GuardianTokenRefreshResult {
   if (isTimeoutLikeError(error)) {
     return {
       ok: false,
@@ -507,6 +509,22 @@ export async function refreshGuardianToken(
 }
 
 /**
+ * The gateway may run in a separate container or VM from the machine
+ * issuing this request (Docker, AWS, GCP), so its own hostname does not
+ * identify the paired device. Read the CLI process's hostname here, where
+ * it reflects the actual machine, and forward it in the init request.
+ * Bootstrap is on the critical path, so a throwing or empty hostname
+ * degrades to `undefined` rather than failing the lease.
+ */
+function readClientHostname(): string | undefined {
+  try {
+    return hostname() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Call POST /v1/guardian/init on the remote gateway to bootstrap a JWT
  * credential pair. The returned tokens are persisted locally under
  * `$XDG_CONFIG_HOME/vellum{-env}/assistants/<assistantId>/guardian-token.json`.
@@ -517,6 +535,7 @@ export async function leaseGuardianToken(
   bootstrapSecret?: string,
 ): Promise<GuardianTokenData> {
   const deviceId = computeDeviceId();
+  const clientReportedName = readClientHostname();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -526,7 +545,7 @@ export async function leaseGuardianToken(
   const response = await loopbackSafeFetch(`${gatewayUrl}/v1/guardian/init`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ platform: "cli", deviceId }),
+    body: JSON.stringify({ platform: "cli", deviceId, clientReportedName }),
   });
 
   if (!response.ok) {

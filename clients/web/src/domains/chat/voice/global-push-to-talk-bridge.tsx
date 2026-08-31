@@ -6,7 +6,6 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
@@ -15,11 +14,11 @@ import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
+import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface GlobalPushToTalkBridgeProps {
@@ -35,16 +34,17 @@ function appendTranscript(current: string, text: string): string {
   return `${current}${needsLeadingSpace ? " " : ""}${trimmed}`;
 }
 
+/**
+ * The conversation this transcript lands in: whatever is selected, and a fresh
+ * draft only when nothing is. Dictation is text the user is composing, so it
+ * belongs in the chat they are in; minting is the fallback for a press made
+ * with no conversation selected at all.
+ */
 function ensureConversationKey(): string {
-  const existing = useConversationStore.getState().activeConversationId;
-  if (existing) {
-    return existing;
-  }
-
-  const draftId = createDraftConversationId();
-  useConversationStore.getState().setActiveConversationId(draftId);
-  useViewerStore.getState().setMainView("chat");
-  return draftId;
+  return (
+    useConversationStore.getState().activeConversationId ??
+    mintVoiceDraftConversation()
+  );
 }
 
 function showVoiceErrorToast(code: string): void {

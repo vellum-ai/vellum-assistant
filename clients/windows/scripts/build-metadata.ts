@@ -8,6 +8,7 @@ export function resolveBuildCommitSha(): string {
   try {
     const sha = execFileSync("git", ["rev-parse", "HEAD"], {
       encoding: "utf8",
+      windowsHide: true,
     }).trim();
     return sha || "unknown";
   } catch {

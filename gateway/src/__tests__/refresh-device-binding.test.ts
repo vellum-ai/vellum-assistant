@@ -15,7 +15,8 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorRefreshTokenRecords, contacts } = await import("../db/schema.js");
+const { actorRefreshTokenRecords, actorTokenRecords, contacts } =
+  await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { rotateCredentials } = await import("../auth/guardian-refresh.js");
 const { handleGuardianRefresh } =
@@ -33,11 +34,16 @@ const DEVICE_B = "device-B";
 const FAMILY = "family-001";
 
 let testRoot: string;
+let savedSecurityDir: string | undefined;
 
 function insertRefreshRecord(
   rawToken: string,
   deviceId: string,
   status: "active" | "rotated" | "revoked" = "active",
+  identity: {
+    pairingUserAgent: string | null;
+    clientReportedName: string | null;
+  } | null = null,
 ) {
   const now = Date.now();
   getGatewayDb()
@@ -49,11 +55,38 @@ function insertRefreshRecord(
       guardianPrincipalId: PRINCIPAL,
       hashedDeviceId: hashToken(deviceId),
       platform: "cli",
+      pairingUserAgent: identity?.pairingUserAgent ?? null,
+      clientReportedName: identity?.clientReportedName ?? null,
       status,
       issuedAt: now,
       absoluteExpiresAt: now + 365 * 86_400_000,
       inactivityExpiresAt: now + 90 * 86_400_000,
       lastUsedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function insertActorTokenRecord(
+  rawToken: string,
+  deviceId: string,
+  lastUsedAt: number | null,
+  status: "active" | "revoked" = "active",
+) {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(actorTokenRecords)
+    .values({
+      id: `actor-${rawToken}`,
+      tokenHash: hashToken(rawToken),
+      guardianPrincipalId: PRINCIPAL,
+      hashedDeviceId: hashToken(deviceId),
+      platform: "cli",
+      status,
+      issuedAt: now,
+      expiresAt: now + 86_400_000,
+      lastUsedAt,
       createdAt: now,
       updatedAt: now,
     })
@@ -81,6 +114,7 @@ function insertGuardianContact() {
 }
 
 beforeEach(async () => {
+  savedSecurityDir = process.env.GATEWAY_SECURITY_DIR;
   testRoot = mkdtempSync(join(tmpdir(), "refresh-device-binding-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
@@ -104,7 +138,11 @@ afterEach(() => {
   resetGatewayDb();
   resetGuardianIntegrityReporterForTesting();
   bustGuardianIntegrityCache();
-  delete process.env.GATEWAY_SECURITY_DIR;
+  if (savedSecurityDir === undefined) {
+    delete process.env.GATEWAY_SECURITY_DIR;
+  } else {
+    process.env.GATEWAY_SECURITY_DIR = savedSecurityDir;
+  }
   try {
     rmSync(testRoot, { recursive: true, force: true });
   } catch {
@@ -231,5 +269,173 @@ describe("rotateCredentials guardian integrity gate", () => {
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "guardian_repair_required" });
+  });
+});
+
+describe("rotateCredentials activity history", () => {
+  test("keeps the rotated-out actor row's lastUsedAt stamp", () => {
+    // The device list reads the max stamp across statuses, so rotation must
+    // leave the stamp on the row it revokes. Clearing it here would reset a
+    // device's activity history on every credential refresh.
+    insertRefreshRecord("rt-stamped", DEVICE_A);
+    insertActorTokenRecord("at-stamped", DEVICE_A, 1_700_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-stamped",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result.ok).toBe(true);
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    const rotatedOut = rows.find(
+      (r) => r.tokenHash === hashToken("at-stamped"),
+    );
+    expect(rotatedOut?.status).toBe("revoked");
+    expect(rotatedOut?.lastUsedAt).toBe(1_700_000_000_000);
+  });
+
+  test("clears the stamp when a replayed refresh token revokes the family", () => {
+    // Reuse detection is a security revoke: the replayed family's activity
+    // history must not carry forward onto whatever pairs next.
+    insertRefreshRecord("rt-replayed", DEVICE_A, "rotated");
+    insertActorTokenRecord("at-replayed", DEVICE_A, 1_700_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-replayed",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result).toEqual({ ok: false, error: "refresh_reuse_detected" });
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    const revoked = rows.find((r) => r.tokenHash === hashToken("at-replayed"));
+    expect(revoked?.status).toBe("revoked");
+    expect(revoked?.lastUsedAt).toBeNull();
+  });
+
+  test("clears the stamp on rows an earlier rotation already revoked", () => {
+    // A device that rotated before the replay carries a stamped revoked row,
+    // and the device list reads the max stamp across statuses, so the security
+    // revoke has to reach that row too.
+    insertRefreshRecord("rt-replayed-old", DEVICE_A, "rotated");
+    insertActorTokenRecord(
+      "at-rotated-out",
+      DEVICE_A,
+      1_700_000_000_000,
+      "revoked",
+    );
+    insertActorTokenRecord("at-current", DEVICE_A, 1_800_000_000_000);
+
+    const result = rotateCredentials({
+      refreshToken: "rt-replayed-old",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result).toEqual({ ok: false, error: "refresh_reuse_detected" });
+
+    const rows = getGatewayDb().select().from(actorTokenRecords).all();
+    expect(rows.map((r) => r.lastUsedAt)).toEqual([null, null]);
+  });
+});
+
+describe("rotateCredentials device identity carry-forward", () => {
+  // pairingUserAgent and clientReportedName survive rotation the same way
+  // platform does.
+  const USER_AGENT = "Vellum-CLI/1.2.3 (Macintosh; Darwin)";
+  const REPORTED_NAME = "Alice's MacBook Pro";
+
+  function findActorTokenRow(rawToken: string) {
+    return getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .all()
+      .find((r) => r.tokenHash === hashToken(rawToken));
+  }
+
+  function findRefreshTokenRow(rawToken: string) {
+    return getGatewayDb()
+      .select()
+      .from(actorRefreshTokenRecords)
+      .all()
+      .find((r) => r.tokenHash === hashToken(rawToken));
+  }
+
+  test("carries pairingUserAgent and clientReportedName onto the new actor-token and refresh-token rows after one rotation", () => {
+    insertRefreshRecord("rt-identity", DEVICE_A, "active", {
+      pairingUserAgent: USER_AGENT,
+      clientReportedName: REPORTED_NAME,
+    });
+
+    const result = rotateCredentials({
+      refreshToken: "rt-identity",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const newActorRow = findActorTokenRow(result.result.accessToken);
+    expect(newActorRow?.pairingUserAgent).toBe(USER_AGENT);
+    expect(newActorRow?.clientReportedName).toBe(REPORTED_NAME);
+
+    const newRefreshRow = findRefreshTokenRow(result.result.refreshToken);
+    expect(newRefreshRow?.pairingUserAgent).toBe(USER_AGENT);
+    expect(newRefreshRow?.clientReportedName).toBe(REPORTED_NAME);
+  });
+
+  test("keeps the identity intact across two consecutive rotations", () => {
+    insertRefreshRecord("rt-identity-hop1", DEVICE_A, "active", {
+      pairingUserAgent: USER_AGENT,
+      clientReportedName: REPORTED_NAME,
+    });
+
+    const first = rotateCredentials({
+      refreshToken: "rt-identity-hop1",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
+
+    const second = rotateCredentials({
+      refreshToken: first.result.refreshToken,
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) {
+      return;
+    }
+
+    const newActorRow = findActorTokenRow(second.result.accessToken);
+    expect(newActorRow?.pairingUserAgent).toBe(USER_AGENT);
+    expect(newActorRow?.clientReportedName).toBe(REPORTED_NAME);
+
+    const newRefreshRow = findRefreshTokenRow(second.result.refreshToken);
+    expect(newRefreshRow?.pairingUserAgent).toBe(USER_AGENT);
+    expect(newRefreshRow?.clientReportedName).toBe(REPORTED_NAME);
+  });
+
+  test("a null stored identity rotates cleanly and stays null", () => {
+    insertRefreshRecord("rt-no-identity", DEVICE_A, "active", {
+      pairingUserAgent: null,
+      clientReportedName: null,
+    });
+
+    const result = rotateCredentials({
+      refreshToken: "rt-no-identity",
+      hashedDeviceId: hashToken(DEVICE_A),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const newActorRow = findActorTokenRow(result.result.accessToken);
+    expect(newActorRow?.pairingUserAgent).toBeNull();
+    expect(newActorRow?.clientReportedName).toBeNull();
+
+    const newRefreshRow = findRefreshTokenRow(result.result.refreshToken);
+    expect(newRefreshRow?.pairingUserAgent).toBeNull();
+    expect(newRefreshRow?.clientReportedName).toBeNull();
   });
 });

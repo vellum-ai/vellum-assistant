@@ -111,6 +111,55 @@ export function isAndroidBrowser(): boolean {
 }
 
 /**
+ * Returns true when the current browser is running on a phone or tablet,
+ * whatever the OS.
+ *
+ * This is the catch-all for the devices `isIOSBrowser()` / `isAndroidBrowser()`
+ * cannot name, so it layers three signals, most reliable first:
+ * `navigator.userAgentData.mobile` (Chromium only), the `Mobi` / `Tablet`
+ * user-agent tokens that Firefox and Safari carry, then a media-query probe of
+ * the input capability.
+ *
+ * Always returns `false` during SSR (no `navigator` / `window`).
+ */
+export function isMobileBrowser(): boolean {
+  if (typeof navigator === "undefined" || typeof window === "undefined") {
+    return false;
+  }
+
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { mobile?: boolean };
+    }
+  ).userAgentData;
+  if (uaData?.mobile === true) {
+    return true;
+  }
+
+  if (/Mobi|Tablet/i.test(navigator.userAgent)) {
+    return true;
+  }
+
+  if (typeof window.matchMedia !== "function") {
+    return false;
+  }
+  // Input capability is a separate axis from platform (docs/PLATFORM_ADAPTATION.md),
+  // so this last resort must not promote a desktop OS on its own: a Windows,
+  // ChromeOS, or Linux tablet reports coarse hoverless input and is still a
+  // desktop. `Macintosh` is deliberately absent, since no Mac has a touchscreen
+  // and that user agent plus coarse input is iPadOS in desktop mode.
+  if (/Windows NT|CrOS|X11/i.test(navigator.userAgent)) {
+    return false;
+  }
+  // Touchscreen laptops report `pointer: coarse` but keep `hover: hover`, so
+  // the hover clause is what keeps them out of the mobile bucket.
+  return (
+    window.matchMedia("(pointer: coarse)").matches &&
+    window.matchMedia("(hover: none)").matches
+  );
+}
+
+/**
  * The OS surfaces this web bundle can report as `clientOs`.
  *
  * The same `clients/web` bundle runs in a plain browser, the Capacitor mobile
@@ -122,6 +171,19 @@ export function isAndroidBrowser(): boolean {
  */
 export type ClientOs = ElectronHostOS | "ios" | "android" | "web";
 export type { ElectronHostOS };
+
+const CLIENT_OS_DISPLAY_NAMES: Readonly<Record<ClientOs, string>> = {
+  macos: "macOS",
+  windows: "Windows",
+  ios: "iOS",
+  android: "Android",
+  web: "Web",
+};
+
+/** User-facing name for a detected client OS. */
+export function clientOsDisplayName(clientOs: ClientOs): string {
+  return CLIENT_OS_DISPLAY_NAMES[clientOs];
+}
 
 /**
  * Detect the Electron host OS. Older preloads omit `hostOS`, so use the
@@ -313,11 +375,44 @@ export function useIsIOSWeb(): boolean {
   );
 }
 
+/**
+ * iOS web user on Safari, where Apple's own Smart App Banner already offers
+ * the app (driven by the `apple-itunes-app` meta tag on the marketing site).
+ *
+ * `useIsIOSWeb` already excludes Safari, but `useIsMobileWeb` does not, so a
+ * cascade that falls back to the unidentified-mobile promotion needs this to
+ * bow out rather than nudge a Safari reader twice.
+ */
+export function useIsIOSSafariWeb(): boolean {
+  return useSyncExternalStore(
+    noop,
+    () => isIOSBrowser() && isSafariBrowser() && !isNativePlatform(),
+    () => false,
+  );
+}
+
 /** Android browser user who may be offered the native Android app. */
 export function useIsAndroidWeb(): boolean {
   return useSyncExternalStore(
     noop,
     () => isAndroidBrowser() && !isNativePlatform(),
+    () => false,
+  );
+}
+
+/**
+ * Mobile web user who may be offered the native app, on devices the iOS and
+ * Android checks did not claim.
+ *
+ * Unlike `useIsIOSWeb` this does NOT exclude Safari: it is the fallback for
+ * browsers we cannot identify, and the caller resolves the iOS Smart App
+ * Banner case before reaching it. Excludes the Capacitor and Electron shells,
+ * where the user is already inside the app.
+ */
+export function useIsMobileWeb(): boolean {
+  return useSyncExternalStore(
+    noop,
+    () => isMobileBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
 }

@@ -161,6 +161,28 @@ describe("renderHistoryContent", () => {
     expect(output.textSegments[1]).toContain("[File attachment] dream-015.md");
   });
 
+  test("an image block's _attachmentId contributes no attachment ref", () => {
+    // Chip positioning joins DB attachment rows against the refs collected
+    // here, and only `file` blocks are collected. An image carrying the same
+    // internal id must stay out of that join, or a user upload would gain a
+    // second, duplicate chip.
+    const output = renderHistoryContent([
+      { type: "text", text: "what is this" },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: Buffer.from("img").toString("base64"),
+        },
+        _attachmentId: "att-image-1",
+      },
+    ]);
+
+    expect(output.attachments).toEqual([]);
+    expect(output.contentOrder).toEqual(["text:0"]);
+  });
+
   test("omits attachmentId when file block has no _attachmentId", () => {
     const output = renderHistoryContent([
       {

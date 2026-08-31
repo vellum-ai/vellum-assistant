@@ -19,6 +19,7 @@ import type { PromptKind } from "@/domains/chat/prompt-submission";
 import type {
   PendingSecretState,
   PendingConfirmationState,
+  PendingContactRecordRequestState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingAcpConnectState,
@@ -54,7 +55,9 @@ export interface InteractionState {
   pendingConfirmation: PendingConfirmationState | null;
 
   pendingContactRequest: PendingContactRequestState | null;
+  pendingContactRecordRequest: PendingContactRecordRequestState | null;
   contactRequestAccepted: boolean;
+  contactRecordRequestAccepted: boolean;
 
   pendingQuestion: PendingQuestionState | null;
   /**
@@ -78,20 +81,21 @@ export interface InteractionState {
    * prompt, anchored to the failed tool call. Unlike the other prompts this is
    * NOT a turn-blocking interaction — the turn already ended in error; it is a
    * remediation CTA. It is restored on a `/messages` reseed from the failed
-   * tool call's persisted `errorCode` marker (so a reload/reconnect no longer
-   * loses it), but to avoid nagging from history — the reason it was originally
-   * kept off the reseed path — a dismissal (explicit X, or the implicit
-   * dismiss-on-send) is recorded in `dismissedAcpConnectToolUseIds` and
-   * suppresses any later restore of that same failed spawn.
+   * tool call's persisted `errorCode` marker, so a reload or reconnect does
+   * not lose it. To avoid nagging from history, a dismissal (the connect
+   * flow's auto-continue, or the already-connected self-heal) is recorded in
+   * `dismissedAcpConnectToolUseIds` and suppresses any later restore of that
+   * same failed spawn.
    */
   pendingAcpConnect: PendingAcpConnectState | null;
 
   /**
-   * Failed-`acp_spawn` tool-call ids whose Connect prompt the user already
-   * dealt with this session (dismissed via X or superseded by a send). The
+   * Failed-`acp_spawn` tool-call ids whose Connect prompt was already retired
+   * this session (by the connect flow's auto-continue or by the
+   * already-connected self-heal). The
    * `errorCode` marker lives permanently in history, so without this a reseed
    * would re-raise the card on every turn until Claude is connected; recording
-   * the id lets `showAcpConnect` no-op a restore the user already dismissed. A
+   * the id lets `showAcpConnect` no-op a restore of a retired prompt. A
    * genuine new failure gets a fresh tool-use id, so it is never suppressed.
    * Cleared with the rest of the store on conversation switch (`resetAll`).
    */
@@ -106,6 +110,44 @@ export interface InteractionState {
    * `hasActiveInteraction`.
    */
   pendingAcpContinue: boolean;
+
+  /**
+   * Whether this tab is currently running the Connect flow.
+   *
+   * A token write publishes an `acp:auth-recovery` invalidation that reaches
+   * every client including the writer, and the daemon cannot tag the origin:
+   * the retirement fires from the credential-write seam, which has no request
+   * context to carry a client id. Acting on that echo here would dismiss the
+   * card mid-flow, before it reaches `connected` and asks for the
+   * auto-continue, so the tab running the flow ignores its own echo and lets
+   * the flow finish clearing the card.
+   */
+  acpConnectFlowActive: boolean;
+  /**
+   * Where the Connect card is currently rendered, with the anchor it was
+   * decided for.
+   *
+   * Held here rather than in either component that asks, so the transcript and
+   * the composer cannot disagree about it, and so an in-progress OAuth flow can
+   * pin the card in place: moving it between those two trees unmounts the
+   * affordance that owns the flow.
+   */
+  acpConnectPlacement: {
+    toolUseId: string;
+    placement: "inline" | "docked" | null;
+  } | null;
+
+  /**
+   * Bumped every time a Connect prompt is raised.
+   *
+   * An ACP snapshot fetch that was issued before a live `acp_auth_required`
+   * event can land after it, and its unmarked rows would then retire a prompt
+   * the daemon raised in the meantime. Because dismissal records the tool-use
+   * id, that would also stop any later snapshot from restoring the card.
+   * Callers capture this when they issue a fetch and only retire if it is
+   * still current when the response is applied.
+   */
+  acpConnectRevision: number;
 
   /** Tool call IDs whose risk level was "unknown" when the user approved
    *  them — triggers the "command not recognized" nudge below their chip. */
@@ -152,7 +194,15 @@ export interface InteractionActions {
   // Contact request
   showContactRequest: (payload: PendingContactRequestState) => void;
   dismissContactRequestIfMatches: (requestId: string) => void;
-  acceptContactRequest: () => void;
+  /**
+   * Show the answered state, but only while the card on screen is the one that
+   * was answered. A response can land after its card is gone, and the card
+   * that replaced it belongs to a different request.
+   */
+  acceptContactRequestIfMatches: (requestId: string) => void;
+  showContactRecordRequest: (payload: PendingContactRecordRequestState) => void;
+  dismissContactRecordRequestIfMatches: (requestId: string) => void;
+  acceptContactRecordRequestIfMatches: (requestId: string) => void;
 
   // Question
   showQuestion: (payload: PendingQuestionState) => void;
@@ -160,9 +210,45 @@ export interface InteractionActions {
   dismissQuestionCard: () => void;
 
   // ACP Connect Claude prompt
-  showAcpConnect: (payload: PendingAcpConnectState) => void;
+  /**
+   * Raise the Connect card.
+   *
+   * `supersedesDismissal` is for a failure happening now rather than one being
+   * restored. The dismissed set is keyed by the spawning tool call, and a
+   * resumed run reuses its original one, so a second rejection under the same
+   * anchor looks identical to the card the user already dismissed. Ignoring it
+   * would leave a live failure with no card, while the daemon goes on
+   * redirecting credential prompts at one.
+   */
+  showAcpConnect: (
+    payload: PendingAcpConnectState,
+    opts?: { supersedesDismissal?: boolean },
+  ) => void;
+  /**
+   * Give the standing Connect prompt the conversation that owns it, when it
+   * was raised without one.
+   *
+   * `acp_auth_required` is global and carries no conversation, so a client
+   * that missed the run's spawn event has nothing to attribute the prompt to.
+   * An unowned prompt renders only inline under its anchor row, so it is
+   * unreachable once that row is outside the loaded transcript.
+   *
+   * Matched on the tool-use id by the caller, so this identifies the prompt
+   * already on screen rather than replacing it. Deliberately does not advance
+   * `acpConnectRevision`: nothing was raised or retired, the same prompt is
+   * merely better identified, and advancing it would invalidate reads that are
+   * legitimately in flight.
+   */
+  adoptAcpConnectConversation: (conversationId: string) => void;
   dismissAcpConnect: () => void;
   requestAcpContinue: () => void;
+  setAcpConnectFlowActive: (active: boolean) => void;
+  setAcpConnectPlacement: (
+    placement: {
+      toolUseId: string;
+      placement: "inline" | "docked" | null;
+    } | null,
+  ) => void;
   clearAcpContinue: () => void;
 
   // Nudge tracking
@@ -171,7 +257,13 @@ export interface InteractionActions {
 
   // Resets
   resetSecretAndConfirmation: () => void;
-  resetAll: () => void;
+  /**
+   * Reset per-conversation prompt state. Pass `assistantChanged` on an
+   * assistant switch, which also drops the workspace-global contact forms:
+   * they belong to the daemon that raised them, and answering one against a
+   * different assistant would be posting to a gateway that never heard of it.
+   */
+  resetAll: (options?: { assistantChanged?: boolean }) => void;
 }
 
 export type InteractionStore = InteractionState & InteractionActions;
@@ -186,6 +278,7 @@ const INITIAL_STATE: InteractionState = {
     question: null,
     secret: null,
     contactRequest: null,
+    contactRecordRequest: null,
   },
   pendingSecret: null,
   secretSaved: false,
@@ -193,7 +286,9 @@ const INITIAL_STATE: InteractionState = {
   pendingConfirmation: null,
 
   pendingContactRequest: null,
+  pendingContactRecordRequest: null,
   contactRequestAccepted: false,
+  contactRecordRequestAccepted: false,
 
   pendingQuestion: null,
   questionRevision: 0,
@@ -203,6 +298,9 @@ const INITIAL_STATE: InteractionState = {
 
   pendingAcpConnect: null,
   dismissedAcpConnectToolUseIds: new Set<string>(),
+  acpConnectFlowActive: false,
+  acpConnectPlacement: null,
+  acpConnectRevision: 0,
   pendingAcpContinue: false,
 
   unknownNudgeToolCallIds: new Set<string>(),
@@ -218,6 +316,7 @@ export function hasActiveInteraction(state: InteractionState): boolean {
     state.pendingSecret !== null ||
     state.pendingConfirmation !== null ||
     state.pendingContactRequest !== null ||
+    state.pendingContactRecordRequest !== null ||
     state.pendingQuestion !== null
   );
 }
@@ -336,7 +435,37 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     set({ pendingContactRequest: null });
   },
 
-  acceptContactRequest: () => set({ contactRequestAccepted: true }),
+  acceptContactRequestIfMatches: (requestId) => {
+    if (get().pendingContactRequest?.requestId !== requestId) {
+      return;
+    }
+    set({ contactRequestAccepted: true });
+  },
+
+  // ----- Contact record request -----
+  showContactRecordRequest: (payload) =>
+    set({
+      pendingContactRecordRequest: payload,
+      contactRecordRequestAccepted: false,
+    }),
+
+  dismissContactRecordRequestIfMatches: (requestId) => {
+    const { pendingContactRecordRequest } = get();
+    if (
+      !pendingContactRecordRequest ||
+      pendingContactRecordRequest.requestId !== requestId
+    ) {
+      return;
+    }
+    set({ pendingContactRecordRequest: null });
+  },
+
+  acceptContactRecordRequestIfMatches: (requestId) => {
+    if (get().pendingContactRecordRequest?.requestId !== requestId) {
+      return;
+    }
+    set({ contactRecordRequestAccepted: true });
+  },
 
   // ----- Question -----
   showQuestion: (payload) =>
@@ -385,11 +514,82 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   // Skip a restore the user already dismissed this session. The live-failure
   // path passes a fresh tool-use id (never dismissed), so only history reseeds
   // of an already-handled failure are suppressed.
-  showAcpConnect: (payload) =>
+  setAcpConnectFlowActive: (active) => set({ acpConnectFlowActive: active }),
+
+  setAcpConnectPlacement: (placement) =>
     set((state) =>
-      state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)
+      state.acpConnectPlacement?.toolUseId === placement?.toolUseId &&
+      state.acpConnectPlacement?.placement === placement?.placement
         ? state
-        : { pendingAcpConnect: payload },
+        : { acpConnectPlacement: placement },
+    ),
+
+  showAcpConnect: (payload, opts) =>
+    set((state) => {
+      // Not while the user is part-way through connecting from another card.
+      // Replacing the prompt moves the affordance to a different anchor row,
+      // which unmounts the one that owns the OAuth flow: the loopback poll is
+      // invalidated and the manual paste state goes with it, so a sign-in in
+      // progress cannot finish. The newer failure has a marker of its own, so
+      // a snapshot surfaces it once this flow settles and the card clears.
+      //
+      // First, ahead of every path that can replace the prompt. A live event
+      // superseding a dismissal is one of them, so a guard placed after that
+      // branch is a guard the live path walks around.
+      if (
+        state.acpConnectFlowActive &&
+        state.pendingAcpConnect &&
+        state.pendingAcpConnect.toolUseId !== payload.toolUseId
+      ) {
+        return state;
+      }
+      if (state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)) {
+        if (!opts?.supersedesDismissal) {
+          return state;
+        }
+        // A new rejection under an anchor the user dismissed. Forget the
+        // dismissal with it: keeping the id would suppress this card and every
+        // later restore of it, and the run has genuinely failed again.
+        const dismissed = new Set(state.dismissedAcpConnectToolUseIds);
+        dismissed.delete(payload.toolUseId);
+        return {
+          dismissedAcpConnectToolUseIds: dismissed,
+          pendingAcpConnect: payload,
+          acpConnectRevision: state.acpConnectRevision + 1,
+        };
+      }
+      // The revision means "the prompt changed", and readers compare against
+      // it to tell whether a response they issued still speaks for what is on
+      // screen. Two fetches can capture the same revision, and an older marked
+      // response re-raising the prompt already displayed would advance it and
+      // make the later authoritative one look stale, leaving a repaired card
+      // standing until the next navigation. Re-raising the same prompt is not
+      // a change.
+      const current = state.pendingAcpConnect;
+      if (
+        current &&
+        current.toolUseId === payload.toolUseId &&
+        current.reason === payload.reason &&
+        current.conversationId === payload.conversationId
+      ) {
+        return state;
+      }
+      return {
+        pendingAcpConnect: payload,
+        acpConnectRevision: state.acpConnectRevision + 1,
+      };
+    }),
+
+  adoptAcpConnectConversation: (conversationId) =>
+    set((state) =>
+      state.pendingAcpConnect && !state.pendingAcpConnect.conversationId
+        ? {
+            pendingAcpConnect: {
+              ...state.pendingAcpConnect,
+              conversationId,
+            },
+          }
+        : state,
     ),
 
   // Remember which failed spawn was dismissed so a later reseed can't resurrect
@@ -435,19 +635,58 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   // rebuild it). Clearing it here would permanently orphan the transcript
   // guidance that points at the card. The dismissed set still resets, so a
   // returned-to conversation can re-raise from history.
-  resetAll: () =>
+  resetAll: (options) =>
     set((state) => ({
       ...INITIAL_STATE,
       pendingAcpConnect: state.pendingAcpConnect,
+      // Both contact forms are workspace-global: they are broadcast without a
+      // conversation, so one can arrive while the guardian is on Home or in
+      // another conversation. Dropping them on a conversation switch would
+      // strip the only copy of a form the daemon is still holding a command
+      // open for, with nothing to re-raise it from. An assistant switch is
+      // different: the form belongs to the assistant that raised it, so it
+      // goes rather than following the guardian to a gateway that would
+      // refuse it.
+      ...(options?.assistantChanged
+        ? {}
+        : {
+            pendingContactRequest: state.pendingContactRequest,
+            contactRequestAccepted: state.contactRequestAccepted,
+            pendingContactRecordRequest: state.pendingContactRecordRequest,
+            contactRecordRequestAccepted: state.contactRecordRequestAccepted,
+            // Their in-flight submissions travel with them; a switch
+            // mid-submit must not look like the submission was never claimed.
+            submittingByKind: {
+              ...INITIAL_STATE.submittingByKind,
+              contactRequest: state.submittingByKind.contactRequest,
+              contactRecordRequest: state.submittingByKind.contactRecordRequest,
+            },
+          }),
       // A conversation switch drops the card, which is a change like any other:
-      // carry the counter forward and advance it rather than restarting from
-      // the initial zero. Restarting would let a read issued before the switch
-      // compare equal to the state after it.
+      // carry the counters forward and advance them rather than restarting
+      // from the initial zero. Restarting would let a read issued before the
+      // switch compare equal to the state after it.
+      //
+      // The ACP counter needs this more than the question one does, because
+      // `pendingAcpConnect` is carried across the switch: a snapshot fetched
+      // before it, comparing equal against a restarted counter, would retire a
+      // prompt raised in the meantime and record its tool-use id as dismissed,
+      // which stops any later snapshot from restoring the card at all.
       questionRevision: state.questionRevision + 1,
+      acpConnectRevision: state.acpConnectRevision + 1,
     })),
 }));
 
 export const useInteractionStore = createSelectors(useInteractionStoreBase);
+
+/**
+ * Whether a question card is on screen. A boolean rather than the state
+ * itself, so a subscriber that only cares that one is up does not re-render
+ * every time its contents change.
+ */
+export function useHasPendingQuestion(): boolean {
+  return useInteractionStore((state) => state.pendingQuestion !== null);
+}
 
 /** Atomic per-kind subscription, so a card re-renders only for its own kind. */
 export function useSubmittingRequestId(kind: PromptKind): string | null {

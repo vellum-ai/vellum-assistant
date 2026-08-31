@@ -12,6 +12,7 @@
 
 import { ChevronLeft } from "lucide-react";
 
+import { useTranslation } from "@/i18n";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 export function OnboardingBackButton({
@@ -21,6 +22,7 @@ export function OnboardingBackButton({
   onClick: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -34,7 +36,7 @@ export function OnboardingBackButton({
       )}
     >
       <ChevronLeft className="h-5 w-5" />
-      Back
+      {t("onboardingBackButton.back")}
     </button>
   );
 }

@@ -1,0 +1,42 @@
+{
+  "errorRetryRow": {
+    "retrying": "正在重試…",
+    "retry": "重試"
+  },
+  "emailsTab": {
+    "inbound": "收件",
+    "outbound": "寄件",
+    "noSubject": "(無主旨)",
+    "addressesLoadFailed": "無法載入電子郵件地址。",
+    "noAddress": "尚未註冊電子郵件地址。",
+    "setUpLink": "請在 AI 設定、電子郵件中設定。",
+    "totals": "總計",
+    "sentToday": "今日已寄出",
+    "dailyLimitSub": "每日上限 {limit, number} 封",
+    "receivedToday": "今日已收到",
+    "sentThisMonth": "本月已寄出",
+    "receivedThisMonth": "本月已收到",
+    "recentEmails": "近期電子郵件",
+    "loading": "正在載入…",
+    "emailsLoadFailed": "無法載入近期電子郵件。",
+    "noEmails": "尚無電子郵件。"
+  },
+  "systemEventsTab": {
+    "longSleep": "長時間休眠",
+    "hideDetails": "隱藏詳細資訊",
+    "showDetails": "顯示詳細資訊",
+    "intro": "您的助理在過去 {days, plural, one {# 天} other {# 天}} 的生命週期事件，最新在前。",
+    "loading": "正在載入系統事件...",
+    "loadFailed": "載入系統事件失敗。請重新整理後再試。",
+    "empty": "過去 {days, plural, one {# 天} other {# 天}} 未記錄任何系統事件。",
+    "loadingOlder": "正在載入較舊的事件...",
+    "loadOlder": "載入較舊的事件"
+  },
+  "emailsPage": {
+    "platformLoginNotice": "請登入 Vellum 平台以查看電子郵件。"
+  },
+  "systemEventsPage": {
+    "platformLoginNotice": "請登入 Vellum 平台以查看系統事件。",
+    "notAvailable": "目前助理無法使用系統事件。"
+  }
+}

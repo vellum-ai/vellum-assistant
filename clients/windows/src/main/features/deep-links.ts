@@ -16,6 +16,11 @@ import {
   installLoginItemIpc,
   STARTUP_REGISTRATION,
 } from "@vellumai/electron-desktop/login-item";
+import {
+  onSettingChange,
+  readSetting,
+  writeSetting,
+} from "@vellumai/electron-desktop/settings";
 import { resolveEnvironmentName } from "@vellumai/local-mode";
 
 import { handle, on } from "../ipc.client";
@@ -46,6 +51,13 @@ const deepLinksFeature: CapabilityModule<DesktopCapabilityRegistry> = {
         !app.isPackaged && process.argv[1]
           ? { path: process.execPath, args: [process.argv[1]] }
           : undefined,
+      store: {
+        read: () => readSetting("launchAtLogin"),
+        subscribe: (listener) => onSettingChange("launchAtLogin", listener),
+        write: (enabled) => {
+          writeSetting("launchAtLogin", enabled);
+        },
+      },
     });
     installLoginItem();
     installLoginItemIpc();

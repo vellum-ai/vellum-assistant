@@ -1,6 +1,16 @@
 import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
+/**
+ * The tool name that activates provider-native web search. Callers append a
+ * tool under this name only to instances reporting
+ * {@link Provider.supportsNativeWebSearch}; anywhere a request can change
+ * routes after that decision (see `RetryProvider`'s backup-profile
+ * escalation), the tool has to be dropped again when the new route cannot
+ * serve it, or the model answers with a tool call nothing can execute.
+ */
+export const NATIVE_WEB_SEARCH_TOOL_NAME = "web_search";
+
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
   ProviderError,
@@ -70,6 +80,19 @@ export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
 export interface ImageContent {
   type: "image";
   source: MediaSource;
+  /**
+   * Internal id linking a base64 image block to a row in the attachments table,
+   * the same correlation {@link FileContent._attachmentId} carries. A live turn
+   * sends its uploads inline while persisting them as references, so this is
+   * the only handle on the in-memory copy of an image whose stored form is a
+   * `workspace_ref`; camera-frame retention matches on it. Redundant once the
+   * block is a reference (use `source.attachmentId`).
+   *
+   * Never reaches a provider: every client builds its image payload out of
+   * `source` alone (see the `case "image"` arms of the Anthropic, Gemini, and
+   * both OpenAI clients), so top-level fields are dropped by construction.
+   */
+  _attachmentId?: string;
 }
 
 export interface FileContent {
@@ -85,6 +108,49 @@ export interface FileContent {
    * Stripped by `daemon/handlers/shared.ts` before sending to the model.
    */
   _attachmentId?: string;
+}
+
+/**
+ * The `_attachmentId` property as a spreadable fragment, or nothing when there
+ * is no usable id.
+ *
+ * Every producer of a media block faces the same choice: it either knows the
+ * attachment row the block came from, or it does not, and the field has to be
+ * absent rather than present-and-empty in the second case. This helper is the
+ * one place that decision lives, so every producer answers it the same way.
+ * Callers pass whatever id they hold: the source block's own
+ * ({@link ImageContent._attachmentId}) when carrying it across a rebuild, or an
+ * upload's row id when stamping a fresh block.
+ *
+ * Empty counts as absent, matching the read side, which requires a non-empty
+ * string before it will treat the field as an id (see
+ * `daemon/handlers/shared.ts`).
+ */
+export function attachmentIdFragment(attachmentId: string | undefined): {
+  _attachmentId?: string;
+} {
+  return attachmentId ? { _attachmentId: attachmentId } : {};
+}
+
+/**
+ * The attachment row a media block came from, whichever of the two shapes it
+ * is in, or undefined for a block that came from none (tool-generated and
+ * assistant-authored media).
+ *
+ * A reference names its row on `source.attachmentId`; an inline block has
+ * nowhere to put it but the top-level `_attachmentId`. Both are the same fact,
+ * so anything asking "which attachment is this?" has to read both or it goes
+ * blind on half the histories. Reading only `_attachmentId` in particular is
+ * the sharp edge: it is absent on every reference block, so a rebuild that
+ * flattens a reference to inline bytes drops the link unless it derives the id
+ * through here first.
+ */
+export function mediaBlockAttachmentId(
+  block: ImageContent | FileContent,
+): string | undefined {
+  return block.source.type === "workspace_ref"
+    ? block.source.attachmentId
+    : block._attachmentId;
 }
 
 export interface ToolUseContent {
@@ -192,6 +258,15 @@ export interface ProviderResponse {
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
   /**
+   * Inference profile key that actually governed this response when a
+   * wrapper re-routed the request away from the caller's own resolution
+   * (`RetryProvider`'s fallback-route escalation). `UsageTrackingProvider`
+   * prefers this over re-resolving from the original request options, so a
+   * successful fallback serve is attributed to the backup profile rather
+   * than the failed primary's. Absent on the normal (non-rerouted) path.
+   */
+  actualInferenceProfile?: string;
+  /**
    * Base URL the provider's HTTP client actually resolved to for this request,
    * read from the live SDK client instance rather than re-derived from config.
    * Lets diagnostics observe the true routing target (e.g. a misrouted host)
@@ -282,6 +357,18 @@ export interface SendMessageConfig {
    */
   forceOverrideProfile?: boolean;
   /**
+   * True when the caller appended {@link NATIVE_WEB_SEARCH_TOOL_NAME} purely
+   * to activate the route's provider-native web search, rather than passing an
+   * app-executed search tool of the same name (which is what runs when a
+   * search backend like Brave or the platform search proxy is configured).
+   * Only the caller can tell those apart, and a route change after that
+   * decision has to: `RetryProvider` drops the tool on a backup that runs no
+   * native search, and must not touch it when the daemon executes it itself.
+   * A resolution/routing-time concern only; stripped before any provider wire
+   * request.
+   */
+  nativeWebSearchSentinel?: boolean;
+  /**
    * Per-conversation seed for deterministic `mix`-profile expansion. The agent
    * loop sets this to the conversation id so every resolver call this send
    * triggers — provider/transport selection, wire-param normalization, usage
@@ -316,6 +403,14 @@ export interface SendMessageConfig {
    * JSON request bodies.
    */
   usageAttributionHeaders?: Record<string, string>;
+  /**
+   * Per-request HTTP headers merged onto the transport. `RetryProvider`
+   * stamps these for providers that need support-lookup headers (OpenCode
+   * `x-opencode-session` / `x-opencode-request`). Provider clients pass
+   * them through SDK request options only and must never include this
+   * object in provider JSON request bodies.
+   */
+  requestHeaders?: Record<string, string>;
   /**
    * Controls local usage-ledger writes for attributed provider calls.
    * Defaults to `auto`; conversation paths that aggregate usage separately

@@ -1,4 +1,8 @@
-import { Button, Typography } from "@vellumai/design-library";
+import {
+  Button,
+  Typography,
+  formatAcceleratorHint,
+} from "@vellumai/design-library";
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
 import {
@@ -22,7 +26,9 @@ import { createPortal } from "react-dom";
 
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
 import { useIsNativeMobile } from "@/runtime/platform-detection";
+import { useCommandShortcut } from "@/hooks/use-command-shortcut";
 import { usePointerCoarse } from "@/utils/pointer";
 
 // z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
@@ -57,7 +63,8 @@ export interface CommandPaletteItemData {
   subtitle?: string;
   /** Longer match excerpt rendered as a second line under the title. */
   snippet?: string;
-  shortcutHint?: ReactNode;
+  /** Electron accelerator for this command's binding on this host. */
+  shortcut?: string;
 }
 
 export interface CommandPaletteSection {
@@ -109,6 +116,7 @@ interface MobileSheetProps {
  * and releases focus.
  */
 const MobileSheet: FC<MobileSheetProps> = ({ onKeyDown, children }) => {
+  const { t } = useTranslation();
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -136,7 +144,7 @@ const MobileSheet: FC<MobileSheetProps> = ({ onKeyDown, children }) => {
       role="dialog"
       aria-modal={isPresent ? true : undefined}
       aria-hidden={isPresent ? undefined : true}
-      aria-label="Search"
+      aria-label={t("commandPalette.searchAriaLabel")}
       onKeyDown={onKeyDown}
       initial={{ y: "100%", opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
@@ -184,12 +192,20 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onKeyDown,
   surface = "overlay",
 }) => {
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   const isNativeMobileShell = useIsNativeMobile();
   // Subscribed rather than read once: the palette outlives any one pointer, so
   // a convertible whose keyboard comes off has to stop advertising ⌘K without
   // a reload, and a tablet docked into one has to start.
   const pointerCoarse = usePointerCoarse();
+  // The cap advertises the binding that opens this palette, so it comes from
+  // the same resolver every other hint does rather than a literal that a
+  // rebind would leave stale.
+  const paletteAccelerator = useCommandShortcut("commandPalette");
+  const paletteShortcutHint = paletteAccelerator
+    ? formatAcceleratorHint(paletteAccelerator)
+    : null;
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -263,13 +279,13 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         type="text"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Search conversations, memories…"
+        placeholder={t("commandPalette.placeholder")}
         className={
           isWindowSurface
             ? "min-w-0 flex-1 bg-transparent text-sm font-medium text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
             : "min-w-0 flex-1 bg-transparent text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
         }
-        aria-label="Search"
+        aria-label={t("commandPalette.searchAriaLabel")}
       />
       {query ? (
         useMobileLayout ? (
@@ -277,15 +293,15 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             type="button"
             className="shrink-0 text-body-medium-lighter text-[var(--content-tertiary)]"
             onClick={() => onQueryChange("")}
-            aria-label="Clear search"
+            aria-label={t("commandPalette.clearSearch")}
           >
-            Clear
+            {t("commandPalette.clear")}
           </button>
         ) : isWindowSurface ? (
           <button
             type="button"
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-overlay)] hover:text-[var(--content-default)]"
-            aria-label="Clear search"
+            aria-label={t("commandPalette.clearSearch")}
             onClick={() => onQueryChange("")}
           >
             <X size={16} aria-hidden />
@@ -295,12 +311,12 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             variant="ghost"
             size="compact"
             iconOnly={<X />}
-            aria-label="Clear search"
+            aria-label={t("commandPalette.clearSearch")}
             onClick={() => onQueryChange("")}
             tintColor="var(--content-tertiary)"
           />
         )
-      ) : showKeyboardHints ? (
+      ) : showKeyboardHints && paletteShortcutHint ? (
         <kbd
           className={
             isWindowSurface
@@ -308,7 +324,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
               : "shrink-0 rounded-md border border-[var(--border-base)] bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default text-[var(--content-tertiary)]"
           }
         >
-          ⌘K
+          {paletteShortcutHint}
         </kbd>
       ) : null}
       {useMobileLayout ? (
@@ -317,7 +333,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
           size="compact"
           iconOnly={<X />}
           expandOnMobile={false}
-          aria-label="Close search"
+          aria-label={t("commandPalette.closeSearch")}
           onClick={onClose}
           tintColor="var(--content-tertiary)"
         />
@@ -341,7 +357,9 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             variant="body-medium-lighter"
             className="text-[var(--content-tertiary)]"
           >
-            {isSearching ? "Searching…" : "No results"}
+            {isSearching
+              ? t("commandPalette.searching")
+              : t("commandPalette.noResults")}
           </Typography>
         </div>
       ) : (
@@ -370,9 +388,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   subtitle={item.subtitle}
                   snippet={item.snippet}
                   highlightTokens={highlightTokens}
-                  shortcutHint={
-                    showKeyboardHints ? item.shortcutHint : undefined
-                  }
+                  shortcut={showKeyboardHints ? item.shortcut : undefined}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}
                   surface={surface}
@@ -404,7 +420,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         className={MOBILE_SHEET_CLASSES}
         role="dialog"
         aria-modal="true"
-        aria-label="Search"
+        aria-label={t("commandPalette.searchAriaLabel")}
         onKeyDown={onKeyDown}
         style={MOBILE_SHEET_SAFE_AREA_STYLE}
       >
@@ -419,7 +435,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
-      aria-label="Command palette"
+      aria-label={t("commandPalette.ariaLabel")}
       className={
         surface === "window"
           ? "flex h-full w-full items-start justify-center bg-transparent p-3"

@@ -1,23 +1,22 @@
 import { Smartphone } from "lucide-react";
 
 import { NudgeChatBanner } from "@/components/nudges/nudge-chat-banner";
-import {
-  getNativeAppName,
-  type NativeAppPlatform,
-} from "@/hooks/use-native-app-nudge";
+import type { NativeAppPromotion } from "@/hooks/use-native-app-nudge";
+import { useTranslation } from "@/i18n";
 
 interface NativeAppBannerProps {
-  platform: NativeAppPlatform;
+  promotion: NativeAppPromotion;
   onDownload: () => void;
   onDismiss: () => void;
 }
 
 export function NativeAppBanner({
-  platform,
+  promotion,
   onDownload,
   onDismiss,
 }: NativeAppBannerProps) {
-  const appName = getNativeAppName(platform);
+  const { t } = useTranslation();
+  const { appName } = promotion;
 
   return (
     <NudgeChatBanner
@@ -28,11 +27,23 @@ export function NativeAppBanner({
           aria-hidden
         />
       }
-      title={`Get the ${appName} app`}
-      subtitle="Push notifications · biometric login · haptics"
-      ctaLabel="Download"
-      ctaAriaLabel={`Download ${appName} app`}
-      ariaLabel={`Download the ${appName} app`}
+      title={
+        appName === null
+          ? t("nativeAppBanner.titleGeneric")
+          : t("nativeAppBanner.title", { appName })
+      }
+      subtitle={t("nativeAppBanner.subtitle")}
+      ctaLabel={t("nativeAppBanner.download")}
+      ctaAriaLabel={
+        appName === null
+          ? t("nativeAppBanner.downloadAppAriaGeneric")
+          : t("nativeAppBanner.downloadAppAria", { appName })
+      }
+      ariaLabel={
+        appName === null
+          ? t("nativeAppBanner.bannerAriaGeneric")
+          : t("nativeAppBanner.bannerAria", { appName })
+      }
       onAction={onDownload}
       onDismiss={onDismiss}
     />

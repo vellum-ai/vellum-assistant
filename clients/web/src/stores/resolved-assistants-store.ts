@@ -26,6 +26,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
+import { isAvatarSuperseded } from "@/lib/avatar-supersede";
 import {
   isLocalClient,
   isLocalAssistant,
@@ -60,9 +61,37 @@ export interface ResolvedAssistant {
    *  entries; only the API carries it. Null/undefined means the platform has
    *  no route to this assistant. */
   ingressUrl?: string | null;
+  /** Synced avatar thumbnail served by the platform; only the API carries
+   *  it. Null means the platform holds no avatar for this assistant. */
+  avatarUrl?: string | null;
   /** Owning org for platform entries; only the lockfile carries it, so
    *  API-sourced entries leave this undefined. */
   organizationId?: string;
+  /** Platform UUID for a locally hatched entry whose `id` is the instance
+   *  name; only the lockfile carries it. API rows are already keyed by UUID. */
+  platformAssistantId?: string;
+}
+
+/**
+ * A list that lands inside the supersede window may still carry the URL a
+ * local read just outranked; keep the row on its live/cache sources until
+ * the platform copy can have caught up.
+ */
+function apiAvatarUrl(a: Assistant): string | null | undefined {
+  return isAvatarSuperseded(a.id) ? null : a.avatar_url;
+}
+
+/** The id the platform knows `a` by: the lockfile's registration for a local instance, else `a.id`. */
+export function platformIdFor(a: ResolvedAssistant): string {
+  return a.platformAssistantId ?? a.id;
+}
+
+/** {@link platformIdFor} by row id; an id not in the store is its own platform id. */
+export function resolvePlatformAssistantId(assistantId: string): string {
+  const row = useResolvedAssistantsStoreBase
+    .getState()
+    .assistants.find((a) => a.id === assistantId);
+  return row ? platformIdFor(row) : assistantId;
 }
 
 /**
@@ -120,6 +149,12 @@ interface ResolvedAssistantsActions {
    */
   markHydrated: () => void;
   upsertFromApi: (assistant: Assistant) => void;
+  /**
+   * Forget the synced thumbnail for one row. The platform copy lags a live
+   * avatar change, so callers drop it and let the live/cache paths render
+   * until the next API load carries the new URL.
+   */
+  clearAvatarUrl: (assistantId: string) => void;
   remove: (assistantId: string) => void;
   clear: () => void;
   setActiveAssistantId: (assistantId: string | null) => void;
@@ -142,12 +177,14 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
       const existingById = new Map(
         get().assistants.map((assistant) => [assistant.id, assistant]),
       );
+      // The lockfile carries no platform metadata; keep what the API seeded.
       const assistants = lockfile.assistants.map((a) => ({
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
         cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
+        avatarUrl: existingById.get(a.assistantId)?.avatarUrl,
         currentReleaseVersion: existingById.get(a.assistantId)
           ?.currentReleaseVersion,
         releaseChannel: existingById.get(a.assistantId)?.releaseChannel,
@@ -157,6 +194,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         isPaired: isPairedAssistant(a),
         runtimeUrl: a.runtimeUrl,
         organizationId: a.organizationId,
+        platformAssistantId: a.platformAssistantId,
       }));
       set({ assistants, assistantsHydrated: true });
       // The lockfile carries every org's entries, so an id absent from it is
@@ -186,7 +224,9 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               cloud: lockfileFields.cloud,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
+              platformAssistantId: lockfileFields.platformAssistantId,
               ingressUrl: a.ingress_url,
+              avatarUrl: apiAvatarUrl(a),
               currentReleaseVersion: a.current_release_version,
               releaseChannel: a.release_channel,
               isActiveLockfileAssistant:
@@ -211,6 +251,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           name: assistant.name,
           hatchedAt: assistant.created,
           ingressUrl: assistant.ingress_url,
+          avatarUrl: apiAvatarUrl(assistant),
           currentReleaseVersion: assistant.current_release_version,
           releaseChannel: assistant.release_channel,
           ...classifyApiEntry(
@@ -228,6 +269,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             runtimeVersion:
               lockfileFields.runtimeVersion ?? prior.runtimeVersion,
             runtimeUrl: lockfileFields.runtimeUrl ?? prior.runtimeUrl,
+            platformAssistantId:
+              lockfileFields.platformAssistantId ?? prior.platformAssistantId,
             isActiveLockfileAssistant:
               lockfileFields.isActiveLockfileAssistant ??
               prior.isActiveLockfileAssistant,
@@ -245,11 +288,23 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               organizationId: lockfileFields.organizationId,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
+              platformAssistantId: lockfileFields.platformAssistantId,
               isActiveLockfileAssistant:
                 lockfileFields.isActiveLockfileAssistant,
             },
           ],
         };
+      }),
+
+    clearAvatarUrl: (assistantId) =>
+      set((state) => {
+        const idx = state.assistants.findIndex((a) => a.id === assistantId);
+        if (idx < 0 || state.assistants[idx].avatarUrl == null) {
+          return state;
+        }
+        const next = [...state.assistants];
+        next[idx] = { ...next[idx], avatarUrl: null };
+        return { assistants: next };
       }),
 
     remove: (assistantId) =>
@@ -327,6 +382,7 @@ function getLockfileFields(assistantId: string): {
   organizationId?: string;
   runtimeVersion?: string;
   runtimeUrl?: string;
+  platformAssistantId?: string;
   isPaired?: boolean;
   isActiveLockfileAssistant?: boolean;
 } {
@@ -340,6 +396,7 @@ function getLockfileFields(assistantId: string): {
     organizationId: entry?.organizationId,
     runtimeVersion: entry?.resources?.runtimeVersion,
     runtimeUrl: entry?.runtimeUrl,
+    platformAssistantId: entry?.platformAssistantId,
     isPaired: entry ? isPairedAssistant(entry) : undefined,
     isActiveLockfileAssistant: lockfile
       ? activeLockfileAssistantId === assistantId

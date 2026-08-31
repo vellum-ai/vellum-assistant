@@ -459,6 +459,20 @@ export interface WakeResult {
   producedToolCalls: boolean;
   /** Present only when `invoked: false`; identifies why the wake was skipped. */
   reason?: WakeSkipReason;
+  /**
+   * How the agent loop terminated, from its `agent_loop_exit` event. Set on
+   * `invoked: true` results whose loop reported a terminal exit, and absent
+   * when it reported none (a checkpoint handoff, whose run resumes
+   * separately).
+   *
+   * `"no_tool_calls"` is the model-driven stop: the run finished because the
+   * assistant answered without asking for another tool. Every other reason
+   * means something ended the run for it (cancellation, an output-token
+   * ceiling, an unhandled error), so a caller reading the run's output as a
+   * complete conclusion has to tell them apart: the memory retrospective
+   * accepts a reviewed-nothing-to-save pass only on a model-driven stop.
+   */
+  exitReason?: AgentLoopExitReason;
 }
 
 /**
@@ -1004,7 +1018,19 @@ export async function wakeAgentForOpportunity(
               },
             ];
     const wakeHintMessageCount = wakeMessages.length;
-    const runInput: Message[] = [...baseline, ...wakeMessages];
+    // Camera-frame retention, the wake's equivalent of the orchestrator's
+    // pre-run pass. The wake sends this array itself and keeps the in-loop
+    // budget gate disabled, so neither the loop's post-compaction transform nor
+    // `runAgentLoopImpl`'s pre-run pass ever sees it; a wake on a long camera
+    // session would otherwise carry every frame the conversation holds,
+    // including any the gate above just retained. The pass replaces blocks
+    // inside messages without adding, dropping, or reordering one, so
+    // `baselineLength` and `wakeHintMessageCount` still index the same
+    // positions.
+    const runInput: Message[] = conversation.trimAgedSightFrames([
+      ...baseline,
+      ...wakeMessages,
+    ]);
 
     // Event handling runs in two modes. While `mode === "buffering"`,
     // events accumulate in `buffered` so that a wake which ultimately
@@ -1051,6 +1077,10 @@ export async function wakeAgentForOpportunity(
     // catch turns provider rejections and unhandled throws into a graceful
     // no-output stop instead of rethrowing).
     let terminalExitReason: AgentLoopExitReason | null = null;
+    // The `exitReason` field for an `invoked: true` result: present exactly
+    // when the loop reported a terminal exit.
+    const exitReasonField = (): { exitReason?: AgentLoopExitReason } =>
+      terminalExitReason !== null ? { exitReason: terminalExitReason } : {};
     const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
@@ -1125,10 +1155,23 @@ export async function wakeAgentForOpportunity(
             // the conversation-id seed resolves the same mix arm the dispatch
             // path chose. Without these, attribution credits the call-site
             // profile/arm instead of the one that ran.
+            //
+            // A rerouted call (`RetryProvider`'s fallback-profile escalation)
+            // outranks both: the wake resolved `overrideProfile` before the
+            // run and cannot know the request was escalated, while
+            // `providerName` and `model` on this same row already follow the
+            // backup off the event. Attributing the profile from the wake's
+            // own resolution would write a row that contradicts itself. One
+            // row is written per `usage` event, each from that event alone,
+            // so this needs no cross-call state: a later non-rerouted call
+            // writes its own row under the wake's resolution.
             {
               callSite,
-              overrideProfile: overrideProfile ?? null,
-              forceOverrideProfile,
+              overrideProfile:
+                event.actualInferenceProfile ?? overrideProfile ?? null,
+              forceOverrideProfile:
+                event.actualInferenceProfile !== undefined ||
+                forceOverrideProfile,
               selectionSeed: conversationId,
             },
             opts.cronRunId ?? null,
@@ -1545,7 +1588,11 @@ export async function wakeAgentForOpportunity(
             reason: "run_error" as const,
           };
         }
-        return { invoked: true, producedToolCalls: false };
+        return {
+          invoked: true,
+          producedToolCalls: false,
+          ...exitReasonField(),
+        };
       } finally {
         // Restore the pre-wake values so a queued user turn or background read
         // never observes the wake's stamps. (`runAgentLoopImpl` re-stamps both
@@ -1642,7 +1689,11 @@ export async function wakeAgentForOpportunity(
         // since checkpoints only fire after tool turns and there were
         // none.) The finally still kicks the queue drain so a racy queued
         // message isn't stranded.
-        return { invoked: true, producedToolCalls: false };
+        return {
+          invoked: true,
+          producedToolCalls: false,
+          ...exitReasonField(),
+        };
       }
 
       tailMessageCount = tailMessages.length;
@@ -1677,7 +1728,7 @@ export async function wakeAgentForOpportunity(
       });
       drainedInTry = true;
 
-      return { invoked: true, producedToolCalls };
+      return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
       // Put the conversation's resting trust back on every exit path.
       restorePersistentWakeTrust();

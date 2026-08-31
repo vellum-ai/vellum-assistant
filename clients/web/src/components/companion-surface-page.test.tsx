@@ -5,13 +5,15 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
+const toggleWatchMock = mock(() => undefined);
+const answerRetroMock = mock((_open: boolean) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
 
@@ -19,49 +21,74 @@ const STATE: CompanionSurfaceState = {
   growth: "right",
   cardGrowth: "up",
   avatarBox: 44,
+  optionsBox: 44,
   call: null,
   assistantName: "Ziggy",
   turns: [],
   working: false,
+  // Watch offered, which is what every case below except the flag's own is
+  // about. The flag is main's answer and arrives on the state like everything
+  // else here; the cases that care about it being absent say so.
+  watchEnabled: true,
   intro: null,
 };
 
 /** Reset between cases, since `STATE` is what the mocked bridge hands back. */
 const resetState = () => {
+  STATE.avatarBox = 44;
+  STATE.optionsBox = 44;
   STATE.working = false;
   STATE.call = null;
+  delete STATE.watching;
+  delete STATE.captureCount;
+  STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
+  STATE.turns = [];
+  delete STATE.character;
 };
 
 /**
- * The live subscriber, so a case can push a state change the way main does.
- * Held rather than ignored because some of what this page decides is about
- * moving between states, not about being in one.
+ * The page's subscribers, so a case can push a second state the way main does.
+ *
+ * The state main hands back on mount is what this window inherits, and some of
+ * what the page draws is a difference between that and what arrives after, so
+ * a bridge that only ever answers once cannot express it.
  */
-let subscriber: ((state: CompanionSurfaceState) => void) | null = null;
+const listeners = new Set<(state: CompanionSurfaceState) => void>();
 
-/** Publish the current `STATE`, as main's push would. */
-const pushState = () => {
+/**
+ * Push a state to the mounted page, inside `act` so React settles.
+ *
+ * With no argument it publishes the current `STATE`, which is how the cases
+ * that mutate that object drive a change; with one it pushes exactly what it
+ * was handed, which is how the cases about the difference between two states
+ * drive theirs.
+ */
+const pushState = (state: CompanionSurfaceState = { ...STATE }) => {
   act(() => {
-    subscriber?.({ ...STATE });
+    for (const listener of listeners) {
+      listener(state);
+    }
   });
 };
 
 mock.module("@/runtime/companion-surface", () => ({
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
-    callback: (state: CompanionSurfaceState) => void,
+    listener: (state: CompanionSurfaceState) => void,
   ) => {
-    subscriber = callback;
-    return () => {
-      subscriber = null;
-    };
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   },
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
   activateCompanionApp: activateMock,
   startCompanionVoice: () => undefined,
+  toggleCompanionWatch: toggleWatchMock,
+  // Stubbed rather than omitted: the page statically imports it, and a
+  // missing export is a load-time failure for the whole file.
+  answerCompanionWatchRetro: answerRetroMock,
   submitCompanionMessage: () => undefined,
   setCompanionComposing: () => undefined,
   setCompanionContext: () => undefined,
@@ -82,6 +109,7 @@ afterEach(() => {
   moveByMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
+  toggleWatchMock.mockClear();
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
 });
@@ -96,61 +124,313 @@ const canvasOf = (container: HTMLElement): HTMLElement => {
 };
 
 /**
- * The pill, pinned somewhere the hit-test can find it.
- *
- * The surface measures itself live, and nothing lays out in the test DOM, so
- * every rect would otherwise be zero and the pointer would never be over the
- * pill at all.
+ * Whether the pill is open, read off the collapsed body's `inert`: the controls
+ * stay mounted at rest so they can be measured, so their presence says nothing
+ * and their being out of the tree says everything.
  */
-const pinPill = async (container: HTMLElement): Promise<HTMLElement> => {
-  const pill = await waitFor(() => {
-    const found = container.querySelector<HTMLElement>(".cursor-grab");
-    if (!found) {
-      throw new Error("Expected the pill to render");
+const closed = (container: HTMLElement): boolean =>
+  container.querySelector("[inert]") !== null;
+
+/** Open the surface by putting the pointer on the creature. */
+const open = async (container: HTMLElement): Promise<HTMLElement> => {
+  const canvas = canvasOf(container);
+  fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+  await waitFor(() => {
+    if (closed(container)) {
+      throw new Error("Expected the pill to open");
     }
-    return found;
   });
-  pill.getBoundingClientRect = () =>
+  return canvas;
+};
+
+/** A box the hit-test can read, which jsdom otherwise reports as all zeroes. */
+type Box = { left: number; right: number; top: number; bottom: number };
+
+const pin = (element: HTMLElement, box: Box): void => {
+  element.getBoundingClientRect = () =>
     ({
-      left: 100,
-      right: 144,
-      top: 100,
-      bottom: 144,
-      x: 100,
-      y: 100,
-      width: 44,
-      height: 44,
+      ...box,
+      x: box.left,
+      y: box.top,
+      width: box.right - box.left,
+      height: box.bottom - box.top,
       toJSON: () => ({}),
     }) as DOMRect;
-  return pill;
 };
 
-/** The avatar inside the pill, which is what a press "goes back to Vellum". */
-const avatarOf = (container: HTMLElement): HTMLElement => {
-  const avatar = container.querySelector<HTMLElement>(".place-items-center");
-  if (!avatar) {
-    throw new Error("Expected the avatar to render");
-  }
-  return avatar;
+/**
+ * The avatar and the pill, pinned somewhere the hit-test can find them.
+ *
+ * The surface measures itself live and nothing lays out in the test DOM, so
+ * every rect would otherwise be zero and the pointer would never be over any of
+ * it. Pinned by default as the surface draws them at the pair the layout is
+ * authored at: the avatar's 44pt box, and the pill bottom-flush across a 12pt
+ * gap to its right. A case drawing another pair hands in its own boxes.
+ */
+const pinSurface = async (
+  container: HTMLElement,
+  boxes: { avatar: Box; pill: Box } = {
+    avatar: { left: 100, right: 144, top: 100, bottom: 144 },
+    pill: { left: 156, right: 356, top: 100, bottom: 144 },
+  },
+): Promise<{ avatar: HTMLElement; pill: HTMLElement }> => {
+  const found = await waitFor(() => {
+    const avatar = container.querySelector<HTMLElement>(".size-11");
+    const pill = container.querySelector<HTMLElement>(
+      ".transition-\\[width\\]",
+    );
+    if (!avatar || !pill) {
+      throw new Error("Expected the surface to render");
+    }
+    return { avatar, pill };
+  });
+  pin(found.avatar, boxes.avatar);
+  pin(found.pill, boxes.pill);
+  return found;
 };
 
-describe("dragging the companion surface", () => {
-  test("moves the window by the pointer's travel", async () => {
+/**
+ * The surface is a union of rects, and this is the one nothing draws into.
+ *
+ * The avatar and the pill are separate elements with a gap between them, and
+ * the pointer crosses that gap on the way from the creature to the controls. A
+ * window that went click-through halfway would drop the press the user was
+ * travelling to make, and one that claimed the whole box around the pair would
+ * swallow desktop presses in the empty canvas above and below it.
+ */
+describe("the gap between the avatar and the pill", () => {
+  test("keeps the window clickable and the pill open as it is crossed", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
-    const canvas = canvasOf(container);
+    await pinSurface(container);
+    const canvas = await open(container);
 
-    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
-    fireEvent.mouseMove(canvas, {
-      clientX: 120,
-      clientY: 120,
-      screenX: 530,
-      screenY: 520,
-      buttons: 1,
+    fireEvent.mouseMove(canvas, { clientX: 150, clientY: 122 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+    expect(closed(container)).toBe(false);
+  });
+
+  test("carries the pointer on to the pill itself", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    const canvas = await open(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 122 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+    expect(closed(container)).toBe(false);
+  });
+
+  /**
+   * The bridge runs the pill's own height and no further, so a press aimed past
+   * it lands on whatever the user actually has behind the surface.
+   */
+  test("gives the desktop back above and below it", async () => {
+    for (const clientY of [90, 160]) {
+      const { container } = render(<CompanionSurfacePage />);
+      await pinSurface(container);
+      const canvas = await open(container);
+
+      fireEvent.mouseMove(canvas, { clientX: 150, clientY });
+
+      expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      cleanup();
+      setInteractiveMock.mockClear();
+    }
+  });
+
+  /** At rest the pill's box is nothing, so there is nothing to bridge to. */
+  test("is not part of the surface while the pill is closed", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    // The collapsed pill as the surface draws it: across the gap from the
+    // creature at no width at all.
+    await pinSurface(container, {
+      avatar: { left: 100, right: 144, top: 100, bottom: 144 },
+      pill: { left: 156, right: 156, top: 100, bottom: 144 },
     });
 
-    expect(moveByMock.mock.calls).toEqual([[30, 20]]);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 150, clientY: 122 });
+
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(true);
+    expect(closed(container)).toBe(true);
+  });
+});
+
+/**
+ * The pill outlives the phase that opened it.
+ *
+ * The pointer leaving puts the phase back to resting at once, and the pill
+ * spends the next 300ms giving its width back. A window that stopped
+ * hit-testing it there would be click-through over controls that are still on
+ * screen, and a press aimed at one of them would land in whatever application
+ * is behind the surface. So the measured width is what decides, and a pointer
+ * that comes back finds the pill and re-opens it.
+ */
+describe("the pill while it is collapsing", () => {
+  test("is still part of the surface under a returning pointer", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    // Resting, with the pill still drawn at a width it has not finished giving
+    // back: the state the surface holds for the length of the transition.
+    await pinSurface(container);
+
+    fireEvent.mouseMove(canvasOf(container), { clientX: 200, clientY: 122 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+    await waitFor(() => {
+      if (closed(container)) {
+        throw new Error("Expected the pill to open again");
+      }
+    });
+  });
+
+  test("gives the desktop back once that width is gone", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container, {
+      avatar: { left: 100, right: 144, top: 100, bottom: 144 },
+      pill: { left: 156, right: 156, top: 100, bottom: 144 },
+    });
+
+    fireEvent.mouseMove(canvasOf(container), { clientX: 200, clientY: 122 });
+
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(true);
+    expect(closed(container)).toBe(true);
+  });
+});
+
+/**
+ * The two sizes, which are one choice each.
+ *
+ * The page holds no dimensions of its own: it hands the surface both boxes and
+ * the surface scales its own outermost element by the options one. What is
+ * worth holding here is that the surface is what fills the canvas and that the
+ * sizes main pushes reach it. The hit-test needs nothing new for either, since
+ * it reads rects off the DOM after the transforms, and the case that proves it
+ * is the dead corner beside a creature far taller than the pill beside it.
+ */
+describe("the companion surface at two sizes", () => {
+  /**
+   * The surface's own outermost element, which the page draws straight into the
+   * canvas rather than inside a scaled box of its own.
+   */
+  const wrapperOf = (container: HTMLElement): HTMLElement => {
+    const found = canvasOf(container).firstElementChild;
+    if (!(found instanceof HTMLElement)) {
+      throw new Error("Expected the surface to render inside the canvas");
+    }
+    if (!found.className.includes("origin-top-left")) {
+      throw new Error("Expected the surface's scaled box to be that element");
+    }
+    return found;
+  };
+
+  test("draws the surface itself into the canvas at the pushed options size", async () => {
+    STATE.avatarBox = 44;
+    STATE.optionsBox = 110;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(wrapperOf(container).style.transform).toBe("scale(2.5)");
+    });
+    // Nothing of the page's own between the canvas and the surface.
+    expect(canvasOf(container).children).toHaveLength(1);
+  });
+
+  /**
+   * A shell that predates the second axis publishes one box for the surface.
+   * Falling back to the authored size instead would draw a 44pt pill beside a
+   * creature the user had sized well past it.
+   */
+  test("sizes the pill by the creature when the state carries one box", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(wrapperOf(container).style.transform).toBe("scale(1)");
+    });
+
+    pushState({
+      ...STATE,
+      avatarBox: 110,
+      optionsBox: undefined,
+    });
+
+    await waitFor(() => {
+      expect(wrapperOf(container).style.transform).toBe("scale(2.5)");
+    });
+  });
+
+  test("leaves that scale alone when only the creature grows", async () => {
+    STATE.avatarBox = 220;
+    STATE.optionsBox = 44;
+    const { container } = render(<CompanionSurfacePage />);
+
+    // The creature's own node is where the change lands, so waiting on it is
+    // waiting for the state to have arrived at all.
+    await waitFor(() => {
+      expect(
+        container.querySelector<HTMLElement>(".size-11")?.style.transform,
+      ).toBe("translate(-50%, -50%) scale(5)");
+    });
+    expect(wrapperOf(container).style.transform).toBe("scale(1)");
+  });
+
+  /**
+   * The dead corner: outside the creature's own box, above everything the pill
+   * occupies, and well inside the box drawn around the pair. A window that
+   * claimed it would swallow the presses meant for whatever the user actually
+   * has behind the surface, which is the failure every note in this file is
+   * about.
+   */
+  test("gives the desktop back beside a creature taller than the pill", async () => {
+    STATE.avatarBox = 110;
+    STATE.optionsBox = 44;
+    const { container } = render(<CompanionSurfacePage />);
+    // As the surface draws them at this pair: a 110pt creature, and the pill
+    // bottom-flush across the gap, 44pt tall in the creature's lower portion.
+    await pinSurface(container, {
+      avatar: { left: 100, right: 210, top: 100, bottom: 210 },
+      pill: { left: 222, right: 422, top: 166, bottom: 210 },
+    });
+
+    // Open it from the creature, which is the only part drawn at rest.
+    const canvas = await open(container);
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseMove(canvas, { clientX: 216, clientY: 120 });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+});
+
+describe("dragging the companion surface", () => {
+  /**
+   * Both drawn halves are handles. The drag is a window move, so whichever the
+   * hand happens to land on takes the whole surface with it, and a creature
+   * that could not be grabbed would be the part users reach for first.
+   */
+  test("moves the window by the pointer's travel, from either half", async () => {
+    for (const half of ["avatar", "pill"] as const) {
+      const { container } = render(<CompanionSurfacePage />);
+      const pinned = await pinSurface(container);
+      const canvas = canvasOf(container);
+
+      fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+      fireEvent.pointerDown(pinned[half], {
+        button: 0,
+        pointerId: 1,
+        screenX: 500,
+        screenY: 500,
+      });
+      fireEvent.mouseMove(canvas, {
+        clientX: 120,
+        clientY: 120,
+        screenX: 530,
+        screenY: 520,
+        buttons: 1,
+      });
+
+      expect(moveByMock.mock.calls).toEqual([[30, 20]]);
+      cleanup();
+      moveByMock.mockClear();
+    }
   });
 
   /**
@@ -160,11 +440,16 @@ describe("dragging the companion surface", () => {
    */
   test("ends a drag whose release landed outside the window", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { pill } = await pinSurface(container);
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -189,12 +474,17 @@ describe("dragging the companion surface", () => {
 
   test("hit-tests again once the abandoned drag is dropped", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { pill } = await pinSurface(container);
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -219,11 +509,16 @@ describe("dragging the companion surface", () => {
 
   test("a press that travelled is not a click on the avatar", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { avatar, pill } = await pinSurface(container);
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -232,22 +527,241 @@ describe("dragging the companion surface", () => {
       buttons: 1,
     });
     fireEvent.mouseUp(canvas);
-    fireEvent.click(avatarOf(container));
+    fireEvent.click(avatar);
 
     expect(activateMock).not.toHaveBeenCalled();
   });
 
   test("a press that held still still goes back to Vellum", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { avatar, pill } = await pinSurface(container);
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
-    fireEvent.mouseDown(pill, { screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseUp(canvas);
-    fireEvent.click(avatarOf(container));
+    fireEvent.click(avatar);
 
     expect(activateMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The window is moved a message at a time, so it trails the hand, and a flick
+   * outruns it far enough to carry the pointer past the canvas edge, which sits
+   * a pad's width off the creature on the side the card does not grow into.
+   * Handing the desktop back there would drop the grab under a button that is
+   * still down.
+   */
+  test("keeps the drag alive when the pointer leaves the canvas mid-press", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 520,
+      screenY: 500,
+      buttons: 1,
+    });
+    expect(moveByMock.mock.calls).toEqual([[20, 0]]);
+    moveByMock.mockClear();
+    setInteractiveMock.mockClear();
+
+    fireEvent.mouseLeave(canvas);
+
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(false);
+    expect(moveByMock).not.toHaveBeenCalled();
+
+    // Still the same grab, so the next frame moves the window by its own travel
+    // rather than starting over from wherever the pointer reappeared.
+    fireEvent.mouseMove(canvas, {
+      clientX: 900,
+      clientY: 900,
+      screenX: 560,
+      screenY: 530,
+      buttons: 1,
+    });
+
+    expect(moveByMock.mock.calls).toEqual([[40, 30]]);
+  });
+
+  test("takes pointer capture on a left press and not on a right-click", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+    const capture = spyOn(pill, "setPointerCapture").mockImplementation(
+      () => undefined,
+    );
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 7,
+      screenX: 500,
+      screenY: 500,
+    });
+
+    expect(capture.mock.calls).toEqual([[7]]);
+
+    // A right-press opens the menu, which takes the pointer for as long as it
+    // is up. Capturing it here would hold a grab nothing ever releases.
+    fireEvent.pointerDown(pill, {
+      button: 2,
+      pointerId: 8,
+      screenX: 500,
+      screenY: 500,
+    });
+
+    expect(capture.mock.calls).toEqual([[7]]);
+  });
+
+  test("still hands the desktop back on a leave that follows the release", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 540,
+      screenY: 500,
+      buttons: 1,
+    });
+    fireEvent.mouseUp(canvas);
+    fireEvent.mouseLeave(canvas);
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+
+  /**
+   * Capture retargets the click to whatever holds it, so a press that armed the
+   * drag from a control is a click that control never sees. The surface's own
+   * controls stop the press, but the card draws the assistant's markdown and
+   * the copy affordance on a code block belongs to the design library.
+   */
+  test("a press on a control the card's markdown draws is not a grab", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+    const capture = spyOn(pill, "setPointerCapture").mockImplementation(
+      () => undefined,
+    );
+
+    // The turns are drawn on the card Type opens, and only once the exchange on
+    // it is this composer's own: send a message, then let the reply arrive the
+    // way main pushes it.
+    const type = Array.from(pill.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "Type",
+    );
+    fireEvent.click(type as HTMLElement);
+    const field = await waitFor(() => {
+      const found = container.querySelector("input");
+      if (!found) {
+        throw new Error("Expected the composer field to render");
+      }
+      return found;
+    });
+    fireEvent.change(field, { target: { value: "hello" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    STATE.turns = [
+      { role: "assistant", text: "Try this:\n\n```ts\nconst a = 1;\n```" },
+    ];
+    pushState();
+
+    const copy = await waitFor(() => {
+      const found = pill.querySelector<HTMLElement>("[data-copy-control]");
+      if (!found) {
+        throw new Error("Expected the code block's copy control to render");
+      }
+      return found;
+    });
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(copy, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 540,
+      screenY: 520,
+      buttons: 1,
+    });
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(moveByMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The host can take the pointer away mid-drag, which releases the capture and
+   * sends no `mouseup` after it. Nothing else reports that press: a leave that
+   * came while the drag was live deferred to it and does not come again, so
+   * the cancel has to end the drag and hand the desktop back by itself.
+   */
+  test("ends the drag and gives the desktop back when the host takes the pointer away", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 520,
+      screenY: 500,
+      buttons: 1,
+    });
+    expect(moveByMock.mock.calls).toEqual([[20, 0]]);
+    moveByMock.mockClear();
+    setInteractiveMock.mockClear();
+
+    // The pointer is off the canvas with the button down, so the leave defers
+    // to the drag and the window stays clickable for it.
+    fireEvent.mouseLeave(canvas);
+    expect(setInteractiveMock).not.toHaveBeenCalledWith(false);
+
+    fireEvent.pointerCancel(canvas);
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+
+    fireEvent.mouseMove(canvas, {
+      clientX: 900,
+      clientY: 900,
+      screenX: 560,
+      screenY: 530,
+      buttons: 1,
+    });
+
+    expect(moveByMock).not.toHaveBeenCalled();
   });
 });
 
@@ -270,9 +784,157 @@ describe("the working ring on the page", () => {
 
   test("stays dark when nothing is running", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    await pinPill(container);
+    await pinSurface(container);
 
     expect(container.querySelector(".companion-working-ring")).toBeNull();
+  });
+});
+
+/**
+ * The session is not this window's: main holds it and pushes it down with the
+ * rest of the state, and the press goes back out the same way. What this page
+ * owns is passing both halves through, which are two props rather than one
+ * because the phase a running session opens is outranked by a half-typed
+ * sentence and by a call, and the indicator is not.
+ */
+describe("the watch session on the companion surface", () => {
+  const watchOf = (container: HTMLElement): HTMLButtonElement => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Teach"]',
+    );
+    if (!found) {
+      throw new Error("Expected Watch to render");
+    }
+    return found;
+  };
+
+  test("hands the press back to the window holding the session", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    const canvas = canvasOf(container);
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+
+    fireEvent.click(watchOf(container));
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("holds the pill open while a session runs, hand or no hand", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(container.querySelector("[inert]")).toBeNull();
+    });
+  });
+
+  test("draws the session as running", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+  });
+
+  /**
+   * The session's screen reads reach this window the same way the flag does,
+   * and they are the half nothing else can stand in for: the flag says a
+   * session is open and only the count says the screen has actually been read.
+   */
+  test("draws a capture the session reported", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    pushState({ ...STATE, captureCount: 4 });
+
+    expect(container.querySelector(".companion-capture-pulse")).not.toBeNull();
+  });
+
+  /**
+   * This window is recreated on every reload, and main answers the new one
+   * with the total it has been keeping. That number stands for reads taken
+   * before this window existed, so drawing it would present the last of them
+   * as one happening now.
+   */
+  test("does not draw a capture it only inherited from main", async () => {
+    STATE.watching = true;
+    STATE.captureCount = 3;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
+  });
+
+  /**
+   * A state that cannot say how many reads a session has taken has not
+   * established that it took any, the same bargain the flag itself is given.
+   */
+  test("reads a state that says nothing about captures as none", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(container.querySelector(".companion-capture-pulse")).toBeNull();
+  });
+
+  /**
+   * Absence is not a session, so a state pushed by a main process that tracks
+   * none at all reads as nothing running. The alternative is a capture
+   * indicator over a machine nobody is reading.
+   */
+  test("reads a state that says nothing about it as no session", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+
+    await waitFor(() => {
+      expect(watchOf(container).getAttribute("aria-pressed")).toBe("false");
+    });
+  });
+
+  /**
+   * The stop control has to reach as far as the indicator does, and the
+   * indicator outlives the phase: a session still running under a half-typed
+   * sentence that the user cannot end is worse than no indicator at all.
+   */
+  test("keeps a way out of the session while the composer is open", async () => {
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+    fireEvent.click(
+      await waitFor(() => {
+        const type = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Type"]',
+        );
+        if (!type) {
+          throw new Error("Expected Type to render");
+        }
+        return type;
+      }),
+    );
+
+    const stop = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stop teaching"]',
+      );
+      if (!found) {
+        throw new Error("Expected the stop control to render");
+      }
+      return found;
+    });
+    fireEvent.click(stop);
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -291,26 +953,15 @@ describe("the companion's introduction", () => {
       }
       return found;
     });
-    // Well clear of the pill's box in `pinPill`, so a pointer on one is
-    // provably not on the other.
-    card.getBoundingClientRect = () =>
-      ({
-        left: 300,
-        right: 544,
-        top: 300,
-        bottom: 380,
-        x: 300,
-        y: 300,
-        width: 244,
-        height: 80,
-        toJSON: () => ({}),
-      }) as DOMRect;
+    // Well clear of the boxes `pinSurface` gives the avatar and the pill, so a
+    // pointer on one is provably not on the other.
+    pin(card, { left: 300, right: 544, top: 300, bottom: 380 });
     return card;
   };
 
   test("draws nothing while no run is due", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    await pinPill(container);
+    await pinSurface(container);
     expect(container.querySelector('[role="group"]')).toBeNull();
   });
 
@@ -367,7 +1018,7 @@ describe("the companion's introduction", () => {
   test("makes the window clickable while the pointer is on the card", async () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
-    await pinPill(container);
+    await pinSurface(container);
     await pinCard(container);
     const canvas = canvasOf(container);
 
@@ -384,7 +1035,7 @@ describe("the companion's introduction", () => {
   test("does not read a pointer on the card as hovering the avatar", async () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { pill } = await pinSurface(container);
     await pinCard(container);
     const canvas = canvasOf(container);
 
@@ -405,7 +1056,7 @@ describe("the companion's introduction", () => {
   test("gives the desktop back when the run ends under the pointer", async () => {
     STATE.intro = "menu";
     const { container } = render(<CompanionSurfacePage />);
-    await pinPill(container);
+    await pinSurface(container);
     await pinCard(container);
     const canvas = canvasOf(container);
 
@@ -438,7 +1089,7 @@ describe("the companion's introduction", () => {
       assistantName: "Ziggy",
     };
     const { container } = render(<CompanionSurfacePage />);
-    await pinPill(container);
+    await pinSurface(container);
     expect(container.querySelector('[role="group"]')).toBeNull();
   });
 
@@ -459,7 +1110,7 @@ describe("the companion's introduction", () => {
       assistantName: "Ziggy",
     };
     const { container } = render(<CompanionSurfacePage />);
-    await pinPill(container);
+    await pinSurface(container);
     expect(container.querySelector('[role="group"]')).toBeNull();
 
     STATE.call = null;
@@ -470,18 +1121,95 @@ describe("the companion's introduction", () => {
 });
 
 /**
+ * The Watch flag, which this window cannot evaluate for itself.
+ *
+ * The route is standalone: no auth, no `RootLayout`, and so no flag store that
+ * ever settles. Main reads the evaluation the app's window wrote into settings
+ * and pushes it here, and this page's whole job is to believe only a positive
+ * answer.
+ */
+describe("the Watch flag on the companion surface", () => {
+  const watchButton = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Teach"]');
+
+  /** Open the pill, which is where the way into a session would be drawn. */
+  const openPill = async (container: HTMLElement): Promise<void> => {
+    await pinSurface(container);
+    await open(container);
+  };
+
+  test("draws no way in when the pushed state says nothing about it", async () => {
+    delete STATE.watchEnabled;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws no way in when the pushed state says no", async () => {
+    STATE.watchEnabled = false;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).toBeNull();
+  });
+
+  test("draws the way in when the pushed state says yes", async () => {
+    STATE.watchEnabled = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await openPill(container);
+
+    expect(watchButton(container)).not.toBeNull();
+  });
+
+  /**
+   * The flag hides the door and never the exit. A session that outlives the
+   * answer is still reading the screen, and a capture the user cannot end is
+   * the one thing this surface exists to prevent.
+   */
+  test("keeps a way out of a session the flag no longer offers", async () => {
+    STATE.watchEnabled = false;
+    STATE.watching = true;
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    fireEvent.mouseMove(canvasOf(container), { clientX: 120, clientY: 120 });
+
+    const stop = await waitFor(() => {
+      const found = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Stop teaching"]',
+      );
+      if (!found) {
+        throw new Error("Expected the stop control to render");
+      }
+      return found;
+    });
+    fireEvent.click(stop);
+
+    expect(toggleWatchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * The surface's own menu. The tray is the only other way to resize or hide the
  * companion, and it names a menu-bar icon rather than the thing on screen, so a
  * press on the object itself is where a user reaches first.
  */
 describe("the companion's own menu", () => {
-  test("a right-click asks main to open it", async () => {
-    const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+  /**
+   * On the creature as much as on the pill: a user reaching for "make this go
+   * away" should not have to find the one of the two that carries the menu.
+   */
+  test("a right-click on either half asks main to open it", async () => {
+    for (const half of ["avatar", "pill"] as const) {
+      const { container } = render(<CompanionSurfacePage />);
+      const pinned = await pinSurface(container);
 
-    fireEvent.contextMenu(pill);
+      fireEvent.contextMenu(pinned[half]);
 
-    expect(contextMenuMock).toHaveBeenCalled();
+      expect(contextMenuMock).toHaveBeenCalled();
+      cleanup();
+      contextMenuMock.mockClear();
+    }
   });
 
   /**
@@ -497,7 +1225,7 @@ describe("the companion's own menu", () => {
    */
   test("leaves the native text menu alone inside the composer", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { pill } = await pinSurface(container);
 
     // Open the composer, which is what puts a field on the card.
     const type = Array.from(pill.querySelectorAll("button")).find(
@@ -519,12 +1247,17 @@ describe("the companion's own menu", () => {
 
   test("a right-press does not start a drag", async () => {
     const { container } = render(<CompanionSurfacePage />);
-    const pill = await pinPill(container);
+    const { pill } = await pinSurface(container);
     const canvas = canvasOf(container);
 
     fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
     // button 2 is the right button; the drag arms only on the left.
-    fireEvent.mouseDown(pill, { button: 2, screenX: 500, screenY: 500 });
+    fireEvent.pointerDown(pill, {
+      button: 2,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
     fireEvent.mouseMove(canvas, {
       clientX: 120,
       clientY: 120,
@@ -534,5 +1267,88 @@ describe("the companion's own menu", () => {
     });
 
     expect(moveByMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The glow is the assistant's own light, not the surface's: an idle companion
+ * with no call running glows its character's accent, and a running call's
+ * accent wins over it.
+ */
+describe("the companion's accent colour", () => {
+  const CHARACTER = {
+    bodyShape: "blob",
+    eyeStyle: "curious",
+    color: "orange",
+  } as const;
+
+  /** A call running, carrying whatever accent the case is about. */
+  const listening = (accentHex: string): CompanionSurfaceState["call"] => ({
+    phase: "listening",
+    label: "Listening",
+    accentHex,
+    muted: false,
+    outputMuted: false,
+    detail: "",
+    approvalRequestId: "",
+    assistantName: "Ziggy",
+  });
+
+  /**
+   * The glow is the only thing on the surface painted in the accent, so it is
+   * where the resolved colour is read back from.
+   *
+   * Awaited, because the state the colour comes from arrives after mount, so
+   * the first render is always the default.
+   */
+  const expectGlow = async (
+    container: HTMLElement,
+    hex: string,
+  ): Promise<void> => {
+    await waitFor(() => {
+      const glow = container.querySelector<HTMLElement>(".companion-glow");
+      if (!glow) {
+        throw new Error("Expected the glow to render");
+      }
+      expect(glow.style.background.trim().toLowerCase()).toContain(hex);
+    });
+  };
+
+  test("resolves the character's palette colour with no call running", async () => {
+    STATE.character = { ...CHARACTER };
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectGlow(container, "#e9642f");
+  });
+
+  test("lets a running call's accent win", async () => {
+    STATE.character = { ...CHARACTER };
+    STATE.call = listening("#123456");
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectGlow(container, "#123456");
+  });
+
+  /**
+   * The contract makes no promise the call's hex parses, and CSS drops an
+   * invalid custom property silently, so an unusable accent falls through to
+   * the character rather than being handed on.
+   */
+  test("ignores a call accent that is not a hex", async () => {
+    STATE.character = { ...CHARACTER };
+    STATE.call = listening("");
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectGlow(container, "#e9642f");
+  });
+
+  /**
+   * An uploaded image has no palette colour to resolve, so the component's own
+   * default is the last word rather than a colour guessed from nothing.
+   */
+  test("falls back to the component default without a character", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+
+    await expectGlow(container, "#5eead4");
   });
 });

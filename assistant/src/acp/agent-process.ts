@@ -92,6 +92,7 @@ export class AcpAgentProcess {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: this.spawnedEnv,
+      windowsHide: true,
     });
 
     const stream = acp.ndJsonStream(

@@ -134,7 +134,7 @@ describe("getDefaultOffsiteBackupsDir", () => {
 
 describe("resolveOffsiteDestinations", () => {
   test("returns iCloud default with encrypt=true when override is null", () => {
-    const result = resolveOffsiteDestinations(null);
+    const result = resolveOffsiteDestinations(null, "darwin");
     expect(result).toHaveLength(1);
     expect(result[0].encrypt).toBe(true);
     expect(result[0].path).toContain(
@@ -143,9 +143,13 @@ describe("resolveOffsiteDestinations", () => {
   });
 
   test("returns iCloud default when override is undefined", () => {
-    const result = resolveOffsiteDestinations(undefined);
+    const result = resolveOffsiteDestinations(undefined, "darwin");
     expect(result).toHaveLength(1);
     expect(result[0].encrypt).toBe(true);
+  });
+
+  test("returns no implicit destination on Windows", () => {
+    expect(resolveOffsiteDestinations(null, "win32")).toEqual([]);
   });
 
   test("returns an empty array unchanged", () => {

@@ -28,6 +28,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -53,10 +54,16 @@ import {
   FEATURE_FLAGS_SET,
   FEEDBACK_DIAGNOSTICS,
   FEEDBACK_LOGS,
+  HELPER_DICTATION_FINALIZED_EVENT,
+  HELPER_DICTATION_PARTIAL_EVENT,
+  HELPER_DICTATION_SET_PARTIALS,
+  HELPER_DICTATION_TRANSCRIBE,
+  HELPER_DICTATION_TRANSCRIBED_EVENT,
 } from "@vellumai/ipc-contract";
 import {
   createBundleConfirmBridge,
   createDeepLinksBridge,
+  createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
@@ -198,7 +205,7 @@ const bridge: VellumBridge = {
         pushAudio?: boolean,
       ): Promise<DictationPartialsResult> =>
         ipcRenderer.invoke(
-          "vellum:helper:dictation:setPartials",
+          HELPER_DICTATION_SET_PARTIALS,
           enable,
           deviceName,
           pushAudio,
@@ -206,19 +213,19 @@ const bridge: VellumBridge = {
       pushAudioChunk: (chunk: ArrayBuffer): void => {
         ipcRenderer.send("vellum:helper:dictation:audio", chunk);
       },
-      onPartial: subscribeDictationEvent("vellum:helper:dictation:partial"),
+      onPartial: subscribeDictationEvent(HELPER_DICTATION_PARTIAL_EVENT),
       onFinalized: subscribeDictationEvent(
-        "vellum:helper:dictation:finalized",
+        HELPER_DICTATION_FINALIZED_EVENT,
       ),
       transcribe: (
         audio: ArrayBuffer,
-      ): Promise<{ ok: boolean; reason?: string }> =>
+      ): Promise<DictationTranscribeResult> =>
         ipcRenderer.invoke(
-          "vellum:helper:dictation:transcribe",
+          HELPER_DICTATION_TRANSCRIBE,
           audio,
-        ) as Promise<{ ok: boolean; reason?: string }>,
+        ) as Promise<DictationTranscribeResult>,
       onTranscribed: subscribeDictationEvent(
-        "vellum:helper:dictation:transcribed",
+        HELPER_DICTATION_TRANSCRIBED_EVENT,
       ),
     },
   },
@@ -292,6 +299,7 @@ const bridge: VellumBridge = {
     shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
       ipcRenderer.invoke("vellum:share:file", bytes, filename),
   },
+  downloads: createDownloadsBridge(ipcRenderer),
   localMode: createLocalModeBridge(ipcRenderer),
   menu: {
     setPlatformSession: (has: boolean): Promise<void> =>
@@ -487,6 +495,12 @@ const bridge: VellumBridge = {
     },
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
+    },
+    toggleWatch: (): void => {
+      ipcRenderer.send("vellum:companion:toggleWatch");
+    },
+    answerWatchRetro: (open: boolean): void => {
+      ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");

@@ -324,6 +324,19 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
+// The iOS widget snapshot outlives the page, so every session-ending path has
+// to drop it. Full module surface: `mock.module` is process-global in bun, so
+// a partial shape would shadow the other exports for later test files.
+const clearWidgetSnapshotMock = mock(async () => true);
+mock.module("@/runtime/widget-snapshot", () => ({
+  WIDGET_SNAPSHOT_SCHEMA_VERSION: 2,
+  isWidgetSnapshotSyncAvailable: () => false,
+  readWidgetSnapshotAssistantId: () => null,
+  syncWidgetSnapshot: async () => false,
+  clearWidgetSnapshot: clearWidgetSnapshotMock,
+  retryPendingWidgetSnapshotClear: async () => true,
+}));
+
 // Use the REAL resolved-assistants store: it's dependency-light, so loading it
 // for real is cheap, and the `beforeEach` resets it between tests. (The list is
 // now loaded by the platform-assistants-sync subscription, not the auth store —
@@ -461,6 +474,7 @@ beforeEach(() => {
   mockFetchConsentError = null;
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
+  clearWidgetSnapshotMock.mockClear();
   logoutMock.mockClear();
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
@@ -1703,6 +1717,433 @@ describe("session cleanup on logout", () => {
     await useAuthStore.getState().logout();
 
     expect(order).toEqual(["reset", "clear:null"]);
+  });
+});
+
+/** Let every pending microtask and timer-free continuation run. */
+function flushTasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Hold the next `clearWidgetSnapshot()` open, returning the release fn, so a
+ * test can interleave work with a session-ending path suspended on the bridge.
+ */
+function holdWidgetSnapshotClear(): () => void {
+  let release = (): void => {};
+  clearWidgetSnapshotMock.mockImplementationOnce(
+    () =>
+      new Promise<boolean>((resolve) => {
+        release = () => resolve(true);
+      }),
+  );
+  return () => release();
+}
+
+// A Home Screen widget is readable without unlocking the device, so the iOS
+// widget snapshot must not outlive the session it was built from. Explicit
+// logout is the rare way a session ends; a revoked or expired one settles
+// through `refreshSession` or `initSession` instead, so the drop belongs to
+// the shared session-ended transition rather than to `logout()`.
+describe("iOS widget snapshot on session end", () => {
+  test("logout drops the widget snapshot", async () => {
+    await useAuthStore.getState().logout();
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("gateway logout drops the widget snapshot", async () => {
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the drop completes before the session leaves authenticated", async () => {
+    // The state write is what hands a signed-out page to its redirect, which
+    // on the logout path can be a hard navigation. A detached bridge call
+    // would race that teardown.
+    let statusAtClearTime = useAuthStore.getState().sessionStatus;
+    clearWidgetSnapshotMock.mockImplementationOnce(async () => {
+      statusAtClearTime = useAuthStore.getState().sessionStatus;
+      return true;
+    });
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+
+    await useAuthStore.getState().logout();
+
+    expect(statusAtClearTime).toBe("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("a settled 401 on refreshSession drops the widget snapshot", async () => {
+    // The revoked-session path: no logout call ever runs, so this is the one
+    // chance to drop the previous account's conversation titles.
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed remote-gateway refresh drops the widget snapshot", async () => {
+    mockIsRemoteGatewayMode = true;
+    useAuthStore.setState({ ...authenticatedLocalUserForTest() });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a boot probe that finds no session drops the widget snapshot", async () => {
+    sessionUser = null;
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an exhausted gateway prime drops the widget snapshot", async () => {
+    // Boot ends the authenticated session after the startup-retry budget is
+    // spent, so the previous session's titles must not survive on the Home
+    // Screen while the app shows the recovery controls.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the exhausted gateway prime leaves the platform probe unsettled", async () => {
+    // The snapshot drop must not drag the rest of the `sessionEnded()`
+    // transition along: writing `platformSession: "absent"` here would settle
+    // the probe on a value the follow-up probe is about to replace.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ platformSession: "unknown" });
+
+    const gates: Array<() => void> = [];
+    getSessionGates = gates;
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().platformSession).toBe("unknown");
+
+    gates[0]?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("an inconclusive probe keeps the session and the widget snapshot", async () => {
+    // Offline resume (LUM-2412): the session never ended, so blanking the
+    // widgets would be a regression, not a cleanup.
+    getSessionThrows = true;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(clearWidgetSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  test("a local session that survives a settled 401 keeps the widget snapshot", async () => {
+    // The demotion path drops the platform user but not the session, so the
+    // local assistant's conversations are still the user's own.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = false;
+    mockGatewayToken = null;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "unknown",
+    });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(clearWidgetSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  // The bridge call is bounded at two seconds, not instantaneous, and the
+  // app-resume listener or an interactive sign-in can authenticate inside that
+  // window. The session-ending write the earlier rejection is holding belongs
+  // to a session that is no longer current, so it must not land.
+  test("a re-authentication during the snapshot clear survives the delayed write", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const rejected = useAuthStore.getState().refreshSession();
+    await flushTasks();
+
+    sessionUser = { id: "user-2", email: "user2@example.com" };
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    releaseClear();
+    await expect(rejected).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-2");
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("the delayed session-ending write lands when no newer auth intervenes", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = null;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const rejected = useAuthStore.getState().refreshSession();
+    await flushTasks();
+
+    // Still authenticated: the write is what ends the session, and it waits on
+    // the clear.
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    releaseClear();
+    await expect(rejected).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("an explicit logout outlasts a refresh that authenticates during the clear", async () => {
+    // The inverse of the guard above. Logout has already dropped the
+    // credentials, the selection and the user-scoped storage before it reaches
+    // the clear, so a refresh that lands inside that window is describing a
+    // session that no longer exists. Deferring to it would leave the user
+    // signed in after pressing Log Out.
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      platformSession: "present",
+    });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const loggingOut = useAuthStore.getState().logout();
+    await flushTasks();
+
+    // The app-resume listener explicitly permits overlapping refreshes.
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    releaseClear();
+    await loggingOut;
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("a gateway logout outlasts a refresh that authenticates during the clear", async () => {
+    mockIsGatewayAuth = true;
+    mockGatewayToken = "access-token";
+    mockIsLocalClient = false;
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const loggingOut = useAuthStore.getState().logout();
+    await flushTasks();
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    releaseClear();
+    await loggingOut;
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("a gateway re-auth during the snapshot clear survives the delayed write", async () => {
+    // The `keepPlatformSession` variant takes the same guard: a boot that
+    // exhausted its gateway prime must not log out the session a retry
+    // established while the boot's snapshot clear was still outstanding.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const booting = useAuthStore.getState().initSession();
+    await flushTasks();
+
+    mockPrimeError = null;
+    mockGatewayToken = "access-token";
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    releaseClear();
+    await booting;
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+  });
+});
+
+/**
+ * Hold the next `fetchConsent()` open, returning the release fn, so a test can
+ * suspend a refresh inside `syncUserScopedState`, the long await between the
+ * session response and the authenticated write that response drives.
+ */
+function holdConsentFetch(): () => void {
+  let release = (): void => {};
+  fetchConsentMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve(mockFetchConsentResult);
+      }),
+  );
+  return () => release();
+}
+
+// The other half of the observation-vs-decision rule: a logout invalidates the
+// observations already in flight. A refresh that fetched its session while the
+// credentials were still valid can still be inside its awaits when logout ends
+// the session, and its authenticated write would put the user back on
+// signed-in surfaces after they pressed Log Out.
+describe("explicit logout supersedes an in-flight refresh", () => {
+  test("a refresh that began before logout abandons its authenticated write", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: null,
+      platformSession: "present",
+    });
+    const releaseConsent = holdConsentFetch();
+
+    const refreshing = useAuthStore.getState().refreshSession();
+    await flushTasks();
+
+    await useAuthStore.getState().logout();
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+
+    const statuses: string[] = [];
+    const unsubscribe = useAuthStore.subscribe((state) => {
+      statuses.push(state.sessionStatus);
+    });
+    releaseConsent();
+    await expect(refreshing).resolves.toBe(false);
+    unsubscribe();
+
+    // Not even a flash: the write never lands, rather than landing and being
+    // corrected.
+    expect(statuses).not.toContain("authenticated");
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().platformSession).toBe("absent");
+    // The abandoned transition also carries `persistUserSnapshot`, which would
+    // leave the departed account restorable on the next offline boot.
+    expect(localStorage.getItem("vellum:auth:userSnapshot")).toBeNull();
+  });
+
+  test("a refresh that starts midway through a logout is superseded too", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: null,
+      platformSession: "present",
+    });
+    const releaseClear = holdWidgetSnapshotClear();
+
+    const loggingOut = useAuthStore.getState().logout();
+    await flushTasks();
+
+    // Enters while logout is suspended on the snapshot clear, and resumes only
+    // after logout's session-ending write has landed.
+    const releaseConsent = holdConsentFetch();
+    const refreshing = useAuthStore.getState().refreshSession();
+    await flushTasks();
+
+    releaseClear();
+    await loggingOut;
+    releaseConsent();
+    await expect(refreshing).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  test("a refresh that completes with no logout still authenticates", async () => {
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "unauthenticated",
+      user: null,
+      platformSession: "absent",
+    });
+    const releaseConsent = holdConsentFetch();
+
+    const refreshing = useAuthStore.getState().refreshSession();
+    await flushTasks();
+    releaseConsent();
+
+    await expect(refreshing).resolves.toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-1");
+    expect(useAuthStore.getState().platformSession).toBe("present");
+  });
+
+  test("a sign-in started after a logout is never blocked", async () => {
+    // The generation is snapshotted on entry, so a completed logout can only
+    // supersede refreshes that were already running. Nothing resets it, and a
+    // fresh sign-in still commits.
+    mockIsLocalClient = false;
+    mockPlatformAssistants = [];
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: null,
+      platformSession: "present",
+    });
+
+    await useAuthStore.getState().logout();
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+
+    // The provider callback and signup pages commit an interactive sign-in
+    // through `refreshSession`.
+    sessionUser = { id: "user-2", email: "user2@example.com" };
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-2");
+
+    // And the connect action commits one directly.
+    await useAuthStore.getState().logout();
+    await useAuthStore.getState().connectPlatformAssistant("assistant-1");
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-2");
   });
 });
 

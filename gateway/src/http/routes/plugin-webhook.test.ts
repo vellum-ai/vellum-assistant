@@ -27,6 +27,11 @@ import {
   INBOUND_CLAIM_LEASE_MS,
 } from "../../db/inbound-dedup-store.js";
 import { inboundSeenEvents } from "../../db/schema.js";
+import {
+  ACCESS_DENIED_NOT_APPROVED_REPLY,
+  PLUGIN_ADMISSION_DENIED_NOTICE_PATH,
+} from "@vellumai/gateway-client";
+
 import type {
   HandleInboundOptions,
   InboundAdmission,
@@ -914,6 +919,125 @@ describe("declared verification", () => {
   });
 });
 
+describe("standard-webhooks verification", () => {
+  const KEY_BYTES = Buffer.from("standard-webhooks-test-key-bytes!!");
+  const WHSEC = `whsec_${KEY_BYTES.toString("base64")}`;
+  const MSG_ID = "msg_01JABC";
+
+  const STANDARD: IngressRoute = {
+    ...ROUTE,
+    verification: {
+      kind: "standard-webhooks",
+      secret: { field: "standard_webhooks_secret" },
+    },
+  };
+
+  const STANDARD_CREDENTIALS = credentialsFor({
+    "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+    "credential/vellum/webhook_secret": VELLUM_SECRET,
+    "credential/meeting-bot/standard_webhooks_secret": WHSEC,
+  });
+
+  function vendorPost(body: string, headers: Record<string, string>): Request {
+    return new Request("http://gateway/webhooks/plugins/meeting-bot/realtime", {
+      method: "POST",
+      body,
+      headers,
+    });
+  }
+
+  function signStandard(
+    body: string,
+    opts: { id?: string; timestamp?: string } = {},
+  ): { id: string; timestamp: string; signature: string } {
+    const id = opts.id ?? MSG_ID;
+    const timestamp =
+      opts.timestamp ?? String(Math.floor(Date.now() / 1000));
+    const digest = createHmac("sha256", KEY_BYTES)
+      .update(`${id}.${timestamp}.${body}`, "utf8")
+      .digest("base64");
+    return { id, timestamp, signature: `v1,${digest}` };
+  }
+
+  it("forwards a delivery signed the spec's way", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: STANDARD_CREDENTIALS,
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const signed = signStandard(body);
+    const res = await handle(
+      vendorPost(body, {
+        "webhook-id": signed.id,
+        "webhook-timestamp": signed.timestamp,
+        "webhook-signature": signed.signature,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toBe(body);
+  });
+
+  it("rejects a bad Standard Webhooks signature", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: STANDARD_CREDENTIALS,
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const signed = signStandard(body);
+    const res = await handle(
+      vendorPost(body, {
+        "webhook-id": signed.id,
+        "webhook-timestamp": signed.timestamp,
+        "webhook-signature": "v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("409s when the Standard Webhooks secret field holds nothing", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({
+        "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+      }),
+      resolve: () => approvedWith([STANDARD]),
+      fetchImpl,
+    });
+
+    const body = '{"event_type":"message.received"}';
+    const signed = signStandard(body);
+    const res = await handle(
+      vendorPost(body, {
+        "webhook-id": signed.id,
+        "webhook-timestamp": signed.timestamp,
+        "webhook-signature": signed.signature,
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("payload limits", () => {
   it("rejects a body over the webhook cap without forwarding it", async () => {
     const { calls, fetchImpl } = recordingFetch();
@@ -1160,10 +1284,8 @@ describe("inbound delivery", () => {
   });
 
   it("does not reach the plugin when the sender is below the admission floor", async () => {
-    // The gate stops at the kill switch and leaves the ranked floors to
-    // whoever receives the message. For a built-in channel that is the
-    // runtime's admission stage; here there is nothing downstream but the
-    // plugin, so a floor unenforced here is a floor unenforced at all.
+    // The vendor body must not reach a plugin free to run a turn. A separate
+    // notice asks the plugin to send the canned denial instead.
     const { forwards, deps } = harness({
       admit: async () => ({
         admitted: true,
@@ -1176,8 +1298,22 @@ describe("inbound delivery", () => {
 
     const res = await deliver(deps);
 
-    expect(forwards).toEqual([]);
     expect(res.status).toBe(200);
+    expect(forwards).toHaveLength(1);
+    expect(forwards[0]!.url).toBe(
+      `http://runtime.test:7821/v1/x/plugins/meeting-bot/${PLUGIN_ADMISSION_DENIED_NOTICE_PATH}`,
+    );
+    expect(JSON.parse(forwards[0]!.body)).toEqual({
+      reason: "admission_floor",
+      plugin: "meeting-bot",
+      ingressRoute: "events",
+      admissionPolicy: "trusted_contacts",
+      trustClass: "unknown",
+      conversationExternalId: "chat-1",
+      actorExternalId: "+12025550142",
+      externalMessageId: "msg-1",
+      replyText: ACCESS_DENIED_NOT_APPROVED_REPLY,
+    });
   });
 
   it("reaches the plugin when the sender clears the floor", async () => {
@@ -1211,7 +1347,35 @@ describe("inbound delivery", () => {
 
     await deliver(deps);
 
-    expect(forwards).toEqual([]);
+    expect(forwards).toHaveLength(1);
+    expect(forwards[0]!.url).toContain(PLUGIN_ADMISSION_DENIED_NOTICE_PATH);
+    expect(JSON.parse(forwards[0]!.body)).toMatchObject({
+      reason: "admission_floor",
+      trustClass: "unknown",
+    });
+  });
+
+  it("acknowledges the vendor when the admission-denied notice fails", async () => {
+    // The floor decision already landed. A missing plugin route or a failed
+    // send must not ask the vendor to retry a message that will only be
+    // denied again.
+    const { forwards, deps } = harness({
+      admit: async () => ({
+        admitted: true,
+        routing: { assistantId: "self" } as never,
+        trustVerdict: { trustClass: "unknown" } as never,
+        admissionPolicy: "guardian_only",
+        displayName: undefined,
+      }),
+      pluginStatus: 404,
+    });
+
+    const res = await deliver(deps);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(forwards).toHaveLength(1);
+    expect(forwards[0]!.url).toContain(PLUGIN_ADMISSION_DENIED_NOTICE_PATH);
   });
 
   it("tells the pipeline which plugin and which route it came from", async () => {

@@ -91,7 +91,9 @@ import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-
 import { ROUTES as INFERENCE_PROFILES_ROUTES } from "./inference-profiles-routes.js";
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
+import { ROUTES as INGRESS_STATUS_ROUTES } from "./ingress-status-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
+import { ROUTES as DISCORD_CONFIG_ROUTES } from "./integrations/discord.js";
 import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_CHANNELS_ROUTES } from "./integrations/slack/channels.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
@@ -240,6 +242,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INFERENCE_PROFILES_ROUTES,
   ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
   ...INFERENCE_SEND_ROUTES,
+  ...INGRESS_STATUS_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TELEMETRY_ROUTES,
   ...MCP_AUTH_ROUTES,
@@ -285,6 +288,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,
+  ...DISCORD_CONFIG_ROUTES,
   ...SLACK_CHANNEL_CONFIG_ROUTES,
   ...SLACK_CHANNEL_RESOLVE_ROUTES,
   ...SLACK_CHANNELS_ROUTES,

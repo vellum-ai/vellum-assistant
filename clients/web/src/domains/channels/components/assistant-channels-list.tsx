@@ -23,45 +23,6 @@ import { assistantDisplayName as toAssistantDisplayName } from "@/utils/assistan
 
 type ChannelKey = SetupChannelId;
 
-/**
- * Floors that loosen or hard-deny who can reach the assistant and warrant an
- * explicit confirmation before persisting. Floors not listed here apply
- * immediately. Web-only UI concern — the cross-surface contract lives in
- * `@/lib/channel-admission-policy/types`.
- */
-const POLICY_CONFIRMATIONS: Partial<
-  Record<
-    AdmissionPolicy,
-    {
-      title: string;
-      message: string;
-      confirmLabel: string;
-      destructive?: boolean;
-    }
-  >
-> = {
-  no_one: {
-    title: "Block all messages?",
-    message:
-      "Setting this channel to “No one” hard-denies every inbound message, including messages from you.\n\nYou can reverse this at any time.",
-    confirmLabel: "Block all",
-    destructive: true,
-  },
-  any_contact: {
-    title: "Allow any contact?",
-    message:
-      "“Any contact” admits every matched contact in this channel (including pending, unverified ones), not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
-    confirmLabel: "Allow any contact",
-  },
-  strangers: {
-    title: "Allow strangers?",
-    message:
-      "Are you sure you want to allow strangers to contact your assistant through this channel?\n\nDoing so could cost you money and open you up to security and privacy vulnerabilities.\n\nEnable with extreme caution.",
-    confirmLabel: "Allow strangers",
-    destructive: true,
-  },
-};
-
 export interface AssistantChannelsListProps {
   /** Needed by the Slack sub-tab's channel list, which owns its own data. */
   assistantId: string;
@@ -70,8 +31,10 @@ export interface AssistantChannelsListProps {
   /**
    * Channels declared by installed plugins. Listed alongside the adapters and
    * selectable, but managed by the plugin that brought them: no credential
-   * form, no disconnect, no trust floor, none of which this client can supply
-   * for a channel it knows nothing about.
+   * form and no disconnect, neither of which this client can supply for a
+   * channel it knows nothing about. Their shared trust floor is the panel's
+   * own concern (`usePluginChannelTrustFloor`), not routed through these
+   * props.
    */
   pluginChannels?: PluginChannelSummary[];
   pendingChannelKey?: ChannelKey | null;
@@ -94,6 +57,10 @@ export interface AssistantChannelsListProps {
   onSetup?: (channelKey: ChannelKey, incomplete?: boolean) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => void;
+  onSaveDiscordToken?: (botToken: string) => void;
+  discordSaveStatus?: MutationStatus;
+  discordSaveError?: string | null;
+  discordInviteUrl?: string;
   telegramSaveStatus?: MutationStatus;
   telegramSaveError?: string | null;
   onSaveSlackConfig?: (botToken: string, appToken: string) => void;
@@ -114,11 +81,12 @@ export interface AssistantChannelsListProps {
 /**
  * The Channels tab's master-detail surface: a left rail listing the
  * Slack/Telegram/Phone adapters (`ChannelAdapterList`) beside the selected
- * adapter's detail panel (`ChannelPanel`), plus the disconnect and trust-floor
- * confirmation dialogs. Rendered by the Channels tab (`ChannelsPage`). The
- * active adapter is the one named in the URL
- * (`use-channel-route-selection`); the queries and mutations behind the props
- * live in `useAssistantChannels`.
+ * adapter's detail panel (`ChannelPanel`), plus the disconnect confirmation
+ * dialog. (The trust-floor confirmation lives inside
+ * `ChannelTrustFloorSection`, so plugin channel panels get it too.) Rendered
+ * by the Channels tab (`ChannelsPage`). The active adapter is the one named
+ * in the URL (`use-channel-route-selection`); the queries and mutations
+ * behind the props live in `useAssistantChannels`.
  */
 export function AssistantChannelsList({
   assistantId,
@@ -137,6 +105,10 @@ export function AssistantChannelsList({
   onDisconnect,
   onSaveTelegramToken,
   telegramSaveStatus,
+  onSaveDiscordToken,
+  discordSaveStatus,
+  discordSaveError = null,
+  discordInviteUrl,
   telegramSaveError,
   onSaveSlackConfig,
   slackSaveStatus,
@@ -152,12 +124,6 @@ export function AssistantChannelsList({
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(
     null,
   );
-  // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
-  // the user's go-ahead before persisting.
-  const [pendingPolicy, setPendingPolicy] = useState<{
-    channelKey: ChannelKey;
-    policy: AdmissionPolicy;
-  } | null>(null);
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
     useSideListRoom();
   // Capture the `?setup=<channel>` deep link once at mount. `useSetupChannelParam`
@@ -178,22 +144,6 @@ export function AssistantChannelsList({
   const disconnectMeta = pendingDisconnect
     ? CHANNEL_META[pendingDisconnect]
     : null;
-  const pendingConfirmation = pendingPolicy
-    ? POLICY_CONFIRMATIONS[pendingPolicy.policy]
-    : null;
-
-  // Floors that loosen or hard-deny access prompt a confirmation before
-  // persisting; every other floor applies immediately.
-  const handlePolicyChange = (
-    channelKey: ChannelKey,
-    next: AdmissionPolicy,
-  ) => {
-    if (POLICY_CONFIRMATIONS[next]) {
-      setPendingPolicy({ channelKey, policy: next });
-      return;
-    }
-    onChannelPolicyChange?.(channelKey, next);
-  };
 
   const handleSelect = (channelKey: string) => {
     selectAdapter(channelKey);
@@ -242,10 +192,19 @@ export function AssistantChannelsList({
           : undefined
       }
       onDisconnect={
-        onDisconnect ? () => setPendingDisconnect(selected!.key) : undefined
+        // Offered only where a delete route exists (`canDisconnect` derives
+        // from the route record), so the confirm can never resolve without
+        // clearing anything.
+        onDisconnect && selected!.canDisconnect
+          ? () => setPendingDisconnect(selected!.key)
+          : undefined
       }
       onSaveTelegramToken={onSaveTelegramToken}
       telegramSaveStatus={telegramSaveStatus}
+      onSaveDiscordToken={onSaveDiscordToken}
+      discordSaveStatus={discordSaveStatus}
+      discordSaveError={discordSaveError}
+      {...(discordInviteUrl ? { discordInviteUrl } : {})}
       telegramSaveError={telegramSaveError}
       onSaveSlackConfig={onSaveSlackConfig}
       slackSaveStatus={slackSaveStatus}
@@ -260,7 +219,7 @@ export function AssistantChannelsList({
       policyError={policiesError}
       onPolicyChange={
         onChannelPolicyChange
-          ? (next) => handlePolicyChange(selected!.key, next)
+          ? (next) => onChannelPolicyChange(selected!.key, next)
           : undefined
       }
     />
@@ -304,12 +263,16 @@ export function AssistantChannelsList({
           </>
         )}
 
-        {/* Slack brings its own cards (connection, default access, per-channel
-            overrides) so it renders bare; the other adapters get a DetailCard
-            wrapper. Both scroll as a whole when the stacked content overflows —
-            the per-channel list self-bounds its own rows within that. */}
+        {/* Slack and Email bring their own cards so they render bare; the
+            other adapters get a DetailCard wrapper. Both scroll as a whole
+            when the stacked content overflows; the per-channel list
+            self-bounds its own rows within that. */}
         <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selectedKey === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
+          {selectedKey === "slack" || selectedKey === "email" ? (
+            detail
+          ) : (
+            <DetailCard>{detail}</DetailCard>
+          )}
         </section>
       </div>
 
@@ -318,7 +281,11 @@ export function AssistantChannelsList({
         title={t("assistantChannelsList.disconnectTitle", {
           channel: disconnectMeta ? t(disconnectMeta.labelKey) : "",
         })}
-        message={disconnectMeta ? t(disconnectMeta.disconnectMessageKey) : ""}
+        message={
+          disconnectMeta?.disconnectMessageKey
+            ? t(disconnectMeta.disconnectMessageKey)
+            : ""
+        }
         confirmLabel={t("assistantChannelsList.disconnectConfirm")}
         destructive
         onConfirm={() => {
@@ -328,28 +295,6 @@ export function AssistantChannelsList({
           setPendingDisconnect(null);
         }}
         onCancel={() => setPendingDisconnect(null)}
-      />
-
-      {/* Floor confirmation — loosening or hard-denying access needs a nod. */}
-      <ConfirmDialog
-        open={pendingPolicy !== null}
-        title={pendingConfirmation?.title ?? ""}
-        message={pendingConfirmation?.message ?? ""}
-        confirmLabel={
-          pendingConfirmation?.confirmLabel ??
-          t("assistantChannelsList.confirmFallback")
-        }
-        destructive={pendingConfirmation?.destructive ?? false}
-        onConfirm={() => {
-          if (pendingPolicy) {
-            onChannelPolicyChange?.(
-              pendingPolicy.channelKey,
-              pendingPolicy.policy,
-            );
-          }
-          setPendingPolicy(null);
-        }}
-        onCancel={() => setPendingPolicy(null)}
       />
     </>
   );

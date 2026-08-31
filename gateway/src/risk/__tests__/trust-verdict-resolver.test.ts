@@ -32,6 +32,7 @@ function insertContact(args: {
   displayName: string;
   role?: string;
   principalId?: string;
+  autoApproveThreshold?: string | null;
 }): void {
   const now = Date.now();
   getGatewayDb()
@@ -41,6 +42,7 @@ function insertContact(args: {
       displayName: args.displayName,
       role: args.role ?? "contact",
       principalId: args.principalId ?? null,
+      autoApproveThreshold: args.autoApproveThreshold ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -143,6 +145,7 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.guardianDisplayName).toBe("The Guardian");
     expect(verdict.contactId).toBe("c-guardian");
     expect(verdict.status).toBe("active");
+    expect(verdict.autoApproveThreshold).toBeNull();
   });
 
   test("active non-guardian member → trusted_contact, member ACL fields populated", async () => {
@@ -157,7 +160,11 @@ describe("resolveTrustVerdict", () => {
       contactId: "c-guardian",
       address: "U_GUARDIAN",
     });
-    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertContact({
+      id: "c-member",
+      displayName: "Trusted Member",
+      autoApproveThreshold: "high",
+    });
     insertChannel({
       id: "ch-member",
       contactId: "c-member",
@@ -180,6 +187,7 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.address).toBe("U_MEMBER");
     expect(verdict.externalChatId).toBe("chat-member");
     expect(verdict.memberDisplayName).toBe("Trusted Member");
+    expect(verdict.autoApproveThreshold).toBe("high");
     // Interaction telemetry carried straight off the member channel row.
     expect(verdict.interactionCount).toBe(7);
     // Guardian fields still populated from the channel binding.
@@ -218,8 +226,42 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.channelId).toBeUndefined();
     expect(verdict.status).toBeUndefined();
     expect(verdict.guardianExternalUserId).toBeUndefined();
-    // No member channel → no interaction telemetry.
+    // No member channel → no interaction telemetry or contact ceiling.
     expect(verdict.interactionCount).toBeUndefined();
+    expect(verdict.autoApproveThreshold).toBeUndefined();
+  });
+
+  test("unset member threshold stamps null; corrupt stored value is treated as unset", async () => {
+    insertContact({ id: "c-unset", displayName: "Unset Member" });
+    insertChannel({
+      id: "ch-unset",
+      contactId: "c-unset",
+      address: "U_UNSET",
+    });
+    insertContact({
+      id: "c-corrupt",
+      displayName: "Corrupt Member",
+      autoApproveThreshold: "full",
+    });
+    insertChannel({
+      id: "ch-corrupt",
+      contactId: "c-corrupt",
+      address: "U_CORRUPT",
+    });
+
+    const unsetVerdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_UNSET",
+    });
+    expect(unsetVerdict.contactId).toBe("c-unset");
+    expect(unsetVerdict.autoApproveThreshold).toBeNull();
+
+    const corruptVerdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_CORRUPT",
+    });
+    expect(corruptVerdict.contactId).toBe("c-corrupt");
+    expect(corruptVerdict.autoApproveThreshold).toBeNull();
   });
 
   test("no actorExternalId → unknown, canonicalSenderId null", async () => {
@@ -555,6 +597,57 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.status).toBe("revoked");
     // No active guardian binding exists, so guardian label fields are absent.
     expect(verdict.guardianExternalUserId).toBeUndefined();
+  });
+
+  test("plugin inbound matches the plugin's own contact row", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-imessage",
+      contactId: "c-guardian",
+      type: "imessage",
+      address: "+12025550142",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: "plugin",
+      actorExternalId: "imessage:+12025550142",
+    });
+
+    expect(verdict.trustClass).toBe("guardian");
+    expect(verdict.canonicalSenderId).toBe("+12025550142");
+    expect(verdict.contactId).toBe("c-guardian");
+    expect(verdict.type).toBe("imessage");
+    expect(verdict.address).toBe("+12025550142");
+  });
+
+  test("plugin inbound does not inherit a Phone Calling row", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-phone",
+      contactId: "c-guardian",
+      type: "phone",
+      address: "+12025550142",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: "plugin",
+      actorExternalId: "imessage:+12025550142",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.contactId).toBeUndefined();
   });
 });
 

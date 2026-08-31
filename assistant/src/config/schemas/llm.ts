@@ -11,8 +11,12 @@ import {
   parseVellumModel,
 } from "../../providers/vellum-model-routing.js";
 import {
+  BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
+  FALLBACK_PROFILE_BY_KEY,
+  isBackupProfileKey,
+  isDefaultProfileKey,
 } from "../default-profile-names.js";
 
 /**
@@ -51,12 +55,13 @@ export const KNOWN_LLM_PROVIDERS = [
   "atlascloud",
   "together",
   "litellm",
+  "opencode",
   "baseten",
   "poolside",
-  // Routing identities rather than adapters: "vellum" = the platform-managed
-  // route (upstream derived from the model at dispatch), "chatgpt" = the
-  // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;
-  // dispatch substitutes the real upstream before any adapter lookup.
+  // Routing identities: "vellum" = the platform-managed route (upstream
+  // derived from the model at dispatch) and the catalog owner of
+  // Vellum-hosted GPU models; "chatgpt" = the subscription route to OpenAI.
+  // Dispatch substitutes a concrete upstream before adapter lookup.
   "vellum",
   "chatgpt",
 ] as const;
@@ -82,7 +87,8 @@ export function unknownLlmProviderIssue(provider: string): string | null {
  * connection can serve the shared BYOK templates (fixed base URL, and a
  * non-empty catalog `defaultModel` for the intent fallback in
  * `resolveModelIntent`). Deliberately narrower than `LLMProvider`: keyless
- * (ollama) and endpoint-supplied (openai-compatible, litellm) providers have
+ * (ollama) and endpoint-supplied (openai-compatible, litellm, opencode)
+ * providers have
  * no code-resolvable default profile implementation.
  */
 export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
@@ -605,6 +611,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   provider_connection: z.string().min(1).optional(),
   /**
+   * The profile was deliberately created for a model the catalog does not
+   * list (the write routes' allowUnlisted escape hatch). Stamped at write
+   * time so listings do not flag the row as misconfigured on every read;
+   * a model the checks can vouch for never needs it.
+   */
+  allowUnlisted: z.boolean().optional(),
+  /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
    * "send `null` to clear" sentinel works for status too — a managed
    * re-enable body of `{status: null}` clears back to active-by-absence
@@ -622,6 +635,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * may accompany `mix`.
    */
   mix: MixSchema.optional(),
+  /**
+   * Code-owned backup profile for a Vellum-managed default profile. This is
+   * read-only metadata from the default-profile catalog. Config write paths
+   * reject user-authored values because custom and BYOK fallback routes are
+   * not supported.
+   */
+  fallbackProfile: z.string().min(1).optional().meta({ readOnly: true }),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
@@ -667,9 +687,209 @@ export type DefaultProviderConfig = z.infer<typeof DefaultProviderSchema>;
  */
 const DefaultProviderField = DefaultProviderSchema.optional().catch(undefined);
 
+/**
+ * Whether the managed backup profiles (`BACKUP_PROFILE_KEYS`) resolve under a
+ * given `llm.defaultProvider`.
+ *
+ * Backups are companions of the managed (`vellum`) column only: on a BYOK or
+ * ChatGPT default provider `defaultProfileBodyForProvider` returns `undefined`
+ * for them, because the install may hold no credential for the backup's
+ * upstream. So a reference to one is a target that can never resolve there,
+ * and the schema must reject it rather than preserve a selection the picker
+ * cannot show.
+ *
+ * Accepts an unknown value so the raw write paths (which validate on-disk
+ * shapes without a full parse) can share the rule. A missing or malformed
+ * value resolves to the managed column: `DefaultProviderField` catches an
+ * invalid value to `undefined`, and an install predating
+ * `llm.defaultProvider` is managed by definition.
+ */
+export function backupProfilesResolveUnderDefaultProvider(
+  defaultProvider: unknown,
+): boolean {
+  const provider =
+    defaultProvider != null &&
+    typeof defaultProvider === "object" &&
+    !Array.isArray(defaultProvider)
+      ? (defaultProvider as Record<string, unknown>).provider
+      : undefined;
+  return typeof provider !== "string" || provider === "vellum";
+}
+
+/**
+ * Why a referenced profile name does not resolve, for the reference error
+ * messages. A backup key under a non-managed default provider gets its own
+ * reason: the name is real and code-defined, it just has no body outside the
+ * managed column, and "not defined in llm.profiles" would send the reader
+ * looking for a missing entry that was never supposed to exist.
+ */
+function unresolvableProfileReason(
+  name: string,
+  backupsResolve: boolean,
+): string {
+  return !backupsResolve &&
+    (BACKUP_PROFILE_KEYS as readonly string[]).includes(name)
+    ? "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider"
+    : "is not defined in llm.profiles";
+}
+
+/**
+ * The `llm.profiles` keys that are reference targets in their own right,
+ * given whether the managed backups resolve under the current
+ * `llm.defaultProvider`.
+ *
+ * Every on-disk key qualifies but one: a reserved backup name whose entry is
+ * a thin `source: "managed"` stub. The stub is not a profile, it is the
+ * workspace's slot for a code-owned one, and it can reach disk on a managed
+ * install through nothing more than a `config get` -> `config set` round-trip
+ * of the effective profile list (`normalizeManagedProfileWrites` reduces the
+ * echoed body to exactly that stub). Counting it as an ordinary raw key would
+ * let it launder a backup reference past the provider gate: after a switch to
+ * a BYOK or ChatGPT default provider the reference would keep validating
+ * while the code-owned body it stands for has resolved to nothing, leaving a
+ * selection that names a providerless stub.
+ *
+ * A genuinely user-owned entry under a backup name is the opposite case: it
+ * carries its own body, and with no code-owned body to lose on a non-managed
+ * column `resolveAgainstBody` resolves the workspace entry itself. So it
+ * stays a valid target on every column. The `source` test is the same one
+ * the resolver uses, which is what keeps the two in step.
+ */
+function referenceableProfileKeys(
+  profiles: Record<string, unknown> | undefined,
+  backupsResolve: boolean,
+): string[] {
+  return Object.entries(profiles ?? {})
+    .filter(([name, value]) => {
+      if (backupsResolve || !isBackupProfileKey(name)) {
+        return true;
+      }
+      const entry =
+        value != null && typeof value === "object" && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : null;
+      return entry != null && entry.source !== "managed";
+    })
+    .map(([name]) => name);
+}
+
 // ---------------------------------------------------------------------------
 // Top-level LLM schema
 // ---------------------------------------------------------------------------
+
+/**
+ * Cross-profile integrity checks for `fallbackProfile` metadata. Only the
+ * exact code-owned mapping on managed default profiles is accepted. The
+ * referenced profile must exist, must not be a mix, and must not declare a
+ * fallback of its own.
+ *
+ * Shared by `LLMSchema.superRefine` (full-config load) and the config write
+ * paths (`commitConfigWrite`), which persist raw config without a
+ * full-schema parse. Accepts a raw or parsed `llm.profiles` record; entries
+ * are read defensively so the raw on-disk shape is safe to pass.
+ *
+ * `defaultProvider` is the sibling `llm.defaultProvider` value (raw or
+ * parsed): it decides whether the managed backups are valid targets, since
+ * they resolve on the managed column alone.
+ */
+export function collectFallbackProfileIssues(
+  profiles: Record<string, unknown> | undefined,
+  defaultProvider?: unknown,
+): { profileName: string; message: string }[] {
+  const issues: { profileName: string; message: string }[] = [];
+  const entries = Object.entries(profiles ?? {});
+  const readEntry = (value: unknown): Record<string, unknown> | null =>
+    value != null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  // The always-available default profiles are code-defined
+  // (`default-profile-catalog.ts`) and resolve whether or not they are
+  // materialized in `llm.profiles`, so their names are always valid
+  // fallback targets (same rule as call-site `profile` references). The
+  // managed backups resolve the same way, but on the managed column only,
+  // so they are valid targets only under a managed `llm.defaultProvider`.
+  // A persisted managed stub for a backup name does not change that, see
+  // `referenceableProfileKeys`.
+  const backupsResolve =
+    backupProfilesResolveUnderDefaultProvider(defaultProvider);
+  const profileNames = new Set([
+    ...referenceableProfileKeys(profiles, backupsResolve),
+    ...DEFAULT_PROFILE_KEYS,
+    ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
+  ]);
+  const mixProfileNames = new Set(
+    entries
+      .filter(([, value]) => readEntry(value)?.mix != null)
+      .map(([name]) => name),
+  );
+  for (const [name, value] of entries) {
+    const entry = readEntry(value);
+    const fallback = entry?.fallbackProfile;
+    if (fallback == null) {
+      continue;
+    }
+    // Raw writes (e.g. `config set`) can carry a non-string value the field
+    // schema would reject on the next full parse; flag it here so it never
+    // reaches disk.
+    if (typeof fallback !== "string" || fallback.length === 0) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" declares a fallbackProfile that must be a non-empty string naming another profile.`,
+      });
+      continue;
+    }
+    const expectedFallback = isDefaultProfileKey(name)
+      ? FALLBACK_PROFILE_BY_KEY[name]
+      : undefined;
+    if (entry?.source !== "managed" || fallback !== expectedFallback) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" cannot configure fallbackProfile. Automatic fallbacks are code-owned for Vellum-managed default profiles.`,
+      });
+      continue;
+    }
+    // (e) A mix carries no route of its own to fall back from.
+    if (entry?.mix != null) {
+      issues.push({
+        profileName: name,
+        message: `Mix profile "${name}" cannot also set "fallbackProfile"; a mix only references other profiles plus metadata.`,
+      });
+      continue;
+    }
+    // (b) No self-reference.
+    if (fallback === name) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" cannot declare itself as its fallbackProfile.`,
+      });
+      continue;
+    }
+    // (a) Referenced profile must exist.
+    if (!profileNames.has(fallback)) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" declares fallbackProfile "${fallback}" which ${unresolvableProfileReason(fallback, backupsResolve)}.`,
+      });
+      continue;
+    }
+    // (c) A fallback target must be a standard (non-mix) profile.
+    if (mixProfileNames.has(fallback)) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" declares fallbackProfile "${fallback}" which is a mix profile; a fallback must be a standard profile.`,
+      });
+      continue;
+    }
+    // (d) Single hop only: the target must not declare its own fallback.
+    if (readEntry(profiles?.[fallback])?.fallbackProfile != null) {
+      issues.push({
+        profileName: name,
+        message: `Profile "${name}" declares fallbackProfile "${fallback}" which sets its own fallbackProfile; fallback is a single hop, chains are not allowed.`,
+      });
+    }
+  }
+  return issues;
+}
 
 export const LLMSchema = z
   .object({
@@ -733,12 +953,29 @@ export const LLMSchema = z
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid
-    // reference targets. The flag-gated `os-beta` is excluded: it resolves
-    // only while a workspace entry exists, so a reference to it is valid
-    // only when that entry is present in `config.profiles`.
+    // reference targets. The managed backups (`BACKUP_PROFILE_KEYS`) are
+    // code-defined on the same terms and are listed in the effective
+    // catalog, so a selection naming one (`activeProfile`, `advisorProfile`,
+    // a call-site pin) must survive the next load rather than being stripped
+    // back to a default. Backups are scoped to the managed column though, so
+    // they join the set only under a managed `llm.defaultProvider`: on a BYOK
+    // or ChatGPT default provider they have no body to resolve to, and
+    // keeping the reference would strand a selection the picker cannot show.
+    // The flag-gated `os-beta` is excluded: it resolves only while a
+    // workspace entry exists, so a reference to it is valid only when that
+    // entry is present in `config.profiles`. A backup name materialized as a
+    // thin managed stub does not re-enter the set on a non-managed column
+    // either, see `referenceableProfileKeys`.
+    const backupsResolve = backupProfilesResolveUnderDefaultProvider(
+      config.defaultProvider,
+    );
     const profileNames = new Set([
-      ...Object.keys(config.profiles ?? {}),
+      ...referenceableProfileKeys(
+        config.profiles as Record<string, unknown> | undefined,
+        backupsResolve,
+      ),
       ...DEFAULT_PROFILE_KEYS,
+      ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) {
@@ -748,7 +985,7 @@ export const LLMSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["callSites", siteId, "profile"],
-          message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" is not defined in llm.profiles`,
+          message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" ${unresolvableProfileReason(siteConfig.profile, backupsResolve)}`,
         });
       }
     }
@@ -759,7 +996,7 @@ export const LLMSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["activeProfile"],
-        message: `Profile "${config.activeProfile}" referenced by llm.activeProfile is not defined in llm.profiles`,
+        message: `Profile "${config.activeProfile}" referenced by llm.activeProfile ${unresolvableProfileReason(config.activeProfile, backupsResolve)}`,
       });
     }
     if (
@@ -769,18 +1006,20 @@ export const LLMSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["advisorProfile"],
-        message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile is not defined in llm.profiles`,
+        message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile ${unresolvableProfileReason(config.advisorProfile, backupsResolve)}`,
       });
     }
 
     // --- Mix profile validation --------------------------------------------
     // Config keys a mix profile must NOT also set (a mix only references other
     // profiles + metadata). Derived from the fragment shape plus the
-    // ProfileEntry-only `provider_connection` so it can't drift if a new config
-    // field is added to `LLMConfigFragment`.
+    // ProfileEntry-only `provider_connection` and `fallbackProfile` (a mix
+    // carries no config of its own, so it has no route to fall back from) so
+    // it can't drift if a new config field is added to `LLMConfigFragment`.
     const MIX_DISALLOWED_CONFIG_KEYS = [
       ...Object.keys(LLMConfigFragment.shape),
       "provider_connection",
+      "fallbackProfile",
     ];
     const mixProfileNames = new Set(
       Object.entries(config.profiles ?? {})
@@ -817,7 +1056,7 @@ export const LLMSchema = z
           ctx.addIssue({
             code: "custom",
             path: ["profiles", name, "mix", index, "profile"],
-            message: `Mix profile "${name}" references profile "${arm.profile}" which is not defined in llm.profiles.`,
+            message: `Mix profile "${name}" references profile "${arm.profile}" which ${unresolvableProfileReason(arm.profile, backupsResolve)}.`,
           });
           continue;
         }
@@ -830,6 +1069,22 @@ export const LLMSchema = z
           });
         }
       }
+    }
+
+    // --- fallbackProfile validation ----------------------------------------
+    // Cross-profile fallback rules live in `collectFallbackProfileIssues`
+    // (shared with the config write paths). A mix profile setting
+    // `fallbackProfile` is also rejected by the mix validation above
+    // (MIX_DISALLOWED_CONFIG_KEYS).
+    for (const issue of collectFallbackProfileIssues(
+      config.profiles,
+      config.defaultProvider,
+    )) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["profiles", issue.profileName, "fallbackProfile"],
+        message: issue.message,
+      });
     }
   });
 

@@ -8,6 +8,7 @@
     "deleting": "Deleting…",
     "connect": "Connect",
     "connecting": "Connecting…",
+    "manage": "Manage",
     "disconnect": "Disconnect",
     "disconnecting": "Disconnecting…",
     "cancel": "Cancel",
@@ -22,7 +23,8 @@
     "whatsapp": "WhatsApp",
     "a2a": "A2A",
     "phone": "Phone",
-    "email": "Email"
+    "email": "Email",
+    "discord": "Discord"
   },
   "contact": {
     "nameLabel": "Name",
@@ -64,6 +66,25 @@
     "linkedAccountsSubtitle": "Where the assistant recognizes this contact. Link accounts you know, invite the ones you don't.",
     "deleteConfirmTitle": "Delete {name}?",
     "deleteConfirmMessage": "This will permanently delete this contact and all their channels. This action cannot be undone."
+  },
+  "contactPermissions": {
+    "title": "Permissions",
+    "subtitle": "Highest risk this contact can take without asking you.",
+    "inheritLabel": "Inherit default",
+    "inheritDescription": "Follow room and trust-class settings for this contact.",
+    "saveFailed": "Failed to update permissions",
+    "preset": {
+      "none": "Strict",
+      "low": "Conservative",
+      "medium": "Relaxed",
+      "high": "Full access"
+    },
+    "description": {
+      "none": "Always ask before acting. No actions are auto-approved.",
+      "low": "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace.",
+      "medium": "Auto-approve low and medium-risk actions, like changing files outside its own workspace.",
+      "high": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
+    }
   },
   "guardianDetailView": {
     "namePlaceholder": "Your name",
@@ -107,10 +128,15 @@
     "verifyConfirmTitle": "Verify {channel}",
     "verifyConfirmMessageContact": "This will mark this contact's {channel} channel as verified. Your assistant will recognize them when they reach out from it.",
     "verifyConfirmMessageGuardian": "This will mark your {channel} channel as verified. Your assistant will recognize you when you reach out from it.",
+    "verifyAddressLabel": "Address",
+    "verifyAddressPlaceholder": "+15551234567",
+    "verifyAddressMessageContact": "Enter the identifier this contact uses on {channel}. Your assistant will recognize them when they reach out from it.",
+    "verifyAddressMessageGuardian": "Enter the identifier you use on {channel}. Your assistant will recognize you when you reach out from it.",
     "revokeConfirmTitle": "Revoke {channel}",
     "revokeConfirmMessage": "This will disconnect the verified channel. The contact will need to re-verify to use this channel again.",
     "linkAccount": "Link account",
-    "setupDefault": "Invite"
+    "setupDefault": "Invite",
+    "loadFailed": "Couldn't load channels. Check your connection and try again."
   },
   "linkAccountDialog": {
     "title": "Link {channel} account",

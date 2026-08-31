@@ -34,7 +34,9 @@
     "title": "Advisor"
   },
   "aiProviderPicker": {
-    "defaultEntryMeta": "Default"
+    "defaultEntryMeta": "Default",
+    "selfHostedOnlyMeta": "Self-hosted only",
+    "selfHostedOnlyTooltip": "{name} runs on your own machine, so it is only available to self-hosted assistants."
   },
   "allConversationsView": {
     "archive": "Archive",
@@ -70,6 +72,18 @@
     "title": "Push notifications",
     "unsupportedDescription": "Notification settings are unavailable in this app version.",
     "unsupportedLabel": "Unavailable"
+  },
+  "appIcon": {
+    "apply": "Set app icon",
+    "change": "Change",
+    "color": "Color",
+    "description": "Choose the icon Vellum shows on your home screen.",
+    "error": "iOS did not change your home screen icon. You can try again.",
+    "eyes": "Eyes",
+    "matchAvatar": "Match avatar",
+    "note": "Alternate icons ship with the app, and iOS confirms every change with an alert of its own.",
+    "reset": "Reset to default",
+    "title": "App icon"
   },
   "assistantBackups": {
     "columnCreated": "Created",
@@ -238,6 +252,7 @@
     "loadError": "Failed to load auto-reload configuration.",
     "loading": "Loading…",
     "summary": "Add {amount} when balance falls under {threshold}",
+    "toggleHelper": "Auto reloads only occur when plan based usage is exhausted",
     "toggleLabel": "Enable auto-reload",
     "updateError": "Failed to save auto-reload settings. Please try again."
   },
@@ -256,14 +271,29 @@
     "thresholdLabel": "Auto-reload when balance below"
   },
   "autoTopUpPaymentMethodModal": {
+    "addSubtitle": "Kept on file for auto-reload and your Pro plan.",
+    "addTitle": "Add a card",
     "addressFormLoadError": "Failed to load the billing address form. Please close and reopen this dialog.",
     "cancel": "Cancel",
+    "cardOnFile": "{brand} •••• {last4}",
+    "cardOnFileExpiry": "· {month} / {year}",
+    "cardOnFileNote": "Replaced on save",
+    "close": "Close",
     "confirmFailed": "Failed to save payment method.",
+    "confirmingWithBank": "Confirming with your bank…",
+    "declined": "Your bank declined this card. Try another, or contact them.",
     "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
-    "save": "Save",
-    "savedToast": "Payment method saved.",
+    "primaryAdd": "Save card",
+    "primaryReplace": "Replace card",
+    "primarySubmitting": "Saving",
+    "replaceSubtitle": "The new card takes over immediately.",
+    "replaceTitle": "Replace your card",
+    "savedSubtitle": "Auto-reload is active again",
+    "savedTitle": "{brand} •••• {last4} saved",
+    "savedTitleGeneric": "Card saved",
     "setupError": "Failed to start card setup. Please try again.",
-    "title": "Save Payment Method",
+    "termsAdd": "Vellum can charge this card for auto-reload and subscription renewals. Remove it any time from Billing.",
+    "termsReplace": "Your old card stays with Stripe until you remove it from Billing; Vellum stops charging it now.",
     "tryAgain": "Try again",
     "unavailable": "Payment method setup is currently unavailable. Please try again later."
   },
@@ -291,8 +321,8 @@
     "loading": "Loading billing summary...",
     "lowBalanceToggle": "Custom Low Balance Alert",
     "noInfo": "No billing information available.",
-    "subtitle": "Quick overview of your balances and other things",
-    "title": "Credits"
+    "subtitle": "Credits used when usage limit is reached",
+    "title": "Extra Usage Credits"
   },
   "billingPortalReturnHandler": {
     "endOfBillingPeriod": "the end of your billing period",
@@ -366,21 +396,42 @@
     "providerLabel": "Provider",
     "unavailableOption": "{name} (unavailable)"
   },
+  "chatgptDeviceAuthFlow": {
+    "authorizationHint": "You or your team administrator may need to enable device code authorization <settingsLink>in ChatGPT settings</settingsLink>.",
+    "connected": "ChatGPT subscription connected successfully.",
+    "copiedButton": "Copied",
+    "copyButton": "Copy code",
+    "copyError": "Could not copy the code. Copy it by hand instead.",
+    "instructions": "Enter this code on the ChatGPT page. It expires in 15 minutes.",
+    "openButton": "Open ChatGPT",
+    "signInButton": "Sign in with ChatGPT",
+    "startOver": "Start over",
+    "starting": "Starting sign-in...",
+    "tryAgain": "Try again",
+    "waiting": "Waiting for you to enter the code..."
+  },
   "chatgptOauthSection": {
+    "hideOtherOptions": "Hide other sign-in options",
+    "intro": "Connect your ChatGPT subscription to use OpenAI models without an API key.",
+    "otherOptions": "Other sign-in options"
+  },
+  "chatgptPasteAuthFlow": {
     "completeFailed": "Failed to complete sign-in. Please try again.",
     "completeSignIn": "Complete Sign In",
     "completingSignIn": "Completing sign-in...",
     "connected": "ChatGPT subscription connected successfully.",
-    "intro": "Connect your ChatGPT subscription to use OpenAI models without an API key.",
     "invalidUrl": "Invalid URL. Please paste the full URL from the address bar.",
     "missingCode": "The URL is missing the authorization code. Make sure you copied the full URL.",
     "missingState": "The URL is missing the state parameter. Make sure you copied the full URL.",
     "pasteUrlError": "Please paste the URL from the error page.",
-    "signInButton": "Sign in with ChatGPT",
+    "signInButton": "Open ChatGPT sign-in",
+    "signInButtonStandalone": "Sign in with ChatGPT",
     "startFailed": "Failed to start ChatGPT sign-in. Please try again.",
     "startingSignIn": "Starting sign-in...",
-    "step1Idle": "1. Click \"Sign in with ChatGPT\" below to open a popup",
-    "step1PasteUrl": "1. Click \"Sign in with ChatGPT\" to open a popup",
+    "step1Idle": "1. Click \"Open ChatGPT sign-in\" below to open a popup",
+    "step1IdleStandalone": "1. Click \"Sign in with ChatGPT\" below to open a popup",
+    "step1PasteUrl": "1. Click \"Open ChatGPT sign-in\" to open a popup",
+    "step1PasteUrlStandalone": "1. Click \"Sign in with ChatGPT\" to open a popup",
     "step2": "2. Sign in, then you'll land on an error page - that's expected",
     "step3": "3. Copy the full URL from that page's address bar and paste it below",
     "tryAgain": "Try Again",
@@ -477,12 +528,12 @@
   "credentialRow": {
     "addedMetadata": "added {date}",
     "clickToRevealTitle": "Click to reveal",
-    "configureAriaLabel": "Configure {name}",
-    "configureButton": "Configure",
     "copyFailedToast": "Couldn't copy. Reveal and copy manually.",
     "copyValueAriaLabel": "Copy value for {name}",
     "copyValueTitle": "Copy value",
+    "deleteAriaLabel": "Delete {name}",
     "deleteLabel": "Delete",
+    "generateLinkAriaLabel": "Generate link for {name}",
     "generateLinkLabel": "Generate link",
     "hideValueAriaLabel": "Hide value for {name}",
     "hideValueTitle": "Hide value",
@@ -542,6 +593,7 @@
     "machineSizeDocsAriaLabel": "Learn more about machine sizes",
     "machineSizeLabel": "Select a machine size:",
     "machineSizePlaceholder": "Select a machine size",
+    "noExtraUsage": "No extra usage",
     "recap": "Recap",
     "storageAriaLabel": "Storage",
     "storageDocsAriaLabel": "Learn more about storage",
@@ -550,6 +602,10 @@
     "subtitle": "Just better.",
     "title": "Create a custom plan",
     "totalBilledMonthly": "Total · Billed monthly",
+    "usageBundleAriaLabel": "Usage bundle",
+    "usageBundleDocsAriaLabel": "Learn more about usage bundles",
+    "usageBundleLabel": "Add a usage bundle:",
+    "usageBundlePlaceholder": "Select a usage bundle",
     "yourSelection": "Your selection:"
   },
   "customPlanRow": {
@@ -575,7 +631,8 @@
     "save": "Save",
     "saveError": "Failed to save daily credit limit. Please try again.",
     "skippedNotice": "Skipped for today. This limit resumes at {time}.",
-    "toggleLabel": "Daily Credit Limit"
+    "toggleLabel": "Daily Credit Limit",
+    "toggleSubtitle": "Daily limit only applies to extra usage credits"
   },
   "debugControlsPanel": {
     "backups": "Backups",
@@ -646,16 +703,10 @@
     "toolLabel": "Tool:"
   },
   "doctorPanel": {
-    "beta": "Beta",
-    "betaTitle": "Doctor is in beta - use the Settings menu to submit feedback",
     "connecting": "Connecting...",
-    "copied": "Copied!",
-    "copiedAria": "Copied",
-    "copiedTooltip": "Copied!",
+    "copiedToast": "Session copied to clipboard.",
     "copyFailed": "Couldn't copy the session.",
     "copySession": "Copy Session",
-    "copySessionAria": "Copy session to clipboard",
-    "copySessionTooltip": "Copy session to clipboard",
     "endSession": "End Session",
     "goToNewest": "Go to Newest",
     "goToNewestAria": "Go to newest message",
@@ -667,6 +718,7 @@
     "placeholderApproval": "Type \"approve\" or \"deny\", or send a message...",
     "placeholderMessage": "Type a message...",
     "sendMessageAria": "Send message",
+    "sessionMenu": "Session options",
     "shareFeedback": "Share Feedback",
     "startSession": "Start Doctor Session",
     "thinking": "Thinking…",
@@ -687,69 +739,15 @@
     "registerSubdomainFailed": "Couldn't register that subdomain. Try a different one.",
     "skip": "Skip",
     "subtitle": "Set up an email for your assistant.",
-    "title": "Assistant Email"
+    "title": "Assistant Email",
+    "emailUsernamePlaceholder": "hi",
+    "subdomainExamplePlaceholder": "my-assistant"
   },
   "downgradeReconfirmModal": {
     "body": "Downgrading removes the following Pro features:",
     "confirm": "Confirm Downgrade",
     "keepPro": "Keep Pro",
     "title": "Downgrade to Base?"
-  },
-  "emailManagedContent": {
-    "addressLabel": "Address",
-    "checkingSubscription": "Checking subscription…",
-    "confirm": "Confirm",
-    "create": "Create",
-    "createEmailFailedFallback": "Failed to create email address.",
-    "creating": "Creating…",
-    "domainLabel": "Domain",
-    "domainRegisteredToast": "Domain {domain} registered.",
-    "domainReleaseFailedToast": "Failed to release domain.",
-    "domainReleasedToast": "Domain released.",
-    "emailAddressLabel": "Email address",
-    "emailCreatedToast": "Email address created.",
-    "emailRemoveFailedToast": "Failed to remove email address.",
-    "emailRemovedToast": "Email address removed.",
-    "emailUsernameAriaLabel": "Email username",
-    "emailUsernamePlaceholder": "hi",
-    "enterSubdomainError": "Enter a subdomain.",
-    "enterUsernameError": "Enter an email username.",
-    "register": "Register",
-    "registerDomainFailedFallback": "Failed to register domain.",
-    "registering": "Registering…",
-    "releaseConfirm": "Release",
-    "releaseDomainAriaLabel": "Release domain",
-    "releaseDomainConfirmMessage": "Are you sure you want to release <code>{domain}</code>? The subdomain will become available for others to claim.",
-    "releaseDomainTitle": "Release Domain",
-    "removeAddressFirstToast": "Remove the email address first.",
-    "removeConfirm": "Remove",
-    "removeEmailAriaLabel": "Remove email address",
-    "removeEmailConfirmMessage": "Are you sure you want to remove <code>{address}</code>? Your assistant will no longer be able to send or receive email at this address.",
-    "removeEmailTitle": "Remove Email Address",
-    "retry": "Retry",
-    "setSubdomainConfirmMessage": "<code>{subdomain}</code> will also become your assistant's public handle. You won't be able to change it once set.",
-    "setSubdomainTitle": "Set Subdomain",
-    "subdomainExamplePlaceholder": "my-assistant",
-    "subdomainFallback": "subdomain",
-    "subdomainHint": "Each assistant gets its own subdomain. Lowercase letters, numbers, and hyphens only.",
-    "subdomainLabel": "Subdomain",
-    "subscriptionWarningBody": "We couldn't reach the billing service. The form below assumes managed email is enabled for your org. If it isn't, registering a domain will fail.",
-    "subscriptionWarningTitle": "Couldn't verify subscription status",
-    "upgradeButton": "Upgrade",
-    "upgradeNoticeBody": "Upgrade to a plan that includes an email address for your assistant. No provider setup required.",
-    "upgradeNoticeTitle": "Give your assistant its own email address",
-    "usageSummary": "{sent} / {limit} sent today · {received} received"
-  },
-  "emailServiceCard": {
-    "apiKeyConfigured": "{providerName} API key configured. To reconfigure, run the <code>{setupSkill}</code> skill.",
-    "connecting": "Connecting to the Vellum platform…",
-    "openProvider": "Open {providerName}",
-    "platformLoginNotice": "Log in to the Vellum platform to manage email settings.",
-    "providerLabel": "Provider",
-    "saveSuccessToast": "Email settings saved.",
-    "setupInstructions": "Configure {providerName} via the assistant CLI: ask the assistant to run the <code>{setupSkill}</code> skill. It walks you through storing the API key, detecting the domain, and (optionally) wiring up an inbound webhook.",
-    "subtitle": "Configure how your assistant sends and receives email",
-    "title": "Email"
   },
   "enrollTotpModal": {
     "cancel": "Cancel",
@@ -805,8 +803,10 @@
     "valueAriaLabel": "{label} value"
   },
   "freeDowngradeConfirmModal": {
-    "bodyCancelOnly": "You'll be taken to Stripe to cancel your subscription.",
-    "bodyWithFeatures": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
+    "bodyCancelOnly": "Your subscription will be canceled at the end of your current billing period. You'll keep Pro access until then.",
+    "bodyCancelOnlyPortal": "You'll be taken to Stripe to cancel your subscription.",
+    "bodyWithFeatures": "Downgrading removes the following Pro features. Your subscription will be canceled at the end of your current billing period.",
+    "bodyWithFeaturesPortal": "Downgrading removes the following Pro features. You'll be taken to Stripe to cancel your subscription.",
     "cancel": "Cancel",
     "confirm": "Downgrade to Base",
     "title": "Downgrade to Base?"
@@ -1166,7 +1166,9 @@
     "benefitPush": "Push notifications",
     "download": "Download",
     "subtitle": "The Vellum {appName} app gives you a native experience.",
-    "title": "Get the {appName} App"
+    "subtitleGeneric": "The Vellum mobile app gives you a native experience.",
+    "title": "Get the {appName} App",
+    "titleGeneric": "Get the Vellum Mobile App"
   },
   "notificationsPage": {
     "description": "Manage how Vellum notifies you on this Android device.",
@@ -1204,20 +1206,23 @@
     "generateButton": "Generate pairing QR",
     "generateButtonMinting": "Generating…",
     "generateButtonRegenerate": "Generate new code",
+    "generateButtonWarned": "Generate anyway",
+    "learnMore": "Learn more about pairing",
     "noTunnelMore": "Other providers and options: <code>{command}</code>",
     "noTunnelNext": "The tunnel prints an https address. Paste it into Public URL below, and leave the tunnel running while you pair and use other devices.",
     "noTunnelTitle": "Open a tunnel first",
     "noTunnelWhy": "Other devices reach {name} over the internet through a tunnel from this computer. In a terminal here, run:",
+    "publicUrlDisclosure": "Use a different address",
     "publicUrlHelper": "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's).",
     "publicUrlHelperTunnel": "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL.",
     "publicUrlLabel": "Public URL",
     "publicUrlPlaceholder": "https://your-assistant.ts.net",
-    "subtitle": "Scan with another device's camera, or open the link on it, to use {name} there.",
+    "subtitle": "Scan it with a phone's camera, or paste the link into another computer, to use {name} there.",
     "subtitleFallbackName": "this assistant",
     "title": "Pair a device"
   },
   "pairDeviceClient": {
-    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel`) and the public URL points at it, then generate a new code.",
+    "connectivityHint": "If a scan can't connect, make sure a tunnel is running on the host (`vellum tunnel --help` lists the providers) and the public URL points at it, then generate a new code.",
     "httpError": "Pairing failed (HTTP {status}).",
     "networkError": "Couldn't reach the assistant. Make sure it's running and try again.",
     "unexpectedResponse": "The assistant returned an unexpected response."
@@ -1234,16 +1239,20 @@
   "pairDeviceUrl": {
     "loopback": "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
     "nonHttps": "The URL must use https so your devices can connect securely.",
+    "privateAddress": "This address points at a private network address. Enter the assistant's public https URL so your devices can reach it.",
     "serviceFallbackName": "the tunnel provider",
-    "serviceWebsite": "This is {service}'s website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+    "serviceWebsite": "This is {service}'s website, not your assistant's address. Start a tunnel on the host to get one; `vellum tunnel --help` lists the providers.",
     "unparseable": "Enter a valid URL, e.g. https://your-assistant.ts.net."
   },
   "pairedDevicesSection": {
-    "confirmMessage": "The {platform} device {hash} loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
+    "browserOnOs": "{browser} on {os}",
+    "confirmMessageNamed": "{name} ({hash}) loses access to this assistant. Its access tokens are invalidated immediately; that device must be paired again from this machine to reconnect.",
     "confirmTitle": "Revoke this device?",
     "dateUnknown": "unknown",
-    "datesLine": "Paired {paired} · Last used {lastUsed}",
     "hostRevokeDisabledTitle": "This is this machine's own credential; revoking it would lock the host out of the assistant.",
+    "pairedActiveLine": "Paired {paired} · Active now",
+    "pairedAndUsedLine": "Paired {paired} · Last used {lastUsed}",
+    "pairedLine": "Paired {paired}",
     "platformUnknown": "Unknown",
     "revokeButton": "Revoke",
     "thisMachine": "This machine",
@@ -1251,24 +1260,15 @@
   },
   "paymentMethodRow": {
     "endingIn": "Ending in {last4}",
-    "remove": "Remove",
-    "removing": "Removing…",
-    "savedCard": "Saved card",
-    "updateCard": "Update Card"
+    "replaceCard": "Replace card",
+    "savedCard": "Saved card"
   },
   "paymentMethodsCard": {
     "addButton": "Add Payment Method",
     "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
     "loading": "Loading…",
-    "removeConfirmCancel": "Keep card",
-    "removeConfirmConfirm": "Remove",
-    "removeConfirmMessage": "Removing your card will turn off auto-reload.",
-    "removeConfirmPending": "Removing…",
-    "removeConfirmTitle": "Remove payment method?",
-    "removeError": "Failed to remove the payment method. Please try again.",
-    "subtitle": "Payment methods linked to your account.",
-    "title": "Payment Methods"
+    "title": "Payment Method"
   },
   "pendingPairingRequests": {
     "approveButton": "Approve",
@@ -1287,6 +1287,7 @@
     "heading": "Plan",
     "loadError": "Failed to load plan.",
     "loading": "Loading plan...",
+    "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",
     "powerUpFor": "Power Up for +{amount}/month",
@@ -1294,9 +1295,9 @@
     "usageBalanceAddCredits": "Add",
     "usageBalanceExhausted": "Add credits to continue using your assistant",
     "usageBalancePctUsed": "{pct}% used",
-    "usageBalanceResets": "Resets {date}",
     "usageBalanceTitle": "Usage Balance",
     "usageChip": "{name} usage, reset monthly",
+    "usageIncludedChip": "{label} included",
     "viewAllPlans": "View All Plans"
   },
   "planCardContent": {
@@ -1333,6 +1334,8 @@
     "featureComputer": "{machine} Computer",
     "featureCreditsIncluded": "{amount} in credits included",
     "featureStorage": "{gib} GB Storage",
+    "featureUsage": "{name} usage, reset monthly",
+    "featureUsageIncluded": "{label} included",
     "foreverCaption": "Forever",
     "freeFeaturePayAsYouGo": "Pay-as-you-go credits",
     "freeFeatureSmallComputer": "Small Computer",
@@ -1433,7 +1436,6 @@
     "enableExtendedThinkingLabel": "Enable extended thinking",
     "maxOutputTokensLabel": "Max Output Tokens",
     "reset": "Reset",
-    "snapshotsHint": "Fields left at their default are saved with the values shown and won't change if the assistant defaults change later.",
     "speedLabel": "Speed",
     "streamThinkingTokensLabel": "Stream thinking tokens",
     "temperatureLabel": "Temperature",
@@ -1443,19 +1445,31 @@
     "topPLabel": "Top P",
     "verbosityLabel": "Verbosity"
   },
+  "profileCheck": {
+    "profileError": "Saved, but a test request through this profile failed: {detail} Check the profile's model and parameters.",
+    "providerError": "Saved, but a test request through this profile failed: {detail} Check the provider connection \"{connection}\".",
+    "providerErrorUnnamed": "Saved, but a test request through this profile failed: {detail} Check the profile's provider connection.",
+    "transient": "Saved, but a test request through this profile could not complete: {detail} This may be temporary.",
+    "unknown": "Saved, but a test request through this profile failed: {detail}"
+  },
   "profileDetailPanel": {
-    "createProfile": "Create Profile",
+    "create": "Create Model",
+    "createTitle": "New Model",
     "defaultTitle": "Profile",
     "delete": "Delete",
     "deleting": "Deleting…",
     "managedTag": "Managed by Vellum",
-    "newProfileTitle": "New Profile",
     "save": "Save",
     "saveAsNew": "Save As New",
     "saveChanges": "Save Changes",
     "saving": "Saving…"
   },
   "profileEditor": {
+    "maxTokensNoInputRoom": "Max tokens ({maxTokens}) reserves the entire {window}-token context window for output, leaving no room for your messages. Reduce it (e.g. 8000).",
+    "maxTokensOverCap": "Max tokens ({maxTokens}) exceeds the model's maximum output of {cap} tokens. Reduce it to {cap} or less.",
+    "nameRequired": "Name is required",
+    "nameTaken": "This name is already taken",
+    "providerRequired": "Select a provider",
     "subscriptionSteeringHint": "Your ChatGPT subscription is available as the ChatGPT provider."
   },
   "profileEditorFields": {
@@ -1466,9 +1480,7 @@
     "descriptionLabel": "Description <optional>(optional)</optional>",
     "descriptionPlaceholder": "Describe when to use this profile",
     "displayNameLabel": "Display Name",
-    "displayNamePlaceholder": "e.g. Fast & Cheap",
-    "keyLabel": "Key",
-    "keyPlaceholder": "e.g. fast-cheap",
+    "displayNamePlaceholder": "e.g. Claude Opus 4.8",
     "nameLabel": "Name",
     "newProviderNote": "New provider connection will show up in the Providers section.",
     "providerLabel": "Provider",
@@ -1478,8 +1490,8 @@
   "profileEditorModal": {
     "cancel": "Cancel",
     "close": "Close",
+    "createTitle": "New Model",
     "editProfileTitle": "Edit Profile",
-    "newProfileTitle": "New Profile",
     "platformTag": "Platform",
     "profileFallbackTitle": "Profile",
     "save": "Save",
@@ -1500,6 +1512,8 @@
     "modelEmptyUnknownHint": "No models are available for this provider in this app version. Update the app, or enter a custom model ID.",
     "modelEmptyUnknownPlaceholder": "No models available",
     "modelLabel": "Model",
+    "modelNoMatches": "No matching models",
+    "modelResultsAnnouncement": "{count, plural, one {# model available} other {# models available}}. Use the up and down arrow keys to move through them, Enter to choose one.",
     "noProviderConnectionsHint": "No provider connections. Open Providers to add one.",
     "providerLabel": "Provider",
     "providerNotFoundSuffix": "(not found)",
@@ -1518,6 +1532,9 @@
     "makeDefault": "Make Default",
     "managedByVellum": "Managed by Vellum",
     "openProfileAriaLabel": "Open profile {displayName}",
+    "configIssueModelUnknown": "This profile's model is not available from its provider.",
+    "configIssueNoInputRoom": "This profile's max output tokens leave no room for input in the model's context window.",
+    "configIssueOverOutputCap": "This profile's max output tokens exceed what its model supports.",
     "providerUnavailableDefault": "This profile's provider is not available.",
     "providerUnavailableFixable": "{message} Click to fix.",
     "view": "View"
@@ -1536,9 +1553,11 @@
     "advanced": "Advanced",
     "apiKeyPlaceholder": "Enter your API key",
     "baseUrlHintOllama": "Leave blank to use the local Ollama default, or enter a remote or non-default host.",
+    "baseUrlHintOpencode": "Leave blank to use OpenCode Zen, or set this to the OpenCode Go endpoint.",
     "baseUrlLabel": "Base URL",
     "baseUrlPlaceholder": "https://api.x.ai/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Cancel",
     "customProviderHint": "Custom providers connect to any endpoint that serves the OpenAI-compatible API - xAI, Groq, LM Studio, vLLM, and similar.",
     "customProviderOption": "Custom provider",
@@ -1579,9 +1598,11 @@
   "providerEditorContent": {
     "apiKeyPlaceholder": "Enter your API key",
     "baseUrlHintOllama": "Leave blank to use the local Ollama default, or enter a remote or non-default host.",
+    "baseUrlHintOpencode": "Leave blank to use OpenCode Zen, or set this to the OpenCode Go endpoint.",
     "baseUrlLabel": "Base URL",
     "baseUrlPlaceholder": "https://api.example.com/v1",
     "baseUrlPlaceholderOllama": "http://127.0.0.1:11434/v1",
+    "baseUrlPlaceholderOpencode": "https://opencode.ai/zen/v1",
     "cancel": "Cancel",
     "displayNameLabel": "Display Name <optional>(optional)</optional>",
     "displayNamePlaceholder": "e.g. My Anthropic Key",
@@ -1633,6 +1654,7 @@
     "dimensionsComplete": "{dimensions} complete",
     "goToBilling": "Go to billing",
     "machineLabel": "Machine",
+    "noExtraUsage": "No extra usage",
     "packageChip": "{name} package",
     "planReadyStatus": "Your plan is ready",
     "retryInBackground": "Retry in the background",
@@ -1643,6 +1665,7 @@
     "storageLabel": "Storage",
     "takingLongerStatus": "This is taking longer than expected",
     "tryAgain": "Try again",
+    "usageLabel": "Usage",
     "waitingCaptionLong": "Still working. This can take a minute or two.",
     "waitingCaptionShort": "This might take a couple seconds."
   },
@@ -1674,12 +1697,11 @@
     "copySuccess": "Copied to clipboard!",
     "creditsEarned": "Credits Earned",
     "friendsReferred": "Friends Referred",
-    "gatedNotice": "You're not currently earning referral credits. Buy credits or upgrade to Pro to start earning - your invite link still works in the meantime.",
+    "gatedTooltip": "Subscribe or purchase credits to start earning!",
     "loadError": "Failed to load referral information.",
     "loading": "Loading...",
     "shareLink": "Share Link",
     "subtitleDefault": "Share Vellum with friends and earn credits for every signup.",
-    "subtitleGated": "Invite friends to Vellum. You'll start earning referral credits once you've purchased credits or upgraded to Pro.",
     "subtitleWithAmounts": "Share Vellum with friends - you'll each earn {creditAmount} credits when they sign up, up to {earningCap} total."
   },
   "referralModal": {
@@ -1781,21 +1803,6 @@
     "warningLabel": "Warning Event",
     "warningSentToast": "Sentry warning event sent."
   },
-  "sharedUi": {
-    "checkingDomain": "Checking domain…",
-    "domainVerified": "Domain verified",
-    "failedTitle": "Domain verification failed. DNS records may not have propagated correctly. You could try releasing and re-registering the domain.",
-    "managedLabel": "Managed",
-    "managedServicesBanner": "Managed services are metered and deducted from your Vellum account balance. <link>View pricing</link>",
-    "modeToggleAriaLabel": "Service mode",
-    "unknownStatus": "Unknown status",
-    "unknownStatusTitle": "Unable to retrieve domain verification status.",
-    "verificationFailed": "Verification failed",
-    "verifiedTitle": "DNS records have been verified. Your domain is ready to send and receive email.",
-    "verifyingDomain": "Verifying domain…",
-    "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes.",
-    "yourOwnLabel": "Your Own"
-  },
   "shortcutsSections": {
     "alreadyUsedBy": "Already used by {label}",
     "appDescription": "Work while a Vellum window is focused.",
@@ -1846,6 +1853,19 @@
   "speechToTextCard": {
     "subtitle": "Configure how your assistant transcribes speech",
     "title": "Speech-to-Text"
+  },
+  "sttRoleOverrides": {
+    "clear": "Reset",
+    "clearAria": "Reset {feature}",
+    "clearFailed": "Could not reset",
+    "role": {
+      "batch": "File transcription",
+      "dictation": "Dictation",
+      "liveVoice": "Live voice",
+      "telephony": "Phone calls",
+      "watch": "Watch"
+    },
+    "title": "Per feature"
   },
   "systemTasksSection": {
     "consolidationName": "Consolidation",
@@ -1903,12 +1923,12 @@
     "storageTooltip": "Persistent disk space for your assistant's files and data"
   },
   "timezonePicker": {
-    "citiesAriaLabel": "Cities",
-    "closestCity": "Closest city",
-    "noMatchingCities": "No matching cities",
+    "noMatches": "No matches",
     "notSet": "Not set",
-    "searchPlaceholder": "Search city or country...",
-    "timeZone": "Time zone"
+    "searchPlaceholder": "Search city or UTC offset...",
+    "timezone": "Timezone",
+    "timezonesAriaLabel": "Timezones",
+    "zoneName": "Zone name"
   },
   "timezoneSection": {
     "description": "Used when displaying times and scheduling reminders.",
@@ -1959,6 +1979,19 @@
     "riskMedium": "Medium",
     "showAllDefaults": "Show all defaults",
     "title": "Trust Rules"
+  },
+  "tunnelStatusRow": {
+    "checkedAt": "Checked {when}",
+    "checkingStatus": "Checking whether the tunnel is reachable…",
+    "foreignStatus": "This address is serving a different assistant right now.",
+    "foreignStatusNamed": "This address is serving {name} right now, not this assistant.",
+    "healthyStatus": "The tunnel is running and reachable.",
+    "refreshLabel": "Check the tunnel again",
+    "restartHint": "Start this assistant's tunnel again with <code>{command}</code> in a terminal on this computer.",
+    "stoppedRestart": "Run <code>{command}</code> in a terminal on this computer to start it again.",
+    "stoppedStatus": "The tunnel is stopped, so other devices cannot reach this assistant.",
+    "unpairableStatus": "This address answers, but it is not serving the pairing app. Start a tunnel with the web app enabled so pairing links open.",
+    "unreachableStatus": "This address is not answering right now."
   },
   "twoFactorSection": {
     "addAuthenticatorApp": "Add authenticator app",
@@ -2075,6 +2108,16 @@
   "useBillingPortalSession": {
     "openError": "Couldn't open the billing portal. Please try again."
   },
+  "useCancelSubscription": {
+    "cancelFailedToast": "Couldn't cancel your subscription. Please try again.",
+    "canceledToast": "Pro plan canceled. You'll have access until {date}.",
+    "endOfBillingPeriod": "the end of your billing period"
+  },
+  "useChatgptDeviceAuth": {
+    "expired": "This code expired. Start again to get a new one.",
+    "rejected": "ChatGPT could not confirm this code.",
+    "startFailed": "Could not start ChatGPT sign-in. Please try again."
+  },
   "useDaemonConfig": {
     "assistantNotReadyToast": "Assistant not ready. Please try again.",
     "saveApiKeyFailedToast": "Failed to save {providerName} API key. Please try again."
@@ -2094,6 +2137,10 @@
     "deleteFailedToast": "Failed to delete the provider. Please try again.",
     "deleteInUseToast": "This provider is in use by a profile or as the default provider. Update those settings before deleting it.",
     "setDefaultFailedToast": "Failed to set the default provider. Please try again."
+  },
+  "useReactivateSubscription": {
+    "reactivateFailedToast": "Couldn't reactivate your subscription. Please try again.",
+    "reactivatedToast": "Pro plan reactivated."
   },
   "useSystemTasks": {
     "consolidationAlreadyQueued": "Consolidation already queued or running.",
@@ -2129,6 +2176,7 @@
     "microphoneFallbackLabel": "Microphone {index}",
     "microphoneSubtitle": "Which input device is used for dictation and voice conversations.",
     "microphoneTitle": "Microphone",
+    "offKeyLabel": "Off",
     "pauseBeforeReplyAriaLabel": "Pause before reply",
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",
@@ -2152,6 +2200,10 @@
     "speechServicesBannerLink": "Set it up in Models & Services",
     "speechServicesBannerPrompt": "Want to use your own API key for STT or TTS, or set a custom voice?",
     "systemDefault": "System Default",
+    "turnDetectionDescription": "The speech model decides when you have finished, instead of the pause timer above.",
+    "turnDetectionFailed": "Could not change turn taking",
+    "turnDetectionLabel": "Model-native turn taking",
+    "turnDetectionLanguageUnsupported": "Not available in the selected spoken language.",
     "turnTakingSubtitle": "Where your turn ends and the assistant's begins. Applies to hands-free conversations. Under push to talk, the key decides.",
     "turnTakingTitle": "Turn taking",
     "voiceShortcutSubtitle": "Press the shortcut to start or end a voice conversation, from anywhere in the app.",
@@ -2161,6 +2213,7 @@
   "voicePickerCard": {
     "changeButton": "Change",
     "creditsNote": "Uses Vellum credits, through providers like ElevenLabs and Deepgram.",
+    "loadingAria": "Loading voice",
     "title": "Voice",
     "titleWithName": "{name}'s Voice"
   },

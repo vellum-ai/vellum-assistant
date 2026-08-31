@@ -7,6 +7,8 @@ const meta: Meta<typeof ShortcutKeys> = {
   component: ShortcutKeys,
   argTypes: {
     accelerator: { control: "text" },
+    platform: { control: "inline-radio", options: ["mac", "windows"] },
+    variant: { control: "inline-radio", options: ["caps", "inline"] },
   },
 };
 
@@ -16,6 +18,14 @@ type Story = StoryObj<typeof ShortcutKeys>;
 
 export const Default: Story = {
   args: { accelerator: "CmdOrCtrl+Shift+N" },
+};
+
+/**
+ * The compact form a dense row has space for: a menu row or a palette result,
+ * beside the command's name rather than as the subject of the row.
+ */
+export const Inline: Story = {
+  args: { accelerator: "CmdOrCtrl+Shift+N", variant: "inline" },
 };
 
 export const SingleModifier: Story = {
@@ -32,6 +42,10 @@ export const PunctuationKey: Story = {
 
 export const AllModifiers: Story = {
   args: { accelerator: "CmdOrCtrl+Control+Alt+Shift+K" },
+};
+
+export const Windows: Story = {
+  args: { accelerator: "CmdOrCtrl+Shift+N", platform: "windows" },
 };
 
 export const Gallery: Story = {

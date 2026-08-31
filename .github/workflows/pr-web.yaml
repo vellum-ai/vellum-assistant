@@ -9,9 +9,17 @@ on:
       - 'patches/**'
       - 'clients/web/**'
       - 'assistant/src/api/**'
+      # `openapi-ts` generates the web's daemon client from this spec, so a
+      # schema change here can break the web build with no web file touched.
+      - 'assistant/openapi.yaml'
       - 'packages/design-library/**'
+      # The web imports this contract's types directly, so a change here can
+      # break the web type check with no web file touched.
+      - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      - 'packages/avatar-catalog/**'
+      - 'packages/avatar-manifest/**'
       # The web LLM catalog parity test reads this file, so daemon-side catalog
       # regenerations must run the web tests on the PR that introduces drift.
       - 'meta/llm-provider-catalog.json'

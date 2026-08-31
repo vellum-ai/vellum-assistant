@@ -3,7 +3,7 @@
  *
  * Manages the connection state machine:
  * idle → connecting → connected, with reconnect and error branches.
- * State transitions are guarded — invalid transitions are no-ops.
+ * State transitions are guarded: invalid transitions are no-ops.
  *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *

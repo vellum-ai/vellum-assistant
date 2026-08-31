@@ -1,5 +1,7 @@
 import { ConfirmDialog } from "@vellumai/design-library";
 
+import { useTranslation } from "@/i18n";
+
 interface SkillRemovalDialogProps {
   /**
    * Name of the skill awaiting removal confirmation; `null` keeps the dialog
@@ -22,12 +24,17 @@ export function SkillRemovalDialog({
   onConfirm,
   onCancel,
 }: SkillRemovalDialogProps) {
+  const { t } = useTranslation();
   return (
     <ConfirmDialog
       open={skillName !== null}
-      title="Remove skill"
-      message={skillName ? `Remove "${skillName}" from this assistant?` : ""}
-      confirmLabel="Remove"
+      title={t("skillRemovalDialog.title")}
+      message={
+        skillName
+          ? t("skillRemovalDialog.message", { name: skillName })
+          : ""
+      }
+      confirmLabel={t("skillRemovalDialog.remove")}
       destructive
       onConfirm={onConfirm}
       onCancel={onCancel}

@@ -28,7 +28,10 @@ import {
   ProviderKeyRejectedError,
 } from "@/domains/onboarding/provider-key";
 import { onboardingProvider } from "@/domains/onboarding/provider-catalog";
-import { shouldSkipResearchAfterHatch } from "@/domains/onboarding/onboarding-destination";
+import {
+  NEW_ASSISTANT_PARAM,
+  shouldSkipResearchAfterHatch,
+} from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import {
   awaitPurchasedProvisioning,
@@ -871,7 +874,7 @@ export function HatchingScreen() {
                 void navigate(
                   useLocalHatch
                     ? routes.onboarding.hosting
-                    : routes.onboarding.privacy,
+                    : `${routes.onboarding.privacy}?${NEW_ASSISTANT_PARAM}=1`,
                   { replace: true },
                 )
               }

@@ -7,7 +7,7 @@ import type { ConnectionHealthDetail, ConnectionHealthState } from './popup-stat
 
 export type Screen =
   | { name: 'welcome' }
-  | { name: 'picker'; assistants: CloudAssistant[]; email?: string }
+  | { name: 'picker'; assistants: CloudAssistant[]; email?: string; error?: string }
   | { name: 'main' }
   | { name: 'activity' }
   | { name: 'detail'; operation: OperationEntry }

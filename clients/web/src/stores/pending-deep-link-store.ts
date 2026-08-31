@@ -56,12 +56,45 @@ export interface PendingDeepLinkState {
    * start's age check.
    */
   pendingThreadSend: PendingThreadSend | null;
+  /**
+   * A parked `deeplink.openCamera` request, or `null` if none is. Same race as
+   * `pendingVoiceStartAt`, one layer lower: the camera input is owned by the
+   * composer, which does not exist yet when a widget tap cold-launches the app
+   * and never exists on settings / logs / account routes. The command carries
+   * nothing of its own, so the park is only an address and a timestamp: the
+   * address names the composer that answers it (see {@link PendingCamera}) and
+   * the timestamp lets the drain know how stale it is.
+   */
+  pendingCamera: PendingCamera | null;
+  /**
+   * When a `deeplink.openConversations` was parked (`Date.now()`), or `null` if
+   * none is. Same race as `pendingCamera`, against a different owner: the
+   * conversation list belongs to `ChatLayout`, which is not mounted on a cold
+   * launch and never mounts on settings / logs / account routes. A timestamp
+   * rather than a payload, since the command carries nothing of its own and a
+   * second tap before the drain is the same request; the drain owns the age
+   * bound (see `consumePendingConversationList`).
+   */
+  pendingConversationListAt: number | null;
 }
 
 /** A proven send-into-thread request; see `pendingThreadSend`. */
 export interface PendingThreadSend {
   threadId: string;
   message: string;
+  parkedAt: number;
+}
+
+/** A parked open-the-camera request; see `pendingCamera`. */
+export interface PendingCamera {
+  /**
+   * The conversation whose composer answers this request. Addressed rather
+   * than broadcast because the handler parks around a navigation: a composer
+   * still mounted on the route the tap is leaving would otherwise drain the
+   * one-shot park and raise a viewfinder that the navigation unmounts a beat
+   * later, leaving the composer the tap was meant for with nothing to open.
+   */
+  targetConversationId: string;
   parkedAt: number;
 }
 
@@ -101,6 +134,39 @@ export interface PendingDeepLinkActions {
    * than dropped, and only the consumer can do that demotion.
    */
   consumePendingThreadSend: () => PendingThreadSend | null;
+  /**
+   * Park a camera deep link until the attachment layer of the composer bound
+   * to `targetConversationId` mounts. A newer request replaces an older one,
+   * as with the composer message.
+   */
+  setPendingCamera: (targetConversationId: string) => void;
+  /**
+   * Spend the parked camera request, whatever it was. Returns nothing, unlike
+   * `consumePendingVoiceStart`: the drain (`useCameraDeepLink`) subscribes to
+   * `pendingCamera` and so already holds the park it is spending, and every
+   * decision about one is its own. It owns the age bound, since a park that was
+   * never drained (its navigation bounced off a route guard, say) must not
+   * throw the camera open minutes later; it owns the address check, since only
+   * the drain knows which conversation it is bound to; and it gives way to a
+   * running call. All three spend the request, so what is left here is the
+   * one-shot clear they share.
+   */
+  consumePendingCamera: () => void;
+  /**
+   * Park an open-conversations deep link until `ChatLayout` is mounted on a
+   * settled route. A newer request replaces an older one, as with the camera.
+   */
+  setPendingConversationList: () => void;
+  /**
+   * Spend the parked open-conversations request. Returns nothing, like
+   * `consumePendingCamera`: the drain subscribes to `pendingConversationListAt`
+   * and so already holds the park it is spending, and both decisions about one
+   * are its own. It owns the age bound, since a park that was never drained
+   * (its navigation bounced off a route guard, say) must not throw the list
+   * open minutes later, and it owns when the route counts as settled, since
+   * only the layout knows whether the landing it is on is still redirecting.
+   */
+  consumePendingConversationList: () => void;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -111,6 +177,8 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
     pendingThreadSend: null,
+    pendingCamera: null,
+    pendingConversationListAt: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -138,6 +206,20 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       }
       return parked;
     },
+    setPendingCamera: (targetConversationId) =>
+      set({ pendingCamera: { targetConversationId, parkedAt: Date.now() } }),
+    consumePendingCamera: () => {
+      if (get().pendingCamera !== null) {
+        set({ pendingCamera: null });
+      }
+    },
+    setPendingConversationList: () =>
+      set({ pendingConversationListAt: Date.now() }),
+    consumePendingConversationList: () => {
+      if (get().pendingConversationListAt !== null) {
+        set({ pendingConversationListAt: null });
+      }
+    },
   }),
 );
 
@@ -153,5 +235,7 @@ export function __resetPendingDeepLinkForTesting(): void {
     pendingComposerMessage: null,
     pendingVoiceStartAt: null,
     pendingThreadSend: null,
+    pendingCamera: null,
+    pendingConversationListAt: null,
   });
 }

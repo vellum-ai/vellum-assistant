@@ -5,6 +5,8 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ConfirmationRequestEvent,
+  ContactFormClosedEvent,
+  ContactRecordRequestEvent,
   ContactRequestEvent,
   InteractionResolvedEvent,
   QuestionRequestEvent,
@@ -135,11 +137,19 @@ export function handleInteractionResolved(
   session.deleteConfirmationToolCall(requestId);
 }
 
+/**
+ * Raise an address form.
+ *
+ * The turn is left alone. This event carries no conversation, so the only one
+ * available is whichever the guardian happens to be viewing, which for a form
+ * raised by a background command is a conversation that is not waiting on
+ * anything: parking it would show an unrelated turn as awaiting input, and
+ * make it look like this form's to end.
+ */
 export function handleContactRequest(
   event: ContactRequestEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRequest({
     requestId: event.requestId,
     channel: event.channel,
@@ -148,7 +158,81 @@ export function handleContactRequest(
     label: event.label,
     description: event.description,
     role: event.role,
+    verify: event.verify,
   });
+}
+
+/**
+ * Raise a record form. The turn is left alone, for the same reason the address
+ * form leaves it alone.
+ */
+export function handleContactRecordRequest(
+  event: ContactRecordRequestEvent,
+  _ctx: StreamHandlerContext,
+): void {
+  useInteractionStore.getState().showContactRecordRequest({
+    requestId: event.requestId,
+    operation: event.operation,
+    contactId: event.contactId,
+    currentDisplayName: event.currentDisplayName,
+    currentNotes: event.currentNotes,
+    channels: event.channels,
+    displayName: event.displayName,
+    notes: event.notes,
+    notesProposed: event.notesProposed,
+    label: event.label,
+    description: event.description,
+  });
+}
+
+/**
+ * How long a card stays up after its form closes, so a submission still on the
+ * wire has time to say whether this client is the one that answered.
+ */
+const ANSWERED_CARD_LINGER_MS = 3000;
+
+/**
+ * Retire whichever contact form has closed. A closed form accepts no
+ * submission, so a card left up offers an answer the gateway would refuse.
+ *
+ * A card with a submission still on the wire is given a moment rather than
+ * retired at once: the gateway resolves the form, and so broadcasts this,
+ * before its own HTTP response returns, so this can arrive first and cutting
+ * the card would lose the confirmation the guardian is waiting to see.
+ *
+ * It is not taken as proof that this client is the one that answered. The
+ * broadcast names the form, not the submission, so every client submitting it
+ * concurrently matches, including the ones whose claim lost. Only that
+ * client's own response can say it wrote anything, so the confirmation is left
+ * for it to set; if it never arrives, the card retires unconfirmed rather than
+ * claiming a save that may belong to somebody else.
+ *
+ * A form that closed any other way is retired everywhere, including on the
+ * client whose write failed: its card has nothing left to submit to.
+ */
+export function handleContactFormClosed(event: ContactFormClosedEvent): void {
+  const store = useInteractionStore.getState();
+
+  const ownsAddressForm =
+    store.pendingContactRequest?.requestId === event.requestId &&
+    (store.contactRequestAccepted ||
+      store.submittingByKind.contactRequest === event.requestId);
+  const ownsRecordForm =
+    store.pendingContactRecordRequest?.requestId === event.requestId &&
+    (store.contactRecordRequestAccepted ||
+      store.submittingByKind.contactRecordRequest === event.requestId);
+
+  if (event.reason === "answered" && (ownsAddressForm || ownsRecordForm)) {
+    setTimeout(() => {
+      const latest = useInteractionStore.getState();
+      latest.dismissContactRequestIfMatches(event.requestId);
+      latest.dismissContactRecordRequestIfMatches(event.requestId);
+    }, ANSWERED_CARD_LINGER_MS);
+    return;
+  }
+
+  store.dismissContactRequestIfMatches(event.requestId);
+  store.dismissContactRecordRequestIfMatches(event.requestId);
 }
 
 export function handleQuestionRequest(

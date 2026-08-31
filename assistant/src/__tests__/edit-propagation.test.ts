@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { getConversationByKey } from "../persistence/conversation-key-store.js";
 import { getDb, getMemoryDb } from "../persistence/db-connection.js";
@@ -72,11 +73,13 @@ async function seedSlackMessage(opts: {
   conversationExternalId: string;
   channelTs: string;
   initialContent: string;
+  sourceChannel?: "slack" | "telegram";
 }): Promise<SeededFixture> {
   const { conversationExternalId, channelTs, initialContent } = opts;
+  const sourceChannel = opts.sourceChannel ?? "slack";
 
   const inboundResult = recordInbound(
-    "slack",
+    sourceChannel,
     conversationExternalId,
     channelTs,
     {
@@ -88,7 +91,7 @@ async function seedSlackMessage(opts: {
     inboundResult.conversationId,
     "user",
     initialContent,
-    { metadata: { userMessageChannel: "slack" }, skipIndexing: true },
+    { metadata: { userMessageChannel: sourceChannel }, skipIndexing: true },
   );
 
   linkMessage(inboundResult.eventId, inserted.id);
@@ -169,6 +172,43 @@ describe("Slack edit propagation", () => {
     expect(slackMeta!.eventKind).toBe("message");
     expect(typeof slackMeta!.editedAt).toBe("number");
     expect(slackMeta!.editedAt!).toBeGreaterThanOrEqual(t0);
+  });
+
+  test("a Telegram edit stamps the neutral editedAt every reader serves", async () => {
+    // The neutral stamp is what makes an edit visible on channels without a
+    // provider envelope of their own: content rewrites in place and
+    // readProviderMetadata reports when.
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "555010042",
+      channelTs: "60",
+      initialContent: "original text",
+      sourceChannel: "telegram",
+    });
+
+    const t0 = Date.now();
+    const resp = await handleEditIntercept({
+      sourceChannel: "telegram",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      assistantId: "self",
+      content: "corrected text",
+    });
+
+    const respJson = resp as Record<string, unknown>;
+    expect(respJson.accepted).toBe(true);
+    expect(respJson.duplicate).toBe(false);
+
+    const after = readMessageRow(seeded.messageId);
+    expect(after.content).toBe("corrected text");
+
+    const neutral = readProviderMetadata(after.metadata);
+    expect(neutral).not.toBeNull();
+    expect(neutral!.source).toBe("telegram");
+    expect(neutral!.conversationExternalId).toBe(seeded.conversationExternalId);
+    expect(neutral!.messageId).toBe(seeded.channelTs);
+    expect(typeof neutral!.editedAt).toBe("number");
+    expect(neutral!.editedAt!).toBeGreaterThanOrEqual(t0);
   });
 
   // Times out on the default budget: an unresolvable target pays the full

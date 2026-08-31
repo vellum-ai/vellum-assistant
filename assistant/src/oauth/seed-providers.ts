@@ -92,7 +92,7 @@ export const PROVIDER_SEED_DATA: Record<
     // base URL override (see GMAIL_API_BASE_URL) for their short paths.
     baseUrl: "https://www.googleapis.com",
     displayLabel: "Google",
-    description: "Gmail, Calendar, Drive, and Contacts",
+    description: "Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
     logoUrl: "https://cdn.simpleicons.org/google",
@@ -137,6 +137,20 @@ export const PROVIDER_SEED_DATA: Record<
         headerName: "Authorization",
         valuePrefix: "Bearer ",
       },
+      // The Sheets and Slides APIs accept the auth/drive scope, so the
+      // existing token covers them; only the hosts need injection entries.
+      {
+        hostPattern: "sheets.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "slides.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
       {
         hostPattern: "tasks.googleapis.com",
         injectionType: "header",
@@ -169,6 +183,14 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
+    // Sent as the bot `scope` parameter, while this flow persists the
+    // `authed_user` token and stores `authed_user.scope` as `grantedScopes`.
+    // Credential health compares this list against that grant, so a scope
+    // listed here that `user_scope` does not also request reports as
+    // `missing_scopes`, a hard failure that disables the provider's tools.
+    // The wider bot set belongs to Socket Mode installs, which verify the live
+    // `x-oauth-scopes` header against SLACK_REQUIRED_BOT_SCOPES in
+    // channel-readiness-service.ts.
     defaultScopes: [
       "channels:join",
       "channels:read",
@@ -186,6 +208,10 @@ export const PROVIDER_SEED_DATA: Record<
       "reactions:write",
     ],
     availableScopes: "https://api.slack.com/scopes",
+    // Carries write scopes because the persisted `authed_user` token is the
+    // only credential this flow stores, so it acts as the installer for every
+    // call including `chat.postMessage`. The manifest's user list is read-only
+    // instead, since a Socket Mode install keeps a bot token beside it.
     authorizeParams: {
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
@@ -668,6 +694,268 @@ export const PROVIDER_SEED_DATA: Record<
     appType: "Connected App",
     identityUrl: "https://login.salesforce.com/services/oauth2/userinfo",
     identityResponsePaths: ["email", "preferred_username"],
+  },
+
+  monday: {
+    provider: "monday",
+    authorizeUrl: "https://auth.monday.com/oauth2/authorize",
+    tokenExchangeUrl: "https://auth.monday.com/oauth2/token",
+    pingUrl: "https://api.monday.com/v2",
+    pingMethod: "POST",
+    pingHeaders: { "Content-Type": "application/json" },
+    pingBody: { query: "{ me { id name email } }" },
+    baseUrl: "https://api.monday.com",
+    displayLabel: "monday.com",
+    description: "Boards, items, docs, and updates",
+    dashboardUrl: "https://auth.monday.com/apps",
+    clientIdPlaceholder: null,
+    // Simple Icons does not host a monday.com mark (both `monday` and
+    // `mondaydotcom` 404 on the CDN), so use the documented thesvg fallback.
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/monday/default.svg",
+    // monday tokens do not expire under the legacy OAuth flow and no refresh
+    // token is issued, so there is no refreshUrl. The newer OAuth 2.1 flow
+    // adds expiry/refresh/revocation but is opt-in per app version in the
+    // Developer Center and posts JSON (not form-encoded) credentials, so it
+    // is deliberately not used here.
+    defaultScopes: [
+      "me:read",
+      "account:read",
+      "users:read",
+      "teams:read",
+      "workspaces:read",
+      "boards:read",
+      "boards:write",
+      "docs:read",
+      "updates:read",
+      "updates:write",
+      "assets:read",
+      "tags:read",
+      "notifications:write",
+    ],
+    availableScopes: [
+      { scope: "me:read", description: "Read the user's profile information" },
+      {
+        scope: "account:read",
+        description: "Read general information about the account",
+      },
+      {
+        scope: "users:read",
+        description: "Read profile information of the account's users",
+      },
+      {
+        scope: "users:write",
+        description: "Modify profile information of the account's users",
+      },
+      {
+        scope: "teams:read",
+        description: "Read information about the account's teams",
+      },
+      { scope: "teams:write", description: "Modify the account's teams" },
+      {
+        scope: "workspaces:read",
+        description: "Read a user's workspaces data",
+      },
+      {
+        scope: "workspaces:write",
+        description: "Modify a user's workspaces data",
+      },
+      { scope: "boards:read", description: "Read a user's board data" },
+      { scope: "boards:write", description: "Modify a user's board data" },
+      { scope: "docs:read", description: "Read a user's docs" },
+      { scope: "docs:write", description: "Modify a user's docs" },
+      {
+        scope: "updates:read",
+        description: "Read updates and replies the user can see",
+      },
+      {
+        scope: "updates:write",
+        description: "Post or edit updates on behalf of the user",
+      },
+      {
+        scope: "assets:read",
+        description: "Read data from assets the user has access to",
+      },
+      { scope: "tags:read", description: "Read the account's tags" },
+      {
+        scope: "notifications:write",
+        description: "Send notifications on behalf of the user",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read existing webhooks configuration",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and modify webhooks",
+      },
+      {
+        scope: "departments:read",
+        description: "Read the account's department data",
+      },
+      {
+        scope: "departments:write",
+        description: "Modify the account's departments",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_post",
+    // 17337/17338 are taken by eventbrite/calendly (all three providers
+    // landed in parallel and independently picked the next free port at the
+    // time); 17339 is the real next-free slot once all three are seeded
+    // together.
+    loopbackPort: 17339,
+    managedServiceConfigKey: "monday-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.monday.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    identityUrl: "https://api.monday.com/v2",
+    identityMethod: "POST",
+    identityHeaders: { "Content-Type": "application/json" },
+    identityBody: { query: "{ me { id name email } }" },
+    identityResponsePaths: ["data.me.name", "data.me.email"],
+    featureFlag: "monday-oauth",
+  },
+
+  eventbrite: {
+    provider: "eventbrite",
+    authorizeUrl: "https://www.eventbrite.com/oauth/authorize",
+    tokenExchangeUrl: "https://www.eventbrite.com/oauth/token",
+    refreshUrl: "https://www.eventbrite.com/oauth/token",
+    pingUrl: "https://www.eventbriteapi.com/v3/users/me/",
+    baseUrl: "https://www.eventbriteapi.com",
+    displayLabel: "Eventbrite",
+    description: "Events, attendees, and ticket orders",
+    dashboardUrl: "https://www.eventbrite.com/platform/api-keys/",
+    clientIdPlaceholder: null,
+    // Simple Icons does not host an Eventbrite mark (cdn.simpleicons.org
+    // 404s), so use the documented thesvg fallback.
+    logoUrl:
+      "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/eventbrite/default.svg",
+    // Eventbrite has no granular OAuth scope system: an access token carries
+    // the full permissions of the user who authorized it, and the authorize
+    // endpoint ignores a `scope` parameter. Seed an empty set rather than
+    // inventing scope strings the provider would silently drop (same shape
+    // as Notion).
+    defaultScopes: [],
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17337,
+    managedServiceConfigKey: "eventbrite-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "www.eventbriteapi.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    identityUrl: "https://www.eventbriteapi.com/v3/users/me/",
+    identityResponsePaths: ["name", "first_name"],
+  },
+
+  calendly: {
+    provider: "calendly",
+    authorizeUrl: "https://auth.calendly.com/oauth/authorize",
+    tokenExchangeUrl: "https://auth.calendly.com/oauth/token",
+    pingUrl: "https://api.calendly.com/users/me",
+    baseUrl: "https://api.calendly.com",
+    displayLabel: "Calendly",
+    description: "Scheduling links and meetings",
+    dashboardUrl: "https://calendly.com/integrations/api_webhooks",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/calendly",
+    // A :write scope implicitly grants the matching :read in the same domain,
+    // so the baseline stays at the six that map to reading schedule data and
+    // creating bookings/links. Organization-wide visibility is opt-in.
+    defaultScopes: [
+      "users:read",
+      "event_types:read",
+      "scheduled_events:read",
+      "availability:read",
+      "scheduled_events:write",
+      "scheduling_links:write",
+    ],
+    availableScopes: [
+      { scope: "users:read", description: "Read the connected user's profile" },
+      {
+        scope: "event_types:read",
+        description: "Read event types and their available times",
+      },
+      {
+        scope: "event_types:write",
+        description: "Create and update event types",
+      },
+      {
+        scope: "scheduled_events:read",
+        description: "Read scheduled events and invitees",
+      },
+      {
+        scope: "scheduled_events:write",
+        description: "Create invitees, cancel events, mark no-shows",
+      },
+      {
+        scope: "availability:read",
+        description: "Read busy times and availability schedules",
+      },
+      {
+        scope: "availability:write",
+        description: "Update event type availability",
+      },
+      {
+        scope: "scheduling_links:write",
+        description: "Create single-use scheduling links",
+      },
+      {
+        scope: "shares:write",
+        description: "Create customized single-use scheduling links",
+      },
+      {
+        scope: "organizations:read",
+        description: "Read organization data and memberships",
+      },
+      {
+        scope: "groups:read",
+        description: "Read group details and relationships",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read webhook subscriptions",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and delete webhook subscriptions",
+      },
+      { scope: "contacts:read", description: "Read contact details" },
+      {
+        scope: "contacts:write",
+        description: "Create, update, and delete contacts",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_basic",
+    // 17337 is taken by eventbrite (both providers landed in parallel and
+    // independently picked the next free port at the time); 17338 is the
+    // real next-free slot once both are seeded together.
+    loopbackPort: 17338,
+    managedServiceConfigKey: "calendly-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.calendly.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    revokeUrl: "https://auth.calendly.com/oauth/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
+    appType: "App",
+    identityUrl: "https://api.calendly.com/users/me",
+    identityResponsePaths: ["resource.email", "resource.name"],
   },
 
   figma: {

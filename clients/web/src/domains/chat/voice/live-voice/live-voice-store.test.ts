@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  attachLiveVoiceFrame,
+  attachLiveVoiceImage,
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
@@ -16,9 +18,8 @@ import {
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
-  LIVE_VOICE_STATE_LABELS,
-  liveVoiceStateLabel,
-  liveVoiceSurfaceLabel,
+  LIVE_VOICE_STATE_KEYS,
+  liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
   restoreVoiceRoom,
@@ -30,6 +31,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { toVoiceAvatarVisual } from "@/domains/chat/voice/voice-room/voice-avatar-state";
+import enChat from "@/i18n/locales/en/chat.json";
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
@@ -213,55 +215,66 @@ describe("useLiveVoiceStore — room minimize", () => {
   });
 });
 
-describe("liveVoiceStateLabel", () => {
-  test("relabels only the connecting phase while reconnecting", () => {
-    expect(liveVoiceStateLabel("connecting", true)).toBe("Reconnecting…");
-    expect(liveVoiceStateLabel("connecting", false)).toBe("Connecting…");
-    // reconnecting is ignored for every other phase.
-    expect(liveVoiceStateLabel("listening", true)).toBe("Listening…");
-  });
-});
+/**
+ * What a surface renders for a session in English: the key the resolver
+ * returns, read out of the catalog every surface reads it out of.
+ */
+function surfaceLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+  muted: boolean,
+): string {
+  const key = liveVoiceSurfaceLabelKey(
+    state,
+    reconnecting,
+    assistantAudioActive,
+    muted,
+  );
+  if (!key) {
+    return "";
+  }
+  const slot = key.replace("liveVoiceStatus.", "");
+  return enChat.liveVoiceStatus[slot as keyof typeof enChat.liveVoiceStatus];
+}
 
-describe("LIVE_VOICE_STATE_LABELS", () => {
+describe("LIVE_VOICE_STATE_KEYS", () => {
   /**
-   * `toVoiceAvatarVisual` collapses `transcribing` into `thinking`, so a label
-   * of its own put two different words for one phase on screen at once: the
+   * `toVoiceAvatarVisual` collapses `transcribing` into `thinking`, so a key of
+   * its own put two different words for one phase on screen at once: the
    * avatar and eyes caption reading thinking, the label reading transcribing.
    */
   test("gives transcribing no wording of its own", () => {
-    expect(LIVE_VOICE_STATE_LABELS.transcribing).toBe(
-      LIVE_VOICE_STATE_LABELS.thinking,
+    expect(LIVE_VOICE_STATE_KEYS.transcribing).toBe(
+      LIVE_VOICE_STATE_KEYS.thinking,
     );
   });
 
-  /** The collapse is the label's, not the phase's: the state still exists. */
+  /** The collapse is the wording's, not the phase's: the state still exists. */
   test("keeps transcribing a distinct session state", () => {
     expect(toVoiceAvatarVisual("transcribing", false)).toBe(
       toVoiceAvatarVisual("thinking", false),
     );
-    expect(liveVoiceStateLabel("transcribing", false)).toBe("Thinking…");
+    expect(surfaceLabel("transcribing", false, true, false)).toBe("Thinking…");
   });
 });
 
-describe("liveVoiceSurfaceLabel", () => {
+describe("liveVoiceSurfaceLabelKey", () => {
   test("a speaking phase with no audio playing reads as thinking", () => {
     // `speaking` stays set across a mid-turn tool run (the ack was spoken and
     // the assistant is now silent) so every surface says "Thinking…".
-    expect(liveVoiceSurfaceLabel("speaking", false, false, false)).toBe(
-      "Thinking…",
-    );
-    expect(liveVoiceSurfaceLabel("speaking", false, true, false)).toBe(
-      "Speaking…",
-    );
+    expect(surfaceLabel("speaking", false, false, false)).toBe("Thinking…");
+    expect(surfaceLabel("speaking", false, true, false)).toBe("Speaking…");
   });
 
   test("carries the reconnecting relabel through unchanged", () => {
-    expect(liveVoiceSurfaceLabel("connecting", true, false, false)).toBe(
+    expect(surfaceLabel("connecting", true, false, false)).toBe(
       "Reconnecting…",
     );
-    expect(liveVoiceSurfaceLabel("listening", false, false, false)).toBe(
-      "Listening…",
-    );
+    expect(surfaceLabel("listening", false, false, false)).toBe("Listening…");
+    // Only `connecting` reads the signal: a retry that has already reconnected
+    // far enough to listen is listening.
+    expect(surfaceLabel("listening", true, false, false)).toBe("Listening…");
   });
 
   /**
@@ -269,16 +282,12 @@ describe("liveVoiceSurfaceLabel", () => {
    * surface claims to be listening beside a mute button that says it is not.
    */
   test("a muted listening phase reads as muted", () => {
-    expect(liveVoiceSurfaceLabel("listening", false, false, true)).toBe(
-      "Muted",
-    );
+    expect(surfaceLabel("listening", false, false, true)).toBe("Muted");
   });
 
   /** A state rather than an activity, so no ellipsis where the phases have one. */
   test("says muted without an ellipsis", () => {
-    expect(liveVoiceSurfaceLabel("listening", false, false, true)).not.toContain(
-      "\u2026",
-    );
+    expect(surfaceLabel("listening", false, false, true)).not.toContain("…");
   });
 
   /**
@@ -286,15 +295,9 @@ describe("liveVoiceSurfaceLabel", () => {
    * speaking, so relabelling those would trade one false statement for another.
    */
   test("leaves the assistant's own phases alone while muted", () => {
-    expect(liveVoiceSurfaceLabel("thinking", false, false, true)).toBe(
-      "Thinking…",
-    );
-    expect(liveVoiceSurfaceLabel("speaking", false, true, true)).toBe(
-      "Speaking…",
-    );
-    expect(liveVoiceSurfaceLabel("transcribing", false, false, true)).toBe(
-      "Thinking…",
-    );
+    expect(surfaceLabel("thinking", false, false, true)).toBe("Thinking…");
+    expect(surfaceLabel("speaking", false, true, true)).toBe("Speaking…");
+    expect(surfaceLabel("transcribing", false, false, true)).toBe("Thinking…");
   });
 
   /**
@@ -302,9 +305,39 @@ describe("liveVoiceSurfaceLabel", () => {
    * session that is not currently connected at all.
    */
   test("does not hide a reconnect behind the mute", () => {
-    expect(liveVoiceSurfaceLabel("connecting", true, false, true)).toBe(
-      "Reconnecting…",
-    );
+    expect(surfaceLabel("connecting", true, false, true)).toBe("Reconnecting…");
+  });
+
+  /**
+   * The key table is the only source of session wording, so a key naming a
+   * message the catalog does not carry leaves every surface rendering the key
+   * itself, the island and the macOS companion included.
+   */
+  test("keys copy the catalog actually carries", () => {
+    const cases: [LiveVoiceSessionState, boolean, boolean, boolean][] = [
+      ["connecting", false, false, false],
+      ["connecting", true, false, false],
+      ["listening", false, false, false],
+      ["listening", false, false, true],
+      ["transcribing", false, false, false],
+      ["thinking", false, false, false],
+      ["speaking", false, true, false],
+      ["speaking", false, false, false],
+      ["ending", false, false, false],
+    ];
+
+    for (const [state, reconnecting, audio, muted] of cases) {
+      expect(
+        liveVoiceSurfaceLabelKey(state, reconnecting, audio, muted),
+      ).not.toBeNull();
+      expect(surfaceLabel(state, reconnecting, audio, muted)).toBeTruthy();
+    }
+  });
+
+  /** Hosts unmount their voice UI in these phases, so there is no word to key. */
+  test("keys nothing for the phases that carry no word", () => {
+    expect(liveVoiceSurfaceLabelKey("idle", false, false, false)).toBeNull();
+    expect(liveVoiceSurfaceLabelKey("failed", false, false, false)).toBeNull();
   });
 });
 
@@ -488,6 +521,97 @@ describe("useLiveVoiceStore — session controls", () => {
   });
 });
 
+describe("attachLiveVoiceImage", () => {
+  test("delivers a photo pressed in the session that still runs", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
+    expect(controls.attachImage).toHaveBeenCalledWith("att-1");
+  });
+
+  test("refuses a photo pressed in a session that ended", () => {
+    // The upload outlives the session: the press happens in one session, the
+    // id arrives after a reset and a fresh session's controls are registered.
+    // The successor must not receive the predecessor's photo.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset();
+    const successor = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(successor);
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(false);
+    expect(successor.attachImage).not.toHaveBeenCalled();
+  });
+
+  test("survives a reconnect's republished controls within one session", () => {
+    // Reconnect attempts republish a fresh controls object without a reset,
+    // so the generation is what tells "same session, new transport" apart
+    // from "new session".
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    const republished = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(republished);
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
+    expect(republished.attachImage).toHaveBeenCalledWith("att-1");
+  });
+
+  test("survives the reconnect path's own mid-session reset", () => {
+    // The reconnect flow re-enters its connect sequence, which resets the
+    // store with `sessionContinues` before registering fresh controls. The
+    // logical session goes on, so a photo pressed before the blip still
+    // lands after it.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const pressed = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset({ sessionContinues: true });
+    const reconnected = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(reconnected);
+
+    expect(attachLiveVoiceImage("att-1", pressed)).toBe(true);
+    expect(reconnected.attachImage).toHaveBeenCalledWith("att-1");
+  });
+});
+
+describe("attachLiveVoiceFrame", () => {
+  test("parks a frame sampled in the session that still runs", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    const sampled = useLiveVoiceStore.getState().sessionGeneration;
+
+    expect(attachLiveVoiceFrame("att-1", sampled)).toBe(true);
+    expect(controls.attachFrame).toHaveBeenCalledWith("att-1");
+  });
+
+  test("refuses a frame sampled in a session that ended", () => {
+    // Same rule as a photo's, and it matters more here: nobody pressed
+    // anything, so a frame landing in the wrong call would show the assistant
+    // a view from a conversation the user has already left.
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
+    const sampled = useLiveVoiceStore.getState().sessionGeneration;
+
+    useLiveVoiceStore.getState().reset();
+    const successor = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(successor);
+
+    expect(attachLiveVoiceFrame("att-1", sampled)).toBe(false);
+    expect(successor.attachFrame).not.toHaveBeenCalled();
+  });
+
+  test("reports false when no session has registered controls", () => {
+    expect(
+      attachLiveVoiceFrame(
+        "att-1",
+        useLiveVoiceStore.getState().sessionGeneration,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("endLiveVoiceSession / releaseLiveVoiceTurn", () => {
   test("route to the registered controls (and only the matching verb)", () => {
     const controls = makeControlsSpies();
@@ -559,6 +683,28 @@ describe("isLiveVoiceMicLive", () => {
     for (const state of micOff) {
       expect(isLiveVoiceMicLive(state)).toBe(false);
     }
+  });
+});
+
+describe("useLiveVoiceStore: utteranceOpen", () => {
+  test("closed until the server VAD opens an utterance", () => {
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+    useLiveVoiceStore.getState().setUtteranceOpen(true);
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(true);
+  });
+
+  test("closes again when the utterance ends or is discarded", () => {
+    useLiveVoiceStore.getState().setUtteranceOpen(true);
+    useLiveVoiceStore.getState().setUtteranceOpen(false);
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
+  });
+
+  test("reset closes it with the rest of the session", () => {
+    // Session-scoped: an utterance open when the session ends must not read as
+    // the user talking into the next one.
+    useLiveVoiceStore.getState().setUtteranceOpen(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().utteranceOpen).toBe(false);
   });
 });
 

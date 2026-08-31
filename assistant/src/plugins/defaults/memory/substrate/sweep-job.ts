@@ -37,7 +37,7 @@ import { z } from "zod";
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { warmGuardianBindings } from "../../../../contacts/guardian-delivery-reader.js";
-import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
+import { emitBackgroundFailureSignal } from "../../../../notifications/background-failure-signal.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import {
@@ -199,51 +199,18 @@ export async function memoryV2SweepJob(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log.error({ err }, "memory v2 sweep failed");
-    emitSweepActivityFailed({
-      jobId: job.id,
+    // The sweep is a data job with no LLM turn to classify, so its failures
+    // report as generic exceptions through the shared background-failure
+    // seam, which owns the payload shape and dedupe key.
+    emitBackgroundFailureSignal({
+      jobName: JOB_NAME,
+      sourceChannel: "scheduler",
+      sourceContextId: job.id,
+      errorKind: "exception",
       errorMessage,
     });
     return 0;
   }
-}
-
-/**
- * Emit an `activity.failed` notification for a failed sweep run. Mirrors
- * the shape `runBackgroundJob` produces for its own failures so the home
- * feed and native notifications stay consistent regardless of which code
- * path executed the work. Fire-and-forget — a notification failure must
- * never break sweep operation.
- */
-function emitSweepActivityFailed(args: {
-  jobId: string;
-  errorMessage: string;
-}): void {
-  const day = new Date().toISOString().slice(0, 10);
-  emitNotificationSignal({
-    sourceChannel: "scheduler",
-    sourceContextId: args.jobId,
-    sourceEventName: "activity.failed",
-    dedupeKey: `activity-failed:${JOB_NAME}:${day}`,
-    contextPayload: {
-      jobName: JOB_NAME,
-      errorMessage: args.errorMessage,
-      errorKind: "exception",
-    },
-    attentionHints: {
-      requiresAction: false,
-      urgency: "medium",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-  }).catch((emitErr) => {
-    log.warn(
-      {
-        err: emitErr instanceof Error ? emitErr.message : String(emitErr),
-        jobId: args.jobId,
-      },
-      "Failed to emit activity.failed notification for memory v2 sweep",
-    );
-  });
 }
 
 /**

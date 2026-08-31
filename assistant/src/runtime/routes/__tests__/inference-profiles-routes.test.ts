@@ -64,6 +64,7 @@ mock.module("../../sync/resource-sync-events.js", () => ({
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import { loadRawConfig } from "../../../config/loader.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
@@ -211,6 +212,20 @@ describe("POST inference/profiles (create) validation", () => {
     expect(loadRawConfig().llm).toMatchObject({
       profiles: { "my-managed": { provider: "vellum" } },
     });
+  });
+
+  test("rejects a vellum profile whose maxTokens exceeds the routed model's limits", async () => {
+    seedVellumConnection();
+    await expect(
+      call("inference_profiles_create", {
+        body: {
+          name: "my-managed-big",
+          provider: "vellum",
+          model: "claude-opus-4-8",
+          maxTokens: 999999999,
+        },
+      }),
+    ).rejects.toThrow(/maxTokens/);
   });
 
   test("rejects a vellum profile whose model has no managed upstream", async () => {
@@ -611,6 +626,11 @@ describe("collectProfileReferences", () => {
           source: "user",
           mix: [{ profile: "my-fast", weight: 1 }],
         },
+        "my-primary": {
+          source: "user",
+          provider: "anthropic",
+          fallbackProfile: "my-fast",
+        },
       },
     };
     expect(collectProfileReferences(llm, "my-fast").sort()).toEqual(
@@ -619,6 +639,7 @@ describe("collectProfileReferences", () => {
         "llm.advisorProfile",
         "llm.callSites.memoryExtraction",
         "llm.profiles.my-mix.mix",
+        "llm.profiles.my-primary.fallbackProfile",
       ].sort(),
     );
   });
@@ -662,6 +683,22 @@ describe("DELETE inference/profiles/:name reference guard", () => {
     ).rejects.toThrow(/llm\.profiles\.my-mix\.mix/);
   });
 
+  test("rejects deletion referenced by another profile's fallbackProfile", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my-fast": { source: "user", provider: "anthropic" },
+        "my-primary": {
+          source: "user",
+          provider: "anthropic",
+          fallbackProfile: "my-fast",
+        },
+      },
+    });
+    await expect(
+      call("inference_profiles_delete", { pathParams: { name: "my-fast" } }),
+    ).rejects.toThrow(/llm\.profiles\.my-primary\.fallbackProfile/);
+  });
+
   test("rejects deletion referenced by a call site", async () => {
     setConfig("llm", {
       callSites: { memoryExtraction: { profile: "my-fast" } },
@@ -692,6 +729,20 @@ describe("DELETE inference/profiles/:name reference guard", () => {
 // ── provider-aware list/get (Finding 2) ───────────────────────────────────────
 
 describe("GET inference/profiles honors llm.defaultProvider", () => {
+  test("omits managed backup routes from the user-facing catalog", async () => {
+    setConfig("llm", { profiles: {} });
+
+    const listed = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{ name: string }>;
+    };
+    const names = new Set(listed.profiles.map((profile) => profile.name));
+
+    for (const key of BACKUP_PROFILE_KEYS) {
+      expect(names.has(key)).toBe(false);
+    }
+    expect(names.has("balanced")).toBe(true);
+  });
+
   test("expands balanced through a BYOK default provider, not the vellum column", async () => {
     setConfig("llm", {
       defaultProvider: { provider: "anthropic" },
@@ -714,6 +765,110 @@ describe("GET inference/profiles honors llm.defaultProvider", () => {
 });
 
 // ── active-profile setter validation (Finding 3) ──────────────────────────────
+
+describe("POST inference/profiles/:name/validate billing guards", () => {
+  test("gives no verdict for a mix whose winning arm rides the managed route", async () => {
+    seedVellumConnection();
+    setConfig("llm", {
+      profiles: {
+        "managed-arm": { provider: "vellum", model: "claude-opus-4-8" },
+        "my-mix": {
+          mix: [
+            { profile: "managed-arm", weight: 1 },
+            { profile: "managed-arm", weight: 1 },
+          ],
+        },
+      },
+    });
+    const result = (await call("inference_profiles_validate", {
+      pathParams: { name: "my-mix" },
+    })) as { check: unknown };
+    expect(result.check).toBeNull();
+  });
+
+  test("gives no verdict when a call-site override routes the probe onto the managed identity", async () => {
+    seedVellumConnection();
+    setConfig("llm", {
+      profiles: {
+        "my-byok": { provider: "openai", model: "gpt-5.2" },
+      },
+      callSites: {
+        inference: { provider: "vellum", model: "claude-opus-4-8" },
+      },
+    });
+    const result = (await call("inference_profiles_validate", {
+      pathParams: { name: "my-byok" },
+    })) as { check: unknown };
+    expect(result.check).toBeNull();
+  });
+});
+
+describe("GET inference/profiles config_issue verdict", () => {
+  test("flags a stored profile whose model the provider does not serve", async () => {
+    seedConnection("anthropic-personal", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+    setConfig("llm", {
+      profiles: {
+        busted: { provider: "anthropic", model: "bub bub" },
+        fine: { provider: "anthropic", model: "claude-opus-4-8" },
+      },
+    });
+    const result = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{
+        name: string;
+        config_issue?: { code: string; message: string };
+      }>;
+    };
+    const busted = result.profiles.find((p) => p.name === "busted");
+    expect(busted?.config_issue?.code).toBe("model_unknown");
+    expect(busted?.config_issue?.message).toContain("bub bub");
+    const fine = result.profiles.find((p) => p.name === "fine");
+    expect(fine?.config_issue).toBeUndefined();
+  });
+
+  test("flags an impossible stored token budget and mirrors on the detail route", async () => {
+    setConfig("llm", {
+      profiles: {
+        overweight: {
+          provider: "anthropic",
+          model: "claude-opus-4-8",
+          maxTokens: 999999999,
+        },
+      },
+    });
+    const detail = (await call("inference_profiles_get", {
+      pathParams: { name: "overweight" },
+    })) as { config_issue?: { code: string } };
+    expect(detail.config_issue?.code).toBe("over_output_cap");
+  });
+
+  test("does not flag a deliberately allowUnlisted profile", async () => {
+    seedConnection("anthropic-personal", "anthropic", {
+      type: "api_key",
+      credential: "credential/anthropic/api_key",
+    });
+    await call("inference_profiles_create", {
+      body: {
+        name: "early-adopter",
+        provider: "anthropic",
+        model: "claude-6-preview",
+        connection: "anthropic-personal",
+        allowUnlisted: true,
+        allowUnavailable: true,
+      },
+    });
+    const result = (await call("inference_profiles_list", {})) as {
+      profiles: Array<{
+        name: string;
+        config_issue?: { code: string };
+      }>;
+    };
+    const row = result.profiles.find((p) => p.name === "early-adopter");
+    expect(row?.config_issue).toBeUndefined();
+  });
+});
 
 describe("PUT inference/active-profile validation", () => {
   test("sets a valid profile", async () => {

@@ -173,13 +173,9 @@ jobs:
           SENTRY_ALLOW_UPLOAD_FAILURE: "true"
         run: bun run build:runtime
 
-      - name: Build main and preload
-        env:
-          SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
-        run: bun run build
-
       - name: Package and sign NSIS installer
         env:
+          SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
           WINDOWS_SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
           WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
           WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}

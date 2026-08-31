@@ -6,8 +6,12 @@ mock.module("electron", () => ({
   BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
 }));
 
-const { configureHotkeySettings, DEFAULT_ACCELERATORS, resolveAccelerator } =
-  await import("./commands");
+const {
+  configureHotkeySettings,
+  DEFAULT_ACCELERATORS,
+  GLOBAL_SHORTCUT_DEFAULTS,
+  resolveAccelerator,
+} = await import("./commands");
 
 configureHotkeySettings({
   read: () =>
@@ -59,5 +63,33 @@ describe("resolveAccelerator", () => {
     expect(resolveAccelerator("markCurrentUnread")).toBe(
       DEFAULT_ACCELERATORS.markCurrentUnread,
     );
+  });
+});
+
+describe("compiled accelerator defaults", () => {
+  test("no chord is claimed by two commands", () => {
+    const owners = new Map<string, string[]>();
+    for (const [kind, accelerator] of [
+      ...Object.entries(DEFAULT_ACCELERATORS),
+      ...Object.entries(GLOBAL_SHORTCUT_DEFAULTS),
+    ]) {
+      if (!accelerator) {
+        continue;
+      }
+      const claimants = owners.get(accelerator);
+      if (claimants) {
+        claimants.push(kind);
+      } else {
+        owners.set(accelerator, [kind]);
+      }
+    }
+
+    // Electron binds a duplicated chord to whichever menu item it builds
+    // first and drops the other silently, so a collision reads as "the
+    // shortcut does nothing" rather than as an error.
+    const collisions = [...owners.entries()]
+      .filter(([, kinds]) => kinds.length > 1)
+      .map(([accelerator, kinds]) => `${accelerator}: ${kinds.join(", ")}`);
+    expect(collisions).toEqual([]);
   });
 });

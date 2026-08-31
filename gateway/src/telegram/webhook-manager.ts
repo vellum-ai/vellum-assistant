@@ -21,6 +21,9 @@ interface WebhookInfo {
   /** Telegram does not return the secret itself, but we can detect a mismatch by re-setting. */
 }
 
+// message_reaction is deliberately absent: Telegram delivers reaction
+// updates only to chat administrators, and a bot cannot be one in the
+// private chats this integration is scoped to, so subscribing buys nothing.
 const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
 
 /** Options bag for optional cache injection into webhook reconciliation. */
@@ -98,6 +101,26 @@ async function registerManagedTelegramCallbackRoute(
     log.debug("Could not resolve Telegram bot username for source_identifier");
   }
 
+  // Self-hosted assistants send their public ingress URL so the platform
+  // can register a callback that points at this gateway. Platform pods may
+  // also include it; Django ignores a client-provided base for those.
+  const ingressUrl = caches?.configFile
+    ?.getString("ingress", "publicBaseUrl")
+    ?.trim()
+    .replace(/\/+$/, "");
+
+  const requestBody: Record<string, string> = {
+    assistant_id: assistantId,
+    callback_path: TELEGRAM_CALLBACK_PATH,
+    type: TELEGRAM_CALLBACK_TYPE,
+  };
+  if (ingressUrl) {
+    requestBody.callback_base_url = ingressUrl;
+  }
+  if (sourceIdentifier) {
+    requestBody.source_identifier = sourceIdentifier;
+  }
+
   const response = await fetchImpl(
     `${platformBaseUrl}/v1/internal/gateway/callback-routes/register/`,
     {
@@ -106,12 +129,7 @@ async function registerManagedTelegramCallbackRoute(
         Authorization: `Api-Key ${assistantCredential}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        assistant_id: assistantId,
-        callback_path: TELEGRAM_CALLBACK_PATH,
-        type: TELEGRAM_CALLBACK_TYPE,
-        ...(sourceIdentifier ? { source_identifier: sourceIdentifier } : {}),
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(10_000),
     },
   );

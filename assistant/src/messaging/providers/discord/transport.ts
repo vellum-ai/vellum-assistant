@@ -5,9 +5,11 @@ import type {
   CallbackContext,
   ChannelTransport,
 } from "../channel-transport.js";
+import { isBusyActivityPhase } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
 import {
+  editDiscordMessage,
   sendDiscordAttachments,
   sendDiscordReply,
   sendDiscordTypingIndicator,
@@ -47,9 +49,30 @@ async function sendTarget(
 export const discordTransport: ChannelTransport = {
   channel: "discord",
 
-  async typing(ctx, chatId) {
-    await sendDiscordTypingIndicator(await sendTarget(ctx, chatId));
-    log.debug({ chatId }, "Discord typing indicator delivered (direct)");
+  // Discord clears a typing indicator after ten seconds.
+  activityRefreshMs: 8_000,
+
+  async edit(ctx, target) {
+    await editDiscordMessage(
+      await sendTarget(ctx, target.chatId),
+      target.messageId,
+      target.text,
+      { ...(target.emphasis ? { emphasis: target.emphasis } : {}) },
+    );
+    return { ok: true };
+  },
+
+  async setActivity(ctx, target) {
+    // Discord's typing indicator expires by itself after ten seconds, so a
+    // phase that is not running needs no clearing call.
+    if (!isBusyActivityPhase(target.phase)) {
+      return { ok: true };
+    }
+    await sendDiscordTypingIndicator(await sendTarget(ctx, target.chatId));
+    log.debug(
+      { chatId: target.chatId, phase: target.phase },
+      "Discord typing indicator delivered (direct)",
+    );
     return { ok: true };
   },
 

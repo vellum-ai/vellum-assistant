@@ -1,0 +1,78 @@
+name: CI/CD Main Native Drift
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/ios/scripts/**'
+      # The launcher and app icon assets embed the quirky eye geometry; the
+      # drift tests in clients/ios/scripts/__tests__ pin them to the avatar
+      # component library.
+      - 'assistant/src/avatar/**'
+      - 'packages/avatar-catalog/**'
+      - 'clients/android/app/src/main/res/**'
+      - 'clients/ios/App/App/AppIcon.icon/**'
+      - 'clients/ios/App/App/AppIcon-Dev.icon/**'
+      - 'clients/ios/App/App/AppIcon-Staging.icon/**'
+      # Both native shells embed the web layer's marketing attribution
+      # allowlist; the same drift tests pin the two copies to it.
+      - 'clients/web/src/domains/account/social-auth.ts'
+      - 'clients/android/app/src/main/java/ai/vellum/assistant/Attribution.java'
+      - 'clients/ios/App/App/Attribution.swift'
+      - '.github/workflows/ci-main-native-drift.yaml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift-guards:
+    name: Drift guards
+    # Same guards as `pr-native-drift.yaml`, re-run after merge: both are
+    # path-filtered, so two PRs that pass independently can still land a
+    # `main` where a shell's copy no longer matches its source. Change the two
+    # together.
+    #
+    # Separate from `ci-main-ios.yaml` because the sources these guards read
+    # are cross-cutting: an edit to the avatar library or to the web
+    # attribution allowlist has to run them, and neither is worth a macOS
+    # Xcode build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Cache Bun packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        working-directory: clients/web
+        # `@vellumai/assistant` is here for the avatar icon drift check:
+        # rasterizing the icons needs its native `@resvg/resvg-js` binding
+        # and its workspace dependencies.
+        run: |
+          bun install --frozen-lockfile \
+            --filter=@vellumai/web \
+            --filter=@vellumai/assistant
+
+      - name: Check drift guards
+        working-directory: clients/ios
+        # Asserts the icon assets still embed the avatar library's eye
+        # geometry, and that both native shells still embed the web layer's
+        # attribution allowlist. Runs from `clients/ios` because the repo-root
+        # `test-preload.ts` rejects a root `bun test`.
+        run: bun test scripts/__tests__/

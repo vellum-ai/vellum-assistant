@@ -17,8 +17,31 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Canonical provider identifiers for daemon-hosted STT backends.
- * Extend this union as new providers are integrated.
+ * Model families a provider may be asked for, via
+ * `services.stt.providers.<id>.model`.
+ *
+ * A family is not a provider model string: `"flux"` selects the conversational
+ * endpoint family, and which member runs is decided downstream from the spoken
+ * language. Providers offering a single family ignore the setting.
+ */
+export const VALID_STT_MODELS = ["nova-3", "flux"] as const;
+
+export type SttModelFamily = (typeof VALID_STT_MODELS)[number];
+
+/**
+ * Catalog identity for a daemon-hosted STT backend.
+ *
+ * This is the key capability is stored under, NOT the set of values a user may
+ * put in `services.stt.provider`. A provider that offers more than one model
+ * family with genuinely different capabilities gets a row per family, because
+ * the catalog is a capability matrix and those capabilities differ. Users
+ * select the family with `services.stt.providers.<id>.model`, and
+ * {@link resolveSttCatalogKey} maps that pair onto the row.
+ *
+ * Keeping the two apart bounds the user-facing surface: adding a model family
+ * costs a catalog row and nothing else, while adding a provider id costs an
+ * enum entry, a settings-picker row, and a place in every predicate that
+ * classifies providers.
  */
 export type SttProviderId =
   | "openai-whisper"
@@ -30,7 +53,14 @@ export type SttProviderId =
   | "deepgram-flux"
   | "google-gemini"
   | "xai"
-  | "vellum";
+  | "vellum"
+  /**
+   * Managed Flux: the same conversational model as `deepgram-flux`, reached
+   * through the platform's speech relay instead of a Deepgram key. Dials the
+   * relay's STT v2 endpoint asking for native Flux frames, so it keeps the
+   * turn events the relay's default v1-shaped translation drops.
+   */
+  | "vellum-flux";
 
 /**
  * Telephony-specific STT capability class.

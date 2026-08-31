@@ -33,7 +33,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  AVATAR_IMAGE_FILENAME: "avatar-image.png",
   getAvatarDir: () => "/tmp/vellum-test-avatar-never-written",
 }));
 

@@ -13,9 +13,15 @@ import { extname, join } from "node:path";
 
 import { z } from "zod";
 
-import { listProviderEntries } from "../../providers/speech-to-text/provider-catalog.js";
+import {
+  baseModelFamilyFor,
+  listProviderEntries,
+  listProviderModelFamilies,
+  turnDetectionLanguagesFor,
+} from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
+import type { SttRole } from "../../stt/roles.js";
 import type { BatchTranscriber, SttErrorCategory } from "../../stt/types.js";
 import { SttError } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -232,10 +238,12 @@ const STT_ERROR_MAP: Record<SttErrorCategory, () => RouteError> = {
  * surfaced verbatim. `null` means nothing is configured at all, and any other
  * throw is an unexpected resolver failure.
  */
-async function resolveBatchTranscriberOrUnavailable(): Promise<BatchTranscriber> {
+async function resolveBatchTranscriberOrUnavailable(
+  role: SttRole,
+): Promise<BatchTranscriber> {
   let transcriber: BatchTranscriber | null;
   try {
-    transcriber = await resolveBatchTranscriber();
+    transcriber = await resolveBatchTranscriber({ role });
   } catch (err) {
     if (err instanceof SttError) {
       throw new ServiceUnavailableError(err.message);
@@ -257,10 +265,30 @@ async function resolveBatchTranscriberOrUnavailable(): Promise<BatchTranscriber>
 // ---------------------------------------------------------------------------
 
 function handleListProviders() {
-  const entries = listProviderEntries();
+  // Model-family rows share their parent's credential and are selected
+  // through `services.stt.providers.<id>.model`, so a provider picker must
+  // not offer them as separate providers.
+  const entries = listProviderEntries().filter(
+    (entry) => entry.variantOf === undefined,
+  );
   const providers = entries.map((e) => ({
     id: e.id,
     displayName: e.displayName,
+    // The families selectable through `services.stt.providers.<id>.model`.
+    // Variant rows are filtered out above because a provider picker must not
+    // offer them as providers, which leaves this the only way a client can
+    // learn a family exists at all.
+    modelFamilies: listProviderModelFamilies(e.id),
+    // Which of those families the provider runs when none is named. Sent
+    // explicitly rather than left as "the first entry", so a client that
+    // needs to write the non-variant family is not depending on array order
+    // across the wire.
+    baseModelFamily: baseModelFamilyFor(e.id),
+    // The spoken languages this provider's turn-detecting family serves, when
+    // it has one. Reported rather than left for a client to know, so the
+    // roster lives in one place instead of being copied into every surface
+    // that has to decide whether to offer turn detection.
+    turnDetectionLanguages: turnDetectionLanguagesFor(e.id),
     subtitle: e.subtitle,
     setupMode: e.setupMode,
     setupHint: e.setupHint,
@@ -317,7 +345,7 @@ async function handleTranscribe({ body }: RouteHandlerArgs) {
   }
 
   // -- Resolve transcriber --------------------------------------------------
-  const transcriber = await resolveBatchTranscriberOrUnavailable();
+  const transcriber = await resolveBatchTranscriberOrUnavailable("dictation");
 
   // -- Transcribe with timeout ----------------------------------------------
   const abortController = new AbortController();
@@ -375,7 +403,7 @@ async function handleTranscribeFile({ body }: RouteHandlerArgs) {
     );
   }
 
-  const transcriber = await resolveBatchTranscriberOrUnavailable();
+  const transcriber = await resolveBatchTranscriberOrUnavailable("batch");
 
   const startTime = Date.now();
   let wavPath: string | null = null;
@@ -449,6 +477,10 @@ export const ROUTES: RouteDefinition[] = [
           conversationStreamingMode: z.string().optional(),
           // Optional on the wire so older generated clients keep validating.
           languageSelection: z.enum(["manual", "auto"]).optional(),
+          // Optional on the wire so older generated clients keep validating.
+          modelFamilies: z.array(z.string()).optional(),
+          baseModelFamily: z.string().optional(),
+          turnDetectionLanguages: z.array(z.string()).optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),

@@ -67,6 +67,7 @@ interface ClientCatalogModel {
       cacheWritePer1mTokens?: number;
     }>;
   };
+  featureFlag?: string;
 }
 
 interface ClientCatalogEntry {
@@ -79,6 +80,7 @@ interface ClientCatalogEntry {
   apiKeyPlaceholder?: string;
   credentialsGuide?: ClientCatalogCredentialsGuide;
   supportsPlatformAuth?: boolean;
+  featureFlag?: string;
   defaultModel: string;
   models: ClientCatalogModel[];
 }
@@ -133,6 +135,7 @@ describe("LLM catalog parity: daemon vs client", () => {
       expect(clientEntry.supportsPlatformAuth).toBe(
         daemonEntry.supportsPlatformAuth,
       );
+      expect(clientEntry.featureFlag).toBe(daemonEntry.featureFlag);
       expect(clientEntry.credentialsGuide).toEqual(
         daemonEntry.credentialsGuide,
       );
@@ -199,6 +202,7 @@ describe("LLM catalog parity: daemon vs client", () => {
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);
         expect(clientModel.supportsToolUse).toBe(daemonModel.supportsToolUse);
         expect(clientModel.pricing).toEqual(daemonModel.pricing);
+        expect(clientModel.featureFlag).toBe(daemonModel.featureFlag);
       }
     }
   });
@@ -242,6 +246,51 @@ describe("LLM catalog parity: daemon vs client", () => {
         }
       }
     }
+  });
+
+  test("OpenRouter supportsCaching requires cache-read pricing", () => {
+    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    expect(openrouter).toBeDefined();
+
+    for (const model of openrouter!.models) {
+      if (model.supportsCaching) {
+        expect(
+          model.pricing?.cacheReadPer1mTokens,
+          `openrouter/${model.id} supportsCaching requires cacheReadPer1mTokens`,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test("OpenRouter cache-read pricing implies supportsCaching except xAI", () => {
+    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    expect(openrouter).toBeDefined();
+
+    for (const model of openrouter!.models) {
+      if (model.pricing?.cacheReadPer1mTokens === undefined) {
+        continue;
+      }
+      if (model.id.startsWith("x-ai/")) {
+        expect(
+          model.supportsCaching,
+          `openrouter/${model.id} keeps supportsCaching false: OpenRouter xAI routes do not report cached tokens`,
+        ).toBe(false);
+        continue;
+      }
+      expect(
+        model.supportsCaching,
+        `openrouter/${model.id} publishes cacheReadPer1mTokens so supportsCaching must be true`,
+      ).toBe(true);
+    }
+  });
+
+  test("OpenRouter catalog drops ids OpenRouter no longer serves", () => {
+    const openrouter = PROVIDER_CATALOG.find((entry) => entry.id === "openrouter");
+    expect(openrouter).toBeDefined();
+    const ids = new Set(openrouter!.models.map((model) => model.id));
+    expect(ids.has("deepseek/deepseek-v3.2-speciale")).toBe(false);
+    expect(ids.has("mistralai/devstral-2512")).toBe(false);
+    expect(ids.has("openrouter/owl-alpha")).toBe(false);
   });
 
   test("every model default context is capped by its context window", () => {

@@ -11,15 +11,16 @@ import {
   and,
   desc,
   eq,
-  inArray,
   isNotNull,
   isNull,
   lt,
+  ne,
   notInArray,
   or,
 } from "drizzle-orm";
 
 import {
+  DELIVERY_STATUS,
   type GuardianRequestDeliveryWire,
   type GuardianRequestStatus,
   type GuardianRequestWire,
@@ -417,7 +418,8 @@ export interface ResolveGuardianRequestDecision {
 }
 
 export type ResolveGuardianRequestResult =
-  { applied: true; request: GuardianRequest } | { applied: false };
+  | { applied: true; request: GuardianRequest }
+  | { applied: false };
 
 /**
  * Compare-and-swap resolve: only transitions the request from
@@ -431,6 +433,16 @@ export function resolveGuardianRequest(
   id: string,
   expectedStatus: GuardianRequestStatus,
   decision: ResolveGuardianRequestDecision,
+  options?: {
+    /**
+     * Make the deadline part of the CAS: the transition applies only while
+     * `expires_at` is null or still in the future. The decide path sets
+     * this so a decision in flight across the deadline boundary loses the
+     * arbitration atomically, instead of committing while the expiry sweep
+     * is already withdrawing the request's cards.
+     */
+    requireUnexpired?: boolean;
+  },
 ): ResolveGuardianRequestResult {
   const raw = rawClient();
   const now = Date.now();
@@ -450,13 +462,20 @@ export function resolveGuardianRequest(
     args.push(decision.decidedByPrincipalId);
   }
 
+  const guards = ["id = ?", "status = ?"];
+  const guardArgs: (string | number)[] = [id, expectedStatus];
+  if (options?.requireUnexpired) {
+    guards.push("(expires_at IS NULL OR expires_at >= ?)");
+    guardArgs.push(now);
+  }
+
   const changes = raw
     .prepare(
       `UPDATE guardian_requests
        SET ${sets.join(", ")}
-       WHERE id = ? AND status = ?`,
+       WHERE ${guards.join(" AND ")}`,
     )
-    .run(...args, id, expectedStatus).changes;
+    .run(...args, ...guardArgs).changes;
 
   if (changes === 0) {
     return { applied: false };
@@ -485,15 +504,21 @@ export function resolveGuardianRequest(
 const INTERACTION_BOUND_KINDS = ["tool_approval", "pending_question"];
 
 /**
- * Bulk-expire stale pending guardian requests. Called via IPC at daemon
- * startup (daemon-keyed — the gateway never runs this on its own restart):
+ * Bulk-expire interaction-bound pending guardian requests. Called via IPC
+ * at daemon startup (daemon-keyed; the gateway never runs this on its own
+ * restart): `tool_approval` and `pending_question` die with the daemon's
+ * in-memory pendingInteractions map, so they can never complete after a
+ * restart.
  *
- * 1. Interaction-bound kinds (`tool_approval`, `pending_question`) expire
- *    unconditionally — they can never complete after a daemon restart.
- * 2. Persistent kinds expire only when already past their `expiresAt`
- *    deadline, so dedup logic sees fresh rows instead of dead pending ones.
+ * Persistent kinds are deliberately untouched, whatever their deadline:
+ * their expiry belongs to the sweep, whose per-request confirmation is what
+ * keeps the card-withdrawal and requester-notice fan-out recoverable, and
+ * an unconditional flip here would strand exactly the side effects a
+ * pre-restart crash left owed. Dedup reads are time-based
+ * (`isGuardianRequestExpired`), so a past-deadline row waiting for the
+ * sweep suppresses nothing.
  *
- * Returns the number of requests transitioned from pending → expired.
+ * Returns the number of requests transitioned from pending to expired.
  */
 export function expireAllPendingInteractionBound(): number {
   const raw = rawClient();
@@ -505,82 +530,82 @@ export function expireAllPendingInteractionBound(): number {
       `UPDATE guardian_requests
        SET status = 'expired', updated_at = ?
        WHERE status = 'pending'
-         AND (kind IN (${placeholders})
-              OR (expires_at IS NOT NULL AND expires_at < ?))`,
+         AND kind IN (${placeholders})`,
     )
-    .run(now, ...INTERACTION_BOUND_KINDS, now).changes;
+    .run(now, ...INTERACTION_BOUND_KINDS).changes;
 }
 
+/** Ceiling on one expiry batch, whatever the caller asks for. */
+const MAX_EXPIRED_PENDING_BATCH = 200;
+
 /**
- * Sweep-expire pending requests whose `expiresAt` deadline has passed.
- * Returns the expired rows as written so the daemon's card-withdrawal and
- * expiry-notification fan-out needs no follow-up read.
+ * List pending requests whose `expiresAt` deadline has passed, oldest
+ * deadline first, bounded. Read-only: the status flip is the caller's
+ * per-request confirmation (`expireGuardianRequest`) after that request's
+ * expiry side effects have run, so a row's work stays discoverable here
+ * until it is actually done. The bound keeps a round's IPC payload and the
+ * caller's fan-out finite however large a backlog grows.
  */
-export function sweepExpiredGuardianRequests(
+export function listExpiredPendingGuardianRequests(
   now = Date.now(),
+  limit = 50,
 ): GuardianRequest[] {
   const db = getGatewayDb();
-
-  return db.transaction(() => {
-    const stale = db
-      .select()
-      .from(guardianRequests)
-      .where(
-        and(
-          eq(guardianRequests.status, "pending"),
-          isNotNull(guardianRequests.expiresAt),
-          lt(guardianRequests.expiresAt, now),
-        ),
-      )
-      .all();
-
-    if (stale.length === 0) {
-      return [];
-    }
-
-    const updatedAt = Date.now();
-    db.update(guardianRequests)
-      .set({ status: "expired", updatedAt })
-      .where(
-        and(
-          inArray(
-            guardianRequests.id,
-            stale.map((row) => row.id),
-          ),
-          eq(guardianRequests.status, "pending"),
-        ),
-      )
-      .run();
-
-    return stale.map((row) =>
-      rowToRequest({ ...row, status: "expired", updatedAt }),
-    );
-  });
+  return db
+    .select()
+    .from(guardianRequests)
+    .where(
+      and(
+        eq(guardianRequests.status, "pending"),
+        isNotNull(guardianRequests.expiresAt),
+        lt(guardianRequests.expiresAt, now),
+      ),
+    )
+    .orderBy(guardianRequests.expiresAt)
+    .limit(Math.min(Math.max(1, limit), MAX_EXPIRED_PENDING_BATCH))
+    .all()
+    .map(rowToRequest);
 }
 
 /**
  * Expire a single guardian request and all its deliveries in one
  * transaction. CAS-transitions the request from 'pending' to 'expired';
- * its deliveries are bulk-expired regardless of the request's status.
+ * the deliveries expire only when that CAS applies, so a request a
+ * decision already resolved never has its delivery rows restamped as
+ * expired.
  */
 export function expireGuardianRequest(id: string): void {
   const db = getGatewayDb();
   const now = Date.now();
 
   db.transaction(() => {
+    // The read and both writes share one synchronous SQLite transaction,
+    // so the status probe is the CAS.
+    const row = db
+      .select({ status: guardianRequests.status })
+      .from(guardianRequests)
+      .where(eq(guardianRequests.id, id))
+      .get();
+    if (row?.status !== "pending") {
+      return;
+    }
+
     db.update(guardianRequests)
       .set({ status: "expired", updatedAt: now })
-      .where(
-        and(
-          eq(guardianRequests.id, id),
-          eq(guardianRequests.status, "pending"),
-        ),
-      )
+      .where(eq(guardianRequests.id, id))
       .run();
 
+    // A `withdrawn` row is the daemon's receipt that the surface edit
+    // durably ran; restamping it would erase which surfaces were actually
+    // cleaned. Rows in any other state expire with the request.
     db.update(guardianRequestDeliveries)
-      .set({ status: "expired", updatedAt: now })
-      .where(eq(guardianRequestDeliveries.requestId, id))
+      .set({ status: DELIVERY_STATUS.expired, updatedAt: now })
+      .where(
+        and(
+          eq(guardianRequestDeliveries.requestId, id),
+          ne(guardianRequestDeliveries.status, DELIVERY_STATUS.withdrawn),
+        ),
+      )
       .run();
   });
 }
@@ -612,7 +637,7 @@ export function createDelivery(
     destinationConversationId: params.destinationConversationId ?? null,
     destinationChatId: params.destinationChatId ?? null,
     destinationMessageId: params.destinationMessageId ?? null,
-    status: params.status ?? "pending",
+    status: params.status ?? DELIVERY_STATUS.pending,
     createdAt: now,
     updatedAt: now,
   };

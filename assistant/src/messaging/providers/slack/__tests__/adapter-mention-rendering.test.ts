@@ -17,7 +17,14 @@ mock.module("../../../../oauth/connection-resolver.js", () => ({
     throw new Error("OAuth fallback was not expected");
   },
 }));
+// Spread rather than list: a partial factory silently drops whatever the
+// module under test imports next, and `resolveSlackAuth` reaching
+// `getConnectionByProvider` is what surfaced that here as a real query
+// against a database this suite never built.
+const actualOauthStore = await import("../../../../oauth/oauth-store.js");
 mock.module("../../../../oauth/oauth-store.js", () => ({
+  ...actualOauthStore,
+  getConnectionByProvider: () => undefined,
   isProviderConnected: async () => false,
 }));
 

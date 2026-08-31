@@ -15,13 +15,17 @@ import {
   generateInviteToken,
   hashInviteCode,
   hashInviteToken,
+  isRiskThreshold,
   isValidE164,
+  type RiskThreshold,
 } from "@vellumai/gateway-client";
 import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import { parseContactAutoApproveThreshold } from "../../db/contact-auto-approve-threshold.js";
 import { getGatewayDb } from "../../db/connection.js";
+import { fetchInfoForContacts } from "../../db/contacts-info-joiner.js";
 import {
   ContactStore,
   CannotRevokeBlockedError,
@@ -32,7 +36,7 @@ import {
   type ContactWithInfo,
   type IngressInviteRow,
 } from "../../db/contact-store.js";
-import { contacts } from "../../db/schema.js";
+import { contactChannels, contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import {
   IpcHandlerError,
@@ -80,6 +84,24 @@ export class InviteNativeError extends Error {
 }
 
 /**
+ * Error thrown by the transport-agnostic contact-record core to signal a
+ * client-facing failure with a stable code + status. Mirrors
+ * {@link ContactChannelNativeError}, for the contact row rather than its
+ * channels.
+ */
+export class ContactRecordNativeError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+
+  constructor(message: string, statusCode: number, code: string) {
+    super(message);
+    this.name = "ContactRecordNativeError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+/**
  * Error thrown by the transport-agnostic contact-channel core to signal a
  * client-facing failure with a stable code + status. The HTTP handler maps it
  * to `Response.json`; the gateway IPC route lets it propagate (the IPC server
@@ -96,6 +118,20 @@ export class ContactChannelNativeError extends Error {
     this.statusCode = statusCode;
     this.code = code;
   }
+}
+
+/** Map a ContactRecordNativeError (or generic error) to the HTTP error Response. */
+function contactRecordErrorResponse(err: unknown): Response {
+  if (err instanceof ContactRecordNativeError) {
+    return Response.json(
+      { error: { code: err.code, message: err.message } },
+      { status: err.statusCode },
+    );
+  }
+  return Response.json(
+    { error: { code: "INTERNAL_ERROR", message: "Internal error" } },
+    { status: 500 },
+  );
 }
 
 /** Map an InviteNativeError (or generic error) to the HTTP error Response. */
@@ -591,6 +627,7 @@ function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
     updatedAt: c.updatedAt,
     interactionCount: c.interactionCount,
     lastInteraction: c.lastInteraction,
+    autoApproveThreshold: c.autoApproveThreshold,
     assistantMetadata: c.assistantMetadata,
     channels: c.channels.map((ch) => ({
       id: ch.id,
@@ -796,6 +833,326 @@ export async function mergeContactsCore(params: {
 }
 
 /**
+ * Transport-agnostic contact-record write: display name and notes, no channel.
+ *
+ * Channels are out of scope by design. Binding an address is an admission act,
+ * owned by the paths that prove possession (prompt-submit, verification,
+ * invite redemption). A record written here reaches no channel, so it admits
+ * nobody.
+ *
+ * An update requires the row to exist: `ContactStore.upsertContact` INSERTs an
+ * unknown explicit id, so a typo'd id would otherwise land a stray contact.
+ * A create takes no id and mints one; duplicate submissions of the same form
+ * are settled before they reach here, by claiming the form (see
+ * `contact_prompt_claim`).
+ *
+ * An update carries only the fields that changed, so one naming neither is a
+ * confirmation that nothing changed, not a bad request: `upsertContact` is
+ * omit-to-preserve, so it writes nothing but the timestamp.
+ *
+ * Throws `ContactRecordNativeError` for client-facing failures (400 bad input,
+ * 404 unknown id); unexpected errors propagate.
+ */
+export async function upsertContactRecordCore(params: {
+  operation: "create" | "update";
+  contactId?: string;
+  displayName?: string;
+  notes?: string | null;
+}): Promise<{
+  ok: true;
+  created: boolean;
+  contact: Record<string, unknown>;
+  /** Whether submitted notes reached the mirror. Undefined when none were. */
+  notesSaved?: boolean;
+  /**
+   * Whether nothing the submission asked for landed. Only the notes can fail
+   * on their own, so this is true when they were the whole submission and did
+   * not reach storage. Decided here rather than by the caller, which sees what
+   * was proposed and not what the guardian submitted.
+   */
+  nothingWritten?: boolean;
+}> {
+  const id = params.contactId?.trim() || undefined;
+  const displayName = params.displayName?.trim();
+
+  if (params.operation === "update" && !id) {
+    throw new ContactRecordNativeError(
+      "contactId is required to update a contact",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
+  if (displayName !== undefined && !displayName) {
+    throw new ContactRecordNativeError(
+      "displayName must be a non-empty string",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
+  if (params.operation === "create") {
+    if (!displayName) {
+      throw new ContactRecordNativeError(
+        "displayName is required to create a contact",
+        400,
+        "BAD_REQUEST",
+      );
+    }
+  }
+
+  // `role` and `principalId` are not inputs here. upsertContact preserves an
+  // existing contact's pair and defaults a new one to ("contact", null), so
+  // this path can neither mint nor rebind a guardian.
+  const store = new ContactStore();
+  let contact: ContactWithInfo;
+  let created: boolean;
+
+  if (params.operation === "create") {
+    ({ contact, created } = await store.upsertContact({
+      displayName,
+      notes: params.notes,
+    }));
+  } else {
+    // The row has to still be there when the write lands, not merely when it
+    // was checked: upsertContact INSERTs an explicit id it cannot find, so a
+    // contact deleted in between would come back as a new channel-less one.
+    // The check and the gateway write share a transaction, using the
+    // synchronous core built for exactly this composition; the mirror and the
+    // read-back follow the commit.
+    const written = getGatewayDb().transaction(() => {
+      const existing = getGatewayDb()
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(eq(contacts.id, id!))
+        .get();
+      if (!existing) {
+        throw new ContactRecordNativeError(
+          `Contact "${id}" not found`,
+          404,
+          "NOT_FOUND",
+        );
+      }
+      return store.upsertContactGatewayWrites({
+        id,
+        displayName,
+        notes: params.notes,
+      });
+    });
+
+    await store.mirrorContactUpsertBestEffort(
+      written.contactId,
+      written.mirrorParams,
+    );
+    created = written.created;
+    contact =
+      (await store.getContactWithInfo(written.contactId).catch(() => null)) ??
+      contactFallbackShape(written.contactId, params.notes);
+  }
+
+  // Notes live only in the assistant mirror, and that write is best-effort:
+  // upsertContact logs a mirror failure and returns as if it had worked. The
+  // name is in the gateway row either way, so a lost mirror write is a partial
+  // outcome rather than a failed one, and the caller is told which it got.
+  // Read back from the mirror rather than trusting the returned shape, which
+  // falls back to echoing the input when the read-back itself fails.
+  let notesSaved: boolean | undefined;
+  if (params.notes !== undefined) {
+    // Read the mirror directly rather than through the contact shape, which
+    // reports an unreachable mirror as null info: indistinguishable from empty
+    // notes, so clearing notes during an outage would look like it worked. An
+    // absent entry is unknown, and unknown is reported as not saved.
+    const info = await fetchInfoForContacts([contact.id]).catch(() => null);
+    const entry = info?.get(contact.id);
+    notesSaved =
+      entry !== undefined && (entry.notes ?? "") === (params.notes ?? "");
+    if (!notesSaved) {
+      log.error(
+        { contactId: contact.id, mirrorRead: entry !== undefined },
+        "upsert_contact_record: notes did not reach the assistant mirror",
+      );
+    }
+  }
+
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+
+  log.info(
+    { contactId: contact.id, created },
+    "upsert_contact_record: handled natively",
+  );
+  return {
+    ok: true,
+    created,
+    contact: toContactPayload(contact),
+    notesSaved,
+    nothingWritten: notesSaved === false && displayName === undefined,
+  };
+}
+
+/**
+ * The shape to report when a contact cannot be read back after its write.
+ *
+ * The gateway row is the part that just committed, so it carries the fields
+ * that matter; assistant-owned fields fall back to what was asked for.
+ */
+function contactFallbackShape(
+  contactId: string,
+  notes: string | null | undefined,
+): ContactWithInfo {
+  const row = getGatewayDb()
+    .select()
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .get()!;
+  return {
+    id: row.id,
+    displayName: row.displayName,
+    role: row.role,
+    principalId: row.principalId,
+    notes: notes ?? null,
+    contactType: "human",
+    userFile: null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    interactionCount: 0,
+    lastInteraction: null,
+    autoApproveThreshold: parseContactAutoApproveThreshold(
+      row.autoApproveThreshold,
+    ),
+    channels: [],
+    assistantMetadata: null,
+  };
+}
+
+/**
+ * Transport-agnostic contact delete.
+ *
+ * The gateway DB is the source of truth for role + ACL, but the assistant DB
+ * is a best-effort mirror that can hold a contact the gateway never recorded
+ * (a dual-write gap on inbound seeding: the mirror row lands, then the gateway
+ * write is swallowed on error or a (type,address) conflict). The contacts list
+ * can surface such an orphan (search/filter reads fall back to the daemon), so
+ * resolve the contact in BOTH stores and delete it from whichever holds it;
+ * 404 only when it exists in neither. Channels cascade on delete in each DB.
+ *
+ * Throws `ContactRecordNativeError` for client-facing failures (404 unknown
+ * id, 403 guardian); unexpected errors propagate.
+ */
+export async function deleteContactCore(
+  contactId: string,
+  /**
+   * The channels a confirmation showed. When given, the gateway row is deleted
+   * only if the contact still has exactly these, checked in the same
+   * transaction as the delete so a channel reparented in between cannot be
+   * cascaded away unseen.
+   */
+  expectedChannels?: Array<{ type: string; address: string }>,
+): Promise<void> {
+  const gatewayRow = getGatewayDb()
+    .select({ role: contacts.role })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .get();
+
+  // Best-effort mirror lookup: if the assistant DB is unavailable, degrade
+  // to a gateway-only decision rather than failing the delete. The gateway
+  // DB is the source of truth; the mirror is only a cleanup target.
+  let inMirror = false;
+  try {
+    const probe = await probeContactMirror(contactId);
+    inMirror = probe.exists;
+  } catch (err) {
+    log.warn(
+      { err, contactId },
+      "delete_contact: mirror lookup failed (best-effort); proceeding with gateway-only check",
+    );
+  }
+
+  if (!gatewayRow && !inMirror) {
+    log.warn(
+      { contactId },
+      "delete_contact: not found in gateway or assistant DB",
+    );
+    throw new ContactRecordNativeError(
+      `Contact "${contactId}" not found`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+
+  // Guardian role is gateway-DB source of truth. Guardians are always
+  // created gateway-first, so an absent gateway row is never a guardian; a
+  // gateway guardian row is protected regardless of the mirror state.
+  if (gatewayRow?.role === "guardian") {
+    log.warn({ contactId }, "delete_contact: attempted to delete guardian");
+    throw new ContactRecordNativeError(
+      "Cannot delete a guardian contact",
+      403,
+      "FORBIDDEN",
+    );
+  }
+
+  // The gateway row goes first, with the channel check inside the same
+  // transaction: reading the channels and deleting in separate steps leaves a
+  // window for an invite redemption to reparent one onto this contact, which
+  // the cascade would then take away from a guardian who never saw it. A
+  // refusal here has deleted nothing anywhere.
+  getGatewayDb().transaction((tx) => {
+    if (expectedChannels) {
+      const current = new Set(
+        tx
+          .select({
+            type: contactChannels.type,
+            address: contactChannels.address,
+          })
+          .from(contactChannels)
+          .where(eq(contactChannels.contactId, contactId))
+          .all()
+          .map((ch) => `${ch.type}\u0000${ch.address.toLowerCase()}`),
+      );
+      const shown = new Set(
+        expectedChannels.map(
+          (ch) => `${ch.type}\u0000${ch.address.toLowerCase()}`,
+        ),
+      );
+      const unchanged =
+        shown.size === current.size && [...shown].every((k) => current.has(k));
+      if (!unchanged) {
+        throw new ContactRecordNativeError(
+          "This contact's channels changed while the form was open. Check it and try again.",
+          409,
+          "STALE_CONFIRMATION",
+        );
+      }
+    }
+    tx.delete(contacts).where(eq(contacts.id, contactId)).run();
+  });
+
+  // Then the mirror, so an assistant-only orphan is cleaned up and stops
+  // showing in the UI. Best-effort: the gateway is the source of truth and its
+  // row is already gone.
+  try {
+    await ipcCallAssistant("contacts_mirror_delete_contact", {
+      body: { contactId },
+    });
+  } catch (err) {
+    log.warn(
+      { err, contactId },
+      "delete_contact: mirror delete failed (best-effort); gateway delete stands",
+    );
+  }
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+  log.info(
+    { contactId, gateway: !!gatewayRow, mirror: inMirror },
+    "delete_contact: deleted",
+  );
+}
+
+/**
  * Validate that metadata matches the expected shape for the given species.
  * Mirrors `validateSpeciesMetadata` in `assistant/src/contacts/contact-store.ts`.
  */
@@ -850,10 +1207,11 @@ function channelKey(type: string, address: string): string {
 
 /**
  * Overlay authoritative gateway ACL onto a parsed daemon contact-list body
- * (in place). For each contact, replace contact-level `role` and per-channel
- * ACL fields from the gateway map. Channels match by `id` first, then by
- * `(type, address)`; an unmatched channel keeps the daemon's ACL. A contact
- * absent from the gateway map (dual-write gap) is left untouched + warned.
+ * (in place). For each contact, replace contact-level `role`,
+ * `autoApproveThreshold`, and per-channel ACL fields from the gateway map.
+ * Channels match by `id` first, then by `(type, address)`; an unmatched
+ * channel keeps the daemon's ACL. A contact absent from the gateway map
+ * (dual-write gap) is left untouched + warned.
  *
  * Pure aside from the warn log; mutates the passed contacts array's elements.
  */
@@ -876,6 +1234,7 @@ function overlayAclOntoContacts(
     }
 
     contact.role = acl.role;
+    contact.autoApproveThreshold = acl.autoApproveThreshold;
 
     const channels = contact.channels;
     if (!Array.isArray(channels)) continue;
@@ -1196,6 +1555,27 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
       const displayName = (body.displayName as string).trim();
 
+      let autoApproveThreshold: RiskThreshold | null | undefined;
+      if (body.autoApproveThreshold !== undefined) {
+        if (
+          body.autoApproveThreshold !== null &&
+          !isRiskThreshold(body.autoApproveThreshold)
+        ) {
+          return Response.json(
+            {
+              error: {
+                code: "BAD_REQUEST",
+                message:
+                  "Invalid autoApproveThreshold. Must be one of: none, low, medium, high, or null.",
+              },
+            },
+            { status: 400 },
+          );
+        }
+        autoApproveThreshold =
+          body.autoApproveThreshold === null ? null : body.autoApproveThreshold;
+      }
+
       if (body.contactType !== undefined && !isContactType(body.contactType)) {
         return Response.json(
           {
@@ -1358,6 +1738,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         id: body.id as string | undefined,
         displayName,
         notes: body.notes as string | null | undefined,
+        autoApproveThreshold,
         contactType: body.contactType as string | undefined,
         assistantMetadata:
           body.contactType === "assistant" && assistantMeta
@@ -1443,89 +1824,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
-      // The gateway DB is the source of truth for role + ACL, but the assistant
-      // DB is a best-effort mirror that can hold a contact the gateway never
-      // recorded (a dual-write gap on inbound seeding: the mirror row lands, then
-      // the gateway write is swallowed on error or a (type,address) conflict).
-      // The contacts list can surface such an orphan (search/filter reads fall
-      // back to the daemon), so resolve the contact in BOTH stores and delete it
-      // from whichever holds it; 404 only when it exists in neither. Channels
-      // cascade on delete in each DB.
-      const gatewayRow = getGatewayDb()
-        .select({ role: contacts.role })
-        .from(contacts)
-        .where(eq(contacts.id, contactId))
-        .get();
-
-      // Best-effort mirror lookup: if the assistant DB is unavailable, degrade
-      // to a gateway-only decision rather than failing the delete. The gateway
-      // DB is the source of truth; the mirror is only a cleanup target.
-      let inMirror = false;
       try {
-        const probe = await probeContactMirror(contactId);
-        inMirror = probe.exists;
+        await deleteContactCore(contactId);
       } catch (err) {
-        log.warn(
-          { err, contactId },
-          "delete_contact: mirror lookup failed (best-effort); proceeding with gateway-only check",
-        );
+        return contactRecordErrorResponse(err);
       }
-
-      if (!gatewayRow && !inMirror) {
-        log.warn(
-          { contactId },
-          "delete_contact: not found in gateway or assistant DB",
-        );
-        return Response.json(
-          {
-            error: {
-              code: "NOT_FOUND",
-              message: `Contact "${contactId}" not found`,
-            },
-          },
-          { status: 404 },
-        );
-      }
-
-      // Guardian role is gateway-DB source of truth. Guardians are always
-      // created gateway-first, so an absent gateway row is never a guardian; a
-      // gateway guardian row is protected regardless of the mirror state.
-      if (gatewayRow?.role === "guardian") {
-        log.warn({ contactId }, "delete_contact: attempted to delete guardian");
-        return Response.json(
-          {
-            error: {
-              code: "FORBIDDEN",
-              message: "Cannot delete a guardian contact",
-            },
-          },
-          { status: 403 },
-        );
-      }
-
-      // Delete from both stores (a delete against the store lacking the row is a
-      // harmless no-op), so an assistant-only orphan is cleaned up and stops
-      // showing in the UI. The mirror delete is best-effort — the gateway
-      // (source of truth) delete below always applies, even if the mirror is
-      // unavailable.
-      try {
-        await ipcCallAssistant("contacts_mirror_delete_contact", {
-          body: { contactId },
-        });
-      } catch (err) {
-        log.warn(
-          { err, contactId },
-          "delete_contact: mirror delete failed (best-effort); gateway delete still applied",
-        );
-      }
-      getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
-      void ipcCallAssistant("emit_event", {
-        body: { kind: "contacts_changed" },
-      } as unknown as Record<string, unknown>).catch(() => {});
-      log.info(
-        { contactId, gateway: !!gatewayRow, mirror: inMirror },
-        "delete_contact: deleted",
-      );
       return new Response(null, { status: 204 });
     },
 

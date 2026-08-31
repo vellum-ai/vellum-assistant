@@ -51,6 +51,11 @@ targetTemplates:
       # target re-adds the single icon it ships with so that
       # ASSETCATALOG_COMPILER_APPICON_NAME (set per-target via xcconfig)
       # resolves to a bundled resource.
+      #
+      # `AvatarIcons.xcassets` rides along in this sweep, the same way
+      # `Assets.xcassets` does: every target ships every avatar alternate
+      # icon, so there is nothing to re-add per target. The xcconfigs turn
+      # them into alternates via Config/AvatarIcons.xcconfig.
       - path: App
         excludes:
           - "Info.plist"
@@ -206,3 +211,21 @@ targets:
     configFiles:
       Debug: App/Config/Extension-Dev.xcconfig
       Release: App/Config/Extension-Dev.xcconfig
+
+  # Logic-only unit tests for the framework-free helpers under `App/`.
+  # Sources are listed file by file rather than as the whole `App`
+  # directory, which is full of Capacitor plugins this host-less bundle
+  # cannot link. Keeps the suite to seconds, and to no app target.
+  AppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AppTests
+      - path: App/Attribution.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: ai.vellum.assistant.AppTests
+    scheme:
+      testTargets:
+        - AppTests

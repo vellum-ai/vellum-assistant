@@ -28,10 +28,13 @@ import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
+import { platformAvatarUrlsQueryKey } from "@/hooks/use-platform-avatar-urls";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -293,8 +296,7 @@ describe("useAssistantResourceSync", () => {
   test("invalidates app list queries on apps:list sync tag", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      | ((query: { queryKey: readonly unknown[] }) => boolean)
-      | undefined;
+      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {
@@ -726,8 +728,7 @@ describe("useAssistantResourceSync", () => {
   test("invalidates home-feed query on home_feed_updated", async () => {
     const queryClient = freshQueryClient();
     let predicate:
-      | ((query: { queryKey: readonly unknown[] }) => boolean)
-      | undefined;
+      ((query: { queryKey: readonly unknown[] }) => boolean) | undefined;
     queryClient.invalidateQueries = ((arg: unknown) => {
       predicate = (
         arg as {
@@ -813,6 +814,140 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
+  test("avatar sync tag also invalidates the chooser row cache by prefix", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")),
+      ).toEqual([
+        {
+          queryKey: chooserRowAvatarQueryKeyPrefix("asst-1"),
+          refetchType: "none",
+        },
+      ]);
+    });
+  });
+
+  test("avatar_updated also invalidates the chooser row cache by prefix", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        sweepsFor(calls, chooserRowAvatarQueryKeyPrefix("asst-1")),
+      ).toEqual([
+        {
+          queryKey: chooserRowAvatarQueryKeyPrefix("asst-1"),
+          refetchType: "none",
+        },
+      ]);
+    });
+  });
+
+  test("avatar change events clear the row's synced avatarUrl; the reconnect sweep does not", async () => {
+    const seed = () =>
+      useResolvedAssistantsStore.setState({
+        assistants: [
+          {
+            id: "asst-1",
+            isLocal: false,
+            isPlatformHosted: true,
+            isPaired: false,
+            avatarUrl: "https://cdn.example/a.png",
+          },
+        ],
+      });
+    const avatarUrl = () =>
+      useResolvedAssistantsStore.getState().assistants[0]?.avatarUrl;
+    const queryClient = freshQueryClient();
+    queryClient.invalidateQueries = mock(() => Promise.resolve()) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    seed();
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => expect(avatarUrl()).toBeNull());
+
+    seed();
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
+    await waitFor(() => expect(avatarUrl()).toBeNull());
+
+    seed();
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+    expect(avatarUrl()).toBe("https://cdn.example/a.png");
+  });
+
+  test("avatar_updated drops the platform lookup entry without a refetch", async () => {
+    const queryClient = freshQueryClient();
+    queryClient.invalidateQueries = mock(() => Promise.resolve()) as never;
+    const key = platformAvatarUrlsQueryKey("user-1", null);
+    queryClient.setQueryData(
+      key,
+      new Map([
+        ["asst-1", "https://cdn.example/a.png"],
+        ["asst-2", "https://cdn.example/b.png"],
+      ]),
+    );
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<Map<string, string>>(key)?.has("asst-1"),
+      ).toBe(false);
+    });
+    expect(
+      queryClient.getQueryData<Map<string, string>>(key)?.get("asst-2"),
+    ).toBe("https://cdn.example/b.png");
+    expect(queryClient.getQueryState(key)?.fetchStatus).toBe("idle");
+  });
+
+  test("avatar_updated drops the lookup entry under the row's platform id", async () => {
+    const queryClient = freshQueryClient();
+    queryClient.invalidateQueries = mock(() => Promise.resolve()) as never;
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          isLocal: true,
+          isPlatformHosted: false,
+          isPaired: false,
+          cloud: "local",
+          platformAssistantId: "uuid-1",
+        },
+      ],
+    });
+    const key = platformAvatarUrlsQueryKey("user-1", null);
+    queryClient.setQueryData(
+      key,
+      new Map([["uuid-1", "https://cdn.example/a.png"]]),
+    );
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<Map<string, string>>(key)?.has("uuid-1"),
+      ).toBe(false);
+    });
+  });
+
   test("invalidates avatar query on avatar_updated event", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
@@ -856,7 +991,7 @@ describe("useAssistantResourceSync", () => {
       },
     );
     emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalled();
     spy.mockClear();
     rerender({ active: false });
     emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);

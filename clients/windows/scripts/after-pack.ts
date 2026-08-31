@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
+import { CLI_RUNTIME_ENTRIES } from "../src/main/cli-installer";
 import { argValue } from "./cli-args";
 
 /**
@@ -26,6 +33,13 @@ export const requiredPackageBinaries = (arch: string): string[] => [
   "resources/cli-runtime/vellum-gateway.exe",
   "resources/cli-runtime/vellum-worker.exe",
   "resources/cli-runtime/vellum.exe",
+  `resources/native-helper/${arch}/Vellum.WindowsHelper.exe`,
+  "resources/preview-handler/Vellum.PreviewHandler.dll",
+];
+
+export const requiredPackageEntries = (arch: string): string[] => [
+  ...CLI_RUNTIME_ENTRIES.map((entry) => `resources/cli-runtime/${entry}`),
+  "resources/cli-runtime/cli-uninstaller.exe",
   `resources/native-helper/${arch}/Vellum.WindowsHelper.exe`,
   "resources/preview-handler/Vellum.PreviewHandler.dll",
 ];
@@ -88,6 +102,14 @@ const main = (): void => {
   const appOutDir = argValue("--app-out-dir");
   if (!appOutDir) {
     throw new Error("--app-out-dir or --installer is required");
+  }
+  const missingEntries = requiredPackageEntries(arch).filter(
+    (required) => !existsSync(path.join(appOutDir, required)),
+  );
+  if (missingEntries.length > 0) {
+    throw new Error(
+      `Packaged app is missing required entries: ${missingEntries.join(", ")}`,
+    );
   }
   const files = collectSignableFiles(appOutDir);
   const missing = requiredPackageBinaries(arch).filter(

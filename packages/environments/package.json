@@ -6,7 +6,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./seeds": "./src/seeds.ts"
+    "./seeds": "./src/seeds.ts",
+    "./shell": "./src/shell.ts",
+    "./test-path-guard": "./src/test-path-guard.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",

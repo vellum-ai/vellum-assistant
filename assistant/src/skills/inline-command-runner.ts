@@ -25,6 +25,10 @@ import { spawn } from "node:child_process";
 
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { stripAnsiSequences } from "../util/ansi.js";
+import {
+  buildShellInvocation,
+  terminateProcessTree,
+} from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("inline-command-runner");
@@ -99,7 +103,7 @@ export async function runInlineCommand(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxChars = options?.maxOutputChars ?? MAX_OUTPUT_CHARS;
 
-  const wrapped = { command: "bash", args: ["-c", "--", command] };
+  const wrapped = buildShellInvocation(command);
 
   // Build a minimal, sanitized environment. Explicitly exclude gateway URL,
   // workspace dir, and data dir since inline commands have no business calling
@@ -121,6 +125,7 @@ export async function runInlineCommand(
         cwd: workingDir,
         env,
         stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -135,7 +140,7 @@ export async function runInlineCommand(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      terminateProcessTree(child);
     }, timeoutMs);
 
     child.stdout!.on("data", (data: Buffer) => {

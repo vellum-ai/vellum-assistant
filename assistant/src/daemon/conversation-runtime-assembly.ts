@@ -48,6 +48,7 @@ import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import {
   getMessages as defaultGetMessages,
   type MessageRow,
+  selectSightFrameCaptureTimes,
 } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
@@ -76,8 +77,13 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { getLogger } from "../util/logger.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import {
+  hasAttributableImages,
+  stripAgedSightFrames,
+} from "./conversation-sight-frames.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {} from "./message-protocol.js";
@@ -88,6 +94,8 @@ import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
 export { stripInjectionsForCompaction } from "../context/strip-injections.js";
+
+const log = getLogger("conversation-runtime-assembly");
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -737,6 +745,60 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
 }
 
+// ---------------------------------------------------------------------------
+// Camera-frame retention
+// ---------------------------------------------------------------------------
+
+/**
+ * Trim the conversation's ambient camera frames down to the newest few
+ * (`KEEP_LATEST_SIGHT_FRAMES`), replacing the rest with text stubs.
+ *
+ * A camera call samples a frame about once per spoken turn, and history resends
+ * every inline image on every later request, so an hour-long call otherwise
+ * grows its own context until the provider rejects it. Trimming here, on the
+ * assembled copy the turn is about to send, keeps the stored transcript and its
+ * attachments intact.
+ *
+ * The tag that names the frames is per-row metadata, and the assembled
+ * `Message[]` omits row metadata, so the ids are read back from the rows and
+ * matched against the attachment id each image block carries: `workspace_ref`
+ * on a reloaded block, `_attachmentId` on the live copy a turn pushed. One
+ * uninterrupted call and a reloaded conversation therefore trim from the same
+ * pool. A conversation with no tagged rows returns the input array unchanged.
+ *
+ * Called twice over a turn that compacts: once before the run, and again on the
+ * rebuilt history the agent loop installs, since compaction reads the stored
+ * rows and can retain frames this pass had already stubbed.
+ *
+ * Best-effort: this trims cost, it does not decide what the turn means, so a
+ * failed read degrades to the untrimmed history rather than failing the turn.
+ */
+export function applySightFrameRetention(
+  messages: Message[],
+  conversationId: string,
+): Message[] {
+  // A frame always traces back to an attachment row, so a history holding no
+  // attributable image can be answered without reading any rows. That is the
+  // overwhelming majority of turns, and this pass sits on the per-turn critical
+  // path.
+  if (!hasAttributableImages(messages)) {
+    return messages;
+  }
+  try {
+    const captureTimes = selectSightFrameCaptureTimes(conversationId);
+    if (captureTimes.size === 0) {
+      return messages;
+    }
+    return stripAgedSightFrames(messages, captureTimes).messages;
+  } catch (err) {
+    log.warn(
+      { conversationId, err },
+      "Camera-frame retention failed (non-fatal)",
+    );
+    return messages;
+  }
+}
+
 /**
  * Build the `<channel_capabilities>` block text for the given capabilities, or
  * `null` on the happy path (desktop, full capabilities, no special context)
@@ -745,6 +807,7 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
  */
 export function buildChannelCapabilityBlock(
   caps: ChannelCapabilities,
+  clientOs: string | undefined = caps.clientOS,
 ): string | null {
   // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
@@ -752,7 +815,8 @@ export function buildChannelCapabilityBlock(
     caps.supportsDynamicUi &&
     caps.supportsVoiceInput &&
     !isGroupChatType(caps.chatType) &&
-    caps.clientOS !== "macos"
+    clientOs !== "macos" &&
+    clientOs !== "windows"
   ) {
     return null;
   }
@@ -762,14 +826,21 @@ export function buildChannelCapabilityBlock(
   lines.push(`dashboard_capable: ${caps.dashboardCapable}`);
   lines.push(`supports_dynamic_ui: ${caps.supportsDynamicUi}`);
   lines.push(`supports_voice_input: ${caps.supportsVoiceInput}`);
-  if (caps.clientOS) {
-    lines.push(`client_os: ${caps.clientOS}`);
+  if (clientOs) {
+    lines.push(`client_os: ${clientOs}`);
   }
 
-  if (caps.clientOS === "macos") {
+  if (clientOs === "macos") {
     lines.push("");
     lines.push(
       "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
+    );
+  }
+
+  if (clientOs === "windows") {
+    lines.push("");
+    lines.push(
+      "On Windows, `host_bash` runs PowerShell. Use PowerShell syntax and Windows paths. Prefer PowerShell or CLI automation over foreground computer use when either can complete the task reliably.",
     );
   }
 
@@ -834,8 +905,9 @@ export function buildChannelCapabilityBlock(
 export function injectChannelCapabilityContext(
   message: Message,
   caps: ChannelCapabilities,
+  clientOs?: string,
 ): Message {
-  const block = buildChannelCapabilityBlock(caps);
+  const block = buildChannelCapabilityBlock(caps, clientOs);
   if (block === null) {
     return message;
   }
@@ -2642,8 +2714,10 @@ export async function applyRuntimeInjections(
   if (channelCapabilities) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
-      const channelCapabilityBlock =
-        buildChannelCapabilityBlock(channelCapabilities);
+      const channelCapabilityBlock = buildChannelCapabilityBlock(
+        channelCapabilities,
+        clientOs,
+      );
       if (channelCapabilityBlock !== null) {
         channelCapabilitiesCaptured = channelCapabilityBlock;
         result = [

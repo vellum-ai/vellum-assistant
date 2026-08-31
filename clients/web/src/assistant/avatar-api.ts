@@ -68,28 +68,67 @@ export async function fetchCharacterComponents(
   }
 }
 
-export async function fetchCharacterTraits(
-  assistantId: string,
-): Promise<CharacterTraits | null> {
-  try {
-    const { data, error, response } = await workspaceFileGet({
-      path: { assistant_id: assistantId },
-      query: { path: "data/avatar/character-traits.json" },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch character traits");
-    if (!response.ok || !data) {
-      return null;
-    }
+/**
+ * A workspace sidecar read that keeps "the file is not there" (a 404, an
+ * authoritative answer) apart from "the request failed" (inconclusive).
+ */
+export type AvatarFileResult<T> =
+  | { status: "found"; value: T }
+  | { status: "absent" }
+  | { status: "failed" };
 
-    const parsed: unknown = JSON.parse(data.content);
-    if (!isCharacterTraits(parsed)) {
-      return null;
-    }
-    return parsed;
+function parseCharacterTraits(content: string): CharacterTraits | null {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return isCharacterTraits(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+/** A sidecar the daemon serves but cannot be used (`parse` returns null) is as good as missing. */
+async function readAvatarFile<D, T>(
+  request: () => Promise<{ data?: D; error?: unknown; response?: Response }>,
+  failureMessage: string,
+  parse: (data: D) => T | null,
+): Promise<AvatarFileResult<T>> {
+  try {
+    const { data, error, response } = await request();
+    assertHasResponse(response, error, failureMessage);
+    if (response.status === 404) {
+      return { status: "absent" };
+    }
+    if (!response.ok || !data) {
+      return { status: "failed" };
+    }
+    const value = parse(data);
+    return value ? { status: "found", value } : { status: "absent" };
+  } catch {
+    return { status: "failed" };
+  }
+}
+
+export function fetchCharacterTraitsResult(
+  assistantId: string,
+): Promise<AvatarFileResult<CharacterTraits>> {
+  return readAvatarFile(
+    () =>
+      workspaceFileGet({
+        path: { assistant_id: assistantId },
+        query: { path: "data/avatar/character-traits.json" },
+        throwOnError: false,
+      }),
+    "Failed to fetch character traits",
+    (data) => parseCharacterTraits(data.content),
+  );
+}
+
+/** {@link fetchCharacterTraitsResult} collapsed to a value; null for absent or failed. */
+export async function fetchCharacterTraits(
+  assistantId: string,
+): Promise<CharacterTraits | null> {
+  const result = await fetchCharacterTraitsResult(assistantId);
+  return result.status === "found" ? result.value : null;
 }
 
 export async function saveCharacterTraits(
@@ -173,22 +212,18 @@ async function uploadAvatarImageLegacy(
   return true;
 }
 
-export async function fetchAvatarImageUrl(
+export function fetchAvatarImageUrlResult(
   assistantId: string,
-): Promise<string | null> {
-  try {
-    const { data, error, response } = await workspaceFileContentGet({
-      path: { assistant_id: assistantId },
-      query: { path: "data/avatar/avatar-image.png" },
-      parseAs: "blob",
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch avatar image");
-    if (!response.ok || !data) {
-      return null;
-    }
-    return URL.createObjectURL(data);
-  } catch {
-    return null;
-  }
+): Promise<AvatarFileResult<string>> {
+  return readAvatarFile(
+    () =>
+      workspaceFileContentGet({
+        path: { assistant_id: assistantId },
+        query: { path: "data/avatar/avatar-image.png" },
+        parseAs: "blob",
+        throwOnError: false,
+      }),
+    "Failed to fetch avatar image",
+    (data) => URL.createObjectURL(data),
+  );
 }

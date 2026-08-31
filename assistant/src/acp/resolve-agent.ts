@@ -153,6 +153,18 @@ function normalizeAgentId(id: string): string {
  * id. The alias is consulted ONLY after both direct lookups miss, so a user
  * config entry literally keyed "claude code" always wins over the alias.
  */
+/**
+ * The configured agent for an id, without checking that its binary exists.
+ *
+ * `resolveAcpAgent` answers "can this be run", which a caller that only wants
+ * to know which credential the agent would use does not need and cannot always
+ * get: a marker outlives the run that wrote it, and the binary may since have
+ * gone.
+ */
+export function lookupAcpAgentConfig(id: string): AcpAgentConfig | undefined {
+  return lookupAgent(getConfig().acp.agents, id)?.agent;
+}
+
 function lookupAgent(
   userAgents: Record<string, AcpAgentConfig>,
   id: string,

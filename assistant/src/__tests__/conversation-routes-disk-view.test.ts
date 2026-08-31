@@ -299,7 +299,7 @@ beforeEach(() => {
 // These tests verify the route-level wiring that enables the CDP factory's
 // fallback chain on macOS-originated turns:
 //
-//   1. Extension connected  → extension backend (tested in host-browser-e2e-cloud.test.ts)
+//   1. Extension connected  → extension backend
 //   2. Extension absent, cdp-inspect unavailable → local Playwright fallback
 //
 // Specifically, we verify that when a macOS message enters through

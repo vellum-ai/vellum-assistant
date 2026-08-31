@@ -139,10 +139,7 @@ const statusResponseSchema = z.object({
 async function handleMonitoringStart() {
   let result: { pid: number; alreadyRunning: boolean };
   try {
-    // `detached: false` parents the monitor to the daemon so it appears in
-    // `assistant ps` and is torn down on shutdown.
     result = await spawnMonitoringWorkerProcess({
-      detached: false,
       terminateOnTimeout: true,
     });
   } catch (err) {

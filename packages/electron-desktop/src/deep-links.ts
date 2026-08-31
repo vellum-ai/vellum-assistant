@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { BrowserWindow, app, type WebContents } from "electron";
 import { z } from "zod";
 
@@ -107,9 +109,12 @@ export function resolveAcceptedSchemes(env: string): string[] {
 // deep link, so garbage never reaches the renderer's billing route.
 const CHECKOUT_SESSION_ID_RE = /^cs_[A-Za-z0-9_]{1,255}$/;
 
-// Pairing bundles are base64 or base64url with optional padding. Anything
-// else on `connect?bundle=` is dropped before it reaches the renderer.
-const BUNDLE_RE = /^[A-Za-z0-9+/\-_]+={0,2}$/;
+// A device code is opaque on the wire, so the shape check bounds it rather
+// than spelling its alphabet: `buildAppConnectUrl` emits whatever the gateway
+// minted, including values like `a+b/c=`. Only whitespace and control
+// characters are refused, since a code carrying those never came from a
+// gateway and would not survive being rebuilt into a pairing URL.
+const DEVICE_CODE_RE = /^[^\s\u0000-\u001f\u007f]{1,256}$/;
 
 const currentEnv = resolveEnvironmentName(process.env);
 const REGISTERED_SCHEMES = resolveRegisteredSchemes(currentEnv);
@@ -131,19 +136,22 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - `vellum://thread/<id>` → `{ kind: "openThread", threadId }`.
  *     Trailing slashes / extra path segments are tolerated;
  *     `threadId` is the first non-empty path segment.
- *   - `vellum://connect?url=…` / `vellum://connect?bundle=…` →
- *     `{ kind: "connect", … }`. The pair page's "Open in the Vellum
- *     app" button and `vellum pair --qr --app` QR codes. `url` must
- *     parse as https (dropped otherwise); `bundle` must look like
- *     base64/base64url. A `code` query param (device code) is
- *     accepted but never carried: the renderer cannot complete a
- *     device-code exchange, so the secret stays out of the IPC
- *     boundary entirely. Malformed variants still parse as `connect`
- *     with the fields absent rather than falling to `unknown`: the
- *     user clicked a connect link, so the renderer routes them to
- *     the connect flow with guidance. `bundle` is secret material:
- *     never logged, and never echoed on an `unknown` URL (which the
- *     renderer breadcrumbs to Sentry).
+ *   - `vellum://connect?url=…&code=…` → `{ kind: "connect", … }`.
+ *     The pair page's "Open in the Vellum app" button and
+ *     `vellum pair --app` QR codes. `url` must parse as https
+ *     (dropped otherwise); `code` (the device code) is opaque, so it
+ *     is only bounded in length and refused when it carries
+ *     whitespace or control characters, and rides only alongside a
+ *     usable base, since a code with nothing to exchange it against
+ *     is inert. A `bundle` param comes from app versions whose
+ *     connect dialog took a pasted pairing bundle: its presence sets
+ *     `legacy` so the renderer can explain the link, and the payload
+ *     is dropped here rather than carried anywhere. Malformed
+ *     variants still parse as `connect` with the fields absent rather
+ *     than falling to `unknown`: the user clicked a connect link, so
+ *     the renderer routes them to the connect flow with guidance.
+ *     `code` is credential material: never logged, and never echoed
+ *     on an `unknown` URL (which the renderer breadcrumbs to Sentry).
  *   - `vellum://billing/checkout-complete?status=…&session_id=…` →
  *     `{ kind: "billingCheckoutComplete", status, sessionId, flow }`.
  *     The platform bounces a native-initiated Stripe Checkout here
@@ -207,10 +215,10 @@ export const parseVellumUrl = (input: string): DeepLink => {
     return { kind: "unknown", url: withoutQuery };
   }
   if (url.host === "connect") {
-    // `bundle` is secret material (pairing bundle): carried on the typed
-    // link only, never logged, and never routed through `unknown` (whose
-    // URL the renderer breadcrumbs). A `code` query param is accepted but
-    // dropped here: it has no renderer consumer.
+    // `code` is credential material (the device code the local-mode host
+    // exchanges for pairing credentials): carried on the typed link only,
+    // never logged, and never routed through `unknown` (whose URL the
+    // renderer breadcrumbs). A `bundle` payload is read for presence only.
     const link: Extract<DeepLink, { kind: "connect" }> = { kind: "connect" };
     const base = url.searchParams.get("url");
     if (base) {
@@ -222,9 +230,12 @@ export const parseVellumUrl = (input: string): DeepLink => {
         // Unparseable server base: leave the field absent.
       }
     }
-    const bundle = url.searchParams.get("bundle");
-    if (bundle && BUNDLE_RE.test(bundle)) {
-      link.bundle = bundle;
+    const code = url.searchParams.get("code");
+    if (link.url && code && DEVICE_CODE_RE.test(code)) {
+      link.code = code;
+    }
+    if (url.searchParams.get("bundle")) {
+      link.legacy = true;
     }
     return link;
   }
@@ -346,7 +357,13 @@ export const installDeepLinks = (): void => {
   // (e.g. `vellum-assistant-dev`) to avoid hijacking production
   // callbacks when both apps coexist.
   for (const scheme of REGISTERED_SCHEMES) {
-    app.setAsDefaultProtocolClient(scheme);
+    if (process.platform === "win32" && !app.isPackaged && process.argv[1]) {
+      app.setAsDefaultProtocolClient(scheme, process.execPath, [
+        resolve(process.argv[1]),
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient(scheme);
+    }
   }
 
   app.on("will-finish-launching", () => {

@@ -17,9 +17,12 @@
  * withdrawn card already reflects the expired state, so a fresh ping would be
  * noise.
  *
- * Best-effort by contract: the request is already resolved (CAS committed)
- * before this runs, so a failed notice or interaction release must never
- * surface as a sweep failure. Nothing here throws.
+ * Never throws; `complete` reports whether the side effects actually ran,
+ * because the sweep confirms a request's expiry (the status CAS) only after
+ * they did: a failed notice left the requester untold, so it must keep the
+ * row pending and retryable rather than vanish into a log line. A request
+ * with no deliverable route or no requester chat reports complete: there is
+ * nothing a retry could ever deliver.
  */
 
 import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
@@ -36,49 +39,48 @@ import {
 const log = getLogger("guardian-expiry-notifier");
 
 /**
- * Run the expiry side effects for a single guardian request that the sweep
- * just transitioned to `expired`. Dispatches by kind; never throws.
+ * Run the expiry side effects for a single guardian request the sweep is
+ * expiring. Dispatches by kind; never throws.
  */
 export async function notifyExpiredGuardianRequest(
   request: GuardianRequestWire,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   try {
     switch (request.kind) {
       case "tool_approval":
         releaseExpiredInteraction(request);
-        return;
+        return { complete: true };
       case "access_request":
         // Admitted-mode nudges expire silently for the requester — the
         // sender made no request and keeps whatever access the floor grants.
         if (!introductionMode(request.requestTrigger).notifyRequesterOnExpiry) {
-          break;
+          return { complete: true };
         }
-        await notifyRequesterOfExpiry(
+        return notifyRequesterOfExpiry(
           request,
           "Your access request expired before it was reviewed. " +
             "Send a new message if you still need access.",
         );
-        return;
       case "tool_grant_request":
-        await notifyRequesterOfExpiry(
+        return notifyRequesterOfExpiry(
           request,
           `Your request to use "${request.toolName ?? "a tool"}" expired ` +
             "before it was reviewed. Ask again if you still need it.",
         );
-        return;
       case "pending_question":
         // Voice call sessions own their own lifecycle and timeout. By the time
         // the request TTL lapses the call is long over and there is no
         // durable requester channel to notify, so there is nothing to do.
-        return;
+        return { complete: true };
       default:
-        return;
+        return { complete: true };
     }
   } catch (err) {
     log.warn(
       { err, requestId: request.id, kind: request.kind },
       "Expiry side effects failed for guardian request (non-fatal)",
     );
+    return { complete: false };
   }
 }
 
@@ -121,15 +123,17 @@ function releaseExpiredInteraction(request: GuardianRequestWire): void {
 async function notifyRequesterOfExpiry(
   request: GuardianRequestWire,
   text: string,
-): Promise<void> {
+): Promise<{ complete: boolean }> {
   const channel = request.sourceChannel ?? "";
   const deliverUrl = resolveDeliverCallbackUrlForChannel(channel);
   const requesterChatId =
     request.requesterChatId ?? request.requesterExternalUserId ?? "";
   const requesterExternalUserId = request.requesterExternalUserId ?? "";
 
+  // No deliverable route or no requester chat: nothing a retry could ever
+  // deliver, so this counts as complete rather than pinning the request.
   if (!deliverUrl || !requesterChatId) {
-    return;
+    return { complete: true };
   }
 
   const targetChatId = resolveRequesterDeliveryTarget({
@@ -148,10 +152,12 @@ async function notifyRequesterOfExpiry(
       { requestId: request.id, kind: request.kind, channel },
       "Notified requester that guardian request expired",
     );
+    return { complete: true };
   } catch (err) {
     log.warn(
       { err, requestId: request.id, channel },
       "Failed to notify requester of guardian request expiry (non-fatal)",
     );
+    return { complete: false };
   }
 }

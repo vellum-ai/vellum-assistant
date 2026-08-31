@@ -25,6 +25,7 @@ import {
   localFileKindFromFilename,
 } from "@/domains/chat/components/local-file/local-file-icon";
 import { previewByteCapFor } from "@/domains/chat/components/local-file/local-file-limits";
+import { PdfPageSkeleton } from "@/domains/chat/components/chat-attachments/pdf-page-skeleton";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
 import { PreviewUnsupported } from "@/domains/chat/components/local-file/preview/preview-unsupported";
 import {
@@ -32,7 +33,7 @@ import {
   useLocalFileInfo,
   workspaceFileBlobQuery,
 } from "@/domains/chat/components/local-file/use-local-file-info";
-import { t } from "@/i18n";
+import { t, useTranslation } from "@/i18n";
 import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
@@ -80,7 +81,7 @@ function previewFor(
     case "text":
       return <TextPreview blob={blob} filename={filename} />;
     case "pdf":
-      return <PdfFilePreview blob={blob} />;
+      return <PdfFilePreview blob={blob} filename={filename} />;
     case "image":
     case "audio":
     case "video":
@@ -105,6 +106,7 @@ export function FilePreviewContainer({
   previewKind,
   onClose,
 }: FilePreviewContainerProps): ReactNode {
+  const { t: tChat } = useTranslation("chat");
   // Every preview starts with the ranged probe: 512 bytes answer the file's
   // size, which decides whether reading the rest of it is worth doing at all.
   // A file past its cap is refused from the probe alone, so the bytes the
@@ -160,6 +162,14 @@ export function FilePreviewContainer({
   // the panel must not wrap it in a second scroller.
   let showsCsvGrid = false;
 
+  // One placeholder for every stage before a reader takes over (fetching the
+  // bytes, then resolving the reader's chunk), shaped like what is coming:
+  // a PDF resolves into a page, and swapping prose lines for a page shape
+  // partway through is the jump this placeholder exists to avoid. The other
+  // readers render prose-like content, which is what `PreviewSkeleton` draws.
+  const loadingPlaceholder =
+    previewKind === "pdf" ? <PdfPageSkeleton /> : <PreviewSkeleton />;
+
   let body: ReactNode;
   if (isUnsupported) {
     body = (
@@ -178,10 +188,10 @@ export function FilePreviewContainer({
           variant="body-small-default"
           className="text-[var(--content-default)]"
         >
-          Couldn&apos;t load this file
+          {tChat("filePreviewContainer.loadError")}
         </Typography>
         <Button variant="outlined" size="compact" onClick={handleRetry}>
-          Try again
+          {tChat("filePreviewContainer.tryAgain")}
         </Button>
       </div>
     );
@@ -193,14 +203,17 @@ export function FilePreviewContainer({
           variant="body-small-default"
           className="text-[var(--content-default)]"
         >
-          This file is too large to preview
+          {tChat("filePreviewContainer.tooLarge")}
         </Typography>
         <Typography
           as="span"
           variant="label-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          {`${formatAttachmentSize(oversizeBytes)}, over the ${formatAttachmentSize(maxPreviewBytes)} preview limit`}
+          {tChat("filePreviewContainer.overLimit", {
+            size: formatAttachmentSize(oversizeBytes),
+            limit: formatAttachmentSize(maxPreviewBytes),
+          })}
         </Typography>
         <Button
           variant="outlined"
@@ -208,16 +221,16 @@ export function FilePreviewContainer({
           leftIcon={<Download />}
           onClick={handleDownload}
         >
-          Download
+          {tChat("filePreviewContainer.download")}
         </Button>
       </div>
     );
   } else if (probe.status === "loading" || isPending || blob === undefined) {
-    body = <PreviewSkeleton />;
+    body = loadingPlaceholder;
   } else {
     showsCsvGrid = previewKind === "csv";
     body = (
-      <LazyBoundary fallback={<PreviewSkeleton />}>
+      <LazyBoundary fallback={loadingPlaceholder}>
         {previewFor(previewKind, blob, documentName)}
       </LazyBoundary>
     );
@@ -246,8 +259,10 @@ export function FilePreviewContainer({
           size="compact"
           iconOnly={<Download />}
           onClick={handleDownload}
-          aria-label={`Download ${documentName}`}
-          tooltip="Download"
+          aria-label={tChat("filePreviewContainer.downloadAria", {
+            name: documentName,
+          })}
+          tooltip={tChat("filePreviewContainer.download")}
         />
 
         <Button
@@ -255,8 +270,8 @@ export function FilePreviewContainer({
           size="compact"
           iconOnly={<X />}
           onClick={onClose}
-          aria-label="Close preview"
-          tooltip="Close"
+          aria-label={tChat("filePreviewContainer.closePreviewAria")}
+          tooltip={tChat("filePreviewContainer.closeTooltip")}
         />
       </div>
 

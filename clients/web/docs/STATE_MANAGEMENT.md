@@ -536,6 +536,38 @@ session probe) settles `platformSession: "absent"`, so bearer-auth
 (local/paired gateway) connections never stay org-gated behind a
 dead cookie.
 
+#### When the boolean is not enough
+
+`useIsOrgReady()` answers a yes/no question, which is what `enabled`
+needs: a query either may fire or may not.
+
+A component that renders one thing per outcome needs more than that.
+The boolean is false both while the org id is still arriving and once
+it has resolved to nothing, and those are opposite instructions to a
+caller: keep waiting, or stop. `useOrgHeaderReadiness()` returns
+`"ready" | "resolving" | "unavailable"` for that case, and
+`getOrgHeaderReadiness()` is the imperative read of the same
+derivation, for async sequences outside the render cycle.
+
+The distinction is load-bearing wherever a capability flag is derived
+from queries this gate disables, because `isLoading` is false for a
+query that is disabled. A flag built only from the queries therefore
+reads as settled while the org is still resolving:
+
+```ts
+const orgReadiness = useOrgHeaderReadiness();
+// "resolving" is the one wait not expressed as a query: it disables
+// them, so on the strength of the queries alone they look settled.
+const settled =
+  orgReadiness !== "resolving" && !catalogLoading && !configLoading;
+```
+
+`useManagedVoiceSelection` derives its `settled` this way. Surfaces
+read that rather than `available` to decide whether to draw an outcome
+at all, because `available` is false while the answer is in flight as
+well as once it is a no: a surface reading it alone states a
+conclusion before one exists.
+
 Reference: [TanStack Query — Dependent Queries](https://tanstack.com/query/latest/docs/framework/react/guides/dependent-queries)
 
 ### Canonical migration example
@@ -557,7 +589,7 @@ Zustand-as-state** pattern: `use-lifecycle.ts` returns `void` and
 publishes everything it produces (the `assistantState` discriminated
 union, the stable imperative actions) into
 [`src/assistant/lifecycle-store.ts`](../src/assistant/lifecycle-store.ts)
-and [`src/assistant/selection-store.ts`](../src/assistant/selection-store.ts).
+and [`src/assistant/selection.ts`](../src/assistant/selection.ts).
 Consumers read via atomic selectors; nothing flows through outlet
 context. This is the shape to copy when a side-effect orchestrator
 needs to expose its state to the whole tree — not a `useReducer`,

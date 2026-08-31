@@ -15,7 +15,11 @@
 import { z } from "zod";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import {
+  DEFAULT_MCP_RISK_LEVEL,
+  type McpConfig,
+  type McpServerConfig,
+} from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
@@ -312,7 +316,7 @@ async function handleMcpList(_args: {
         status,
         transport: safeTransport as McpServerEntry["transport"],
         enabled,
-        defaultRiskLevel: config.defaultRiskLevel ?? "high",
+        defaultRiskLevel: config.defaultRiskLevel ?? DEFAULT_MCP_RISK_LEVEL,
         hasOAuth,
         hasStaticAuth,
         authType,
@@ -551,10 +555,9 @@ async function handleMcpAdd({
   const { name, transportType, url, command, args, risk, disabled, headers } =
     parseBody(McpAddParams, body);
 
-  const riskLevel = risk ?? "high";
-  if (!["low", "medium", "high"].includes(riskLevel)) {
+  if (risk !== undefined && !["low", "medium", "high"].includes(risk)) {
     throw new BadRequestError(
-      `Invalid risk level: ${riskLevel}. Must be low, medium, or high`,
+      `Invalid risk level: ${risk}. Must be low, medium, or high`,
     );
   }
 
@@ -597,10 +600,13 @@ async function handleMcpAdd({
     );
   }
 
+  // Writing no `defaultRiskLevel` when the caller named none leaves the level
+  // to `McpServerConfigSchema`, so the entry tracks the shipped default
+  // instead of freezing whichever level was current on the day it was added.
   serverMap[name] = {
     transport,
     enabled: !disabled,
-    defaultRiskLevel: riskLevel,
+    ...(risk === undefined ? {} : { defaultRiskLevel: risk }),
   };
 
   // Store auth headers in credential store, not config

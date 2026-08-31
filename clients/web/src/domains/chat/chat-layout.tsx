@@ -41,6 +41,7 @@ import {
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import { useNativeRecentChatsSync } from "@/domains/chat/hooks/use-native-recent-chats-sync";
+import { useNativeWidgetSnapshotSync } from "@/domains/chat/hooks/use-native-widget-snapshot-sync";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import {
@@ -60,6 +61,8 @@ import { useChatLayoutDrawerGestures } from "@/domains/chat/hooks/use-chat-layou
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { useConversationListDeepLink } from "@/domains/chat/hooks/use-conversation-list-deep-link";
+import { useMaterializedDraftReconcile } from "@/domains/chat/hooks/use-materialized-draft-reconcile";
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
@@ -98,6 +101,7 @@ import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier"
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { SightTile } from "@/domains/chat/sight/sight-tile";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
@@ -106,8 +110,13 @@ import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
 } from "./components/archive-all-confirm-dialog";
+import {
+  DeleteConversationConfirmDialog,
+  useDeleteConversationConfirmation,
+} from "./components/delete-conversation-confirm-dialog";
 import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
+import { useTranslation } from "@/i18n";
 
 const CommandPalette = lazy(() =>
   import("@/components/command-palette/command-palette").then((m) => ({
@@ -164,6 +173,7 @@ export function ChatLayout({
    */
   topBarAccessory?: ReactNode;
 } = {}) {
+  const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -222,10 +232,17 @@ export function ChatLayout({
     isError: conversationsFailed,
     refetch: retryConversations,
   } = useConversationListQuery(assistantId, isAssistantActive);
-  const { conversationGroups } = useConversationGroupsQuery(
-    assistantId,
-    isAssistantActive,
-  );
+  const {
+    conversationGroups,
+    isPending: isGroupsPending,
+    isError: groupsFailed,
+  } = useConversationGroupsQuery(assistantId, isAssistantActive);
+
+  // A client-minted conversation key stops being a draft once the server's own
+  // list carries a row for it. Mounted against the list this layout already
+  // subscribes to, so it costs no request. See
+  // `./hooks/use-materialized-draft-reconcile.ts`.
+  useMaterializedDraftReconcile(conversations);
 
   // Whether the transcript is on screen, resolved here because this is where
   // the route, the viewer and the viewport are all in hand. One owner, so
@@ -277,6 +294,26 @@ export function ChatLayout({
   useNativeRecentChatsSync(
     conversations,
     !isConversationListPending && !conversationsFailed,
+  );
+
+  // And into the iOS shell's widget snapshot, which backs the Home Screen
+  // widgets (unread and in-progress counts, the three most recent chats).
+  // No-op off Capacitor iOS, and resolved carries the same meaning it does
+  // for the recent-chats sync above: an unresolved `[]` would blank the
+  // widgets for as long as the list failed to load. It covers BOTH queries
+  // here, because the widget snapshot carries group subtitles as well as the
+  // rows, and the groups query serves its own `[]` fallback while pending,
+  // gated, or errored: either input resolving alone would overwrite a valid
+  // snapshot with one whose subtitles are all missing.
+  useNativeWidgetSnapshotSync(
+    assistantId,
+    conversations,
+    conversationGroups,
+    isAssistantActive,
+    !isConversationListPending &&
+      !conversationsFailed &&
+      !isGroupsPending &&
+      !groupsFailed,
   );
 
   // Header slots come from a module-level store so gated routes
@@ -466,6 +503,19 @@ export function ChatLayout({
 
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
 
+  // The two shapes the conversation list takes, as callbacks the deep-link
+  // drain below can hold. Blurring first is what the toggle and the swipe do:
+  // without it iOS keeps the soft keyboard up and the drawer slides in behind
+  // it looking stuck.
+  const openDrawerForDeepLink = useCallback(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    setDrawerOpen(true);
+  }, []);
+  // Uncollapsing writes the persisted preference, same as the toggle: the user
+  // asked to see the list, and reverting it a moment later would be the
+  // surprise.
+  const expandSidebarForDeepLink = useCallback(() => setCollapsed(false), []);
+
   useEffect(() => {
     if (!isMobile) {
       setDrawerOpen(false);
@@ -480,6 +530,15 @@ export function ChatLayout({
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.key]);
+
+  // The Home Screen widgets' unread chip and unread line
+  // (`deeplink.openConversations`), drained after the close-on-navigation
+  // effect above so an open it grants on the same commit is not undone by it.
+  useConversationListDeepLink({
+    isMobile,
+    openDrawer: openDrawerForDeepLink,
+    expandSidebar: expandSidebarForDeepLink,
+  });
 
   // The tips new-user grace clock anchors to first app use. Stamping here
   // (not only in the tip hook) covers mobile, where the drawer-gated tip
@@ -618,7 +677,7 @@ export function ChatLayout({
     [navigate],
   );
 
-  // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
+  // --- Sidebar conversation actions (pin / rename / archive / delete / mark / move) ---
   //
   // The sidebar's hover-revealed "…" menu reads its items from these
   // handlers; without them the popover renders empty (every menu item
@@ -631,6 +690,7 @@ export function ChatLayout({
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
+    handleDeleteConversation,
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
@@ -659,6 +719,16 @@ export function ChatLayout({
   } = useArchiveAllConfirmation({
     assistantId,
     archiveAllInGroup: handleArchiveAllInGroup,
+  });
+
+  const {
+    pending: pendingDeleteConversation,
+    requestDelete,
+    confirmDelete,
+    cancelDelete,
+  } = useDeleteConversationConfirmation({
+    assistantId,
+    deleteConversation: handleDeleteConversation,
   });
 
   // The move-to-group menu's "New group…" item and the group actions menu's
@@ -720,6 +790,7 @@ export function ChatLayout({
         showInternalActions={showInternalActions}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
+        onDelete={requestDelete}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
@@ -752,6 +823,17 @@ export function ChatLayout({
     }
   }, [commandPalette.isOpen, paletteEverOpened]);
 
+  // Menu commands that act on the open conversation take the row from
+  // `activeConversation`, which resolves background, scheduled, and archived
+  // threads the foreground `conversations` list deliberately omits. They
+  // no-op while no conversation is open.
+  const withActiveConversation =
+    (action: (conversation: Conversation) => void) => () => {
+      if (activeConversation) {
+        action(activeConversation);
+      }
+    };
+
   // Electron host commands (File menu / global hotkeys). The hook is a
   // no-op on the web host. Handlers close over the latest state via an
   // internal ref, so we don't need to memoize them. Composer focus is
@@ -773,17 +855,8 @@ export function ChatLayout({
       }
       requestComposerFocus();
     },
-    markCurrentUnread: () => {
-      if (!activeConversationId) {
-        return;
-      }
-      const conversation = conversations.find(
-        (c) => c.conversationId === activeConversationId,
-      );
-      if (conversation) {
-        handleMarkConversationUnread(conversation);
-      }
-    },
+    markCurrentUnread: withActiveConversation(handleMarkConversationUnread),
+    togglePinConversation: withActiveConversation(handleTogglePinConversation),
     markAllRead: () => {
       void handleMarkAllReadInGroup(conversations);
     },
@@ -959,6 +1032,7 @@ export function ChatLayout({
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}
       onUnarchiveConversation={handleUnarchiveConversation}
+      onDeleteConversation={requestDelete}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
       onCreateGroup={handleRequestCreateEmptyGroup}
@@ -1143,18 +1217,18 @@ export function ChatLayout({
               onTouchCancel={drawerGestures.onTouchCancel}
               role="dialog"
               aria-modal="true"
-              aria-label="Navigation"
+              aria-label={t("chatLayout.navigationAria")}
               data-state={drawerOpen ? "open" : "closed"}
             >
               {/* The aside is the drawer's only painted surface: the menu it
                   hosts is transparent, so this one fill covers both the menu
                   and the safe-area padding ring around it, which is what
                   keeps tinted strips off the notch / home-indicator edges on
-                  iOS. It thins toward the chat side (Figma 7842-83305), so
-                  the page stays legible behind the drawer while the column of
-                  navigation itself rests on solid ground. Painting it here
-                  rather than on the menu also keeps it one layer: two
-                  translucent fills would compose back to opaque. No border:
+                  iOS. The fill is fully opaque (Figma 7842-83305), so the
+                  chat never bleeds through the sheet. Painting it here
+                  rather than on the menu keeps one owner of the surface
+                  color; a second fill on the menu would composite over this
+                  one and shift the drawn color off its token. No border:
                   the sheet covers the full screen, so there is no edge to draw.
                   No bottom padding either: the SideMenu root clips its
                   children (`overflow-hidden`), so a bottom inset places the
@@ -1209,7 +1283,7 @@ export function ChatLayout({
             // this element imperatively; overflow-hidden clips the nav
             // mid-slide.
             className="w-fit shrink-0 overflow-hidden"
-            aria-label="Navigation"
+            aria-label={t("chatLayout.navigationAria")}
           >
             {renderSideMenu({
               collapsed: effectiveCollapsed,
@@ -1229,6 +1303,12 @@ export function ChatLayout({
                 transcript render underneath, hidden by it. */}
             <VoiceRoom variant="content" />
           </main>
+          {/* The Eyes viewfinder, a sibling of `<main>` rather than a child:
+              it is a fixed corner tile, and nesting it under a box that can
+              take a filter would make that box the containing block for its
+              `position: fixed` and park it against `<main>`'s rectangle
+              instead of the viewport. Self-gates on the camera's status. */}
+          <SightTile />
         </div>
       )}
 
@@ -1258,6 +1338,11 @@ export function ChatLayout({
         pending={pendingArchiveAll}
         onConfirm={confirmArchiveAll}
         onCancel={cancelArchiveAll}
+      />
+      <DeleteConversationConfirmDialog
+        pending={pendingDeleteConversation}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
       <GroupNameDialogFromStore
         createGroup={createGroup}

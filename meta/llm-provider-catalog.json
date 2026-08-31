@@ -1096,17 +1096,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 5,
-            "outputPer1mTokens": 30,
-            "cacheWritePer1mTokens": 6.25,
-            "cacheReadPer1mTokens": 0.5,
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 10,
-                "outputPer1mTokens": 45,
-                "cacheWritePer1mTokens": 12.5,
-                "cacheReadPer1mTokens": 1
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 15,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
               }
             ]
           }
@@ -1124,17 +1124,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 5,
-            "outputPer1mTokens": 30,
-            "cacheWritePer1mTokens": 6.25,
-            "cacheReadPer1mTokens": 0.5,
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 10,
-                "outputPer1mTokens": 45,
-                "cacheWritePer1mTokens": 12.5,
-                "cacheReadPer1mTokens": 1
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 15,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
               }
             ]
           }
@@ -1152,17 +1152,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 1,
-            "outputPer1mTokens": 6,
-            "cacheWritePer1mTokens": 1.25,
-            "cacheReadPer1mTokens": 0.1,
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 12,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 2,
-                "outputPer1mTokens": 9,
-                "cacheWritePer1mTokens": 2.5,
-                "cacheReadPer1mTokens": 0.2
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 18,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
               }
             ]
           }
@@ -1180,17 +1180,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 1,
-            "outputPer1mTokens": 6,
-            "cacheWritePer1mTokens": 1.25,
-            "cacheReadPer1mTokens": 0.1,
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 12,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 2,
-                "outputPer1mTokens": 9,
-                "cacheWritePer1mTokens": 2.5,
-                "cacheReadPer1mTokens": 0.2
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 18,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
               }
             ]
           }
@@ -1208,17 +1208,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.1,
-            "outputPer1mTokens": 0.6,
-            "cacheWritePer1mTokens": 0.125,
-            "cacheReadPer1mTokens": 0.01,
+            "inputPer1mTokens": 0.2,
+            "outputPer1mTokens": 1.2,
+            "cacheWritePer1mTokens": 0.25,
+            "cacheReadPer1mTokens": 0.02,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 0.2,
-                "outputPer1mTokens": 0.9,
-                "cacheWritePer1mTokens": 0.25,
-                "cacheReadPer1mTokens": 0.02
+                "inputPer1mTokens": 0.4,
+                "outputPer1mTokens": 1.8,
+                "cacheWritePer1mTokens": 0.5,
+                "cacheReadPer1mTokens": 0.04
               }
             ]
           }
@@ -1236,17 +1236,43 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.1,
-            "outputPer1mTokens": 0.6,
-            "cacheWritePer1mTokens": 0.125,
-            "cacheReadPer1mTokens": 0.01,
+            "inputPer1mTokens": 0.2,
+            "outputPer1mTokens": 1.2,
+            "cacheWritePer1mTokens": 0.25,
+            "cacheReadPer1mTokens": 0.02,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 0.2,
-                "outputPer1mTokens": 0.9,
-                "cacheWritePer1mTokens": 0.25,
-                "cacheReadPer1mTokens": 0.02
+                "inputPer1mTokens": 0.4,
+                "outputPer1mTokens": 1.8,
+                "cacheWritePer1mTokens": 0.5,
+                "cacheReadPer1mTokens": 0.04
+              }
+            ]
+          }
+        },
+        {
+          "id": "x-ai/grok-4.6",
+          "displayName": "Grok 4.6",
+          "contextWindowTokens": 500000,
+          "maxOutputTokens": 30000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 6,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 200000,
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 12,
+                "cacheReadPer1mTokens": 1
               }
             ]
           }
@@ -1265,7 +1291,7 @@
           "pricing": {
             "inputPer1mTokens": 2,
             "outputPer1mTokens": 6,
-            "cacheReadPer1mTokens": 0.5
+            "cacheReadPer1mTokens": 0.3
           }
         },
         {
@@ -1310,12 +1336,13 @@
           "defaultContextWindowTokens": 163840,
           "longContextMode": "unsupported",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.55,
-            "outputPer1mTokens": 2.19
+            "inputPer1mTokens": 0.5,
+            "outputPer1mTokens": 2.15,
+            "cacheReadPer1mTokens": 0.35
           }
         },
         {
@@ -1330,8 +1357,8 @@
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.27,
-            "outputPer1mTokens": 1.1
+            "inputPer1mTokens": 0.25,
+            "outputPer1mTokens": 1
           }
         },
         {
@@ -1342,12 +1369,13 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.435,
-            "outputPer1mTokens": 0.87
+            "inputPer1mTokens": 0.579072,
+            "outputPer1mTokens": 1.158144,
+            "cacheReadPer1mTokens": 0.048256
           }
         },
         {
@@ -1358,28 +1386,13 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.14,
-            "outputPer1mTokens": 0.28
-          }
-        },
-        {
-          "id": "deepseek/deepseek-v3.2-speciale",
-          "displayName": "DeepSeek V3.2 Speciale",
-          "contextWindowTokens": 163840,
-          "maxOutputTokens": 163840,
-          "defaultContextWindowTokens": 163840,
-          "longContextMode": "unsupported",
-          "supportsThinking": true,
-          "supportsCaching": false,
-          "supportsVision": false,
-          "supportsToolUse": false,
-          "pricing": {
-            "inputPer1mTokens": 0.287,
-            "outputPer1mTokens": 0.431
+            "outputPer1mTokens": 0.28,
+            "cacheReadPer1mTokens": 0.028
           }
         },
         {
@@ -1394,8 +1407,8 @@
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.8,
-            "outputPer1mTokens": 2.4
+            "inputPer1mTokens": 0.26,
+            "outputPer1mTokens": 1.56
           }
         },
         {
@@ -1406,12 +1419,13 @@
           "defaultContextWindowTokens": 131072,
           "longContextMode": "unsupported",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.9,
-            "outputPer1mTokens": 2.7
+            "inputPer1mTokens": 0.5,
+            "outputPer1mTokens": 3.6,
+            "cacheReadPer1mTokens": 0.3
           }
         },
         {
@@ -1426,8 +1440,8 @@
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.2,
-            "outputPer1mTokens": 0.6
+            "inputPer1mTokens": 0.065,
+            "outputPer1mTokens": 0.26
           }
         },
         {
@@ -1438,12 +1452,13 @@
           "defaultContextWindowTokens": 131072,
           "longContextMode": "unsupported",
           "supportsThinking": false,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.5,
-            "outputPer1mTokens": 1.5
+            "inputPer1mTokens": 0.12,
+            "outputPer1mTokens": 0.8,
+            "cacheReadPer1mTokens": 0.07
           }
         },
         {
@@ -1455,12 +1470,13 @@
           "longContextMode": "native-model",
           "supportsThinking": true,
           "adaptiveThinkingOnly": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 3,
-            "outputPer1mTokens": 15
+            "outputPer1mTokens": 15,
+            "cacheReadPer1mTokens": 0.3
           }
         },
         {
@@ -1471,12 +1487,13 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.6,
-            "outputPer1mTokens": 2.8
+            "inputPer1mTokens": 0.95,
+            "outputPer1mTokens": 4,
+            "cacheReadPer1mTokens": 0.16
           }
         },
         {
@@ -1487,12 +1504,13 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": false,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.6,
-            "outputPer1mTokens": 2.5
+            "outputPer1mTokens": 3,
+            "cacheReadPer1mTokens": 0.1
           }
         },
         {
@@ -1503,12 +1521,13 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.3,
-            "outputPer1mTokens": 1.2
+            "outputPer1mTokens": 1.2,
+            "cacheReadPer1mTokens": 0.06
           }
         },
         {
@@ -1519,12 +1538,13 @@
           "defaultContextWindowTokens": 196608,
           "longContextMode": "unsupported",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.279,
-            "outputPer1mTokens": 1.2
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2,
+            "cacheReadPer1mTokens": 0.06
           }
         },
         {
@@ -1535,12 +1555,13 @@
           "defaultContextWindowTokens": 196608,
           "longContextMode": "unsupported",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.15,
-            "outputPer1mTokens": 1.15
+            "inputPer1mTokens": 0.27,
+            "outputPer1mTokens": 1.08,
+            "cacheReadPer1mTokens": 0.027
           }
         },
         {
@@ -1551,12 +1572,13 @@
           "defaultContextWindowTokens": 196608,
           "longContextMode": "unsupported",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.29,
-            "outputPer1mTokens": 0.95
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2,
+            "cacheReadPer1mTokens": 0.03
           }
         },
         {
@@ -1572,7 +1594,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.255,
-            "outputPer1mTokens": 1
+            "outputPer1mTokens": 1.02
           }
         },
         {
@@ -1583,12 +1605,13 @@
           "defaultContextWindowTokens": 65536,
           "longContextMode": "unsupported",
           "supportsThinking": false,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": false,
           "pricing": {
             "inputPer1mTokens": 0.3,
-            "outputPer1mTokens": 1.2
+            "outputPer1mTokens": 1.2,
+            "cacheReadPer1mTokens": 0.03
           }
         },
         {
@@ -1603,7 +1626,7 @@
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.4,
+            "inputPer1mTokens": 0.55,
             "outputPer1mTokens": 2.2
           }
         },
@@ -1624,6 +1647,40 @@
           }
         },
         {
+          "id": "z-ai/glm-5.3",
+          "displayName": "GLM-5.3",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4,
+            "cacheReadPer1mTokens": 0.26
+          }
+        },
+        {
+          "id": "z-ai/glm-5.3-flash",
+          "displayName": "GLM-5.3 Flash",
+          "contextWindowTokens": 1310720,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.075,
+            "outputPer1mTokens": 0.25,
+            "cacheReadPer1mTokens": 0.015
+          }
+        },
+        {
           "id": "z-ai/glm-5.2",
           "displayName": "GLM-5.2",
           "contextWindowTokens": 1048576,
@@ -1631,12 +1688,13 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 1.4,
-            "outputPer1mTokens": 4.4
+            "inputPer1mTokens": 1.19,
+            "outputPer1mTokens": 3.74,
+            "cacheReadPer1mTokens": 0.221
           }
         },
         {
@@ -1647,12 +1705,13 @@
           "defaultContextWindowTokens": 131072,
           "longContextMode": "unsupported",
           "supportsThinking": false,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.4,
-            "outputPer1mTokens": 2
+            "outputPer1mTokens": 2,
+            "cacheReadPer1mTokens": 0.04
           }
         },
         {
@@ -1663,28 +1722,13 @@
           "defaultContextWindowTokens": 131072,
           "longContextMode": "unsupported",
           "supportsThinking": false,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.2,
-            "outputPer1mTokens": 0.6
-          }
-        },
-        {
-          "id": "mistralai/devstral-2512",
-          "displayName": "Devstral 2",
-          "contextWindowTokens": 131072,
-          "maxOutputTokens": 16000,
-          "defaultContextWindowTokens": 131072,
-          "longContextMode": "unsupported",
-          "supportsThinking": false,
-          "supportsCaching": false,
-          "supportsVision": false,
-          "supportsToolUse": true,
-          "pricing": {
-            "inputPer1mTokens": 0.1,
-            "outputPer1mTokens": 0.3
+            "inputPer1mTokens": 0.15,
+            "outputPer1mTokens": 0.6,
+            "cacheReadPer1mTokens": 0.015
           }
         },
         {
@@ -1699,8 +1743,8 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.27,
-            "outputPer1mTokens": 0.85
+            "inputPer1mTokens": 0.2,
+            "outputPer1mTokens": 0.8
           }
         },
         {
@@ -1715,8 +1759,8 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.11,
-            "outputPer1mTokens": 0.34
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.3
           }
         },
         {
@@ -1733,22 +1777,6 @@
           "pricing": {
             "inputPer1mTokens": 0.8,
             "outputPer1mTokens": 3.2
-          }
-        },
-        {
-          "id": "openrouter/owl-alpha",
-          "displayName": "Owl Alpha",
-          "contextWindowTokens": 1048576,
-          "maxOutputTokens": 262144,
-          "defaultContextWindowTokens": 200000,
-          "longContextMode": "native-model",
-          "supportsThinking": false,
-          "supportsCaching": false,
-          "supportsVision": false,
-          "supportsToolUse": true,
-          "pricing": {
-            "inputPer1mTokens": 0,
-            "outputPer1mTokens": 0
           }
         }
       ]
@@ -2020,6 +2048,23 @@
       "models": []
     },
     {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "subtitle": "OpenCode Zen and OpenCode Go. Models come from the endpoint, not a fixed catalog.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your OpenCode API key. Leave the base URL empty for Zen, or set it to the Go endpoint.",
+      "envVar": "OPENCODE_API_KEY",
+      "apiKeyPlaceholder": "sk-...",
+      "credentialsGuide": {
+        "description": "Create an OpenCode API key, then choose Zen or Go as the endpoint.",
+        "url": "https://opencode.ai",
+        "linkLabel": "OpenCode"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "",
+      "models": []
+    },
+    {
       "id": "openai-compatible",
       "displayName": "OpenAI-compatible",
       "subtitle": "Bring your own OpenAI-compatible endpoint (vLLM, LMStudio, Groq, Together, etc.).",
@@ -2176,6 +2221,35 @@
           "supportsCaching": false,
           "supportsVision": false,
           "supportsToolUse": true
+        }
+      ]
+    },
+    {
+      "id": "vellum",
+      "displayName": "Vellum",
+      "subtitle": "Models served on Vellum GPU nodes through the managed connection.",
+      "setupMode": "api-key",
+      "setupHint": "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
+      "supportsPlatformAuth": true,
+      "featureFlag": "settings-developer-nav",
+      "defaultModel": "qwen/qwen3-8b",
+      "models": [
+        {
+          "id": "qwen/qwen3-8b",
+          "displayName": "Qwen3 8B",
+          "contextWindowTokens": 32768,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 32768,
+          "longContextMode": "unsupported",
+          "supportsThinking": false,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 0.3
+          },
+          "featureFlag": "settings-developer-nav"
         }
       ]
     }

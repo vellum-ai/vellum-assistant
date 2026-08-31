@@ -154,6 +154,7 @@ export class QdrantManager {
 
     const proc = Bun.spawn({
       cmd: [spawnPath],
+      windowsHide: true,
       env: {
         ...process.env,
         QDRANT__SERVICE__HOST: this.host,
@@ -285,6 +286,7 @@ export class QdrantManager {
           cmd: ["tar", "xzf", tmpTar, "-C", binDir, release.binaryName],
           stdout: "ignore",
           stderr: "pipe",
+          windowsHide: true,
         });
         await proc.exited;
         if (proc.exitCode !== 0) {

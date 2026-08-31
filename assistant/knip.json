@@ -15,6 +15,8 @@
   "ignore": ["src/config/preloaded-apps/**"],
   "ignoreDependencies": [
     "@microsoft/api-extractor",
+    "@vellumai/avatar-catalog",
+    "@vellumai/avatar-manifest",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/egress-proxy",

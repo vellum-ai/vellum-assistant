@@ -8,12 +8,7 @@ afterEach(cleanup);
 describe("PaymentMethodRow", () => {
   test("renders the brand and last4", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("Visa");
@@ -22,12 +17,7 @@ describe("PaymentMethodRow", () => {
 
   test("normalizes a lowercase brand to its canonical label", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand="visa" last4="4242" onUpdateCard={() => {}} />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("Visa");
@@ -36,17 +26,64 @@ describe("PaymentMethodRow", () => {
 
   test("falls back to a generic label and omits the ending line when null", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand={null}
-        last4={null}
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand={null} last4={null} onUpdateCard={() => {}} />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("Saved card");
     expect(row.textContent).not.toContain("Ending in");
     expect(row.textContent).not.toContain("null");
+  });
+
+  test("renders the expiry after the ending line when both parts are known", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow
+        brand="visa"
+        last4="4242"
+        expMonth={4}
+        expYear={2042}
+        onUpdateCard={() => {}}
+      />,
+    );
+    const row = getByTestId("payment-method-row");
+    expect(row.textContent).toContain("Ending in 4242");
+    expect(row.textContent).toContain("\u00b7 04 / 42");
+  });
+
+  test("omits the expiry when either part is missing", () => {
+    const { getByTestId, rerender } = render(
+      <PaymentMethodRow
+        brand="visa"
+        last4="4242"
+        expMonth={4}
+        expYear={null}
+        onUpdateCard={() => {}}
+      />,
+    );
+    expect(getByTestId("payment-method-row").textContent).not.toContain(
+      "\u00b7",
+    );
+
+    rerender(
+      <PaymentMethodRow
+        brand="visa"
+        last4="4242"
+        expMonth={null}
+        expYear={2042}
+        onUpdateCard={() => {}}
+      />,
+    );
+    expect(getByTestId("payment-method-row").textContent).not.toContain(
+      "\u00b7",
+    );
+  });
+
+  test("omits the expiry when the props are not supplied at all", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow brand="visa" last4="4242" onUpdateCard={() => {}} />,
+    );
+    expect(getByTestId("payment-method-row").textContent).not.toContain(
+      "\u00b7",
+    );
   });
 
   test("renders a long unmapped brand verbatim", () => {
@@ -55,74 +92,57 @@ describe("PaymentMethodRow", () => {
         brand="internationalmaestro"
         last4="0005"
         onUpdateCard={() => {}}
-        onRemove={() => {}}
       />,
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("internationalmaestro");
   });
 
-  test("fires onUpdateCard when Update Card is clicked", () => {
+  test("fires onUpdateCard when Replace card is clicked", () => {
     const onUpdateCard = mock(() => {});
     const { getByTestId } = render(
       <PaymentMethodRow
         brand="Visa"
         last4="4242"
         onUpdateCard={onUpdateCard}
-        onRemove={() => {}}
       />,
     );
     fireEvent.click(getByTestId("payment-method-update"));
     expect(onUpdateCard).toHaveBeenCalledTimes(1);
   });
 
-  test("fires onRemove when Remove is clicked", () => {
-    const onRemove = mock(() => {});
+  test("actionsDisabled disables the row's actions", () => {
+    const onUpdateCard = mock(() => {});
     const { getByTestId } = render(
       <PaymentMethodRow
         brand="Visa"
         last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={onRemove}
+        onUpdateCard={onUpdateCard}
+        actionsDisabled
       />,
     );
-    fireEvent.click(getByTestId("payment-method-remove"));
-    expect(onRemove).toHaveBeenCalledTimes(1);
+    const replace = getByTestId("payment-method-update") as HTMLButtonElement;
+    expect(replace.disabled).toBe(true);
+    fireEvent.click(replace);
+    expect(onUpdateCard).not.toHaveBeenCalled();
   });
 
-  test("draws Remove as plain red text", () => {
+  test("leaves the row's actions enabled by default", () => {
     const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-      />,
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
-    const remove = getByTestId("payment-method-remove");
-    // Still the negative foreground, with nothing drawn around it.
-    expect(remove.className).toContain(
-      "[--vbtn-fg:var(--system-negative-strong)]",
-    );
-    expect(remove.className).toContain("border-transparent");
-    expect(remove.className).not.toContain(
-      "border-[var(--system-negative-strong)]",
-    );
+    expect(
+      (getByTestId("payment-method-update") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
-  test("disables Remove and shows a pending label while removing", () => {
-    const { getByTestId } = render(
-      <PaymentMethodRow
-        brand="Visa"
-        last4="4242"
-        onUpdateCard={() => {}}
-        onRemove={() => {}}
-        removing
-      />,
+  test("offers Replace card as the only action", () => {
+    const { getByTestId, queryByTestId } = render(
+      <PaymentMethodRow brand="Visa" last4="4242" onUpdateCard={() => {}} />,
     );
-    const remove = getByTestId("payment-method-remove") as HTMLButtonElement;
-    expect(remove.disabled).toBe(true);
-    expect(remove.textContent).toContain("Removing…");
-    expect(remove.className).toContain("border-transparent");
+    expect(getByTestId("payment-method-update").textContent).toContain(
+      "Replace card",
+    );
+    expect(queryByTestId("payment-method-remove")).toBeNull();
   });
 });

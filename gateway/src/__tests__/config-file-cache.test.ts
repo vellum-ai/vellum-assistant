@@ -211,45 +211,43 @@ describe("ConfigFileCache: getStringArray", () => {
   test("reads a JSON array of strings", () => {
     // `getString` returns undefined for an array, so a list has to come
     // through here or a populated setting reads as unset.
-    writeConfig({ discord: { allowedChannelIds: ["111", "222"] } });
+    writeConfig({ example: { listValues: ["111", "222"] } });
     const cache = new ConfigFileCache();
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
+    expect(cache.getStringArray("example", "listValues")).toEqual([
       "111",
       "222",
     ]);
   });
 
   test("reads a comma-separated string", () => {
-    writeConfig({ discord: { allowedChannelIds: "111,222" } });
+    writeConfig({ example: { listValues: "111,222" } });
     const cache = new ConfigFileCache();
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
+    expect(cache.getStringArray("example", "listValues")).toEqual([
       "111",
       "222",
     ]);
   });
 
   test("trims entries in both shapes", () => {
-    writeConfig({ discord: { allowedChannelIds: " 111 , 222 " } });
+    writeConfig({ example: { listValues: " 111 , 222 " } });
     const cache = new ConfigFileCache();
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
+    expect(cache.getStringArray("example", "listValues")).toEqual([
       "111",
       "222",
     ]);
 
-    writeConfig({ discord: { allowedChannelIds: [" 111 ", " 222 "] } });
+    writeConfig({ example: { listValues: [" 111 ", " 222 "] } });
     const fresh = new ConfigFileCache();
-    expect(fresh.getStringArray("discord", "allowedChannelIds")).toEqual([
+    expect(fresh.getStringArray("example", "listValues")).toEqual([
       "111",
       "222",
     ]);
   });
 
   test("drops blank entries rather than yielding an empty-string id", () => {
-    writeConfig({ discord: { allowedChannelIds: ["111", "", "  "] } });
+    writeConfig({ example: { listValues: ["111", "", "  "] } });
     const cache = new ConfigFileCache();
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
-      "111",
-    ]);
+    expect(cache.getStringArray("example", "listValues")).toEqual(["111"]);
   });
 
   test("drops non-string array entries instead of coercing them", () => {
@@ -257,79 +255,59 @@ describe("ConfigFileCache: getStringArray", () => {
     // 2^53 (LUM-2939). Stringifying it would resurrect a corrupted id that
     // still looks well-formed, so the entry is dropped instead.
     writeConfig({
-      discord: { allowedChannelIds: ["111", 1532468750740357331, null] },
+      example: { listValues: ["111", 1532468750740357331, null] },
     });
     const cache = new ConfigFileCache();
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
-      "111",
-    ]);
+    expect(cache.getStringArray("example", "listValues")).toEqual(["111"]);
   });
 
   test("returns undefined for an empty array", () => {
-    writeConfig({ discord: { allowedChannelIds: [] } });
+    writeConfig({ example: { listValues: [] } });
     const cache = new ConfigFileCache();
-    expect(
-      cache.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(cache.getStringArray("example", "listValues")).toBeUndefined();
   });
 
   test("returns undefined when nothing survives normalization", () => {
-    writeConfig({ discord: { allowedChannelIds: [42, null] } });
+    writeConfig({ example: { listValues: [42, null] } });
     const cache = new ConfigFileCache();
-    expect(
-      cache.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(cache.getStringArray("example", "listValues")).toBeUndefined();
   });
 
   test("returns undefined for comma-only and blank strings", () => {
-    writeConfig({ discord: { allowedChannelIds: ",," } });
+    writeConfig({ example: { listValues: ",," } });
     const cache = new ConfigFileCache();
-    expect(
-      cache.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(cache.getStringArray("example", "listValues")).toBeUndefined();
 
-    writeConfig({ discord: { allowedChannelIds: "   " } });
+    writeConfig({ example: { listValues: "   " } });
     const fresh = new ConfigFileCache();
-    expect(
-      fresh.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(fresh.getStringArray("example", "listValues")).toBeUndefined();
   });
 
   test("returns undefined for shapes that are neither array nor string", () => {
-    writeConfig({ discord: { allowedChannelIds: { a: "111" } } });
+    writeConfig({ example: { listValues: { a: "111" } } });
     const cache = new ConfigFileCache();
-    expect(
-      cache.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(cache.getStringArray("example", "listValues")).toBeUndefined();
   });
 
   test("returns undefined for missing section and missing field", () => {
     writeConfig({});
     const cache = new ConfigFileCache();
-    expect(
-      cache.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(cache.getStringArray("example", "listValues")).toBeUndefined();
 
     writeConfig({ discord: {} });
     const fresh = new ConfigFileCache();
-    expect(
-      fresh.getStringArray("discord", "allowedChannelIds"),
-    ).toBeUndefined();
+    expect(fresh.getStringArray("example", "listValues")).toBeUndefined();
   });
 
   test("force bypasses the TTL", () => {
-    writeConfig({ discord: { allowedChannelIds: ["111"] } });
+    writeConfig({ example: { listValues: ["111"] } });
     const cache = new ConfigFileCache({ ttlMs: 60_000 });
 
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
-      "111",
-    ]);
-    writeConfig({ discord: { allowedChannelIds: ["222"] } });
-    expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([
-      "111",
-    ]);
+    expect(cache.getStringArray("example", "listValues")).toEqual(["111"]);
+    writeConfig({ example: { listValues: ["222"] } });
+    expect(cache.getStringArray("example", "listValues")).toEqual(["111"]);
     expect(
-      cache.getStringArray("discord", "allowedChannelIds", { force: true }),
+      cache.getStringArray("example", "listValues", { force: true }),
     ).toEqual(["222"]);
   });
 });

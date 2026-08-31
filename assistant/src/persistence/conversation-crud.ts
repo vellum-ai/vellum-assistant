@@ -51,6 +51,10 @@ import {
   withSqliteRetry,
 } from "../util/sqlite-retry.js";
 import {
+  purgeAllWatchTimelines,
+  purgeWatchTimelineForConversation,
+} from "../watch/watch-timeline.js";
+import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
@@ -89,6 +93,8 @@ import {
   isHiddenMessageMetadata,
   isSystemCardMetadata,
   PINNED_GROUP_ID,
+  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
+  sightFrameAttachmentIdsFromMetadata,
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
@@ -100,10 +106,6 @@ import {
   getSqliteFrom,
   getTelemetryDb,
 } from "./db-connection.js";
-import {
-  copyForkMessagesViaSubprocess,
-  type ForkIdPair,
-} from "./fork-message-copy.js";
 import {
   clearMessagesLexicalIndex,
   enqueueDeleteMessageLexical,
@@ -191,6 +193,36 @@ function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
  * keys on `conversation_id` regardless of event name, so this covers every
  * conversation-scoped pending event.
  */
+/**
+ * Remove a conversation's watch-session timeline: the narration, the screens,
+ * and the frames of them the entries carry.
+ *
+ * The rows are keyed by conversation id with no cascade behind them, so a
+ * delete that skipped them would keep pictures of the user's screen for a
+ * conversation they asked to remove. It runs after the row deletes, which is
+ * the order the watch store expects: once `conversations` no longer has the
+ * row, a later append is refused rather than left for a purge that has already
+ * been.
+ *
+ * Best-effort, like the rest of the post-transaction cleanup. The conversation
+ * row is already gone by this point, so throwing here would turn a completed
+ * delete into an error the caller cannot usefully retry. A swallowed failure
+ * is not the end of the story: `sweepOrphanedWatchTimelineEntries` runs from
+ * daemon startup and from database maintenance and deletes entries whose
+ * conversation no longer exists, so whatever this pass leaves behind is
+ * reclaimed on a later one.
+ */
+function purgeWatchTimelineForDeletedConversation(id: string): void {
+  try {
+    purgeWatchTimelineForConversation(id);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: id },
+      "Failed to purge the watch timeline for a deleted conversation",
+    );
+  }
+}
+
 function deletePendingTelemetryEventsForConversation(id: string): void {
   const telemetry = getTelemetryDb({ createIfMissing: false });
   if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
@@ -619,7 +651,7 @@ export interface ConversationRow {
   originInterface: string | null;
   forkParentConversationId: string | null;
   forkParentMessageId: string | null;
-  /** `"reference"` on referential forks; `"cloning"` or null on copied ones. */
+  /** `"reference"` on referential forks; null on copied ones. */
   forkStrategy: string | null;
   isAutoTitle: number;
   scheduleJobId: string | null;
@@ -1645,6 +1677,8 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     });
   }
 
+  widenForkSightFrameTags(messagesToCopy, forkedMessageIds, attachmentIdMap);
+
   // Set lastMessageAt to the max createdAt of copied messages so the
   // forked conversation sorts correctly by message recency.
   const lastCopiedMessage = messagesToCopy.at(-1);
@@ -1689,25 +1723,105 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
 }
 
 /**
- * Resolve the fork id + timestamp of the LAST assistant message among the
- * copied rows. The synchronous copy loop tracks this inline; the off-loop
- * subprocess copy does not, so the async fork derives it from the id map.
+ * Extend the copied rows' camera-frame tags to name the fork's cloned
+ * attachment ids alongside the source ids they were written with.
+ *
+ * A fork leaves its rows describing their attachments two different ways:
+ * `messages.content` is copied byte for byte and still names the SOURCE
+ * attachment ids, while `message_attachments` is re-linked to freshly CLONED
+ * rows under new ids. Readers split along that seam. Camera-frame retention
+ * matches the tag against the ids in the content blocks (source ids), and the
+ * compactor builds its image manifest from the links (cloned ids) and stamps
+ * those onto the frames it rebuilds. A tag naming only one vocabulary goes
+ * blind on the other, so it names both.
+ *
+ * Widening rather than remapping is deliberate: replacing the source ids would
+ * fix the compactor's frames by breaking every frame the fork holds directly,
+ * which is the common case. Extra ids are inert, since an id no block carries
+ * simply never matches.
+ *
+ * Runs after the attachment loop because that loop is what produces the id map.
+ * Only rows that actually carry a tag are rewritten, so an ordinary fork does
+ * no extra writes.
  */
-function latestForkedAssistantFrom(
+function widenForkSightFrameTags(
   messagesToCopy: MessageRow[],
   forkedMessageIds: Map<string, string>,
-): { messageId: string; messageAt: number } | null {
-  for (let i = messagesToCopy.length - 1; i >= 0; i--) {
-    const message = messagesToCopy[i]!;
-    if (message.role !== "assistant") {
+  attachmentIdMap: Map<string, string>,
+): void {
+  if (attachmentIdMap.size === 0) {
+    return;
+  }
+  const db = getDb();
+  for (const message of messagesToCopy) {
+    const forkedMessageId = forkedMessageIds.get(message.id);
+    if (!forkedMessageId) {
       continue;
     }
-    const forkedMessageId = forkedMessageIds.get(message.id);
-    if (forkedMessageId) {
-      return { messageId: forkedMessageId, messageAt: message.createdAt };
+    const sourceMetadata = parseMessageMetadata(message.metadata);
+    const sourceIds = sightFrameAttachmentIdsFromMetadata(sourceMetadata);
+    if (sourceIds.length === 0) {
+      continue;
     }
+    const widened = new Set(sourceIds);
+    for (const sourceId of sourceIds) {
+      const clonedId = attachmentIdMap.get(sourceId);
+      if (clonedId) {
+        widened.add(clonedId);
+      }
+    }
+    if (widened.size === sourceIds.length) {
+      continue;
+    }
+    const forkedRow = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, forkedMessageId))
+      .get();
+    const forkedMetadata = parseMessageMetadata(forkedRow?.metadata ?? null);
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          ...(forkedMetadata ?? {}),
+          [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: [...widened],
+        }),
+      })
+      .where(eq(messages.id, forkedMessageId))
+      .run();
   }
-  return null;
+}
+
+/**
+ * How many leading rows of the inherited window sit behind the source's
+ * compaction boundary, counted in `getMessages` load order (`createdAt`
+ * only). The retrospective fork is referential: it reads the source's rows
+ * through the fork point, prefix included, so it must carry this count for
+ * the render to hide the same rows the source hides. Getting the count
+ * wrong does not lose data; it re-shows compacted history the summary
+ * already covers, or hides a visible row when a cutoff drops part of the
+ * hidden prefix from the lineage.
+ *
+ * Rows after the cutoff are skipped. The first in-window row that is not
+ * hidden ends the prefix, matching the source render's slice.
+ */
+function compactedPrefixLengthInWindow(
+  loadOrderIds: readonly string[],
+  compactedCount: number,
+  windowIds: ReadonlySet<string>,
+): number {
+  const hiddenIds = new Set(loadOrderIds.slice(0, compactedCount));
+  let count = 0;
+  for (const id of loadOrderIds) {
+    if (!windowIds.has(id)) {
+      continue;
+    }
+    if (hiddenIds.has(id)) {
+      count += 1;
+      continue;
+    }
+    break;
+  }
+  return count;
 }
 
 /**
@@ -1715,35 +1829,30 @@ function latestForkedAssistantFrom(
  * which forks the source conversation's visible window into a throwaway
  * background conversation on a hot path that must not stall the daemon.
  *
- * Only rows at-or-after the inherited compaction boundary are copied. The
- * retrospective wake always runs under guardian trust, whose history render
- * slices `contextCompactedMessageCount` rows off the front and prepends the
- * summary on `contextSummary` presence alone — so the fork carries the
- * inherited summary with a compacted count of 0 and renders identically to
- * the source (summary + tail) without materializing rows the agent cannot
- * see. The user-facing {@link forkConversation} keeps the full physical
- * history: user forks are long-lived and browsable, and untrusted-actor
- * views render the persisted history unsliced.
+ * The fork is referential: it holds only the rows written after it is
+ * created and reads the inherited window through `fork_parent_message_id`.
+ * The retrospective wake always runs under guardian trust, whose history
+ * render slices `contextCompactedMessageCount` rows off the front and
+ * prepends the summary on `contextSummary` presence alone, so the fork
+ * carries the source's own count and renders identically to the source
+ * (summary + tail). The user-facing {@link forkConversation} keeps the full
+ * physical history: user forks are long-lived and browsable, and
+ * untrusted-actor views render the persisted history unsliced.
  *
- * The dominant cost — copying the visible tail's message rows — runs OFF the
- * event loop in a `sqlite3` subprocess (see
- * {@link copyForkMessagesViaSubprocess}), so `/healthz` and gateway IPC stay
- * responsive during the copy. The cheap tail (conversation row, attachment
- * relink, memory-state seeding) runs in-process and reuses
- * {@link populateForkContentsInProcess}, the same helper the synchronous fork
- * uses, so the two paths cannot drift on that logic. The cutoff/boundary
- * computation mirrors {@link forkConversation} and is pinned by a parity
- * test.
+ * Creating the fork is a single conversation row plus memory-state
+ * seeding. There is no message-row copy and no attachment relink: lineage
+ * reads keep the source message ids, so `getAttachmentsForMessage` resolves
+ * against the source rows. The cutoff/boundary computation mirrors
+ * {@link forkConversation} and is pinned by a parity test.
  *
  * The disk-view projection (`syncMessageToDisk`) is intentionally skipped: the
  * fork is GC'd after the retrospective pass and never browsed, and the agent
  * reads it from the database, not the on-disk JSONL.
  *
- * Atomicity spans two connections (the in-process row/tail and the subprocess
- * copy), so a mid-flight failure can leave a partial fork. The partial is
- * deleted best-effort on error; a crash between phases is reclaimed by the
- * worker's startup orphan sweep. Callers only ever observe a fully-built fork
- * because the returned promise resolves after every phase commits.
+ * A mid-flight failure deletes the partial best-effort; a crash after the
+ * conversation row lands is reclaimed by the worker's startup orphan sweep.
+ * Callers only ever observe a fully-built fork because the returned promise
+ * resolves after every phase commits.
  */
 export async function forkConversationForRetrospective(params: {
   conversationId: string;
@@ -1816,10 +1925,6 @@ export async function forkConversationForRetrospective(params: {
   const inheritsLatestCompaction =
     inheritedCompaction != null &&
     inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
-  // Copy only the visible tail: rows behind the inherited summary are never
-  // rendered on this fork (the retrospective wake runs under guardian trust,
-  // which slices `contextCompactedMessageCount` rows off the front), so
-  // copying them would hold the write lock for rows the agent cannot see.
   // The drop-set is the first `compactedMessageCount` rows in LOAD order —
   // the exact rows the source's render hides — rather than a positional
   // slice of the re-sorted array, whose tie order can differ at the
@@ -1828,43 +1933,29 @@ export async function forkConversationForRetrospective(params: {
   const hiddenRowIds = new Set(
     loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
   );
-  // Read straight from config rather than taking a caller-supplied strategy:
-  // how a fork is materialized is a workspace-wide storage decision, and a
-  // per-call override would let two callers disagree about it on the same
-  // workspace.
-  const isReferential =
-    getConfig().memory.retrospective.forkStrategy === "reference";
-  // A referential fork copies nothing: its inherited window is read back
-  // through `forkParentMessageId` by the lineage resolver.
-  const rowsToCopy = isReferential
-    ? []
-    : messagesToCopy.filter((message) => !hiddenRowIds.has(message.id));
-  // The compacted prefix is dropped from a copied fork, so its own row count
-  // behind the boundary is 0. A referential fork reads the source's rows
-  // through the fork point, prefix included, so it must carry the source's
-  // own count for the render to hide the same rows the source hides. Getting
-  // this wrong does not lose data, it re-shows compacted history the summary
-  // already covers.
-  const forkCompactedMessageCount = isReferential
-    ? (inheritedCompaction?.compactedMessageCount ?? 0)
-    : 0;
+  const windowIds = new Set(messagesToCopy.map((message) => message.id));
+  // A referential fork reads the source's rows through the fork point,
+  // prefix included, so it carries the hidden-prefix length of that
+  // inherited window (not the source's raw count, which can hide a visible
+  // row when a cutoff drops part of the prefix from the lineage).
+  const forkCompactedMessageCount = compactedPrefixLengthInWindow(
+    loadOrderIds,
+    inheritedCompaction?.compactedMessageCount ?? 0,
+    windowIds,
+  );
+  // Visible source rows in the inherited window. Passed to memory seeding
+  // so a truncated fork re-derives `everInjected` from the child's rendered
+  // tail; attachments stay on the source ids and are not relinked.
+  const visibleSourceMessages = messagesToCopy.filter(
+    (message) => !hiddenRowIds.has(message.id),
+  );
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
   const parentGroupId = getConversationGroupId(conversationId);
+  const forkedMessageIds = new Map<string, string>();
 
-  // Pre-generate the id map in JS so the same map drives the off-loop copy and
-  // the in-process attachment relink that follows.
-  const idPairs: ForkIdPair[] = rowsToCopy.map((message) => ({
-    oldId: message.id,
-    newId: uuidv7(),
-  }));
-  const forkedMessageIds = new Map<string, string>(
-    idPairs.map((pair) => [pair.oldId, pair.newId]),
-  );
-
-  // Phase 1 (in-process, tiny): create the fork conversation row + lineage so
-  // the subprocess connection sees it before inserting messages. The whole
+  // Phase 1: create the fork conversation row + lineage. The whole
   // transaction is the retry unit — it rolls back atomically on contention, so
   // re-running it (with a fresh conversation id) is safe.
   const fork = await withSqliteRetry(
@@ -1882,18 +1973,13 @@ export async function forkConversationForRetrospective(params: {
             forkParentMessageId,
             // Stamped at creation so the startup orphan sweep (which only
             // considers rows with a non-null `lastMessageAt`) can age this
-            // fork even if the daemon crashes before the copy or the
-            // retrospective instruction lands — including the empty-tail
-            // fork, which copies no rows at all. Phase 3 re-derives the same
-            // value from the copied rows when the tail is non-empty.
+            // fork even if the daemon crashes before the retrospective
+            // instruction lands — including the empty-tail fork, which
+            // copies no rows at all.
             lastMessageAt: boundaryMessageCreatedAt,
             contextSummary: inheritedCompaction?.summary ?? null,
-            // On a copied fork zero of its own rows sit behind the boundary
-            // (the compacted prefix is not copied). The summary still
-            // renders: the history render keys on `contextSummary` presence,
-            // not on this count.
             contextCompactedMessageCount: forkCompactedMessageCount,
-            forkStrategy: isReferential ? REFERENTIAL_FORK_STRATEGY : null,
+            forkStrategy: REFERENTIAL_FORK_STRATEGY,
             contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
             slackContextCompactionWatermarkTs: inheritsLatestCompaction
               ? sourceConversation.slackContextCompactionWatermarkTs
@@ -1917,39 +2003,13 @@ export async function forkConversationForRetrospective(params: {
   );
 
   try {
-    // Phase 2 (off the event loop): copy the message rows in a sqlite3
-    // subprocess so the daemon stays responsive during the heavy copy. The
-    // referential fork has no rows to copy, which is the whole point of it:
-    // the write burst this phase exists to keep off the event loop does not
-    // happen at all.
-    if (!isReferential) {
-      const copy = await copyForkMessagesViaSubprocess({
-        forkConversationId: fork.id,
-        idPairs,
-      });
-      if (!copy.ok) {
-        throw new Error(
-          `fork message copy failed (${copy.backend}): ${copy.error ?? "unknown"}`,
-        );
-      }
-    }
-
-    // Phase 3 (in-process): attachments + memory-state seeding, reusing the
-    // same helper as the synchronous fork. Disk-view projection is skipped.
+    // Phase 2 (in-process): memory-state seeding. Disk-view projection and
+    // attachment relink are skipped: the fork owns no copied rows, and
+    // lineage reads keep the source message ids.
     //
-    // The populate transaction reads (attachment links) before its first
-    // write, so a deferred BEGIN would take its snapshot as a reader and any
-    // concurrent writer committing before the first write fails the
-    // read→write upgrade with SQLITE_BUSY_SNAPSHOT — a hard error
-    // `busy_timeout` cannot wait out, which would discard the entire batch
-    // copy from phase 2. `behavior: "immediate"` acquires the write lock at
-    // BEGIN so the snapshot postdates it, and the retry absorbs residual
-    // contention: the transaction rolls back atomically, so re-running it is
-    // safe.
-    const latestForkedAssistant = latestForkedAssistantFrom(
-      rowsToCopy,
-      forkedMessageIds,
-    );
+    // `behavior: "immediate"` acquires the write lock at BEGIN so the
+    // snapshot postdates it, and the retry absorbs residual contention: the
+    // transaction rolls back atomically, so re-running it is safe.
     await withSqliteRetry(
       () =>
         db.transaction(
@@ -1957,30 +2017,29 @@ export async function forkConversationForRetrospective(params: {
             populateForkContentsInProcess({
               fork,
               sourceConversationId: sourceConversation.id,
-              messagesToCopy: rowsToCopy,
+              messagesToCopy: visibleSourceMessages,
               forkedMessageIds,
-              latestForkedAssistant,
+              latestForkedAssistant: null,
               // Both conditions, for the same reason as `forkConversation`:
               // a tip boundary no longer implies an equal window once the
               // unfinalized filter dropped rows from the slice.
               isFullHistoryFork:
                 copyBoundaryIndex === sourceMessages.length - 1 &&
                 messagesToCopy.length === copyBoundaryIndex + 1,
-              // The copied range already starts at the visible window.
-              inheritedCompactedMessageCount: forkCompactedMessageCount,
+              // The seeding range already starts at the visible window.
+              inheritedCompactedMessageCount: 0,
               skipCompactionLedgerCopy: inheritedCompaction != null,
             });
             // The fork owns none of the source's ledger events — their
-            // counts index source-space row positions, and this fork row
-            // stores a count of 0. Seed a single event mirroring the fork
-            // row's compaction fields whenever a compaction is inherited
-            // (even when the hidden prefix fell outside the cutoff and
-            // nothing was dropped), so the ledger and the row cache agree
-            // and a fork of this fork inherits the summary with the
-            // fork-local count. With no inherited compaction the default
-            // ledger copy is a natural no-op (no source event is
-            // at-or-before the boundary). Rolls back with the transaction,
-            // so the retry unit stays atomic.
+            // counts index source-space row positions. Seed a single event
+            // mirroring the fork row's compaction fields whenever a
+            // compaction is inherited (even when the hidden prefix fell
+            // outside the cutoff and nothing was dropped), so the ledger
+            // and the row cache agree and a fork of this fork inherits the
+            // summary with the fork-local count. With no inherited
+            // compaction the default ledger copy is a natural no-op (no
+            // source event is at-or-before the boundary). Rolls back with
+            // the transaction, so the retry unit stays atomic.
             if (inheritedCompaction) {
               appendCompactionEvent(fork.id, {
                 compactedAt: inheritedCompaction.compactedAt,
@@ -2108,6 +2167,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  purgeWatchTimelineForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
   // still-pending jobs for this conversation). Fire-and-forget from this
@@ -2258,6 +2319,8 @@ export async function deleteConversationGently(
   if (createdAtForDiskCleanup != null) {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
+
+  purgeWatchTimelineForDeletedConversation(id);
 
   // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
   // the synchronous delete primitive.
@@ -2502,6 +2565,41 @@ export function selectProviderMetaCandidateMetadata(
     }
   }
   return out;
+}
+
+/**
+ * Every attachment the conversation's rows tagged as an ambient camera frame,
+ * mapped to the `createdAt` of the row that carried it.
+ *
+ * Like the Slack prefilter above, the `LIKE` is an indexable narrowing only:
+ * each candidate row is parsed and validated before an id is taken, so a row
+ * that merely mentions the key contributes nothing. Any row state qualifies
+ * because the tag is written with the insert, and the lineage filter is what
+ * lets a fork see the frames it inherited.
+ */
+export function selectSightFrameCaptureTimes(
+  conversationId: string,
+): Map<string, number> {
+  const db = getDb();
+  const rows = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(asc(messages.createdAt))
+    .all();
+  const captureTimes = new Map<string, number>();
+  for (const row of rows) {
+    const metadata = parseMessageMetadata(row.metadata);
+    for (const id of sightFrameAttachmentIdsFromMetadata(metadata)) {
+      captureTimes.set(id, row.createdAt);
+    }
+  }
+  return captureTimes;
 }
 
 /**
@@ -3588,6 +3686,14 @@ export async function clearAll(): Promise<{
   // cascade; wipe them explicitly so labels/objectives don't survive (or
   // rehydrate after) a clear-all.
   await runOrThrow("DELETE FROM subagents");
+  // Watch-session timelines are conversation-keyed rows the cascade does not
+  // reach. They come after `conversations` so this statement is the last thing
+  // that needs to reach one: an append arriving from here on finds no
+  // conversation to key itself to and is refused, and an append that already
+  // ran is a row this deletes. The bulk deletes above run in a sqlite3
+  // subprocess, so the event loop is free while they work; this one is a
+  // synchronous in-process statement, which nothing can interleave with.
+  purgeAllWatchTimelines();
 
   // The memory feature's relocated conversation-keyed tables lost their main-DB
   // cascade. Signal the wipe through the hook rather than reaching into the
@@ -4001,7 +4107,9 @@ export function updateMessageMetadata(
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
-  const existing = row?.metadata ? JSON.parse(row.metadata) : {};
+  // Sanitized like the transactional sibling above: a malformed stored
+  // envelope must not fail the update that is trying to stamp the row.
+  const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
   db.update(messages)
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
@@ -4082,8 +4190,18 @@ export function relinkAttachments(
  *
  * Returns segment IDs so the caller can clean up the corresponding
  * Qdrant vector entries.
+ *
+ * `retainAttachmentIds` exempts attachments from the orphan cleanup below, for
+ * a caller rolling a message back rather than deleting it: the attachment
+ * returns to the uploaded-but-unlinked state it was in before the row existed,
+ * which is a live state (that is where every attachment sits between upload and
+ * send), not a leak. Callers deleting a message for good pass nothing and the
+ * attachments it alone referenced are collected.
  */
-export function deleteMessageById(messageId: string): DeletedMemoryIds {
+export function deleteMessageById(
+  messageId: string,
+  options?: { retainAttachmentIds?: readonly string[] },
+): DeletedMemoryIds {
   const db = getDb();
   const result: DeletedMemoryIds = {
     segmentIds: [],
@@ -4145,7 +4263,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     ...purgeMessageSegments([messageId], "deleteMessageById:post-delete"),
   );
 
-  deleteOrphanAttachments(candidateAttachmentIds);
+  const retainAttachmentIds = options?.retainAttachmentIds;
+  deleteOrphanAttachments(
+    retainAttachmentIds && retainAttachmentIds.length > 0
+      ? candidateAttachmentIds.filter((id) => !retainAttachmentIds.includes(id))
+      : candidateAttachmentIds,
+  );
 
   // Remove the deleted message's point from the lexical index. Enqueued only
   // when the row actually existed (`msgRow` set), after the transaction and

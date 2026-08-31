@@ -12,7 +12,7 @@ Commands here operate on or across **assistant instances** — creating, startin
 
 For commands scoped to a **single running assistant's** local state (config, memory, contacts), see `assistant/src/cli/AGENTS.md`.
 
-Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `contacts`, `memory` belong in `assistant/src/cli/`.
+Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `memory` belong in `assistant/src/cli/`. Contact ACL writes belong on `gateway contacts` (via `vellum exec --service gateway`), not on `assistant contacts` or `vellum gateway`.
 
 ## Assistant targeting convention
 
@@ -57,13 +57,15 @@ The CLI is a generic lifecycle manager. It must **never** contain references to 
 
 Cross-package imports into `skills/` are forbidden. The CLI is distributed as an npm package; anything outside `cli/` is not included in the tarball and will fail to resolve at runtime.
 
+Workspace packages that `cli/src` never imports may still be listed in `package.json` `dependencies` and `bundledDependencies` when a bundled dependency depends on them (for example `@vellumai/avatar-manifest`, pulled in by `@vellumai/local-mode`); `bundledDependencies` only nests a `file:` dep when it is a direct dependency of the CLI.
+
 ## Boundary: No `.vellum/` directory access
 
 The CLI must **never** read from or write to the `.vellum/` directory (e.g. `~/.vellum/protected/`, `<instanceDir>/.vellum/`). That directory structure is an **assistant daemon / gateway implementation detail**. The CLI's job is to spawn those processes and pass configuration via environment variables — not to reach into their internal storage.
 
 For example, the signing key used for JWT auth between the daemon and gateway is persisted in the lockfile (`resources.signingKey`) so that client actor tokens survive daemon/gateway restarts. On first start (or when the key is missing), the CLI generates a new key via `generateLocalSigningKey()` in `lib/local.ts`, saves it to the lockfile entry, and passes it to both `startLocalDaemon` and `startGateway` as the `ACTOR_TOKEN_SIGNING_KEY` env var. The CLI does **not** read or write to the `.vellum/` directory for signing keys — it uses the lockfile instead.
 
-**Exception: `~/.vellum/device.json`.** That file is the machine-wide shared device-identity file, co-owned by the Electron main process, the host-mode assistant, and the CLI (see `clients/macos/src/main/device-id.ts`). The boundary rule covers daemon/gateway-internal state (e.g. `~/.vellum/protected/`, instance dirs), not this file.
+**Exception: `~/.vellum/device.json`.** That file is the machine-wide shared device-identity file, co-owned by the Electron main process, the host-mode assistant, and the CLI (see `packages/electron-desktop/src/device-id.ts`). The boundary rule covers daemon/gateway-internal state (e.g. `~/.vellum/protected/`, instance dirs), not this file.
 
 ## Process liveness
 

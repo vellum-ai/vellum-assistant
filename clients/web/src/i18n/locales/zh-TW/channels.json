@@ -1,0 +1,204 @@
+{
+  "assistantChannelsList": {
+    "drawerTitle": "頻道",
+    "disconnectTitle": "中斷 {channel} 的連線？",
+    "disconnectConfirm": "中斷連線"
+  },
+  "channelAdapterList": {
+    "pluginChannelAria": "{channel}，來自外掛程式"
+  },
+  "connectionCard": {
+    "connected": "已連線",
+    "reconnecting": "正在重新連線…",
+    "statusUnavailable": "狀態無法使用",
+    "disconnecting": "正在中斷連線…",
+    "disconnect": "中斷連線"
+  },
+  "slackChannelCard": {
+    "setupHeading": "Slack 設定"
+  },
+  "channelPanel": {
+    "incompleteTitle": "{channel} 尚未正常運作",
+    "disconnectedTitle": "{channel} 尚未連線",
+    "incompleteDescription": "{channel} 已設定，但尚未傳送訊息。您的助理可以從設定中斷處繼續，並告訴您問題所在。",
+    "opening": "正在開啟…",
+    "finishSetup": "使用您的助理完成設定",
+    "setUp": "設定",
+    "connectManually": "或手動連線"
+  },
+  "pluginChannelPanel": {
+    "navigateToPluginPage": "前往外掛程式頁面",
+    "ingressLoading": "正在檢查誰可以存取 {channel}…",
+    "ingressUnsupported": "此助理的閘道未回報入口核准，因此此處無需決定。",
+    "ingressForbidden": "只有此助理的監護人才能查看或變更入口核准。",
+    "ingressUnreadable": "無法讀取 {channel} 的入口核准。",
+    "ingressNone": "閘道未發現 {channel} 的入口宣告，因此尚未有任何可核准的內容。",
+    "ingressApprovedTag": "入口已核准",
+    "ingressPendingTag": "入口等待核准",
+    "approveChannel": "核准頻道",
+    "revokeChannel": "撤銷頻道",
+    "approveChannelInfo": "核准此頻道表示您將開放您的助理存取權限，以處理此頻道背後提供者傳送的特定請求"
+  },
+  "channelTrustFloor": {
+    "heading": "誰可以傳送訊息給 {assistant}",
+    "loading": "正在載入…",
+    "loadFailed": "無法載入此設定。請嘗試重新開啟此頁面。",
+    "selectAria": "誰可以傳送訊息給 {assistant}",
+    "trustedContactsNotice": "您尚未驗證的人員（即使是同一個頻道中的隊友）也無法通過：{assistant} 會告知他們需要驗證，並通知您。您可以在「聯絡人」中提前驗證人員。",
+    "confirmFallback": "確認",
+    "noOne": {
+      "label": "無人",
+      "description": "無人可以在此頻道傳送訊息給 {assistant}：包括您在內的所有訊息都將被封鎖。",
+      "confirmTitle": "封鎖所有訊息？",
+      "confirmMessage": "將此頻道設定為「無人」將嚴格拒絕所有傳入訊息，包括您傳送的訊息。\n\n您可以隨時撤銷此操作。",
+      "confirmAction": "封鎖所有"
+    },
+    "guardianOnly": {
+      "label": "僅限您",
+      "description": "只有您可以傳送訊息給 {assistant}。其他所有人將被拒絕。"
+    },
+    "trustedContacts": {
+      "label": "已驗證聯絡人",
+      "description": "您和您已驗證的人員可以傳送訊息給 {assistant}。其他任何人將被要求先驗證，並且您會收到通知。"
+    },
+    "anyContact": {
+      "label": "任何聯絡人",
+      "description": "您和任何已知聯絡人都可以傳送訊息給 {assistant}，包括您尚未驗證的聯絡人。陌生人將被要求先驗證。",
+      "confirmTitle": "允許任何聯絡人？",
+      "confirmMessage": "「任何聯絡人」允許此頻道中的所有符合條件的聯絡人（包括待處理、未驗證的聯絡人），而不僅僅是您已驗證的聯絡人。\n\n最適合僅由您已信任的人員組成的頻道。",
+      "confirmAction": "允許任何聯絡人"
+    },
+    "strangers": {
+      "label": "陌生人",
+      "description": "任何人都可以傳送訊息給 {assistant}，包括完全陌生的使用者。",
+      "confirmTitle": "允許陌生人？",
+      "confirmMessage": "您確定要允許陌生人透過此頻道聯絡您的助理嗎？\n\n這樣做可能會讓您蒙受金錢損失，並使您面臨安全和隱私漏洞。\n\n請務必謹慎啟用。",
+      "confirmAction": "允許陌生人"
+    }
+  },
+  "slackChannelTypeDefaults": {
+    "heading": "預設存取權",
+    "subtitle": "{assistant} 根據對話類型自行執行的程度。個別頻道可以在下方覆寫此設定，而 <trustRules>信任規則</trustRules> 則會微調何時進行詢問。",
+    "bucketAria": "{bucket} 的預設助理存取權"
+  },
+  "tierPicker": {
+    "defaultSuffix": "預設",
+    "defaultPlaceholder": "預設"
+  },
+  "slackChannelTierLegend": {
+    "defaultMarker": "· 預設"
+  },
+  "slackChannelSection": {
+    "overridesLoadFailed": "無法載入存取設定。這些控制項在載入完成前將保持停用狀態。請嘗試重新開啟此頁面。",
+    "perChannelOverrides": "每個頻道的覆寫設定"
+  },
+  "slackThreadBehavior": {
+    "heading": "執行緒行為",
+    "selectAria": "Slack 執行緒行為",
+    "mentionsOnly": "僅提及",
+    "mentionsOnlyHelp": "機器人僅在被 @提及時回應。",
+    "followThreads": "首次提及後追蹤執行緒",
+    "followThreadsHelp": "在執行緒中被 @提及後，機器人會監聽該執行緒的其餘部分。"
+  },
+  "slackChannelList": {
+    "presenceHint": "在該 Slack 頻道中，使用 <invite>/invite {handle}</invite> 新增，或使用 <remove>/remove {handle}</remove> 移除。此處僅顯示 {assistant} 所在的頻道。",
+    "loading": "正在載入…",
+    "loadFailed": "無法載入頻道。請嘗試重新開啟此頁面。",
+    "emptyTitle": "尚未有頻道",
+    "searchPlaceholder": "搜尋頻道",
+    "searchAria": "搜尋頻道",
+    "filterGroupAria": "依類型篩選頻道",
+    "noMatches": "無符合的頻道。",
+    "accessAria": "{channel} 中的助理存取權",
+    "filterAll": "{count, plural, other {全部 (#)}}",
+    "filterPublic": "{count, plural, other {公開 (#)}}",
+    "filterPrivate": "{count, plural, other {私人 (#)}}"
+  },
+  "twilioCredentialEntry": {
+    "accountSid": "帳號 SID",
+    "authToken": "驗證權杖",
+    "authTokenPlaceholder": "Twilio 驗證權杖",
+    "saving": "正在儲存…",
+    "save": "儲存"
+  },
+  "channelMeta": {
+    "slack": {
+      "label": "Slack",
+      "disconnectMessage": "這會清除此助理儲存的 Slack 機器人與應用程式權杖。您可以稍後重新連線。"
+    },
+    "telegram": {
+      "label": "Telegram",
+      "disconnectMessage": "這會清除此助理儲存的 Telegram 機器人權杖。您可以稍後重新連線。",
+      "disconnectedPitch": "連線 Telegram 機器人，讓 {assistant} 可以在 Telegram 上傳送及接收訊息。"
+    },
+    "discord": {
+      "label": "Discord",
+      "disconnectedPitch": "連線 Discord 機器人，讓 {assistant} 可以在您的伺服器中讀取及回覆。",
+      "disconnectMessage": "這會清除此助理儲存的 Discord 機器人權杖，且機器人將停止接收訊息。您的伺服器會保留該機器人，直到您從伺服器中移除為止。"
+    },
+    "email": {
+      "label": "電子郵件"
+    },
+    "phone": {
+      "label": "電話通話",
+      "disconnectMessage": "這會清除此助理儲存的 Twilio 憑證。您可以稍後重新連線。",
+      "disconnectedPitch": "連線您的 Twilio 帳號，讓 {assistant} 可以撥打及接聽電話。"
+    }
+  },
+  "emailChannelSection": {
+    "apiKeyConfigured": "{providerName} API 金鑰已設定。若要重新設定，請執行 <code>{setupSkill}</code> 技能。",
+    "connecting": "正在連線至 Vellum 平台…",
+    "openProvider": "開啟 {providerName}",
+    "platformLoginNotice": "登入 Vellum 平台以管理電子郵件設定。",
+    "providerLabel": "供應商",
+    "saveSuccessToast": "電子郵件設定已儲存。",
+    "setupInstructions": "透過助理 CLI 設定 {providerName}：要求助理執行 <code>{setupSkill}</code> 技能。它會引導您儲存 API 金鑰、偵測網域，以及 (選用) 設定傳入 Webhook。",
+    "subtitle": "設定您的助理如何傳送及接收電子郵件",
+    "title": "電子郵件"
+  },
+  "emailManagedContent": {
+    "addressLabel": "地址",
+    "checkingSubscription": "正在檢查訂閱…",
+    "confirm": "確認",
+    "create": "建立",
+    "createEmailFailedFallback": "建立電子郵件地址失敗。",
+    "creating": "正在建立…",
+    "domainLabel": "網域",
+    "domainRegisteredToast": "網域 {domain} 已註冊。",
+    "domainReleaseFailedToast": "釋出網域失敗。",
+    "domainReleasedToast": "網域已釋出。",
+    "emailAddressLabel": "電子郵件地址",
+    "emailCreatedToast": "電子郵件地址已建立。",
+    "emailRemoveFailedToast": "移除電子郵件地址失敗。",
+    "emailRemovedToast": "電子郵件地址已移除。",
+    "emailUsernameAriaLabel": "電子郵件使用者名稱",
+    "emailUsernamePlaceholder": "hi",
+    "enterSubdomainError": "請輸入子網域。",
+    "enterUsernameError": "請輸入電子郵件使用者名稱。",
+    "register": "註冊",
+    "registerDomainFailedFallback": "註冊網域失敗。",
+    "registering": "正在註冊…",
+    "releaseConfirm": "釋出",
+    "releaseDomainAriaLabel": "釋出網域",
+    "releaseDomainConfirmMessage": "您確定要釋出 <code>{domain}</code> 嗎？此子網域將可供其他人認領。",
+    "releaseDomainTitle": "釋出網域",
+    "removeAddressFirstToast": "請先移除電子郵件地址。",
+    "removeConfirm": "移除",
+    "removeEmailAriaLabel": "移除電子郵件地址",
+    "removeEmailConfirmMessage": "您確定要移除 <code>{address}</code> 嗎？您的助理將無法再透過此地址傳送或接收電子郵件。",
+    "removeEmailTitle": "移除電子郵件地址",
+    "retry": "重試",
+    "setSubdomainConfirmMessage": "<code>{subdomain}</code> 也將成為您助理的公開識別碼。設定後便無法變更。",
+    "setSubdomainTitle": "設定子網域",
+    "subdomainExamplePlaceholder": "my-assistant",
+    "subdomainFallback": "子網域",
+    "subdomainHint": "每個助理都有自己的子網域。僅限小寫字母、數字和連字號。",
+    "subdomainLabel": "子網域",
+    "subscriptionWarningBody": "我們無法連線至帳務服務。以下表單假設您的組織已啟用受管理的電子郵件。如果未啟用，註冊網域將會失敗。",
+    "subscriptionWarningTitle": "無法驗證訂閱狀態",
+    "upgradeButton": "升級",
+    "upgradeNoticeBody": "升級至包含助理電子郵件地址的方案。無需供應商設定。",
+    "upgradeNoticeTitle": "為您的助理提供專屬電子郵件地址",
+    "usageSummary": "今日已傳送 {sent} / {limit} · 已接收 {received}"
+  }
+}

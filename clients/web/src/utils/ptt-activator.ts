@@ -289,6 +289,12 @@ export function eventActivatesPTT(
   if (activator.kind === "off") {
     return false;
   }
+  // `KeyboardEvent.key` is typed `string`, but trusted keydowns from
+  // autofill, IME composition, and other synthetic dispatchers arrive
+  // with no key at all. An event with no usable key matches no binding.
+  if (typeof event.key !== "string") {
+    return false;
+  }
   if (activator.modifiers.includes("function")) {
     return false;
   }

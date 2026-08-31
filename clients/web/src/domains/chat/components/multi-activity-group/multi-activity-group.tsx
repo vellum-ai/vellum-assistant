@@ -25,12 +25,12 @@ import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
-  DirectoryScopeOption,
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import { Trans, useTranslation } from "@/i18n";
 
 /**
  * Hard character cap for the thinking text shown in the collapsed header's
@@ -50,7 +50,6 @@ export interface MultiActivityGroupProps {
     input?: Record<string, unknown>;
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
-    directoryScopeOptions: DirectoryScopeOption[];
     matchedTrustRuleId?: string;
   }) => void;
   // Inline confirmation props (pass-through). Each chip renders its own card
@@ -343,6 +342,7 @@ function UnifiedMultiActivityGroup({
   cardData: ToolCallCardData;
   effectiveItems: ToolCallCardItem[];
 }) {
+  const { t } = useTranslation("chat");
   const toggleActivitySteps = useViewerStore.use.toggleActivitySteps();
   const mainView = useViewerStore.use.mainView();
   const activeActivitySteps = useViewerStore.use.activeActivitySteps();
@@ -425,7 +425,7 @@ function UnifiedMultiActivityGroup({
         // Clicking anywhere on the header toggles the steps side panel — the
         // timeline no longer expands in place beneath the header.
         onHeaderClick={() => toggleActivitySteps(payload)}
-        headerAriaLabel="View steps"
+        headerAriaLabel={t("multiActivityGroup.viewSteps")}
         headerActive={headerActive}
       />
       {nudgeTargets.map((tc) => (
@@ -485,32 +485,36 @@ function UnknownCommandNudge({
   onOpenRuleEditor: NonNullable<MultiActivityGroupProps["onOpenRuleEditor"]>;
   onDismiss?: MultiActivityGroupProps["onDismissUnknownNudge"];
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
-      <span>This command wasn&apos;t recognized.</span>
-      <button
-        type="button"
-        onClick={() =>
-          onOpenRuleEditor({
-            toolName: toolCall.name,
-            riskLevel: toolCall.riskLevel,
-            riskReason: toolCall.riskReason,
-            input: toolCall.input ?? {},
-            allowlistOptions: toolCall.riskAllowlistOptions ?? [],
-            scopeOptions: toolCall.scopeOptions ?? [],
-            directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
-          })
-        }
-        // typography: off-scale — inline link within body-small nudge
-        className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
-      >
-        Create a rule
-      </button>
-      <span>to classify it for next time.</span>
+      <Trans
+        ns="chat"
+        i18nKey="multiActivityGroup.unknownCommandNudge"
+        components={{
+          ruleLink: (
+            <button
+              type="button"
+              onClick={() =>
+                onOpenRuleEditor({
+                  toolName: toolCall.name,
+                  riskLevel: toolCall.riskLevel,
+                  riskReason: toolCall.riskReason,
+                  input: toolCall.input ?? {},
+                  allowlistOptions: toolCall.riskAllowlistOptions ?? [],
+                  scopeOptions: toolCall.scopeOptions ?? [],
+                })
+              }
+              // typography: off-scale — inline link within body-small nudge
+              className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
+            />
+          ),
+        }}
+      />
       {onDismiss && (
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={t("multiActivityGroup.dismissAria")}
           onClick={() => onDismiss(toolCall.id)}
           className="ml-1 text-[var(--content-disabled)] hover:text-[var(--content-tertiary)]"
         >

@@ -43,17 +43,23 @@
  * is never read: it changes per animation frame and would exhaust the budget
  * within a second. `activityLabel` is read and is safe to: the daemon emits it
  * only on a change it wants surfaced, a few times per turn at most.
+ *
+ * The active locale is the one input that is not the session's. The phase label
+ * is catalog copy, so a language switch changes what both surfaces should read
+ * while nothing in the store moves, and the mirror re-reads the session itself
+ * on one.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   isLiveVoiceSessionActive,
-  liveVoiceSurfaceLabel,
+  liveVoiceSurfaceLabelKey,
   subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { currentLocale, useTranslation, type TFunction } from "@/i18n";
 import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
@@ -73,8 +79,7 @@ import {
   startVoiceActivity,
   updateVoiceActivity,
 } from "@/runtime/desktop-voice-activity";
-import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
-import type { AvatarRender } from "@/utils/avatar-render";
+import { memoizedAvatarEncode } from "@/utils/avatar-island-encode";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 
@@ -89,22 +94,26 @@ import { assistantDisplayName } from "@/utils/assistant-display-name";
  */
 function toActivityContent(
   session: LiveVoiceState,
+  t: TFunction<"chat">,
 ): VoiceLiveActivityContent | null {
   if (!isLiveVoiceSessionActive(session.state)) {
     return null;
   }
+  const labelKey = liveVoiceSurfaceLabelKey(
+    session.state,
+    session.reconnecting,
+    session.assistantAudioActive,
+    session.muted,
+  );
   return {
     phase: session.state,
-    // The room's label, verbatim: the same `liveVoiceSurfaceLabel` call the
-    // room makes, including its "Reconnecting…" relabel, its
-    // silent-`speaking` to "Thinking…" remap, and its muted-`listening` to
-    // "Muted" remap, so the island never has wording of its own to drift from.
-    label: liveVoiceSurfaceLabel(
-      session.state,
-      session.reconnecting,
-      session.assistantAudioActive,
-      session.muted,
-    ),
+    // The room's label: the same `liveVoiceSurfaceLabelKey` call the room
+    // makes, resolved through the same catalog, including its "Reconnecting…"
+    // relabel, its silent-`speaking` to "Thinking…" remap, and its
+    // muted-`listening` to "Muted" remap. The island and the desktop panel
+    // therefore have no wording of their own to drift from, and they read in
+    // whatever language the app is in.
+    label: labelKey ? t(labelKey) : "",
     // The accent the avatar (and therefore the voice room) renders. `""` for
     // an avatar with no color to match: the native side canonicalizes
     // unparseable input to its neutral gray. An avatar still loading when the
@@ -131,28 +140,25 @@ function toActivityContent(
 }
 
 /**
- * The last avatar encoded for the island, keyed by the source it came from.
+ * The island avatar for the current assistant, encoding it on first use.
  *
- * Module scope, so a user who starts several sessions pays the canvas draw
- * once. The key is the resolved {@link AvatarRender}, which is a stable object
- * per avatar (republished only when the avatar itself changes), so identity
- * comparison is enough and there is nothing to invalidate.
+ * The memo is shared with the Home Screen widget snapshot, which rasterizes the
+ * same source through the same ladder at a budget of its own. Sharing it buys
+ * one owner of the caching rules and the failure semantics rather than one
+ * draw for both surfaces: the two run separate encodes, since each resolves its
+ * own render and reads at its own budget. What reaches the island is unchanged:
+ * the memo is keyed on the source's identity, exactly as this module's own
+ * cache was, and holds a separate slot per budget so an island can never be
+ * handed the widgets' larger encode and fail to start on it.
  */
-let encodedAvatar: {
-  source: AvatarRender | null;
-  base64: string | null;
-} | null = null;
-
-/** The island avatar for the current assistant, encoding it on first use. */
 async function islandAvatarBase64(): Promise<string | undefined> {
   const source = getIslandAvatarSource();
   if (source === null) {
     return undefined;
   }
-  if (encodedAvatar?.source !== source) {
-    encodedAvatar = { source, base64: await encodeAvatarForIsland(source) };
-  }
-  return encodedAvatar.base64 ?? undefined;
+  const encode = memoizedAvatarEncode(source);
+  const base64 = encode.pending === null ? encode.base64 : await encode.pending;
+  return base64 ?? undefined;
 }
 
 /**
@@ -214,6 +220,21 @@ function sameContent(
 }
 
 export function useLiveActivityMirror(): void {
+  const { t } = useTranslation("chat");
+  /**
+   * The translator the effect below resolves the phase label with.
+   *
+   * Held in a ref rather than closed over, because the effect runs once for the
+   * mirror's whole lifetime: making it depend on `t` would tear the mirror down
+   * on a language switch, and its cleanup ends the activity.
+   */
+  const translate = useRef(t);
+  /**
+   * Re-runs the mirror against the session as it stands, or `null` before the
+   * effect has mounted and after it has torn down.
+   */
+  const resync = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     /**
      * The last payload handed to the bridge, or `null` when no activity has
@@ -237,7 +258,7 @@ export function useLiveActivityMirror(): void {
     let pushToken: string | null = null;
     /**
      * What was last registered with the platform, as `token:assistant:
-     * conversation:accent:muted`.
+     * conversation:accent:muted:locale`.
      *
      * Every part matters and none is stable: the token rotates; a session
      * started from a draft has no conversation id until the server's `ready`
@@ -245,6 +266,10 @@ export function useLiveActivityMirror(): void {
      * leave the activity addressable by nothing; and the accent and mute state
      * are content the platform composes its pushes from, so a stale
      * registration would push the island back to whatever they were at start.
+     * The locale is in the key for that last reason too: the registration
+     * carries a phase to label table, so a language switch (which moves nothing
+     * in the session) has to re-upsert one built in the new language, or every
+     * background push after it reads in the language the user just left.
      * Comparing the whole tuple re-registers when any part moves and stays
      * quiet when none does.
      */
@@ -270,7 +295,10 @@ export function useLiveActivityMirror(): void {
         return;
       }
       const { accentHex, muted } = content;
-      const key = `${pushToken}:${assistantId}:${conversationId}:${accentHex}:${String(muted)}`;
+      // Read here rather than closed over: the resync a language switch fires
+      // runs through this same path, and reading fresh is what lets it see the
+      // locale that switch landed on.
+      const key = `${pushToken}:${assistantId}:${conversationId}:${accentHex}:${String(muted)}:${currentLocale()}`;
       if (key === registeredKey) {
         return;
       }
@@ -285,7 +313,7 @@ export function useLiveActivityMirror(): void {
     };
 
     const sync = (session: LiveVoiceState): void => {
-      const content = toActivityContent(session);
+      const content = toActivityContent(session, translate.current);
 
       if (content === null) {
         if (pushed === null) {
@@ -344,6 +372,7 @@ export function useLiveActivityMirror(): void {
     // plugin holds at most one activity, so a redundant `start` updates the
     // running one rather than stacking a second island.
     sync(useLiveVoiceStore.getState());
+    resync.current = () => sync(useLiveVoiceStore.getState());
     const unsubscribe = subscribeSettledLiveVoiceState(sync);
     // Subscribed for the mirror's whole lifetime rather than per activity: the
     // token can arrive before the next settled state does, and a listener
@@ -352,7 +381,7 @@ export function useLiveActivityMirror(): void {
       ({ token }) => {
         pushToken = token;
         const session = useLiveVoiceStore.getState();
-        const content = toActivityContent(session);
+        const content = toActivityContent(session, translate.current);
         // A token for a session that has already ended registers nothing: the
         // activity it addresses is on its way out, and the `end` path has
         // already dropped the registration.
@@ -363,6 +392,7 @@ export function useLiveActivityMirror(): void {
     );
 
     return () => {
+      resync.current = null;
       unsubscribe();
       unsubscribeToken();
       // A surface that outlives its mirror sits on the Lock Screen, or floats
@@ -377,4 +407,15 @@ export function useLiveActivityMirror(): void {
       }
     };
   }, []);
+
+  // The phase label is catalog copy, so switching language mid-call changes
+  // what both surfaces should read while nothing in the session moves. Nothing
+  // would push it otherwise, and the island a user is looking at would stay in
+  // the language they just left. The same resync re-upserts the push
+  // registration, which carries the table every server-composed push is worded
+  // from.
+  useEffect(() => {
+    translate.current = t;
+    resync.current?.();
+  }, [t]);
 }

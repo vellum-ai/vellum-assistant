@@ -3,9 +3,8 @@
  *
  * Both the gateway (channel admission policy storage + kill switch) and the
  * runtime (admission-policy stage) consume these values. Keeping the type
- * here avoids the runtime importing from `gateway/src` and avoids the
- * vocabulary drift the plan §2.1 flags for the verification-purpose
- * `trustClass` enum.
+ * here avoids the runtime importing from `gateway/src` and keeps both
+ * sides on a single shared vocabulary.
  */
 
 import { z } from "zod";
@@ -15,7 +14,7 @@ import type { TrustClass } from "./trust-verdict-contract.js";
 /**
  * Per-channel inbound admission policy — ordered from most-restrictive
  * (`no_one`, hard kill switch) to most-permissive (`strangers`, admits any
- * sender). See `unverified-contact-role-plan.md` §2.3.
+ * sender).
  */
 export const ADMISSION_POLICY_VALUES = [
   "no_one",
@@ -32,14 +31,14 @@ export const AdmissionPolicySchema = z.enum(ADMISSION_POLICY_VALUES);
 /**
  * Read-side default applied when a channel has no row in the DB. Matches
  * today's effective semantics: guardian + active contacts admitted,
- * strangers denied. See plan §2.2.
+ * strangers denied.
  */
 export const ADMISSION_POLICY_DEFAULT: AdmissionPolicy = "trusted_contacts";
 
 /**
  * Minimum trust rank required for each policy. Higher rank = more trusted.
  * `no_one` is 5 — above the maximum guardian rank (4) — so no class is ever
- * admitted. See plan §2.4 for the rank table.
+ * admitted.
  */
 export const ADMISSION_FLOOR: Record<AdmissionPolicy, number> = {
   no_one: 5,
@@ -82,15 +81,10 @@ export function isAdmissionPolicyExemptChannel(channelType: string): boolean {
  * `vellum` is the local desktop/web client surface; the guardian is always
  * max-rank there, so the seed default admits them regardless of the floor.
  *
- * `discord` has no ingress implementation, so there is nothing for a floor to
- * gate and nothing for the user to configure. Hiding keeps it pinned at the
- * seed default rather than offering a Channel Trust Floors row for a channel
- * that receives nothing.
  */
 export const ADMISSION_POLICY_HIDDEN_CHANNELS: ReadonlySet<string> = new Set([
   "vellum",
   "whatsapp",
-  "discord",
 ]);
 
 export function isAdmissionPolicyHiddenChannel(channelType: string): boolean {

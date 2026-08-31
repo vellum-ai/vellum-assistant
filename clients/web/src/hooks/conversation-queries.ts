@@ -384,11 +384,26 @@ export function useUnreadConversationCount(
 
 /**
  * Subscribe to the conversation groups (folders) for the given assistant.
+ *
+ * `conversationGroups` is an `[]` fallback in three different situations that
+ * a consumer may need to tell apart from a genuinely group-less assistant:
+ * the first fetch is in flight, the query is gated (on `enabled`, on the
+ * assistant, or on the daemon) and so has not started, and the fetch failed
+ * terminally. `isLoading` answers only the first: a gated query is pending
+ * without ever loading, and an error is invisible to it. A consumer that
+ * writes the groups somewhere durable (the iOS widget snapshot) must know the
+ * query actually SUCCEEDED, which is `!isPending && !isError`; a consumer that
+ * only draws a spinner keeps reading `isLoading`.
  */
 export function useConversationGroupsQuery(
   assistantId: string | null,
   enabled: boolean = true,
-): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
+): {
+  conversationGroups: ConversationGroup[];
+  isLoading: boolean;
+  isPending: boolean;
+  isError: boolean;
+} {
   const canQuery = useCanQueryDaemon(assistantId);
   const query = useQuery({
     ...groupsGetOptions({
@@ -401,5 +416,7 @@ export function useConversationGroupsQuery(
   return {
     conversationGroups: query.data ?? EMPTY_GROUPS,
     isLoading: query.isLoading,
+    isPending: query.isPending,
+    isError: query.isError,
   };
 }

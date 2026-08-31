@@ -3,6 +3,7 @@ import { isRouteErrorResponse, useRouteError } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { useTranslation } from "@/i18n";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 
 /**
@@ -30,6 +31,7 @@ import { isChunkLoadError } from "@/lib/chunk-errors";
  */
 export function RouteErrorBoundary() {
   const error = useRouteError();
+  const { t } = useTranslation();
 
   if (isChunkLoadError(error)) {
     return (
@@ -44,8 +46,7 @@ export function RouteErrorBoundary() {
           aria-hidden
         />
         <p className="max-w-md text-body-medium-lighter text-[var(--content-secondary)]">
-          This section couldn&apos;t load — likely a network blip or a stale
-          version. Reload the page to try again.
+          {t("routeErrorBoundary.chunkFailBody")}
         </p>
         <Button
           variant="ghost"
@@ -53,7 +54,7 @@ export function RouteErrorBoundary() {
           leftIcon={<RotateCcw />}
           onClick={() => window.location.reload()}
         >
-          Reload
+          {t("routeErrorBoundary.reload")}
         </Button>
       </div>
     );
@@ -77,7 +78,7 @@ export function RouteErrorBoundary() {
       </h1>
       <p className="max-w-md text-[var(--content-secondary)]">{message}</p>
       <Button variant="primary" onClick={() => window.location.reload()}>
-        Reload
+        {t("routeErrorBoundary.reload")}
       </Button>
     </div>
   );

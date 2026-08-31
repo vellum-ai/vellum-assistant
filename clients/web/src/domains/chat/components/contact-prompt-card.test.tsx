@@ -79,7 +79,7 @@ describe("ContactPromptCard defaultValue", () => {
 
     fireEvent.click(saveButton());
 
-    expect(onSubmit).toHaveBeenCalledWith("555-0100", "sms");
+    expect(onSubmit).toHaveBeenCalledWith("555-0100", "sms", false);
   });
 
   test("submits the edited address, not the original defaultValue", () => {
@@ -103,7 +103,7 @@ describe("ContactPromptCard defaultValue", () => {
     fireEvent.click(saveButton());
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSubmit).toHaveBeenCalledWith("edited@example.com", "email");
+    expect(onSubmit).toHaveBeenCalledWith("edited@example.com", "email", false);
   });
 
   test("keying by requestId resets the address when a new request arrives", () => {
@@ -138,5 +138,67 @@ describe("ContactPromptCard defaultValue", () => {
     );
 
     expect(addressInput().value).toBe("second@example.com");
+  });
+});
+
+describe("ContactPromptCard verify checkbox", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  function verifyBox(): HTMLElement {
+    return screen.getByRole("checkbox");
+  }
+
+  test("is unchecked when the command did not ask for it", () => {
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        contactRequest={{ requestId: "req-1", channel: "email" }}
+      />,
+    );
+
+    expect(verifyBox().getAttribute("data-state")).toBe("unchecked");
+  });
+
+  test("is pre-checked by --verify, and submits that answer", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        contactRequest={{
+          requestId: "req-1",
+          channel: "email",
+          defaultValue: "user@example.com",
+          verify: true,
+        }}
+      />,
+    );
+
+    expect(verifyBox().getAttribute("data-state")).toBe("checked");
+    fireEvent.click(saveButton());
+    expect(onSubmit).toHaveBeenCalledWith("user@example.com", "email", true);
+  });
+
+  test("unchecking a pre-checked box submits false, so --verify cannot attest behind the guardian", () => {
+    const onSubmit = mock(noop);
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        contactRequest={{
+          requestId: "req-1",
+          channel: "email",
+          defaultValue: "user@example.com",
+          verify: true,
+        }}
+      />,
+    );
+
+    fireEvent.click(verifyBox());
+    fireEvent.click(saveButton());
+
+    expect(onSubmit).toHaveBeenCalledWith("user@example.com", "email", false);
   });
 });

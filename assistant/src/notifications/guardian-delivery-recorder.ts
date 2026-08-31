@@ -20,6 +20,8 @@
  * read it back.
  */
 
+import { DELIVERY_STATUS } from "@vellumai/gateway-client";
+
 import {
   createGuardianRequestDelivery,
   type GuardianRequestDeliveryWire,
@@ -47,7 +49,7 @@ export interface ApprovalCardDeliveryAddress {
   chatId?: string;
   /** Channel-native message id (e.g. Slack `ts`) — the reaction/withdrawal key. */
   messageId?: string;
-  /** Initial delivery status (defaults to "pending"). */
+  /** Initial delivery status (defaults to `DELIVERY_STATUS.pending`). */
   status?: string;
 }
 
@@ -98,7 +100,9 @@ export async function recordApprovalCardDelivery(
  * Channel results additionally carry the chat (`destination`) and channel-native
  * id (`messageId`) used to match inbound replies/reactions; a blank `destination`
  * is recorded as unknown rather than persisting the literal channel name as a
- * chat id. Status is diagnostic — the read paths key off addressing, not status.
+ * chat id. Status has two readers: the voice guardian-action sweep acts only
+ * on `sent`/`pending` rows, and card withdrawal skips rows already marked
+ * `withdrawn` (its per-surface receipt). Addressing lookups ignore status.
  *
  * Best-effort like the create: a status-patch failure is logged, not thrown.
  *
@@ -146,7 +150,10 @@ export async function recordGuardianRequestDeliveries(params: {
     if (deliveryId) {
       try {
         await updateGuardianRequestDelivery(deliveryId, {
-          status: result.status === "sent" ? "sent" : "failed",
+          status:
+            result.status === "sent"
+              ? DELIVERY_STATUS.sent
+              : DELIVERY_STATUS.failed,
         });
       } catch (err) {
         log.error(

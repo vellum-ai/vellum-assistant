@@ -1,5 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
-import { getEffectiveProfilesForProvider } from "../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../config/default-profile-catalog.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
@@ -148,7 +148,7 @@ async function resolveModelCommand(
   parse: ModelCommandParse,
 ): Promise<SlashResolution> {
   const config = getConfig();
-  const profiles = getEffectiveProfilesForProvider(
+  const profiles = getUserSelectableProfilesForProvider(
     config.llm.profiles,
     config.llm.defaultProvider ?? null,
   );
@@ -295,6 +295,11 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
 
 const CLEAN_HELP_LINE =
   "/clean — Strip injected runtime context and reset memory injection state (no summarization)";
+const FORK_CAPABLE_INTERFACES = new Set<InterfaceId>([
+  "macos",
+  "windows",
+  "ios",
+]);
 
 function resolveCommandsList(context?: SlashContext): string[] {
   const fallbackLines = [
@@ -315,21 +320,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
     return fallbackLines;
   }
 
-  if (context.userMessageInterface === "macos") {
-    return [
-      "/commands — List all available commands",
-      "/compact — Force context compaction immediately",
-      CLEAN_HELP_LINE,
-      "/context — Show conversation context usage",
-      "/model — List or switch inference profile",
-      "/models — List all available models",
-      "/status — Show conversation status and context usage",
-      "/btw — Ask a side question while the assistant is working",
-      "/fork — Fork the current conversation into a new branch",
-    ];
-  }
-
-  if (context.userMessageInterface === "ios") {
+  if (FORK_CAPABLE_INTERFACES.has(context.userMessageInterface)) {
     return [
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",

@@ -120,8 +120,7 @@ export function Toggle({
     <div
       data-slot="toggle"
       className={cn(
-        "flex gap-2.5",
-        helperText ? "items-start" : "items-center",
+        "flex items-center gap-2.5",
         className,
       )}
     >

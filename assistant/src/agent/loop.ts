@@ -43,7 +43,10 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
-import { isContextOverflowError } from "../providers/types.js";
+import {
+  isContextOverflowError,
+  NATIVE_WEB_SEARCH_TOOL_NAME,
+} from "../providers/types.js";
 import { getTool } from "../tools/registry.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
@@ -56,6 +59,7 @@ import { CompactionCircuit } from "./compaction-circuit.js";
 import {
   deepRepairHistory,
   isRepairableOrderingError,
+  isUserTerminalHistoryError,
 } from "./history-repair/history-repair.js";
 
 const log = getLogger("agent-loop");
@@ -132,7 +136,7 @@ export interface AgentLoopConfig {
  * `input_schema` is informational — the provider supplies the real schema.
  */
 const NATIVE_WEB_SEARCH_TOOL: ToolDefinition = {
-  name: "web_search",
+  name: NATIVE_WEB_SEARCH_TOOL_NAME,
   description:
     "Search the web for current information to ground your response.",
   input_schema: {
@@ -368,6 +372,16 @@ export type AgentEvent =
       cacheReadInputTokens?: number;
       model: string;
       actualProvider?: string;
+      /**
+       * Inference profile that actually governed the call, set only when a
+       * wrapper re-routed the request away from the caller's own resolution
+       * (`RetryProvider`'s fallback-profile escalation). Travels alongside
+       * `actualProvider` so the daemon's usage ledger attributes a degraded
+       * serve to the backup profile that answered rather than to the primary
+       * that failed. Absent on the normal (non-rerouted) path, where the
+       * caller's own resolution is already correct.
+       */
+      actualInferenceProfile?: string;
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
@@ -783,6 +797,22 @@ export interface AgentLoopConstructorOptions {
    * result-time pass and the post-turn truncation covers the turn instead.
    */
   resolveConversationDir?: () => string | null;
+  /**
+   * Trim a freshly compacted history before it becomes the loop's working set.
+   *
+   * Compaction rebuilds history from the stored rows, so it can reintroduce
+   * content the caller had already trimmed out of the array it handed to
+   * `run()` (camera-frame retention is the case this exists for: the compaction
+   * model may retain any number of older frames, and the rebuilt history is
+   * sent on the very next request). The caller closes over whatever
+   * conversation state its trimming needs, which is what keeps this module free
+   * of any dependency on the daemon's conversation layer.
+   *
+   * Must be total: the loop treats a throw as "no trim" rather than failing the
+   * turn. Callers that hold no conversation (workflow leaf runs) omit it and
+   * the compacted history is installed as built.
+   */
+  transformCompactedHistory?: (messages: Message[]) => Message[];
 }
 
 export class AgentLoop {
@@ -804,6 +834,11 @@ export class AgentLoop {
   /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
   private readonly resolveConversationDir: (() => string | null) | null;
 
+  /** See {@link AgentLoopConstructorOptions.transformCompactedHistory}. */
+  private readonly transformCompactedHistory:
+    | ((messages: Message[]) => Message[])
+    | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -823,6 +858,7 @@ export class AgentLoop {
       resolveTools,
       conversationId,
       resolveConversationDir,
+      transformCompactedHistory,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -832,6 +868,7 @@ export class AgentLoop {
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
+    this.transformCompactedHistory = transformCompactedHistory ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -908,6 +945,34 @@ export class AgentLoop {
         { err: recordError, requestId },
         "Recording a compaction outcome against the circuit breaker failed; suppressing to keep the agent loop alive",
       );
+    }
+  }
+
+  /**
+   * Run the caller's post-compaction trim over a freshly compacted history,
+   * falling back to the untrimmed array when no transform is configured or the
+   * transform throws.
+   *
+   * The trim narrows what the next request carries, so failing it is strictly
+   * worse than skipping it: the turn still has a valid history either way, and
+   * the caller's own passes cover the next turn. Kept best-effort for the same
+   * reason the caller's pre-run pass is.
+   */
+  private applyCompactedHistoryTransform(
+    compacted: Message[],
+    rlog: ReturnType<typeof getLogger>,
+  ): Message[] {
+    if (!this.transformCompactedHistory) {
+      return compacted;
+    }
+    try {
+      return this.transformCompactedHistory(compacted);
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Post-compaction history transform failed (non-fatal); keeping the compacted history as built",
+      );
+      return compacted;
     }
   }
 
@@ -1349,7 +1414,14 @@ export class AgentLoop {
                   overflowSignal ?? undefined,
                 );
                 if (attempt.history) {
-                  history = attempt.history;
+                  // Trim before anything else reads the rebuilt array: the
+                  // provider call further down this same iteration sends it, so
+                  // content compaction reintroduced has to be brought back
+                  // within the caller's bounds here or it ships un-trimmed.
+                  history = this.applyCompactedHistoryTransform(
+                    attempt.history,
+                    rlog,
+                  );
                   // The compacted, re-injected array is the new base; output
                   // produced after this point is what the wrapper persists.
                   newMessagesStart = history.length;
@@ -1465,6 +1537,14 @@ export class AgentLoop {
         } else if (attachNativeWebSearch) {
           // Let the model decide whether to search rather than forcing it.
           providerConfig.tool_choice = { type: "auto" };
+        }
+
+        // Mark the sentinel so a route change downstream can tell it from an
+        // app-executed `web_search` of the same name (see
+        // `SendMessageConfig.nativeWebSearchSentinel`). Only set when true so
+        // the wire config stays byte-identical otherwise.
+        if (attachNativeWebSearch) {
+          providerConfig.nativeWebSearchSentinel = true;
         }
 
         if (this.config.cacheTtl) {
@@ -1808,6 +1888,14 @@ export class AgentLoop {
           cacheReadInputTokens: response.usage.cacheReadInputTokens,
           model: response.model,
           actualProvider: response.actualProvider ?? this.provider.name,
+          // Only present when a wrapper rerouted this call, so the normal
+          // path's event shape stays byte-identical. There is no caller-side
+          // fallback value to fill in: the loop's own profile resolution is
+          // exactly what a reroute invalidates, and the daemon already reads
+          // its own resolution when this is absent.
+          ...(response.actualInferenceProfile !== undefined
+            ? { actualInferenceProfile: response.actualInferenceProfile }
+            : {}),
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
@@ -2538,7 +2626,9 @@ export class AgentLoop {
           ) {
             orderingRepairAttempted = true;
             postModelCallContinues++;
-            history = deepRepairHistory(errorOutcome.messages).messages;
+            history = deepRepairHistory(errorOutcome.messages, {
+              requireUserTerminal: isUserTerminalHistoryError(err.message),
+            }).messages;
             // Deep repair merges and drops messages, so the prior input
             // boundary no longer maps onto the new array; the repaired history
             // is the base the retry's output appends after.

@@ -6,6 +6,7 @@
  * rendered within the chat transcript.
  */
 
+import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import {
@@ -85,7 +86,7 @@ export async function handleSurfaceAction(
   if (!ctx) {
     useChatSessionStore
       .getState()
-      .setError({ message: "No active session. Please try again." });
+      .setError({ message: t("chat:promptSubmission.noActiveSession") });
     return;
   }
 
@@ -101,14 +102,14 @@ export async function handleSurfaceAction(
     captureError(err, { context: "submit_surface_action" });
     useChatSessionStore
       .getState()
-      .setError({ message: "Failed to submit. Please try again." });
+      .setError({ message: t("chat:surfaceActions.submitFailed") });
     return;
   }
 
   if (!result.ok) {
     useChatSessionStore
       .getState()
-      .setError({ message: "Failed to submit. Please try again." });
+      .setError({ message: t("chat:surfaceActions.submitFailed") });
     return;
   }
 

@@ -43,9 +43,9 @@ function resetTables(): void {
 /**
  * Build a minimal PNG whose IHDR declares the given dimensions. Only the
  * 8-byte signature and the width/height fields (read by `parseImageDimensions`)
- * need to be correct; the rest is padding. `optimizeImageForTransport` cannot
- * downscale this off macOS (no `sips`), so it stays a no-op — exactly the
- * host condition that produces an unsendable stored image.
+ * need to be correct; the rest is padding. The image is not decodable, so
+ * `optimizeImageForTransport` leaves it unchanged and produces the unsendable
+ * stored-image condition.
  */
 function makePngBase64(width: number, height: number, padBytes = 0): string {
   const header = Buffer.from(
@@ -389,6 +389,25 @@ describe("unsendableImageReplacement", () => {
     expect(replacement).toMatchObject({
       type: "image",
       source: { type: "base64", media_type: "image/png", data: pngData },
+    });
+  });
+
+  /** Relabeling rebuilds the block, and the rebuilt form is written back to
+   *  the stored row. Losing the internal attachment id there would untag a
+   *  camera frame for good, so the relabel carries it across. */
+  test("relabeling preserves the internal attachment id", async () => {
+    const pngData = makePngBase64(1024, 768);
+    const mislabeled = {
+      ...(imageBlock(pngData, "image/jpeg") as Extract<
+        ContentBlock,
+        { type: "image" }
+      >),
+      _attachmentId: "att-frame-1",
+    };
+    const replacement = await unsendableImageReplacement(mislabeled);
+    expect(replacement).toMatchObject({
+      type: "image",
+      _attachmentId: "att-frame-1",
     });
   });
 

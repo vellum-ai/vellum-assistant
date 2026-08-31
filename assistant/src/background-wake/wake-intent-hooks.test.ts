@@ -82,7 +82,6 @@ mock.module("../util/platform.js", () => ({
   getSandboxWorkingDir: () => testWorkspaceDir,
   getSoundsDir: () => workspacePath("data", "sounds"),
   getAvatarDir: () => workspacePath("data", "avatar"),
-  AVATAR_IMAGE_FILENAME: "avatar-image.png",
   getAvatarImagePath: () => workspacePath("data", "avatar", "avatar-image.png"),
   getXdgVellumConfigDirName: () => ".vellum",
   getProfilerRootDir: () => workspacePath("data", "profiler"),

@@ -993,7 +993,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "STT stream WebSocket",
           description:
-            "Accepts a WebSocket upgrade for real-time speech-to-text streaming. Authenticates the client using an edge JWT (actor principal) and proxies audio frames bidirectionally to the assistant runtime's /v1/stt/stream endpoint using a gateway service token. Requires mimeType query parameter. The runtime is config-authoritative: the streaming transcriber is always resolved from `services.stt.provider` in the assistant config, not from the optional `provider` query parameter.",
+            "Accepts a WebSocket upgrade for real-time speech-to-text streaming. Authenticates the client using an edge JWT (actor principal) and proxies audio frames bidirectionally to the assistant runtime's /v1/stt/stream endpoint using a gateway service token. Requires mimeType query parameter. The runtime is config-authoritative: the streaming transcriber is always resolved from the assistant config, not from the optional `provider` query parameter. Dictation resolves `services.stt.roles.dictation` when set and `services.stt.provider` otherwise.",
           operationId: "sttStreamWebsocket",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -1003,7 +1003,7 @@ export function buildSchema(): Record<string, unknown> {
               required: false,
               schema: { type: "string" },
               description:
-                "Optional STT provider identifier (e.g. 'deepgram', 'google-gemini'). Forwarded as compatibility metadata — the runtime resolves the transcriber from config (`services.stt.provider`), not from this parameter. When supplied and it disagrees with the configured provider, the runtime logs a mismatch warning.",
+                "Optional STT provider identifier (e.g. 'deepgram', 'google-gemini'). Forwarded as compatibility metadata: the runtime resolves the transcriber from config (`services.stt.roles.dictation`, else `services.stt.provider`), not from this parameter. When supplied and it disagrees with the provider that resolves to, the runtime logs a mismatch warning.",
             },
             {
               name: "mimeType",
@@ -1053,6 +1053,95 @@ export function buildSchema(): Record<string, unknown> {
             "426": {
               description:
                 "Upgrade Required — request is not a WebSocket upgrade",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/v1/watch/stream": {
+        get: {
+          summary: "Watch stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade for a watch session's narration audio. Authenticates the client using an edge JWT (actor principal) and proxies frames bidirectionally to the assistant runtime's /v1/watch/stream endpoint using a gateway service token. Requires the mimeType query parameter. Client frames are audio; runtime frames are session lifecycle and acknowledgements only (ready, entry, observation, error, closed), never transcript text. An observation frame acknowledges that the runtime read the screen and kept what it saw, and like entry it carries nothing beyond the fact that it happened.",
+          operationId: "watchStreamWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "mimeType",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "MIME type of the narration audio being streamed (e.g. 'audio/pcm').",
+            },
+            {
+              name: "sampleRate",
+              in: "query",
+              required: false,
+              schema: { type: "integer" },
+              description: "Audio sample rate in Hz, when applicable.",
+            },
+            {
+              name: "conversationId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Conversation the session's timeline is filed against. Absent lets the runtime mint one for the session.",
+            },
+            {
+              name: "clientId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Host client whose screen the session reads. Absent lets the runtime resolve the actor's own host.",
+            },
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful - bidirectional watch stream frame proxying begins.",
+            },
+            "400": {
+              description: "Missing required query parameter (mimeType)",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized - missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required - request is not a WebSocket upgrade",
               content: {
                 "text/plain": {
                   schema: { type: "string" },
@@ -1447,6 +1536,35 @@ export function buildSchema(): Record<string, unknown> {
               description: "Unauthorized — missing or invalid bearer token",
             },
             "409": { description: "Channel already exists for this contact" },
+            "503": { description: "Bearer token not configured" },
+          },
+        },
+      },
+      "/v1/contacts/record/submit": {
+        post: {
+          summary: "Submit a contact record in response to a prompt",
+          description:
+            "Authenticated gateway endpoint that accepts the create, update, or delete a guardian confirmed in the contact-record form the assistant broadcast. Writes the contact record (display name and notes only, never a channel), then notifies the assistant to unblock the waiting CLI call. A `cancelled: true` body resolves the waiting call without writing.",
+          operationId: "contactsRecordSubmitPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Contact record written and prompt resolved",
+            },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized: missing or invalid bearer token",
+            },
+            "403": { description: "Cannot delete a guardian contact" },
+            "404": { description: "Contact not found" },
             "503": { description: "Bearer token not configured" },
           },
         },
@@ -3428,7 +3546,7 @@ export function buildSchema(): Record<string, unknown> {
         delete: {
           summary: "Delete a channel admission policy",
           description:
-            "Authenticated gateway endpoint that removes the admission policy for a single channel from the SQLite-backed store and invalidates the in-memory admission-policy cache. Internal channels (vellum/platform, vellum/a2a) are exempt from deletion per §8.1.",
+            "Authenticated gateway endpoint that removes the admission policy for a single channel from the SQLite-backed store and invalidates the in-memory admission-policy cache. Exempt channels (platform, a2a) and hidden channels (vellum, whatsapp) refuse deletion per §8.1.",
           operationId: "channelAdmissionPolicyDelete",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3769,10 +3887,10 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Import workspace backup",
           description:
-            "Proxies a migration import request to the assistant. Two request shapes are accepted:\n" +
+            "Proxies a migration import request to the assistant. Request shapes:\n" +
             "\n" +
             "  - `application/octet-stream`: raw .vbundle body. The request is proxied synchronously and the caller's connection stays open for the full import duration (returns 200 on success).\n" +
-            '  - `application/json` with `{ "url": "<signed GCS URL>" }`: the gateway generates a jobId, kicks off the upstream assistant call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress.\n' +
+            '  - `application/json` with `{ "url": "<signed GCS URL>" }` or `{ "path": "<staged workspace path>" }`: the gateway generates a jobId, kicks off the upstream assistant call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress. The path form points at a `.vbundle` staged under the assistant workspace `.restore-staging` directory.\n' +
             "\n" +
             "Authenticated with an edge JWT. Synchronous-path timeout is 60 minutes to accommodate large 8 GB backups; the async path returns immediately.",
           operationId: "migrationImport",
@@ -3785,16 +3903,32 @@ export function buildSchema(): Record<string, unknown> {
               },
               "application/json": {
                 schema: {
-                  type: "object",
-                  required: ["url"],
-                  properties: {
-                    url: {
-                      type: "string",
-                      format: "uri",
-                      description:
-                        "Signed GCS URL pointing at a .vbundle archive.",
+                  oneOf: [
+                    {
+                      type: "object",
+                      required: ["url"],
+                      properties: {
+                        url: {
+                          type: "string",
+                          format: "uri",
+                          description:
+                            "Signed GCS URL pointing at a .vbundle archive.",
+                        },
+                      },
                     },
-                  },
+                    {
+                      type: "object",
+                      required: ["path"],
+                      properties: {
+                        path: {
+                          type: "string",
+                          minLength: 1,
+                          description:
+                            "Workspace-relative or absolute path to a staged .vbundle under .restore-staging.",
+                        },
+                      },
+                    },
+                  ],
                 },
               },
             },
@@ -3806,7 +3940,7 @@ export function buildSchema(): Record<string, unknown> {
             },
             "202": {
               description:
-                "Import accepted for async processing (JSON URL path). Poll `/v1/migrations/import/{jobId}/status` for progress.",
+                "Import accepted for async processing (JSON url or path body). Poll `/v1/migrations/import/{jobId}/status` for progress.",
               content: {
                 "application/json": {
                   schema: {
@@ -3832,7 +3966,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Poll async import job status",
           description:
-            "Returns the current status of an async `.vbundle` import kicked off by `POST /v1/migrations/import` with a JSON `{url}` body. Finished jobs remain queryable for 30 minutes before being pruned.",
+            "Returns the current status of an async `.vbundle` import kicked off by `POST /v1/migrations/import` with a JSON `{url}` or `{path}` body. Finished jobs remain queryable for 30 minutes before being pruned.",
           operationId: "migrationImportStatus",
           security: [{ BearerAuth: [] }],
           parameters: [

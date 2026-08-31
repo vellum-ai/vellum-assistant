@@ -28,13 +28,14 @@ import {
   sniffImageMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
-import type {
-  Base64MediaSource,
-  ContentBlock,
-  FileContent,
-  ImageContent,
-  MediaSource,
-  Message,
+import {
+  attachmentIdFragment,
+  type Base64MediaSource,
+  type ContentBlock,
+  type FileContent,
+  type ImageContent,
+  type MediaSource,
+  type Message,
 } from "./types.js";
 
 const log = getLogger("media-resolve");
@@ -79,9 +80,8 @@ export function isUnsendableImageSource(source: MediaSource): boolean {
  * `image/heic` and `image/heif` directly
  * (https://ai.google.dev/gemini-api/docs/image-understanding), while
  * OpenAI-compatible and Anthropic endpoints answer HTTP 400 for the whole
- * request. HEIF bytes reach a provider whenever transcoding was unavailable
- * (`convertImageToJpeg` is backed by macOS `sips`), so a Linux-hosted assistant
- * on Gemini depends on them passing through.
+ * request. HEIF bytes reach a provider whenever transcoding cannot decode the
+ * input, so Gemini depends on them passing through.
  */
 export interface MediaResolveOptions {
   acceptsHeif?: boolean;
@@ -142,6 +142,21 @@ export function mediaSourceByteLength(source: MediaSource): number {
     return source.sizeBytes;
   }
   return Math.floor((source.data.length * 3) / 4);
+}
+
+/**
+ * What a media source was, as the text that stands in for it once the bytes are
+ * gone: its media type and payload size.
+ *
+ * Every path that replaces a media block with a text stub naming what it
+ * dropped reports these same two facts, so they are derived once here. Each
+ * stub keeps its own surrounding sentence (which path dropped it, and why) and
+ * embeds this for the what. Reads the size through
+ * {@link mediaSourceByteLength}, so a reference and an inline block describe
+ * themselves the same way.
+ */
+export function mediaSourceDescriptor(source: MediaSource): string {
+  return `${source.media_type}, ${mediaSourceByteLength(source)} bytes`;
 }
 
 /**
@@ -281,9 +296,7 @@ function resolveFileBlock(block: FileContent): ContentBlock {
     ...(block.extracted_text !== undefined
       ? { extracted_text: block.extracted_text }
       : {}),
-    ...(block._attachmentId !== undefined
-      ? { _attachmentId: block._attachmentId }
-      : {}),
+    ...attachmentIdFragment(block._attachmentId),
   };
 }
 

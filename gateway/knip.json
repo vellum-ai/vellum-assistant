@@ -1,9 +1,10 @@
 {
-  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts", "src/cli/index.ts"],
   "project": ["src/**/*.ts"],
   "ignoreDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",

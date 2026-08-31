@@ -4,9 +4,9 @@
  *
  * The gateway resolves a per-actor verdict from its ACL DB and stamps it onto
  * inbound `sourceMetadata`. These pure mappers turn that verdict into the same
- * {@link TrustContext} the local resolver would have produced — ACL + identity
- * only. INFO fields (notes, userFile, contactType, interactionCount) are never
- * carried on the wire; the consumer re-joins them locally by contactId.
+ * {@link TrustContext} the local resolver would have produced: ACL + identity
+ * only. INFO fields (notes, userFile, contactType) are never carried on the
+ * wire; the consumer re-joins them locally by contactId.
  */
 
 import type { TrustVerdict } from "@vellumai/gateway-client";

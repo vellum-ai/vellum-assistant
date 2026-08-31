@@ -32,6 +32,11 @@ import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-d
 import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-plugin-icons";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
+const saveFileMock = mock((_source: Blob | string, _filename: string) =>
+  Promise.resolve(),
+);
+mock.module("@/runtime/native-file", () => ({ saveFile: saveFileMock }));
+
 const ASSISTANT_ID = "asst-1";
 const LOCAL_COMMIT = "60a392b0000000000000000000000000000000aa";
 const REMOTE_COMMIT = "3eae1820000000000000000000000000000000bb";
@@ -46,6 +51,7 @@ beforeEach(() => {
   // blob into one.
   globalThis.URL.createObjectURL = () => "blob:detail-icon";
   globalThis.URL.revokeObjectURL = () => undefined;
+  saveFileMock.mockClear();
 });
 
 afterEach(() => {
@@ -304,8 +310,16 @@ describe("PluginDetail", () => {
     const html = container.innerHTML;
 
     expect(html).toContain("Download for macOS");
-    expect(html).toContain(`href="${url}"`);
     expect(html).toContain("Remove");
+
+    const downloadButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((el) => el.textContent?.includes("Download for macOS"));
+    expect(downloadButton).toBeDefined();
+    fireEvent.click(downloadButton!);
+    // The artifact saves through the `saveFile` chokepoint under the URL
+    // path's basename, not via a raw anchor.
+    expect(saveFileMock).toHaveBeenCalledWith(url, "DynamicNotch.dmg");
   });
 
   test("while loading with no externalHint, the header shows a glyph-less placeholder (no 🧩, no 📦)", () => {

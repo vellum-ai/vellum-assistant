@@ -23,16 +23,18 @@ private func hotkeyEventHandler(
     switch GetEventKind(event) {
     case UInt32(kEventRawKeyModifiersChanged):
         helper.handleRawKeyModifiersChanged(event)
+    case UInt32(kEventRawKeyDown):
+        helper.handleRawKeyDown()
     case UInt32(kEventHotKeyPressed):
         guard isFnHotkeyEvent(event) else {
             return OSStatus(eventNotHandledErr)
         }
-        helper.emitHotkey(state: "down")
+        helper.handleFnExactMatchHotkey(state: "down")
     case UInt32(kEventHotKeyReleased):
         guard isFnHotkeyEvent(event) else {
             return OSStatus(eventNotHandledErr)
         }
-        helper.emitHotkey(state: "up")
+        helper.handleFnExactMatchHotkey(state: "up")
     default:
         return CallNextEventHandler(nextHandler, event)
     }
@@ -63,6 +65,11 @@ final class MacHelper: @unchecked Sendable {
     private var hotkeyRef: EventHotKeyRef?
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
+    private var fnTapDetector = FnTapDetector()
+    /// Whether the raw monitor-target handlers are actually receiving events.
+    /// Delivery needs Input Monitoring, and installation succeeds either way,
+    /// so the only proof is an event arriving.
+    private var rawMonitorLive = false
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -212,6 +219,7 @@ final class MacHelper: @unchecked Sendable {
     }
 
     func handleRawKeyModifiersChanged(_ event: EventRef) {
+        rawMonitorLive = true
         var modifiers: UInt32 = 0
         let status = GetEventParameter(
             event,
@@ -227,9 +235,60 @@ final class MacHelper: @unchecked Sendable {
             return
         }
 
-        emitHotkey(
-            state: (modifiers & UInt32(kEventKeyModifierFnMask)) != 0 ? "down" : "up"
+        // Held modifiers only. Latched state (Caps Lock `alphaLock`, Num
+        // Lock) stays set across whole sessions and must not read as a chord.
+        let chordMask = UInt32(cmdKey | shiftKey | optionKey | controlKey)
+            | UInt32(rightShiftKey | rightOptionKey | rightControlKey)
+        let edges = fnTapDetector.flagsChanged(
+            fnHeld: (modifiers & UInt32(kEventKeyModifierFnMask)) != 0,
+            otherModifiersHeld: (modifiers & chordMask) != 0,
+            ordinaryKeyHeld: { anyOrdinaryKeyIsDown() }
         )
+        for edge in edges {
+            emitHotkey(state: edge.rawValue)
+        }
+    }
+
+    /// Whether any non-modifier key is down right now, per the session's
+    /// aggregate keyboard state. Polled only when Fn goes down alone, to
+    /// catch a chord whose ordinary key was pressed first (Delete held,
+    /// then Fn tapped): the key-down handler only sees presses that happen
+    /// while Fn is already held. A poll of current state rather than
+    /// tracked down/up events, so a missed event can never wedge the
+    /// detector with a phantom held key.
+    private func anyOrdinaryKeyIsDown() -> Bool {
+        // Virtual keycodes 0x36...0x3F are the modifier block (Cmd, Shift,
+        // Caps Lock, Option, Control, Fn, and right-hand variants); held
+        // modifiers are already visible in the event flags.
+        for keycode in 0..<128 where !(0x36...0x3F).contains(keycode) {
+            if CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keycode)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// A key went down somewhere while the raw monitor is watching. Only its
+    /// existence is consumed, never its identity: the one fact needed is
+    /// that the current Fn hold is a chord (Fn+Delete, Fn+arrow), not a tap.
+    func handleRawKeyDown() {
+        rawMonitorLive = true
+        for edge in fnTapDetector.keyDown() {
+            emitHotkey(state: edge.rawValue)
+        }
+    }
+
+    /// The Carbon hotkey on `kVK_Function` matches a bare-Fn press exactly,
+    /// but it reports at press time, before a chord forming around Fn can
+    /// disqualify the hold. Once the raw monitor is proven live its
+    /// release-time verdicts are authoritative and this path stands down;
+    /// without Input Monitoring the raw monitor never delivers and this
+    /// stays the only way Fn is seen at all.
+    func handleFnExactMatchHotkey(state: String) {
+        guard !rawMonitorLive else {
+            return
+        }
+        emitHotkey(state: state)
     }
 
     private func readCommands() {
@@ -748,6 +807,8 @@ final class MacHelper: @unchecked Sendable {
             return
         }
 
+        fnTapDetector = FnTapDetector()
+        rawMonitorLive = false
         do {
             try installEventHandlers()
         } catch {
@@ -775,6 +836,7 @@ final class MacHelper: @unchecked Sendable {
         if isFnDown {
             emitHotkey(state: "up")
         }
+        fnTapDetector = FnTapDetector()
         if let ref = hotkeyRef {
             UnregisterEventHotKey(ref)
             hotkeyRef = nil
@@ -783,15 +845,21 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func installEventHandlers() throws {
-        let rawModifierEvents = [
+        let monitorEvents = [
             EventTypeSpec(
                 eventClass: OSType(kEventClassKeyboard),
                 eventKind: UInt32(kEventRawKeyModifiersChanged)
             ),
+            // Key presses are observed only to disqualify a chorded Fn hold
+            // (`handleRawKeyDown`); the events' contents are never read.
+            EventTypeSpec(
+                eventClass: OSType(kEventClassKeyboard),
+                eventKind: UInt32(kEventRawKeyDown)
+            ),
         ]
         try installHandler(
             target: GetEventMonitorTarget(),
-            eventTypes: rawModifierEvents,
+            eventTypes: monitorEvents,
             operation: "InstallEventHandler(GetEventMonitorTarget)"
         )
 

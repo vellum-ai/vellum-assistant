@@ -21,6 +21,8 @@ import { describe, expect, mock, test } from "bun:test";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
+  haveSameItemKeys,
+  shouldGestureLoadOlder,
   decideItemsChangeAction,
   findAnchorIndex,
   findLatestUserAnchorKey,
@@ -111,6 +113,7 @@ function makeHandle(): TranscriptHandle & {
   return {
     scrollToLatest,
     scrollToMessage: mock((): boolean => false),
+    keepFocusedFieldVisible: mock((): boolean => false),
     getScrollElement,
     getContentElement,
     getViewportHeight,
@@ -704,5 +707,86 @@ describe("integration — items-effect dispatch on underfilled viewport", () => 
       onLoadOlder();
     }
     expect(onLoadOlder).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// haveSameItemKeys — the no-progress guard for the underfilled auto-fetch
+// ---------------------------------------------------------------------------
+
+describe("haveSameItemKeys", () => {
+  test("same rows in the same order compare equal", () => {
+    const prev = [makeMessage("m1"), makeMessage("m2")];
+    const next = [makeMessage("m1"), makeMessage("m2")];
+    expect(haveSameItemKeys(prev, next)).toBe(true);
+  });
+
+  test("an in-place update to a row (same key) still compares equal", () => {
+    // Streaming replaces the item object but keeps its key; the guard must
+    // not read that as progress.
+    const prev = [makeMessage("m1")];
+    const next = [makeMessage("m1")];
+    expect(prev[0]).not.toBe(next[0]);
+    expect(haveSameItemKeys(prev, next)).toBe(true);
+  });
+
+  test("a prepended row is progress", () => {
+    const prev = [makeMessage("m2")];
+    const next = [makeMessage("m1"), makeMessage("m2")];
+    expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+
+  test("a removed row is progress", () => {
+    const prev = [makeMessage("m1"), makeMessage("m2")];
+    const next = [makeMessage("m2")];
+    expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+
+  test("a replaced key at equal length is progress", () => {
+    const prev = [makeMessage("m1"), makeMessage("m2")];
+    const next = [makeMessage("m1"), makeMessage("m3")];
+    expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldGestureLoadOlder — the underfilled-transcript gesture load path
+// ---------------------------------------------------------------------------
+
+describe("shouldGestureLoadOlder", () => {
+  const UNDERFILLED = { scrollTop: 0, scrollHeight: 400, clientHeight: 600 };
+  const READY = { hasMore: true, isLoadingOlder: false, hasConversation: true };
+
+  test("underfilled element with more history loads on a gesture", () => {
+    expect(shouldGestureLoadOlder(UNDERFILLED, READY)).toBe(true);
+  });
+
+  test("a scrollable element defers to the scroll handler", () => {
+    // Filled past the viewport: scroll events fire normally, so the gesture
+    // path stands down.
+    expect(
+      shouldGestureLoadOlder(
+        { scrollTop: 100, scrollHeight: 2_000, clientHeight: 600 },
+        READY,
+      ),
+    ).toBe(false);
+  });
+
+  test("no further history means no fetch", () => {
+    expect(
+      shouldGestureLoadOlder(UNDERFILLED, { ...READY, hasMore: false }),
+    ).toBe(false);
+  });
+
+  test("an in-flight load is not doubled", () => {
+    expect(
+      shouldGestureLoadOlder(UNDERFILLED, { ...READY, isLoadingOlder: true }),
+    ).toBe(false);
+  });
+
+  test("no conversation means no fetch", () => {
+    expect(
+      shouldGestureLoadOlder(UNDERFILLED, { ...READY, hasConversation: false }),
+    ).toBe(false);
   });
 });

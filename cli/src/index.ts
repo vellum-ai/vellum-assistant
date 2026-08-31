@@ -37,6 +37,7 @@ import { tunnel } from "./commands/tunnel";
 import { unpair } from "./commands/unpair";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
+import { voice } from "./commands/voice";
 import { wake } from "./commands/wake";
 import { workflows } from "./commands/workflows";
 import { resolveAssistant, setActiveAssistant } from "./lib/assistant-config";
@@ -76,6 +77,7 @@ const commands = {
   unpair,
   upgrade,
   use,
+  voice,
   wake,
   whoami,
   workflows,
@@ -92,7 +94,7 @@ function printHelp(): void {
   console.log("  client   Connect to a hatched assistant");
   console.log("  confirm  Resolve a pending tool confirmation on an assistant");
   console.log(
-    "  connect  Import an assistant paired from another machine [beta]",
+    "  connect  Pair with an assistant running on another machine [beta]",
   );
   console.log(
     "  devices  List or revoke devices paired to a local assistant [beta]",
@@ -108,7 +110,7 @@ function printHelp(): void {
   console.log("  logout   Log out of the Vellum platform");
   console.log("  message  Send a message to a running assistant");
   console.log(
-    "  pair     Mint a device-scoped token to connect another machine [beta]",
+    "  pair     Print a pairing link and QR code for another device [beta]",
   );
   console.log(
     "  ps       List assistants (or processes for a specific assistant)",
@@ -131,6 +133,7 @@ function printHelp(): void {
   );
   console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
+  console.log("  voice    Type to an assistant and hear it answer out loud");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
   console.log("  workflows Inspect and control workflow runs");

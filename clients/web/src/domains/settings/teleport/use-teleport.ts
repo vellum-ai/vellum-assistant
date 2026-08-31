@@ -9,6 +9,7 @@
  */
 
 import { type MutableRefObject, useCallback, useRef, useState } from "react";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 
 import { getAssistantHealthz, hatchAssistant } from "@/assistant/api";
@@ -94,6 +95,7 @@ export interface TeleportController {
 
 export function useTeleport(): TeleportController {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const source = getSelectedAssistant();
   const destination = resolveDestination(source?.cloud);
 
@@ -144,13 +146,14 @@ export function useTeleport(): TeleportController {
       // pre-check would then reject because it already exists. Clean it up the
       // same way Cancel does.
       await cleanupFreshTarget(
+        queryClient,
         targetRef.current,
         originalRef.current,
         "teleport-execute-cleanup",
       );
       targetRef.current = null;
     }
-  }, [source, destination, setStep, setProgress]);
+  }, [source, destination, setStep, setProgress, queryClient]);
 
   const requestTeleport = useCallback(() => setConfirmOpen(true), []);
   const cancelConfirm = useCallback(() => setConfirmOpen(false), []);
@@ -210,7 +213,7 @@ export function useTeleport(): TeleportController {
       // `retireAssistant` (the retire service) also reconciles the lockfile +
       // resolved-assistants store, so the retired source stops being selectable.
       if (original) {
-        void retireAssistant(original.id).then((result) => {
+        void retireAssistant(queryClient, original.id).then((result) => {
           if (!result.ok) {
             captureError(new Error(result.error), {
               context: "teleport-retire-source",
@@ -222,7 +225,7 @@ export function useTeleport(): TeleportController {
       reset();
       void navigate(routes.assistant, { replace: true });
     })();
-  }, [navigate, reset]);
+  }, [navigate, reset, queryClient]);
 
   const cancelTeleport = useCallback(() => {
     const target = targetRef.current;
@@ -235,8 +238,13 @@ export function useTeleport(): TeleportController {
     targetRef.current = null;
     originalRef.current = null;
     setPhase({ kind: "idle" });
-    void cleanupFreshTarget(target, original, "teleport-cancel-retire-target");
-  }, []);
+    void cleanupFreshTarget(
+      queryClient,
+      target,
+      original,
+      "teleport-cancel-retire-target",
+    );
+  }, [queryClient]);
 
   return {
     destination,
@@ -457,12 +465,13 @@ async function resolveLocalTargetRuntimeVersion(
  * store so the target stops being selectable.
  */
 async function cleanupFreshTarget(
+  queryClient: QueryClient,
   target: AssistantRef | null,
   original: AssistantRef | null,
   context: string,
 ): Promise<void> {
   if (target?.createdFresh) {
-    const result = await retireAssistant(target.id);
+    const result = await retireAssistant(queryClient, target.id);
     if (!result.ok) {
       captureError(new Error(result.error), { context });
     }

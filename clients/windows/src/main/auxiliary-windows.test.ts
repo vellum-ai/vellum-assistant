@@ -20,6 +20,8 @@ const handleListeners = new Map<string, Listener>();
 const onListeners = new Map<string, Listener>();
 const screenListeners = new Map<string, Listener>();
 const shortcutListeners = new Map<string, Listener>();
+const appListeners = new Map<string, Listener>();
+let focusedWindow: object | null = null;
 let workArea: Electron.Rectangle = { x: 0, y: 0, width: 1600, height: 900 };
 
 const makeWindow = () => {
@@ -76,7 +78,12 @@ const dispatchToMain = mock(() => undefined);
 const logWarn = mock(() => undefined);
 
 mock.module("electron", () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    on: (event: string, listener: Listener) =>
+      appListeners.set(event, listener),
+    off: (event: string) => appListeners.delete(event),
+  },
   BrowserWindow: class {
     static getAllWindows() {
       return created
@@ -85,7 +92,7 @@ mock.module("electron", () => ({
     }
 
     static getFocusedWindow() {
-      return null;
+      return focusedWindow;
     }
   },
   globalShortcut: {
@@ -93,6 +100,7 @@ mock.module("electron", () => ({
       shortcutListeners.set(accelerator, listener);
       return true;
     },
+    unregister: (accelerator: string) => shortcutListeners.delete(accelerator),
   },
   screen: {
     getCursorScreenPoint: () => ({ x: workArea.x, y: workArea.y }),
@@ -102,6 +110,14 @@ mock.module("electron", () => ({
       screenListeners.set(event, listener);
     },
   },
+}));
+const restoreBounds = mock(
+  (_key: string, defaults: { width: number; height: number }) => defaults,
+);
+const trackWindowState = mock((_key: string, _win: unknown) => undefined);
+mock.module("@vellumai/electron-desktop/window-state", () => ({
+  restoreBounds,
+  track: trackWindowState,
 }));
 mock.module("./windows.client", () => ({ createWindow }));
 mock.module("./ipc.client", () => ({
@@ -123,11 +139,15 @@ mock.module("./logger", () => ({
 
 const { default: auxiliaryWindowsModule } =
   await import("./features/auxiliary-windows");
+const { toggleQuickInput } =
+  await import("@vellumai/electron-desktop/quick-input-window");
 beforeAll(() => {
   auxiliaryWindowsModule.install({} as never);
 });
 beforeEach(() => {
   created.length = 0;
+  focusedWindow = null;
+  dispatchToMain.mockClear();
   workArea = { x: 0, y: 0, width: 1600, height: 900 };
 });
 
@@ -155,7 +175,7 @@ describe("Windows auxiliary windows", () => {
 
   test("opens Quick Input from the Windows shortcut and closes on blur", () => {
     workArea = { x: 1600, y: 40, width: 1200, height: 800 };
-    shortcutListeners.get("Control+Shift+/")?.();
+    toggleQuickInput();
     const { options, window } = created[0]!;
     window.emit("ready-to-show");
     expect(options.browserWindow).toMatchObject({
@@ -188,6 +208,27 @@ describe("Windows auxiliary windows", () => {
       { kind: "dismiss" },
     ]);
     expect(window.isDestroyed()).toBe(true);
+  });
+
+  test("Escape cancels dictation only while Vellum is unfocused", () => {
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "recording", transcription: "" },
+    ]);
+    shortcutListeners.get("Escape")?.();
+    expect(dispatchToMain).toHaveBeenCalledWith({ kind: "cancelDictation" });
+
+    dispatchToMain.mockClear();
+    focusedWindow = created[0]!.window;
+    appListeners.get("browser-window-focus")?.();
+    expect(shortcutListeners.has("Escape")).toBe(false);
+
+    focusedWindow = null;
+    appListeners.get("browser-window-blur")?.();
+    onListeners.get("vellum:dictationOverlay:setState")?.([
+      { kind: "dismiss" },
+    ]);
+    expect(shortcutListeners.has("Escape")).toBe(false);
+    expect(dispatchToMain).not.toHaveBeenCalled();
   });
 
   test("polls the cursor against the reported Stop region and unlocks clicks", async () => {
@@ -224,6 +265,9 @@ describe("Windows auxiliary windows", () => {
         "app://vellum.ai/assistant/floating/dictation-overlay",
       );
     } finally {
+      onListeners.get("vellum:dictationOverlay:setState")?.([
+        { kind: "dismiss" },
+      ]);
       delete process.env.VELLUM_LOCAL_RENDERER;
       delete process.env.VELLUM_DEV_URL;
     }
@@ -231,7 +275,7 @@ describe("Windows auxiliary windows", () => {
 
   test("repositions transient windows after a display change", () => {
     handleListeners.get("vellum:commandPalette:open")?.([]);
-    shortcutListeners.get("Control+Shift+/")?.();
+    toggleQuickInput();
     onListeners.get("vellum:dictationOverlay:setState")?.([
       { kind: "recording", transcription: "" },
     ]);
@@ -249,6 +293,11 @@ describe("Windows auxiliary windows", () => {
     popout.emit("ready-to-show");
     handleListeners.get("vellum:popout:open")?.(["conv-123"]);
     expect(popout.isDestroyed()).toBe(false);
+    expect(restoreBounds).toHaveBeenCalledWith("thread.conv-123", {
+      width: 720,
+      height: 800,
+    });
+    expect(trackWindowState).toHaveBeenCalledWith("thread.conv-123", popout);
     expect(options.browserWindow).not.toHaveProperty("parent");
     expect(options.backgroundThrottling).toBe(false);
     expect(popout.loadURL).toHaveBeenCalledWith(

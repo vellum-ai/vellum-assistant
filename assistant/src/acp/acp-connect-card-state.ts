@@ -11,21 +11,38 @@
  * leaving auth unset.
  *
  * In-memory and ephemeral by design: a daemon restart clears it, which fails
- * safe — the redirect simply doesn't fire and the secure prompt is shown. The
- * client re-derives the card itself from persisted history, so nothing UI-facing
- * depends on this surviving a restart. Entries are never cleared during a run:
- * once a card has been raised the redirect stays the right dedup, and a stale
- * entry after connect is harmless (the caller is already connected).
+ * safe. The redirect simply doesn't fire and the secure prompt is shown.
+ *
+ * Cleared for real on a successful token write (`storeAcpClaudeToken`), which
+ * is the moment the cards these entries stand for stop being the right place
+ * to send anyone. Left standing, the redirect keeps pointing the model at a
+ * card for auth that already works, and the persisted history markers the
+ * entries name keep re-raising it on every reload.
  */
-const conversationsWithAcpConnectCard = new Set<string>();
+const conversationsWithAcpConnectCard = new Map<string, string | undefined>();
 
-/** Record that a Connect Claude card was raised for this conversation. */
+/**
+ * Record that a Connect Claude card was raised for this conversation.
+ *
+ * The agent is kept alongside it because deciding later whether the card still
+ * stands means asking what a spawn of that agent would resolve, and precedence
+ * is per agent: a configured `CLAUDE_CODE_OAUTH_TOKEN` on one alias is not the
+ * vault and is not another alias.
+ */
 export function markAcpConnectCardRaised(
   conversationId: string | undefined,
+  agentId?: string,
 ): void {
   if (conversationId) {
-    conversationsWithAcpConnectCard.add(conversationId);
+    conversationsWithAcpConnectCard.set(conversationId, agentId);
   }
+}
+
+/** The agent whose spawn raised this conversation's card, when it was known. */
+export function raisedAcpConnectCardAgent(
+  conversationId: string,
+): string | undefined {
+  return conversationsWithAcpConnectCard.get(conversationId);
 }
 
 /** Whether a Connect Claude card has been raised for this conversation. */
@@ -36,4 +53,28 @@ export function hasAcpConnectCardRaised(
     conversationId != null &&
     conversationsWithAcpConnectCard.has(conversationId)
   );
+}
+
+/**
+ * Hand back every conversation that raised a card and forget them all.
+ *
+ * Take-and-clear rather than a read plus a separate reset: the caller is
+ * retiring these conversations' persisted markers, and an entry left behind
+ * after that would redirect the secure-prompt fallback at a card nothing can
+ * re-raise.
+ */
+export function takeConversationsWithAcpConnectCard(): string[] {
+  const conversationIds = [...conversationsWithAcpConnectCard.keys()];
+  conversationsWithAcpConnectCard.clear();
+  return conversationIds;
+}
+
+/** Forget one conversation's raised card. */
+export function dropAcpConnectCardRaised(conversationId: string): void {
+  conversationsWithAcpConnectCard.delete(conversationId);
+}
+
+/** Every conversation currently believed to have a card up. */
+export function conversationsWithRaisedAcpConnectCard(): string[] {
+  return [...conversationsWithAcpConnectCard.keys()];
 }

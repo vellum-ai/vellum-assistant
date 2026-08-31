@@ -12,8 +12,10 @@ import {
   getOnboardingFunnelSessionId,
   ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
+import { hasOnboardedAssistant } from "@/domains/onboarding/onboarded-assistant";
 import {
   canSkipOnboardingResearch,
+  isNewAssistantFunnel,
   onboardingDestinationAfterConsent,
   withSkipResearch,
 } from "@/domains/onboarding/onboarding-destination";
@@ -37,6 +39,7 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { saveConsent } from "@/lib/consent/consent-persistence";
 import { useTranslation } from "@/i18n";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
@@ -125,9 +128,14 @@ export function PrivacyScreen() {
     // to chat.
     const isLocalHatch =
       isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
+    const alreadyOnboarded = hasOnboardedAssistant(
+      useResolvedAssistantsStore.getState().assistants,
+    );
     const destination = onboardingDestinationAfterConsent({
       isLocalHatch,
       skipResearch,
+      alreadyOnboarded,
+      newAssistant: isNewAssistantFunnel(searchParams),
     });
     const onboardingNext = skipResearch
       ? withSkipResearch(`${destination}${qs ? `?${qs}` : ""}`)
@@ -243,7 +251,7 @@ export function PrivacyScreen() {
             onClick={() => onAdvance(false)}
             className={electron ? undefined : "h-11 text-base"}
           >
-            {t("actions.start")}
+            {t("privacyScreen.start")}
           </Button>
           {showSkipToChat && (
             <Button
@@ -272,7 +280,7 @@ export function PrivacyScreen() {
            * running environment intact on web and native alike.
            */}
           <Button
-            variant="outlined"
+            variant="ghost"
             size="regular"
             fullWidth
             onClick={() =>

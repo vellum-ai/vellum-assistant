@@ -21,7 +21,8 @@ import { retryableCall } from "../retry-policy.js";
 
 const log = getLogger("discord-api");
 
-const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
+/** Exported so a caller validating a not-yet-stored token uses the same base. */
+export const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
 
 /**
  * Discord requires HTTP API clients to identify themselves with a User-Agent

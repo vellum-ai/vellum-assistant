@@ -24,7 +24,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { ProfileAdvancedParams } from "@/domains/settings/ai/profile-advanced-params";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import {
   type ProfileParamVisibility,
   VISIBILITY_NONE,
@@ -558,32 +557,3 @@ describe("ProfileAdvancedParams read-only segment controls", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// M7 PR 5 — snapshot copy is version-gated (write-time completion is 0.10.8+)
-// ---------------------------------------------------------------------------
-
-describe("snapshot helper copy", () => {
-  const SNAPSHOT_COPY = "saved with the values shown";
-
-  afterEach(() => {
-    useAssistantIdentityStore.getState().clearIdentity();
-  });
-
-  test("renders on assistants with write-time completion (0.10.8+)", () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
-    renderParams({ visibility: maxTokensOnly });
-    expect(document.body.textContent).toContain(SNAPSHOT_COPY);
-  });
-
-  test("hidden against pre-0.10.8 assistants (blanks still live-inherit there)", () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.7");
-    renderParams({ visibility: maxTokensOnly });
-    expect(document.body.textContent).not.toContain(SNAPSHOT_COPY);
-  });
-
-  test("hidden in read-only view mode", () => {
-    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
-    renderParams({ visibility: maxTokensOnly, isReadOnly: true });
-    expect(document.body.textContent).not.toContain(SNAPSHOT_COPY);
-  });
-});

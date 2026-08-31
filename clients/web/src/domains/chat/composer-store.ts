@@ -230,6 +230,34 @@ export interface ComposerActions {
   saveDraft: (key: string, text: string) => void;
   /** Clear the draft for the given key (e.g. after a successful send). */
   clearDraft: (key: string) => void;
+  /**
+   * Put a failed send's text back into `key`'s draft slot, unless something is
+   * already there.
+   *
+   * The composer clears the moment a send starts, so a send that fails after
+   * the user has moved to another thread has nowhere on screen to put its text
+   * back: the composer in front of them belongs to a different conversation.
+   * Parking it in the draft map hands the message back the way any unsent draft
+   * is handed back, the next time that thread is opened. The deep-link send
+   * keeps a message for its target thread the same way when the user navigates
+   * away mid-resolve (see `hooks/use-deep-link-thread-send.ts`).
+   *
+   * An occupied slot wins and this does nothing. Whatever is in there was
+   * written after this send left, so it is the newer of the two, and it is what
+   * the user last saw in that composer.
+   *
+   * For a thread that is NOT the one on screen: the write lands in the map, and
+   * the composer picks it up on the switch that opens that conversation. A
+   * caller restoring into the open thread would want {@link setInput} as well.
+   *
+   * `assistantId` is the assistant the SEND belonged to, which is not
+   * necessarily the one loaded now: an assistant switch swaps the in-memory map
+   * out from under a send still in flight. When the two agree this writes the
+   * live map; when they do not it goes straight to that assistant's own
+   * persisted entry, so the message waits where its own conversation will look
+   * for it rather than being filed under a stranger.
+   */
+  restoreFailedDraft: (assistantId: string, key: string, text: string) => void;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -326,6 +354,24 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     if (currentAssistantId) {
       persistDrafts(currentAssistantId, draftsMap);
     }
+  },
+
+  restoreFailedDraft: (assistantId, key, text) => {
+    if (!text.trim()) {
+      return;
+    }
+    // The map in memory belongs to whichever assistant is loaded. Reach for it
+    // only when that is this send's assistant; otherwise read, check and write
+    // that one's stored entry through the same helpers, so the two paths agree
+    // on both the storage key and the serialized shape.
+    const drafts =
+      assistantId === currentAssistantId ? draftsMap : loadDrafts(assistantId);
+    const existing = drafts.get(key);
+    if (existing && existing.trim()) {
+      return;
+    }
+    drafts.set(key, text);
+    persistDrafts(assistantId, drafts);
   },
 
   handleConversationSwitch: ({ previousKey, nextKey }) => {

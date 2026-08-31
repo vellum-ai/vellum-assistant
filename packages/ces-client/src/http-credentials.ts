@@ -16,9 +16,13 @@
  * Auth: Bearer token from a caller-supplied config.
  */
 
+import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export type { CredentialRecord };
 
 /** Result of a credential get operation. */
 export interface CesCredentialGetResult {
@@ -111,6 +115,28 @@ export interface CesHttpCredentialClient {
 
   /** List all credential account names. */
   list(): Promise<CesCredentialListResult>;
+
+  /** Retrieve a credential record (identity + policy) by account name. */
+  getRecord(
+    account: string,
+  ): Promise<{ record: CredentialRecord | undefined; unreachable: boolean }>;
+
+  /** Store or update a credential record. */
+  setRecord(account: string, record: CredentialRecord): Promise<boolean>;
+
+  /** Delete a credential record by account name. */
+  deleteRecord(account: string): Promise<CesDeleteResult>;
+
+  /** List all credential records. */
+  listRecords(): Promise<{
+    records: Array<{ account: string; record: CredentialRecord }>;
+    unreachable: boolean;
+  }>;
+
+  /** Bulk-set credential records. */
+  bulkSetRecords(
+    records: Array<{ account: string; record: CredentialRecord }>,
+  ): Promise<Array<{ account: string; ok: boolean }>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +316,141 @@ export function createCesHttpCredentialClient(
           "CES credential list threw unexpectedly",
         );
         return { accounts: [], unreachable: true };
+      }
+    },
+
+    async getRecord(account: string) {
+      try {
+        const res = await cesRequest(
+          config,
+          logger,
+          "GET",
+          `/v1/metadata/${encodeURIComponent(account)}`,
+        );
+        if (!res) {
+          return { record: undefined, unreachable: true };
+        }
+        if (res.status === 404) {
+          return { record: undefined, unreachable: false };
+        }
+        if (!res.ok) {
+          logger.warn(
+            { account, status: res.status },
+            "CES credential record get returned non-OK status",
+          );
+          return { record: undefined, unreachable: true };
+        }
+        const data = (await res.json()) as { record?: CredentialRecord };
+        return { record: data.record, unreachable: false };
+      } catch (err) {
+        logger.warn(
+          { err, account } as Record<string, unknown>,
+          "CES credential record get threw unexpectedly",
+        );
+        return { record: undefined, unreachable: true };
+      }
+    },
+
+    async setRecord(account: string, record: CredentialRecord) {
+      try {
+        const res = await cesRequest(
+          config,
+          logger,
+          "PUT",
+          `/v1/metadata/${encodeURIComponent(account)}`,
+          { record },
+        );
+        return !!res?.ok;
+      } catch (err) {
+        logger.warn(
+          { err, account } as Record<string, unknown>,
+          "CES credential record set threw unexpectedly",
+        );
+        return false;
+      }
+    },
+
+    async deleteRecord(account: string) {
+      try {
+        const res = await cesRequest(
+          config,
+          logger,
+          "DELETE",
+          `/v1/metadata/${encodeURIComponent(account)}`,
+        );
+        if (!res) {
+          return "error";
+        }
+        if (res.status === 404) {
+          return "not-found";
+        }
+        if (!res.ok) {
+          return "error";
+        }
+        return "deleted";
+      } catch (err) {
+        logger.warn(
+          { err, account } as Record<string, unknown>,
+          "CES credential record delete threw unexpectedly",
+        );
+        return "error";
+      }
+    },
+
+    async listRecords() {
+      try {
+        const res = await cesRequest(
+          config,
+          logger,
+          "GET",
+          "/v1/metadata",
+        );
+        if (!res) {
+          return { records: [], unreachable: true };
+        }
+        if (!res.ok) {
+          return { records: [], unreachable: true };
+        }
+        const data = (await res.json()) as {
+          records?: Array<{ account: string; record: CredentialRecord }>;
+        };
+        return { records: data.records ?? [], unreachable: false };
+      } catch (err) {
+        logger.warn(
+          { err } as Record<string, unknown>,
+          "CES credential record list threw unexpectedly",
+        );
+        return { records: [], unreachable: true };
+      }
+    },
+
+    async bulkSetRecords(
+      records: Array<{ account: string; record: CredentialRecord }>,
+    ) {
+      try {
+        const res = await cesRequest(
+          config,
+          logger,
+          "POST",
+          "/v1/metadata/bulk",
+          { records },
+        );
+        if (!res?.ok) {
+          return records.map((entry) => ({
+            account: entry.account,
+            ok: false,
+          }));
+        }
+        const data = (await res.json()) as {
+          results: Array<{ account: string; ok: boolean }>;
+        };
+        return data.results;
+      } catch (err) {
+        logger.warn(
+          { err } as Record<string, unknown>,
+          "CES credential record bulk set threw unexpectedly",
+        );
+        return records.map((entry) => ({ account: entry.account, ok: false }));
       }
     },
   };

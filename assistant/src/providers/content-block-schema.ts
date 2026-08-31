@@ -74,6 +74,7 @@ const imageContentSchema = z
   .object({
     type: z.literal("image"),
     source: mediaSourceSchema,
+    _attachmentId: z.string().optional(),
   })
   .passthrough();
 

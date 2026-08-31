@@ -11,6 +11,7 @@ import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
 import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
+import { isPluginChannel } from "@/domains/contacts/components/contact-channels-section";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/components/generate-invite-link-dialog";
@@ -19,6 +20,7 @@ import { LinkAccountDialog } from "@/domains/contacts/components/link-account-di
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
   deleteContact as gatewayDeleteContact,
+  linkContactChannelAccount,
   upsertContact,
   verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
@@ -50,9 +52,11 @@ import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
 
 /**
- * Hardcoded fallback for assistants that don't expose
- * `/v1/channels/available` yet. Needed for backward compatibility
- * with older gateway versions.
+ * The channel set for an assistant that serves no `/v1/channels/available`.
+ *
+ * Holds only channels such an assistant can actually run, which is why it does
+ * not track the daemon's list: a row here for a channel that assistant lacks
+ * would offer a setup flow that goes nowhere.
  */
 const DEFAULT_CHANNELS: ChannelInfo[] = [
   {
@@ -171,10 +175,17 @@ export function ContactsPage({
         signal,
         throwOnError: false,
       });
-      if (!response || response.status === 404) {
+      // The fallback answers one case: an assistant with no availability
+      // route, which serves 404. Any other failure means the channel set is
+      // unknown, and a list rendered from a failed request reads as
+      // authoritative while naming channels this assistant may not have.
+      if (response?.status === 404) {
         return {
           channels: DEFAULT_CHANNELS,
         } satisfies ChannelsAvailableGetResponse;
+      }
+      if (!response) {
+        throw error ?? new Error("Failed to fetch channel availability");
       }
       if (!response.ok) {
         throw error ?? new Error("Failed to fetch channel availability");
@@ -185,6 +196,10 @@ export function ContactsPage({
   });
 
   const availableChannels = availabilityQuery.data ?? EMPTY_CHANNELS;
+  // An empty list and a failed lookup both render no channels, so the failure
+  // has to say so. Without this the page claims the assistant has no channels
+  // to set up, which is a different and wrong statement.
+  const channelsLoadFailed = availabilityQuery.isError;
 
   const contactsData = contactsQuery.data;
   const guardian = useMemo(
@@ -296,6 +311,37 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
+  const thresholdMutation = useMutation({
+    mutationFn: ({
+      contactId,
+      displayName,
+      autoApproveThreshold,
+    }: {
+      contactId: string;
+      displayName: string;
+      autoApproveThreshold: ContactPayload["autoApproveThreshold"];
+    }) =>
+      upsertContact(assistantId, {
+        id: contactId,
+        displayName,
+        autoApproveThreshold,
+      }),
+    onSuccess: (updatedContact) => {
+      contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.map((c) =>
+                c.id === updatedContact.id ? updatedContact : c,
+              ),
+            }
+          : undefined,
+      );
+    },
+    onError: toastOnError(t("contactPermissions.saveFailed")),
+    onSettled: () => invalidateContacts(),
+  });
+
   const mergeMutation = useContactsMergePostMutation({
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
@@ -372,7 +418,10 @@ export function ContactsPage({
         return;
       }
       const info = availableChannels.find((ch) => ch.id === type);
-      const prompt = info?.setupMessages.contact;
+      if (!info || isPluginChannel(info)) {
+        return;
+      }
+      const prompt = info.setupMessages.contact;
       if (!prompt) {
         return;
       }
@@ -387,7 +436,10 @@ export function ContactsPage({
         return;
       }
       const info = availableChannels.find((ch) => ch.id === type);
-      const prompt = info?.setupMessages.guardian;
+      if (!info || isPluginChannel(info)) {
+        return;
+      }
+      const prompt = info.setupMessages.guardian;
       if (!prompt) {
         return;
       }
@@ -403,20 +455,43 @@ export function ContactsPage({
     onError: toastOnError(t("contactsPage.verifyFailed")),
   });
 
-  const handleVerifyChannel = useCallback(
-    (type: string) => {
+  const linkAndVerifyMutation = useMutation({
+    mutationFn: (args: { type: string; address: string }) => {
       if (!selectedContact) {
+        throw new Error("No contact selected");
+      }
+      return linkContactChannelAccount(
+        assistantId,
+        {
+          id: selectedContact.id,
+          displayName: selectedContact.displayName,
+        },
+        { type: args.type, address: args.address },
+      );
+    },
+    onSuccess: () => invalidateContacts(),
+    onError: toastOnError(t("contactsPage.verifyFailed")),
+  });
+
+  const handleVerifyChannel = useCallback(
+    (type: string, address?: string) => {
+      if (!selectedContact) {
+        return;
+      }
+      const trimmedAddress = address?.trim();
+      if (trimmedAddress) {
+        linkAndVerifyMutation.mutate({ type, address: trimmedAddress });
         return;
       }
       const channel = selectedContact.channels.find(
         (ch) => ch.type === type && ch.status !== "revoked",
       );
-      if (!channel) {
+      if (!channel?.address?.trim()) {
         return;
       }
       verifyChannelMutation.mutate({ channelId: channel.id });
     },
-    [selectedContact, verifyChannelMutation],
+    [selectedContact, linkAndVerifyMutation, verifyChannelMutation],
   );
 
   const slackLink = useAccountLink({
@@ -435,11 +510,13 @@ export function ContactsPage({
     select: (data) => data.users,
   });
 
-  // Without configured Slack credentials the roster can only 503, so the
-  // Link action is offered only when the Slack connection is ready —
-  // otherwise the row keeps Invite as its sole (working) action.
+  // Without configured Slack credentials the roster can only 503, so the Link
+  // action is offered only once Slack is set up. Configuration, not liveness:
+  // the roster is an outbound Web API call, so it answers perfectly well while
+  // the inbound Socket Mode connection is down, and gating on the connection
+  // state would hide a working action during a reconnect.
   const slackReady = channelsController.channels.some(
-    (channel) => channel.key === "slack" && channel.status === "ready",
+    (channel) => channel.key === "slack" && channel.configured,
   );
 
   const handleLinkAccount = useCallback(
@@ -463,18 +540,34 @@ export function ContactsPage({
     if (!selectedContact) {
       return null;
     }
+    let next = selectedContact;
     if (
       updateMutation.isPending &&
       updateMutation.variables?.contactId === selectedContact.id
     ) {
-      return {
-        ...selectedContact,
+      next = {
+        ...next,
         displayName: updateMutation.variables.patch.displayName,
         notes: updateMutation.variables.patch.notes,
       };
     }
-    return selectedContact;
-  }, [selectedContact, updateMutation.isPending, updateMutation.variables]);
+    if (
+      thresholdMutation.isPending &&
+      thresholdMutation.variables?.contactId === selectedContact.id
+    ) {
+      next = {
+        ...next,
+        autoApproveThreshold: thresholdMutation.variables.autoApproveThreshold,
+      };
+    }
+    return next;
+  }, [
+    selectedContact,
+    updateMutation.isPending,
+    updateMutation.variables,
+    thresholdMutation.isPending,
+    thresholdMutation.variables,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -561,10 +654,14 @@ export function ContactsPage({
             <GuardianDetailView
               contact={optimisticContact}
               savePending={updateMutation.isPending}
-              verifyPending={verifyChannelMutation.isPending}
+              verifyPending={
+                verifyChannelMutation.isPending ||
+                linkAndVerifyMutation.isPending
+              }
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
+              channelsLoadFailed={channelsLoadFailed}
               a2aEnabled={a2aChannel}
               onSave={(patch) => {
                 updateMutation.mutate({
@@ -587,10 +684,14 @@ export function ContactsPage({
               contact={optimisticContact}
               savePending={updateMutation.isPending}
               deletePending={deleteMutation.isPending}
-              verifyPending={verifyChannelMutation.isPending}
+              verifyPending={
+                verifyChannelMutation.isPending ||
+                linkAndVerifyMutation.isPending
+              }
               mergePending={mergeMutation.isPending}
               canMerge={canMerge}
               availableChannels={availableChannels}
+              channelsLoadFailed={channelsLoadFailed}
               a2aEnabled={a2aChannel}
               onSave={(patch) => {
                 updateMutation.mutate({
@@ -608,6 +709,14 @@ export function ContactsPage({
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onLinkAccount={slackReady ? handleLinkAccount : undefined}
+              pendingAutoApproveThreshold={thresholdMutation.isPending}
+              onAutoApproveThresholdChange={(autoApproveThreshold) => {
+                thresholdMutation.mutate({
+                  contactId: optimisticContact.id,
+                  displayName: optimisticContact.displayName,
+                  autoApproveThreshold,
+                });
+              }}
             />
           )
         ) : (

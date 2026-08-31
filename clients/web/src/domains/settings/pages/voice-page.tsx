@@ -20,6 +20,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { ListeningLanguageCard } from "@/domains/settings/pages/listening-language-card";
 import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
 import { PushToTalkCard } from "@/domains/settings/pages/push-to-talk-card";
+import { TurnDetectionRow } from "@/domains/settings/pages/turn-detection-row";
 import { supportsKeyboardActivation } from "@/utils/keyboard-activation-host";
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
@@ -473,6 +474,13 @@ function VoiceModeShortcutCard() {
     [recorder, selectActivator],
   );
 
+  // "Nothing" is also an answer to the one question: clear the Fn binding
+  // and the recorded Talk chord so no keyboard path starts a session.
+  const chooseOff = useCallback(() => {
+    selectActivator({ kind: "off" });
+    recorder.removeHotkey(TALK_HOTKEY_KEY);
+  }, [recorder, selectActivator]);
+
   const beginRecording = useCallback(() => {
     setIsRecording(true);
     setPendingModifiers([]);
@@ -634,6 +642,16 @@ function VoiceModeShortcutCard() {
                   : () => recorder.startRecording(TALK_HOTKEY_KEY)
               }
             />
+            {/* A recorded chord also stores `off` locally (the chord itself
+                lives in `settings.hotkeys`), so Off is only the selected
+                answer when no chord is bound either. */}
+            <ActivationKeyOption
+              label={t("voicePage.offKeyLabel")}
+              selected={
+                activator.kind === "off" && !talkAccelerator && !recordingTalk
+              }
+              onClick={chooseOff}
+            />
           </div>
 
           {/* An offer the host has already refused. Fn is presented as the
@@ -783,6 +801,10 @@ function ConversationTuningCard() {
       subtitle={t("voicePage.turnTakingSubtitle")}
     >
       <div className="flex flex-col gap-5">
+        {/* First because it decides who ends the turn at all; the rows below
+            tune the local detector it can take over from. */}
+        <TurnDetectionRow />
+
         <TuningRow
           label={t("voicePage.pauseBeforeReplyLabel")}
           description={t("voicePage.pauseBeforeReplyDescription")}

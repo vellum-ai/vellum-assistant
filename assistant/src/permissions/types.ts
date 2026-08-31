@@ -1,3 +1,5 @@
+import type { ChannelConversationType } from "@vellumai/gateway-client";
+
 export type { AllowlistOption, ScopeOption } from "../tools/tool-types.js";
 export { RiskLevel } from "../tools/tool-types.js";
 
@@ -33,10 +35,6 @@ export const THRESHOLD_ORDINAL: Record<string, number> = {
 };
 
 export type UserDecision = "allow" | "deny";
-
-export function isAllowDecision(decision: UserDecision): boolean {
-  return decision === "allow";
-}
 
 export interface PermissionCheckResult {
   decision: "allow" | "deny" | "prompt";
@@ -79,7 +77,7 @@ export interface PolicyContext {
    * Conversation type on the permission-matrix axis (dm | private | public),
    * for the channel-type tier of cell resolution.
    */
-  channelConversationType?: string;
+  channelConversationType?: ChannelConversationType;
   /**
    * Whether procedural-memory-as-skills is active for this assistant (memory-v3
    * is live). Precomputed in {@link buildPolicyContext} so the checker can gate
@@ -88,4 +86,9 @@ export interface PolicyContext {
    * grant then never fires.
    */
   procToSkillsActive?: boolean;
+  /**
+   * Contact ID of the requester's member record. The threshold reader looks
+   * up this contact's auto-approve ceiling from the gateway at use time.
+   */
+  requesterContactId?: string;
 }

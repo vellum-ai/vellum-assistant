@@ -48,6 +48,7 @@ Detailed reference documentation for the Vellum Assistant platform. For an overv
 This repository includes git hooks to help maintain code quality and security. They are wired up automatically: `assistant/`'s `postinstall` (and `setup.sh`) point `core.hooksPath` at `.githooks/`.
 
 To wire them up by hand:
+
 ```bash
 git config core.hooksPath .githooks
 ```
@@ -102,19 +103,19 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 #### Troubleshooting (Sandbox)
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
-| `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
-| `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
-| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `$VELLUM_WORKSPACE_DIR` path (or your custom `dataDir` path) |
-| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
+| Symptom                                                                      | Cause                                                                   | Fix                                                                                                                                |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `Docker CLI is not installed or not in PATH`                                 | Docker is not installed                                                 | Install Docker: https://docs.docker.com/get-docker/                                                                                |
+| `Docker daemon is not running`                                               | Docker Desktop is not started or systemd service is stopped             | Start Docker Desktop, or run `sudo systemctl start docker` on Linux                                                                |
+| `Docker image "..." is not available locally`                                | The configured image has not been pulled                                | Run `docker pull <image>` with the full image reference including the sha256 digest                                                |
+| `Cannot bind-mount the sandbox root into a Docker container`                 | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `$VELLUM_WORKSPACE_DIR` path (or your custom `dataDir` path) |
+| `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled             | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora)                                  |
 
 ### Credential Storage and Secret Security
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
-- **Storage**: Secret values are stored via the Credential Execution Service (CES) or the encrypted file store (`~/.vellum/protected/keys.enc`). The daemon resolves credential storage via CES RPC (primary), CES HTTP (containerized/Docker), or encrypted file store (fallback). Metadata (service, field, label, usage policy) is stored in a JSON file at `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json`.
+- **Storage**: Secret values are stored via the Credential Execution Service (CES) or the encrypted file store (`~/.vellum/protected/keys.enc`). The daemon resolves credential storage via CES RPC (primary), CES HTTP (containerized/Docker), or encrypted file store (fallback). Credential identity and policy (`allowedTools`, `allowedDomains`, `injectionTemplates`) live in the CES metadata store (`<cesDataRoot>/metadata.json`).
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
@@ -125,6 +126,7 @@ See [`assistant/docs/architecture/security.md`](../assistant/docs/architecture/s
 #### Credential References
 
 When using `credential_ids` in proxied shell commands, you can use either format:
+
 - **UUID**: The canonical credential ID (shown in `assistant credentials list` output and `set`/`prompt` success messages)
 - **service/field**: A human-readable reference like `fal/api_key`
 
@@ -133,6 +135,7 @@ Unknown references fail immediately with a clear error before the command execut
 #### Wildcard Host Matching
 
 Wildcard patterns like `*.fal.run` match:
+
 - Subdomains: `api.fal.run`, `queue.fal.run`
 - The bare domain: `fal.run`
 
@@ -146,7 +149,7 @@ When multiple credentials are passed to a proxied command via `credential_ids`, 
 
 2. **Cross-credential resolution**: After selecting the best template per credential, the proxy checks how many credentials produced a match. If exactly one credential matches, its header is injected. If **more than one credential** matches the same host, the request is **blocked** — the proxy cannot determine which credential to use and refuses to guess.
 
-Requests that match zero session credentials are handled in two ways: if the target host matches a known credential template in the global registry (i.e., *some* credential exists for that host, just not one bound to this session), the request is **blocked** by default. If the host is completely unknown to the credential system, the request passes through without injection.
+Requests that match zero session credentials are handled in two ways: if the target host matches a known credential template in the global registry (i.e., _some_ credential exists for that host, just not one bound to this session), the request is **blocked** by default. If the host is completely unknown to the credential system, the request passes through without injection.
 
 **Example**: If credential A has pattern `*.example.com` and credential B has pattern `api.example.com`, a request to `api.example.com` is blocked because both credentials match (even though B's match is more specific — specificity is only compared within a single credential, not across credentials).
 
@@ -162,15 +165,15 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 
 ### Auto-Approve Threshold and Trust Rules
 
-The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database, not in config.json. The assistant reads them via IPC (`get_global_thresholds`, `get_conversation_threshold`). When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
+The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Auto-approve thresholds are **gateway-owned** (they live in the gateway's SQLite database, not in config.json). The assistant reads them via IPC (`get_global_thresholds`, `get_conversation_threshold`, `get_contact_threshold`). Operators write a contact ceiling via `gateway contacts set-risk-threshold`. When the gateway is unreachable, the assistant defaults to `"none"` (Strict): fail-closed with no local fallback.
 
 Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. The three execution contexts each have their own default:
 
-| Context | Default threshold | Behavior |
-|---|---|---|
-| `conversation` (interactive) | `"low"` | Low-risk tools auto-approved; Medium and High risk prompt. |
-| `background` (scheduled/guardian) | `"medium"` | Low and Medium risk auto-approved; High risk prompts. |
-| `headless` (non-guardian automated) | `"none"` | All tool invocations prompt — no implicit auto-allow. |
+| Context                             | Default threshold | Behavior                                                   |
+| ----------------------------------- | ----------------- | ---------------------------------------------------------- |
+| `conversation` (interactive)        | `"low"`           | Low-risk tools auto-approved; Medium and High risk prompt. |
+| `background` (scheduled/guardian)   | `"medium"`        | Low and Medium risk auto-approved; High risk prompts.      |
+| `headless` (non-guardian automated) | `"none"`          | All tool invocations prompt — no implicit auto-allow.      |
 
 #### Trust rules
 
@@ -240,11 +243,11 @@ Installed managed skills are discovered from valid directories under `$VELLUM_WO
 
 #### Tools
 
-| Tool | Risk Level | Description |
-|------|-----------|-------------|
-| `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
-| `delete_managed_skill` | High | Remove a managed skill directory. |
+| Tool                       | Risk Level | Description                                                                                                                                         |
+| -------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `evaluate_typescript_code` | High       | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`.                                 |
+| `scaffold_managed_skill`   | High       | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
+| `delete_managed_skill`     | High       | Remove a managed skill directory.                                                                                                                   |
 
 All three tools require explicit user approval before execution (Risk Level = High).
 
@@ -268,6 +271,7 @@ includes: ["data-analysis", "report-generator"]
 ```
 
 When a parent skill is loaded via `skill_load`:
+
 - The include graph is validated recursively (missing children and cycles are rejected).
 - Immediate child metadata (ID, name, description, path) is shown in the output.
 - Child skills are **not** automatically activated — the agent must explicitly call `skill_load` for each child it needs.
@@ -295,25 +299,25 @@ Each browser operation has a corresponding CLI subcommand with typed flags. Run 
 
 #### Available operations
 
-| Operation | CLI Subcommand | Description |
-|-----------|---------------|-------------|
-| `navigate` | `assistant browser navigate` | Navigate to a URL |
-| `snapshot` | `assistant browser snapshot` | List interactive elements |
-| `screenshot` | `assistant browser screenshot` | Take a visual screenshot |
-| `close` | `assistant browser close` | Close the browser page |
-| `attach` | `assistant browser attach` | Attach Chrome debugger |
-| `detach` | `assistant browser detach` | Detach Chrome debugger |
-| `click` | `assistant browser click` | Click an element |
-| `type` | `assistant browser type` | Type text into an input |
-| `press_key` | `assistant browser press-key` | Press a keyboard key |
-| `scroll` | `assistant browser scroll` | Scroll the page |
-| `select_option` | `assistant browser select-option` | Select a dropdown option |
-| `hover` | `assistant browser hover` | Hover over an element |
-| `wait_for` | `assistant browser wait-for` | Wait for a condition |
-| `extract` | `assistant browser extract` | Extract page text content |
-| `wait_for_download` | `assistant browser wait-for-download` | Wait for a file download |
-| `fill_credential` | `assistant browser fill-credential` | Fill a stored credential |
-| `status` | `assistant browser status` | Check browser readiness |
+| Operation           | CLI Subcommand                        | Description               |
+| ------------------- | ------------------------------------- | ------------------------- |
+| `navigate`          | `assistant browser navigate`          | Navigate to a URL         |
+| `snapshot`          | `assistant browser snapshot`          | List interactive elements |
+| `screenshot`        | `assistant browser screenshot`        | Take a visual screenshot  |
+| `close`             | `assistant browser close`             | Close the browser page    |
+| `attach`            | `assistant browser attach`            | Attach Chrome debugger    |
+| `detach`            | `assistant browser detach`            | Detach Chrome debugger    |
+| `click`             | `assistant browser click`             | Click an element          |
+| `type`              | `assistant browser type`              | Type text into an input   |
+| `press_key`         | `assistant browser press-key`         | Press a keyboard key      |
+| `scroll`            | `assistant browser scroll`            | Scroll the page           |
+| `select_option`     | `assistant browser select-option`     | Select a dropdown option  |
+| `hover`             | `assistant browser hover`             | Hover over an element     |
+| `wait_for`          | `assistant browser wait-for`          | Wait for a condition      |
+| `extract`           | `assistant browser extract`           | Extract page text content |
+| `wait_for_download` | `assistant browser wait-for-download` | Wait for a file download  |
+| `fill_credential`   | `assistant browser fill-credential`   | Fill a stored credential  |
+| `status`            | `assistant browser status`            | Check browser readiness   |
 
 #### Permissions
 
@@ -375,11 +379,11 @@ URLs inside code blocks and code spans are never converted to embeds.
 
 Media embeds are controlled by settings under `ui.mediaEmbeds` in `$VELLUM_WORKSPACE_DIR/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | `true` | Global toggle for all inline media embeds |
-| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
-| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
+| Setting                 | Default                                                | Description                                                                                                                          |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`               | `true`                                                 | Global toggle for all inline media embeds                                                                                            |
+| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds                                                                                               |
+| `enabledSince`          | _(timestamp)_                                          | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
 
 #### Security and Privacy
 
@@ -404,10 +408,10 @@ GET /v1/events?conversationId=<id>
 
 **Query params**:
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `conversationId` | No | The assistant-minted internal conversation UUID. Preferred for vellum-managed conversations. When supplied, looks up the conversation directly; 404 if it doesn't exist. When omitted (along with `conversationKey`), subscribes to events from all conversations. |
-| `conversationKey` | No | The external key used by non-vellum channel adapters (Telegram, WhatsApp, etc.) — same key used for `POST /v1/assistants/:id/runs`. Legacy alias on this endpoint; supported indefinitely for external clients. When both are supplied, `conversationId` wins. |
+| Parameter         | Required | Description                                                                                                                                                                                                                                                        |
+| ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `conversationId`  | No       | The assistant-minted internal conversation UUID. Preferred for vellum-managed conversations. When supplied, looks up the conversation directly; 404 if it doesn't exist. When omitted (along with `conversationKey`), subscribes to events from all conversations. |
+| `conversationKey` | No       | The external key used by non-vellum channel adapters (Telegram, WhatsApp, etc.) — same key used for `POST /v1/assistants/:id/runs`. Legacy alias on this endpoint; supported indefinitely for external clients. When both are supplied, `conversationId` wins.     |
 
 **Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
 
@@ -445,19 +449,19 @@ Each `data` field is a JSON-serialized `AssistantEvent`:
 
 The `message` field is the `ServerMessage` payload. All delta semantics are preserved:
 
-| Message type | Description |
-|---|---|
-| `assistant_text_delta` | Incremental text token from the model |
-| `assistant_thinking_delta` | Incremental thinking/reasoning token |
-| `tool_use_start` | Tool invocation starting |
-| `tool_input_delta` | Streaming tool input chunk |
-| `tool_output_chunk` | Streaming tool output chunk |
-| `tool_result` | Tool execution result |
-| `message_complete` | Turn complete; full message + attachments included |
-| `confirmation_request` | User approval needed before an action executes |
-| `generation_handoff` | Model handed off to a sub-agent |
-| `generation_cancelled` | Run was cancelled |
-| `sync_changed` | Persisted resource invalidation; clients inspect `tags` and refetch existing endpoints |
+| Message type               | Description                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------- |
+| `assistant_text_delta`     | Incremental text token from the model                                                  |
+| `assistant_thinking_delta` | Incremental thinking/reasoning token                                                   |
+| `tool_use_start`           | Tool invocation starting                                                               |
+| `tool_input_delta`         | Streaming tool input chunk                                                             |
+| `tool_output_chunk`        | Streaming tool output chunk                                                            |
+| `tool_result`              | Tool execution result                                                                  |
+| `message_complete`         | Turn complete; full message + attachments included                                     |
+| `confirmation_request`     | User approval needed before an action executes                                         |
+| `generation_handoff`       | Model handed off to a sub-agent                                                        |
+| `generation_cancelled`     | Run was cancelled                                                                      |
+| `sync_changed`             | Persisted resource invalidation; clients inspect `tags` and refetch existing endpoints |
 
 #### Connection Management
 
@@ -470,15 +474,15 @@ The `message` field is the `ServerMessage` payload. All delta semantics are pres
 The standard browser `EventSource` API does not support custom request headers, so authenticated connections require `fetch()` with manual SSE stream parsing:
 
 ```js
-const TOKEN = '<jwt>'; // JWT obtained via the guardian bootstrap flow or assistant auth system
+const TOKEN = "<jwt>"; // JWT obtained via the guardian bootstrap flow or assistant auth system
 const res = await fetch(
-  'http://localhost:3001/v1/events?conversationId=a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  "http://localhost:3001/v1/events?conversationId=a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   { headers: { Authorization: `Bearer ${TOKEN}` } },
 );
 
 const reader = res.body.getReader();
 const decoder = new TextDecoder();
-let buf = '';
+let buf = "";
 
 while (true) {
   const { done, value } = await reader.read();
@@ -486,11 +490,11 @@ while (true) {
   buf += decoder.decode(value, { stream: true });
 
   // SSE frames are separated by a blank line (\n\n).
-  const frames = buf.split('\n\n');
-  buf = frames.pop() ?? ''; // keep the incomplete trailing chunk
+  const frames = buf.split("\n\n");
+  buf = frames.pop() ?? ""; // keep the incomplete trailing chunk
 
   for (const frame of frames) {
-    const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+    const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
     if (!dataLine) continue;
     const event = JSON.parse(dataLine.slice(6));
     console.log(event.message.type, event.message);
@@ -524,12 +528,12 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 
 #### Troubleshooting
 
-| Symptom | Check |
-|---|---|
-| CLI: "could not connect to assistant" | Is the SSH port tunnel active? Check `VELLUM_DAEMON_URL` |
-| CLI: assistant starts locally despite remote override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
-| macOS: not connecting | Verify the assistant URL is reachable |
-| Any: "connection refused" | Is the remote assistant running? (`vellum ps` on remote) |
+| Symptom                                               | Check                                                    |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| CLI: "could not connect to assistant"                 | Is the SSH port tunnel active? Check `VELLUM_DAEMON_URL` |
+| CLI: assistant starts locally despite remote override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1`   |
+| macOS: not connecting                                 | Verify the assistant URL is reachable                    |
+| Any: "connection refused"                             | Is the remote assistant running? (`vellum ps` on remote) |
 
 ## Development Workflow
 
@@ -539,41 +543,41 @@ This repo includes Claude Code slash commands for agent-driven development. Most
 
 #### Single-task commands
 
-| Command | Purpose |
-|---------|---------|
+| Command             | Purpose                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
 | `/do <description>` | Implement a change in an isolated worktree, create a PR, squash-merge it to main, and clean up. |
-| `/mainline` | Ship uncommitted changes already in your working tree to main via a squash-merged PR. |
+| `/mainline`         | Ship uncommitted changes already in your working tree to main via a squash-merged PR.           |
 
 #### Multi-task / parallel commands
 
-| Command | Purpose |
-|---------|---------|
-| `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
-| `/swarm [workers] [max-tasks] [--namespace NAME]` | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user. |
-| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then gates each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles). Runs a **recursive sweep loop** (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge PRs immediately without waiting for reviews (opt-in; default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then automatically runs a final sweep on the entire feature branch (no user approval prompt). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`. |
-| `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
-| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`. |
+| Command                                                             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/brainstorm`                                                       | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `/swarm [workers] [max-tasks] [--namespace NAME]`                   | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user.                                                                                                                                                                                                                                                                                                                                         |
+| `/blitz <feature>`                                                  | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then gates each PR on Codex/Devin review approval before merging (per-PR feedback loops with up to 3 fix cycles). Runs a **recursive sweep loop** (check reviews, swarm to address feedback, review and merge feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Supports `--auto`, `--workers N`, `--skip-plan`, `--skip-reviews`. Pass `--skip-reviews` to merge PRs immediately without waiting for reviews (opt-in; default is to wait). Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
+| `/safe-blitz <feature>`                                             | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then automatically runs a final sweep on the entire feature branch (no user approval prompt). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--workers N`, `--skip-plan`, `--branch NAME`.                                                                                                      |
+| `/safe-blitz-done [PR\|branch]`                                     | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 #### Plan execution
 
-| Command | Purpose |
-|---------|---------|
-| `/create-plan <feature>` | Break a feature into a handoff-ready PR-by-PR plan with explicit dependency tracking for parallel execution. Writes a private draft to `.private/plans/<slug>.md`. |
-| `/run-plan <slug>` | Execute a plan from `.private/plans/<slug>.md` with dependency-aware parallel execution, self-review, and gap remediation. Attaches the full plan to implementation PRs as the durable papertrail. |
-| `/safe-check-review [file]` | Check the active safe-plan PR for review feedback from Codex, Devin, humans, and CI, and address it. |
+| Command                     | Purpose                                                                                                                                                                                            |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/create-plan <feature>`    | Break a feature into a handoff-ready PR-by-PR plan with explicit dependency tracking for parallel execution. Writes a private draft to `.private/plans/<slug>.md`.                                 |
+| `/run-plan <slug>`          | Execute a plan from `.private/plans/<slug>.md` with dependency-aware parallel execution, self-review, and gap remediation. Attaches the full plan to implementation PRs as the durable papertrail. |
+| `/safe-check-review [file]` | Check the active safe-plan PR for review feedback from Codex, Devin, humans, and CI, and address it.                                                                                               |
 
 #### Utility
 
-| Command | Purpose |
-|---------|---------|
+| Command           | Purpose                                                                                                                                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/release [bump]` | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
-| `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
+| `/update`         | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary.                                |
 
 #### Review
 
-| Command | Purpose |
-|---------|---------|
+| Command                             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). |
 
 #### Typical flow
@@ -598,7 +602,7 @@ Releases are cut using the `/release` Claude Code command and follow a two-step 
 Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
 1. Pulls the latest `main` branch and shows the commits the release will carry
-2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it — which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Fri 8:52am ET cut is this same step)
+2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it, which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Thu 7:52am ET cut is this same step)
 3. Waits for the staging bake to succeed — it is the CI bake for the exact release payload; a failure means fixing `main` and re-cutting
 4. Dispatches `release.yml` on `release/vX.Y.Z` — "manual dispatch on a release branch" is the **full production release**: tags `vX.Y.Z`, publishes npm packages, builds/signs/notarizes and publishes the macOS DMG, pushes Docker Hub images, uploads iOS to TestFlight, creates the GitHub Release, updates the `vellum-assistant-platform` dependency, and merges the release branch back to `main`
 
@@ -644,13 +648,13 @@ Workspace migration `034-remove-calls-voice-transcription-provider` preserves ex
 
 ### Troubleshooting Matrix
 
-| Symptom | Check | Where to Look |
-| ------- | ----- | ------------- |
-| Inbound call answers with "setup required" and hangs up | STT or TTS credentials missing — the credential preflight failed | `telephony_credential_preflight_failed` call event with the `missing` provider details |
-| Outbound call fails before dialing | Same preflight; the tool error names the missing provider credential | Calling tool result / `preflightVoiceIngress()` failure message |
-| Call connects, TTS works, but STT silent | Verify the configured STT provider's API key; check the media-stream server is reachable via gateway | `media-stream-stt-session` logs |
-| Media-stream WebSocket fails to connect | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
-| Audio heard but transcription garbled | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
+| Symptom                                                 | Check                                                                                                                | Where to Look                                                                          |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Inbound call answers with "setup required" and hangs up | STT or TTS credentials missing — the credential preflight failed                                                     | `telephony_credential_preflight_failed` call event with the `missing` provider details |
+| Outbound call fails before dialing                      | Same preflight; the tool error names the missing provider credential                                                 | Calling tool result / `preflightVoiceIngress()` failure message                        |
+| Call connects, TTS works, but STT silent                | Verify the configured STT provider's API key; check the media-stream server is reachable via gateway                 | `media-stream-stt-session` logs                                                        |
+| Media-stream WebSocket fails to connect                 | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable                                       | `[gateway] media-stream WebSocket proxy connected`                                     |
+| Audio heard but transcription garbled                   | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result`                                      |
 
 ### Twilio Media-Stream Troubleshooting
 
@@ -660,28 +664,28 @@ This section covers debugging media-stream calls. The media-stream path handles 
 
 Search daemon logs for the `media-stream-server` and `media-stt-session` logger categories. Each log entry includes `callSessionId` for correlation.
 
-| Log message | Logger | Meaning |
-| --- | --- | --- |
-| `Media stream session started` | `media-stream-server` | Stream `start` event received; controller created |
-| `Media-stream barge-in accepted — cleared outbound audio` | `media-stream-server` | Caller spoke while assistant was speaking; turn interrupted |
-| `Media-stream barge-in ignored — assistant not speaking` | `media-stream-server` | Inbound audio arrived but assistant was idle/processing; no interrupt |
-| `Media stream stop event received` | `media-stream-server` | Twilio sent `stop`; call is ending |
-| `Media stream transport closed — session diagnostics` | `media-stream-server` | WebSocket closed; includes `turnStarts`, `transcriptFinalsProduced`, `bargeInAccepted`, `bargeInIgnored`, `terminationReason` |
-| `Media stream call session destroyed` | `media-stream-server` | Full teardown; includes session-lifetime diagnostic counters |
-| `Media stream STT session started` | `media-stt-session` | STT session initialized with stream metadata |
-| `Barge-in ignored — assistant not speaking` | `call-controller` | Controller received barge-in but was idle or processing |
-| `Barge-in accepted — interrupting assistant speech` | `call-controller` | Controller was speaking and accepted the interrupt |
+| Log message                                               | Logger                | Meaning                                                                                                                       |
+| --------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Media stream session started`                            | `media-stream-server` | Stream `start` event received; controller created                                                                             |
+| `Media-stream barge-in accepted — cleared outbound audio` | `media-stream-server` | Caller spoke while assistant was speaking; turn interrupted                                                                   |
+| `Media-stream barge-in ignored — assistant not speaking`  | `media-stream-server` | Inbound audio arrived but assistant was idle/processing; no interrupt                                                         |
+| `Media stream stop event received`                        | `media-stream-server` | Twilio sent `stop`; call is ending                                                                                            |
+| `Media stream transport closed — session diagnostics`     | `media-stream-server` | WebSocket closed; includes `turnStarts`, `transcriptFinalsProduced`, `bargeInAccepted`, `bargeInIgnored`, `terminationReason` |
+| `Media stream call session destroyed`                     | `media-stream-server` | Full teardown; includes session-lifetime diagnostic counters                                                                  |
+| `Media stream STT session started`                        | `media-stt-session`   | STT session initialized with stream metadata                                                                                  |
+| `Barge-in ignored — assistant not speaking`               | `call-controller`     | Controller received barge-in but was idle or processing                                                                       |
+| `Barge-in accepted — interrupting assistant speech`       | `call-controller`     | Controller was speaking and accepted the interrupt                                                                            |
 
 #### Failure Class Mapping
 
-| Symptom | Likely failure class | Diagnostic steps |
-| --- | --- | --- |
-| **Connected but no reply** | False barge-in abort: initial inbound audio interrupted the first turn before the assistant could respond | Check logs for `barge-in accepted` immediately after `session started`. If present, the gating fix is not active. Verify `handleBargeIn` (not `handleInterrupt`) is called from `handleSpeechStart`. |
-| **Connected but no reply (no barge-in)** | Handshake/setup failure: `start` event never arrived or setup policy denied the call | Check for `Media stream session started` log. If absent, verify gateway WebSocket proxy is forwarding to the daemon. Check for `setup denied` events. |
-| **Call active but no transcript** | Turn segmentation not detecting speech-bearing chunks | Check `turnStarts` and `transcriptFinalsProduced` in the session diagnostics log. If `turnStarts=0`, the speech-aware detector is not receiving speech-bearing chunks. Verify audio encoding and energy levels. |
-| **Transcript only at hangup** | Turn boundaries not detected mid-call; only `forceEnd` at stream stop produced a transcript | Check `transcriptFinalsProduced` — if it equals 1 and the call was long, speech-to-silence transitions are not being detected. Verify `detectSpeechActivity` thresholds match the audio characteristics. |
-| **Immediate abort after connect** | Controller destroyed before first turn completes | Check for `Media stream call session destroyed` appearing within 1-2 seconds of `session started`. Cross-reference with `terminationReason` in transport-close diagnostics. |
-| **Repeated bogus transcriptions** | Silent/noise frames classified as speech | Check `turnStarts` — if much higher than expected, the speech energy threshold is too low. Tune `SPEECH_ENERGY_THRESHOLD` in `media-stream-stt-session.ts`. |
+| Symptom                                  | Likely failure class                                                                                      | Diagnostic steps                                                                                                                                                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Connected but no reply**               | False barge-in abort: initial inbound audio interrupted the first turn before the assistant could respond | Check logs for `barge-in accepted` immediately after `session started`. If present, the gating fix is not active. Verify `handleBargeIn` (not `handleInterrupt`) is called from `handleSpeechStart`.            |
+| **Connected but no reply (no barge-in)** | Handshake/setup failure: `start` event never arrived or setup policy denied the call                      | Check for `Media stream session started` log. If absent, verify gateway WebSocket proxy is forwarding to the daemon. Check for `setup denied` events.                                                           |
+| **Call active but no transcript**        | Turn segmentation not detecting speech-bearing chunks                                                     | Check `turnStarts` and `transcriptFinalsProduced` in the session diagnostics log. If `turnStarts=0`, the speech-aware detector is not receiving speech-bearing chunks. Verify audio encoding and energy levels. |
+| **Transcript only at hangup**            | Turn boundaries not detected mid-call; only `forceEnd` at stream stop produced a transcript               | Check `transcriptFinalsProduced` — if it equals 1 and the call was long, speech-to-silence transitions are not being detected. Verify `detectSpeechActivity` thresholds match the audio characteristics.        |
+| **Immediate abort after connect**        | Controller destroyed before first turn completes                                                          | Check for `Media stream call session destroyed` appearing within 1-2 seconds of `session started`. Cross-reference with `terminationReason` in transport-close diagnostics.                                     |
+| **Repeated bogus transcriptions**        | Silent/noise frames classified as speech                                                                  | Check `turnStarts` — if much higher than expected, the speech energy threshold is too low. Tune `SPEECH_ENERGY_THRESHOLD` in `media-stream-stt-session.ts`.                                                     |
 
 #### Session Diagnostic Fields
 
@@ -733,7 +737,7 @@ dictation-stream.ts ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). Every provider in the matrix above supports conversation streaming. The client checks streaming availability before opening a WebSocket: if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted. `deepgram-flux` is the one provider with no batch fallback, so a session failure there has nowhere to degrade to and file transcription fails outright.
+Check the configured STT provider in the assistant's config (`services.stt.provider`, plus `services.stt.providers.<id>.model` for providers offering more than one model family). Every provider in the matrix above supports conversation streaming. The client checks streaming availability before opening a WebSocket: if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted. The `flux` model family is the one entry with no batch fallback, so a session failure there has nowhere to degrade to and file transcription fails outright. It is selected with `services.stt.providers.<id>.model: "flux"`, not as a provider id.
 
 #### 2. Verify credentials are configured
 
@@ -784,20 +788,20 @@ The daemon session orchestrator (`stt-stream-session.ts`, logger: `stt-stream-se
 
 These are the key strings to search for when triaging streaming STT issues. Search daemon logs for the `stt-stream-session` and `deepgram-realtime` logger categories.
 
-| Log message                                         | Logger                | Meaning                                              |
-| --------------------------------------------------- | --------------------- | ---------------------------------------------------- |
-| `STT stream session started`                        | `stt-stream-session`  | Session initialized and `ready` event sent to client |
-| `STT stream session idle timeout`                   | `stt-stream-session`  | No client activity for 60 seconds                    |
-| `STT stream WebSocket closed`                       | `stt-stream-session`  | Client or transport closed the connection            |
-| `Streaming transcriber unavailable for provider`    | `stt-stream-session`  | Provider does not support streaming                  |
-| `Failed to start STT stream session`                | `stt-stream-session`  | Transcriber `start()` threw (auth, network, etc.)    |
-| `Opening Deepgram realtime session`                 | `deepgram-realtime`   | Deepgram WebSocket connection attempt                |
-| `Deepgram realtime session closed unexpectedly`     | `deepgram-realtime`   | Provider-side disconnect with non-normal code        |
-| `Deepgram realtime connect timeout`                 | `deepgram-realtime`   | Could not connect to Deepgram within 10 seconds      |
-| `Deepgram realtime inactivity timeout`              | `deepgram-realtime`   | No data from Deepgram for 30 seconds                 |
-| `Opening upstream STT stream WS to runtime`         | `stt-stream-ws`       | Gateway opening upstream connection to daemon        |
-| `STT stream WS: authentication failed`              | `stt-stream-ws`       | Client edge JWT validation failed                    |
-| `STT stream pending message buffer overflow`        | `stt-stream-ws`       | Gateway buffer exceeded 100 messages                 |
+| Log message                                      | Logger               | Meaning                                              |
+| ------------------------------------------------ | -------------------- | ---------------------------------------------------- |
+| `STT stream session started`                     | `stt-stream-session` | Session initialized and `ready` event sent to client |
+| `STT stream session idle timeout`                | `stt-stream-session` | No client activity for 60 seconds                    |
+| `STT stream WebSocket closed`                    | `stt-stream-session` | Client or transport closed the connection            |
+| `Streaming transcriber unavailable for provider` | `stt-stream-session` | Provider does not support streaming                  |
+| `Failed to start STT stream session`             | `stt-stream-session` | Transcriber `start()` threw (auth, network, etc.)    |
+| `Opening Deepgram realtime session`              | `deepgram-realtime`  | Deepgram WebSocket connection attempt                |
+| `Deepgram realtime session closed unexpectedly`  | `deepgram-realtime`  | Provider-side disconnect with non-normal code        |
+| `Deepgram realtime connect timeout`              | `deepgram-realtime`  | Could not connect to Deepgram within 10 seconds      |
+| `Deepgram realtime inactivity timeout`           | `deepgram-realtime`  | No data from Deepgram for 30 seconds                 |
+| `Opening upstream STT stream WS to runtime`      | `stt-stream-ws`      | Gateway opening upstream connection to daemon        |
+| `STT stream WS: authentication failed`           | `stt-stream-ws`      | Client edge JWT validation failed                    |
+| `STT stream pending message buffer overflow`     | `stt-stream-ws`      | Gateway buffer exceeded 100 messages                 |
 
 ### Expected Event Sequences
 
@@ -873,17 +877,17 @@ Client: Falls back to batch STT on recording stop
 
 ### Common Failure Scenarios
 
-| Symptom | Likely cause | Diagnosis |
-| --- | --- | --- |
-| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check client streaming availability |
-| `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
-| Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
-| Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |
-| Slow partials (OpenAI Whisper) | Expected: incremental-batch polls every ~1 second | This is by design for Whisper's incremental-batch mode. Reduce poll interval only for testing via stream options |
-| Partials but no final (Google Gemini) | Gemini Live session closed before turn completed | Check for `"Gemini Live session closed unexpectedly"` or `"Gemini Live inactivity timeout"` in daemon logs |
-| Idle timeout after 60 seconds | Client stopped sending audio without sending `stop` event | Check client-side audio pipeline; ensure `stop` event is sent on recording end |
-| Buffer overflow (gateway) | Upstream daemon connection slow to establish; client sending audio too fast | Check gateway `"STT stream pending message buffer overflow"` log; check daemon startup time |
-| Empty final transcript | Audio too short, no speech detected, or provider returned empty | Check audio format (mimeType, sampleRate); try with known-good audio |
+| Symptom                                | Likely cause                                                                  | Diagnosis                                                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| No streaming session opened            | Provider has `conversationStreamingMode: "none"` or STT not configured        | Check `services.stt.provider` config; check client streaming availability                                        |
+| `ready` event never received           | Gateway cannot reach daemon, or daemon failed to start transcriber            | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"`  |
+| Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason                                     |
+| Partials but no final (Deepgram)       | Deepgram session closed before client sent `stop`                             | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"`                            |
+| Slow partials (OpenAI Whisper)         | Expected: incremental-batch polls every ~1 second                             | This is by design for Whisper's incremental-batch mode. Reduce poll interval only for testing via stream options |
+| Partials but no final (Google Gemini)  | Gemini Live session closed before turn completed                              | Check for `"Gemini Live session closed unexpectedly"` or `"Gemini Live inactivity timeout"` in daemon logs       |
+| Idle timeout after 60 seconds          | Client stopped sending audio without sending `stop` event                     | Check client-side audio pipeline; ensure `stop` event is sent on recording end                                   |
+| Buffer overflow (gateway)              | Upstream daemon connection slow to establish; client sending audio too fast   | Check gateway `"STT stream pending message buffer overflow"` log; check daemon startup time                      |
+| Empty final transcript                 | Audio too short, no speech detected, or provider returned empty               | Check audio format (mimeType, sampleRate); try with known-good audio                                             |
 
 ### Rollout Validation Checklist
 

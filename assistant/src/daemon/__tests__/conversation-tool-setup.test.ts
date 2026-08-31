@@ -36,14 +36,28 @@ import type { ChannelCapabilities } from "../conversation-runtime-assembly.js";
 
 // Control how many capable clients the hub reports per capability.
 const mockClientCountByCapability = new Map<string, number>();
+const mockClientsByCapability = new Map<
+  string,
+  Array<{
+    clientId: string;
+    capabilities: string[];
+    interfaceId: string;
+    actorPrincipalId?: string;
+  }>
+>();
 
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     listClientsByCapability: (cap: string) => {
+      const clients = mockClientsByCapability.get(cap);
+      if (clients) {
+        return clients;
+      }
       const count = mockClientCountByCapability.get(cap) ?? 0;
       return Array.from({ length: count }, (_, i) => ({
         clientId: `mock-${cap}-client-${i}`,
         capabilities: [cap],
+        interfaceId: "macos",
       }));
     },
   },
@@ -58,6 +72,9 @@ const {
   HOST_TOOL_TO_CAPABILITY,
   isToolActiveForContext,
 } = await import("../conversation-tool-setup.js");
+const { registerSkillTools, unregisterSkillTools } =
+  await import("../../tools/registry.js");
+const { finalizeTool } = await import("../../tools/tool-defaults.js");
 type SkillProjectionCache =
   import("../conversation-skill-tools.js").SkillProjectionCache;
 
@@ -76,9 +93,129 @@ function makeCtx(
 
 beforeEach(() => {
   mockClientCountByCapability.clear();
+  mockClientsByCapability.clear();
 });
 
-describe("isToolActiveForContext — Slack task_progress UI exception", () => {
+describe("isToolActiveForContext - client OS eligibility", () => {
+  test("hides a macOS-only skill tool from Windows turns", () => {
+    const skillId = "client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "client_os_test_tool",
+        supportedClientOs: ["macos"],
+      }),
+    ]);
+
+    try {
+      expect(
+        isToolActiveForContext(
+          "client_os_test_tool",
+          makeCtx({
+            clientOs: "windows",
+            currentTurnClientOs: "windows",
+          }),
+        ),
+      ).toBe(false);
+      expect(
+        isToolActiveForContext(
+          "client_os_test_tool",
+          makeCtx({ clientOs: "macos", currentTurnClientOs: "macos" }),
+        ),
+      ).toBe(true);
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
+
+  test("uses same-user target desktops for cross-client tool eligibility", () => {
+    const skillId = "cross-client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "computer_use_platform_test",
+        supportedClientOs: ["macos"],
+      }),
+    ]);
+    const ctx = makeCtx({
+      clientOs: "web",
+      currentTurnClientOs: "web",
+      transportInterface: "web",
+      getTurnActorPrincipalId: () => "actor-1",
+    });
+
+    try {
+      mockClientsByCapability.set("host_cu", [
+        {
+          clientId: "mac-client",
+          capabilities: ["host_cu"],
+          interfaceId: "macos",
+          actorPrincipalId: "actor-1",
+        },
+      ]);
+      expect(isToolActiveForContext("computer_use_platform_test", ctx)).toBe(
+        true,
+      );
+
+      mockClientsByCapability.set("host_cu", [
+        {
+          clientId: "windows-client",
+          capabilities: ["host_cu"],
+          interfaceId: "windows",
+          actorPrincipalId: "actor-1",
+        },
+      ]);
+      expect(isToolActiveForContext("computer_use_platform_test", ctx)).toBe(
+        false,
+      );
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
+
+  test("uses pinned client OS without falling through to live context", () => {
+    const skillId = "pinned-client-os-test-skill";
+    registerSkillTools(skillId, [
+      finalizeTool({
+        name: "client_os_pinned_test_tool",
+        supportedClientOs: ["macos"],
+      }),
+    ]);
+
+    try {
+      expect(
+        isToolActiveForContext(
+          "client_os_pinned_test_tool",
+          makeCtx({
+            clientOs: "windows",
+            currentTurnClientOs: "windows",
+            toolContextPin: {
+              hasNoClient: false,
+              transportInterface: "macos",
+              clientOs: "macos",
+            },
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        isToolActiveForContext(
+          "client_os_pinned_test_tool",
+          makeCtx({
+            clientOs: "macos",
+            currentTurnClientOs: "macos",
+            toolContextPin: {
+              hasNoClient: false,
+              transportInterface: "windows",
+              clientOs: "windows",
+            },
+          }),
+        ),
+      ).toBe(false);
+    } finally {
+      unregisterSkillTools(skillId);
+    }
+  });
+});
+
+describe("isToolActiveForContext - Slack task_progress UI exception", () => {
   test("ui_show and ui_update are active for Slack task_progress turns", () => {
     const ctx = makeCtx({
       hasNoClient: false,

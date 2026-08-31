@@ -101,8 +101,6 @@ describe("handleConfirmationResponse guardian status sync", () => {
       "req-confirm-allow",
       "allow",
       {
-        selectedPattern: undefined,
-        selectedScope: undefined,
         emissionContext: { source: "button" },
       },
     ]);

@@ -30,16 +30,27 @@ export function createDiscordInboundEventHandler(options: {
 
     // A guild channel is a room the actor is standing in, not their private
     // delivery address. Recording it as externalChatId would post private
-    // notices in public, so only DMs carry that field.
-    void upsertContactChannel({
-      sourceChannel: "discord",
-      externalUserId: event.actor.actorExternalId,
-      ...(event.source.chatType === "dm"
-        ? { externalChatId: event.message.conversationExternalId }
-        : {}),
-      displayName: event.actor.displayName,
-      username: event.actor.username,
-    }).catch(() => {});
+    // notices in public, so only DMs carry that field. Only the two
+    // admission-gated, user-authored kinds seed a contact: every other kind
+    // (reactions, button presses, unattributed deletes) rides ungated, and
+    // seeding from one would mint a contact record for any stranger who
+    // touches a visible channel, which the trust resolver then reads as an
+    // existing unverified contact.
+    const eventKind = event.message.eventKind;
+    if (
+      !event.source.actorUnattributed &&
+      (eventKind === "message" || eventKind === "edit")
+    ) {
+      void upsertContactChannel({
+        sourceChannel: "discord",
+        externalUserId: event.actor.actorExternalId,
+        ...(event.source.chatType === "dm"
+          ? { externalChatId: event.message.conversationExternalId }
+          : {}),
+        displayName: event.actor.displayName,
+        username: event.actor.username,
+      }).catch(() => {});
+    }
 
     // The event's conversation address is the parent channel for threaded
     // messages, and a Discord thread is itself a channel. Include the thread

@@ -8,6 +8,7 @@
     "deleting": "Eliminando…",
     "connect": "Conectar",
     "connecting": "Conectando…",
+    "manage": "Gestionar",
     "disconnect": "Desconectar",
     "disconnecting": "Desconectando…",
     "cancel": "Cancelar",
@@ -22,7 +23,8 @@
     "whatsapp": "WhatsApp",
     "a2a": "A2A",
     "phone": "Teléfono",
-    "email": "Correo"
+    "email": "Correo",
+    "discord": "Discord"
   },
   "contact": {
     "nameLabel": "Nombre",
@@ -64,6 +66,25 @@
     "linkedAccountsSubtitle": "Dónde reconoce el asistente a este contacto. Vincula las cuentas que conozcas e invita a las que no.",
     "deleteConfirmTitle": "¿Eliminar a {name}?",
     "deleteConfirmMessage": "Esto eliminará permanentemente este contacto y todos sus canales. Esta acción no se puede deshacer."
+  },
+  "contactPermissions": {
+    "title": "Permisos",
+    "subtitle": "El riesgo más alto que este contacto puede asumir sin preguntarte.",
+    "inheritLabel": "Heredar valor predeterminado",
+    "inheritDescription": "Seguir la configuración de sala y clase de confianza de este contacto.",
+    "saveFailed": "No se pudieron actualizar los permisos",
+    "preset": {
+      "none": "Estricto",
+      "low": "Conservador",
+      "medium": "Relajado",
+      "high": "Acceso completo"
+    },
+    "description": {
+      "none": "Preguntar siempre antes de actuar. Ninguna acción se aprueba automáticamente.",
+      "low": "Aprobar automáticamente las acciones de bajo riesgo, como búsquedas web y leer o escribir archivos en su propio espacio de trabajo.",
+      "medium": "Aprobar automáticamente las acciones de riesgo bajo y medio, como cambiar archivos fuera de su propio espacio de trabajo.",
+      "high": "Aprobar automáticamente todas las acciones, incluidas las de alto riesgo y los comandos no reconocidos. El asistente no pedirá permiso."
+    }
   },
   "guardianDetailView": {
     "namePlaceholder": "Tu nombre",
@@ -107,10 +128,15 @@
     "verifyConfirmTitle": "Verificar {channel}",
     "verifyConfirmMessageContact": "Esto marcará el canal de {channel} de este contacto como verificado. Tu asistente lo reconocerá cuando escriba desde ahí.",
     "verifyConfirmMessageGuardian": "Esto marcará tu canal de {channel} como verificado. Tu asistente te reconocerá cuando escribas desde ahí.",
+    "verifyAddressLabel": "Dirección",
+    "verifyAddressPlaceholder": "+15551234567",
+    "verifyAddressMessageContact": "Introduce el identificador que este contacto usa en {channel}. Tu asistente lo reconocerá cuando escriba desde ahí.",
+    "verifyAddressMessageGuardian": "Introduce el identificador que usas en {channel}. Tu asistente te reconocerá cuando escribas desde ahí.",
     "revokeConfirmTitle": "Revocar {channel}",
     "revokeConfirmMessage": "Esto desconectará el canal verificado. El contacto tendrá que volver a verificarse para usarlo de nuevo.",
     "linkAccount": "Vincular cuenta",
-    "setupDefault": "Invitar"
+    "setupDefault": "Invitar",
+    "loadFailed": "No se pudieron cargar los canales. Comprueba tu conexión e inténtalo de nuevo."
   },
   "linkAccountDialog": {
     "title": "Vincular una cuenta de {channel}",

@@ -17,10 +17,11 @@ const WILDCARD_HOST = `*${ROOT_HOSTNAME}`;
 // injected bridge/storage scripts are inline. The sandbox attribute is the
 // primary isolation boundary for that content.
 //
-// https://${WILDCARD_HOST} in script-src: the session-replay recorder script is
-// served first-party from the platform origin (`/_sr/cdn/...`) and loads as a
-// regular <script>. Ingest is already covered by connect-src and the recorder
-// worker by `worker-src ... blob:`, so this is the only directive that needs it.
+// https://${WILDCARD_HOST} in script-src: packaged replay loads the recorder
+// same-origin via the `app://` protocol handler (`/_sr/cdn/...`). Older
+// renderers still fetch the script from the platform origin, so the wildcard
+// stays. Ingest is covered by connect-src (`'self'` plus the wildcard) and
+// the recorder worker by `worker-src ... blob:`.
 //
 // ws://localhost / ws://127.0.0.1 in connect-src: the self-hosted gateway's
 // WebSocket endpoints (/v1/stt/stream dictation partials, /v1/live-voice).

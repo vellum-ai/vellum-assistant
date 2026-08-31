@@ -20,6 +20,12 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import {
+  type AppPin,
+  listAppPins,
+  removeAppPin,
+  updateAppPin,
+} from "../../apps/app-pin-store.js";
+import {
   type AppDefinition,
   type AppOrigin,
   createApp,
@@ -48,6 +54,7 @@ import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
+import { getUserAppDataDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getOriginClientId,
@@ -58,6 +65,7 @@ import {
   NotFoundError,
   PayloadTooLargeError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("app-management-routes");
@@ -66,13 +74,25 @@ const log = getLogger("app-management-routes");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getSharedAppsDir(): string {
-  return join(
+function getSharedAppsDirs(): string[] {
+  const canonical = join(
+    getUserAppDataDir(),
+    "vellum-assistant",
+    "shared-apps",
+  );
+  const legacy = join(
     homedir(),
     "Library",
     "Application Support",
     "vellum-assistant",
     "shared-apps",
+  );
+  return legacy === canonical ? [canonical] : [canonical, legacy];
+}
+
+function resolveSharedAppDir(appUuid: string, dirs: string[]): string | null {
+  return (
+    dirs.find((dir) => existsSync(join(dir, `${appUuid}-meta.json`))) ?? null
   );
 }
 
@@ -80,17 +100,66 @@ function getSharedAppsDir(): string {
 // Extracted business logic
 // ---------------------------------------------------------------------------
 
-interface AppListItem {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  createdAt: number;
-  updatedAt: number;
-  version: string;
-  contentId: string;
-  /** "workspace" or "plugin:<name>" — identifies where the app comes from. */
-  origin: string;
+/**
+ * One entry in the app list. Declared as the schema the route publishes, so the
+ * wire contract and the type the handlers build against cannot drift apart.
+ */
+const appListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  version: z.string(),
+  contentId: z.string(),
+  origin: z
+    .string()
+    .describe('"workspace" or "plugin:<name>": where the app comes from'),
+  pinSortPosition: z
+    .number()
+    .optional()
+    .describe("Sidebar order, ascending. Absent when the app is not pinned"),
+  pinColor: z
+    .string()
+    .optional()
+    .describe("Pin colour id; absent when no colour is set"),
+});
+
+type AppListItem = z.infer<typeof appListItemSchema>;
+
+/**
+ * The pin route's body. `RouteDefinition.requestBody` is a codegen signal and
+ * does not validate, so the handler parses against this too; declaring it once
+ * keeps what is advertised and what is enforced from drifting apart.
+ */
+const appPinBodySchema = z
+  .object({
+    pinned: z
+      .boolean()
+      .optional()
+      .describe("Pin (true) or unpin (false). Omit to leave unchanged."),
+    color: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Colour id, or null to clear. Omit to leave unchanged."),
+  })
+  .refine(
+    (value) => value.pinned !== undefined || value.color !== undefined,
+    "pinned or color is required",
+  );
+
+/** Merge an app's pin, if it has one, onto its list entry. */
+function withPin(item: AppListItem, pin: AppPin | undefined): AppListItem {
+  if (!pin) {
+    return item;
+  }
+  return {
+    ...item,
+    pinSortPosition: pin.sortPosition,
+    ...(pin.color !== undefined ? { pinColor: pin.color } : {}),
+  };
 }
 
 function workspaceAppItem(a: AppDefinition): AppListItem {
@@ -162,13 +231,9 @@ function getAppDataResult(
   }
 }
 
-function listSharedApps(): Array<Record<string, unknown>> {
-  const dir = getSharedAppsDir();
-  if (!existsSync(dir)) {
-    return [];
-  }
-
-  const files = readdirSync(dir).filter((f) => f.endsWith("-meta.json"));
+function listSharedApps(
+  dirs = getSharedAppsDirs(),
+): Array<Record<string, unknown>> {
   const apps: Array<{
     uuid: string;
     name: string;
@@ -184,43 +249,54 @@ function listSharedApps(): Array<Record<string, unknown>> {
     contentId?: string;
     forked?: boolean;
   }> = [];
+  const seen = new Set<string>();
 
-  for (const file of files) {
-    try {
-      const raw = readFileSync(join(dir, file), "utf-8");
-      const meta = JSON.parse(raw);
-
-      let version: string | undefined;
-      let contentId: string | undefined;
-      const manifestPath = join(dir, meta.uuid, "manifest.json");
-      if (existsSync(manifestPath)) {
-        try {
-          const manifestRaw = readFileSync(manifestPath, "utf-8");
-          const manifest = JSON.parse(manifestRaw);
-          version = manifest.version;
-          contentId = manifest.content_id;
-        } catch {
-          // ignore malformed manifest
+  for (const dir of dirs) {
+    if (!existsSync(dir)) {
+      continue;
+    }
+    const files = readdirSync(dir).filter((f) => f.endsWith("-meta.json"));
+    for (const file of files) {
+      try {
+        const raw = readFileSync(join(dir, file), "utf-8");
+        const meta = JSON.parse(raw);
+        if (seen.has(meta.uuid)) {
+          continue;
         }
-      }
 
-      apps.push({
-        uuid: meta.uuid,
-        name: meta.name,
-        description: meta.description,
-        icon: meta.icon,
-        preview: meta.preview,
-        entry: meta.entry,
-        trustTier: meta.trustTier,
-        signerDisplayName: meta.signerDisplayName,
-        bundleSizeBytes: meta.bundleSizeBytes ?? 0,
-        installedAt: meta.installedAt,
-        version,
-        contentId,
-        forked: meta.forked,
-      });
-    } catch {
-      log.warn({ file }, "Failed to read shared app metadata file");
+        let version: string | undefined;
+        let contentId: string | undefined;
+        const manifestPath = join(dir, meta.uuid, "manifest.json");
+        if (existsSync(manifestPath)) {
+          try {
+            const manifestRaw = readFileSync(manifestPath, "utf-8");
+            const manifest = JSON.parse(manifestRaw);
+            version = manifest.version;
+            contentId = manifest.content_id;
+          } catch {
+            // ignore malformed manifest
+          }
+        }
+
+        apps.push({
+          uuid: meta.uuid,
+          name: meta.name,
+          description: meta.description,
+          icon: meta.icon,
+          preview: meta.preview,
+          entry: meta.entry,
+          trustTier: meta.trustTier,
+          signerDisplayName: meta.signerDisplayName,
+          bundleSizeBytes: meta.bundleSizeBytes ?? 0,
+          installedAt: meta.installedAt,
+          version,
+          contentId,
+          forked: meta.forked,
+        });
+        seen.add(meta.uuid);
+      } catch {
+        log.warn({ file }, "Failed to read shared app metadata file");
+      }
     }
   }
 
@@ -258,6 +334,7 @@ function listSharedApps(): Array<Record<string, unknown>> {
 
 function forkSharedApp(
   appUuid: string,
+  dirs = getSharedAppsDirs(),
 ):
   | { success: true; appId: string; name: string }
   | { success: false; error: string } {
@@ -270,12 +347,11 @@ function forkSharedApp(
     return { success: false, error: "Invalid UUID" };
   }
 
-  const dir = getSharedAppsDir();
-  const metaFile = join(dir, `${appUuid}-meta.json`);
-
-  if (!existsSync(metaFile)) {
+  const dir = resolveSharedAppDir(appUuid, dirs);
+  if (!dir) {
     return { success: false, error: "Shared app not found" };
   }
+  const metaFile = join(dir, `${appUuid}-meta.json`);
 
   const metaRaw = readFileSync(metaFile, "utf-8");
   const meta = JSON.parse(metaRaw);
@@ -334,6 +410,19 @@ function forkSharedApp(
   }
 
   return { success: true, appId: newApp.id, name: newApp.name };
+}
+
+export function _listSharedAppsForTests(
+  dirs: string[],
+): Array<Record<string, unknown>> {
+  return listSharedApps(dirs);
+}
+
+export function _resolveSharedAppDirForTests(
+  appUuid: string,
+  dirs: string[],
+): string | null {
+  return resolveSharedAppDir(appUuid, dirs);
 }
 
 async function openBundle(filePath: string): Promise<Record<string, unknown>> {
@@ -578,17 +667,23 @@ async function importBundle(
 // ---------------------------------------------------------------------------
 
 function handleListApps({ queryParams }: RouteHandlerArgs) {
+  const pinsById = new Map(listAppPins().map((pin) => [pin.appId, pin]));
+  const pinned = (item: AppListItem): AppListItem =>
+    withPin(item, pinsById.get(item.id));
+
   const conversationId = queryParams?.conversationId;
   if (conversationId) {
     // Conversation scoping is a workspace-app concept; plugin apps are not
     // associated with conversations, so they are omitted from this view.
     return {
-      apps: listAppsByConversation(conversationId).map(workspaceAppItem),
+      apps: listAppsByConversation(conversationId).map((app) =>
+        pinned(workspaceAppItem(app)),
+      ),
     };
   }
   const apps: AppListItem[] = [
-    ...listApps().map(workspaceAppItem),
-    ...listPluginApps().map(pluginAppItem),
+    ...listApps().map((app) => pinned(workspaceAppItem(app))),
+    ...listPluginApps().map((app) => pinned(pluginAppItem(app))),
   ];
   return { apps };
 }
@@ -818,8 +913,48 @@ function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   assertNotPluginApp(appId, "delete a plugin app");
   deleteApp(appId);
+  /* `deleteApp` cannot do this itself: it is filesystem-level and runs where no
+     migrated database exists. Deletions that skip this, and plugin apps that
+     leave with their plugin, are converged by `apps/app-pin-reconciler.ts`. */
+  removeAppPin(appId);
   publishAppsChanged(getOriginClientId(headers));
   return { success: true };
+}
+
+/**
+ * Pin, unpin, or recolour an app. Plugin apps are pinnable: a pin says nothing
+ * about the app's content, so `assertNotPluginApp` does not apply here.
+ */
+/** Every app id this workspace has, plugin apps included. */
+function existingAppIds(): string[] {
+  return [
+    ...listApps().map((app) => app.id),
+    ...listPluginApps().map((app) => app.id),
+  ];
+}
+
+function handlePinApp({ pathParams, body = {}, headers }: RouteHandlerArgs) {
+  const appId = pathParams?.id as string;
+  const { pinned, color } = parseBody(appPinBodySchema, body);
+  const existing = existingAppIds();
+  /* A pin only means anything against an app that exists: the list starts from
+     the real apps, so a pin for anything else could never be read back.
+     Unpinning is exempt, since that is how a client clears state left over from
+     an app that has since gone. */
+  if (pinned === true && !existing.includes(appId)) {
+    throw new NotFoundError(`App not found: ${appId}`);
+  }
+  const pin = updateAppPin(appId, {
+    ...(pinned === undefined ? {} : { pinned }),
+    ...(color === undefined ? {} : { color }),
+  });
+  publishAppsChanged(getOriginClientId(headers));
+  return {
+    success: true,
+    appId,
+    pinSortPosition: pin?.sortPosition ?? null,
+    pinColor: pin?.color ?? null,
+  };
 }
 
 function handleGetPreview({ pathParams }: RouteHandlerArgs) {
@@ -887,21 +1022,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Filter apps by conversation ID",
       },
     ],
-    responseBody: z.object({
-      apps: z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string().optional(),
-          icon: z.string().optional(),
-          createdAt: z.number(),
-          updatedAt: z.number(),
-          version: z.string(),
-          contentId: z.string(),
-          origin: z.string(),
-        }),
-      ),
-    }),
+    responseBody: z.object({ apps: z.array(appListItemSchema) }),
   },
   {
     operationId: "apps_open_bundle",
@@ -1145,6 +1266,29 @@ export const ROUTES: RouteDefinition[] = [
     description: "Permanently remove an app and its data.",
     tags: ["apps"],
     responseBody: z.object({ success: z.boolean() }),
+  },
+  {
+    operationId: "apps_pin",
+    endpoint: "apps/:id/pin",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handlePinApp,
+    summary: "Pin or unpin an app",
+    description:
+      "Pin an app to the sidebar, unpin it, or set the colour it is tinted " +
+      "with. Pin state is read back from the app list as `pinSortPosition` " +
+      "and `pinColor`.",
+    tags: ["apps"],
+    requestBody: appPinBodySchema,
+    responseBody: z.object({
+      success: z.boolean(),
+      appId: z.string(),
+      pinSortPosition: z.number().nullable(),
+      pinColor: z.string().nullable(),
+    }),
   },
   {
     operationId: "apps_preview_get",

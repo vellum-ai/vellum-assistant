@@ -192,6 +192,7 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "atlascloud",
   "baseten",
   "ollama",
+  "opencode",
   "openrouter",
   "together",
   "vercel-ai-gateway",

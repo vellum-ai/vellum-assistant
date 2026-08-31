@@ -20,6 +20,7 @@ const run = async (
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    windowsHide: true,
   });
   return child.exited;
 };

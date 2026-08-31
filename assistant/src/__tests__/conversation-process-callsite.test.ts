@@ -134,18 +134,6 @@ mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
-
 // Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes
 // via the options object (see assistant/src/agent/loop.ts → AgentLoopConstructorOptions).
 mock.module("../agent/loop.js", () => ({

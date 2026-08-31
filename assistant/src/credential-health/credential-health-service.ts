@@ -4,8 +4,18 @@
  * Enumerates all active OAuth connections and validates each one for:
  * - Token presence in secure storage
  * - Token expiry (expired or expiring within the warning window)
- * - Scope coverage (grantedScopes vs provider defaultScopes)
+ * - Scope coverage (grantedScopes vs the request that produced the token)
  * - Liveness ping (for providers with a pingUrl)
+ *
+ * Scope coverage asks whether a connection carries the scopes the provider
+ * currently requests for the token it stores, which is how a newly required
+ * scope reaches an existing install and prompts a re-authorization. It applies
+ * only where an authorization makes a request. A manual-token provider (a bot
+ * token pasted in, e.g. `slack_channel`) has no request and carries empty
+ * scope lists here; it is still checked for token presence and liveness. What
+ * its token actually carries is read live from the `x-oauth-scopes` response
+ * header by `runtime/channel-readiness-service.ts`, which is the only source
+ * of truth available for a credential this service never negotiated.
  *
  * Designed to run during the heartbeat cycle. The BYO liveness ping is
  * routed through `withValidToken`, so a stale-but-refreshable access token
@@ -24,7 +34,10 @@ import {
   type OAuthConnectionRow,
   type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
-import { scopeDifference } from "../oauth/scope-utils.js";
+import {
+  expectedScopesForStoredToken,
+  scopeDifference,
+} from "../oauth/scope-utils.js";
 import {
   TokenExpiredError,
   withValidToken,
@@ -182,6 +195,8 @@ interface CheckConnectionOpts {
   hasRefreshToken: boolean;
   grantedScopesRaw: string;
   defaultScopesRaw: string;
+  authorizeParamsRaw: string | null;
+  scopeSeparator: string | null;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -199,6 +214,8 @@ async function checkConnection(
     hasRefreshToken,
     grantedScopesRaw,
     defaultScopesRaw,
+    authorizeParamsRaw,
+    scopeSeparator,
     pingUrl,
     pingMethod,
     pingHeaders,
@@ -268,11 +285,21 @@ async function checkConnection(
     // Has refresh token — not an issue, auto-refresh will handle it
   }
 
-  // 3. Check scope coverage
+  // 3. Check scope coverage, against the request that produced the stored
+  // token rather than the provider's bot-side `scope` parameter. A provider
+  // asking for user scopes as well stores the user token and records that
+  // token's grant, so the bot request names scopes that grant can never hold.
   const grantedScopes = safeJsonParse<string[]>(grantedScopesRaw, []);
-  const defaultScopes = safeJsonParse<string[]>(defaultScopesRaw, []);
-  if (defaultScopes.length > 0 && grantedScopes.length > 0) {
-    const missing = scopeDifference(defaultScopes, grantedScopes);
+  const expectedScopes = expectedScopesForStoredToken(
+    safeJsonParse<string[]>(defaultScopesRaw, []),
+    safeJsonParse<Record<string, string> | undefined>(
+      authorizeParamsRaw,
+      undefined,
+    ),
+    scopeSeparator ?? undefined,
+  );
+  if (expectedScopes.length > 0 && grantedScopes.length > 0) {
+    const missing = scopeDifference(expectedScopes, grantedScopes);
     if (missing.length > 0) {
       return {
         ...base,
@@ -637,6 +664,8 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
           hasRefreshToken: !!conn.hasRefreshToken,
           grantedScopesRaw: conn.grantedScopes,
           defaultScopesRaw: providerRow.defaultScopes,
+          authorizeParamsRaw: providerRow.authorizeParams,
+          scopeSeparator: providerRow.scopeSeparator,
           pingUrl: providerRow.pingUrl,
           pingMethod: providerRow.pingMethod,
           pingHeaders: providerRow.pingHeaders,
@@ -750,6 +779,8 @@ export async function checkCredentialForProvider(
       hasRefreshToken: !!conn.hasRefreshToken,
       grantedScopesRaw: conn.grantedScopes,
       defaultScopesRaw: providerRow.defaultScopes,
+      authorizeParamsRaw: providerRow.authorizeParams,
+      scopeSeparator: providerRow.scopeSeparator,
       pingUrl: providerRow.pingUrl,
       pingMethod: providerRow.pingMethod,
       pingHeaders: providerRow.pingHeaders,

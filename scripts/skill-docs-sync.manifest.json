@@ -11,11 +11,11 @@
     },
     "computer-use": {
       "docsSlug": "computer-use",
-      "sha256": "648ad44fd3c3d052893aaa2b71b8478c73b1c786993aa3ede2aa6298b3a3cf5e"
+      "sha256": "0389441d5383647e5de61798c7ed322056b7208b50bddea035ce81af1013741d"
     },
     "contacts": {
       "docsSlug": "contacts",
-      "sha256": "8dd93ed4ba48690e223f2af4719743b1fd1cb1ece530f13a58d961d871db592d"
+      "sha256": "e9dc4ef02aaf0d687236d8788c9a805bfccc1c479dec19da4f6b7daff9c1af26"
     },
     "document-editor": {
       "docsSlug": "document",
@@ -39,7 +39,7 @@
     },
     "phone-calls": {
       "docsSlug": "phone-calls",
-      "sha256": "99a65fbcc7b683812aba75beb5865526d70476a0ef826a2f5002e5582b7803b1"
+      "sha256": "cdfe66613ff51eda90db034a77b4cfcb8fabd5970b3730d1ff31612ae94c4f41"
     },
     "playbooks": {
       "docsSlug": "playbooks",
@@ -47,7 +47,7 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "74891c880acb0c8d3a6ac5ba11ba05ee19adf46ce5a873e719875a066a7c6391"
+      "sha256": "536613209f592d138a42bd95c28e7bf619b327f1091807465012c2bf842b37e4"
     },
     "skill-management": {
       "docsSlug": "skill-management",

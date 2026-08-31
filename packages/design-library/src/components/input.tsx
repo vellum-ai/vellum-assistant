@@ -131,6 +131,16 @@ function Input({
               hasLeftIcon: leftIcon != null,
               hasRightIcon: rightIcon != null,
             }),
+            // A number input's spin buttons are UA chrome: the box behind the
+            // chevrons is painted by the browser widget and no pseudo-element
+            // lets us clear it (Firefox exposes none at all). Suppressing the
+            // widget is the only way to be rid of it, so number fields render
+            // as plain text fields. Scoped by `[type=number]` so no other
+            // input's native affordances are touched.
+            "[&[type=number]]:[appearance:textfield]",
+            "[&[type=number]::-webkit-outer-spin-button]:[appearance:none]",
+            "[&[type=number]::-webkit-inner-spin-button]:[appearance:none]",
+            "[&[type=number]::-webkit-inner-spin-button]:m-0",
             className,
           )}
         />

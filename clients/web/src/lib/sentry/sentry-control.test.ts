@@ -8,14 +8,26 @@ import type { SentryFlavor } from "@/lib/sentry/flavor";
 // Flavor seam — SDK access dispatches through selectSentryFlavor()
 // ---------------------------------------------------------------------------
 
-const initMock = mock((_options: BrowserOptions) => {});
+const callOrder: string[] = [];
+const initMock = mock((_options: BrowserOptions) => {
+  callOrder.push("init");
+});
 const closeMock = mock(() => {});
 let clientEnabled = false;
+
+const reapplySentryUserMock = mock(() => {
+  callOrder.push("reapplyUser");
+});
+mock.module("@/lib/sentry/user-sync", () => ({
+  reapplySentryUser: reapplySentryUserMock,
+  installSentryUserSync: () => () => {},
+}));
 
 const flavor: SentryFlavor = {
   init: initMock,
   close: closeMock,
   getClientEnabled: () => clientEnabled,
+  setUser: () => {},
 };
 const selectSentryFlavorMock = mock(() => flavor);
 
@@ -108,8 +120,10 @@ const { diagnosticsConsentGranted, diagnosticsReportingResolvedOff } =
 const OPTIONS: BrowserOptions = { dsn: "https://public@example.test/1" };
 
 beforeEach(() => {
+  callOrder.length = 0;
   initMock.mockClear();
   closeMock.mockClear();
+  reapplySentryUserMock.mockClear();
   selectSentryFlavorMock.mockClear();
   syncDiagnosticsToMainMock.mockReset();
   disableNativeFailureReportForwardingMock.mockClear();
@@ -235,6 +249,34 @@ describe("syncSentryClient", () => {
     expect(initMock).toHaveBeenCalledTimes(1);
     expect(initMock.mock.calls[0]![0]).toBe(OPTIONS);
     expect(closeMock).not.toHaveBeenCalled();
+  });
+
+  test("consent-off boot then opt-in: the late init re-stamps the identity", () => {
+    // Capacitor forwards scope users to the native SDK only for setUser
+    // calls made after init, so a boot-time stamp issued while consent was
+    // closed never reaches native crash envelopes. The identity must be
+    // reapplied after the client starts, not before.
+    deviceDiagnostics = false;
+    platformSession = "present";
+    clientEnabled = false;
+    syncSentryClient(OPTIONS);
+    expect(initMock).not.toHaveBeenCalled();
+    expect(reapplySentryUserMock).not.toHaveBeenCalled();
+
+    deviceDiagnostics = true;
+    syncSentryClient(OPTIONS);
+    expect(initMock).toHaveBeenCalledTimes(1);
+    expect(reapplySentryUserMock).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(["init", "reapplyUser"]);
+  });
+
+  test("an already-enabled client is not re-stamped", () => {
+    deviceDiagnostics = true;
+    platformSession = "present";
+    clientEnabled = true;
+    syncSentryClient(OPTIONS);
+    expect(initMock).not.toHaveBeenCalled();
+    expect(reapplySentryUserMock).not.toHaveBeenCalled();
   });
 
   test("does not re-init when a client is already enabled", () => {

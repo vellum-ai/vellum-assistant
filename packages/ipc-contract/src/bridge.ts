@@ -16,6 +16,11 @@
  * in its ambient declaration.
  */
 import type {
+  PairingFailureReason,
+  PublicBaseUrlRejection,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
+import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
@@ -30,6 +35,8 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  DictationTranscribeResult,
+  DownloadDoneEvent,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -74,13 +81,54 @@ export interface LocalUpgradeOptions {
 export type ElectronHostOS = "macos" | "windows";
 
 /**
- * Result of `localMode.connectImport`. On success `assistantId` is the unique
- * local id the pairing was registered under, and `accessOnly` is true when the
- * bundle carried no refresh credential (the token expires without renewal).
+ * What a pairing step failed on, for callers picking recovery copy. The
+ * bridge's name for `@vellumai/service-contracts`'s `PairingFailureReason`,
+ * which owns the union and the retryable classification read off it. That
+ * package is zod-only and environment-neutral, so the preload takes on nothing
+ * at runtime: this is a type-only import.
  */
-export type LocalConnectImportResult =
-  | { ok: true; assistantId: string; accessOnly: boolean }
-  | { ok: false; error: string };
+export type LocalPairingFailureReason = PairingFailureReason;
+
+/**
+ * A refused pairing step. `error` is ready to display, and is what a caller
+ * with no copy of its own shows. `rejection` accompanies an `invalid-address`
+ * refusal and says why the address was refused, so a localized caller renders
+ * its own catalog copy instead of the host's English.
+ */
+export interface LocalPairingFailure {
+  ok: false;
+  error: string;
+  reason?: LocalPairingFailureReason;
+  rejection?: PublicBaseUrlRejection;
+}
+
+/**
+ * Result of `localMode.pairingStart`. `handle` is an opaque key for the
+ * follow-up `pairingPoll` / `pairingCancel`; the device code it stands for
+ * stays in the host process. `userCode` is the code to approve on the
+ * assistant's machine, or null when the address already carried an approved
+ * device code and the first poll imports outright.
+ */
+export type LocalPairingStartResult =
+  | {
+      ok: true;
+      handle: string;
+      userCode: string | null;
+      expiresAt: string;
+      intervalSeconds: number;
+    }
+  | LocalPairingFailure;
+
+/**
+ * Result of one `localMode.pairingPoll` attempt. `pending` carries the cadence
+ * to wait before the next one; `imported` means the pairing is registered
+ * under `assistantId`, with `accessOnly` true when the exchange yielded no
+ * refresh credential (the access expires without renewal).
+ */
+export type LocalPairingPollResult =
+  | { ok: true; status: "pending"; expiresAt: string; intervalSeconds: number }
+  | { ok: true; status: "imported"; assistantId: string; accessOnly: boolean }
+  | LocalPairingFailure;
 
 /**
  * One paired-device row as returned by `localMode.listDevices`. Structural
@@ -97,6 +145,10 @@ export interface LocalPairedDeviceRecord {
   issuedAt: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  /** Raw User-Agent observed when this device paired, or null. */
+  pairingUserAgent?: string | null;
+  /** Name the device reported for itself when pairing, or null. */
+  clientReportedName?: string | null;
   /** True when this row is the hosting machine's own guardian credential. */
   isCurrentHost?: boolean;
 }
@@ -107,6 +159,22 @@ export type LocalListDevicesResult =
 
 export type LocalRevokeDeviceResult =
   | { ok: true }
+  | { ok: false; error: string };
+
+/**
+ * A local assistant's avatar as read off its workspace by the host. `null`
+ * is a conclusive absence (no entry, no workspace, no avatar); malformed
+ * arguments and files the host cannot serve produce `ok: false`.
+ */
+export type LocalAssistantAvatar =
+  | {
+      kind: "character";
+      traits: { bodyShape: string; eyeStyle: string; color: string };
+    }
+  | { kind: "image"; imageBase64: string };
+
+export type LocalReadAssistantAvatarResult =
+  | { ok: true; avatar: LocalAssistantAvatar | null }
   | { ok: false; error: string };
 
 export interface VellumBridge {
@@ -185,9 +253,7 @@ export interface VellumBridge {
        * PCM — the offline transcript authority. Result arrives via
        * `onTranscribed`.
        */
-      transcribe?(
-        audio: ArrayBuffer,
-      ): Promise<{ ok: boolean; reason?: string }>;
+      transcribe?(audio: ArrayBuffer): Promise<DictationTranscribeResult>;
       onTranscribed?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
@@ -225,6 +291,17 @@ export interface VellumBridge {
   };
   share: {
     shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+  };
+  downloads: {
+    /** Terminal reports for downloads this window initiated. */
+    onDone(callback: (event: DownloadDoneEvent) => void): () => void;
+    /**
+     * Reveal a completed download in the host's file manager (Finder,
+     * File Explorer). `id` comes from a `"completed"` `onDone` event; main
+     * resolves it to the saved path itself and ignores unknown ids, so the
+     * renderer can never point this at an arbitrary file.
+     */
+    reveal(id: string): Promise<void>;
   };
   localMode: {
     hatch(
@@ -268,15 +345,22 @@ export interface VellumBridge {
      */
     unpair(assistantId: string): Promise<LockfileWriteResult>;
     /**
-     * Register a pairing bundle printed by `vellum pair` on another machine:
-     * persist the guardian token and create a `cloud: "paired"` lockfile
-     * entry, the write counterpart of `unpair`. `name` picks the local id
-     * (its slug); omitted, the id derives from the bundle's device id.
+     * Begin pairing with the assistant at `address`, either a pairing link
+     * copied from its "Pair a device" card or a bare `https://host` URL. The
+     * host runs the device-code exchange, so neither the device code nor the
+     * credentials it buys cross this boundary.
      */
-    connectImport(
-      bundle: string,
-      name?: string,
-    ): Promise<LocalConnectImportResult>;
+    pairingStart(address: string): Promise<LocalPairingStartResult>;
+    /**
+     * One exchange attempt for a live pairing session. An approved code
+     * persists the guardian token and creates a `cloud: "paired"` lockfile
+     * entry in the same call, the write counterpart of `unpair`. `name` picks
+     * the local id (its slug); omitted, the id derives from the assistant's
+     * address.
+     */
+    pairingPoll(handle: string, name?: string): Promise<LocalPairingPollResult>;
+    /** Forget a pending pairing session. */
+    pairingCancel(handle: string): Promise<{ ok: boolean }>;
     sleep(assistantId: string): Promise<{ ok: boolean; error?: string }>;
     wake(
       assistantId: string,
@@ -293,6 +377,13 @@ export interface VellumBridge {
       | { ok: true; accessToken: string }
       | { ok: false; status: number; error: string }
     >;
+    /**
+     * Read a local assistant's avatar straight off its workspace, so the
+     * chooser can render it even while that assistant is asleep.
+     */
+    readAssistantAvatar(
+      assistantId: string,
+    ): Promise<LocalReadAssistantAvatarResult>;
   };
   menu: {
     setPlatformSession(has: boolean): Promise<void>;
@@ -430,6 +521,25 @@ export interface VellumBridge {
      */
     startVoice(): void;
     /**
+     * Turn the session that reads the screen on or off, which is what Watch
+     * does.
+     *
+     * One call for both edges, the way the `toggleWatch` command is: the
+     * surface draws a single control and the window holding the session is the
+     * only side that knows which edge a press is. What comes back is `watching`
+     * on `onState`.
+     */
+    toggleWatch(): void;
+    /**
+     * Answer the summary question a finished watch session leaves on the
+     * surface: open the report now, or not.
+     *
+     * See the `answerWatchRetro` command. Both answers travel, because the
+     * window that ran the retrospective is the one holding the question; what
+     * comes back either way is `watchRetro` going absent on `onState`.
+     */
+    answerWatchRetro(open: boolean): void;
+    /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.
      */
@@ -521,6 +631,7 @@ export const VELLUM_BRIDGE_KEYS = [
   "icon",
   "dock",
   "share",
+  "downloads",
   "localMode",
   "menu",
   "mainWindow",

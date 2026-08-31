@@ -12,8 +12,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { getConfig } from "../config/loader.js";
+import { isFileUnheld } from "../util/file-use.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
+import { addToPathEnv, getExtraToolPathDirs } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 
 const execFileAsync = promisify(execFile);
@@ -40,18 +42,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
   }
   env.GIT_CEILING_DIRECTORIES = workspaceDir;
 
-  const home = process.env.HOME ?? "";
-  const extraDirs = [
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    `${home}/.local/bin`,
-  ];
-  const currentPath = env.PATH ?? "";
-  const pathDirs = currentPath.split(":");
-  const missing = extraDirs.filter((d) => !pathDirs.includes(d));
-  if (missing.length > 0) {
-    env.PATH = [...missing, currentPath].filter(Boolean).join(":");
-  }
+  addToPathEnv(env, getExtraToolPathDirs());
 
   return env;
 }
@@ -419,20 +410,9 @@ export class WorkspaceGitService {
       return;
     }
 
-    try {
-      // lsof exits non-zero when no process holds the file, which rejects the
-      // promise and falls through to removal below.
-      const { stdout } = await execFileAsync("lsof", ["-t", lockPath], {
-        timeout: 3000,
-      });
-      if (stdout.length > 0) {
-        log.debug("index.lock held by an active process, skipping removal");
-        return;
-      }
-    } catch {
-      // lsof unavailable or errored — fall through to remove.
-      // On platforms without lsof this degrades to unconditional removal,
-      // which is the same as the previous behavior.
+    if (!(await isFileUnheld(lockPath))) {
+      log.debug("Could not prove index.lock is stale, skipping removal");
+      return;
     }
 
     try {
@@ -1824,6 +1804,7 @@ export class WorkspaceGitService {
         timeout: timeoutMs,
         env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
+        windowsHide: true,
       });
       return { stdout, stderr };
     } catch (err) {
@@ -1869,6 +1850,7 @@ export class WorkspaceGitService {
         cwd: this.workspaceDir,
         env: { ...cleanGitEnv(this.workspaceDir), ...options?.env },
         signal: options?.signal,
+        windowsHide: true,
       });
 
       // Swallow EPIPE from a child that exits without reading stdin; the

@@ -1,0 +1,191 @@
+{
+  "addCreditsModal": {
+    "configureAutoReload": "Настроить автопополнение"
+  },
+  "assistantConnect": {
+    "failed": "Не удалось подключиться к ассистенту."
+  },
+  "assistantFeatureFlagStore": {
+    "updateFailed": "Не удалось обновить «{label}». Изменение отменено."
+  },
+  "companionIntro": {
+    "ariaLabel": "Знакомство с компаньоном",
+    "meet": {
+      "title": "Это я",
+      "titleNamed": "Я {name}",
+      "body": "Я остаюсь на рабочем столе, даже когда Vellum не видно."
+    },
+    "talk": {
+      "title": "Голос",
+      "body": "Начало голосового диалога."
+    },
+    "type": {
+      "title": "Текст",
+      "body": "Отправка сообщения отсюда и чтение ответа здесь же."
+    },
+    "menu": {
+      "title": "Правый щелчок по компаньону",
+      "body": "Там можно меня спрятать или изменить размер."
+    },
+    "skip": "Пропустить",
+    "next": "Далее",
+    "done": "Понятно"
+  },
+  "deployStore": {
+    "appExported": "Приложение экспортировано",
+    "deployFailed": "Не удалось опубликовать",
+    "deployedToVercel": "Опубликовано на Vercel",
+    "open": "Открыть",
+    "shareFailed": "Не удалось поделиться приложением"
+  },
+  "detailPanelStopButton": {
+    "tooltip": "Стоп"
+  },
+  "discordSetupConnectStep": {
+    "instructions": "Вставьте токен бота, скопированный со страницы Bot.",
+    "botTokenLabel": "Токен бота",
+    "save": "Подключить",
+    "saving": "Подключение...",
+    "saved": "Подключено. Теперь добавьте бота на сервер.",
+    "botTokenPlaceholder": "MTk4NjIyNDgzNzAyNDU0..."
+  },
+  "discordSetupCreateStep": {
+    "instructions": "Откройте портал разработчиков Discord и создайте приложение. На странице <resetLine>Bot</resetLine> нажмите Reset Token и сразу скопируйте токен: Discord показывает его один раз, и посмотреть его снова нельзя.",
+    "intentsNote": "Оставьте все три Privileged Gateway Intents выключенными. Ассистент читает только личные сообщения и сообщения с упоминанием, которые Discord исключает из интента содержимого.",
+    "openPortal": "Открыть портал Discord",
+    "continue": "Токен у меня есть"
+  },
+  "discordSetupInviteStep": {
+    "instructions": "Бот ничего не увидит, пока не войдёт на сервер. Ссылка использует настройки установки вашего приложения.",
+    "openInvite": "Добавить на сервер",
+    "noAppId": "Сначала подключите токен бота, затем вернитесь, чтобы добавить его на сервер."
+  },
+  "discordSetupWizard": {
+    "channelLabel": "Discord",
+    "stepCreate": "Создать приложение",
+    "stepConnect": "Подключить",
+    "stepInvite": "Добавить на сервер"
+  },
+  "domainVerificationChip": {
+    "checkingDomain": "Проверка домена…",
+    "domainVerified": "Домен подтверждён",
+    "failedTitle": "Не удалось подтвердить домен. Записи DNS могли ещё не распространиться. Освободите домен и зарегистрируйте его снова.",
+    "unknownStatus": "Неизвестный статус",
+    "unknownStatusTitle": "Не удалось получить статус проверки домена.",
+    "verificationFailed": "Проверка не прошла",
+    "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
+    "verifyingDomain": "Проверка домена…",
+    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут."
+  },
+  "downloadFeedback": {
+    "failed": "Не удалось скачать файл",
+    "revealMac": "Показать в Finder",
+    "revealWindows": "Показать в проводнике",
+    "saved": "Сохранено в папку «Загрузки»",
+    "started": "Скачивание началось",
+    "startedDescription": "Файл {filename} появится в загрузках браузера."
+  },
+  "managedServicesBanner": {
+    "body": "Управляемые сервисы тарифицируются и списываются с баланса аккаунта Vellum. <link>Смотреть цены</link>"
+  },
+  "nativeAppBanner": {
+    "bannerAria": "Скачать приложение {appName}",
+    "bannerAriaGeneric": "Скачать приложение Vellum",
+    "download": "Скачать",
+    "downloadAppAria": "Скачать приложение {appName}",
+    "downloadAppAriaGeneric": "Скачать приложение Vellum",
+    "subtitle": "Push-уведомления · биометрический вход · тактильная отдача",
+    "title": "Приложение {appName}",
+    "titleGeneric": "Приложение Vellum"
+  },
+  "notFound": {
+    "badge": "Ошибка 404",
+    "title": "Страница не найдена",
+    "body": "Этой страницы нет или её могли перенести.",
+    "backToAssistant": "Вернуться к ассистенту",
+    "goBack": "Назад"
+  },
+  "resourcePressureBanner": {
+    "title": "Ассистенту нужно больше мощности",
+    "titleNamed": "{assistantName} нуждается в большей мощности",
+    "body": "Ассистент усердно работает и приближается к пределу доступных ресурсов. Обновите план, чтобы он продолжал работать без сбоев.",
+    "bodyNoUpgrade": "Ассистент усердно работает и приближается к пределу доступных ресурсов.",
+    "upgrade": "Обновить план",
+    "dontShowAgain": "Больше не показывать"
+  },
+  "rootLayout": {
+    "unnamedAssistant": "ассистент"
+  },
+  "sectionActionsButton": {
+    "ariaLabel": "Действия: {name}"
+  },
+  "serviceCard": {
+    "managedLabel": "Управляемые",
+    "modeToggleAriaLabel": "Режим сервиса",
+    "yourOwnLabel": "Свои"
+  },
+  "sttProviderForm": {
+    "windowsNativeDisplayName": "Windows Native Dictation",
+    "windowsNativeSubtitle": "Распознавание речи Windows на устройстве, локально через вспомогательную программу Windows. Работает без сети и не требует API-ключа.",
+    "windowsNativeSetupWarning": "Нужно базовое распознавание речи для языка интерфейса Windows: Параметры > Время и язык > Язык и регион, три точки рядом с языком интерфейса, Параметры языка, в разделе Возможности языка: Базовое распознавание речи."
+  },
+  "useAppDelete": {
+    "deleteFailed": "Не удалось удалить приложение"
+  },
+  "useAppDeployment": {
+    "copyFailed": "Не удалось скопировать ссылку. Откройте её: {url}",
+    "linkCopied": "Ссылка скопирована",
+    "open": "Открыть"
+  },
+  "useAssistantChannels": {
+    "setupPrompt": {
+      "slack": "Я хочу связываться с тобой в Slack. Давай настроим.",
+      "telegram": "Я хочу связываться с тобой в Telegram. Давай настроим.",
+      "discord": "Я хочу связываться с тобой в Discord. Давай настроим.",
+      "email": "Я хочу писать тебе по электронной почте. Давай настроим твой адрес.",
+      "phone": "Я хочу иметь возможность звонить тебе. Давай настроим тебе номер телефона."
+    },
+    "finishPrompt": {
+      "slack": "Slack настроен, но не работает. Можешь доделать?",
+      "telegram": "Telegram настроен, но не работает. Можешь доделать?",
+      "discord": "Discord настроен, но не работает. Можешь доделать?",
+      "email": "Мой адрес электронной почты настроен, но не работает. Можешь доделать?",
+      "phone": "Мой номер телефона настроен, но не работает. Можешь доделать?"
+    }
+  },
+  "useBookmarks": {
+    "addFailed": "Не удалось добавить закладку.",
+    "removeFailed": "Не удалось удалить закладку."
+  },
+  "useConnectClaude": {
+    "exchangeFailed": "Проверьте вставленный ключ и повторите попытку.",
+    "failed": "Не удалось подключить Claude. Повторите попытку.",
+    "notStarted": "Сначала запуск сценария Connect Claude.",
+    "pasteEmpty": "Вставка кода со страницы Claude.",
+    "popupBlocked": "Браузер заблокировал вкладку входа. Разрешение всплывающих окон для этого сайта, затем снова Подключить.",
+    "startFailed": "Не удалось запустить Connect Claude. Повторите попытку.",
+    "timedOut": "Время ожидания подключения Claude истекло. Повторите попытку."
+  },
+  "useOauthConnect": {
+    "accountConnected": "Аккаунт {name} подключён.",
+    "authPopupClosed": "Не удалось подключить {name}: окно авторизации закрыто.",
+    "authorizationError": "Ошибка {name}: {code}",
+    "authorizationFailed": "Авторизация {name} не удалась",
+    "popupBlocked": "Всплывающее окно заблокировано. Разрешите всплывающие окна и повторите попытку.",
+    "popupClosed": "Не удалось подключить {name}: всплывающее окно закрыто.",
+    "startFailed": "Не удалось начать авторизацию {name}."
+  },
+  "useOpenUrlDirectives": {
+    "blocked": "Браузер заблокировал страницу, которую ассистент пытался открыть.",
+    "openPage": "Открыть страницу"
+  },
+  "useWorkspaceTheme": {
+    "updated": "Тема обновлена"
+  },
+  "windowsMenuBar": {
+    "file": "Файл",
+    "view": "Вид",
+    "developer": "Разработчик",
+    "help": "Справка"
+  }
+}

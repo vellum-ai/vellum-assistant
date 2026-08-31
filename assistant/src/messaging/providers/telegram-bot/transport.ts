@@ -5,6 +5,7 @@ import type {
   CallbackContext,
   ChannelTransport,
 } from "../channel-transport.js";
+import { isBusyActivityPhase } from "../channel-transport.js";
 import type { TelegramSendOptions } from "./send.js";
 import {
   editTelegramMessage,
@@ -27,6 +28,9 @@ function threadOptions(ctx: CallbackContext): TelegramSendOptions | undefined {
 
 export const telegramTransport: ChannelTransport = {
   channel: "telegram",
+
+  // Telegram clears a chat action after about five seconds.
+  activityRefreshMs: 4_000,
 
   async deliver(ctx, payload) {
     const { chatId, text, attachments, approval } = payload;
@@ -72,9 +76,17 @@ export const telegramTransport: ChannelTransport = {
     return { ok: true };
   },
 
-  async typing(ctx, chatId) {
-    await sendTelegramTypingIndicator(chatId, threadOptions(ctx));
-    log.debug({ chatId }, "Telegram typing indicator delivered (direct)");
+  async setActivity(ctx, target) {
+    // Telegram's chat action expires by itself after a few seconds, so a phase
+    // that is not running needs no clearing call.
+    if (!isBusyActivityPhase(target.phase)) {
+      return { ok: true };
+    }
+    await sendTelegramTypingIndicator(target.chatId, threadOptions(ctx));
+    log.debug(
+      { chatId: target.chatId, phase: target.phase },
+      "Telegram typing indicator delivered (direct)",
+    );
     return { ok: true };
   },
 };

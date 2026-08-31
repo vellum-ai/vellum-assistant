@@ -126,7 +126,7 @@ export function LowBalanceAlertCard() {
 
   return (
     <div data-testid="low-balance-alert-card">
-      <div className="flex flex-wrap items-start gap-3">
+      <div className="flex flex-wrap items-start gap-2">
         <div className="w-60 max-w-full">
           <Input
             type="number"
@@ -145,10 +145,10 @@ export function LowBalanceAlertCard() {
           />
         </div>
         {/*
-         * `pt-[18px]` aligns the buttons with the input box (12px label +
+         * `pt-[20px]` centres the buttons against the input box (12px label +
          * 6px gap before the input starts), matching AutoTopUpForm's row.
          */}
-        <div className="flex shrink-0 items-center gap-2 pt-[18px]">
+        <div className="flex shrink-0 items-center gap-2 pt-[20px]">
           {config.threshold_usd != null && (
             <Button
               variant="outlined"

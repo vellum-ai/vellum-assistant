@@ -387,6 +387,28 @@ describe("deriveReason", () => {
     ).toBe("vision_unsupported");
   });
 
+  test("chat-template failure prose on a 400 → request_shape_unsupported", () => {
+    // Together's server-side renderer error for MiniMax M3, verbatim.
+    expect(
+      deriveReason(
+        n({
+          message:
+            "Failed to apply chat template: invalid operation: object is not callable (in chat:22)",
+        }),
+        400,
+      ),
+    ).toBe("request_shape_unsupported");
+  });
+
+  test("chat-template prose on a 5xx stays server-side, not request_shape_unsupported", () => {
+    expect(
+      deriveReason(
+        n({ message: "Failed to apply chat template: renderer crashed" }),
+        500,
+      ),
+    ).not.toBe("request_shape_unsupported");
+  });
+
   test("402 → insufficient_credits", () => {
     expect(deriveReason(n(), 402)).toBe("insufficient_credits");
   });

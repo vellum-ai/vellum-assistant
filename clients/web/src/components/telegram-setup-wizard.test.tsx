@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
 import * as toastModule from "@vellumai/design-library/components/toast";
@@ -56,9 +57,27 @@ function goToConnectStep() {
   fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
 }
 
+/**
+ * The create/token steps render `ChannelAvatarDownload`, which reads the
+ * avatar raster from the query cache, so these trees need a client.
+ */
+function renderWizard(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe("TelegramSetupWizard step flow", () => {
   test("copying the suggested name does not navigate", () => {
-    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Copy name/i }));
 
@@ -75,7 +94,12 @@ describe("TelegramSetupWizard step flow", () => {
     }) as typeof window.open;
 
     try {
-      render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+      renderWizard(
+        <TelegramSetupWizard
+          assistantId="asst-test"
+          assistantName={ASSISTANT_NAME}
+        />,
+      );
       fireEvent.click(screen.getByRole("button", { name: /Open BotFather/i }));
 
       expect(opened).toEqual(["https://t.me/BotFather"]);
@@ -88,7 +112,12 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("Next advances to the token step", () => {
-    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /^Next$/i }));
 
@@ -97,8 +126,9 @@ describe("TelegramSetupWizard step flow", () => {
 
   test("a wrong-field paste is rejected before it reaches Telegram", () => {
     const saved: string[] = [];
-    render(
+    renderWizard(
       <TelegramSetupWizard
+        assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
         onSave={(token) => saved.push(token)}
       />,
@@ -118,7 +148,12 @@ describe("TelegramSetupWizard step flow", () => {
   });
 
   test("a truncated token is rejected", () => {
-    render(<TelegramSetupWizard assistantName={ASSISTANT_NAME} />);
+    renderWizard(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
 
     goToConnectStep();
 
@@ -138,6 +173,7 @@ describe("TelegramSetupWizard step flow", () => {
       return (
         <>
           <TelegramSetupWizard
+            assistantId="asst-test"
             assistantName={ASSISTANT_NAME}
             saveStatus={status}
             onSave={() => setStatus("success")}
@@ -146,7 +182,7 @@ describe("TelegramSetupWizard step flow", () => {
         </>
       );
     }
-    render(<Harness />);
+    renderWizard(<Harness />);
 
     goToConnectStep();
     const field = screen.getByLabelText(/Bot Token/i) as HTMLInputElement;
@@ -162,8 +198,9 @@ describe("TelegramSetupWizard step flow", () => {
 
   test("a well-formed token reaches onSave, trimmed", () => {
     const saved: string[] = [];
-    render(
+    renderWizard(
       <TelegramSetupWizard
+        assistantId="asst-test"
         assistantName={ASSISTANT_NAME}
         onSave={(token) => saved.push(token)}
       />,

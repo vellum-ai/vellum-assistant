@@ -16,11 +16,22 @@ import {
 
 import type { CommandPaletteSection } from "@/components/command-palette/command-palette";
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
-import { newChatShortcutHint } from "@/domains/chat/new-chat-shortcut";
+
+/**
+ * Accelerators for the actions bound on this host. Resolved by the caller so
+ * this stays a pure function of its inputs; a command with no binding passes
+ * `undefined` and renders none.
+ */
+export interface ActionShortcutHints {
+  newConversation?: string;
+  currentConversation?: string;
+  openSettings?: string;
+}
 
 /** Build the static "Actions" section with keyboard shortcuts. */
 export function buildActionsSection(
   assistantName: string,
+  shortcuts: ActionShortcutHints = {},
 ): CommandPaletteSection {
   return {
     id: "actions",
@@ -30,19 +41,19 @@ export function buildActionsSection(
         id: "action-new-conversation",
         icon: SquarePen,
         title: "New Conversation",
-        shortcutHint: newChatShortcutHint(),
+        shortcut: shortcuts.newConversation,
       },
       {
         id: "action-current-conversation",
         icon: Monitor,
         title: "Current Conversation",
-        shortcutHint: "⌘⇧N",
+        shortcut: shortcuts.currentConversation,
       },
       {
         id: "action-settings",
         icon: Settings,
         title: "Settings",
-        shortcutHint: "⌘,",
+        shortcut: shortcuts.openSettings,
       },
       { id: "action-library", icon: LayoutGrid, title: "Library" },
       { id: "action-intelligence", icon: Globe, title: assistantName },

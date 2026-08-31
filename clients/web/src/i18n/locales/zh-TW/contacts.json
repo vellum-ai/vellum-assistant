@@ -1,0 +1,173 @@
+{
+  "actions": {
+    "save": "儲存",
+    "saving": "正在儲存…",
+    "merge": "合併…",
+    "merging": "正在合併…",
+    "delete": "刪除",
+    "deleting": "正在刪除…",
+    "connect": "連線",
+    "connecting": "正在連線…",
+    "manage": "管理",
+    "disconnect": "中斷連線",
+    "disconnecting": "正在中斷連線…",
+    "cancel": "取消",
+    "back": "返回",
+    "verify": "驗證",
+    "verifying": "正在驗證…",
+    "revoke": "撤銷"
+  },
+  "channelType": {
+    "slack": "Slack",
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
+    "a2a": "A2A",
+    "phone": "電話",
+    "email": "電子郵件",
+    "discord": "Discord"
+  },
+  "contact": {
+    "nameLabel": "名稱",
+    "notesLabel": "備註",
+    "draftName": "新增聯絡人",
+    "interactions": "{count, plural, other {# 次互動}}",
+    "mergeBlockedNoCandidates": "沒有其他聯絡人可供合併",
+    "mergeBlockedUnsaved": "請先儲存您的變更再合併"
+  },
+  "contactsPage": {
+    "title": "聯絡人",
+    "mergeSucceeded": "聯絡人已合併",
+    "mergeFailed": "合併聯絡人失敗",
+    "createFailed": "建立聯絡人失敗",
+    "deleteFailed": "刪除聯絡人失敗",
+    "saveFailed": "儲存聯絡人失敗",
+    "verifyFailed": "驗證頻道失敗",
+    "rosterLoadFailed": "無法載入工作區名單。請檢查 Slack 連線並重試。",
+    "emptyBody": "選取一個聯絡人"
+  },
+  "contactsList": {
+    "heading": "項目",
+    "addAriaLabel": "新增聯絡人",
+    "searchPlaceholder": "搜尋聯絡人",
+    "noMatches": "沒有符合的聯絡人",
+    "add": "新增聯絡人",
+    "verified": "已驗證",
+    "unverified": "未驗證",
+    "you": "您",
+    "youNamed": "{name} (您)",
+    "assistantFallback": "您的助理"
+  },
+  "contactDetailView": {
+    "namePlaceholder": "為此人命名",
+    "notesPlaceholder": "關於此人的選填備註，AI 將會納入考量",
+    "mergeBlockedUnsavedDraft": "請先儲存此聯絡人再合併",
+    "delete": "刪除聯絡人",
+    "linkedAccountsTitle": "已連結的帳號",
+    "linkedAccountsSubtitle": "助理辨識此聯絡人的地方。連結您認識的帳號，邀請您不認識的帳號。",
+    "deleteConfirmTitle": "刪除 {name}？",
+    "deleteConfirmMessage": "這將永久刪除此聯絡人及其所有頻道。此動作無法復原。"
+  },
+  "contactPermissions": {
+    "title": "權限",
+    "subtitle": "此聯絡人無需徵求您同意即可執行的最高風險動作。",
+    "inheritLabel": "繼承預設值",
+    "inheritDescription": "此聯絡人將遵循房間和信任等級設定。",
+    "saveFailed": "更新權限失敗",
+    "preset": {
+      "none": "嚴格",
+      "low": "保守",
+      "medium": "寬鬆",
+      "high": "完全存取"
+    },
+    "description": {
+      "none": "執行動作前一律詢問。不自動核准任何動作。",
+      "low": "自動核准低風險動作，例如網路搜尋以及在其工作區中讀寫檔案。",
+      "medium": "自動核准低風險和中等風險動作，例如變更其工作區之外的檔案。",
+      "high": "自動核准所有動作，包括高風險和無法辨識的指令。您的助理將永遠不會要求權限。"
+    }
+  },
+  "guardianDetailView": {
+    "namePlaceholder": "您的名稱",
+    "notesPlaceholder": "關於您自己的備註，AI 將會納入考量",
+    "channelsTitle": "頻道",
+    "channelsSubtitle": "驗證後，當您從這些頻道傳送訊息時，您的助理將會辨識出您。",
+    "setupLabel": "驗證我"
+  },
+  "assistantChannelsDetail": {
+    "title": "{name} (您的助理)",
+    "channelsTitle": "頻道",
+    "channelsSubtitle": "{name} 可聯繫到的地方。"
+  },
+  "assistantContactChannels": {
+    "disconnectConfirmTitle": "中斷 {channel} 的連線？",
+    "disconnectConfirmMessage": "這將清除此頻道的儲存憑證。您可以稍後重新連線。"
+  },
+  "accountLink": {
+    "linked": "已連結為 @{username}",
+    "linkFailed": "連結帳號失敗"
+  },
+  "connectPage": {
+    "invalidTitle": "無效的邀請連結",
+    "invalidBody": "您所使用的連結缺少必要的參數，因此無法使用。",
+    "goToContacts": "前往聯絡人",
+    "title": "連結助理",
+    "body": "接受此連結將在您的助理與寄件者的助理之間建立受信任的 A2A 連線。",
+    "alreadyConnected": "已連線",
+    "connected": "已連線！",
+    "errorExpired": "此邀請連結已過期或已被使用。",
+    "errorAlreadyRedeemed": "此邀請已被其他人領取。",
+    "errorSenderNotFound": "找不到寄件者的助理。",
+    "errorNotPlatformManaged": "A2A 邀請連結僅支援平台託管的助理。",
+    "errorGeneric": "發生錯誤。請再試一次。"
+  },
+  "channelStatus": {
+    "connected": "已連線",
+    "verified": "已驗證"
+  },
+  "contactChannelsSection": {
+    "verifyConfirmTitle": "驗證 {channel}",
+    "verifyConfirmMessageContact": "這會將此聯絡人的 {channel} 頻道標記為已驗證。當他們透過此頻道聯絡時，您的助理將會辨識他們。",
+    "verifyConfirmMessageGuardian": "這會將您的 {channel} 頻道標記為已驗證。當您透過此頻道聯絡時，您的助理將會辨識您。",
+    "verifyAddressLabel": "地址",
+    "verifyAddressPlaceholder": "+12025550123",
+    "verifyAddressMessageContact": "輸入此聯絡人在 {channel} 上使用的識別碼。當他們透過此頻道聯絡時，您的助理將會辨識他們。",
+    "verifyAddressMessageGuardian": "輸入您在 {channel} 上使用的識別碼。當您透過此頻道聯絡時，您的助理將會辨識您。",
+    "revokeConfirmTitle": "撤銷 {channel}",
+    "revokeConfirmMessage": "這將會中斷已驗證的頻道。該聯絡人需要重新驗證才能再次使用此頻道。",
+    "linkAccount": "連結帳號",
+    "setupDefault": "邀請",
+    "loadFailed": "無法載入頻道。請檢查您的連線並再試一次。"
+  },
+  "linkAccountDialog": {
+    "title": "連結 {channel} 帳號",
+    "description": "搜尋您的 {channel} 工作區並選擇 <contact>{name}</contact> 的帳號。",
+    "searchPlaceholder": "依名稱或 @帳號搜尋",
+    "searchAriaLabel": "搜尋 {channel} 工作區帳號",
+    "loading": "正在載入工作區成員…",
+    "noMembers": "找不到工作區成員。",
+    "noMatches": "無符合成員。",
+    "linking": "正在連結…",
+    "guardianLinkNote": "選擇此帳號會將其標記為 <emphasis>監護人連結</emphasis>：您為身份擔保，無需握手驗證。",
+    "inviteInstead": "或者改為傳送邀請"
+  },
+  "contactMergeDialog": {
+    "titlePicked": "將「{donor}」合併到 {survivor}？",
+    "titlePicking": "將另一個聯絡人合併到 {survivor}",
+    "descriptionPicked": "合併聯絡人的頻道和備註將會移轉。該合併聯絡人將會被刪除。",
+    "descriptionPicking": "您選擇的聯絡人將會被刪除。其頻道和備註將會新增到此聯絡人。",
+    "confirm": "合併",
+    "searchPlaceholder": "搜尋聯絡人",
+    "listAriaLabel": "選擇要合併的聯絡人",
+    "empty": "沒有其他聯絡人可供合併。",
+    "donorDeleted": "<donor>「{donor}」</donor> 將會被刪除。",
+    "channelsMoved": "{count, plural, =0 {沒有新的頻道會移轉到 {survivor}。} one {# 個頻道將會移轉到 {survivor}：{channels}。} other {# 個頻道將會移轉到 {survivor}：{channels}。}}",
+    "duplicatesSkipped": "{count, plural, one {有 # 個重複頻道已存在於 {survivor} (已跳過)。} other {有 # 個重複頻道已存在於 {survivor} (已跳過)。}}",
+    "notesAppended": "合併聯絡人的備註將會附加。",
+    "irreversible": "此操作無法復原。"
+  },
+  "survivorName": {
+    "you": "您",
+    "youNamed": "{name} (您)",
+    "thisContact": "此聯絡人"
+  }
+}

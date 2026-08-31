@@ -75,7 +75,6 @@ mock.module("../../util/platform.js", () => ({
   getSandboxWorkingDir: () => join(workspaceDir ?? fallbackDir, "sandbox/work"),
   getSoundsDir: () => join(workspaceDir ?? fallbackDir, "sounds"),
   getAvatarDir: () => join(workspaceDir ?? fallbackDir, "avatar"),
-  AVATAR_IMAGE_FILENAME: "avatar-image.png",
   getAvatarImagePath: () =>
     join(workspaceDir ?? fallbackDir, "avatar/avatar-image.png"),
 

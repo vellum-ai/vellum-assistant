@@ -83,6 +83,7 @@ async function dispatch(method: string, path: string) {
 const SCOPED_CONTACT_WRITES: Array<[string, string]> = [
   ["POST", "/v1/assistants/x/contacts"],
   ["POST", "/v1/assistants/x/contacts/prompt/submit"],
+  ["POST", "/v1/assistants/x/contacts/record/submit"],
   ["POST", "/v1/assistants/x/contact-channels/ch-1/verify"],
   ["DELETE", "/v1/assistants/x/contacts/contact-1"],
 ];
@@ -99,6 +100,11 @@ describe("scoped contact writes fall through to the runtime proxy", () => {
   test("flat POST /v1/contacts still hits the control-plane handler", async () => {
     const body = await dispatch("POST", "/v1/contacts");
     expect(body).toEqual({ marker: "handleUpsertContact" });
+  });
+
+  test("flat POST /v1/contacts/record/submit reaches the record handler, not the :id catch-all", async () => {
+    const body = await dispatch("POST", "/v1/contacts/record/submit");
+    expect(body).toEqual({ marker: "handleContactRecordSubmit" });
   });
 });
 

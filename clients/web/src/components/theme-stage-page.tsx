@@ -31,6 +31,7 @@ import { useParams, useSearchParams } from "react-router";
 import { Button, Card, Input, Textarea } from "@vellumai/design-library";
 
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useTranslation } from "@/i18n";
 import {
   applyWorkspaceThemeTokens,
   type WorkspaceThemeTokens,
@@ -86,51 +87,54 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 function TextRamp() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-1">
-      <SectionLabel>Text</SectionLabel>
+      <SectionLabel>{t("themeStagePage.sectionText")}</SectionLabel>
       <div className="text-[15px] text-[var(--content-default)]">
-        Primary text — the main reading surface of the app.
+        {t("themeStagePage.primaryText")}
       </div>
       <div className="text-[15px] text-[var(--content-secondary)]">
-        Secondary text — supporting copy and descriptions.
+        {t("themeStagePage.secondaryText")}
       </div>
       <div className="text-sm text-[var(--content-tertiary)]">
-        Tertiary text — captions, labels, and placeholders.
+        {t("themeStagePage.tertiaryText")}
       </div>
       <div className="text-sm text-[var(--content-quiet)]">
-        Quiet text — metadata and timestamps.
+        {t("themeStagePage.quietText")}
       </div>
       <div className="text-sm text-[var(--content-faint)]">
-        Faint text — the last legible step of the ramp.
+        {t("themeStagePage.faintText")}
       </div>
     </div>
   );
 }
 
 function ButtonRow() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2">
-      <SectionLabel>Buttons</SectionLabel>
+      <SectionLabel>{t("themeStagePage.sectionButtons")}</SectionLabel>
       <div className="flex items-center gap-3">
-        <Button>Primary</Button>
-        <Button variant="outlined">Secondary</Button>
-        <Button disabled>Disabled</Button>
+        <Button>{t("themeStagePage.buttonPrimary")}</Button>
+        <Button variant="outlined">{t("themeStagePage.buttonSecondary")}</Button>
+        <Button disabled>{t("themeStagePage.buttonDisabled")}</Button>
       </div>
     </div>
   );
 }
 
 function AccentRow() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2">
-      <SectionLabel>Accent</SectionLabel>
+      <SectionLabel>{t("themeStagePage.sectionAccent")}</SectionLabel>
       <div className="flex items-center gap-3">
         <div className="rounded-md bg-[var(--primary-base)] px-4 py-2 text-sm font-medium text-[var(--content-inset)]">
-          Accent fill
+          {t("themeStagePage.accentFill")}
         </div>
         <div className="rounded-md border border-[var(--border-active)] px-4 py-2 text-sm text-[var(--content-default)]">
-          Active border
+          {t("themeStagePage.activeBorder")}
         </div>
         <div className="h-6 w-6 rounded-full bg-[var(--primary-hover)]" />
         <div className="h-6 w-6 rounded-full bg-[var(--primary-active)]" />
@@ -140,28 +144,29 @@ function AccentRow() {
 }
 
 function SurfacesAndBorders() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2">
-      <SectionLabel>Surfaces and borders</SectionLabel>
+      <SectionLabel>{t("themeStagePage.sectionSurfaces")}</SectionLabel>
       <Card elevated>
         <div className="flex flex-col gap-2 p-4">
           <div className="text-[15px] font-medium text-[var(--content-default)]">
-            Raised card
+            {t("themeStagePage.raisedCard")}
           </div>
           <div className="text-sm text-[var(--content-secondary)]">
-            Elevated surfaces sit above panels and the page background.
+            {t("themeStagePage.raisedCardBody")}
           </div>
           <div className="border-t border-[var(--border-subtle)] pt-2 text-sm text-[var(--content-tertiary)]">
-            Subtle divider above this line.
+            {t("themeStagePage.subtleDivider")}
           </div>
         </div>
       </Card>
       <div className="flex items-center gap-3">
         <div className="rounded-md border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-2 text-sm text-[var(--content-secondary)]">
-          Overlay surface
+          {t("themeStagePage.overlaySurface")}
         </div>
         <div className="rounded-md border border-[var(--border-element)] bg-[var(--surface-active)] px-3 py-2 text-sm text-[var(--content-secondary)]">
-          Active surface
+          {t("themeStagePage.activeSurface")}
         </div>
       </div>
     </div>
@@ -169,15 +174,20 @@ function SurfacesAndBorders() {
 }
 
 function InputsRow() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2">
-      <SectionLabel>Inputs</SectionLabel>
-      <Input fullWidth placeholder="A placeholder in an empty field" readOnly />
+      <SectionLabel>{t("themeStagePage.sectionInputs")}</SectionLabel>
+      <Input
+        fullWidth
+        placeholder={t("themeStagePage.inputPlaceholder")}
+        readOnly
+      />
       <Textarea
         fullWidth
         readOnly
         rows={2}
-        value="Text someone has already typed into a field."
+        value={t("themeStagePage.inputFilled")}
       />
     </div>
   );
@@ -212,27 +222,27 @@ function StageAssistantMessage({ children }: { children: string }) {
 }
 
 function BubblesSection() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-3">
-      <SectionLabel>Messages</SectionLabel>
-      <StageUserMessage>
-        A message from the user, in its bubble.
-      </StageUserMessage>
+      <SectionLabel>{t("themeStagePage.sectionMessages")}</SectionLabel>
+      <StageUserMessage>{t("themeStagePage.userBubble")}</StageUserMessage>
       <StageAssistantMessage>
-        A reply from the assistant, rendered full-width on the page surface.
+        {t("themeStagePage.assistantBubble")}
       </StageAssistantMessage>
     </div>
   );
 }
 
 function SamplerView() {
+  const { t } = useTranslation();
   return (
     <div
       data-testid="theme-stage-sampler"
       className={`${STAGE_WIDTH_CLASS} flex min-h-[1080px] flex-col gap-6 bg-[var(--background)] p-8`}
     >
       <div className="text-lg font-semibold text-[var(--content-default)]">
-        Theme sampler
+        {t("themeStagePage.samplerTitle")}
       </div>
       <TextRamp />
       <AccentRow />
@@ -245,6 +255,7 @@ function SamplerView() {
 }
 
 function ChatView() {
+  const { t } = useTranslation();
   return (
     <div
       data-testid="theme-stage-chat"
@@ -252,24 +263,17 @@ function ChatView() {
     >
       <div className="flex items-center border-b border-[var(--border-base)] bg-[var(--surface-overlay)] px-5 py-3">
         <div className="text-[15px] font-medium text-[var(--content-default)]">
-          New conversation
+          {t("themeStagePage.newConversation")}
         </div>
       </div>
       <div className="flex flex-1 flex-col justify-end gap-4 overflow-hidden px-5 py-4">
-        <StageUserMessage>
-          Can you summarize the quarterly report before tomorrow's meeting?
-        </StageUserMessage>
+        <StageUserMessage>{t("themeStagePage.chatUser1")}</StageUserMessage>
         <StageAssistantMessage>
-          Done — the summary is ready. Revenue grew steadily, the two flagged
-          risks from last quarter are resolved, and I pulled the three charts
-          worth showing into a separate page.
+          {t("themeStagePage.chatAssistant1")}
         </StageAssistantMessage>
-        <StageUserMessage>
-          Perfect. Send it to the team in the morning.
-        </StageUserMessage>
+        <StageUserMessage>{t("themeStagePage.chatUser2")}</StageUserMessage>
         <StageAssistantMessage>
-          Scheduled for 9am. I'll include the charts and a one-paragraph version
-          for anyone skimming on their phone.
+          {t("themeStagePage.chatAssistant2")}
         </StageAssistantMessage>
       </div>
       <div className="flex items-end gap-2 border-t border-[var(--border-base)] px-5 py-4">
@@ -278,10 +282,10 @@ function ChatView() {
             fullWidth
             readOnly
             rows={1}
-            placeholder="Message your assistant"
+            placeholder={t("themeStagePage.composerPlaceholder")}
           />
         </div>
-        <Button>Send</Button>
+        <Button>{t("themeStagePage.send")}</Button>
       </div>
     </div>
   );
@@ -334,6 +338,7 @@ export function ThemeStagePage() {
       {/* Freeze motion so the capture never lands mid-transition, and paint
           the document behind the stage so window-size drift never shows a
           white margin in captures. */}
+      {/* eslint-disable-next-line local/no-untranslated-strings -- CSS rules, not user-facing copy */}
       <style>{`* { transition: none !important; animation: none !important; caret-color: transparent !important; } html, body { background: var(--background); }`}</style>
       {view === "chat" ? <ChatView /> : <SamplerView />}
     </>

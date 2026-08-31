@@ -11,9 +11,9 @@ import {
   headerHostIsLoopback,
   originIsAllowed,
   hasSameOriginCredentialProof,
-  connectImport,
   getLockfileData,
   getLocalAssistantStatus,
+  readLockfileAssistantAvatar,
   renameLockfileAssistantIfPresent,
   upsertRendererLockfileAssistant,
   replacePlatformAssistants,
@@ -27,6 +27,9 @@ import {
   runSleep,
   runUpgrade,
   runWake,
+  pairingCancel,
+  pairingPoll,
+  pairingStart,
   unpairAssistant,
   getGuardianAccessToken,
   getPairedGuardianAccessToken,
@@ -41,6 +44,7 @@ import {
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
+const LOCAL_AVATAR_PATTERN = /^(?:\/assistant)?\/__local\/avatar\/([^/]+)$/;
 const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
 const PLATFORM_SESSION_PATTERN =
   /^(?:\/assistant)?\/__local\/platform-session$/;
@@ -75,6 +79,9 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
   const baseDir = path.resolve(import.meta.dirname, "..", "..");
 
+  // The `/assistant/__config` document, also injected into the index. No
+  // `assistantId`: the dev server fronts every assistant in the lockfile at
+  // once, so it has no single identity to report the way an nginx edge does.
   const configJson = JSON.stringify({
     webUrl: config.webUrl,
     platformUrl: config.platformUrl,
@@ -91,9 +98,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
       server.middlewares.use(platformSessionMiddleware());
-      server.middlewares.use(
-        configMiddleware(config.webUrl, config.platformUrl),
-      );
+      server.middlewares.use(configMiddleware(configJson));
       server.middlewares.use(lockfileMiddleware(config.lockfilePaths));
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
@@ -101,7 +106,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
         unpairMiddleware(config.lockfilePaths, config.configDir),
       );
       server.middlewares.use(
-        connectImportMiddleware(config.lockfilePaths, config.configDir),
+        pairingMiddleware(config.lockfilePaths, config.configDir),
       );
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
@@ -117,6 +122,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(
         statusMiddleware(config.lockfilePaths, upgradingLocalAssistantIds),
       );
+      server.middlewares.use(avatarMiddleware(config.lockfilePaths, env));
       server.middlewares.use(
         guardianTokenMiddleware(
           config.lockfilePaths,
@@ -264,18 +270,13 @@ function platformSessionMiddleware(): Connect.NextHandleFunction {
   };
 }
 
-function configMiddleware(
-  webUrl: string,
-  platformUrl: string,
-): Connect.NextHandleFunction {
-  const body = JSON.stringify({ webUrl, platformUrl });
-
+function configMiddleware(configJson: string): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url !== "/assistant/__config" && req.url !== "/__config") {
       return next();
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(body);
+    res.end(configJson);
   };
 }
 
@@ -566,15 +567,31 @@ function unpairMiddleware(
   };
 }
 
-function connectImportMiddleware(
+/** The three pairing routes, each matched with and without the SPA prefix. */
+const PAIRING_ROUTES = ["pairing-start", "pairing-poll", "pairing-cancel"];
+
+function pairingRoute(url: string | undefined): string | null {
+  for (const route of PAIRING_ROUTES) {
+    if (url === `/assistant/__local/${route}` || url === `/__local/${route}`) {
+      return route;
+    }
+  }
+  return null;
+}
+
+/**
+ * The device-code exchange that registers an assistant paired on another
+ * machine: start an attempt from a pasted address, poll it until the host
+ * approves, cancel it on the way out. It runs here rather than in the browser,
+ * so the device code and the credentials it buys never reach the renderer.
+ */
+function pairingMiddleware(
   lockfilePaths: string[],
   configDir: string,
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (
-      req.url !== "/assistant/__local/connect-import" &&
-      req.url !== "/__local/connect-import"
-    ) {
+    const route = pairingRoute(req.url);
+    if (route === null) {
       return next();
     }
 
@@ -588,26 +605,71 @@ function connectImportMiddleware(
       return;
     }
 
-    void readJsonBody(req).then((body) => {
+    void readJsonBody(req).then(async (body) => {
       if (!body) {
         respondJson(res, 400, { ok: false, error: "Invalid JSON body" });
         return;
       }
 
-      const result = connectImport(lockfilePaths, configDir, {
-        bundle: body.bundle,
+      if (route === "pairing-cancel") {
+        respondJson(res, 200, { ok: pairingCancel(body.handle) });
+        return;
+      }
+
+      if (route === "pairing-start") {
+        const result = await pairingStart(body.address);
+        respondJson(
+          res,
+          result.ok ? 200 : result.status,
+          result.ok
+            ? {
+                ok: true,
+                handle: result.handle,
+                userCode: result.userCode,
+                expiresAt: result.expiresAt,
+                intervalSeconds: result.intervalSeconds,
+              }
+            : // `rejection` rides along so the renderer can show its own
+              // localized copy for a refused address instead of this host's
+              // English.
+              {
+                ok: false,
+                reason: result.reason,
+                error: result.error,
+                rejection: result.rejection,
+              },
+        );
+        return;
+      }
+
+      const result = await pairingPoll(lockfilePaths, configDir, {
+        handle: body.handle,
         name: body.name,
       });
+      if (!result.ok) {
+        respondJson(res, result.status, {
+          ok: false,
+          reason: result.reason,
+          error: result.error,
+        });
+        return;
+      }
       respondJson(
         res,
-        result.ok ? 200 : result.status,
-        result.ok
+        200,
+        result.status === "pending"
           ? {
               ok: true,
+              status: "pending",
+              expiresAt: result.expiresAt,
+              intervalSeconds: result.intervalSeconds,
+            }
+          : {
+              ok: true,
+              status: "imported",
               assistantId: result.assistantId,
               accessOnly: result.accessOnly,
-            }
-          : { ok: false, error: result.error },
+            },
       );
     });
   };
@@ -939,6 +1001,45 @@ function statusMiddleware(
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(result));
     });
+  };
+}
+
+function avatarMiddleware(
+  lockfilePaths: string[],
+  env: Record<string, string>,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const match = req.url?.match(LOCAL_AVATAR_PATTERN);
+    if (!match) {
+      return next();
+    }
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+
+    if (req.method !== "GET") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    let assistantId: string;
+    try {
+      assistantId = decodeURIComponent(match[1]!);
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Malformed assistant ID" }));
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify(
+        readLockfileAssistantAvatar(lockfilePaths, assistantId, env),
+      ),
+    );
   };
 }
 

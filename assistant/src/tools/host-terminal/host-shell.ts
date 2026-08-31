@@ -9,7 +9,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { z } from "zod";
 
@@ -24,6 +24,11 @@ import {
 } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
+import {
+  buildShellInvocation,
+  prependUniquePathEntries,
+  terminateProcessTree,
+} from "../../util/host-process.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
 import {
@@ -67,15 +72,10 @@ const HOST_BASH_PROXY_ENV_KEYS = [
 function buildHostShellEnv(): Record<string, string> {
   const env = buildSanitizedEnv();
   // Ensure ~/.local/bin and ~/.bun/bin are in PATH so `vellum` and `bun` are
-  // always reachable, even when the daemon is launched from a macOS app
-  // bundle that inherits a minimal PATH.
+  // reachable when a desktop app launches the assistant with a minimal PATH.
   const home = homedir();
-  const extraDirs = [`${home}/.local/bin`, `${home}/.bun/bin`];
-  const currentPath = env.PATH ?? "";
-  const missing = extraDirs.filter((d) => !currentPath.split(":").includes(d));
-  if (missing.length > 0) {
-    env.PATH = [...missing, currentPath].filter(Boolean).join(":");
-  }
+  const extraDirs = [join(home, ".local", "bin"), join(home, ".bun", "bin")];
+  env.PATH = prependUniquePathEntries(env.PATH, extraDirs);
   return env;
 }
 
@@ -466,11 +466,13 @@ export const hostShellTool = {
       const bgId = generateBackgroundToolId();
       const startedAt = Date.now();
 
-      const child = spawn("bash", ["-c", "--", command], {
+      const wrapped = buildShellInvocation(command);
+      const child = spawn(wrapped.command, wrapped.args, {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
+        windowsHide: true,
       });
 
       const stdoutChunks: Buffer[] = [];
@@ -480,21 +482,7 @@ export const hostShellTool = {
       // event reports "cancelled" rather than "failed".
       let aborted = false;
 
-      const killTree = () => {
-        if (child.pid != null) {
-          try {
-            process.kill(-child.pid, "SIGKILL");
-            return;
-          } catch {
-            // Process group may have already exited — fall through.
-          }
-        }
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // Child may have already exited.
-        }
-      };
+      const killTree = () => terminateProcessTree(child);
 
       const timer = setTimeout(() => {
         timedOut = true;
@@ -666,31 +654,16 @@ export const hostShellTool = {
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      const child = spawn("bash", ["-c", "--", command], {
+      const wrapped = buildShellInvocation(command);
+      const child = spawn(wrapped.command, wrapped.args, {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
+        windowsHide: true,
       });
 
-      // Kill the entire process tree. Tries the process group first
-      // (negative PID), then falls back to killing the direct child if the
-      // PID is unavailable or the group kill fails.
-      const killTree = () => {
-        if (child.pid != null) {
-          try {
-            process.kill(-child.pid, "SIGKILL");
-            return;
-          } catch {
-            // Process group may have already exited — fall through.
-          }
-        }
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // Child may have already exited.
-        }
-      };
+      const killTree = () => terminateProcessTree(child);
 
       const timer = setTimeout(() => {
         timedOut = true;

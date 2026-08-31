@@ -266,6 +266,7 @@ const recordRequestLogCalls: Array<{
 }> = [];
 const recordUsageCalls: Array<{
   conversationId: string;
+  providerName: string | undefined;
   inputTokens: number;
   outputTokens: number;
   model: string;
@@ -279,7 +280,7 @@ const recordUsageCalls: Array<{
 }> = [];
 mock.module("../../daemon/conversation-usage.js", () => ({
   recordUsage: (
-    ctx: { conversationId: string },
+    ctx: { conversationId: string; providerName?: string },
     inputTokens: number,
     outputTokens: number,
     model: string,
@@ -300,6 +301,7 @@ mock.module("../../daemon/conversation-usage.js", () => ({
   ) => {
     recordUsageCalls.push({
       conversationId: ctx.conversationId,
+      providerName: ctx.providerName,
       inputTokens,
       outputTokens,
       model,
@@ -345,6 +347,7 @@ import {
   deleteConversation,
   setConversation,
 } from "../../daemon/conversation-registry.js";
+import { stripAgedSightFrames } from "../../daemon/conversation-sight-frames.js";
 import { ContextOverflowError, type Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
@@ -519,6 +522,11 @@ function makeWakeConversation(options: {
         return runBody(input, onEvent, options);
       },
     },
+    // The wake trims its own run input, the way the orchestrator's pre-run
+    // pass trims a normal turn's. Empty capture times leave the array
+    // untouched, which is what every case but the camera one wants.
+    trimAgedSightFrames: (msgs: Message[]) =>
+      stripAgedSightFrames(msgs, wakeSightFrameCaptureTimes).messages,
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
@@ -603,8 +611,12 @@ function makeWakeConversation(options: {
   return conversation as unknown as WakeConversation;
 }
 
+/** Tagged camera frames the fake conversation's trim resolves against. */
+let wakeSightFrameCaptureTimes = new Map<string, number>();
+
 beforeEach(() => {
   __resetWakeChainForTests();
+  wakeSightFrameCaptureTimes = new Map();
   wakeConvRegistry.clear();
   recordRequestLogCalls.length = 0;
   recordUsageCalls.length = 0;
@@ -930,6 +942,62 @@ describe("wakeAgentForOpportunity", () => {
 
     expect(conversation.runCalls[0]!.personaOverride).toBeUndefined();
     expect(conversation.personaOverrideSets).toEqual([]);
+  });
+
+  test("bounds camera frames in the run input it sends", async () => {
+    // The wake sends its run input itself and keeps the in-loop budget gate
+    // disabled, so neither the orchestrator's pre-run pass nor the loop's
+    // post-compaction transform ever sees this array. Without its own trim a
+    // long camera session would send every frame it captured.
+    wakeSightFrameCaptureTimes = new Map([
+      ["f1", 1000],
+      ["f2", 2000],
+      ["f3", 3000],
+      ["f4", 4000],
+    ]);
+    const frame = (attachmentId: string): Message => ({
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AAAAAAAA" },
+          _attachmentId: attachmentId,
+        },
+      ],
+    });
+    const conversation = makeWakeConversation({
+      baseline: [frame("f1"), frame("f2"), frame("f3"), frame("f4")],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "look around",
+        source: "unit-test",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    const input = conversation.runCalls[0]!.input;
+    const images = input.flatMap((message) =>
+      message.content.filter((block) => block.type === "image"),
+    );
+    const stubs = input.flatMap((message) =>
+      message.content.filter(
+        (block) =>
+          block.type === "text" &&
+          block.text.startsWith("[Camera frame omitted from context:"),
+      ),
+    );
+    expect(images).toHaveLength(2);
+    expect(stubs).toHaveLength(2);
+    // The trim replaces blocks in place, so the wake's tail accounting still
+    // indexes the same positions.
+    expect(input.filter((m) => m.role === "user").length).toBeGreaterThan(0);
   });
 
   test("silent no-op when agent produces no tool calls and no text", async () => {
@@ -1748,7 +1816,13 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The result carries how the run ended, so a caller that treats output as
+    // a finished answer can see that something else ended this one.
+    expect(result).toEqual({
+      invoked: true,
+      producedToolCalls: false,
+      exitReason: "error",
+    });
     // The checkpoint's flush pushed + persisted the partial tail.
     expect(conversation.pushedMessages.length).toBeGreaterThan(0);
     expect(conversation.persistedTailCalls.length).toBeGreaterThan(0);
@@ -1770,7 +1844,11 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: true,
+      producedToolCalls: false,
+      exitReason: "no_tool_calls",
+    });
   });
 
   test("reports no_output on a clean empty reply when the caller requires usable output", async () => {
@@ -2982,6 +3060,96 @@ describe("wakeAgentForOpportunity", () => {
     expect(recordUsageCalls[0]).toMatchObject({
       overrideProfile: "source-profile",
       forceOverrideProfile: true,
+      selectionSeed: conversation.conversationId,
+    });
+  });
+
+  test("rerouted wake records usage under the profile that actually served", async () => {
+    // The wake resolved its own profile before the run; the request then hit
+    // an outage-shaped failure and `RetryProvider` escalated to a backup
+    // profile on a different provider, stamping both `actualProvider` and
+    // `actualInferenceProfile` on the response the loop reports.
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "claude-sonnet-5",
+      actualProvider: "anthropic",
+      actualInferenceProfile: "backupProfile",
+      providerDurationMs: 10,
+      rawRequest: { request: "rerouted wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    // All three attribution facets of the row must describe the same call.
+    // Provider and model already followed the backup off the event; the
+    // profile has to follow it too or the row contradicts itself.
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      providerName: "anthropic",
+      model: "claude-sonnet-5",
+      overrideProfile: "backupProfile",
+      forceOverrideProfile: true,
+      selectionSeed: conversation.conversationId,
+    });
+  });
+
+  test("non-rerouted wake keeps its own profile resolution", async () => {
+    // No reroute: the event carries no `actualInferenceProfile`, so the wake's
+    // own pre-run resolution stands and nothing is floated above the call site.
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "normal wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      providerName: "test-provider",
+      model: "test-model",
+      overrideProfile: null,
+      forceOverrideProfile: false,
       selectionSeed: conversation.conversationId,
     });
   });

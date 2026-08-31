@@ -16,9 +16,13 @@ import type {
   LocalRevokeDeviceResult,
 } from "@/runtime/local-mode-host";
 
+import { createTimerHarness } from "./pair-device-test-helpers";
+
 let listImpl: (assistantId: string) => Promise<LocalListDevicesResult>;
 let listCalls: string[] = [];
-let revokeResult: LocalRevokeDeviceResult = { ok: true };
+let revokeResult: LocalRevokeDeviceResult | Promise<LocalRevokeDeviceResult> = {
+  ok: true,
+};
 let revokeCalls: Array<{ assistantId: string; hashedDeviceId: string }> = [];
 let selectedAssistantId = "self";
 
@@ -68,8 +72,15 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 const { PairedDevicesSection } = await import("./paired-devices-section");
 
+/** The pairing poll's arm delay, telling it apart from the other intervals. */
+const POLL_INTERVAL_MS = 5_000;
+
+/** The activity refresh's arm delay; the relative-age tick's 30s is neither. */
+const ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+
 const HASH_A = "aaaabbbbccccdddd0000111122223333";
 const HASH_B = "eeeeffff00001111aaaabbbbccccdddd";
+const HASH_C = "1111222233334444aaaabbbbccccdddd";
 
 function device(
   overrides: Partial<LocalPairedDeviceRecord> = {},
@@ -90,18 +101,39 @@ function setListResult(result: LocalListDevicesResult) {
 
 async function renderExpanded(devices: LocalPairedDeviceRecord[]) {
   setListResult({ ok: true, devices });
-  render(<PairedDevicesSection />);
+  const result = render(<PairedDevicesSection />);
   // The list fetch is microtask-only; an awaited act drains it without timers.
   await act(async () => {});
-  fireEvent.click(
-    screen.getByRole("button", { name: `Paired devices (${devices.length})` }),
-  );
+  fireEvent.click(deviceListTrigger(devices.length));
+  return result;
+}
+
+/** The accordion trigger, which is also the expand/collapse toggle. */
+function deviceListTrigger(count: number): HTMLElement {
+  return screen.getByRole("button", { name: `Paired devices (${count})` });
 }
 
 function clickConfirm() {
   fireEvent.click(
     document.querySelector<HTMLButtonElement>("[data-confirm-dialog-confirm]")!,
   );
+}
+
+/** Timers armed at `delay` and still live, so cleared arms drop out. */
+function liveTimers(
+  harness: ReturnType<typeof createTimerHarness>,
+  delay: number,
+) {
+  return harness.timers.filter(
+    (timer) => !timer.cleared && timer.delay === delay,
+  );
+}
+
+/** Rendered rows in order, read off the full hash each row's chip carries. */
+function renderedDeviceOrder(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLSpanElement>("span[title]"),
+  ).map((span) => span.title);
 }
 
 beforeEach(() => {
@@ -159,7 +191,7 @@ describe("PairedDevicesSection", () => {
 
     expect(screen.getByText("Revoke this device?")).toBeTruthy();
     expect(
-      screen.getByText(new RegExp(`Ios device ${HASH_A.slice(0, 12)}`)),
+      screen.getByText(new RegExp(`Ios \\(${HASH_A.slice(0, 12)}\\)`)),
     ).toBeTruthy();
     expect(revokeCalls).toHaveLength(0);
   });
@@ -291,28 +323,74 @@ describe("PairedDevicesSection", () => {
     );
   });
 
+  test("a device with a client-reported name shows it verbatim, hash hidden but kept in the title", async () => {
+    await renderExpanded([device({ clientReportedName: "Alice's Laptop" })]);
+
+    const name = screen.getByText("Alice's Laptop");
+    expect(name.getAttribute("title")).toBe(HASH_A);
+    expect(screen.queryByText(HASH_A.slice(0, 12))).toBeNull();
+  });
+
+  test("a device with only a pairing User-Agent shows a composed browser and OS label", async () => {
+    await renderExpanded([
+      device({
+        pairingUserAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128.0 Safari/537.36",
+      }),
+    ]);
+
+    const name = screen.getByText("Chrome on macOS");
+    expect(name.getAttribute("title")).toBe(HASH_A);
+    expect(screen.queryByText(HASH_A.slice(0, 12))).toBeNull();
+  });
+
+  test("a device with neither a reported name nor a User-Agent still renders the platform label with the hash inline", async () => {
+    await renderExpanded([device()]);
+
+    expect(screen.getByText("Ios")).toBeTruthy();
+    const shortA = screen.getByText(HASH_A.slice(0, 12));
+    expect(shortA.getAttribute("title")).toBe(HASH_A);
+  });
+
+  test("the revoke confirmation leads with a client-reported name", async () => {
+    await renderExpanded([device({ clientReportedName: "Alice's Laptop" })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+
+    expect(
+      screen.getByText(
+        new RegExp(`Alice's Laptop \\(${HASH_A.slice(0, 12)}\\)`),
+      ),
+    ).toBeTruthy();
+  });
+
+  test('a device self-reporting as "This machine" cannot spoof the host marker or disable its own Revoke', async () => {
+    await renderExpanded([
+      device({ clientReportedName: "This machine", isCurrentHost: false }),
+    ]);
+
+    // Exactly one occurrence: the reported name, not a second host marker.
+    expect(screen.getAllByText("This machine")).toHaveLength(1);
+    const revokeButton = screen.getByRole("button", {
+      name: "Revoke",
+    }) as HTMLButtonElement;
+    expect(revokeButton.disabled).toBe(false);
+
+    fireEvent.click(revokeButton);
+    expect(screen.getByText("Revoke this device?")).toBeTruthy();
+  });
+
   test("polls while a pairing code is live and refreshes once more when it ends", async () => {
-    // bun:test has no fake timers; capture interval callbacks and fire them
-    // by hand so the test stays deterministic.
-    const intervals = new Map<unknown, () => void>();
-    let nextIntervalId = 1;
-    const originalSetInterval = globalThis.setInterval;
-    const originalClearInterval = globalThis.clearInterval;
-    globalThis.setInterval = ((fn: () => void) => {
-      const id = nextIntervalId++;
-      intervals.set(id, fn);
-      return id;
-    }) as unknown as typeof setInterval;
-    globalThis.clearInterval = ((id: unknown) => {
-      intervals.delete(id);
-    }) as typeof clearInterval;
+    const timerHarness = createTimerHarness();
+    const livePolls = () => liveTimers(timerHarness, POLL_INTERVAL_MS);
+    timerHarness.install();
 
     try {
       setListResult({ ok: true, devices: [device()] });
       const { rerender } = render(<PairedDevicesSection pollWhilePairing />);
       await act(async () => {});
       expect(listCalls).toEqual(["self"]);
-      expect(intervals.size).toBe(1);
+      expect(livePolls()).toHaveLength(1);
 
       // Another device claims the live code; the next tick surfaces it.
       setListResult({
@@ -323,8 +401,8 @@ describe("PairedDevicesSection", () => {
         ],
       });
       await act(async () => {
-        for (const tick of intervals.values()) {
-          tick();
+        for (const poll of livePolls()) {
+          poll.handler();
         }
       });
       expect(listCalls).toEqual(["self", "self"]);
@@ -336,28 +414,268 @@ describe("PairedDevicesSection", () => {
       // refresh catches a claim in the last window.
       rerender(<PairedDevicesSection pollWhilePairing={false} />);
       await act(async () => {});
-      expect(intervals.size).toBe(0);
+      expect(livePolls()).toHaveLength(0);
       expect(listCalls).toEqual(["self", "self", "self"]);
     } finally {
-      globalThis.setInterval = originalSetInterval;
-      globalThis.clearInterval = originalClearInterval;
+      timerHarness.restore();
     }
   });
 
   test("does not poll without a live pairing code", async () => {
-    const originalSetInterval = globalThis.setInterval;
-    let intervalCount = 0;
-    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
-      intervalCount++;
-      return originalSetInterval(...args);
-    }) as typeof setInterval;
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
     try {
       await renderExpanded([device()]);
-      expect(intervalCount).toBe(0);
+      expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(0);
+      // The slow activity refresh is the only list timer without a live code.
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
       expect(listCalls).toEqual(["self"]);
     } finally {
-      globalThis.setInterval = originalSetInterval;
+      timerHarness.restore();
     }
+  });
+
+  test("refreshes on the activity interval so the label tracks a fresh sample", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      await renderExpanded([
+        device({ lastUsedAt: Date.now() - 3 * 60 * 60 * 1000 }),
+      ]);
+      expect(
+        screen.getByText(/^Paired \d.+ · Last used 3 hours ago$/),
+      ).toBeTruthy();
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      // The device never stopped talking to the gateway; the refresh
+      // resamples `lastUsedAt` instead of aging the one taken at mount.
+      setListResult({
+        ok: true,
+        devices: [device({ lastUsedAt: Date.now() })],
+      });
+      await act(async () => {
+        for (const refreshTimer of liveTimers(
+          timerHarness,
+          ACTIVITY_REFRESH_INTERVAL_MS,
+        )) {
+          refreshTimer.handler();
+        }
+      });
+
+      expect(listCalls).toEqual(["self", "self"]);
+      expect(screen.getByText(/^Paired \d.+ · Active now$/)).toBeTruthy();
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("stands the activity refresh down while the pairing poll runs", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      const { rerender } = render(<PairedDevicesSection pollWhilePairing />);
+      await act(async () => {});
+      fireEvent.click(deviceListTrigger(1));
+      expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(1);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+
+      // A tick of the live code's poll is the only fetch it produces.
+      await act(async () => {
+        for (const poll of liveTimers(timerHarness, POLL_INTERVAL_MS)) {
+          poll.handler();
+        }
+      });
+      expect(listCalls).toEqual(["self", "self"]);
+
+      // Code consumed/expired: the poll clears and the slow refresh takes over.
+      rerender(<PairedDevicesSection pollWhilePairing={false} />);
+      await act(async () => {});
+      expect(liveTimers(timerHarness, POLL_INTERVAL_MS)).toHaveLength(0);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+      expect(listCalls).toEqual(["self", "self", "self"]);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("pauses the activity refresh while a revoke is in flight", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      await renderExpanded([device()]);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      let resolveRevoke!: (result: LocalRevokeDeviceResult) => void;
+      revokeResult = new Promise<LocalRevokeDeviceResult>((resolve) => {
+        resolveRevoke = resolve;
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+      await act(async () => {
+        clickConfirm();
+      });
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+
+      await act(async () => {
+        resolveRevoke({ ok: true });
+      });
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("clears the activity refresh on unmount", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      const { unmount } = await renderExpanded([device()]);
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      unmount();
+
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("leaves the activity refresh disarmed while the list is collapsed", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      render(<PairedDevicesSection />);
+      await act(async () => {});
+
+      // The trigger renders, but the rows behind it do not: refreshing them
+      // would spawn a host subprocess every minute for a label nobody can read.
+      expect(deviceListTrigger(1)).toBeTruthy();
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+      expect(listCalls).toEqual(["self"]);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("arms the activity refresh on expand and clears it on collapse", async () => {
+    const timerHarness = createTimerHarness();
+    timerHarness.install();
+
+    try {
+      setListResult({ ok: true, devices: [device()] });
+      render(<PairedDevicesSection />);
+      await act(async () => {});
+
+      fireEvent.click(deviceListTrigger(1));
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(1);
+
+      fireEvent.click(deviceListTrigger(1));
+      expect(
+        liveTimers(timerHarness, ACTIVITY_REFRESH_INTERVAL_MS),
+      ).toHaveLength(0);
+      expect(listCalls).toEqual(["self"]);
+    } finally {
+      timerHarness.restore();
+    }
+  });
+
+  test("a device seen inside the activity window reads Active now", async () => {
+    await renderExpanded([device({ lastUsedAt: Date.now() - 2 * 60 * 1000 })]);
+
+    expect(screen.getByText(/^Paired \d.+ · Active now$/)).toBeTruthy();
+  });
+
+  test("an older device reads a relative last-used label", async () => {
+    await renderExpanded([
+      device({ lastUsedAt: Date.now() - 3 * 60 * 60 * 1000 }),
+    ]);
+
+    expect(
+      screen.getByText(/^Paired \d.+ · Last used 3 hours ago$/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Active now/)).toBeNull();
+  });
+
+  test("a device never seen drops the last-used clause entirely", async () => {
+    await renderExpanded([device({ lastUsedAt: null })]);
+
+    expect(screen.getByText(/^Paired \d\S+$/)).toBeTruthy();
+    expect(screen.queryByText(/Last used/)).toBeNull();
+    expect(document.body.textContent).not.toContain("unknown");
+  });
+
+  test("orders devices by most recent activity, never-seen ones last", async () => {
+    await renderExpanded([
+      device({ hashedDeviceId: HASH_A, lastUsedAt: null }),
+      device({
+        hashedDeviceId: HASH_B,
+        lastUsedAt: Date.parse("2026-08-10T12:00:00Z"),
+      }),
+      device({
+        hashedDeviceId: HASH_C,
+        lastUsedAt: Date.parse("2026-08-20T12:00:00Z"),
+      }),
+    ]);
+
+    expect(renderedDeviceOrder()).toEqual([HASH_C, HASH_B, HASH_A]);
+  });
+
+  test("revoking targets the clicked row once the list is reordered", async () => {
+    await renderExpanded([
+      device({
+        hashedDeviceId: HASH_A,
+        platform: "ios",
+        lastUsedAt: Date.parse("2026-08-10T12:00:00Z"),
+      }),
+      device({
+        hashedDeviceId: HASH_B,
+        platform: "android",
+        lastUsedAt: Date.parse("2026-08-20T12:00:00Z"),
+      }),
+    ]);
+
+    // The android device is the more recently used one, so it sorts first.
+    expect(renderedDeviceOrder()).toEqual([HASH_B, HASH_A]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]!);
+
+    expect(
+      screen.getByText(new RegExp(`Android \\(${HASH_B.slice(0, 12)}\\)`)),
+    ).toBeTruthy();
+    clickConfirm();
+
+    await waitFor(() =>
+      expect(revokeCalls).toEqual([
+        { assistantId: "self", hashedDeviceId: HASH_B },
+      ]),
+    );
   });
 
   test("a failed revoke keeps the dialog open with the error", async () => {

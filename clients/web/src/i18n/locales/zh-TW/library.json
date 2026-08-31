@@ -1,0 +1,40 @@
+{
+  "libraryEmptyState": {
+    "heading": "您的資料庫是空的",
+    "body": "請您的助理建立內容，或匯入共享應用程式",
+    "newConversation": "新增對話",
+    "separator": "或",
+    "importFile": "匯入 .vellum 檔案"
+  },
+  "libraryView": {
+    "importFailed": "匯入應用程式失敗",
+    "imported": "已匯入 {name}",
+    "loadingAria": "正在載入應用程式",
+    "retry": "重試",
+    "import": "匯入",
+    "searchPlaceholder": "搜尋您的資料庫",
+    "noMatches": "沒有應用程式或文件符合「{query}」",
+    "pinned": "已釘選",
+    "recents": "最近項目",
+    "documents": "文件"
+  },
+  "libraryAppCard": {
+    "exported": "應用程式已匯出",
+    "shareFailed": "分享應用程式失敗",
+    "actionsTitle": "{appName} 的選項",
+    "unpin": "取消釘選",
+    "pin": "釘選",
+    "share": "分享",
+    "shareSub": "匯出為 .vellum 檔案",
+    "deployed": "已部署至 Vercel",
+    "copyLink": "複製連結",
+    "redeploy": "重新部署",
+    "redeploySub": "發佈目前版本",
+    "deploy": "部署至 Vercel",
+    "deploySub": "發佈為靜態頁面",
+    "delete": "刪除"
+  },
+  "libraryDetailPage": {
+    "backToLibrary": "返回資料庫"
+  }
+}

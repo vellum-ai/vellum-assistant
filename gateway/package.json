@@ -1,11 +1,15 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.11.4",
+  "version": "0.11.7",
   "license": "MIT",
   "type": "module",
   "exports": {
     "./twilio/verify": "./src/twilio/verify.ts",
+    "./cli": "./src/cli/index.ts",
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "gateway": "./src/cli/index.ts"
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
@@ -27,6 +31,7 @@
   "dependencies": {
     "@vellumai/assistant-client": "workspace:*",
     "@vellumai/ces-client": "workspace:*",
+    "@vellumai/environments": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
     "@vellumai/ipc-server-utils": "workspace:*",
     "@vellumai/service-contracts": "workspace:*",
@@ -45,6 +50,7 @@
   "bundledDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",

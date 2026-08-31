@@ -1,3 +1,4 @@
+import { RiskThresholdSchema } from "@vellumai/gateway-client";
 import { z } from "zod";
 
 import type { GatewayRouteDefinition } from "./types.js";
@@ -8,7 +9,7 @@ import type { GatewayRouteDefinition } from "./types.js";
  * These schemas are the codegen source of truth for the operations that
  * exist ONLY on the gateway (they have no daemon HTTP counterpart, so they
  * are absent from the daemon SDK): contact upsert, contact delete,
- * contact-prompt submit, and manual channel verify. Clients consume them
+ * contact-prompt submit, contact-record submit, and manual channel verify. Clients consume them
  * through the generated gateway SDK, which emits assistant-scoped
  * `/v1/assistants/{assistant_id}/...` URLs — but both deployment boundaries
  * strip the scope before the gateway routes the request (Django's
@@ -17,7 +18,7 @@ import type { GatewayRouteDefinition } from "./types.js";
  * in this spec.
  *
  * The handlers live in `contacts-control-plane-proxy.ts` (upsert, delete,
- * verify) and `contact-prompt.ts` (prompt submit); this module is
+ * verify) and `contact-prompt.ts` (prompt and record submit); this module is
  * intentionally schema-only so `scripts/generate-openapi.ts` can import it
  * without pulling in DB or IPC dependencies.
  */
@@ -67,6 +68,9 @@ const ContactPayloadSchema = z.object({
   updatedAt: z.number(),
   interactionCount: z.number(),
   lastInteraction: z.number().nullable(),
+  autoApproveThreshold: RiskThresholdSchema.nullable().describe(
+    "Per-contact auto-approve ceiling. Null means unset (inherit cascade).",
+  ),
   assistantMetadata: AssistantContactMetadataSchema.nullable(),
   channels: z.array(ContactChannelPayloadSchema),
 });
@@ -101,6 +105,11 @@ const UpsertContactRequestSchema = z.object({
     .min(1)
     .describe("Required on every upsert, including updates by id"),
   notes: z.string().nullable().optional(),
+  autoApproveThreshold: RiskThresholdSchema.nullable()
+    .optional()
+    .describe(
+      "Per-contact auto-approve ceiling. Omit to preserve; null clears.",
+    ),
   contactType: z.string().optional(),
   assistantMetadata: z
     .object({
@@ -115,11 +124,51 @@ const UpsertContactRequestSchema = z.object({
 const ContactPromptSubmitRequestSchema = z.object({
   requestId: z
     .string()
-    .describe("The contact_request id broadcast by the daemon"),
-  address: z.string(),
-  channelType: z.string(),
+    .describe("The contact_request id broadcast by the assistant"),
+  address: z.string().optional().describe("Required unless cancelled is true"),
+  channelType: z
+    .string()
+    .optional()
+    .describe("Required unless cancelled is true"),
   role: z.string().optional(),
   displayName: z.string().optional(),
+  verify: z
+    .boolean()
+    .optional()
+    .describe(
+      "The form's 'mark verified' checkbox as the guardian left it. Omit only from clients that predate the checkbox; the parked command's flag is then used instead.",
+    ),
+  cancelled: z
+    .boolean()
+    .optional()
+    .describe(
+      "The guardian dismissed the form. Unblocks the waiting command without writing.",
+    ),
+});
+
+const ContactRecordSubmitRequestSchema = z.object({
+  requestId: z
+    .string()
+    .describe("The contact_record_request id broadcast by the assistant"),
+  operation: z
+    .enum(["create", "update", "delete"])
+    .optional()
+    .describe("Required unless cancelled is true"),
+  contactId: z.string().optional().describe("Required to update or delete"),
+  displayName: z.string().optional(),
+  notes: z.string().nullable().optional(),
+  expectedChannels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
+    .optional()
+    .describe(
+      "The channels the delete confirmation listed. The delete is refused if the contact's channels changed since.",
+    ),
+  cancelled: z
+    .boolean()
+    .optional()
+    .describe(
+      "The guardian dismissed the form. Unblocks the waiting command without writing.",
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -158,12 +207,38 @@ export const ROUTES: GatewayRouteDefinition[] = [
     operationId: "contactsPromptSubmit",
     summary: "Submit a contact-prompt address",
     description:
-      "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+      "Completes a contact_request the assistant broadcast: writes the contact and channel gateway-first, then unblocks the waiting prompt.",
     tags: ["contacts"],
     requestBody: ContactPromptSubmitRequestSchema,
     responseBody: z.object({
       accepted: z.boolean(),
       error: z.string().optional(),
+      duplicate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Another client answered this form first. Nothing is wrong, but none of this submission's values were written.",
+        ),
+    }),
+  },
+  {
+    path: "/v1/contacts/record/submit",
+    method: "post",
+    operationId: "contactsRecordSubmit",
+    summary: "Submit a contact-record form",
+    description:
+      "Completes a contact_record_request the assistant broadcast: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command. A cancelled submission unblocks it without writing.",
+    tags: ["contacts"],
+    requestBody: ContactRecordSubmitRequestSchema,
+    responseBody: z.object({
+      accepted: z.boolean(),
+      error: z.string().optional(),
+      duplicate: z
+        .boolean()
+        .optional()
+        .describe(
+          "Another client answered this form first. Nothing is wrong, but none of this submission's values were written.",
+        ),
     }),
   },
   {

@@ -33,6 +33,7 @@ import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { fileEditInputSchema } from "./filesystem/edit.js";
 import { fileWriteInputSchema } from "./filesystem/write.js";
+import { getHostShell } from "./host-shell.js";
 import { PermissionChecker } from "./permission-checker.js";
 import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
@@ -89,6 +90,7 @@ export class ToolExecutor {
         undefined,
         undefined,
         context.signal,
+        getHostShell(context, input),
       );
     } catch {
       // Stays undefined; the audit row records RISK_LEVEL_UNCLASSIFIED.
@@ -108,12 +110,6 @@ export class ToolExecutor {
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
-    // Whether THIS invocation was interactively prompted. Distinct from the
-    // turn-level `context.approvedViaPrompt` (seeded from
-    // `approvedViaPromptThisTurn`, which stays true for later auto-approved
-    // tools in the same turn): the `permission_decided` telemetry must reflect
-    // a prompt for this specific call, not any prompt earlier in the turn.
-    let wasPromptedThisInvocation = false;
     // Run pre-execution approval gates (abort, guardian policy,
     // allowed-tool-set, task-run preflight, tool registry lookup). The gate
     // resolves the tool's sandbox/host target internally.
@@ -253,7 +249,6 @@ export class ToolExecutor {
 
         if (permResult.wasPrompted) {
           context.approvedViaPrompt = true;
-          wasPromptedThisInvocation = true;
         }
       } else {
         // Grant consumed — permission check was skipped. Set provenance explicitly
@@ -324,7 +319,6 @@ export class ToolExecutor {
         matchedTrustRuleId: permMatchedTrustRuleId,
         durationMs,
         attribution: context.attribution ?? null,
-        wasPrompted: wasPromptedThisInvocation,
       });
       recordToolCompletion(
         context.conversationId,

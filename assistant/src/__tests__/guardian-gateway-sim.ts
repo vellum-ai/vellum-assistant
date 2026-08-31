@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  DELIVERY_STATUS,
   deriveGuardianRequestSourceType,
   isGuardianRequestExpired,
 } from "@vellumai/gateway-client";
@@ -177,7 +178,7 @@ export function createGuardianGatewaySim() {
       destinationConversationId: params.destinationConversationId ?? null,
       destinationChatId: params.destinationChatId ?? null,
       destinationMessageId: params.destinationMessageId ?? null,
-      status: params.status ?? "pending",
+      status: params.status ?? DELIVERY_STATUS.pending,
       createdAt: params.createdAt ?? now,
       updatedAt: params.updatedAt ?? now,
     };
@@ -290,6 +291,11 @@ export function createGuardianGatewaySim() {
     if (!row || row.status !== params.expectedStatus) {
       return { applied: false, reason: "status_conflict" };
     }
+    // Mirrors the gateway decide CAS: the deadline is part of the
+    // arbitration, so a decision arriving past expiresAt loses atomically.
+    if (isGuardianRequestExpired(row, Date.now())) {
+      return { applied: false, reason: "status_conflict" };
+    }
     if (state.outcomeError && params.aclOutcome) {
       // Gateway transaction rollback: the CAS never lands.
       throw state.outcomeError;
@@ -344,14 +350,22 @@ export function createGuardianGatewaySim() {
   }
 
   async function expireGuardianRequest(id: string): Promise<void> {
+    // Mirrors the gateway: deliveries expire only when the request CAS
+    // applies, so a decided request's rows are never restamped.
     const row = requests.get(id);
-    if (row?.status === "pending") {
-      row.status = "expired";
-      row.updatedAt = Date.now();
+    if (row?.status !== "pending") {
+      return;
     }
+    row.status = "expired";
+    row.updatedAt = Date.now();
     for (const delivery of deliveries) {
-      if (delivery.requestId === id) {
-        delivery.status = "expired";
+      // A withdrawn row is the daemon's per-surface receipt; the gateway
+      // preserves it through the bulk flip.
+      if (
+        delivery.requestId === id &&
+        delivery.status !== DELIVERY_STATUS.withdrawn
+      ) {
+        delivery.status = DELIVERY_STATUS.expired;
         delivery.updatedAt = Date.now();
       }
     }
@@ -364,9 +378,13 @@ export function createGuardianGatewaySim() {
       if (row.status !== "pending") {
         continue;
       }
+      // Mirrors the gateway contract: only the kinds that die with the
+      // daemon's in-memory pendingInteractions map expire at boot.
+      // Persistent kinds stay pending, whatever their deadline; their
+      // expiry belongs to the sweep, which owns the fan-out.
       const interactionBound =
         row.kind === "tool_approval" || row.kind === "pending_question";
-      if (interactionBound || isGuardianRequestExpired(row, now)) {
+      if (interactionBound) {
         row.status = "expired";
         row.updatedAt = now;
         expired += 1;
@@ -375,19 +393,18 @@ export function createGuardianGatewaySim() {
     return expired;
   }
 
-  async function sweepExpiredGuardianRequests(
-    now?: number,
+  async function listExpiredPendingGuardianRequests(
+    limit = 50,
   ): Promise<SimGuardianRequest[]> {
-    const cutoff = now ?? Date.now();
-    const expired: SimGuardianRequest[] = [];
+    const cutoff = Date.now();
+    const stale: SimGuardianRequest[] = [];
     for (const row of requests.values()) {
       if (row.status === "pending" && isGuardianRequestExpired(row, cutoff)) {
-        row.status = "expired";
-        row.updatedAt = cutoff;
-        expired.push({ ...row });
+        stale.push({ ...row });
       }
     }
-    return expired;
+    stale.sort((a, b) => (a.expiresAt ?? 0) - (b.expiresAt ?? 0));
+    return stale.slice(0, limit);
   }
 
   async function createGuardianRequestDelivery(
@@ -580,7 +597,7 @@ export function createGuardianGatewaySim() {
     decideGuardianRequest,
     expireGuardianRequest,
     expireInteractionBoundGuardianRequests,
-    sweepExpiredGuardianRequests,
+    listExpiredPendingGuardianRequests,
     createGuardianRequestDelivery,
     updateGuardianRequestDelivery,
     listGuardianRequestDeliveries,

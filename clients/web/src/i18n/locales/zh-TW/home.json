@@ -1,0 +1,75 @@
+{
+  "actions": {
+    "markAsRead": "標示為已讀",
+    "markAsUnread": "標示為未讀",
+    "restore": "還原",
+    "dismiss": "關閉",
+    "goToThread": "前往討論串",
+    "goToConversation": "前往對話",
+    "goToConvo": "前往對話",
+    "viewSchedule": "檢視排程",
+    "viewSkill": "檢視技能",
+    "markAllAsRead": "全部標示為已讀",
+    "clearAll": "全部清除"
+  },
+  "category": {
+    "all": "全部",
+    "security": "安全性",
+    "email": "電子郵件",
+    "scheduling": "排程",
+    "background": "背景",
+    "system": "系統"
+  },
+  "homeRecapRow": {
+    "actionsTitle": "更新動作"
+  },
+  "homeTopHeader": {
+    "title": "活動"
+  },
+  "homeFeedFilterBar": {
+    "ariaLabel": "篩選通知"
+  },
+  "homeFeedList": {
+    "today": "今天",
+    "yesterday": "昨天",
+    "older": "更早",
+    "noMatches": "沒有項目符合所選的篩選條件。",
+    "emptyTitle": "尚無通知",
+    "emptyBody": "您的助理所發出的更新和活動將會顯示在此處。",
+    "earlier": "更早 ({count, number})",
+    "dismissed": "已關閉 ({count, number})"
+  },
+  "homePage": {
+    "loadFailed": "無法載入首頁動態消息。",
+    "loadFailedDetail": "無法載入首頁動態消息：{message}"
+  },
+  "homeDetailPanel": {
+    "back": "返回",
+    "heading": "詳細資料",
+    "close": "關閉",
+    "closeAriaLabel": "關閉詳細資料面板",
+    "untitled": "通知"
+  },
+  "homeToolPermissionCard": {
+    "missingScopes": "缺少範圍",
+    "status": {
+      "revoked": "已撤銷",
+      "expired": "已過期",
+      "missingScopes": "缺少範圍",
+      "missingToken": "缺少權杖",
+      "pingFailed": "Ping 失敗",
+      "unreachable": "無法連線"
+    }
+  },
+  "notificationsBell": {
+    "ariaLabel": "通知",
+    "ariaLabelUnread": "通知 (未讀)",
+    "heading": "通知",
+    "loadFailed": "無法載入通知。",
+    "empty": "尚無通知。",
+    "actionFailed": "無法開始該對話。請再試一次。"
+  },
+  "notificationsBellDetail": {
+    "back": "返回通知"
+  }
+}

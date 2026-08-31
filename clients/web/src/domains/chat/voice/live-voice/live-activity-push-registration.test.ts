@@ -62,6 +62,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const { registerLiveActivityPushToken } =
   await import("@/domains/chat/voice/live-voice/live-activity-push-registration");
+const { changeLocale } = await import("@/i18n");
 
 beforeEach(() => {
   lastUpsertArg = null;
@@ -127,6 +128,24 @@ describe("registerLiveActivityPushToken content state", () => {
     await registerLiveActivityPushToken({ ...REGISTRATION, muted: false });
 
     expect(lastUpsertArg?.body.labels.listening).toBe("Listening…");
+  });
+
+  /**
+   * The table is the platform's whole vocabulary, so one built in English puts
+   * the island back into English on the first push after iOS suspends this web
+   * layer, which is the only state the island is ever seen in.
+   */
+  test("registers the table in the language the app is in", async () => {
+    await changeLocale("es");
+    try {
+      await registerLiveActivityPushToken(REGISTRATION);
+
+      expect(lastUpsertArg?.body.labels.listening).toBe("Escuchando…");
+      expect(lastUpsertArg?.body.labels.thinking).toBe("Pensando…");
+    } finally {
+      // Process-global, so leaving it set would fail every later assertion.
+      await changeLocale("en");
+    }
   });
 
   // The stored row is what every background push composes from, so a slow

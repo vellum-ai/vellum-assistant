@@ -1,11 +1,14 @@
 /**
  * Photos taken mid-call (the voice room's camera).
  *
- * The behaviour under test is the parking rule: an `attach_image` frame does
- * not dispatch anything, it waits for the next turn and rides that turn's own
- * user message. That is what makes a bare "what's this?" resolve against the
- * picture instead of producing one turn about the image racing another about
- * the words.
+ * The behaviour under test is that an `attach_image` frame stands alone: it
+ * persists the photo as its own user message the moment it arrives and
+ * dispatches no turn, so the spoken turn that follows carries no attachments
+ * of its own and reaches the picture through conversation history. That is
+ * what makes shutter-then-speak and speak-then-shutter answer the same way.
+ *
+ * The parking rule belongs to `attach_frame` instead
+ * (`live-voice-attach-frame.test.ts`), which carries ambient camera frames.
  */
 
 import { describe, expect, mock, test } from "bun:test";

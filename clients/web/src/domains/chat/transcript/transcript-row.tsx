@@ -13,6 +13,7 @@ import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confirmation-row";
+import { PendingContactRecordRequestRow } from "@/domains/chat/transcript/pending-contact-record-request-row";
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
@@ -23,6 +24,7 @@ import { isPointerCoarse } from "@/utils/pointer";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -36,6 +38,9 @@ export interface TranscriptRowProps {
   item: TranscriptItem;
   /** Conversation id, forwarded to message bodies for the bookmark toggle. */
   conversationId?: string | null;
+  /** Tool call the Connect card renders under, resolved once by
+   *  `Transcript` so rows do not each subscribe to the transcript. */
+  acpConnectInlineToolUseId?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (
     surfaceId: string,
@@ -58,7 +63,6 @@ export interface TranscriptRowProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -164,6 +168,7 @@ function CreditsUpsellMessageRow({
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   conversationId,
+  acpConnectInlineToolUseId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -187,6 +192,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   isStreaming,
   isLatestMessage,
 }: TranscriptRowProps) {
+  const { t } = useTranslation("chat");
   switch (item.kind) {
     case "message": {
       // Daemon-authored status cards render as standalone system notices,
@@ -200,6 +206,7 @@ export const TranscriptRow = memo(function TranscriptRow({
         <TranscriptMessageBody
           message={item.message}
           conversationId={conversationId}
+          acpConnectInlineToolUseId={acpConnectInlineToolUseId}
           assistantDisplayName={assistantDisplayName}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
@@ -253,13 +260,14 @@ export const TranscriptRow = memo(function TranscriptRow({
         <div
           data-testid="transcript-thinking-row"
           data-active={item.active ? "true" : "false"}
+          data-copy-exclude
           aria-hidden={!item.active}
           className={`flex items-center overflow-hidden text-[13px] font-medium text-[var(--content-secondary)] transition-[height,opacity] duration-300 ease-out motion-reduce:transition-none ${
             item.active ? "h-7 opacity-100" : "h-0 opacity-0"
           }`}
         >
           <StreamingShimmerText>
-            {item.label ?? "Thinking"}
+            {item.label ?? t("transcriptRow.thinking")}
           </StreamingShimmerText>
         </div>
       );
@@ -272,6 +280,9 @@ export const TranscriptRow = memo(function TranscriptRow({
 
     case "pendingContactRequest":
       return <PendingContactRequestRow />;
+
+    case "pendingContactRecordRequest":
+      return <PendingContactRecordRequestRow />;
 
     case "ephemeralMeta":
       return (

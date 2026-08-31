@@ -137,6 +137,7 @@ import type {
 } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
 import {
+  applySightFrameRetention,
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
   getSlackWatermarkAdvanceForRowPrefix,
@@ -887,6 +888,16 @@ export class Conversation {
           conv.createdAt,
         );
       },
+      // Compaction rebuilds history from the stored rows, so it can retain
+      // camera frames the turn's pre-run pass had already stubbed, and the
+      // rebuilt array is sent on the next request of that same turn. Re-running
+      // the retention pass here is what holds the frame bound across a
+      // compaction instead of only from the next turn onward. The row read
+      // repeats rather than sharing the pre-run pass's map: compactions are
+      // rare, and a map captured before the turn's awaits would describe a
+      // conversation that has since gained rows.
+      transformCompactedHistory: (messages) =>
+        applySightFrameRetention(messages, this.conversationId),
     });
     createContextWindowManager({
       provider,
@@ -1878,6 +1889,18 @@ export class Conversation {
     return !this.queue.isEmpty;
   }
 
+  /**
+   * True when dropping this instance would lose work that is still in flight:
+   * a live turn, a queued successor, or a child subagent.
+   */
+  hasInFlightWork(): boolean {
+    return (
+      this.isProcessing() ||
+      this.hasQueuedMessages() ||
+      getSubagentManager().hasActiveChildren(this.conversationId)
+    );
+  }
+
   /** FIFO snapshot of the messages currently waiting in the in-memory queue.
    * Read-only — used to surface queued user messages in history responses. */
   snapshotQueuedMessages(): QueuedMessage[] {
@@ -1917,8 +1940,6 @@ export class Conversation {
     requestId: string,
     decision: UserDecision,
     options?: {
-      selectedPattern?: string;
-      selectedScope?: string;
       decisionContext?: string;
       emissionContext?: {
         source?: ConfirmationStateChangedEvent["source"];
@@ -1937,8 +1958,6 @@ export class Conversation {
     const toolUseId = this.prompter.getToolUseId(requestId);
 
     this.prompter.resolveConfirmation(requestId, decision, {
-      selectedPattern: options?.selectedPattern,
-      selectedScope: options?.selectedScope,
       decisionContext: options?.decisionContext,
     });
 
@@ -2309,6 +2328,20 @@ export class Conversation {
   }
 
   /**
+   * Trim this conversation's aged camera frames out of a history about to be
+   * sent to a provider, keeping only the newest few as real images.
+   *
+   * Thin binding of {@link applySightFrameRetention} to the conversation's own
+   * id, for the send paths that hold the instance rather than a turn context:
+   * the compaction pipeline's summarizer input, and the wake, which sends its
+   * run input itself. Best-effort inside, so a failed row read degrades to the
+   * untrimmed history.
+   */
+  trimAgedSightFrames(messages: Message[]): Message[] {
+    return applySightFrameRetention(messages, this.conversationId);
+  }
+
+  /**
    * Auto-threshold compaction gate. Runs the same durable compaction
    * pipeline as {@link forceCompact} (summary call, circuit-breaker
    * accounting, Slack provenance, in-memory + DB commit) but honors the
@@ -2407,8 +2440,16 @@ export class Conversation {
             },
           )
         : null;
-    const messagesToCompact =
-      slackChronologicalContext?.messages ?? this.messages;
+    // Trim aged camera frames out of the summarizer's own input. Compaction
+    // sends this array to a provider like any other request, so a long camera
+    // session would otherwise put every frame it ever captured into the summary
+    // call, which is the payload-size and many-image rejection retention exists
+    // to prevent. Safe against the caller-fixed boundary below: the pass
+    // replaces blocks inside messages and never adds, drops, or reorders one,
+    // so `fixedTailStartIndex` still names the same message.
+    const messagesToCompact = this.trimAgedSightFrames(
+      slackChronologicalContext?.messages ?? this.messages,
+    );
     const compactedRowCountAtCall = this.contextCompactedMessageCount;
     let result = await defaultCompact({
       conversationId: this.conversationId,

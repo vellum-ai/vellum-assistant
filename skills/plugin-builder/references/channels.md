@@ -34,7 +34,7 @@ That route is served at `/webhooks/plugins/<plugin-name>/events` and handled by 
 | `kind`         | yes      |                    | `"http"` or `"websocket"`. The gateway bridges the two differently, so the kind has to be known before a connection arrives.                                                                                                                  |
 | `description`  | yes      |                    | Human-readable purpose, surfaced in gateway logs and the approval UI.                                                                                                                                                                         |
 | `handshake`    | no       | `"signed-headers"` | Where the caller carries its signature. `"signed-headers"` (default) puts it in request headers. `"signed-query"` puts the same HMAC in the URL, WebSocket only, for a caller that is handed a URL and nothing else.                          |
-| `verification` | no       | vendor HMAC        | How a third-party caller's signature is checked. HTTP only.                                                                                                                                                                                   |
+| `verification` | no       | vendor HMAC        | How a third-party caller's signature is checked. HTTP only. `hmac` (parts as data) or `standard-webhooks` (the complete spec).                                                                                                                |
 | `inbound`      | no       | webhook only       | That this route's replies carry inbound messages, and how to read them. HTTP only.                                                                                                                                                            |
 
 Duplicate paths in one file fail the whole declaration. A malformed file disables ingress for that plugin only; sibling plugins keep theirs.
@@ -49,7 +49,7 @@ Ask the user to approve pending ingress from the channels settings once the plug
 
 ## Third-party verification
 
-A vendor that signs `X-Example-Signature` has its own scheme. Declare `verification` so the gateway runs one HMAC engine and reads the vendor's specifics as data:
+A vendor that signs `X-Example-Signature` has its own scheme. Declare `verification` so the gateway checks it. Most vendors fit `kind: "hmac"`: one engine, vendor specifics as data:
 
 ```json
 {
@@ -75,12 +75,26 @@ A vendor that signs `X-Example-Signature` has its own scheme. Declare `verificat
 }
 ```
 
+A vendor that adopted [Standard Webhooks](https://www.standardwebhooks.com/) (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>`, `whsec_` secret) declares that complete scheme instead. The signed content, key encoding, and five-minute replay window are fixed by the spec, so they are not listed as HMAC parts:
+
+```json
+{
+  "path": "events",
+  "kind": "http",
+  "description": "Inbound deliveries from Example Courier",
+  "verification": {
+    "kind": "standard-webhooks",
+    "secret": { "field": "courier_webhook_secret" }
+  }
+}
+```
+
 Rules that stay gateway-side:
 
 - The credential **service** is the plugin's directory name. The descriptor names only a **field** (`courier_webhook_secret` above). A manifest cannot point a route at another plugin's secret or at the platform's.
 - Store the secret via `assistant credentials prompt` (or `storeCredential` from a hook/tool/route). Never put it in the file.
-- `payload` is the exact bytes the vendor signs, in order: `"body"`, `{ "header": "..." }`, or `{ "literal": "..." }`. A header named in `payload` but absent from the request fails verification rather than contributing an empty string.
-- `freshness` is a replay window. Declare it when the vendor binds a timestamp. A signature over the body alone stays valid for as long as the secret does.
+- For `hmac`, `payload` is the exact bytes the vendor signs, in order: `"body"`, `{ "header": "..." }`, or `{ "literal": "..." }`. A header named in `payload` but absent from the request fails verification rather than contributing an empty string.
+- For `hmac`, `freshness` is a replay window. Declare it when the vendor binds a timestamp. A signature over the body alone stays valid for as long as the secret does.
 - Unrecognized fields fail the declaration rather than guessing a scheme.
 
 ## Delivering inbound messages

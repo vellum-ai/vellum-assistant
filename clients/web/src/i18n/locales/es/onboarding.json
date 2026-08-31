@@ -4,7 +4,6 @@
     "back": "Atrás",
     "forward": "Adelante",
     "cancel": "Cancelar",
-    "start": "Empezar",
     "add": "Añadir",
     "adding": "Añadiendo…",
     "connect": "Conectar",
@@ -27,10 +26,11 @@
   "startScreen": {
     "createAssistant": "Crear tu asistente"
   },
-    "privacyScreen": {
+  "privacyScreen": {
     "title": "Antes de empezar",
     "body": "Elige tus preferencias de privacidad. Puedes cambiarlas cuando quieras en los ajustes.",
-    "skipToChat": "Ir al chat"
+    "start": "Comenzar la incorporación",
+    "skipToChat": "Ir al asistente"
   },
   "hostingScreen": {
     "title": "Alojamiento",
@@ -86,16 +86,26 @@
   },
   "addRemoteOriginDialog": {
     "title": "Añadir un asistente remoto",
-    "body": "Pega el enlace https que te dio la página de emparejamiento de tu asistente.",
-    "addressLabel": "Dirección del asistente"
+    "body": "Pega el enlace https que te dio la página de vinculación de tu asistente.",
+    "addressLabel": "Dirección del asistente",
+    "addFailed": "No se pudo añadir el asistente. Inténtalo de nuevo."
   },
   "connectAssistantDialog": {
-    "importedTitle": "Emparejamiento importado",
-    "importedBody": "Este emparejamiento es solo de acceso: su acceso caduca y no puede renovarse por sí solo. Vuelve a ejecutar vellum pair en la máquina del asistente e importa el nuevo paquete cuando caduque.",
     "title": "Conectar un asistente remoto",
-    "bundleLabel": "Paquete de emparejamiento",
+    "instruction": "Pega el enlace de vinculación de los ajustes «Vincular un dispositivo» del asistente, o solo su dirección, y aprueba allí la solicitud.",
+    "linkGuidance": "Este enlace proviene de un código QR de vinculación. Para conectar este dispositivo, pega aquí el enlace de vinculación del equipo del asistente.",
+    "legacyLinkGuidance": "Este enlace proviene de una versión anterior de la aplicación y ya no se puede usar. Genera un nuevo enlace de vinculación en el equipo del asistente y pégalo aquí.",
+    "addressLabel": "Dirección o enlace de vinculación",
+    "addressPlaceholder": "https://your-assistant.ts.net",
     "nameLabel": "Nombre (opcional)",
-    "instruction": "En la máquina del asistente, ejecuta <code>vellum pair --url https://...</code> y pega aquí el paquete."
+    "approveOnHost": "Aprueba este código en la máquina del asistente para terminar de conectar.",
+    "waitingForApproval": "Esperando la aprobación…",
+    "retrying": "El asistente aún no está listo para vincularse. Se seguirá intentando hasta que caduque el código.",
+    "expiresIn": "Caduca en {time}",
+    "retryExpired": "El código de vinculación caducó antes de que el asistente estuviera listo para vincularse. Empieza de nuevo para obtener uno nuevo.",
+    "submitError": "No se pudo conectar con ese asistente. Inténtalo de nuevo.",
+    "importedTitle": "Vinculación importada",
+    "importedBody": "Esta vinculación es solo de acceso: funciona ahora, pero su acceso caduca y no puede renovarse por sí solo. Cuando caduque, genera un nuevo enlace de vinculación en la máquina del asistente y pégalo aquí para volver a vincular."
   },
   "connectRecoveryDialog": {
     "repairTitle": "¿Reparar el asistente?",
@@ -179,7 +189,7 @@
     "stopVoice": "Detener la muestra de voz"
   },
   "integrationStep": {
-    "title": "Aquí tienes algunos créditos gratis<br></br> para empezar."
+    "title": "Aquí tienes algo de uso inicial<br></br> para empezar."
   },
   "researchOnboardingScreen": {
     "title": "Empecemos por ti.",

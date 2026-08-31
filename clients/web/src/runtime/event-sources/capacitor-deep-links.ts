@@ -5,7 +5,10 @@ import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
   parseBillingCheckoutCompleteDeepLink,
+  parseNewChatDeepLink,
   parseOAuthCompleteDeepLink,
+  parseOpenCameraDeepLink,
+  parseOpenConversationsDeepLink,
   parseOpenThreadDeepLink,
   parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
@@ -22,8 +25,12 @@ import {
  * `vellum-assistant://voice?mode=…` publishes `deeplink.startVoice`;
  * `vellum-assistant://thread/<id>?message=…` publishes
  * `deeplink.sendToThread` (or `deeplink.openThread` when it carries no
- * usable message); any other URL publishes `deeplink.unknown { url }`
- * on the bus (query/fragment stripped).
+ * usable message); the Home Screen widgets' `vellum-assistant://camera`
+ * and `vellum-assistant://new-chat` publish `deeplink.openCamera` /
+ * `deeplink.newChat`, and the unread chip and unread line send
+ * `vellum-assistant://conversations`, which publishes
+ * `deeplink.openConversations`; any other URL publishes
+ * `deeplink.unknown { url }` on the bus (query/fragment stripped).
  *
  * Off Capacitor the function is a no-op; Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
@@ -107,6 +114,27 @@ function handleUrl(url: string): void {
     } else {
       publish("deeplink.openThread", { threadId: openThread.threadId });
     }
+    return;
+  }
+
+  // The Home Screen widgets' buttons. Neither link carries a parameter, so
+  // unlike the ones above their placement is only about claiming the host
+  // before the fallback logs it as unknown.
+  const openCamera = parseOpenCameraDeepLink(url, parseOptions);
+  if (openCamera !== null) {
+    publish("deeplink.openCamera", openCamera);
+    return;
+  }
+
+  const newChat = parseNewChatDeepLink(url, parseOptions);
+  if (newChat !== null) {
+    publish("deeplink.newChat", newChat);
+    return;
+  }
+
+  const openConversations = parseOpenConversationsDeepLink(url, parseOptions);
+  if (openConversations !== null) {
+    publish("deeplink.openConversations", openConversations);
     return;
   }
 

@@ -47,6 +47,7 @@ assistant config get twilio.phoneNumber
 
 - If all three config values are non-empty -- Twilio is fully configured. Offer to show status or reconfigure.
 - Otherwise, continue to the missing steps.
+- If Account SID and Auth Token are already stored (even when you skip Step 2), give the Channel Trust Floors briefing before continuing unless you already gave it in this conversation.
 
 # Twilio Setup Steps
 
@@ -64,7 +65,7 @@ assistant gateway status --json
 
 If `assistant platform status --json` reports an available platform assistant but `assistant gateway status --json` returns `{}` (no `tunnel` URL yet), continue with setup and check status again before configuring webhooks. Do not treat this as an ngrok setup problem unless the assistant is local/self-hosted without Velay.
 
-Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio appears to be fully configured. Offer to show status or reconfigure. Otherwise, continue to the missing steps below.
+Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio appears to be fully configured, offer to show status or reconfigure. If they are asking about inbound access or an unexpected first greeting, go to "Channel Trust Floors" and the matching Troubleshooting section. Otherwise, continue to the missing steps below.
 
 ## Step 2: Collect and Store Credentials
 
@@ -102,6 +103,14 @@ assistant credentials inspect --service twilio --field auth_token
 ```
 
 If credentials are invalid, Twilio API calls in Step 3 will fail -- ask the user to re-enter.
+
+Once both the Account SID and Auth Token are stored, tell the user how Phone access works before continuing. Do not skip this briefing, even if they already have a number.
+
+> Connecting Twilio does not open the line to everyone. Phone starts on **Verified contacts**: you and people you have verified can talk. Anyone else who calls hears that I don't recognize the number, is asked for their name, and you get a request so you can decide.
+>
+> Change this any time on the **Channels** page: select **Phone**, then **Who can message**. The options are **No one**, **Only you**, **Verified contacts**, **Any contact**, and **Strangers** (anyone who dials can talk immediately).
+
+See "Channel Trust Floors" below if they want more detail or want to change the floor.
 
 ## Step 3: Get a Phone Number
 
@@ -202,6 +211,22 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
 
+## Channel Trust Floors
+
+Phone access is a channel trust floor, separate from Twilio credentials. Credentials decide whether calls can reach the assistant. The floor decides **who** is allowed to talk once a call arrives.
+
+| Floor                           | Who can talk                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **No one**                      | Nobody, including you. Inbound calls are rejected.                                                     |
+| **Only you**                    | Only the verified owner.                                                                               |
+| **Verified contacts** (default) | You and people you have verified. Everyone else is asked to identify themselves, and you are notified. |
+| **Any contact**                 | You and any known contact, including unverified ones. Strangers still request access.                  |
+| **Strangers**                   | Anyone who dials the number, including complete strangers.                                             |
+
+The control lives on the **Channels** page. Select **Phone** (it must be connected) and use **Who can message**. Only the guardian can change this setting. Point them there; do not treat this as a webhook or ingress repair.
+
+Unknown callers on **Verified contacts** or **Any contact** hear a scripted greeting: the assistant does not recognize the number, will let the owner know, and asks for a name. After a name, the caller is held while you decide. That greeting means the call reached the assistant and the floor is doing its job.
+
 ## Clearing Credentials
 
 To disconnect Twilio:
@@ -235,9 +260,22 @@ Run Step 3.
 - For calls, ensure `calls.enabled` is `true`
 - Trial accounts can only reach verified numbers
 
+### Inbound call greeting asks for a name / "I don't recognize this number"
+
+If the user complains about the **first thing callers hear** (asked for their name, "I don't recognize this number", "I'll let them know and see if I have permission", or held after giving a name), this is **who can contact the assistant on Phone**, not a Twilio, webhook, or voice-setup failure. The call reached the assistant. The Phone trust floor (default **Verified contacts**) is keeping unknown callers out of a normal conversation.
+
+Identify it that way. Then:
+
+1. Explain the default floor and that the greeting is expected for unrecognized numbers.
+2. Point them to **Channels → Phone → Who can message**.
+3. Ask what they want: keep the gate, verify specific people in Contacts, verify themselves (`guardian-verify-setup`), or change **Who can message** to **Strangers** on Channels → Phone. Only the guardian can change that setting.
+4. Do not retune webhooks, ingress, or TTS unless the call never answered, Twilio reported an application error, or the spoken message named a missing speech credential and hung up.
+
+The same floor applies if the user calls from their own unverified number and hears that greeting. Offer `guardian-verify-setup` so their number is recognized.
+
 ### Incoming calls not reaching the assistant
 
-Webhooks on the Twilio phone number may not match the current ingress URL. This happens when ngrok restarts with a new URL or webhooks were never configured.
+Webhooks on the Twilio phone number may not match the current ingress URL. This happens when ngrok restarts with a new URL or webhooks were never configured. Use this path only when the call does not connect or Twilio reports an application error. If the call connects and speaks the "I don't recognize this number" greeting, see the trust-floor case above.
 
 **Diagnose** -- fetch the number's current webhooks and compare to the expected URL:
 

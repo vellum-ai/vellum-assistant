@@ -1,8 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 
+import {
+  AVATAR_IMAGE_FILENAME,
+  AVATAR_MANIFEST_FILENAME,
+  resolveAvatarDir,
+} from "@vellumai/avatar-manifest";
 import { SEEDS } from "@vellumai/environments";
+import { assertTestPathIsEphemeral as assertEphemeralInTests } from "@vellumai/environments/test-path-guard";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
@@ -47,6 +53,62 @@ export function isLinux(): boolean {
 
 export function isWindows(): boolean {
   return process.platform === "win32";
+}
+
+/**
+ * Per-user application data root: `~/Library/Application Support` on macOS,
+ * `%APPDATA%` on Windows, `$XDG_DATA_HOME` (default `~/.local/share`) elsewhere.
+ */
+export function getUserAppDataDir(): string {
+  if (isMacOS()) {
+    return join(homedir(), "Library", "Application Support");
+  }
+  if (isWindows()) {
+    return process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+  }
+  return process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+}
+
+/**
+ * Extra directories to prepend to PATH so daemon-spawned tools are found
+ * even when launched from a minimal environment (macOS .app bundle). Empty
+ * on Windows, where PATH already carries the installer-managed entries.
+ */
+export function getExtraToolPathDirs(): string[] {
+  if (isWindows()) {
+    return [];
+  }
+  return [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    join(homedir(), ".local", "bin"),
+  ];
+}
+
+/**
+ * Add missing `dirs` to the PATH entry of `env` in place, using the platform
+ * delimiter. Windows keys the variable as `Path`, so the existing key is
+ * matched case-insensitively rather than assuming `PATH`.
+ */
+export function addToPathEnv(
+  env: Record<string, string | undefined>,
+  dirs: string[],
+  position: "front" | "back" = "front",
+): void {
+  if (dirs.length === 0) {
+    return;
+  }
+  const key =
+    Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  const entries = (env[key] ?? "").split(delimiter).filter(Boolean);
+  const missing = dirs.filter((d) => !entries.includes(d));
+  if (missing.length === 0) {
+    return;
+  }
+  env[key] =
+    position === "front"
+      ? [...missing, ...entries].join(delimiter)
+      : [...entries, ...missing].join(delimiter);
 }
 
 /**
@@ -160,19 +222,13 @@ export function getSoundsDir(): string {
 
 /** Returns the avatar directory ($VELLUM_WORKSPACE_DIR/data/avatar). */
 export function getAvatarDir(): string {
-  return join(getWorkspaceDir(), "data", "avatar");
+  return resolveAvatarDir(getWorkspaceDir());
 }
-
-/** Canonical filename for the custom avatar PNG. */
-export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 
 /** Returns the canonical avatar image path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png). */
 export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
-
-/** Canonical filename for the avatar state manifest. */
-export const AVATAR_MANIFEST_FILENAME = "avatar.json";
 
 /** Returns the canonical avatar manifest path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar.json). */
 export function getAvatarManifestPath(): string {
@@ -342,78 +398,17 @@ export function getProcPidPath(name: string): string {
 //
 // A test process must never resolve the workspace (or the vellum root) to a
 // real, non-temp directory: production code exercised by a test would then
-// read and destructively write live state. The tmpdir redirection normally
-// comes from the bunfig.toml test preload, but bun only loads bunfig from the
-// cwd, so `bun test` run from any other directory (for example a source
-// checkout inside a deployed container's workspace) skips the preload and
-// inherits the ambient VELLUM_WORKSPACE_DIR. The containment assertion
-// therefore lives here, in production code, where it fires no matter how the
-// test process was launched.
-//
-// Containment logic mirrors src/__tests__/assert-not-live-db.ts, which cannot
-// be imported here (production code must not depend on test machinery).
-
-/** Lazily computed: is this process a `bun test` run? */
-let isTestProcess: boolean | undefined;
-
-/**
- * Resolve symlinks in the deepest existing ancestor of `p`, then re-append
- * the not-yet-created tail. This keeps the containment check honest both for
- * paths under a symlinked temp root (macOS /var/folders) and for symlinks
- * that point outside it, whether or not the leaf exists yet.
- */
-function canonicalizeForWorkspaceGuard(p: string): string {
-  let cur = p;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      return join(realpathSync(cur), ...tail);
-    } catch {
-      const parent = dirname(cur);
-      if (parent === cur) {
-        return p;
-      }
-      tail.unshift(basename(cur));
-      cur = parent;
-    }
-  }
-}
+// read and destructively write live state. The containment assertion is
+// shared with the gateway via @vellumai/environments/test-path-guard;
+// src/__tests__/assert-not-live-db.ts keeps its own containment check
+// because test machinery must not import production dependencies.
 
 function assertTestPathIsEphemeral(dir: string): void {
-  isTestProcess ??=
-    process.env.NODE_ENV === "test" ||
-    process.env.BUN_TEST === "1" ||
-    // `bun test` sets NODE_ENV=test only when unset; Bun.main being the test
-    // file itself is the backstop signal that survives a preset NODE_ENV.
-    (typeof Bun !== "undefined" &&
-      /\.(test|spec)\.[cm]?[jt]sx?$/.test(Bun.main));
-  if (!isTestProcess) {
-    return;
-  }
-  // Escape hatch for the rare intentional run against a real workspace,
-  // shared with assertTestDbIsIsolated() in persistence/db-connection.ts.
-  // Deliberately NOT added to tools/terminal/safe-env.ts: a daemon-level
-  // opt-out must not propagate into agent-spawned shells and disarm the
-  // guard for tests run from there.
-  if (process.env.VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS === "1") {
-    return;
-  }
-  const tmpRoot = canonicalizeForWorkspaceGuard(tmpdir());
-  const resolved = canonicalizeForWorkspaceGuard(dir);
-  if (resolved !== tmpRoot && !resolved.startsWith(tmpRoot + sep)) {
-    throw new Error(
-      [
-        `Refusing to use ${dir} (resolves to ${resolved}) in a test process: it is not under the temp directory (${tmpRoot}).`,
-        "",
-        "Tests must only touch an ephemeral workspace; a real one would expose",
-        "live assistant state to destructive test fixtures. This usually means",
-        "`bun test` ran from a cwd without the repo bunfig.toml, so the test",
-        "preload that redirects VELLUM_WORKSPACE_DIR to a tmpdir never loaded.",
-        "Run tests from the assistant package root, or set",
-        "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS=1 to bypass deliberately.",
-      ].join("\n"),
-    );
-  }
+  assertEphemeralInTests(dir, {
+    // Shared with assertTestDbIsIsolated() in persistence/db-connection.ts.
+    allowEnvVar: "VELLUM_ALLOW_REAL_WORKSPACE_IN_TESTS",
+    runHint: "Run tests from the assistant package root.",
+  });
 }
 
 /**
@@ -442,12 +437,32 @@ export function getWorkspaceDir(): string {
  *   /data/.vellum/workspace        → /data/.vellum/workspace
  */
 export function getWorkspaceDirDisplay(): string {
-  const abs = getWorkspaceDir();
-  const home = homedir();
-  if (abs.startsWith(home + "/") || abs === home) {
-    return "~" + abs.slice(home.length);
+  return formatHomeRelativePath(getWorkspaceDir(), homedir());
+}
+
+interface PathOperations {
+  isAbsolute(path: string): boolean;
+  relative(from: string, to: string): string;
+  sep: string;
+}
+
+export function formatHomeRelativePath(
+  absolutePath: string,
+  homePath: string,
+  pathOperations: PathOperations = { isAbsolute, relative, sep },
+): string {
+  const relativeToHome = pathOperations.relative(homePath, absolutePath);
+  if (relativeToHome === "") {
+    return "~";
   }
-  return abs;
+  if (
+    relativeToHome !== ".." &&
+    !relativeToHome.startsWith(`..${pathOperations.sep}`) &&
+    !pathOperations.isAbsolute(relativeToHome)
+  ) {
+    return `~${pathOperations.sep}${relativeToHome}`;
+  }
+  return absolutePath;
 }
 
 /** Returns $VELLUM_WORKSPACE_DIR/config.json */

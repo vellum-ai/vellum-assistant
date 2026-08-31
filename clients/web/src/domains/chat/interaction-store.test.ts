@@ -7,11 +7,16 @@ import {
   useInteractionStore,
   hasActiveInteraction,
 } from "@/domains/chat/interaction-store";
+import { t } from "@/i18n";
+
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // Reset store between tests to avoid cross-contamination
 beforeEach(() => {
-  useInteractionStore.getState().resetAll();
+  // `resetAll` is the conversation-switch reset and deliberately carries the
+  // workspace-global contact forms across it, so a test needs a blanker slate
+  // than that.
+  useInteractionStore.setState(useInteractionStore.getInitialState(), true);
 });
 
 describe("useInteractionStore", () => {
@@ -284,10 +289,20 @@ describe("useInteractionStore", () => {
       ).toBe("cr1");
     });
 
-    it("acceptContactRequest sets flag", () => {
+    it("acceptContactRequestIfMatches sets flag for the card on screen", () => {
       useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
-      useInteractionStore.getState().acceptContactRequest();
+      useInteractionStore.getState().acceptContactRequestIfMatches("cr1");
       expect(useInteractionStore.getState().contactRequestAccepted).toBe(true);
+    });
+
+    it("acceptContactRequestIfMatches ignores a response for a card that is gone", () => {
+      useInteractionStore.getState().showContactRequest({ requestId: "cr2" });
+
+      // A response can land after its own card was replaced, and the card that
+      // replaced it belongs to someone else's request.
+      useInteractionStore.getState().acceptContactRequestIfMatches("cr1");
+
+      expect(useInteractionStore.getState().contactRequestAccepted).toBe(false);
     });
   });
 
@@ -384,10 +399,9 @@ describe("useInteractionStore", () => {
       expect(s.pendingQuestion).not.toBeNull();
     });
 
-    it("resetAll returns to initial state", () => {
+    it("resetAll clears the per-conversation prompts", () => {
       useInteractionStore.getState().showSecret({ requestId: "r1" });
       useInteractionStore.getState().showConfirmation({ requestId: "c1" });
-      useInteractionStore.getState().showContactRequest({ requestId: "cr1" });
       useInteractionStore
         .getState()
         .showQuestion({ requestId: "q1", entries: [] });
@@ -396,7 +410,6 @@ describe("useInteractionStore", () => {
       const s = useInteractionStore.getState();
       expect(s.pendingSecret).toBeNull();
       expect(s.pendingConfirmation).toBeNull();
-      expect(s.pendingContactRequest).toBeNull();
       expect(s.pendingQuestion).toBeNull();
     });
   });
@@ -427,6 +440,7 @@ describe("prompt slots: the shared invariant", () => {
     "question",
     "secret",
     "contactRequest",
+    "contactRecordRequest",
   ];
 
   /**
@@ -442,6 +456,10 @@ describe("prompt slots: the shared invariant", () => {
       useInteractionStore.getState().showSecret({ requestId }),
     contactRequest: (requestId) =>
       useInteractionStore.getState().showContactRequest({ requestId }),
+    contactRecordRequest: (requestId) =>
+      useInteractionStore
+        .getState()
+        .showContactRecordRequest({ requestId, operation: "create" }),
   };
   const RETIRE: Record<PromptKind, (requestId: string) => void> = {
     confirmation: (requestId) =>
@@ -452,7 +470,66 @@ describe("prompt slots: the shared invariant", () => {
       useInteractionStore.getState().dismissSecretIfMatches(requestId),
     contactRequest: (requestId) =>
       useInteractionStore.getState().dismissContactRequestIfMatches(requestId),
+    contactRecordRequest: (requestId) =>
+      useInteractionStore
+        .getState()
+        .dismissContactRecordRequestIfMatches(requestId),
   };
+
+  describe("global contact forms across a conversation switch", () => {
+    it("survives resetAll, because the daemon is still holding a command open", () => {
+      useInteractionStore.getState().showContactRecordRequest({
+        requestId: "r-global",
+        operation: "create",
+      });
+      useInteractionStore
+        .getState()
+        .showContactRequest({ requestId: "r-address" });
+      useInteractionStore
+        .getState()
+        .claimSubmission("contactRecordRequest", "r-global");
+
+      useInteractionStore.getState().resetAll();
+
+      // Both forms are broadcast without a conversation, so a conversation
+      // switch is not news about them. Dropping them would strip the only copy
+      // of a form nothing can re-raise.
+      expect(
+        useInteractionStore.getState().pendingContactRecordRequest?.requestId,
+      ).toBe("r-global");
+      expect(
+        useInteractionStore.getState().pendingContactRequest?.requestId,
+      ).toBe("r-address");
+      expect(
+        useInteractionStore.getState().submittingByKind.contactRecordRequest,
+      ).toBe("r-global");
+    });
+
+    it("still clears per-conversation prompts", () => {
+      useInteractionStore.getState().showConfirmation({ requestId: "r-conf" });
+      useInteractionStore.getState().resetAll();
+      expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+    });
+
+    it("drops them on an assistant switch, where the form does not belong", () => {
+      useInteractionStore.getState().showContactRecordRequest({
+        requestId: "r-global",
+        operation: "create",
+      });
+      useInteractionStore
+        .getState()
+        .showContactRequest({ requestId: "r-address" });
+
+      useInteractionStore.getState().resetAll({ assistantChanged: true });
+
+      // The form was raised by the other assistant's daemon; answering it
+      // against this one would post to a gateway that never heard of it.
+      expect(
+        useInteractionStore.getState().pendingContactRecordRequest,
+      ).toBeNull();
+      expect(useInteractionStore.getState().pendingContactRequest).toBeNull();
+    });
+  });
 
   for (const kind of KINDS) {
     describe(kind, () => {
@@ -475,14 +552,17 @@ describe("prompt slots: the shared invariant", () => {
       });
 
       it("a failure is reported only by the holder, and only for its own prompt", () => {
+        // Which copy lands is not what this covers: every assertion below is
+        // about whether the banner is written at all, so any key serves.
+        const KEY = "surfaceActions.submitFailed" as const;
+        const COPY = t(KEY, { ns: "chat" });
         const banner = () => useChatSessionStore.getState().error?.message;
-        const report = (id: string) =>
-          reportSubmissionFailure(kind, id, `failed ${id}`);
+        const report = (id: string) => reportSubmissionFailure(kind, id, KEY);
 
         RAISE[kind]("r1");
         useInteractionStore.getState().claimSubmission(kind, "r1");
         report("r1");
-        expect(banner()).toBe("failed r1");
+        expect(banner()).toBe(COPY);
 
         // Replaced on screen: the message would explain itself over a prompt
         // the user has not answered.
@@ -495,7 +575,7 @@ describe("prompt slots: the shared invariant", () => {
         // which is the ordinary shape and leaves nothing to be mistaken for.
         RETIRE[kind]("r2");
         report("r1");
-        expect(banner()).toBe("failed r1");
+        expect(banner()).toBe(COPY);
 
         // The slot gone means the interaction was abandoned, and an error about
         // something the user walked away from is noise.

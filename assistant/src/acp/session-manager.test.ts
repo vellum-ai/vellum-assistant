@@ -5,7 +5,39 @@ import {
   deleteConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import { claudeTokenDigest } from "./acp-auth-marker-store.js";
 import { hasAcpConnectCardRaised } from "./acp-connect-card-state.js";
+
+// The credential a spawn of this agent would resolve now. The failure path
+// asks the same question the read path does before emitting a live event, so
+// a card is not raised into connected clients for auth that was already
+// repaired. Spreading the real module keeps every other export intact.
+// Spy on the refusal record. Spread the real module so every other export
+// still resolves for the graph session-manager pulls in.
+const refusedDigests: Array<string | undefined> = [];
+const realMarkerStoreModule = await import("./acp-auth-marker-store.js");
+mock.module("./acp-auth-marker-store.js", () => ({
+  ...realMarkerStoreModule,
+  noteClaudeTokenRefused: (digest: string | undefined) => {
+    refusedDigests.push(digest);
+  },
+}));
+
+let fakeResolvedCredential: string | undefined;
+// Held open by a test that needs to land a teardown inside the window this
+// read suspends the failure handler for.
+let resolveGate: Promise<void> | undefined;
+const realPrepareAgentEnv = await import("./prepare-agent-env.js");
+mock.module("./prepare-agent-env.js", () => ({
+  ...realPrepareAgentEnv,
+  resolvedClaudeCredentialDigest: async () => {
+    if (resolveGate) {
+      await resolveGate;
+    }
+    return fakeResolvedCredential;
+  },
+}));
+
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
 
@@ -331,6 +363,7 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     command: string;
     parentToolUseId?: string;
     cancelled?: boolean;
+    credentialDigest?: string;
   }) {
     const manager = new AcpSessionManager(1);
     const parentId = `parent-${opts.id}`;
@@ -350,6 +383,10 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     if (opts.cancelled) {
       entry.state.status = "cancelled";
     }
+    if (opts.credentialDigest !== undefined) {
+      (entry as { credentialDigest?: string }).credentialDigest =
+        opts.credentialDigest;
+    }
 
     await fire(manager, opts.id, entry).catch(() => {});
     if (!opts.cancelled) {
@@ -366,8 +403,64 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       parentId,
       authEvent: events.find((e) => e.type === "acp_auth_required"),
       persistedContent: firstPersist?.[0].content,
+      persistedAuthErrorCredential: (
+        entry.state as { authErrorCredential?: string }
+      ).authErrorCredential,
     };
   }
+
+  test("no live event when the credential was already replaced", async () => {
+    // A replacement token and its invalidation can both land before an older
+    // run reports its rejection. The card the live event raises deliberately
+    // skips connected-state self-healing, so nothing would retire it until the
+    // next snapshot, which may be a navigation away.
+    fakeResolvedCredential = claudeTokenDigest("sk-ant-oat-replacement");
+    const r = await driveAuthFailure({
+      id: "sess-auth-replaced",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-replaced",
+      credentialDigest: claudeTokenDigest("sk-ant-oat-refused"),
+    });
+    fakeResolvedCredential = undefined;
+
+    expect(r.authEvent).toBeUndefined();
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+    // The guidance follows the same predicate: pointing the model at a card
+    // that was never raised sends it to an affordance that does not exist.
+    expect(r.persistedContent).not.toContain("Connect Claude Code");
+  });
+
+  test("still raises when the run holds the credential a spawn would resolve", async () => {
+    const digest = claudeTokenDigest("sk-ant-oat-still-current");
+    fakeResolvedCredential = digest;
+    const r = await driveAuthFailure({
+      id: "sess-auth-current",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-current",
+      credentialDigest: digest,
+    });
+    fakeResolvedCredential = undefined;
+
+    expect(r.authEvent).toBeDefined();
+  });
+
+  test("the marker names the credential the run was refused on", async () => {
+    // The failure path does not judge whether the rejection still matters. It
+    // records what was refused, and the read path compares that against the
+    // credential a spawn would resolve. Deciding here would mean guessing
+    // about writes that have not finished, and guessing toward suppression
+    // spends the rejection that would have raised the card.
+    const digest = claudeTokenDigest("sk-ant-oat-refused");
+    const r = await driveAuthFailure({
+      id: "sess-auth-credential",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-credential",
+      credentialDigest: digest,
+    });
+
+    expect(r.authEvent).toBeDefined();
+    expect(r.persistedAuthErrorCredential).toBe(digest);
+  });
 
   test("claude failure with an anchor raises the full surface: event, registry mark, guidance", async () => {
     const r = await driveAuthFailure({
@@ -427,5 +520,95 @@ describe("AcpSessionManager auth-required recovery surface", () => {
 
     expect(r.authEvent).toBeUndefined();
     expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
+  });
+});
+
+describe("AcpSessionManager: teardown during the credential read", () => {
+  test("a session torn down mid-read is left alone", async () => {
+    // The credential read suspends the failure handler. A cancel landing in
+    // that window runs to completion first: it persists the cancelled row,
+    // drops the event buffer and removes the session. Carrying on would emit a
+    // card for a run the user stopped, and persist a second time over a buffer
+    // that is already gone, replacing the stored event log with an empty one.
+    const revoked = () =>
+      Promise.reject(
+        new Error(
+          "Internal error: Failed to authenticate. API Error: 401 OAuth access token has been revoked.",
+        ),
+      );
+    const manager = new AcpSessionManager(1);
+    const parentId = "parent-torn-down";
+    const { conversation } = mockConversation();
+    setConversation(parentId, conversation);
+    registered.push(parentId);
+
+    const entry = injectSession(
+      manager,
+      "sess-torn-down",
+      parentId,
+      fakeProcess(revoked),
+    );
+    entry.command = "claude-agent-acp";
+    (entry as { parentToolUseId?: string }).parentToolUseId = "tool-torn";
+
+    let openGate = () => {};
+    resolveGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+
+    const running = fire(manager, "sess-torn-down", entry).catch(() => {});
+    // Let the handler reach the suspended read, then take the session out from
+    // under it exactly as a cancel would.
+    await new Promise((r) => setTimeout(r, 5));
+    (manager as unknown as { sessions: Map<string, unknown> }).sessions.delete(
+      "sess-torn-down",
+    );
+    openGate();
+    await running;
+    resolveGate = undefined;
+
+    const events = (
+      entry.sendToVellum as ReturnType<typeof mock>
+    ).mock.calls.map((c) => c[0] as { type: string });
+    expect(events.find((e) => e.type === "acp_auth_required")).toBeUndefined();
+  });
+});
+
+describe("AcpSessionManager.spawn: a credential Claude refused at startup", () => {
+  test("records the refusal, so the HTTP route gets it too", async () => {
+    // The record lives here rather than at the tool boundary because
+    // `POST /v1/acp/spawn` reaches this method directly. Without it a
+    // configured CLAUDE_CODE_OAUTH_TOKEN that Claude refused keeps winning
+    // over whatever Connect stores, and every later spawn repeats the failure.
+    const { AcpAgentProcess: Process } = await import("./agent-process.js");
+    const { AcpAuthRequiredError: AuthError } =
+      await import("./auth-required.js");
+    const originalInitialize = Process.prototype.initialize;
+    Process.prototype.initialize = async () => {
+      throw new AuthError("claude", "Authentication required");
+    };
+    refusedDigests.length = 0;
+
+    try {
+      const manager = new AcpSessionManager(5);
+      await manager
+        .spawn(
+          "claude",
+          {
+            command: "echo",
+            args: ["hi"],
+            credentialDigest: "digest-refused-at-startup",
+          },
+          "do something",
+          "/tmp",
+          "conv-startup-auth",
+          () => {},
+        )
+        .catch(() => {});
+    } finally {
+      Process.prototype.initialize = originalInitialize;
+    }
+
+    expect(refusedDigests).toContain("digest-refused-at-startup");
   });
 });

@@ -39,7 +39,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -103,7 +103,7 @@ import {
   getAttachmentById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
-  getSourcePathsForAttachments,
+  resolveAttachmentsForPersist,
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
@@ -1559,7 +1559,7 @@ export async function handleSendMessage(
   }
   if (requestedInferenceProfile !== undefined) {
     const { llm } = getConfig();
-    const profiles = getEffectiveProfilesForProvider(
+    const profiles = getUserSelectableProfilesForProvider(
       llm.profiles,
       llm.defaultProvider ?? null,
     );
@@ -3027,20 +3027,6 @@ async function handleSearchConversations({
 const suggestionCache = new Map<string, string>();
 const suggestionInFlight = new Map<string, Promise<string | null>>();
 
-function resolveAttachments(attachmentIds: string[]) {
-  const resolved = getAttachmentsByIds(attachmentIds, {
-    hydrateFileData: true,
-  });
-  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-  return resolved.map((a) => ({
-    id: a.id,
-    filename: a.originalFilename,
-    mimeType: a.mimeType,
-    data: a.dataBase64,
-    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -3260,7 +3246,7 @@ export const ROUTES: RouteDefinition[] = [
         sendMessageDeps: {
           getOrCreateConversation: getOrCreateConversationInstance,
           assistantEventHub,
-          resolveAttachments,
+          resolveAttachments: resolveAttachmentsForPersist,
         },
         approvalConversationGenerator: createApprovalConversationGenerator(),
       }),

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   type ChangeEvent,
+  type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
@@ -37,6 +38,8 @@ import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
+import { saveFile } from "@/runtime/native-file";
+import { Trans, useTranslation } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { Button } from "@vellumai/design-library/components/button";
@@ -50,11 +53,22 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 import type { FeedbackReason } from "@/components/share-feedback-types";
 
+const BACKDROP_CLASS =
+  "fixed inset-0 z-50 flex items-center justify-center bg-black/50";
+
+const PANEL_CLASS =
+  "mx-4 flex w-full max-w-lg flex-col rounded-xl border p-6 shadow-xl";
+
+const PANEL_STYLE: CSSProperties = {
+  backgroundColor: "var(--surface-lift)",
+  borderColor: "var(--border-base)",
+  maxHeight: "calc(100vh - 2rem)",
+};
+
 type TimeRange = "past_hour" | "past_24_hours" | "all_time";
 
 interface ReasonOption {
   value: FeedbackReason;
-  label: string;
   icon: LucideIcon;
   includesLogsByDefault: boolean;
 }
@@ -62,42 +76,34 @@ interface ReasonOption {
 const REASON_OPTIONS: ReasonOption[] = [
   {
     value: "bug_report",
-    label: "Bug Report",
     icon: Bug,
     includesLogsByDefault: true,
   },
   {
     value: "feature_request",
-    label: "Feature Request",
     icon: Lightbulb,
     includesLogsByDefault: false,
   },
   {
     value: "other",
-    label: "Other",
     icon: MessageCircle,
     includesLogsByDefault: false,
   },
 ];
 
-const TIME_RANGES: {
+interface TimeRangeDef {
   value: TimeRange;
-  label: string;
   cutoffMs: number | null;
-}[] = [
-  { value: "past_hour", label: "Past hour", cutoffMs: 60 * 60 * 1000 },
+}
+
+const TIME_RANGES: TimeRangeDef[] = [
+  { value: "past_hour", cutoffMs: 60 * 60 * 1000 },
   {
     value: "past_24_hours",
-    label: "Past 24 hours",
     cutoffMs: 24 * 60 * 60 * 1000,
   },
-  { value: "all_time", label: "All time", cutoffMs: null },
+  { value: "all_time", cutoffMs: null },
 ];
-
-const TIME_RANGE_OPTIONS: SelectOption<TimeRange>[] = TIME_RANGES.map((r) => ({
-  value: r.value,
-  label: r.label,
-}));
 
 const ALLOWED_MIME_TYPES = new Set([
   "image/png",
@@ -670,6 +676,7 @@ export function ShareFeedbackModal({
   doctorSessionLog,
   getDiagnosticsSnapshot,
 }: ShareFeedbackModalProps) {
+  const { t } = useTranslation();
   const authUser = useAuthStore.use.user();
   const authEmail = authUser?.email;
   const isStaff = authUser?.isStaff ?? false;
@@ -678,6 +685,24 @@ export function ShareFeedbackModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+
+  const timeRangeOptions: SelectOption<TimeRange>[] = useMemo(
+    () => [
+      {
+        value: "past_hour",
+        label: t("shareFeedbackModal.timeRangePastHour"),
+      },
+      {
+        value: "past_24_hours",
+        label: t("shareFeedbackModal.timeRangePast24Hours"),
+      },
+      {
+        value: "all_time",
+        label: t("shareFeedbackModal.timeRangeAllTime"),
+      },
+    ],
+    [t],
+  );
 
   const [selectedReason, setSelectedReason] = useState<FeedbackReason>(
     initialReason ?? "bug_report",
@@ -960,14 +985,7 @@ export function ShareFeedbackModal({
         setSubmitError("Diagnostics export isn't supported in this browser.");
         return;
       }
-      const url = URL.createObjectURL(logsFile);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = logsFile.name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      await saveFile(logsFile, logsFile.name);
       onClose();
     } catch (err) {
       setSubmitError(
@@ -990,21 +1008,14 @@ export function ShareFeedbackModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className={BACKDROP_CLASS}
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
       onDrop={onDrop}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
     >
-      <div
-        className="mx-4 flex w-full max-w-lg flex-col rounded-xl border p-6 shadow-xl"
-        style={{
-          backgroundColor: "var(--surface-lift)",
-          borderColor: "var(--border-base)",
-          maxHeight: "calc(100vh - 2rem)",
-        }}
-      >
+      <div className={PANEL_CLASS} style={PANEL_STYLE}>
         <div
           className="flex items-center justify-between border-b pb-4"
           style={{ borderColor: "var(--border-subtle)" }}
@@ -1013,14 +1024,14 @@ export function ShareFeedbackModal({
             id={titleId}
             className="!m-0 text-title-small text-[var(--content-default)]"
           >
-            Share Feedback
+            {t("shareFeedbackModal.title")}
           </h2>
           <Button
             variant="ghost"
             iconOnly={<X />}
             onClick={onClose}
             disabled={isSubmitting}
-            aria-label="Close"
+            aria-label={t("shareFeedbackModal.closeAria")}
             tintColor="var(--content-secondary)"
           />
         </div>
@@ -1034,15 +1045,14 @@ export function ShareFeedbackModal({
                 <Toggle
                   checked={adminDownloadMode}
                   onChange={() => setAdminDownloadMode((v) => !v)}
-                  aria-label="Download diagnostics directly"
+                  aria-label={t("shareFeedbackModal.downloadDiagnosticsAria")}
                 />
                 <span className="text-body-medium-lighter text-[var(--content-default)]">
-                  Download diagnostics directly
+                  {t("shareFeedbackModal.downloadDiagnostics")}
                 </span>
               </label>
               <span className="text-body-small-default text-[var(--content-secondary)]">
-                Admin only — builds the diagnostics archive locally and
-                downloads it instead of submitting feedback or notifying Slack.
+                {t("shareFeedbackModal.adminOnlyHint")}
               </span>
             </div>
           )}
@@ -1050,13 +1060,13 @@ export function ShareFeedbackModal({
           {adminDownloadMode ? (
             <div className="flex items-center gap-3">
               <span className="text-body-medium-lighter text-[var(--content-default)]">
-                Time range
+                {t("shareFeedbackModal.timeRange")}
               </span>
               <Select
-                options={TIME_RANGE_OPTIONS}
+                options={timeRangeOptions}
                 value={logTimeRange}
                 onChange={setLogTimeRange}
-                aria-label="Diagnostics time range"
+                aria-label={t("shareFeedbackModal.timeRangeAria")}
               />
             </div>
           ) : (
@@ -1065,7 +1075,7 @@ export function ShareFeedbackModal({
                 <Input
                   id={`${titleId}-email`}
                   ref={emailRef}
-                  label="Email"
+                  label={t("shareFeedbackModal.email")}
                   type="email"
                   placeholder="you@example.com"
                   value={email}
@@ -1077,7 +1087,7 @@ export function ShareFeedbackModal({
 
               <div className="flex flex-col gap-1.5">
                 <span className="text-body-small-default text-[var(--content-secondary)]">
-                  Category
+                  {t("shareFeedbackModal.category")}
                 </span>
                 <div className="flex gap-2">
                   {REASON_OPTIONS.map((option) => (
@@ -1095,29 +1105,39 @@ export function ShareFeedbackModal({
 
               {selectedReason === "bug_report" && (
                 <Notice tone="info">
-                  Tip: Get faster support by posting in our{" "}
-                  <a
-                    href={VELLUM_COMMUNITY_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline text-[var(--content-default)]"
-                  >
-                    Discord community
-                  </a>
+                  <Trans
+                    ns="common"
+                    i18nKey="shareFeedbackModal.bugTip"
+                    components={{
+                      discordLink: (
+                        <a
+                          href={VELLUM_COMMUNITY_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline text-[var(--content-default)]"
+                        />
+                      ),
+                    }}
+                  />
                 </Notice>
               )}
 
               {selectedReason === "feature_request" && (
                 <Notice tone="info">
-                  Tip: Vote on features on our{" "}
-                  <a
-                    href="https://vellum.ai/roadmap"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline text-[var(--content-default)]"
-                  >
-                    public roadmap
-                  </a>
+                  <Trans
+                    ns="common"
+                    i18nKey="shareFeedbackModal.featureTip"
+                    components={{
+                      roadmapLink: (
+                        <a
+                          href="https://vellum.ai/roadmap"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline text-[var(--content-default)]"
+                        />
+                      ),
+                    }}
+                  />
                 </Notice>
               )}
 
@@ -1126,18 +1146,18 @@ export function ShareFeedbackModal({
                 ref={messageRef}
                 label={
                   selectedReason === "bug_report"
-                    ? "What went wrong?"
+                    ? t("shareFeedbackModal.messageLabelBug")
                     : selectedReason === "feature_request"
-                      ? "Describe your idea"
-                      : "What's on your mind?"
+                      ? t("shareFeedbackModal.messageLabelFeature")
+                      : t("shareFeedbackModal.messageLabelOther")
                 }
                 rows={3}
                 placeholder={
                   selectedReason === "bug_report"
-                    ? "What did you expect to happen, and what happened instead?"
+                    ? t("shareFeedbackModal.messagePlaceholderBug")
                     : selectedReason === "feature_request"
-                      ? "What problem would this solve for you?"
-                      : "Share your thoughts..."
+                      ? t("shareFeedbackModal.messagePlaceholderFeature")
+                      : t("shareFeedbackModal.messagePlaceholderOther")
                 }
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
@@ -1151,16 +1171,18 @@ export function ShareFeedbackModal({
                       <Toggle
                         checked={includeLogs}
                         onChange={handleToggleLogs}
-                        aria-label="Include browser diagnostics"
+                        aria-label={t(
+                          "shareFeedbackModal.includeDiagnosticsAria",
+                        )}
                       />
                       <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
-                        Include diagnostics
+                        {t("shareFeedbackModal.includeDiagnostics")}
                       </span>
                     </label>
-                    <Tooltip content="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials.">
+                    <Tooltip content={t("shareFeedbackModal.diagnosticsTooltip")}>
                       <button
                         type="button"
-                        aria-label="About diagnostics"
+                        aria-label={t("shareFeedbackModal.aboutDiagnosticsAria")}
                         className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
                       >
                         <Info className="h-3.5 w-3.5" />
@@ -1169,10 +1191,10 @@ export function ShareFeedbackModal({
                   </div>
                   {includeLogs && (
                     <Select
-                      options={TIME_RANGE_OPTIONS}
+                      options={timeRangeOptions}
                       value={logTimeRange}
                       onChange={setLogTimeRange}
-                      aria-label="Diagnostics time range"
+                      aria-label={t("shareFeedbackModal.timeRangeAria")}
                     />
                   )}
                 </div>
@@ -1185,10 +1207,12 @@ export function ShareFeedbackModal({
                     <Toggle
                       checked={includeConversation}
                       onChange={() => setIncludeConversation((v) => !v)}
-                      aria-label="Include the most recent conversation"
+                      aria-label={t(
+                        "shareFeedbackModal.includeConversationAria",
+                      )}
                     />
                     <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
-                      Include the most recent conversation
+                      {t("shareFeedbackModal.includeConversation")}
                     </span>
                   </label>
                 )}
@@ -1196,7 +1220,7 @@ export function ShareFeedbackModal({
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <span className="text-body-small-default text-[var(--content-secondary)]">
-                    Attachments
+                    {t("shareFeedbackModal.attachments")}
                     {attachments.length > 0 && (
                       <span className="text-[var(--content-tertiary)]">
                         {" · "}
@@ -1211,7 +1235,7 @@ export function ShareFeedbackModal({
                     onClick={() => fileInputRef.current?.click()}
                     disabled={attachments.length >= MAX_ATTACHMENTS}
                   >
-                    Add files
+                    {t("shareFeedbackModal.addFiles")}
                   </Button>
                   <input
                     ref={fileInputRef}
@@ -1235,7 +1259,7 @@ export function ShareFeedbackModal({
                 )}
                 {isDragging && (
                   <p className="text-body-small-default text-[var(--content-tertiary)]">
-                    Drop files to attach…
+                    {t("shareFeedbackModal.dropFiles")}
                   </p>
                 )}
               </div>
@@ -1257,13 +1281,13 @@ export function ShareFeedbackModal({
             <span className="inline-flex items-center gap-2 text-body-medium-lighter text-[var(--content-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
               {adminDownloadMode
-                ? "Preparing diagnostics…"
-                : "Sending feedback…"}
+                ? t("shareFeedbackModal.preparingDiagnostics")
+                : t("shareFeedbackModal.sendingFeedback")}
             </span>
           ) : (
             <>
               <Button variant="ghost" onClick={onClose}>
-                Cancel
+                {t("shareFeedbackModal.cancel")}
               </Button>
               {adminDownloadMode ? (
                 <Button
@@ -1271,7 +1295,7 @@ export function ShareFeedbackModal({
                   leftIcon={<Download />}
                   onClick={handleDownload}
                 >
-                  Download diagnostics
+                  {t("shareFeedbackModal.downloadDiagnosticsButton")}
                 </Button>
               ) : (
                 <Button
@@ -1280,7 +1304,7 @@ export function ShareFeedbackModal({
                   onClick={handleSubmit}
                   disabled={!canSend}
                 >
-                  Submit
+                  {t("shareFeedbackModal.submit")}
                 </Button>
               )}
             </>
@@ -1301,7 +1325,14 @@ function ReasonChip({
   isSelected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const Icon = option.icon;
+  const label =
+    option.value === "bug_report"
+      ? t("shareFeedbackModal.reasonBugReport")
+      : option.value === "feature_request"
+        ? t("shareFeedbackModal.reasonFeatureRequest")
+        : t("shareFeedbackModal.reasonOther");
   return (
     <button
       type="button"
@@ -1329,7 +1360,7 @@ function ReasonChip({
           color: isSelected ? "var(--primary-base)" : "var(--content-default)",
         }}
       >
-        {option.label}
+        {label}
       </span>
     </button>
   );
@@ -1342,6 +1373,7 @@ function AttachmentThumbnail({
   file: File;
   onRemove: () => void;
 }) {
+  const { t } = useTranslation();
   const isImage = file.type.startsWith("image/");
   const previewUrl = useMemo(
     () => (isImage ? URL.createObjectURL(file) : null),
@@ -1374,7 +1406,9 @@ function AttachmentThumbnail({
         size="compact"
         iconOnly={<X />}
         onClick={onRemove}
-        aria-label={`Remove ${file.name}`}
+        aria-label={t("shareFeedbackModal.removeAttachmentAria", {
+          name: file.name,
+        })}
         className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white hover:bg-black/70"
         tintColor="#fff"
       />

@@ -273,8 +273,11 @@ export function createDaemonBatchTranscriber(
     case "xai":
       return new XAIBatchTranscriber(apiKey, language);
     case "deepgram-flux":
+    case "vellum-flux":
       // Same copy the resolver raises, so a direct factory caller and a
-      // config-driven one report the mismatch identically.
+      // config-driven one report the mismatch identically. Both Flux
+      // variants are streaming-only: the model has no batch endpoint, BYOK
+      // or managed.
       throw new SttError("provider-error", batchBoundaryGapReason(providerId), {
         userFacing: true,
       });

@@ -212,7 +212,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(normalizeTelegramUpdate(payload)).toBeNull();
   });
 
-  test("normalizes an edited_message update with isEdit flag", () => {
+  test("normalizes an edited_message update as an edit", () => {
     const payload = {
       update_id: 200,
       edited_message: {
@@ -229,7 +229,7 @@ describe("normalizeTelegramUpdate", () => {
     };
     const result = normalizeTelegramUpdate(payload);
     expect(result).not.toBeNull();
-    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.eventKind).toBe("edit");
     expect(result!.message.content).toBe("Hello bot (edited)");
     expect(result!.message.conversationExternalId).toBe("99001");
     expect(result!.message.externalMessageId).toBe("200");
@@ -260,7 +260,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(result!.message.content).toBe("Original");
   });
 
-  test("sets isEdit for edited_message with photo", () => {
+  test("classifies an edited_message with photo as an edit", () => {
     const payload = {
       update_id: 400,
       edited_message: {
@@ -280,7 +280,7 @@ describe("normalizeTelegramUpdate", () => {
     };
     const result = normalizeTelegramUpdate(payload);
     expect(result).not.toBeNull();
-    expect(result!.message.isEdit).toBe(true);
+    expect(result!.message.eventKind).toBe("edit");
     expect(result!.message.content).toBe("Updated caption");
     expect(result!.message.attachments).toHaveLength(1);
   });

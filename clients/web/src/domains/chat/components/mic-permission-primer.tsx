@@ -3,6 +3,7 @@ import { Mic } from "lucide-react";
 import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { Button, Modal } from "@vellumai/design-library";
+import { useTranslation } from "@/i18n";
 
 const MIC_PRIMER_STORAGE_KEY = "vellum:voice:permissionPrimerSeen";
 
@@ -43,6 +44,7 @@ export function MicPermissionPrimer({
   onContinue,
   onCancel,
 }: MicPermissionPrimerProps) {
+  const { t } = useTranslation("chat");
   const handleContinue = () => {
     setLocalBool(MIC_PRIMER_STORAGE_KEY, true);
     onContinue();
@@ -59,20 +61,20 @@ export function MicPermissionPrimer({
     >
       <Modal.Content size="sm">
         <Modal.Header icon={Mic}>
-          <Modal.Title>Microphone Access</Modal.Title>
+          <Modal.Title>{t("micPermissionPrimer.title")}</Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>
-            Voice input requires microphone access. Audio is transcribed by your
-            configured speech-to-text provider, or by your device&apos;s
-            built-in dictation when no provider is set.
+            {t("micPermissionPrimer.description")}
           </Modal.Description>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={onCancel}>
-            Cancel
+            {t("micPermissionPrimer.cancel")}
           </Button>
-          <Button onClick={handleContinue}>Continue</Button>
+          <Button onClick={handleContinue}>
+            {t("micPermissionPrimer.continue")}
+          </Button>
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

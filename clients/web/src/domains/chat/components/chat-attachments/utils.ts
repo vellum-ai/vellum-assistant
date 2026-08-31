@@ -1,3 +1,9 @@
+import {
+  baseMimeType,
+  extensionOf,
+  GENERIC_MIME_TYPES,
+} from "@/domains/chat/utils/mime-sniff";
+
 /**
  * Format a raw byte count into a short human-readable string (e.g. "12 KB", "3.4 MB").
  *
@@ -45,6 +51,11 @@ const IMAGE_EXTENSIONS = new Set([
   "tiff",
 ]);
 
+/** Whether a lowercased filename extension names an image format. */
+function isImageExtension(extension: string): boolean {
+  return IMAGE_EXTENSIONS.has(extension);
+}
+
 /**
  * Whether an attachment is an image, by its type where it has one and by its
  * filename where it does not.
@@ -59,8 +70,7 @@ export function isImageAttachment(file: Pick<File, "name" | "type">): boolean {
   if (file.type.trim().toLowerCase().startsWith("image/")) {
     return true;
   }
-  const extension = file.name.split(".").pop()?.trim().toLowerCase();
-  return extension ? IMAGE_EXTENSIONS.has(extension) : false;
+  return isImageExtension(extensionOf(file.name));
 }
 
 export type AttachmentIconKind =
@@ -75,19 +85,38 @@ export type AttachmentIconKind =
   | "text"
   | "file";
 
+/** The canonical PDF type plus the aliases publishers use in the wild. */
+const PDF_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/acrobat",
+  "application/vnd.pdf",
+  "text/pdf",
+  "text/x-pdf",
+]);
+
 /**
- * Classify an attachment by its MIME type / filename extension so the chip can
- * render an appropriate icon. Kept in sync with the macOS `iconForMimeType`
- * helper so the icon surface is consistent across clients.
+ * Classify an attachment by its MIME type / filename extension so every surface
+ * that renders it agrees on what it is.
+ *
+ * A declared type wins, compared as the base media type so a parameter such as
+ * `; charset=binary` does not hide it. Only where the type names nothing does
+ * the filename settle whether the file is an image, so a photo picked as
+ * `application/octet-stream` reads as one while a video named `clip.gif` stays
+ * a video.
  */
 export function classifyAttachment(
   mimeType: string,
   filename: string,
 ): AttachmentIconKind {
-  const mime = (mimeType || "").toLowerCase();
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const mime = baseMimeType(mimeType || "");
+  const ext = extensionOf(filename);
+  const isGenericMime = GENERIC_MIME_TYPES.has(mime);
 
   if (mime.startsWith("image/")) {
+    return "image";
+  }
+  if (isGenericMime && isImageExtension(ext)) {
     return "image";
   }
   if (mime.startsWith("video/")) {
@@ -96,7 +125,7 @@ export function classifyAttachment(
   if (mime.startsWith("audio/")) {
     return "audio";
   }
-  if (mime === "application/pdf" || ext === "pdf") {
+  if (PDF_MIME_TYPES.has(mime) || (isGenericMime && ext === "pdf")) {
     return "pdf";
   }
   if (

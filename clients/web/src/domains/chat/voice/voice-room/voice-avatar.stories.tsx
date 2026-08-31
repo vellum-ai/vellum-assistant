@@ -13,10 +13,10 @@ import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import type { CharacterTraits } from "@/types/avatar";
 
 import { toneForBg } from "@/utils/avatar-tone";
+import { normalizeFieldHex } from "@/utils/avatar-image-color";
 
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {
-  VoiceListeningWaves,
   type VoiceWavePalette,
   type VoiceWavePlacement,
   type VoiceWaveStyle,
@@ -24,26 +24,27 @@ import {
 import { VoiceAvatar } from "./voice-avatar";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import {
-  VoiceRespondingRings,
+  VOICE_ROOM_WAVE_PLACEMENT,
   VoiceRoomColorLook,
+  VoiceRoomVoiceBands,
   VoiceStateCaption,
   resolveVoiceRoomLook,
+  voiceRoomImageLook,
   type VoiceEyePlacement,
   type VoiceRespondingStyle,
 } from "./voice-room-eyes";
 
 /**
  * Iteration harness for the live-voice room's avatar + state animations. Scrub
- * `visual` through every session phase and drive the audio-reactive visuals
- * with the `amplitude` slider or the `oscillate` "simulated speech" toggle — no
- * live mic / STT / TTS session required.
+ * `visual` through every session phase and drive the bands with the
+ * `amplitude` slider or the `oscillate` "simulated speech" toggle, with no live
+ * mic / STT / TTS session required.
  *
- * `listening` renders the top-edge waves (energy coming *in* from the user)
- * and the avatar stays at rest; `responding` radiates the concentric rings from
- * behind the avatar (energy going *out*, the same treatment the color look's
- * eyes use). Wave `waveStyle` (fill / line) and `palette` (aurora / accent) are
- * the design knobs. `realAvatar` swaps the "V" fallback for a real bundled
- * character.
+ * Both voices are bands at the room's floor: `listening` rides the mic in pale
+ * ink, `responding` rides the TTS in dark. The centerpiece is still through
+ * both, so the ink says whose turn it is. Wave `waveStyle` (fill / line) and
+ * `palette` (aurora / accent) are the design knobs. `realAvatar` swaps the "V"
+ * fallback for a real bundled character.
  *
  * Nothing hits the network: the real avatar is seeded into the query cache
  * below, on the room's own deep-dark `data-theme="dark"` void.
@@ -145,73 +146,91 @@ interface RoomSceneProps {
   amplitude: number;
   oscillate: boolean;
   waveStyle: VoiceWaveStyle;
-  palette: VoiceWavePalette;
+  /** Field color sampled from the uploaded image; `null` is the loading state. */
+  fieldHex: string | null;
   realAvatar: boolean;
   size?: number;
   minHeight?: number;
 }
 
 /**
- * A full room scene for one visual: the deep-dark void, ambient particles, the
- * top-edge listening waves (only in `listening`), the responding rings behind
- * the avatar (only in `responding`), the centered avatar, and the shared state
- * caption below it — all driven by one shared amplitude source so the avatar,
- * waves, and rings move together. Mirrors the app's void look, which shares the
- * color look's foreground chrome (top waves + rings + caption) bar the
- * full-screen color and eyes.
+ * The room an assistant with an uploaded image gets: the field color sampled
+ * out of that image, the same voice bands and caption every look draws, and the
+ * image itself in the centerpiece the eyes would otherwise hold. The amplitude
+ * source drives the bands; the centerpiece holds still under them.
+ *
+ * `fieldHex: null` is the other thing this scene shows: the room before the
+ * sample lands (or after it fails), which is the deep-dark ambient void with
+ * its bands riding the avatar tint, since the dark assistant ink cannot be seen
+ * against it. That is a loading state rather than a second look.
  */
 function RoomScene({
   visual,
   amplitude,
   oscillate,
   waveStyle,
-  palette,
+  fieldHex,
   realAvatar,
   size = 200,
   minHeight = 420,
 }: RoomSceneProps) {
   const getAmplitude = useAmplitudeDriver(amplitude, oscillate);
   const { ref, size: box } = useBoxSize();
+  const look = useMemo(
+    () => (fieldHex ? voiceRoomImageLook(fieldHex) : null),
+    [fieldHex],
+  );
+  const tone = look ? toneForBg(look.bgHex) : null;
+  const toneVars = {
+    "--room-fg": tone?.fg ?? "#FFFFFF",
+    "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
+    "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
+    "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
+  } as Record<string, string>;
   return (
     <div
       ref={ref}
-      data-theme="dark"
-      /* No backdrop of its own: `VoiceRoomAmbientBackground` paints the room's
-         void gradient across `inset-0`, so anything set here would only ever
-         be a guess at one of its stops. */
+      data-theme={tone?.isLight ? "light" : "dark"}
+      /* No backdrop of its own: the look paints the field across `inset-0`, and
+         without one `VoiceRoomAmbientBackground` paints the void gradient
+         there, so anything set here would only ever be a guess at one of its
+         stops. */
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{
         minHeight,
         ["--avatar-accent" as string]: SAMPLE_ACCENT,
+        ...toneVars,
       }}
     >
-      <VoiceRoomAmbientBackground />
-      {visual === "listening" ? (
-        <VoiceListeningWaves
+      {look && box.w > 0 ? (
+        <VoiceRoomColorLook
+          key={`${fieldHex}-${visual === "idle" ? "idle" : "live"}`}
+          look={look}
+          visual={visual}
           getAmplitude={getAmplitude}
           waveStyle={waveStyle}
-          palette={palette}
-          // Same top edge as the color look — positional parity.
-          placement="top"
+          viewport={box}
         />
-      ) : null}
-      {/* Responding: the same concentric rings the color look radiates from
-          behind the eyes, here behind the centered avatar. Sized against the
-          story box (not the window) so they match this frame. */}
-      {visual === "responding" && box.w > 0 ? (
-        <VoiceRespondingRings getAmplitude={getAmplitude} viewport={box} />
-      ) : null}
+      ) : (
+        <>
+          <VoiceRoomAmbientBackground />
+          <VoiceRoomVoiceBands
+            visual={visual}
+            getAmplitude={getAmplitude}
+            waveStyle={waveStyle}
+            ink="accent"
+            viewport={box.w > 0 ? box : undefined}
+          />
+          <VoiceStateCaption visual={visual} />
+        </>
+      )}
       <div className="relative z-0 flex items-center justify-center">
         <VoiceAvatar
           assistantId={realAvatar ? SAMPLE_ASSISTANT_ID : null}
           visual={visual}
-          getAmplitude={getAmplitude}
           size={size}
         />
       </div>
-      {/* Shared caption in the room's lower text zone, matching the app's void
-          look — the same anchor the color look uses. */}
-      <VoiceStateCaption visual={visual} />
     </div>
   );
 }
@@ -256,8 +275,8 @@ interface ColorLookSceneProps {
 
 /**
  * The color-with-eyes look for one avatar: the Introduction-step grow entrance
- * (body springs to fill, color fades in, eyes grow into place), the mic
- * waveform behind the eyes while `listening`, all in a measured box so the
+ * (body springs to fill, color fades in, eyes grow into place), the mic band
+ * rising from the floor while `listening`, all in a measured box so the
  * geometry sizes against the story frame rather than the window. The whole
  * look remounts (replaying the entrance) whenever `replay` or any trait knob
  * changes.
@@ -355,9 +374,12 @@ const colorArgs = {
   oscillate: true,
   waveStyle: "fill" as VoiceWaveStyle,
   eyePlacement: "center" as VoiceEyePlacement,
-  wavePlacement: "top" as VoiceWavePlacement,
+  // The shipped room: both bands from the floor, the assistant answering in
+  // the opposite ink. The knobs stay so the alternatives can still be compared
+  // against it, but the default has to be what users actually get.
+  wavePlacement: VOICE_ROOM_WAVE_PLACEMENT,
   wavePalette: "tone" as VoiceWavePalette,
-  respondingStyle: "rings" as VoiceRespondingStyle,
+  respondingStyle: "waves" as VoiceRespondingStyle,
   colorId: SAMPLE_COLOR_ID,
   eyeStyle: "grumpy",
   bodyShape: "blob",
@@ -425,7 +447,7 @@ const meta: Meta<typeof ColorLookScene> = {
 
 export default meta;
 type Story = StoryObj<typeof ColorLookScene>;
-type VoidStory = StoryObj<typeof RoomScene>;
+type RoomStory = StoryObj<typeof RoomScene>;
 
 /**
  * Playground for the room's color-with-eyes look — every knob live. Change any
@@ -441,11 +463,11 @@ export const Playground: Story = {};
  * centered throughout and express the state by size (a smooth scale tween);
  * a soft caption names the beat below them:
  * - `idle` — eyes centered at a resting size, no treatment or caption.
- * - `listening` — eyes wide ("all ears"), the waveform sweeping in from the top
- *   edge, "Listening" below.
+ * - `listening`: eyes wide ("all ears"), the band rising from the floor,
+ *   "Listening" below.
  * - `thinking` — eyes small, the dot triad just above them, "Thinking" below.
- * - `responding` — eyes medium, the responding treatment radiating outward,
- *   "Speaking" below.
+ * - `responding`: eyes medium, the assistant's band answering from that same
+ *   floor in the opposite ink, "Speaking" below.
  * - `reconnecting` — eyes at the resting size but dimmed.
  *
  * Scrub `visual` in the Playground to watch the size + caption cross-fade.
@@ -462,7 +484,7 @@ export const States: Story = {
             {...args}
             visual={visual}
             eyePlacement="center"
-            wavePlacement="top"
+            wavePlacement={VOICE_ROOM_WAVE_PLACEMENT}
             // Tall enough that the lower zone's caption clears the eyes in a
             // grid cell — the zone anchors off the frame, not the centerpiece.
             minHeight={320}
@@ -521,34 +543,40 @@ export const RespondingSketches: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Void look — the deep-dark ambient fallback for custom-image / no-character
-// avatars (kept for reference; the color look above is the default).
+// Custom-image avatars: the same room, its field color sampled off the upload
+// and the image standing where the eyes would.
 // ---------------------------------------------------------------------------
 
-const voidArgs = {
+/** Plausible samples, run through the same normalization the room applies, so
+ *  the knob shows colors a real upload can actually produce. */
+const SAMPLE_FIELD_HEX = normalizeFieldHex("#3B5C8A");
+const SAMPLE_FIELD_WARM = normalizeFieldHex("#C2410C");
+const SAMPLE_FIELD_GRAY = normalizeFieldHex("#8A8A8A");
+
+const customArgs = {
   visual: "listening" as VoiceAvatarVisual,
   amplitude: 0.5,
   oscillate: true,
   waveStyle: "fill" as VoiceWaveStyle,
-  palette: "accent" as VoiceWavePalette,
+  fieldHex: SAMPLE_FIELD_HEX as string | null,
   realAvatar: true,
   size: 200,
 };
 
-const voidArgTypes = {
+const customArgTypes = {
   ...sharedArgTypes,
-  palette: {
-    options: ["aurora", "accent", "tone"] satisfies VoiceWavePalette[],
-    control: { type: "inline-radio" as const },
+  fieldHex: {
+    options: [SAMPLE_FIELD_HEX, SAMPLE_FIELD_WARM, SAMPLE_FIELD_GRAY, null],
+    control: { type: "select" as const },
     description:
-      "Fixed cyan→indigo, tinted from the avatar accent, or room-fg tone.",
+      "Field color sampled off the upload; null is the room before it lands.",
   },
   realAvatar: {
     control: { type: "boolean" as const },
     description: "Real bundled character vs the “V” fallback.",
   },
   size: { control: { type: "range" as const, min: 80, max: 320, step: 4 } },
-  // Color-look-only knobs — irrelevant to the void look.
+  // Character-only knobs: there are no eyes or traits to vary here.
   eyePlacement: { table: { disable: true } },
   wavePlacement: { table: { disable: true } },
   wavePalette: { table: { disable: true } },
@@ -559,19 +587,26 @@ const voidArgTypes = {
   replay: { table: { disable: true } },
 };
 
-/** Void-look playground — the centered avatar, ambient void, and top waves. */
-export const VoidLookPlayground: VoidStory = {
-  name: "Void Look — Playground",
+/**
+ * Custom-image playground: the sampled field, the shared bands, and the
+ * uploaded avatar in the middle. Set `fieldHex` to null to see the room while
+ * the sample is still decoding.
+ */
+export const CustomImagePlayground: RoomStory = {
+  name: "Custom Image: Playground",
   render: (args) => <RoomScene {...args} />,
-  args: voidArgs,
-  argTypes: voidArgTypes,
+  args: customArgs,
+  argTypes: customArgTypes,
 };
 
-/** Every state in the void look, all driven by the same simulated-speech envelope. */
-export const VoidLookStates: VoidStory = {
-  name: "Void Look — States",
-  args: voidArgs,
-  argTypes: voidArgTypes,
+/**
+ * Every state for a custom-image avatar. Compare against "States" above: the
+ * bands and the caption are the same in both, and only the centerpiece differs.
+ */
+export const CustomImageStates: RoomStory = {
+  name: "Custom Image: States",
+  args: customArgs,
+  argTypes: customArgTypes,
   render: (args) => (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {VISUALS.map((visual) => (

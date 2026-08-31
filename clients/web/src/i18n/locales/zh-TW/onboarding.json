@@ -1,0 +1,295 @@
+{
+  "actions": {
+    "continue": "繼續",
+    "back": "返回",
+    "forward": "前進",
+    "cancel": "取消",
+    "add": "新增",
+    "adding": "正在新增…",
+    "connect": "連線",
+    "connecting": "正在連線…",
+    "tryAgain": "再試一次",
+    "remove": "移除 {value}",
+    "logIn": "登入",
+    "logOut": "登出",
+    "loginToUse": "登入以使用",
+    "downloadMacApp": "下載 macOS 應用程式",
+    "claim": "認領",
+    "skipForNow": "暫時跳過",
+    "starting": "正在啟動…"
+  },
+  "welcome": {
+    "title": "歡迎使用 Vellum",
+    "body": "您的專屬智慧助理近在咫尺。",
+    "continueWithoutAccount": "不登入繼續"
+  },
+  "startScreen": {
+    "createAssistant": "建立您的助理"
+  },
+  "privacyScreen": {
+    "title": "開始之前",
+    "body": "選擇您的隱私偏好設定。您可以隨時在「設定」中更新這些內容。",
+    "start": "開始新手導覽",
+    "skipToChat": "跳過並開始聊天"
+  },
+  "hostingScreen": {
+    "title": "託管",
+    "body": "選擇您希望助理駐留的位置。",
+    "needHelp": "需要協助決定嗎？",
+    "optionsAriaLabel": "託管選項"
+  },
+  "apiKeyScreen": {
+    "title": "連線模型供應商",
+    "body": "選擇您的助理應使用的模型供應商。",
+    "providerLabel": "供應商",
+    "modelLabel": "模型",
+    "baseUrlLabel": "基礎 URL",
+    "modelsLabel": "模型",
+    "modelsPlaceholder": "model-1, model-2",
+    "modelsHelp": "您的端點所公開，以逗號分隔的模型識別碼。",
+    "apiKeyLabel": "{provider} API 金鑰",
+    "apiKeyPlaceholder": "輸入您的 API 金鑰",
+    "noKeyPrompt": "沒有金鑰？",
+    "getKeyLink": "在此取得 API 金鑰"
+  },
+  "selectAssistantScreen": {
+    "title": "選擇助理",
+    "listAriaLabel": "助理列表",
+    "createNew": "建立新助理",
+    "connectRemote": "連線遠端助理",
+    "addRemote": "新增遠端助理",
+    "unnamedAssistant": "該助理",
+    "connectingToAssistant": "正在連線至您的助理…",
+    "rowActionsAriaLabel": "{name} 的動作",
+    "removeFromDevice": "從此裝置移除…",
+    "selfHosted": "自行託管",
+    "selfHostedWithHost": "自行託管 · {host}",
+    "currentWithHost": "目前 · {host}",
+    "remoteWithHost": "遠端 · {host}"
+  },
+  "hatchingScreen": {
+    "apiKeyFailed": "您的 API 金鑰無效",
+    "genericFailure": "發生了一些錯誤",
+    "localFallbackPitch": "立即開始使用本機助理",
+    "updateApiKey": "更新 API 金鑰",
+    "ready": "您的助理已準備就緒！",
+    "waking": "正在喚醒…",
+    "wakingBody": "請稍候，您的助理啟動後會向您提出一些問題。",
+    "progressAriaLabel": "助理啟動進度",
+    "phase": {
+      "initializing": "正在準備中…",
+      "provisioning": "正在設定您的助理…",
+      "connecting": "正在連線至您的助理…",
+      "resizing": "正在設定您的機器…",
+      "ready": "就緒"
+    }
+  },
+  "addRemoteOriginDialog": {
+    "title": "新增遠端助理",
+    "body": "貼上您的助理配對頁面提供的 HTTPS 連結。",
+    "addressLabel": "助理位址",
+    "addFailed": "新增助理失敗。請再試一次。"
+  },
+  "connectAssistantDialog": {
+    "title": "連接遠端助理",
+    "instruction": "請從助理的「配對裝置」設定中貼上配對連結，或直接貼上其位址，然後在助理端核准請求。",
+    "linkGuidance": "此連結來自配對 QR 碼。若要連接此裝置，請在此處貼上來自助理裝置的配對連結。",
+    "legacyLinkGuidance": "此連結來自舊版應用程式，已無法使用。請在助理裝置上產生新的配對連結並貼到此處。",
+    "addressLabel": "位址或配對連結",
+    "addressPlaceholder": "https://your-assistant.ts.net",
+    "nameLabel": "名稱（選填）",
+    "approveOnHost": "請在助理裝置上核准此代碼以完成連接。",
+    "waitingForApproval": "等待核准中…",
+    "retrying": "助理尚未準備好配對。正在重試，直到代碼過期。",
+    "expiresIn": "將於 {time} 後過期",
+    "retryExpired": "配對代碼在助理準備好配對之前已過期。請重新開始以取得新的代碼。",
+    "submitError": "無法連接到該助理。請再試一次。",
+    "importedTitle": "配對已匯入",
+    "importedBody": "此配對僅限存取：它現在可用，但其存取權限會過期且無法自動續訂。過期後，請在助理裝置上產生新的配對連結並貼到此處以重新配對。"
+  },
+  "connectRecoveryDialog": {
+    "repairTitle": "修復助理？",
+    "repairBody": "修復會重新配置此助理的驗證憑證。任何連接到此助理的其他裝置或瀏覽器工作階段都將登出，需要重新連接。",
+    "repairConfirm": "修復",
+    "authFailedTitle": "無法驗證助理身分",
+    "authFailedBody": "{name} 的驗證憑證遺失或無法再重新整理，因此無法連接此助理。您可以修復它、停用它或選擇不同的助理。",
+    "wakeAndRepair": "喚醒並修復",
+    "retire": "停用助理"
+  },
+  "consentControls": {
+    "whatsChanged": "更新內容",
+    "privacyPreferences": "隱私權偏好設定",
+    "analyticsLabel": "分享分析資料",
+    "analyticsHelp": "傳送彙總的產品使用資料",
+    "diagnosticsLabel": "分享診斷資料",
+    "diagnosticsHelp": "傳送當機報告、對話追蹤和工作階段重播資料",
+    "agreements": "協議",
+    "agreeTo": "我同意 <link>{policy}</link>"
+  },
+  "onboardingAutocomplete": {
+    "addOption": "新增「{value}」",
+    "enterHint": "↵ 輸入",
+    "freeTextHint": "輸入任何內容並按下 ↵ 以新增您自己的"
+  },
+  "stepIndicator": {
+    "ariaLabel": "第 {current} 步，共 {total} 步"
+  },
+  "googleCalendar": {
+    "authorizationFailed": "無法啟動 Google 日曆授權。"
+  },
+  "introductionScreen": {
+    "greetingNamed": "嗨，{name}！",
+    "greeting": "嗨！",
+    "introNamed": "我是 {name}，您的新 AI 助理。",
+    "intro": "我是您的新 AI 助理。"
+  },
+  "pitchStep": {
+    "setupLine": "您可能用過只會回答問題的 AI。",
+    "helpLine": "我幫助得越多，",
+    "punchLine": "我與眾不同。",
+    "betterLine": "我就越好，",
+    "lessLine": "您需要做的就越少。"
+  },
+  "createPersonalityStep": {
+    "title": "建立我的個性",
+    "lockedBody": "個性已鎖定，請與您的助理聊天以進行更多更新",
+    "axisAriaLabel": "從 {left} 到 {right}",
+    "axes": {
+      "companionCoworker": {
+        "left": "夥伴",
+        "right": "同事"
+      },
+      "genzBoomer": {
+        "left": "Z 世代",
+        "right": "嬰兒潮世代"
+      },
+      "executeCollaborate": {
+        "left": "獨立",
+        "right": "協作"
+      },
+      "playfulSerious": {
+        "left": "活潑",
+        "right": "嚴肅"
+      },
+      "politeUnfiltered": {
+        "left": "有禮",
+        "right": "直率"
+      }
+    }
+  },
+  "giveMeAFaceScreen": {
+    "title": "給我一個形象和名稱",
+    "previousCharacter": "上一個形象",
+    "nextCharacter": "下一個形象",
+    "namePlaceholder": "為您的助理命名",
+    "nameAriaLabel": "助理名稱",
+    "editName": "編輯名稱",
+    "shuffle": "隨機名稱和外觀",
+    "hearVoice": "聽我的聲音",
+    "stopVoice": "停止語音範例"
+  },
+  "integrationStep": {
+    "title": "這裡有一些初始用法<br></br>供您開始。"
+  },
+  "researchOnboardingScreen": {
+    "title": "我們從您開始。",
+    "body": "一些細節，以便我更好地了解您。",
+    "firstNameLabel": "我該怎麼稱呼您？",
+    "firstNamePlaceholder": "您的名字",
+    "lastNameLabel": "您的姓氏是？",
+    "lastNamePlaceholder": "您的姓氏（選填）",
+    "roleLabel": "您的角色",
+    "rolePlaceholder": "您的職業是什麼？",
+    "hobbiesLabel": "有什麼嗜好嗎？",
+    "hobbiesPlaceholder": "汽車、書籍、種植番茄？"
+  },
+  "letsChatTomorrowStep": {
+    "wakingTitle": "正在喚醒",
+    "missingScopeTitle": "未啟用存取權",
+    "title": "讓我來簡化一切",
+    "wakingBody": "您的助理正在準備中",
+    "missingScopeBody": "請勾選 Google 日曆權限旁的方塊，這樣我才能預訂報到。",
+    "body": "連接您的 Google 日曆，這樣我才能找到時間進行報到並開始提供協助。",
+    "startingAssistant": "正在啟動助理…",
+    "waitingAuthorization": "正在等待授權…",
+    "connectCalendar": "連接日曆 →"
+  },
+  "existingAssistantStep": {
+    "titleNamed": "{name} 已啟動並正在執行",
+    "title": "您的助理已啟動並正在執行",
+    "bodyNamed": "你們之間有歷史：個性、記憶和過去的對話。再次執行設定將會覆寫 {name} 現在的身份。",
+    "body": "你們之間有歷史：個性、記憶和過去的對話。再次執行設定將會覆寫您的助理現在的身份。",
+    "keepNamed": "保留 {name} 並開始聊天",
+    "keep": "保留您的助理並開始聊天",
+    "redoNamed": "重新開始並重建 {name} 的個性",
+    "redo": "重新開始並重建其個性"
+  },
+  "checkinConnectScreen": {
+    "title": "我們明天聊",
+    "body": "在您的日曆中新增一個會議，這樣我們就能從上次中斷的地方繼續。",
+    "permissionBody": "{name} 將新增一個單獨的「第 2 天報到」活動。它將獲得管理您的日曆活動和查看您的電子郵件地址的權限，而不是您的收件匣或檔案，並且您可以隨時中斷連線。",
+    "unnamedAssistant": "您的助理",
+    "waitingAuthorization": "正在等待授權...",
+    "connectGoogleCalendar": "連接 Google 日曆"
+  },
+  "meetingCreatedStep": {
+    "titleWithTime": "報到已排定在明天 {time}！",
+    "title": "報到已排定！"
+  },
+  "lookingYouUpStep": {
+    "searching": "正在搜尋網路以了解您…",
+    "readingProfiles": "正在閱讀公開個人資料…",
+    "skimming": "正在瀏覽重點…",
+    "connectingDots": "正在連結點滴資訊…",
+    "piecing": "正在整合資訊…",
+    "almostThere": "快完成了…"
+  },
+  "finishingUpStep": {
+    "updatingPersonality": "正在更新我的個性…",
+    "findingVoice": "正在尋找我的聲音…",
+    "gettingIntoCharacter": "正在進入角色…",
+    "almostThere": "快完成了…"
+  },
+  "researchResultsStep": {
+    "title": "這是我找到關於您的資訊",
+    "bodyLoadingWithClaims": "仍在檢查其餘資訊。您可以在資訊出現時進行檢閱。",
+    "bodyReadyWithClaims": "我搜尋了網路。請隨意移除任何不實的資訊。",
+    "bodyLoadingEmpty": "仍在整理中…",
+    "bodyReadyEmpty": "我沒有找到太多資訊，我們可以在聊天時補充。",
+    "removeClaim": "移除「{claim}」",
+    "notMe": "這不是我",
+    "stillSearching": "仍在搜尋…"
+  },
+  "suggestionsStep": {
+    "title": "這是我們首先可以做的事情",
+    "pickOne": "選擇一個開始，或自行建立。<skip>跳至聊天</skip>",
+    "loading": "正在整理一些想法…",
+    "alreadySetUp": "已設定 <plugins></plugins> {count, plural, other {# 個}} 外掛程式以協助您完成工作",
+    "listAnd": " 和 ",
+    "listCommaAnd": "，和",
+    "listComma": "，",
+    "fallbacks": {
+      "brief": {
+        "suggestion": "我將為您整理一份關於您領域最新動態的簡報",
+        "prompt": "給我一份關於我領域最新動態的簡報。"
+      },
+      "weekly": {
+        "suggestion": "我將每週發送一份關於您領域新聞的簡報",
+        "prompt": "設定每週發送一份關於我領域新聞的簡報。"
+      },
+      "week": {
+        "suggestion": "我將協助您掌握您的一週",
+        "prompt": "協助我掌握我的一週。"
+      },
+      "draft": {
+        "suggestion": "我將根據一些粗略的筆記起草內容",
+        "prompt": "根據我提供的一些粗略筆記起草內容。"
+      }
+    }
+  },
+  "letsChatReadyStep": {
+    "title": "您已準備就緒",
+    "setupNote": "我已根據您的資訊設定了外掛程式。",
+    "letsChat": "開始聊天"
+  }
+}

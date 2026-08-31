@@ -13,12 +13,17 @@ import {
   questionresponsePost,
   secretPost,
 } from "@/generated/daemon/sdk.gen";
-import { assistantContactsPromptSubmit } from "@/generated/gateway/sdk.gen";
+import {
+  assistantContactsPromptSubmit,
+  assistantContactsRecordSubmit,
+} from "@/generated/gateway/sdk.gen";
 import type {
   PendinginteractionsGetResponse,
   QuestionresponsePostData,
 } from "@/generated/daemon/types.gen";
+import { resolveSupportsBatchedQuestionSubmit } from "@/lib/backwards-compat/batched-question-submit";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 /**
  * Subset of the pending-interactions response returned for a single
@@ -92,9 +97,17 @@ export async function listConversationIdsWithPendingInteractions(
   return keys;
 }
 
+/**
+ * `transient` marks a failure the transport produced rather than the assistant:
+ * offline, a dropped connection, an interrupted fetch. The helpers below catch
+ * those and flatten them into an ordinary `ok: false`, which loses the original
+ * `TypeError` that `isTransientNetworkError` keys on, so the answer is recorded
+ * here while that object still exists. Callers use it to skip the error report
+ * a connectivity blip does not deserve.
+ */
 export type SubmitSecretResponseResult =
   | { ok: true }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; transient: boolean };
 
 export async function submitSecretResponse(
   assistantId: string,
@@ -111,7 +124,12 @@ export async function submitSecretResponse(
     assertHasResponse(response, error, "Failed to submit secret response");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -119,6 +137,91 @@ export async function submitSecretResponse(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
+    };
+  }
+}
+
+/**
+ * Dismiss an address form. Unblocks the parked command without writing, and
+ * closes the form on every other client showing it.
+ */
+export async function cancelContactPrompt(
+  assistantId: string,
+  requestId: string,
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
+  try {
+    const { data, error, response } = await assistantContactsPromptSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, cancelled: true },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to dismiss the contact prompt");
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: extractErrorMessage(error, response),
+        transient: false,
+      };
+    }
+    // Somebody answered the form before this dismissal reached it, so the
+    // dismissal did not decide anything.
+    return { ok: true, duplicate: data?.duplicate === true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
+    };
+  }
+}
+
+/**
+ * Submit the guardian's answer to a proposed contact record write, or their
+ * dismissal of it. The gateway performs the write and unblocks the parked
+ * command; a dismissal unblocks it without writing.
+ */
+export async function submitContactRecord(
+  assistantId: string,
+  requestId: string,
+  input:
+    | {
+        operation: "create" | "update" | "delete";
+        contactId?: string;
+        displayName?: string;
+        notes?: string;
+        expectedChannels?: Array<{ type: string; address: string }>;
+      }
+    | { cancelled: true },
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
+  try {
+    const { data, error, response } = await assistantContactsRecordSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, ...input },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to submit contact record");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response);
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
+    }
+    // Somebody else answered this form first. The request succeeded in the
+    // sense that nothing is wrong, but none of these values were written, so
+    // the caller must not present them as saved.
+    return { ok: true, duplicate: data?.duplicate === true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -141,7 +244,12 @@ export async function submitSecretCancel(
     assertHasResponse(response, error, "Failed to cancel secret prompt");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -149,6 +257,7 @@ export async function submitSecretCancel(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -157,18 +266,22 @@ export async function submitConfirmation(
   assistantId: string,
   requestId: string,
   decision: ConfirmationDecision,
-  trustRule?: { selectedPattern: string; selectedScope: string },
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await confirmPost({
       path: { assistant_id: assistantId },
-      body: { requestId, decision, ...trustRule },
+      body: { requestId, decision },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to submit confirmation");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -176,6 +289,7 @@ export async function submitConfirmation(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }
@@ -187,68 +301,100 @@ export async function submitContactPrompt(
   channelType: string,
   role?: string,
   displayName?: string,
-): Promise<SubmitSecretResponseResult> {
+  /**
+   * The verify checkbox as the guardian left it. Sent explicitly (rather than
+   * read back from the parked command) so the attest matches the form.
+   */
+  verify?: boolean,
+): Promise<SubmitSecretResponseResult & { duplicate?: boolean }> {
   try {
-    const { error, response } = await assistantContactsPromptSubmit({
+    const { data, error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
-      body: { requestId, address, channelType, role, displayName },
+      body: { requestId, address, channelType, role, displayName, verify },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to submit contact prompt");
     if (!response.ok) {
       const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
+      return {
+        ok: false,
+        status: response.status,
+        error: msg,
+        transient: false,
+      };
     }
-    return { ok: true };
+    // Somebody else answered this form first: nothing is wrong, but none of
+    // these values were written, so the caller must not present them as saved.
+    return { ok: true, duplicate: data?.duplicate === true };
   } catch (err) {
     return {
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
+}
+
+/**
+ * Pick the wire shape for an answer and build the body.
+ *
+ * Only a one-entry answer has a choice to make, so only that case waits on the
+ * version. A close and a multi-entry answer are posted the same way to every
+ * assistant, and making them wait would stall a dismissal behind an identity
+ * fetch that cannot change what is sent.
+ */
+async function buildQuestionResponseBody(
+  assistantId: string,
+  requestId: string,
+  submission: QuestionSubmission,
+): Promise<QuestionresponsePostData["body"]> {
+  if (submission.kind === "close") {
+    return { requestId, kind: "close" };
+  }
+  const batched = {
+    requestId,
+    kind: "submit",
+    responses: submission.responses,
+  } as const;
+  const only =
+    submission.responses.length === 1 ? submission.responses[0] : undefined;
+  if (!only || (await resolveSupportsBatchedQuestionSubmit(assistantId))) {
+    return batched;
+  }
+  if (only.kind === "option") {
+    return { requestId, kind: "option", optionId: only.optionId };
+  }
+  if (only.kind === "free_text") {
+    return { requestId, kind: "free_text", text: only.text };
+  }
+  // The legacy shape has no `skip`, and an assistant that only speaks it would
+  // reject an unparseable body. Blank free text is the closest thing it can
+  // express, and `answered-question.ts` reads one back as a skip.
+  return { requestId, kind: "free_text", text: "" };
 }
 
 /**
  * Submit a response to a `question_request` event emitted by the daemon's
  * `ask_user_question` tool. Fire-and-forget, mirroring `submitConfirmation`:
  * the daemon resolves the awaiting tool call on its side and pushes any
- * follow-up state changes back through SSE. Body discriminator is `kind`:
- *  - `{ kind: "option", optionId }` — user picked one of the daemon-supplied options.
- *  - `{ kind: "free_text", text }` — user typed a manual answer.
+ * follow-up state changes back through SSE.
+ *
+ * The body is the batched `{ kind: "submit", responses }` shape, or
+ * `{ kind: "close" }` for a dismissal. Assistants older than the batched
+ * contract get the legacy single-question shape for a one-entry submission;
+ * see `lib/backwards-compat/batched-question-submit.ts` for what that costs.
  */
 export async function submitQuestionResponse(
   assistantId: string,
   requestId: string,
   submission: QuestionSubmission,
 ): Promise<SubmitSecretResponseResult> {
-  // For single-entry submissions, prefer the legacy `{ kind: "option" | "free_text" }`
-  // wire shape — older daemons predate the batched `{ kind: "submit", responses }`
-  // contract, and rolling deploys can leave the daemon side behind the web side.
-  // Both legacy and new daemons accept the legacy shape; only newer daemons accept
-  // the batched shape, so reserve it for multi-entry submissions where it's
-  // strictly required. `skip` is not a legacy top-level kind, so we coerce it
-  // to an empty `free_text` so the daemon resolves the interaction instead of
-  // hanging on a malformed payload.
-  const body: QuestionresponsePostData["body"] = (() => {
-    if (submission.kind === "close") {
-      return { requestId, kind: "close" };
-    }
-    if (submission.responses.length !== 1) {
-      return { requestId, kind: "submit", responses: submission.responses };
-    }
-    const only = submission.responses[0];
-    if (!only) {
-      return { requestId, kind: "submit", responses: submission.responses };
-    }
-    if (only.kind === "option") {
-      return { requestId, kind: "option", optionId: only.optionId };
-    }
-    if (only.kind === "free_text") {
-      return { requestId, kind: "free_text", text: only.text };
-    }
-    return { requestId, kind: "free_text", text: "" };
-  })();
+  const body = await buildQuestionResponseBody(
+    assistantId,
+    requestId,
+    submission,
+  );
   try {
     const { error, response: httpResponse } = await questionresponsePost({
       path: { assistant_id: assistantId },
@@ -262,7 +408,12 @@ export async function submitQuestionResponse(
     );
     if (!httpResponse.ok) {
       const msg = extractErrorMessage(error, httpResponse);
-      return { ok: false, status: httpResponse.status, error: msg };
+      return {
+        ok: false,
+        status: httpResponse.status,
+        error: msg,
+        transient: false,
+      };
     }
     return { ok: true };
   } catch (err) {
@@ -270,6 +421,7 @@ export async function submitQuestionResponse(
       ok: false,
       status: 500,
       error: err instanceof Error ? err.message : "Something went wrong.",
+      transient: isTransientNetworkError(err),
     };
   }
 }

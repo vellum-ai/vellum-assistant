@@ -26,6 +26,10 @@ export interface LatestTurnRowProps {
   responseItems: TranscriptItem[];
   /** Conversation id, forwarded to message bodies for the bookmark toggle. */
   conversationId?: string | null;
+  /** Tool call the inline Connect card renders under, resolved once by
+   *  `Transcript`. The latest turn is where a fresh spawn failure lands, so
+   *  dropping it here is what would leave that card unrendered. */
+  acpConnectInlineToolUseId?: string | null;
   assistantDisplayName?: string | null;
   onSurfaceAction: (
     surfaceId: string,
@@ -44,7 +48,6 @@ export interface LatestTurnRowProps {
     input?: Record<string, unknown>;
     allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
     scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
-    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -80,6 +83,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   anchorMessage,
   responseItems,
   conversationId,
+  acpConnectInlineToolUseId,
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
@@ -120,6 +124,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
       <TranscriptRow
         item={anchorMessage}
         conversationId={conversationId}
+        acpConnectInlineToolUseId={acpConnectInlineToolUseId}
         assistantDisplayName={assistantDisplayName}
         onSurfaceAction={onSurfaceAction}
         onForkConversation={onForkConversation}
@@ -146,6 +151,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
           <TranscriptRow
             item={response}
             conversationId={conversationId}
+            acpConnectInlineToolUseId={acpConnectInlineToolUseId}
             assistantDisplayName={assistantDisplayName}
             onSurfaceAction={onSurfaceAction}
             onForkConversation={onForkConversation}

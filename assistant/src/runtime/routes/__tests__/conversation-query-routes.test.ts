@@ -50,6 +50,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
+import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
 import { getConfig, loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
@@ -836,6 +837,49 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     seedRawConfig();
   });
 
+  describe("fallbackProfile write protection", () => {
+    beforeEach(() => {
+      const llm = rawConfigFixture.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      };
+      llm.profiles.backup = {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+      };
+      seedRawConfig();
+    });
+
+    test("rejects a custom fallbackProfile without writing", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "backup",
+          },
+        }),
+      ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+      expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+      expect(initializeProvidersCalls).toBe(0);
+    });
+
+    test("rejects a custom pointer at a managed backup name", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "custom" },
+          body: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            fallbackProfile: "balanced-backup",
+          },
+        }),
+      ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+      expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+      expect(initializeProvidersCalls).toBe(0);
+    });
+  });
+
   test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", async () => {
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
@@ -1239,6 +1283,48 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(initializeProvidersCalls).toBe(1);
       expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
+  });
+});
+
+describe("PATCH /v1/config fallbackProfile write protection", () => {
+  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+  beforeEach(() => {
+    initializeProvidersCalls = 0;
+    clearEmbeddingBackendCacheCalls = 0;
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          custom: { provider: "anthropic", model: "claude-sonnet-4-6" },
+          backup: { provider: "anthropic", model: "claude-sonnet-4-6" },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("rejects a custom fallbackProfile without writing", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { custom: { fallbackProfile: "backup" } } } },
+      }),
+    ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
+  });
+
+  test("rejects a custom pointer at a managed backup name", async () => {
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: { custom: { fallbackProfile: "balanced-backup" } },
+          },
+        },
+      }),
+    ).rejects.toThrow(/Automatic fallbacks are code-owned/);
+    expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
+    expect(initializeProvidersCalls).toBe(0);
   });
 });
 
@@ -1696,6 +1782,16 @@ describe("config invariant flag enrichment", () => {
     }
   });
 
+  test("GET /v1/config hides managed backups from the picker catalog", async () => {
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    for (const name of BACKUP_PROFILE_KEYS) {
+      expect(profiles).not.toHaveProperty(name);
+    }
+    expect(profiles.balanced).toBeDefined();
+  });
+
   test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {
     const body = await configPatchRoute.handler({
       body: { memory: { enabled: true } },
@@ -1762,5 +1858,85 @@ describe("provider membership at the write choke point", () => {
         },
       }),
     ).rejects.toThrow(/Invalid provider/);
+  });
+});
+
+describe("ingress URL writes through the generic config routes", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+  const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  const TUNNEL_URL = "https://assistant-1.example.ts.net";
+  const OTHER_URL = "https://assistant-2.example.ts.net";
+  const LAST_TUNNEL = { provider: "tailscale", publicBaseUrl: TUNNEL_URL };
+
+  const savedIngress = () =>
+    (loadRawConfig().ingress ?? {}) as Record<string, unknown>;
+
+  beforeEach(() => {
+    // `assistant config set ingress.publicBaseUrl <url>` is what the webhook
+    // diagnostics tell users to run when their tunnel address changed, so it
+    // has to leave the same clean state the settings route does.
+    rawConfigFixture = {
+      ingress: {
+        publicBaseUrl: TUNNEL_URL,
+        assistantId: "assistant-1",
+        lastTunnel: LAST_TUNNEL,
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("a config_set retarget drops the tunnel records", async () => {
+    await configSetRoute.handler({
+      body: { path: "ingress.publicBaseUrl", value: OTHER_URL },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.publicBaseUrl).toBe(OTHER_URL);
+    expect(ingress.assistantId).toBeUndefined();
+    expect(ingress.lastTunnel).toBeUndefined();
+  });
+
+  test("a config_set of the same URL keeps them", async () => {
+    await configSetRoute.handler({
+      body: { path: "ingress.publicBaseUrl", value: `${TUNNEL_URL}/` },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+
+  test("a config_set of another ingress key keeps them", async () => {
+    await configSetRoute.handler({
+      body: { path: "ingress.enabled", value: false },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+
+  test("a config_patch retarget drops the tunnel records", async () => {
+    await configPatchRoute.handler({
+      body: { ingress: { publicBaseUrl: OTHER_URL } },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.publicBaseUrl).toBe(OTHER_URL);
+    expect(ingress.assistantId).toBeUndefined();
+    expect(ingress.lastTunnel).toBeUndefined();
+  });
+
+  test("a config_patch that leaves the URL alone keeps them", async () => {
+    await configPatchRoute.handler({
+      body: { ingress: { enabled: false } },
+    });
+
+    const ingress = savedIngress();
+    expect(ingress.assistantId).toBe("assistant-1");
+    expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
   });
 });

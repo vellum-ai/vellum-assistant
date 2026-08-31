@@ -86,7 +86,7 @@
     },
     {
       "name": "computer_use_key",
-      "description": "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab",
+      "description": "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab. On Windows use ctrl/alt in place of cmd/option.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -94,7 +94,7 @@
         "properties": {
           "key": {
             "type": "string",
-            "description": "Key or shortcut to press (e.g. enter, tab, cmd+c, cmd+v)"
+            "description": "Key or shortcut to press (e.g. enter, tab, ctrl+c, cmd+c)"
           },
           "reasoning": {
             "type": "string",
@@ -197,7 +197,8 @@
         "required": ["reasoning"]
       },
       "executor": "tools/computer-use-drag.ts",
-      "execution_target": "host"
+      "execution_target": "host",
+      "supported_client_os": ["macos", "windows"]
     },
     {
       "name": "computer_use_wait",
@@ -227,7 +228,7 @@
     },
     {
       "name": "computer_use_open_app",
-      "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps - more reliable and explicit.",
+      "description": "Open or switch to a desktop application by name. Preferred over cmd+tab / alt+tab for switching apps - more reliable and explicit.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -249,7 +250,8 @@
         "required": ["app_name", "reasoning"]
       },
       "executor": "tools/computer-use-open-app.ts",
-      "execution_target": "host"
+      "execution_target": "host",
+      "supported_client_os": ["macos", "windows"]
     },
     {
       "name": "computer_use_run_applescript",
@@ -275,7 +277,8 @@
         "required": ["script", "reasoning"]
       },
       "executor": "tools/computer-use-run-applescript.ts",
-      "execution_target": "host"
+      "execution_target": "host",
+      "supported_client_os": ["macos"]
     },
     {
       "name": "computer_use_done",

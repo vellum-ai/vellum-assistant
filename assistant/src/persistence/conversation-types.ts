@@ -228,21 +228,50 @@ export function isVoiceSessionUserMessage(
 }
 
 /**
- * True when the row that opened the turn was sent from the macOS app, on that
+ * Metadata key naming which of a row's attachments arrived as ambient camera
+ * frames rather than files the user picked. Exported so the SQL prefilter that
+ * finds candidate rows and the reader below name the same key.
+ */
+export const SIGHT_FRAME_ATTACHMENT_IDS_KEY = "sightFrameAttachmentIds";
+
+/**
+ * The row's attachments that arrived as ambient camera frames, by attachment
+ * id. A user attachment carries no metadata of its own, so the marking lives on
+ * the message and refers to the attachments by id.
+ *
+ * Tolerant of any metadata shape: a row without the key, or one whose value is
+ * not an array of ids, yields nothing. Retention consumers therefore treat an
+ * untagged conversation exactly like one that predates the tag.
+ */
+export function sightFrameAttachmentIdsFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string[] {
+  const ids = metadata?.[SIGHT_FRAME_ATTACHMENT_IDS_KEY];
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+  return ids.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+/**
+ * True when the row that opened the turn was sent from a desktop app, on that
  * row's own evidence.
  *
  * Two markers, both required. The `client` bag's `os` entry is the only
  * per-platform attribution on a message: `userMessageInterface` is `"web"` for
- * the macOS app, the iOS app, and a desktop browser alike. `clientOsFromRequest`
- * says that `os` was reported by this row's request or transport rather than
- * inherited from the conversation's live client state, which names the surface
- * of an earlier turn: a button tapped on the phone against a conversation last
- * sent to from the Mac persists `os: "macos"` with no marker.
+ * the desktop apps, the iOS app, and a desktop browser alike.
+ * `clientOsFromRequest` says that `os` was reported by this row's request or
+ * transport rather than inherited from the conversation's live client state,
+ * which names the surface of an earlier turn. A button tapped on the phone
+ * against a conversation last sent to from desktop persists the old OS with no
+ * marker.
  *
  * Origin a row did not report itself is origin unknown. Callers gate
- * suppression on this, so unknown has to read as not-macOS.
+ * suppression on this, so unknown has to read as not-desktop.
  */
-export function isMacOriginatedUserMessage(
+export function isDesktopOriginatedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   if (metadata?.clientOsFromRequest !== true) {
@@ -252,7 +281,8 @@ export function isMacOriginatedUserMessage(
   if (typeof client !== "object" || client === null) {
     return false;
   }
-  return parseClientOs((client as Record<string, unknown>).os) === "macos";
+  const clientOs = parseClientOs((client as Record<string, unknown>).os);
+  return clientOs === "macos" || clientOs === "windows";
 }
 
 /**

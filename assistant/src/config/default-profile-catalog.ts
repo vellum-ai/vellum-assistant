@@ -9,15 +9,21 @@ import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import { getBalancedModelExperimentArm } from "./balanced-model-experiment.js";
 import {
+  BACKUP_PROFILE_KEYS,
+  type BackupProfileKey,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   type DefaultProfileKey,
   type DefaultProfileProvider,
+  FALLBACK_PROFILE_BY_KEY,
+  isBackupProfileKey,
+  isDefaultProfileKey,
   isDefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
+  backupProfilesResolveUnderDefaultProvider,
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   DEFAULT_PROVIDER_CHOICES,
   type DefaultProviderConfig,
@@ -70,6 +76,13 @@ type ProfileImpls = Record<DefaultProfileKey, DefaultProfileTemplate>;
  * concrete dispatch providers, and the model is what selects the upstream.
  * Overwritten in workspace config on every daemon boot so Vellum can push
  * model/config updates to customers in new releases.
+ *
+ * Each implementation points at its managed backup profile via
+ * `fallbackProfile` (`BACKUP_PROFILE_IMPLS` below): a backup pins a model at
+ * a different upstream provider, so an outage-type failure at the primary's
+ * provider can be served by re-sending on the backup. Vellum column only:
+ * the BYOK and chatgpt columns carry no pointers, since those installs may
+ * hold no credential for the backup's provider.
  */
 const VELLUM_PROFILE_IMPLS: ProfileImpls = {
   balanced: {
@@ -78,6 +91,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
+    fallbackProfile: FALLBACK_PROFILE_BY_KEY.balanced,
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
@@ -91,6 +105,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     source: "managed",
     label: "Quality",
     description: "High-quality results with the most capable model",
+    fallbackProfile: FALLBACK_PROFILE_BY_KEY["quality-optimized"],
     maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
@@ -107,6 +122,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     // surface the live model beside the description, so a model name in
     // this copy would go stale the moment the pin moves.
     description: "Cheapest responses, for high-volume work",
+    fallbackProfile: FALLBACK_PROFILE_BY_KEY["cost-optimized"],
     maxTokens: 8192,
     // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
     // "medium" when the field is omitted, and effort-driven providers encode
@@ -136,12 +152,87 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     source: "managed",
     label: "Speed",
     description: "Fastest responses, with reasoning turned off",
+    fallbackProfile: FALLBACK_PROFILE_BY_KEY["latency-optimized"],
     maxTokens: 8192,
     // Explicit reasoning opt-out, matching `cost-optimized` above: this
     // profile advertises reasoning as off, and OpenAI-compat APIs default
     // reasoning to "medium" when the field is omitted, so the opt-out has to
     // be stated rather than implied.
     effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    },
+  },
+};
+
+/**
+ * The managed backup profiles, one per default profile: the route a primary's
+ * `fallbackProfile` pointer names. Vellum column only: backups never
+ * materialize for BYOK or chatgpt installs. Like the primaries, models are
+ * pinned (never intents) and stamped `provider: "vellum"`, so dispatch
+ * derives the upstream from the model. Every backup pins its model at a
+ * DIFFERENT upstream provider than its primary (that cross-provider split is
+ * the entire point), and the module-load validation below enforces
+ * routability.
+ *
+ * Descriptions name the tier they back, never the concrete model: clients
+ * surface the live model beside the description, so a model name in this
+ * copy would go stale the moment a pin moves.
+ */
+const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
+  "balanced-backup": {
+    model: "claude-sonnet-5",
+    provider: "vellum",
+    source: "managed",
+    label: "Balanced Backup",
+    description: "Automatic backup for the Balanced profile",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    },
+  },
+  "quality-optimized-backup": {
+    model: "claude-opus-5",
+    provider: "vellum",
+    source: "managed",
+    label: "Quality Backup",
+    description: "Automatic backup for the Quality profile",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    },
+  },
+  "cost-optimized-backup": {
+    model: "gemini-3.1-flash-lite",
+    provider: "vellum",
+    source: "managed",
+    label: "Cost Backup",
+    description: "Automatic backup for the Cost profile",
+    maxTokens: 8192,
+    // Explicit reasoning opt-out, matching the primary Cost profile: OpenAI-
+    // compat APIs default reasoning to "medium" when the field is omitted,
+    // and effort-driven providers encode disabled thinking through this same
+    // knob (see DISABLED_THINKING_USES_EFFORT_PROVIDERS in
+    // providers/retry.ts).
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    },
+  },
+  "latency-optimized-backup": {
+    model: "claude-haiku-4-5-20251001",
+    provider: "vellum",
+    source: "managed",
+    label: "Speed Backup",
+    description: "Automatic backup for the Speed profile",
+    maxTokens: 8192,
+    effort: "low",
     thinking: { enabled: false, streamThinking: false },
     contextWindow: {
       maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
@@ -335,14 +426,18 @@ export const PROFILE_IMPLS: Record<
 >;
 
 /**
- * Managed profiles, i.e. the `vellum` column keyed by profile name. Keyed by
- * the user-facing defaults only: an internal profile is code-resolved and
- * never listed or ordered.
+ * Managed profiles, i.e. the `vellum` column keyed by profile name, plus the
+ * managed backup profiles. Backups come after the primaries, which is what
+ * places them after the primaries in the seeded `profileOrder`: the seeder
+ * inserts missing managed keys in this record's order. Keyed by the
+ * user-facing defaults only: an internal profile is code-resolved and never
+ * listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
-  Object.fromEntries(
-    DEFAULT_PROFILE_KEYS.map((key) => [key, PROFILE_IMPLS[key].vellum]),
-  );
+  Object.fromEntries([
+    ...DEFAULT_PROFILE_KEYS.map((key) => [key, PROFILE_IMPLS[key].vellum]),
+    ...BACKUP_PROFILE_KEYS.map((key) => [key, BACKUP_PROFILE_IMPLS[key]]),
+  ]);
 
 /**
  * The values BYOK hatch seeding wrote onto each `custom-*` copy, for the keys
@@ -413,8 +508,23 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
  * audible dead air rather than a slow reply. A same-named
  * workspace entry stays on disk and stays listed; it just never governs what
  * this name resolves to.
+ *
+ * All four backups carry the same protection rather than only
+ * `latency-optimized-backup`. The narrow argument covers that one alone: it
+ * serves the live-voice path whenever the primary falls back, so a shadow
+ * reintroduces exactly the dead-air risk the primary's protection exists to
+ * prevent. The broader argument covers all four, and is why the whole set is
+ * here: a backup only earns its place by pinning a model at a different
+ * upstream than the primary it backs (see `BACKUP_PROFILE_IMPLS`), and a
+ * user-owned shadow can silently repoint it at the primary's own provider,
+ * so the fallback re-sends into the outage it exists to route around. A
+ * backup also has no per-provider matrix column, so there is nothing a
+ * workspace overlay could legitimately own on it.
  */
-export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
+export const CODE_OWNED_PROFILE_NAMES = new Set<string>([
+  "latency-optimized",
+  ...BACKUP_PROFILE_KEYS,
+]);
 
 // All managed profiles, including the flag-gated os-beta, are invariant:
 // their MANAGED-SOURCE entries are read-only to user-facing writes except
@@ -423,6 +533,7 @@ export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
 // the on-disk entry's `source` being `managed`.
 export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
+  ...BACKUP_PROFILE_KEYS,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -435,6 +546,7 @@ export const INVARIANT_PROFILE_NAMES = new Set<string>([
 // same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
+  ...BACKUP_PROFILE_KEYS,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -502,6 +614,22 @@ for (const key of DEFAULT_PROFILE_KEYS) {
   }
 }
 
+// Backup profiles get the same eager verification as the vellum column: a
+// pinned model that no managed upstream serves would make the fallback route
+// undispatchable exactly when it is needed. The cross-provider rule (backup
+// upstream differs from the primary's) is asserted in
+// __tests__/default-profile-catalog-fallback.test.ts, arm pins included.
+for (const key of BACKUP_PROFILE_KEYS) {
+  const impl = BACKUP_PROFILE_IMPLS[key];
+  if (impl.model == null || getManagedUpstream(impl.model) === null) {
+    throw new Error(
+      `BACKUP_PROFILE_IMPLS[${key}] references model "${impl.model ?? ""}" ` +
+        `which is not served by any managed upstream. ` +
+        `Update model-catalog.ts or default-profile-catalog.ts.`,
+    );
+  }
+}
+
 // The experiment arms substitute into the managed column at request time, so
 // they need the same routability guarantee as the pins validated above: a
 // LaunchDarkly arm must never select a model no managed upstream serves.
@@ -540,6 +668,10 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   const entries: Record<string, ProfileEntry> = {};
   for (const key of DEFAULT_PROFILE_KEYS) {
     const impl = PROFILE_IMPLS[key].vellum;
+    entries[key] = materializeProfile(impl, impl.provider);
+  }
+  for (const key of BACKUP_PROFILE_KEYS) {
+    const impl = BACKUP_PROFILE_IMPLS[key];
     entries[key] = materializeProfile(impl, impl.provider);
   }
   entries[OS_BETA_PROFILE_KEY] = materializeProfile(
@@ -617,6 +749,16 @@ function resolveAgainstBody(
   body: ProfileEntry | undefined,
 ): ProfileEntry | undefined {
   if (body == null) {
+    // A managed stub is the workspace's slot for a code-owned profile, never
+    // a profile of its own, so with no body behind it there is nothing to
+    // resolve. Only a backup name reaches this branch with a stub (the
+    // default keys always have a body), and it reaches it on the columns
+    // where the backups do not exist. Resolving to the stub would list a
+    // profile with no provider or model and let a reference to it look
+    // valid, which is precisely what `LLMSchema` rejects on those columns.
+    if (isBackupProfileKey(name) && workspace?.source === "managed") {
+      return undefined;
+    }
     return workspace;
   }
   if (CODE_OWNED_PROFILE_NAMES.has(name)) {
@@ -670,9 +812,7 @@ export function resolveDefaultProfileForProvider(
   );
 }
 
-export function isDefaultProfileKey(name: string): name is DefaultProfileKey {
-  return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
-}
+export { isDefaultProfileKey } from "./default-profile-names.js";
 
 /**
  * The implementation of default profile `key` on `provider`: the named matrix
@@ -706,6 +846,18 @@ function defaultProfileBodyForProvider(
   defaultProvider: DefaultProviderConfig | null,
 ): ProfileEntry | undefined {
   if (!isDefaultProfileKey(name)) {
+    // Backup profiles are companions of the managed (`vellum`) column only:
+    // under a BYOK or chatgpt default provider the primaries carry no
+    // `fallbackProfile` pointers, and the backups must not materialize
+    // either, since the install may hold no credential for the backup's
+    // provider. A null defaultProvider predates `llm.defaultProvider` and
+    // resolves to the managed column, so it keeps its backups.
+    if (
+      isBackupProfileKey(name) &&
+      !backupProfilesResolveUnderDefaultProvider(defaultProvider)
+    ) {
+      return undefined;
+    }
     return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
   if (defaultProvider == null) {
@@ -752,6 +904,14 @@ function clampMaxTokensToModelCap(body: ProfileEntry): ProfileEntry {
  * available code default, merged per `getEffectiveProfile`. This is the
  * record all runtime readers of `llm.profiles` should consume; the raw
  * workspace record is a write-path concern.
+ *
+ * Deliberately provider-agnostic: it lists the managed backups whatever
+ * `llm.defaultProvider` says, because it resolves names against the passed
+ * catalog alone and never reads config. Internal resolution and reference
+ * validation use `getEffectiveProfilesForProvider`; user-facing selectors use
+ * `getUserSelectableProfilesForProvider`, which additionally removes backups
+ * from the managed column. Keeping those views separate lets automatic
+ * fallback resolve an internal route without offering it as a direct choice.
  */
 export function getEffectiveProfiles(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -794,7 +954,32 @@ export function getEffectiveProfilesForProvider(
     );
     if (entry != null) {
       effective[name] = entry;
+      continue;
     }
+    // Nothing resolved, so the name must not survive from the workspace
+    // spread above: a backup carrying only a managed stub on a column that
+    // has no backups would otherwise be listed as an available profile with
+    // no provider or model behind it.
+    delete effective[name];
   }
   return effective;
+}
+
+/**
+ * The effective profile view used by user-facing selectors. Managed backups
+ * remain in the full effective catalog for automatic fallback resolution, but
+ * are internal routes rather than profiles a user can choose directly.
+ */
+export function getUserSelectableProfilesForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  defaultProvider: DefaultProviderConfig | null,
+): Record<string, ProfileEntry> {
+  const selectable = getEffectiveProfilesForProvider(
+    workspaceProfiles,
+    defaultProvider,
+  );
+  for (const name of BACKUP_PROFILE_KEYS) {
+    delete selectable[name];
+  }
+  return selectable;
 }

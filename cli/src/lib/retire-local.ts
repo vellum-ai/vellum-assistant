@@ -12,6 +12,7 @@ import type { AssistantEntry } from "./assistant-config.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
 import { getKnownPidsFromAssistants } from "./orphan-detection.js";
 import {
+  DAEMON_STOP_TIMEOUT_MS,
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
 } from "./process.js";
@@ -119,7 +120,12 @@ export async function retireLocal(
   }
 
   const daemonPidFile = getDaemonPidPath(resources);
-  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon");
+  const daemonStopped = await stopProcessByPidFile(
+    daemonPidFile,
+    "daemon",
+    undefined,
+    DAEMON_STOP_TIMEOUT_MS,
+  );
 
   // Stop gateway via PID file — use a longer timeout because the gateway has a
   // drain window (5s) before it exits.
@@ -137,10 +143,10 @@ export async function retireLocal(
     reporter.log("credential-executor stopped.");
   }
 
-  // Stop Qdrant — the daemon's graceful shutdown tries to stop it via
-  // qdrantManager.stop(), but if the daemon was SIGKILL'd (after 2s timeout)
-  // Qdrant may still be running as an orphan. Check both the current PID file
-  // location and the legacy location.
+  // Stop Qdrant. The daemon's graceful shutdown tries to stop it via
+  // qdrantManager.stop(), but a daemon that never completes that shutdown
+  // (crash, OOM kill, or the SIGKILL ceiling above) leaves Qdrant running as
+  // an orphan. Check both the current PID file location and the legacy one.
   const qdrantPidFile = join(
     vellumDir,
     "workspace",
@@ -211,6 +217,7 @@ export async function retireLocal(
   const child = spawn(archiveCommand.command, archiveCommand.args, {
     stdio: "ignore",
     detached: true,
+    windowsHide: true,
     ...(archiveCommand.env
       ? { env: { ...process.env, ...archiveCommand.env } }
       : {}),

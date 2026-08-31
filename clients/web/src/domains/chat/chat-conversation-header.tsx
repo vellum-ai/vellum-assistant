@@ -1,5 +1,6 @@
 import { Button } from "@vellumai/design-library";
 import { ChevronDown } from "lucide-react";
+import { useTranslation } from "@/i18n";
 
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
@@ -9,6 +10,7 @@ import {
   ChannelIcon,
   getOpenInChannelLabel,
 } from "@/utils/channel-presentation";
+import { useConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
@@ -21,6 +23,7 @@ interface ChatConversationHeaderProps {
   showInternalActions: boolean;
   onArchive: (c: Conversation) => void;
   onUnarchive: (c: Conversation) => void;
+  onDelete: (c: Conversation) => void;
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
@@ -34,11 +37,16 @@ export function ChatConversationHeader({
   showInternalActions,
   onArchive,
   onUnarchive,
+  onDelete,
   onMarkUnread,
   onMarkRead,
   onPinToggle,
   onRename,
 }: ChatConversationHeaderProps) {
+  // This menu acts on `activeConversation`, which is what the bound commands
+  // act on too, so its rows may advertise them.
+  const shortcuts = useConversationMenuShortcuts(true);
+  const { t } = useTranslation("chat");
   if (!activeConversation) {
     if (!assistantId) {
       return null;
@@ -52,7 +60,7 @@ export function ChatConversationHeader({
     // below truncates for the same reason.
     return (
       <span className="min-w-0 truncate text-sm font-medium text-[var(--content-default)]">
-        New Chat
+        {t("chatConversationHeader.newChat")}
       </span>
     );
   }
@@ -81,6 +89,7 @@ export function ChatConversationHeader({
   return (
     <ConversationActionsMenu
       variant="header"
+      shortcuts={shortcuts}
       channelSourceLink={channelSourceLink}
       isPinned={isPinned}
       isArchived={isArchived}
@@ -89,6 +98,11 @@ export function ChatConversationHeader({
       onRename={() => onRename(activeConversation)}
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
+      onDelete={
+        activeConversation.conversationId && !activeConversation.draft
+          ? () => onDelete(activeConversation)
+          : undefined
+      }
       onForkConversation={
         !isReadonly &&
         headerSupplements?.hasPersistedMessage &&
@@ -171,10 +185,10 @@ export function ChatConversationHeader({
             <span className="min-w-0 max-w-[220px] truncate leading-6">
               {isArchived && (
                 <span className="mr-1 text-[var(--content-tertiary)]">
-                  [Archived]
+                  {t("chatConversationHeader.archived")}
                 </span>
               )}
-              {activeConversation.title ?? "Untitled"}
+              {activeConversation.title ?? t("chatConversationHeader.untitled")}
             </span>
             {channelHeaderLabel ? (
               <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">

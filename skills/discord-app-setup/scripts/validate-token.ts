@@ -42,7 +42,7 @@ async function revealCredential(
       "--field",
       field,
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    { windowsHide: true, stdout: "pipe", stderr: "pipe" },
   );
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
