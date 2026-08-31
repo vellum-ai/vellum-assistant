@@ -40,8 +40,8 @@ import {
   provenanceFromTrustContext,
 } from "../../../persistence/conversation-crud.js";
 import {
-  findConversationByProviderMessageId,
   findInboundEvent,
+  findMessageByProviderMessageId,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
@@ -218,16 +218,18 @@ export async function handleReactionIntercept(
   // one is resolved through the envelope those rows carry (`slackMeta` on
   // Slack, the neutral `providerMeta` everywhere else).
   const targetConversationId = reactedMessageTs
-    ? (findMessageBySourceId(
-        sourceChannel,
-        conversationExternalId,
-        reactedMessageTs,
-      )?.conversationId ??
-      findConversationByProviderMessageId(
-        sourceChannel,
-        conversationExternalId,
-        reactedMessageTs,
-      ))
+    ? ((
+        findMessageBySourceId(
+          sourceChannel,
+          conversationExternalId,
+          reactedMessageTs,
+        ) ??
+        findMessageByProviderMessageId(
+          sourceChannel,
+          conversationExternalId,
+          reactedMessageTs,
+        )
+      )?.conversationId ?? null)
     : null;
   if (!targetConversationId || !reactedMessageTs) {
     log.debug(

@@ -10,7 +10,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   clearPayload,
-  findConversationByProviderMessageId,
+  findMessageByProviderMessageId,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
@@ -147,32 +147,26 @@ describe("channel-delivery-store", () => {
       .run();
 
     expect(
-      findConversationByProviderMessageId(
-        "discord",
-        chatId,
-        "1234567890123456789",
-      ),
-    ).toBe(minted.conversationId);
+      findMessageByProviderMessageId("discord", chatId, "1234567890123456789"),
+    ).toEqual({
+      messageId: "assistant-post-1",
+      conversationId: minted.conversationId,
+    });
     // A split reply posts several provider messages from one row; any of
     // their ids resolves it.
     expect(
-      findConversationByProviderMessageId(
-        "discord",
-        chatId,
-        "2234567890123456789",
-      ),
-    ).toBe(minted.conversationId);
+      findMessageByProviderMessageId("discord", chatId, "2234567890123456789"),
+    ).toEqual({
+      messageId: "assistant-post-1",
+      conversationId: minted.conversationId,
+    });
     // The scan is scoped to the reaction's own channel address: the same id
     // is invisible from another channel's or another chat's key space.
     expect(
-      findConversationByProviderMessageId(
-        "telegram",
-        chatId,
-        "1234567890123456789",
-      ),
+      findMessageByProviderMessageId("telegram", chatId, "1234567890123456789"),
     ).toBeNull();
     expect(
-      findConversationByProviderMessageId(
+      findMessageByProviderMessageId(
         "discord",
         "other-chat",
         "1234567890123456789",

@@ -295,30 +295,31 @@ export function findInboundEvent(
 }
 
 /**
- * The conversation holding the message with this provider id, found by
- * reading the metadata the assistant's own posts carry, on any channel.
+ * The message row carrying this provider id in its stored envelope, on any
+ * channel. Returns the same shape as {@link findMessageBySourceId} so the
+ * two resolution legs compose: that one covers every message that arrived
+ * as an inbound event, and this one covers what the assistant posted, which
+ * opens no inbound event and is only identifiable by the id its row carries.
  *
  * Reads through `readProviderMetadata`, so it matches any channel that
  * describes its rows in the neutral shape as well as Slack's own envelope.
  *
- * `findMessageBySourceId` covers every message that arrived as an inbound
- * event. It cannot see what the assistant posted, because an outbound reply
- * opens no inbound event, so a reaction on the assistant's own message needs
- * this. The search is confined to conversations already bound to the same
+ * The search is confined to conversations already bound to the same
  * channel address and to the most recent
  * {@link OUTBOUND_MESSAGE_ID_MAX_SCAN} rows among them; beyond that it gives
  * up and the caller drops the annotation, which is the same outcome as never
  * finding it at all.
  */
-export function findConversationByProviderMessageId(
+export function findMessageByProviderMessageId(
   sourceChannel: string,
   externalChatId: string,
   providerMessageId: string,
-): string | null {
+): { messageId: string; conversationId: string } | null {
   const db = getDb();
   const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
   const rows = db
     .select({
+      id: messages.id,
       conversationId: messages.conversationId,
       metadata: messages.metadata,
     })
@@ -350,7 +351,7 @@ export function findConversationByProviderMessageId(
       (meta.messageId === providerMessageId ||
         meta.additionalMessageIds?.includes(providerMessageId))
     ) {
-      return row.conversationId;
+      return { messageId: row.id, conversationId: row.conversationId };
     }
   }
   return null;

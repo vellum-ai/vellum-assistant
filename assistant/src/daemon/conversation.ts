@@ -1242,6 +1242,23 @@ export class Conversation {
           // Neutral marker, no actor: Discord deletes can be authorless
           // (`actorUnattributed`), so the marker never claims who deleted.
           content = [{ type: "text", text: "[This message was deleted]" }];
+        } else if (
+          role === "assistant" &&
+          providerMeta?.deletedAt !== undefined
+        ) {
+          // The assistant's own deleted post keeps its content: erasure is
+          // how a retracted USER message is honored, but rewriting what the
+          // assistant said would falsify its memory of its own output. The
+          // rendered fact is visibility: the message no longer exists on the
+          // channel, so the assistant should not refer to it as something
+          // participants can see.
+          content = [
+            ...content,
+            {
+              type: "text",
+              text: "[This message was deleted from the channel and is no longer visible to participants]",
+            },
+          ];
         }
       }
 

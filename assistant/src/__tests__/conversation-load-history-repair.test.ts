@@ -589,6 +589,53 @@ describe("loadFromDb history repair", () => {
     expect(allText).not.toContain("hunter2");
   });
 
+  test("the assistant's own deleted post keeps its content plus a visibility marker", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "What time is the meeting?" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "The meeting is at 3pm." }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.2",
+            eventKind: "message",
+            deletedAt: 1700000001000,
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const assistantRow = conversation
+      .getMessages()
+      .find((m) => m.role === "assistant");
+    const texts = (assistantRow?.content ?? [])
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""));
+    // Erasure is for a retracted user message; the assistant's own words
+    // stay (it did say them), and the rendered fact is lost visibility.
+    expect(texts.join("\n")).toContain("The meeting is at 3pm.");
+    expect(texts.join("\n")).toContain(
+      "[This message was deleted from the channel and is no longer visible to participants]",
+    );
+  });
+
   test("a reaction never quotes a target that was later deleted", async () => {
     mockConversation = {
       id: "conv-1",

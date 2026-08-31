@@ -223,6 +223,75 @@ describe("Discord delete propagation (unattributed)", () => {
     expect(neutral!.deletedAt).toBeDefined();
   });
 
+  test("deleting the assistant's own post stamps its row via the stored provider id", async () => {
+    // A moderator removing the assistant's reply: the post opened no inbound
+    // event, so resolution can only go through the provider id its row
+    // carries (stamped at reserve, reconciled at delivery). The retry window
+    // is not paid: no inbound event exists to wait on.
+    const chatId = "999888777666555444";
+    const sentId = "111222333444555777";
+    const minted = recordInbound("discord", chatId, "evt-earlier-user-msg");
+    const messageId = "assistant-reply-1";
+    getDb()
+      .insert(messages)
+      .values({
+        id: messageId,
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "The reply a moderator later removed",
+        metadata: JSON.stringify({
+          assistantMessageChannel: "discord",
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: chatId,
+            messageId: sentId,
+            eventKind: "message",
+          }),
+        }),
+        createdAt: Date.now(),
+      })
+      .run();
+
+    const req = new Request("http://localhost:8080/channels/inbound", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gateway-Origin": TEST_BEARER_TOKEN,
+      },
+      body: JSON.stringify({
+        sourceChannel: "discord",
+        interface: "discord",
+        conversationExternalId: chatId,
+        externalMessageId: `${sentId}:delete`,
+        eventKind: "delete",
+        content: "",
+        actorExternalId: "discord-system",
+        sourceMetadata: {
+          messageId: sentId,
+          actorUnattributed: true,
+        },
+      }),
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(true);
+    expect(json.messageId).toBe(messageId);
+
+    const row = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    // Content survives: the stamp records loss of channel visibility, not an
+    // erasure of what the assistant said.
+    expect(row!.content).toBe("The reply a moderator later removed");
+    const neutral = readProviderMetadata(row!.metadata);
+    expect(neutral!.deletedAt).toBeDefined();
+    expect(neutral!.messageId).toBe(sentId);
+  });
+
   test("an unattributed delete for a never-ingested message is a no-op", async () => {
     const req = new Request("http://localhost:8080/channels/inbound", {
       method: "POST",

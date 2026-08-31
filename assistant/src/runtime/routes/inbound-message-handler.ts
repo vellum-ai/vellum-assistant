@@ -91,6 +91,7 @@ import {
 import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversation-title-service.js";
 import {
   clearPayload,
+  findMessageByProviderMessageId,
   findMessageBySourceId,
   hasInboundEventForSource,
   recordInbound,
@@ -593,6 +594,17 @@ export async function handleChannelInbound({
         );
       }
     }
+
+    // The retry loop serves inbound rows racing their link. A message the
+    // assistant itself posted opens no inbound event, so its deletion (a
+    // moderator removing the assistant's reply) resolves through the
+    // provider id stored on its own row instead. No retry: the id is
+    // reconciled at delivery, well before anyone can delete the message.
+    original ??= findMessageByProviderMessageId(
+      sourceChannel,
+      conversationExternalId,
+      deletedMessageTs,
+    );
 
     if (!original) {
       log.debug(
