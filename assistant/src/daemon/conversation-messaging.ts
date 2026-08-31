@@ -569,11 +569,7 @@ export function buildProviderMetaForPersistence(params: {
   if (!inbound) {
     return null;
   }
-  if (
-    params.turnChannel === undefined ||
-    params.turnChannel === "slack" ||
-    params.turnChannel !== inbound.source
-  ) {
+  if (params.turnChannel !== inbound.source || inbound.source === "slack") {
     return null;
   }
   const parsed = providerMessageMetadataSchema.safeParse(inbound);
