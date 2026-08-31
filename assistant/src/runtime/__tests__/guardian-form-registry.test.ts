@@ -214,3 +214,29 @@ describe("resolveFormFromCallback", () => {
     expect(await settled).toEqual({ ok: false, error: "nope" });
   });
 });
+
+describe("claiming names the form", () => {
+  test("a claim for a different kind is refused", async () => {
+    // An id alone does not say which form it belongs to. Without this check a
+    // submission to form B could claim an open form A, run B's write, and hand
+    // A's caller a result for a form it never showed.
+    const { requestId, settled } = openForm({ kind: "kind.real" });
+
+    expect(claimGuardianForm(requestId, "kind.other")).toEqual({
+      claimed: false,
+      reason: "wrong_kind",
+    });
+    // Refused, not consumed: the right caller can still claim it.
+    expect(claimGuardianForm(requestId, "kind.real").claimed).toBe(true);
+
+    resolveGuardianForm(requestId, { ok: true });
+    await settled;
+  });
+
+  test("a caller that names no kind still claims, as before", async () => {
+    const { requestId, settled } = openForm({ kind: "kind.real" });
+    expect(claimGuardianForm(requestId).claimed).toBe(true);
+    resolveGuardianForm(requestId, { ok: true });
+    await settled;
+  });
+});

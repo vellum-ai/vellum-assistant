@@ -27,6 +27,15 @@ const RequestIdParams = z.object({
   requestId: z.string().describe("The pending form's id."),
 });
 
+const ClaimParams = RequestIdParams.extend({
+  kind: z
+    .string()
+    .optional()
+    .describe(
+      "The form the caller believes it is writing for. Rejected when it is not what the id is holding. Omitted by callers that predate the check.",
+    ),
+});
+
 /**
  * Hand a writer's report to the call parked on the form.
  *
@@ -52,16 +61,16 @@ export function resolveFormFromCallback({ body = {} }: RouteHandlerArgs): {
 
 export function claimForm({ body = {} }: RouteHandlerArgs): {
   claimed: boolean;
-  reason?: "already_claimed" | "unknown";
+  reason?: "already_claimed" | "unknown" | "wrong_kind";
   settleMs?: number;
 } {
-  const { requestId } = RequestIdParams.parse(body);
-  return claimGuardianForm(requestId);
+  const { requestId, kind } = ClaimParams.parse(body);
+  return claimGuardianForm(requestId, kind);
 }
 
 const CLAIM_RESPONSE = z.object({
   claimed: z.boolean(),
-  reason: z.enum(["already_claimed", "unknown"]).optional(),
+  reason: z.enum(["already_claimed", "unknown", "wrong_kind"]).optional(),
   settleMs: z
     .number()
     .optional()
@@ -82,9 +91,9 @@ export const GUARDIAN_FORM_ROUTES: RouteDefinition[] = [
     handler: claimForm,
     summary: "Claim a pending guardian form for one submission",
     description:
-      "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is pending. A granted claim carries the window its write has to report back in.",
+      "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, 'unknown' when no such form is pending, or 'wrong_kind' when the id belongs to a different form than the caller named. A granted claim carries the window its write has to report back in.",
     tags: ["guardian-forms"],
-    requestBody: RequestIdParams,
+    requestBody: ClaimParams,
     responseBody: CLAIM_RESPONSE,
   },
   {

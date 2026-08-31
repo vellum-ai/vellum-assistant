@@ -180,3 +180,32 @@ describe("submitGuardianForm", () => {
     ]);
   });
 });
+
+describe("reserved result keys", () => {
+  test("a stray error on a success does not become a cancellation", async () => {
+    // resolveFormFromCallback reads any truthy `error` as a failure, so a
+    // result carrying its own would report a cancellation over a write that
+    // committed, and drop the rest of the result with it.
+    await submitGuardianForm({
+      requestId: "req-9",
+      write: async () => ({
+        resolution: { error: "a field of my own", id: "row-2" },
+      }),
+    });
+
+    expect(resolveCall()?.body).toEqual({ requestId: "req-9", id: "row-2" });
+  });
+
+  test("the form it is writing for is named on the claim", async () => {
+    await submitGuardianForm({
+      requestId: "req-10",
+      formKind: "my.form",
+      write: async () => ({ resolution: {} }),
+    });
+
+    expect(calls[0]).toEqual({
+      method: "guardian_form_claim",
+      body: { requestId: "req-10", kind: "my.form" },
+    });
+  });
+});

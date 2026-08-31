@@ -41,9 +41,18 @@ import {
 import { claimForm, resolveFormFromCallback } from "./guardian-form-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-/** Form kinds on the guardian-form rail that carry a contact card. */
-const ADDRESS_FORM = "contacts.address";
-const RECORD_FORM = "contacts.record";
+/**
+ * Form kinds on the guardian-form rail that carry a contact card.
+ *
+ * The gateway names the same kind when it claims, so these two strings are a
+ * cross-package contract. `contact-form-kinds.test.ts` on each side pins the
+ * literals, since a rename on one side alone would only surface as claims
+ * rejected at runtime.
+ */
+export const CONTACT_ADDRESS_FORM_KIND = "contacts.address";
+export const CONTACT_RECORD_FORM_KIND = "contacts.record";
+const ADDRESS_FORM = CONTACT_ADDRESS_FORM_KIND;
+const RECORD_FORM = CONTACT_RECORD_FORM_KIND;
 const CONTACT_FORMS = [ADDRESS_FORM, RECORD_FORM] as const;
 
 const TimeoutMsParam = z

@@ -36,9 +36,15 @@ import {
 
 const log = getLogger("contact-prompt");
 
-/** Guardian-form kinds these routes write for, matching the daemon's. */
-const ADDRESS_FORM = "contacts.address";
-const RECORD_FORM = "contacts.record";
+/**
+ * Guardian-form kinds these routes write for.
+ *
+ * The daemon opens its forms under the same strings and now rejects a claim
+ * that names a different one, so these are a cross-package contract, pinned on
+ * both sides by `contact-form-kinds.test.ts`.
+ */
+export const ADDRESS_FORM = "contacts.address";
+export const RECORD_FORM = "contacts.record";
 
 /**
  * The contact forms' own IPC names, which predate the form-agnostic pair. Kept
@@ -149,6 +155,7 @@ export async function handleContactPromptSubmit(
       requestId,
       cancelled: true,
       logContext: { form: ADDRESS_FORM },
+      formKind: ADDRESS_FORM,
       ...CONTACT_FORM_IPC,
     });
   }
@@ -156,6 +163,7 @@ export async function handleContactPromptSubmit(
   return submitGuardianForm({
     requestId,
     logContext: { form: ADDRESS_FORM, channelType },
+    formKind: ADDRESS_FORM,
     ...CONTACT_FORM_IPC,
     write: () =>
       bindSubmittedChannel({
@@ -603,6 +611,7 @@ export async function handleContactRecordSubmit(
       requestId,
       cancelled: true,
       logContext: { form: RECORD_FORM },
+      formKind: RECORD_FORM,
       ...CONTACT_FORM_IPC,
     });
   }
@@ -637,6 +646,7 @@ export async function handleContactRecordSubmit(
   return submitGuardianForm({
     requestId,
     logContext: { form: RECORD_FORM, operation, contactId },
+    formKind: RECORD_FORM,
     ...CONTACT_FORM_IPC,
     write: () =>
       writeContactRecord({

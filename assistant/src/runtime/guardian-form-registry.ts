@@ -151,19 +151,35 @@ function expireForm(
  *
  * The daemon holds the only record of which forms are still open, so it is the
  * one place that can decide a race between two clients answering the same
- * broadcast. First caller wins; the rest are told why they lost, so the writer
+ * broadcast, and the only one that can tell whether an id is even the right
+ * form. Pass `expectedKind` whenever the caller knows which form it is
+ * writing for. First caller wins; the rest are told why they lost, so the writer
  * can tell "somebody already answered this" (leave their answer alone) apart
  * from "no such form" (expired or already resolved, so nothing should be
  * written at all).
  */
-export function claimGuardianForm(requestId: string): {
+export function claimGuardianForm(
+  requestId: string,
+  expectedKind?: string,
+): {
   claimed: boolean;
-  reason?: "already_claimed" | "unknown";
+  reason?: "already_claimed" | "unknown" | "wrong_kind";
   settleMs?: number;
 } {
   const pending = pendingForms.get(requestId);
   if (!pending) {
     return { claimed: false, reason: "unknown" };
+  }
+  if (expectedKind !== undefined && pending.kind !== expectedKind) {
+    // An id alone does not say which form it belongs to. Without this, a
+    // submission to form B's endpoint could claim an open form A: B's write
+    // would run, and A's parked caller would be handed B's result for a form
+    // it never showed.
+    log.warn(
+      { requestId, expectedKind, actualKind: pending.kind },
+      "Guardian form claim rejected: the id belongs to a different form",
+    );
+    return { claimed: false, reason: "wrong_kind" };
   }
   if (pending.claimed) {
     return { claimed: false, reason: "already_claimed" };

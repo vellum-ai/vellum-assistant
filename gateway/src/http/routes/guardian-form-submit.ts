@@ -52,6 +52,11 @@ interface SubmitGuardianFormBase {
    */
   claimOperation?: string;
   resolveOperation?: string;
+  /**
+   * The form this submission is for. The daemon refuses a claim whose id is
+   * holding a different form, so a submission cannot answer somebody else's.
+   */
+  formKind?: string;
 }
 
 /**
@@ -90,9 +95,10 @@ export async function submitGuardianForm(
     logContext = {},
     claimOperation = "guardian_form_claim",
     resolveOperation = "resolve_guardian_form",
+    formKind,
   } = options;
 
-  const claim = await claimForm(requestId, claimOperation);
+  const claim = await claimForm(requestId, claimOperation, formKind);
   if (!claim.claimed) {
     log.warn(
       { requestId, reason: claim.reason, ...logContext },
@@ -152,12 +158,21 @@ export async function submitGuardianForm(
     );
   }
 
+  // `requestId` and `error` are the rail's. A result carrying its own id would
+  // redirect the callback to a different form or to none, and one carrying an
+  // `error` would be read as a failure and reported as a cancellation, both
+  // over a write that committed.
+  const { error: strayError, ...resolution } = outcome.resolution;
+  if (strayError !== undefined) {
+    log.warn(
+      { requestId, ...logContext },
+      "guardian-form: dropped an `error` field from a successful result; the key is reserved",
+    );
+  }
+
   await reportResolution(
     requestId,
-    // The rail's id wins. A form whose result happened to carry `requestId`
-    // would otherwise redirect its own callback to a different form or to
-    // none, and its caller would time out over a write that committed.
-    { ...outcome.resolution, requestId },
+    { ...resolution, requestId },
     settleDeadline,
     resolveOperation,
   );
@@ -176,10 +191,11 @@ export async function submitGuardianForm(
 async function claimForm(
   requestId: string,
   operation: string,
+  kind: string | undefined,
 ): Promise<{ claimed: boolean; reason?: string; settleMs?: number }> {
   try {
     const result = await ipcCallAssistant(operation, {
-      body: { requestId },
+      body: { requestId, kind },
     });
     return result as { claimed: boolean; reason?: string; settleMs?: number };
   } catch (err) {

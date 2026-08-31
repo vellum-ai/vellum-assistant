@@ -12812,8 +12812,9 @@ paths:
       summary: Claim a pending guardian form for one submission
       description:
         Marks a pending form as answered so a second client submitting the same form writes nothing. Returns
-        claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is
-        pending. A granted claim carries the window its write has to report back in.
+        claimed=false with reason 'already_claimed' when somebody got there first, 'unknown' when no such form is
+        pending, or 'wrong_kind' when the id belongs to a different form than the caller named. A granted claim carries
+        the window its write has to report back in.
       tags:
         - guardian-forms
       requestBody:
@@ -12826,6 +12827,11 @@ paths:
                 requestId:
                   type: string
                   description: The pending form's id.
+                kind:
+                  description:
+                    The form the caller believes it is writing for. Rejected when it is not what the id is holding. Omitted by
+                    callers that predate the check.
+                  type: string
               required:
                 - requestId
       responses:
@@ -12843,6 +12849,7 @@ paths:
                     enum:
                       - already_claimed
                       - unknown
+                      - wrong_kind
                   settleMs:
                     description: How long a granted claim has to report its write back before the waiting call gives up.
                     type: number
