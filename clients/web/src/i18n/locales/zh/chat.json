@@ -545,11 +545,6 @@
     "closeAriaLabel": "关闭",
     "title": "对话操作"
   },
-  "conversationActivityPill": {
-    "activity": "活动",
-    "recent": "最近",
-    "running": "运行中"
-  },
   "conversationAssetActions": {
     "delete": "删除",
     "downloadPdf": "下载PDF",
