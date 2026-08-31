@@ -103,7 +103,7 @@ export function DeleteConversationConfirmDialog({
       onCancel={onCancel}
     >
       <Checkbox
-        className="mt-3"
+        className="mt-3 [&_button[data-state=unchecked]]:border-[var(--border-element)] [&_button[data-state=unchecked]]:bg-[var(--surface-base)]"
         checked={acknowledged}
         onCheckedChange={(next) => {
           setAcknowledged(next === true);
