@@ -1037,15 +1037,21 @@ export function ChatComposer({
     !hasBannerAboveCard &&
     !hasPendingQuestion &&
     (isNativeMobileShell || composerInUse);
-  // The entrance belongs to the row that arrives with the keyboard. A row that
-  // stands throughout has no arrival to animate, and the same animation there
-  // replays on every mount, settling the composer on each navigation.
+  // The entrance belongs to the pills, which arrive with the keyboard. A
+  // control that stands throughout has no arrival to animate, and the same
+  // animation there replays on every mount, settling the composer on each
+  // navigation. So this dresses the PILLS group, not the row around it: the
+  // status controls beside them are always up and must not inherit either the
+  // entrance or the hiding.
   const settingsPillsClassName = settingsPillsVisible
-    ? `mb-3 flex items-center justify-between gap-1.5 px-1.5${
+    ? `flex shrink-0 items-center gap-1.5${
         isNativeMobileShell
           ? ""
           : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
       }`
+    // Undefined rather than the layout classes while hidden: `hidden` already
+    // takes the group out of layout, and a class arriving with the reveal is
+    // what makes the entrance animation run on each one.
     : undefined;
 
   // A pill at mobile widths (half the card's 52px collapsed height), the 10px
@@ -1658,21 +1664,33 @@ export function ChatComposer({
             // accessibility tree, and lets the entrance run again on every
             // reveal. Reduced motion keeps the placement and drops the
             // movement.
+            // The row itself is always up, because the status controls in it
+            // are: they report work the assistant is doing, which does not
+            // depend on whether the composer has focus. Only the pills come
+            // and go with the keyboard, so the `hidden` gate moved onto them.
+            //
+            // The inset lands the last pill's edge over the send circle's, so
+            // the row reads as hung off the card rather than floated past it.
+            //
+            // The margin is dropped when the row has nothing showing — no
+            // status controls, pills hidden — so an idle unfocused composer
+            // does not carry 12px of empty strip above it. The selector asks
+            // for a group that is not itself hidden AND has an element in it,
+            // which is exactly "something is on screen here".
             <div
               data-slot="composer-settings-pills"
-              hidden={!settingsPillsVisible}
-              // The right inset lands the last pill's edge over the send
-              // circle's, so the row reads as hung off the card rather than
-              // floated past it.
-              className={settingsPillsClassName}
+              className="mb-3 flex items-center justify-between gap-1.5 px-1.5 [&:not(:has(>*:not([hidden])>*))]:mb-0"
             >
-              {/* Leading group, then the pills. Empty when there is no status
-                  to show, and `justify-between` still parks the pills on the
-                  right in that case. */}
+              {/* Leading group, then the pills. `justify-between` parks the
+                  pills on the right whether or not this one has content. */}
               <div className="flex min-w-0 items-center gap-1.5">
                 {statusControlsSlot}
               </div>
-              <div className="flex shrink-0 items-center gap-1.5">
+              <div
+                data-slot="composer-settings-pills-group"
+                hidden={!settingsPillsVisible}
+                className={settingsPillsClassName}
+              >
                 {thresholdPickerSlot}
                 {modelPickerSlot}
               </div>

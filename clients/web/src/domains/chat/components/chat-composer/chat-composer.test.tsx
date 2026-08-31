@@ -868,7 +868,22 @@ function renderTouchTabletComposer(props: RenderComposerProps = {}) {
   return renderComposerView(props);
 }
 
+/**
+ * The group that comes and goes with the keyboard.
+ *
+ * The row it sits in is always up now, because the status controls beside the
+ * pills (Progress, Agents) report work the assistant is doing and do not depend
+ * on the composer having focus. So the `hidden` gate these tests are about
+ * moved off the row and onto this inner group.
+ */
 function pillsRow(container: HTMLElement) {
+  return container.querySelector(
+    '[data-slot="composer-settings-pills-group"]',
+  );
+}
+
+/** The always-present row that holds the pills group and the status controls. */
+function pillsRowContainer(container: HTMLElement) {
   return container.querySelector('[data-slot="composer-settings-pills"]');
 }
 
@@ -1297,6 +1312,38 @@ describe("ChatComposer — optional slots", () => {
 // ---------------------------------------------------------------------------
 
 describe("ChatComposer: mobile settings pills row", () => {
+  test("the status controls stay up while the pills are hidden", () => {
+    // GIVEN a phone composer nobody has tapped into, carrying a status control
+    const { container } = renderPhoneComposer({
+      ...SETTINGS_SLOTS,
+      statusControlsSlot: <span data-testid="status-control">STATUS</span>,
+    });
+
+    // THEN the pills are away with the keyboard...
+    expect(pillsRow(container)?.hasAttribute("hidden")).toBe(true);
+
+    // ...but the control beside them is not: it reports work the assistant is
+    // doing, which has nothing to do with whether the composer has focus.
+    const row = pillsRowContainer(container);
+    expect(row).not.toBeNull();
+    expect(row?.hasAttribute("hidden")).toBe(false);
+    expect(
+      container.querySelector('[data-testid="status-control"]'),
+    ).not.toBeNull();
+  });
+
+  test("an idle unfocused row carries no margin above the card", () => {
+    // GIVEN nothing to show on either end: no status control, pills hidden
+    const { container } = renderPhoneComposer(SETTINGS_SLOTS);
+
+    // THEN the row keeps its margin class but the `:has()` guard cancels it,
+    // so an empty strip cannot push the composer down. Asserted on the class
+    // rather than computed style: happy-dom does not resolve `:has()`.
+    expect(pillsRowContainer(container)?.className).toContain(
+      "[&:not(:has(>*:not([hidden])>*))]:mb-0",
+    );
+  });
+
   test("an unfocused phone composer keeps the row mounted but hidden", () => {
     // GIVEN a phone composer nobody has tapped into
     const { container } = renderPhoneComposer(SETTINGS_SLOTS);

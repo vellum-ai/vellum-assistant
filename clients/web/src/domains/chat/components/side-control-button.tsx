@@ -3,7 +3,7 @@
  *
  * The three used to each build their own trigger, which is how they drifted
  * into three heights and two shapes. This is the single definition: same
- * surface, same radius, same shadow, and above all the same height as a left
+ * surface, same radius, and above all the same height as a left
  * side-menu row ({@link SIDE_MENU_TILE_SIZE}), so the controls floating over
  * the chat sit on the same vertical rhythm as the navigation across from them.
  *
@@ -78,10 +78,10 @@ export function SideControlButton({
         ...rest.style,
       }}
       className={cn(
-        // `border-0` drops the ghost Button's own 1px border: these pills read
-        // as floating chips over the chat, and an outline on top of the shadow
-        // made them look inset instead.
-        "relative overflow-hidden rounded-full border-0 bg-[var(--surface-lift)] shadow-sm",
+        // `border-0` drops the ghost Button's own 1px border: an outline made
+        // these read as inset rather than as chips sitting on the surface. No
+        // shadow either, for the same reason — the fill alone is the shape.
+        "relative overflow-hidden rounded-full border-0 bg-[var(--surface-lift)]",
         className,
       )}
     >
