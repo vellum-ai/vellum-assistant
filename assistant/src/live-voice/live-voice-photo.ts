@@ -38,10 +38,21 @@
  * chain holds the flag to one standalone job at a time, which is what makes
  * the set/clear pairing correct rather than merely usually correct.
  *
- * A narrower race is left alone: a real turn can still start inside the 100 ms
- * gap between the idle poll and `setProcessing(true)`. Closing it means
- * changing what the flag is in `conversation.ts`, which governs every turn in
- * the daemon, not just these writes.
+ * The flag is taken by {@link acquireProcessingFlag}, which reads it free and
+ * takes it in one synchronous step. That closes the half of the turn race this
+ * module owns: no await sits between the read and the take, so a turn that
+ * starts nearby either loses the flag to a keep that already holds it or holds
+ * it before the keep looks, and a keep can never write over a turn that got
+ * there first. Per `assistant/AGENTS.md`, a resource more than one caller
+ * writes has to be serialised per resource; the chain does that between keeps
+ * and the atomic take does it against turns.
+ *
+ * The other half is not this module's: turn startup takes the flag without
+ * first asking whether anyone holds it (`persistUserMessage` in
+ * `conversation-messaging.ts`), so a turn beginning while a keep is mid-write
+ * still overwrites the keep's hold, and the keep's release then clears the
+ * turn's. Fixing that means changing how every turn in the daemon acquires,
+ * which belongs in `conversation.ts` rather than here.
  */
 
 import { v7 as uuidv7 } from "uuid";
@@ -51,7 +62,10 @@ import {
   persistQueuedMessageBody,
 } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
+import {
+  deleteOrphanAttachments,
+  resolveAttachmentsForPersist,
+} from "../persistence/attachments-store.js";
 import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -96,7 +110,7 @@ export interface LiveVoicePhotoResult {
  */
 interface StandaloneImageQueue {
   tail: Promise<void>;
-  queuedSightFrame: { superseded: boolean } | null;
+  queuedSightFrame: { superseded: boolean; attachmentId: string } | null;
   outstanding: number;
 }
 
@@ -117,6 +131,7 @@ const standaloneImageQueues = new Map<string, StandaloneImageQueue>();
  */
 async function enqueueStandaloneImagePersist(
   conversationId: string,
+  attachmentId: string,
   kind: "photo" | "sight_frame",
   job: () => Promise<LiveVoicePhotoResult>,
 ): Promise<LiveVoicePhotoResult> {
@@ -131,7 +146,7 @@ async function enqueueStandaloneImagePersist(
   }
   const chained = queue;
 
-  const ticket = { superseded: false };
+  const ticket = { superseded: false, attachmentId };
   if (kind === "sight_frame") {
     if (chained.queuedSightFrame) {
       chained.queuedSightFrame.superseded = true;
@@ -147,9 +162,10 @@ async function enqueueStandaloneImagePersist(
     }
     if (ticket.superseded) {
       log.debug(
-        { conversationId },
+        { conversationId, attachmentId: ticket.attachmentId },
         "A newer camera frame replaced one still waiting to persist",
       );
+      reclaimSupersededFrame(ticket.attachmentId);
       return { ok: false };
     }
     return job();
@@ -174,23 +190,62 @@ async function enqueueStandaloneImagePersist(
   }
 }
 
+/**
+ * Give up the upload behind a keep no message will ever carry.
+ *
+ * The client uploaded it and then the daemon chose to drop it, so nothing else
+ * will ever collect it: the client's own abandon-delete fires only when the
+ * send fails, and attachment collection is candidate-driven with no sweep.
+ * Link-aware through {@link deleteOrphanAttachments}, so an id that did reach a
+ * message is left alone, and only ever called for a job that never wrote.
+ *
+ * Best effort. Losing a row's bytes is not worth failing a call over.
+ */
+function reclaimSupersededFrame(attachmentId: string): void {
+  try {
+    deleteOrphanAttachments([attachmentId]);
+  } catch (err) {
+    log.warn(
+      { err, attachmentId },
+      "Could not reclaim a superseded live-voice camera frame",
+    );
+  }
+}
+
 /** Conversations with a standalone-image persist still in flight. */
 export function _standaloneImageQueueSizeForTests(): number {
   return standaloneImageQueues.size;
 }
 
-/** Resolve once the conversation is not mid-turn, or false on timeout. */
-async function waitForIdle(conversation: {
+/**
+ * Take the conversation's processing flag once it is free, or return false on
+ * timeout having taken nothing.
+ *
+ * The read and the take are one synchronous step on purpose. Run-to-completion
+ * means nothing can interleave between them, so a turn cannot claim the flag
+ * in the instant after this reads it free. Splitting them, with the read here
+ * and the take in the caller, leaves an await between the two and a keep every
+ * few seconds to land in it.
+ *
+ * Throws only if `setProcessing` does, which it does when the flag's persist
+ * fails. That reverts the in-memory flag before rethrowing, so a throw here
+ * means nothing was taken and nothing needs releasing.
+ */
+async function acquireProcessingFlag(conversation: {
   isProcessing: () => boolean;
+  setProcessing: (value: boolean) => void;
 }): Promise<boolean> {
   const deadline = Date.now() + PROCESSING_WAIT_MS;
-  while (conversation.isProcessing()) {
+  for (;;) {
+    if (!conversation.isProcessing()) {
+      conversation.setProcessing(true);
+      return true;
+    }
     if (Date.now() >= deadline) {
       return false;
     }
     await new Promise((resolve) => setTimeout(resolve, PROCESSING_POLL_MS));
   }
-  return true;
 }
 
 /**
@@ -213,7 +268,7 @@ function persistStandaloneImage(
   kind: "photo" | "sight_frame",
   persistOptions: Omit<PersistMessageOptions, "attachments" | "requestId">,
 ): Promise<LiveVoicePhotoResult> {
-  return enqueueStandaloneImagePersist(conversationId, kind, () =>
+  return enqueueStandaloneImagePersist(conversationId, attachmentId, kind, () =>
     writeStandaloneImage(conversationId, attachmentId, kind, persistOptions),
   );
 }
@@ -240,7 +295,7 @@ async function writeStandaloneImage(
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
-    if (!(await waitForIdle(conversation))) {
+    if (!(await acquireProcessingFlag(conversation))) {
       log.warn(
         { conversationId, attachmentId, kind },
         "Live-voice image timed out waiting for the conversation to go idle",
@@ -248,7 +303,6 @@ async function writeStandaloneImage(
       return { ok: false };
     }
 
-    conversation.setProcessing(true);
     try {
       const persisted = await persistQueuedMessageBody(conversation, {
         ...persistOptions,

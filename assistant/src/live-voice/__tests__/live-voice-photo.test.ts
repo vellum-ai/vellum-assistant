@@ -17,6 +17,7 @@ import {
 } from "../../daemon/conversation-registry.js";
 import { applySightFrameRetention } from "../../daemon/conversation-runtime-assembly.js";
 import {
+  getAttachmentById,
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -103,6 +104,40 @@ function watchProcessing(conversation: Conversation): {
 async function uploadFrame(name: string): Promise<string> {
   const attachment = await uploadAttachment(name, "image/png", IMAGE_BASE64);
   return attachment.id;
+}
+
+/** True while the attachment's row is still in the store. */
+function frameStored(attachmentId: string): boolean {
+  return getAttachmentById(attachmentId) !== null;
+}
+
+/**
+ * Let a turn try to start in the instant right after the persist reads the
+ * flag free. The turn models a correct acquirer: it claims only what it finds
+ * free, so it succeeds exactly when the persist left a gap between its read
+ * and its take.
+ */
+function armTurnStartInTheGap(conversation: Conversation): {
+  claimed: () => boolean;
+} {
+  let armed = true;
+  let claimed = false;
+  const readFlag = conversation.isProcessing.bind(conversation);
+  const writeFlag = conversation.setProcessing.bind(conversation);
+  conversation.isProcessing = (): boolean => {
+    const busy = readFlag();
+    if (armed && !busy) {
+      armed = false;
+      queueMicrotask(() => {
+        if (!readFlag()) {
+          writeFlag(true);
+          claimed = true;
+        }
+      });
+    }
+    return busy;
+  };
+  return { claimed: () => claimed };
 }
 
 /** The attachment id the row's persisted image block actually references. */
@@ -464,6 +499,37 @@ describe("standalone image persists are serialized per conversation", () => {
     }
   });
 
+  test("a turn starting in the gap keeps the flag it claimed", async () => {
+    // The flag is a boolean with no owner, so reading it free and taking it
+    // have to be one step. Split by an await, a turn claims it in between and
+    // the frame writes over a turn that got there first, then clears the flag
+    // that turn is still holding.
+    const live = liveConversation("Live voice turn start race");
+    try {
+      const frame = await uploadFrame("race.png");
+
+      // A turn is running, so the keep goes into the wait.
+      live.activeConversation.setProcessing(true);
+      const keep = persistLiveVoiceSightFrame(live.id, frame);
+      await sleep(150);
+
+      // From here, the next observation of a free flag lets a turn try to
+      // start in the following microtask.
+      const turn = armTurnStartInTheGap(live.activeConversation);
+      live.activeConversation.setProcessing(false);
+
+      expect(await keep).toMatchObject({ ok: true });
+
+      // The keep took the flag in the same step it read it free, so the turn
+      // found it busy and never claimed it.
+      expect(turn.claimed()).toBe(false);
+      expect(live.activeConversation.isProcessing()).toBe(false);
+      expect(getMessages(live.id)).toHaveLength(1);
+    } finally {
+      live.dispose();
+    }
+  });
+
   test("a newer keep replaces one that is still waiting to start", async () => {
     // The chain is bounded this way: keeps arrive every few seconds while each
     // job can wait out a turn for far longer, so a queued keep that a newer
@@ -492,6 +558,14 @@ describe("standalone image persists are serialized per conversation", () => {
         [...selectSightFrameCaptureTimes(live.id).keys()].sort(),
       ).toHaveLength(2);
       expect(getMessages(live.id)).toHaveLength(2);
+
+      // The client uploaded the displaced frame and the daemon chose to drop
+      // it, so this is the only thing that will ever collect it: the client's
+      // own abandon-delete fires on a refused send, and this send succeeded.
+      expect(frameStored(stale)).toBe(false);
+      // The two that reached a message are not this reclaim's to touch.
+      expect(frameStored(running)).toBe(true);
+      expect(frameStored(newest)).toBe(true);
     } finally {
       live.dispose();
     }
@@ -516,6 +590,10 @@ describe("standalone image persists are serialized per conversation", () => {
         expect(result).toMatchObject({ ok: true });
       }
       expect(getMessages(live.id)).toHaveLength(3);
+      // Nothing is ever reclaimed on the photo path: none of them was dropped.
+      for (const id of ids) {
+        expect(frameStored(id)).toBe(true);
+      }
     } finally {
       live.dispose();
     }
