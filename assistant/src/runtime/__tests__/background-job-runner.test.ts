@@ -463,7 +463,7 @@ describe("runBackgroundJob", () => {
     expect(bootstrapLastArgs).not.toHaveProperty("scheduleJobId");
   });
 
-  test("assistantSandwich seeds three messages in user/assistant/user order, with sandwich written before processMessage runs", async () => {
+  test("assistantSandwich seeds user/assistant messages before processMessage runs the trusted prompt as the closing user turn", async () => {
     let addMessageCountAtProcessMessageStart = -1;
     processMessageImpl = async () => {
       addMessageCountAtProcessMessageStart = addMessageCalls.length;
@@ -472,17 +472,15 @@ describe("runBackgroundJob", () => {
 
     await runBackgroundJob(
       baseOpts({
-        prompt: "",
+        prompt: "TRUSTED_POST",
         assistantSandwich: {
           preamble: "TRUSTED_PRE",
           content: "UNTRUSTED_PAYLOAD",
-          postamble: "TRUSTED_POST",
         },
       }),
     );
 
-    // All three sandwich addMessage calls happened.
-    expect(addMessageCalls).toHaveLength(3);
+    expect(addMessageCalls).toHaveLength(2);
     expect(addMessageCalls[0]).toMatchObject({
       conversationId: STUB_CONVERSATION_ID,
       role: "user",
@@ -493,15 +491,33 @@ describe("runBackgroundJob", () => {
       role: "assistant",
       content: "UNTRUSTED_PAYLOAD",
     });
-    expect(addMessageCalls[2]).toMatchObject({
-      conversationId: STUB_CONVERSATION_ID,
-      role: "user",
-      content: "TRUSTED_POST",
-    });
+    // The closing user-role slice is the turn itself, so the untrusted
+    // assistant-role payload stays sandwiched.
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].content).toBe("");
-    // processMessage observed all 3 sandwich messages already in place.
-    expect(addMessageCountAtProcessMessageStart).toBe(3);
+    expect(processMessageCalls[0].content).toBe("TRUSTED_POST");
+    // processMessage observed both sandwich messages already in place.
+    expect(addMessageCountAtProcessMessageStart).toBe(2);
+  });
+
+  test("empty prompt fails the job before bootstrap instead of reaching message persistence", async () => {
+    const result = await runBackgroundJob(
+      baseOpts({
+        jobName: "watcher:watcher-1",
+        prompt: "   ",
+        assistantSandwich: {
+          preamble: "TRUSTED_PRE",
+          content: "UNTRUSTED_PAYLOAD",
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error?.message).toContain("watcher:watcher-1");
+    expect(result.error?.message).toContain("empty prompt");
+    // No conversation is bootstrapped for a job that can never run a turn.
+    expect(bootstrapCalls).toBe(0);
+    expect(addMessageCalls).toHaveLength(0);
+    expect(processMessageCalls).toHaveLength(0);
   });
 
   describe("pre-first-message gate", () => {
