@@ -66,11 +66,12 @@ export async function generateInviteInstruction(params: {
   const handle = params.channelHandle
     ? ` at ${params.channelHandle}`
     : ` on ${channelLabel}`;
-  // Discord DMs only open between accounts that share a server, so the
-  // instruction has to say so or the invitee dead-ends before the code.
+  // Discord DMs only open between accounts that share a server, and a
+  // member can still have server-member DMs turned off, so the instruction
+  // names both or the invitee dead-ends before the code.
   const discordCaveat =
     params.channelType === "discord"
-      ? " They need to be in a server with me before they can DM me."
+      ? " They need to be in a server with me, with DMs from server members enabled, before they can DM me."
       : "";
   const fallback = params.shareUrl
     ? `Send ${contact} this link: ${params.shareUrl}, or tell them to message me${handle} with the code below.${discordCaveat}`
@@ -109,7 +110,7 @@ export async function generateInviteInstruction(params: {
     }
     if (params.channelType === "discord") {
       parts.push(
-        "Platform constraint: the contact must share a Discord server with the bot before they can send it a direct message. Mention this.",
+        "Platform constraint: the contact must share a Discord server with the bot, and have DMs from server members enabled in their privacy settings, before they can send it a direct message. Mention this.",
       );
     }
     parts.push(
