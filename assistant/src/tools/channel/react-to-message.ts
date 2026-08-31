@@ -58,7 +58,8 @@ const DESCRIPTION =
   "person would tap a reaction instead of writing a reply. By default the " +
   "reaction lands on the message that started this turn. Use it to " +
   "acknowledge without adding a message; it does not replace answering " +
-  "when an answer is called for.";
+  "when an answer is called for. When the reaction is your whole reply, " +
+  "output exactly <no_response/> afterward so no message is posted.";
 
 export const reactToMessageTool = {
   name: "react_to_message",
