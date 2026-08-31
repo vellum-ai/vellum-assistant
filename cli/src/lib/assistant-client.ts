@@ -42,6 +42,8 @@ const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
  */
 type AuthMode = "guardian" | "session" | "platform";
 
+const stripTrailingSlashes = (url: string): string => url.replace(/\/+$/, "");
+
 export interface AssistantClientOpts {
   assistantId?: string;
   runtimeUrl?: string;
@@ -78,12 +80,6 @@ export class AssistantClient {
   private token: string | undefined;
   private readonly authMode: AuthMode;
   private readonly orgId: string | undefined;
-  /**
-   * Platform host the credential belongs to. Taken from the lockfile entry, not
-   * from `opts.runtimeUrl`, so a caller-supplied URL override can never send the
-   * platform token to an arbitrary host during the org-id lookup.
-   */
-  private readonly platformUrl: string | undefined;
   /** Cached in-flight/resolved platform auth headers; cleared to force a re-resolve. */
   private platformHeaders: Promise<Record<string, string>> | undefined;
 
@@ -105,34 +101,51 @@ export class AssistantClient {
       );
     }
 
-    this.runtimeUrl = (
-      opts?.runtimeUrl ||
-      entry.localUrl ||
-      entry.runtimeUrl ||
-      FALLBACK_RUNTIME_URL
-    ).replace(/\/+$/, "");
     this._assistantId = entry.assistantId;
+    const platformManaged = !opts?.sessionToken && entry.cloud === "vellum";
+    const platformHost = stripTrailingSlashes(entry.runtimeUrl);
+
+    // SECURITY: a platform credential is account-scoped, far broader than the
+    // per-assistant guardian JWT, so its origin is pinned to the host recorded in
+    // the lockfile. Honoring a URL override here would hand the caller's session
+    // token or `vak_` key to whatever host they named.
+    if (
+      platformManaged &&
+      opts?.runtimeUrl &&
+      stripTrailingSlashes(opts.runtimeUrl) !== platformHost
+    ) {
+      throw new Error(
+        `Refusing to send platform credentials to '${opts.runtimeUrl}': ` +
+          `assistant '${entry.assistantId}' is hosted at ${platformHost}.`,
+      );
+    }
+
+    this.runtimeUrl = platformManaged
+      ? platformHost
+      : stripTrailingSlashes(
+          opts?.runtimeUrl ||
+            entry.localUrl ||
+            entry.runtimeUrl ||
+            FALLBACK_RUNTIME_URL,
+        );
 
     if (opts?.sessionToken) {
       // Caller supplied the credential: X-Session-Token + Vellum-Organization-Id.
       this.token = opts.sessionToken;
       this.authMode = "session";
       this.orgId = opts.orgId;
-      this.platformUrl = undefined;
-    } else if (entry.cloud === "vellum") {
+    } else if (platformManaged) {
       // Platform-managed: no guardian token exists locally, so authenticate with
       // the stored platform credential. Resolved on first use because the org id
       // behind it needs a network lookup.
       this.token = undefined;
       this.authMode = "platform";
       this.orgId = undefined;
-      this.platformUrl = entry.runtimeUrl;
     } else {
       this.token =
         loadGuardianToken(this._assistantId)?.accessToken ?? entry.bearerToken;
       this.authMode = "guardian";
       this.orgId = undefined;
-      this.platformUrl = undefined;
     }
   }
 
@@ -175,7 +188,7 @@ export class AssistantClient {
 
     if (!this.platformHeaders) {
       this.token = this.requirePlatformToken();
-      this.platformHeaders = authHeaders(this.token, this.platformUrl)
+      this.platformHeaders = authHeaders(this.token, this.runtimeUrl)
         .then((resolved) => {
           // request() owns Content-Type (bodyless requests must not carry one).
           const headers = { ...resolved };
@@ -322,7 +335,7 @@ export class AssistantClient {
     // platform path (e.g. the user switched orgs elsewhere). Drop it and retry
     // once. Mirrors localRuntimeIdentity in local-runtime-client.ts.
     if (response.status === 401 && this.authMode === "platform" && this.token) {
-      invalidateOrgIdCache(this.token, this.platformUrl);
+      invalidateOrgIdCache(this.token, this.runtimeUrl);
       this.platformHeaders = undefined;
       return doFetch();
     }

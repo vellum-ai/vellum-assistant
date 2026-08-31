@@ -83,11 +83,16 @@ describe("AssistantClient platform-managed auth", () => {
 
   afterEach(() => {
     globalThis.fetch = ORIGINAL_FETCH;
-    if (ORIGINAL_LOCKFILE_DIR === undefined)
+    if (ORIGINAL_LOCKFILE_DIR === undefined) {
       delete process.env.VELLUM_LOCKFILE_DIR;
-    else process.env.VELLUM_LOCKFILE_DIR = ORIGINAL_LOCKFILE_DIR;
-    if (ORIGINAL_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = ORIGINAL_CONFIG_HOME;
+    } else {
+      process.env.VELLUM_LOCKFILE_DIR = ORIGINAL_LOCKFILE_DIR;
+    }
+    if (ORIGINAL_CONFIG_HOME === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = ORIGINAL_CONFIG_HOME;
+    }
   });
 
   afterAll(() => {
@@ -158,6 +163,35 @@ describe("AssistantClient platform-managed auth", () => {
       "Not logged in. Run `vellum login` first to authenticate with the platform.",
     );
     expect(calls).toHaveLength(0);
+  });
+
+  test("refuses to send platform credentials to a runtimeUrl override", async () => {
+    seedCloud("sess-tok-4");
+    const calls = stubFetch(() => new Response("", { status: 200 }));
+
+    expect(
+      () =>
+        new AssistantClient({
+          assistantId: ASSISTANT_ID,
+          runtimeUrl: "https://attacker.example.com",
+        }),
+    ).toThrow("Refusing to send platform credentials");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("allows a runtimeUrl override that matches the entry's platform host", async () => {
+    seedCloud("sess-tok-5");
+    stubFetch((url) =>
+      isOrgFetch(url) ? orgResponse() : new Response("", { status: 200 }),
+    );
+
+    const client = new AssistantClient({
+      assistantId: ASSISTANT_ID,
+      runtimeUrl: `${PLATFORM_URL}/`, // trailing slash must not count as a mismatch
+    });
+
+    expect(client.runtimeUrl).toBe(PLATFORM_URL);
+    expect((await client.get("/healthz/")).status).toBe(200);
   });
 
   test("re-resolves the org id once on a 401 and never refreshes a guardian token", async () => {
