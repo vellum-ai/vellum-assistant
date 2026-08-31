@@ -123,6 +123,23 @@ describe("emitNativeAppNudgeImpressionOnce", () => {
     expect(ingestMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not spend the dedupe marker while analytics is off", () => {
+    useOnboardingStore.setState({ shareAnalytics: false });
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+    expect(ingestMock).not.toHaveBeenCalled();
+
+    // Opting in mid-session must not find the nudge already marked seen, or
+    // the funnel gets a click with no impression behind it.
+    useOnboardingStore.setState({ shareAnalytics: true });
+    emitNativeAppNudgeImpressionOnce("banner", "ios");
+
+    expect(ingestMock).toHaveBeenCalledTimes(1);
+    expect(eventFromCall(0)).toMatchObject({
+      step_name: "impression",
+      screen: "banner:ios",
+    });
+  });
+
   it("still emits when session storage is unavailable", () => {
     const original = Object.getOwnPropertyDescriptor(
       window,

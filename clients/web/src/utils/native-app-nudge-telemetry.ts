@@ -11,6 +11,7 @@
  */
 
 import { emitOnboardingFunnelStepCompleted } from "@/domains/onboarding/funnel-events";
+import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 
 export const NATIVE_APP_NUDGE_FUNNEL_VERSION = "native_app_nudge_v1_2026_08";
 
@@ -68,11 +69,19 @@ function readImpressionsSeen(): string[] {
  * When storage is unavailable the read yields `[]` and the write is dropped,
  * so the nudge degrades to emitting per mount rather than going silent.
  * Telemetry is best-effort and a missing impression is worse than a repeat.
+ *
+ * Consent is checked HERE as well as inside the emitter, because the marker
+ * must not be spent on an event the gate goes on to drop: someone who opts in
+ * mid-session would come back to a banner already marked seen and report a
+ * click with no impression behind it.
  */
 export function emitNativeAppNudgeImpressionOnce(
   surface: NudgeSurface,
   target: NudgeTelemetryTarget,
 ): void {
+  if (!readAnalyticsConsent()) {
+    return;
+  }
   const key = `${surface}:${target}`;
   const seen = readImpressionsSeen();
   if (seen.includes(key)) {

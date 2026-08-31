@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Bell, Fingerprint, Smartphone, Vibrate } from "lucide-react";
 
 import { NudgeSettingsCard } from "@/domains/settings/components/nudge-settings-card";
@@ -6,7 +7,10 @@ import {
   writeNativeAppDownloaded,
   type NativeAppPromotion,
 } from "@/hooks/use-native-app-nudge";
-import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
+import {
+  emitNativeAppNudgeEvent,
+  emitNativeAppNudgeImpressionOnce,
+} from "@/utils/native-app-nudge-telemetry";
 import { useTranslation } from "@/i18n";
 
 export interface NativeAppCardViewProps {
@@ -16,6 +20,13 @@ export interface NativeAppCardViewProps {
 export function NativeAppCardView({ promotion }: NativeAppCardViewProps) {
   const { t } = useTranslation("settings");
   const { appName, target } = promotion;
+
+  // `NativeAppCard` renders null off mobile, so this mount means the card is on
+  // screen. Without it `settings:<target>` would carry clicks and no
+  // denominator, leaving that surface's conversion uncomputable.
+  useEffect(() => {
+    emitNativeAppNudgeImpressionOnce("settings", target);
+  }, [target]);
 
   return (
     <NudgeSettingsCard
