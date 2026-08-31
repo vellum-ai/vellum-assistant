@@ -33,12 +33,10 @@ import { GUARDIAN_FORM_MAX_TIMEOUT_MS } from "../../util/guardian-form-timeouts.
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
-  claimGuardianForm,
   getGuardianFormMeta,
   type GuardianFormClosedReason,
   hasUnclaimedGuardianForm,
   openGuardianForm,
-  resolveGuardianForm,
 } from "../guardian-form-registry.js";
 import { claimForm, resolveFormFromCallback } from "./guardian-form-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

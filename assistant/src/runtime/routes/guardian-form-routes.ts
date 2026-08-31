@@ -15,12 +15,12 @@
 
 import { z } from "zod";
 
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   claimGuardianForm,
   type GuardianFormResult,
   resolveGuardianForm,
 } from "../guardian-form-registry.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const RequestIdParams = z.object({
