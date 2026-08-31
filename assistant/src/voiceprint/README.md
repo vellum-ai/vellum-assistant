@@ -98,6 +98,18 @@ under the worst genuine score. The asymmetry is deliberate: a voiceprint is
 context and never an access decision, so a false accept mislabels a speaker
 while a false reject makes the feature look broken.
 
+### Measuring this honestly
+
+Score only clips that were **not** used to enroll the profile you are scoring
+against. Replaying an enrollment clip compares it to an average that contains
+it, which inflates the score and measures nothing. The magnitude gives the
+mistake away: a single-clip enrollment scored against its own clip returns
+~1.0, and a two-clip enrollment returns something high but short of it.
+
+Cross-speaker scores are not affected by this, since the other speaker's
+profile contains none of the query's audio. So a contaminated session can
+still yield a usable impostor number while its same-speaker number is junk.
+
 Two speakers is still a thin sample. The open question is a same-gender,
 same-accent confuser, which has not been measured; given the size of the gap
 it would have to be extraordinary to threaten 0.50, but it is the row worth
