@@ -92,13 +92,16 @@ and the source conversation's pinned vellum card.
 
 ## Cards are not conversation history
 
-`pairDeliveryWithConversation` persists one message row per delivery so the
-card renders and deep-links. For a guardian card that row is addressed to a
+`pairDeliveryWithConversation` persists one message row for the vellum
+delivery so the card renders and deep-links. That row is addressed to a
 conversation the request is _about_, not one the assistant is speaking in:
 `buildVellumCardAffinity` pins the vellum card to the originating
-conversation, and a channel card lands in whatever conversation the guardian's
-chat binds to. Either way the row is written straight to the DB by the
-notification pipeline, so the live turn's in-memory history never sees it.
+conversation. Channel guardian deliveries pair no conversation (see the
+routing policy above), so the vellum row is the only card row written; it
+goes straight to the DB by the notification pipeline, so the live turn's
+in-memory history never sees it. Rows that channel deliveries paired
+before the projection-only policy still exist and are covered by the same
+filter below.
 
 That row must never be replayed to the model. The conversation it lands in is
 typically parked mid-approval, with its last assistant message carrying the
