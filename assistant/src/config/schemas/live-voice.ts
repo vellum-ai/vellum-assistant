@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DEFAULT_WORKING_CUE_SHAPE } from "../../live-voice/working-cue.js";
+
 export const VALID_LIVE_VOICE_MODES = ["ptt", "open-mic"] as const;
 
 export const LiveVoiceVadConfigSchema = z
@@ -78,9 +80,9 @@ export const LiveVoiceProgressConfigSchema = z
       .boolean({
         error: "liveVoice.frontModel.progress.enabled must be a boolean",
       })
-      .default(true)
+      .default(false)
       .describe(
-        "Speak short progress updates during long-running tool-heavy turns; the opt-out for progress narration",
+        "Speak short progress updates during long-running tool-heavy turns. Off by default: a working turn holds its silence with the wordless liveVoice.workingCue instead, which says the same thing without making a claim the user has to listen to. This setting wins over the cue, so turning it on replaces the cue with spoken narration even where liveVoice.workingCue.enabled is also true.",
       ),
     opsThreshold: z
       .number({
@@ -168,6 +170,86 @@ export const LiveVoiceProgressConfigSchema = z
   })
   .describe(
     "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
+  );
+
+/**
+ * Ceiling on the cue tone's length. The value is multiplied by the client's
+ * sample rate to size the rendered PCM buffer, so it is an allocation request
+ * arriving from config and reaching `Buffer.alloc` from a timer callback: a
+ * large finite value asks for gigabytes the moment the first cue fires. Two
+ * seconds is far past anything that still reads as punctuation and leaves the
+ * worst case well under a megabyte at any sample rate a client can ask for.
+ */
+const MAX_WORKING_CUE_DURATION_MS = 2_000;
+
+// setTimeout stores its delay in a signed 32-bit int, so a larger value wraps
+// and fires almost immediately. A cue interval past this would not be a very
+// long silence, it would be a continuous tone: exactly inverted from what the
+// number says. Reject it instead, since anything near the cap is already far
+// longer than a working turn.
+const MAX_WORKING_CUE_INTERVAL_MS = 2_147_483_647;
+
+/**
+ * Ceiling on the cue's fundamental. Above the top of human hearing the tone is
+ * inaudible, and above half the session's sample rate it aliases down to some
+ * unrelated pitch, so a value up here is always a mistake rather than a taste.
+ */
+const MAX_WORKING_CUE_FREQUENCY_HZ = 20_000;
+
+export const LiveVoiceWorkingCueConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "liveVoice.workingCue.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Hold a working turn's silence with a short wordless tone; the opt-out for the working cue. liveVoice.frontModel.progress.enabled wins over this, so a turn plays the cue only where spoken narration is off. Turning both off leaves the working turn silent. The client must also declare it can read non-speech audio: one packaged before that capability is never sent the cue whatever this says, since it would score the tone as answer speech.",
+      ),
+    intervalMs: z
+      .number({ error: "liveVoice.workingCue.intervalMs must be a number" })
+      .int("liveVoice.workingCue.intervalMs must be an integer")
+      .positive("liveVoice.workingCue.intervalMs must be a positive integer")
+      .max(
+        MAX_WORKING_CUE_INTERVAL_MS,
+        `liveVoice.workingCue.intervalMs must be at most ${MAX_WORKING_CUE_INTERVAL_MS}`,
+      )
+      .default(12_000)
+      .describe(
+        `Audible silence (ms) between cues while a turn works. This is a cadence for punctuation, not for speech, so it can sit far below what a spoken update would tolerate. Capped at ${MAX_WORKING_CUE_INTERVAL_MS}, the largest delay a timer can hold without wrapping to near-zero`,
+      ),
+    frequencyHz: z
+      .number({ error: "liveVoice.workingCue.frequencyHz must be a number" })
+      .positive("liveVoice.workingCue.frequencyHz must be a positive number")
+      .max(
+        MAX_WORKING_CUE_FREQUENCY_HZ,
+        `liveVoice.workingCue.frequencyHz must be at most ${MAX_WORKING_CUE_FREQUENCY_HZ}`,
+      )
+      .default(DEFAULT_WORKING_CUE_SHAPE.frequencyHz)
+      .describe(
+        `Fundamental (Hz) of the cue tone. Low reads as a hum under the call, high as a notification chime. Capped at ${MAX_WORKING_CUE_FREQUENCY_HZ}, the top of human hearing, above which the tone is either inaudible or aliased into an unrelated pitch`,
+      ),
+    durationMs: z
+      .number({ error: "liveVoice.workingCue.durationMs must be a number" })
+      .int("liveVoice.workingCue.durationMs must be an integer")
+      .positive("liveVoice.workingCue.durationMs must be a positive integer")
+      .max(
+        MAX_WORKING_CUE_DURATION_MS,
+        `liveVoice.workingCue.durationMs must be at most ${MAX_WORKING_CUE_DURATION_MS}`,
+      )
+      .default(DEFAULT_WORKING_CUE_SHAPE.durationMs)
+      .describe(
+        `Length (ms) of the cue tone, fades included. Short enough to read as punctuation rather than as audio the user is meant to attend to. Capped at ${MAX_WORKING_CUE_DURATION_MS}: the value sizes the rendered PCM buffer, so an unbounded one is an unbounded allocation from a timer callback`,
+      ),
+    gain: z
+      .number({ error: "liveVoice.workingCue.gain must be a number" })
+      .min(0, "liveVoice.workingCue.gain must be between 0 and 1")
+      .max(1, "liveVoice.workingCue.gain must be between 0 and 1")
+      .default(DEFAULT_WORKING_CUE_SHAPE.gain)
+      .describe(
+        "Peak amplitude (0..1) of the cue tone. Well below speech so it sits under the call",
+      ),
+  })
+  .describe(
+    "Working-cue tuning for live voice sessions (the wordless tone that holds a long turn's silence)",
   );
 
 export const LiveVoiceFrontModelConfigSchema = z
@@ -290,6 +372,9 @@ export const LiveVoiceConfigSchema = z
     frontModel: LiveVoiceFrontModelConfigSchema.default(
       LiveVoiceFrontModelConfigSchema.parse({}),
     ),
+    workingCue: LiveVoiceWorkingCueConfigSchema.default(
+      LiveVoiceWorkingCueConfigSchema.parse({}),
+    ),
     flux: LiveVoiceFluxConfigSchema.default(
       LiveVoiceFluxConfigSchema.parse({}),
     ),
@@ -321,5 +406,8 @@ export type LiveVoiceFrontModelConfig = z.infer<
 >;
 export type LiveVoiceProgressConfig = z.infer<
   typeof LiveVoiceProgressConfigSchema
+>;
+export type LiveVoiceWorkingCueConfig = z.infer<
+  typeof LiveVoiceWorkingCueConfigSchema
 >;
 export type LiveVoiceFluxConfig = z.infer<typeof LiveVoiceFluxConfigSchema>;

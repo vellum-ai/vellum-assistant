@@ -419,6 +419,32 @@ describe("LiveVoiceMetricsCollector", () => {
     ).toMatchObject({ progressUpdatesSpoken: 2 });
   });
 
+  test("accumulates working cues played on the turn and aggregate fields", () => {
+    const clock = makeClock(0);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-cue",
+      conversationId: "conversation-cue",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-cue");
+    const frame = collector.markWorkingCuePlayed("turn-cue");
+    expect(frame.event).toBe("working_cue_played");
+    collector.markWorkingCuePlayed("turn-cue");
+    const completed = collector.completeTurn();
+
+    // The cue is the default floor-holder and narration is off by default, so
+    // without this counter a turn that hummed through its silence and one
+    // that sat in it are the same turn in telemetry.
+    expect(completed).toMatchObject({
+      turnId: "turn-cue",
+      workingCuesPlayed: 2,
+    });
+    expect(
+      getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-cue"),
+    ).toMatchObject({ workingCuesPlayed: 2 });
+  });
+
   test("omits endpoint and progress fields for turns that never touch the features", () => {
     const clock = makeClock(0);
     const collector = new LiveVoiceMetricsCollector({
@@ -437,6 +463,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(completed).not.toHaveProperty("endpointDecisionSource");
     expect(completed).not.toHaveProperty("ackSpoken");
     expect(completed).not.toHaveProperty("progressUpdatesSpoken");
+    expect(completed).not.toHaveProperty("workingCuesPlayed");
 
     const aggregateFields = getLiveVoiceMetricsAggregateFields(
       collector.getSnapshot(),
@@ -448,6 +475,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(aggregateFields).not.toHaveProperty("endpointDecisionSource");
     expect(aggregateFields).not.toHaveProperty("ackSpoken");
     expect(aggregateFields).not.toHaveProperty("progressUpdatesSpoken");
+    expect(aggregateFields).not.toHaveProperty("workingCuesPlayed");
   });
 
   test("markEndpointCommit records the commit latency independently of the decision fields", () => {

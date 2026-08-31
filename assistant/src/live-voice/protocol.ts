@@ -1,5 +1,22 @@
 import { type ClientOs, parseClientOs } from "../channels/types.js";
 
+// Upper bound on a client-declared capture rate. The session hands this number
+// straight to buffer sizing (it is the rate every synthesized segment and the
+// rendered working cue are produced at), so an absurd value becomes an absurd
+// allocation inside a timer callback rather than a rejected frame. 192 kHz is
+// double the highest rate any supported client actually opens with, so the cap
+// rejects only values that were never going to be real capture rates.
+const MAX_START_FRAME_SAMPLE_RATE = 192_000;
+
+// Lower bound on the same field. 8 kHz is narrowband telephony, below any
+// capture rate a supported client opens with, and it is the floor that makes
+// every rendered buffer non-degenerate: the working cue's shortest legal
+// duration (1ms) still rounds to whole frames at this rate, so a rendered
+// tone can never come out empty. Without a floor a rate of 1 validates and
+// rounds a cue to zero frames, which is a silent frame on the wire holding the
+// floor for a whole interval.
+const MIN_START_FRAME_SAMPLE_RATE = 8_000;
+
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "start",
   "audio",
@@ -119,6 +136,25 @@ export interface LiveVoiceClientStartFrame {
    * session rather than open one it cannot speak into.
    */
   readonly textInput?: boolean;
+  /**
+   * The client understands `nonSpeech` on {@link LiveVoiceTtsAudioServerFrame}
+   * and will play such a frame as audio without counting it as the assistant
+   * talking.
+   *
+   * Load-bearing, not a feature announcement: it is what lets the server send
+   * the working cue at all. A client that predates the field runs its old
+   * `tts_audio` handler on the wordless tone and treats it as answer speech,
+   * latching speaking state, client-heard latency and the spoken-word cursor
+   * on a turn that has deliberately said nothing. An optional field cannot
+   * protect a consumer that never learned to read it, so the capability is
+   * declared here instead and the cue waits for it.
+   *
+   * Absent means false, which is the only thing an older client can have
+   * meant: it has no handler that could tell the tone from speech, so such a
+   * session holds its working silence with nothing rather than with audio
+   * that would be misread.
+   */
+  readonly nonSpeechAudio?: boolean;
   /**
    * Which client opened the session. Absent from clients that predate the
    * field, in which case the originating client is simply unknown.
@@ -451,6 +487,16 @@ export interface LiveVoiceTtsAudioServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "tts_audio";
   readonly mimeType: string;
   readonly sampleRate: number;
+  /**
+   * Set only on audio that is not speech: today the rendered working cue that
+   * holds the floor while a turn works. Omitted for synthesized speech.
+   *
+   * Clients drive speaking state, hands-free barge-in eligibility,
+   * client-heard latency, and the spoken-word cursor off tts_audio frames.
+   * All four are about what the assistant SAID, so a frame carrying this must
+   * play as audio and count as nothing else.
+   */
+  readonly nonSpeech?: true;
   readonly dataBase64: string;
 }
 
@@ -529,6 +575,13 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    * unchanged).
    */
   readonly progressUpdatesSpoken?: number;
+  /**
+   * Working cues played into the turn's silence. Present only when at least
+   * one played (otherwise the field is absent, keeping frames unchanged).
+   * The cue is the default floor-holder, so this is what separates a turn
+   * that hummed while it worked from one that sat silent.
+   */
+  readonly workingCuesPlayed?: number;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
@@ -1000,6 +1053,15 @@ function validateStartFrame(
     );
   }
 
+  if ("nonSpeechAudio" in value && typeof value.nonSpeechAudio !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "start frame field nonSpeechAudio must be a boolean",
+      "nonSpeechAudio",
+      "start",
+    );
+  }
+
   // An unrecognized client is dropped rather than rejected: the field is an
   // analytics dimension, and failing a session's startup over it would trade a
   // gap in a chart for a user who cannot talk to their assistant.
@@ -1024,6 +1086,7 @@ function validateStartFrame(
         ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
         : {}),
       ...(value.textInput === true ? { textInput: true } : {}),
+      ...(value.nonSpeechAudio === true ? { nonSpeechAudio: true } : {}),
     },
   };
 }
@@ -1094,10 +1157,14 @@ function validateAudioConfig(
     );
   }
 
-  if (!isPositiveInteger(value.sampleRate)) {
+  if (
+    !isPositiveInteger(value.sampleRate) ||
+    value.sampleRate < MIN_START_FRAME_SAMPLE_RATE ||
+    value.sampleRate > MAX_START_FRAME_SAMPLE_RATE
+  ) {
     return protocolError(
       "invalid_field",
-      "start frame audio.sampleRate must be a positive integer",
+      `start frame audio.sampleRate must be an integer between ${MIN_START_FRAME_SAMPLE_RATE} and ${MAX_START_FRAME_SAMPLE_RATE}`,
       "audio.sampleRate",
       "start",
     );

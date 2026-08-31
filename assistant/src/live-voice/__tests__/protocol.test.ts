@@ -228,6 +228,85 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("rejects a capture rate past the sane-hardware cap", () => {
+    // The session hands this number straight to buffer sizing for every
+    // synthesized segment and for the rendered working cue, so an absurd rate
+    // becomes an absurd allocation inside a timer callback. It has to be
+    // refused at the frame boundary, where it is still just a bad field.
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 1_000_000_000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "audio.sampleRate",
+      frameType: "start",
+    });
+  });
+
+  test("rejects a capture rate below narrowband telephony", () => {
+    // The cap has a floor for the same reason it has a ceiling: the rate
+    // sizes every rendered buffer. A rate this low rounds the working cue to
+    // zero frames, so the session would send an empty audio frame and still
+    // hold the floor for a whole interval. Refuse it here, where it is still
+    // just a bad field, rather than guarding the render downstream.
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 1,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "audio.sampleRate",
+      frameType: "start",
+    });
+  });
+
+  test("accepts the lowest capture rate a supported client opens with", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 8_000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("accepts the highest capture rate real hardware opens with", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 192_000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   test("parses start frames with turnDetection manual", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({
@@ -682,6 +761,61 @@ describe("parseLiveVoiceClientTextFrame", () => {
     expect(result.error).toMatchObject({
       code: "invalid_field",
       field: "textInput",
+      frameType: "start",
+    });
+  });
+
+  test("parses the nonSpeechAudio capability on the start frame", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      nonSpeechAudio: true,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toMatchObject({ type: "start", nonSpeechAudio: true });
+  });
+
+  test.each([
+    ["absent", {}],
+    ["false", { nonSpeechAudio: false }],
+  ])(
+    "omits nonSpeechAudio from the start frame when %s",
+    (_label, extra: Record<string, unknown>) => {
+      // Both mean the same thing downstream: the client has no handler that
+      // could tell a wordless cue from speech, so the session must not send
+      // one. Only an explicit true opens that gate.
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        ...extra,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect("nonSpeechAudio" in result.frame).toBe(false);
+    },
+  );
+
+  test("returns a typed protocol error for a non-boolean nonSpeechAudio", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      nonSpeechAudio: "yes",
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "nonSpeechAudio",
       frameType: "start",
     });
   });

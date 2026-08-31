@@ -201,6 +201,7 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        nonSpeechAudio: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -215,6 +216,7 @@ describe("connect", () => {
       type: "start",
       client: "web",
       textInput: true,
+      nonSpeechAudio: true,
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
   });
@@ -253,6 +255,7 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        nonSpeechAudio: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
@@ -272,6 +275,7 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        nonSpeechAudio: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
         silenceThresholdMs: 1500,
@@ -828,6 +832,7 @@ describe("sendAudio", () => {
         type: "start",
         client: "web",
         textInput: true,
+        nonSpeechAudio: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -889,6 +894,7 @@ describe("control frames", () => {
         type: "start",
         client: "web",
         textInput: true,
+        nonSpeechAudio: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);

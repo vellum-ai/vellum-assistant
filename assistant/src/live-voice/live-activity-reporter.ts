@@ -6,11 +6,12 @@
  *
  * Every phase the island shows is derived, client-side, from frames this
  * session sends: `utterance_ended` → transcribing, `stt_final`/`thinking` →
- * thinking, the first `tts_audio` → speaking. The web layer then pushes that
- * phase to ActivityKit itself, which works perfectly — right up to the moment
- * the app is backgrounded, which is the only moment the Lock Screen and the
- * Dynamic Island are on screen at all. iOS throttles and eventually suspends
- * that web view, and a suspended web view cannot report anything.
+ * thinking, the first `tts_audio` carrying speech → speaking. The web layer
+ * then pushes that phase to ActivityKit itself, which works perfectly — right
+ * up to the moment the app is backgrounded, which is the only moment the Lock
+ * Screen and the Dynamic Island are on screen at all. iOS throttles and
+ * eventually suspends that web view, and a suspended web view cannot report
+ * anything.
  *
  * So the same derivation runs here, on the side of the connection that stays
  * up. This is deliberately a *mirror* of the client's mapping rather than a new
@@ -89,6 +90,15 @@ export function phaseForFrame(
       // precisely when it has committed to a turn.
       return "thinking";
     case "tts_audio":
+      // The working cue is audio, not speech. It holds the floor of a turn
+      // that is deliberately silent, so it must not move the island to
+      // `speaking`. That label would also stick for the whole tool run: every
+      // later cue repeats it, and a silent turn sends no speech frame to
+      // correct it. Mirrors the `isSpeech` gate in the client's `ttsAudio`
+      // handler, which this function is required to agree with.
+      if (frame.nonSpeech === true) {
+        return null;
+      }
       return "speaking";
     case "tts_done":
       // The assistant stopped talking; the floor is the user's again.

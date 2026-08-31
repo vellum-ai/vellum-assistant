@@ -107,6 +107,16 @@ export interface LiveVoiceClientStartFrame {
    * back on `ready` as `audioInput: false`.
    */
   readonly textInput?: boolean;
+  /**
+   * This client reads `nonSpeech` on `tts_audio` and plays such a frame as
+   * audio without counting it as the assistant talking.
+   *
+   * The daemon holds the working cue back until it sees this, because a client
+   * that predates the flag would treat the wordless tone as answer speech and
+   * latch speaking state, client-heard latency and the spoken-word cursor on a
+   * turn that has said nothing. Declaring it is what turns the cue on.
+   */
+  readonly nonSpeechAudio?: boolean;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {
@@ -337,6 +347,19 @@ export interface LiveVoiceTtsAudioServerFrame extends LiveVoiceServerFrameBase {
   readonly mimeType: string;
   readonly sampleRate: number;
   readonly dataBase64: string;
+  /**
+   * Rendered non-speech audio rather than a synthesized utterance: the working
+   * cue, a short wordless tone the daemon plays into the silence of a long
+   * tool-heavy turn. It travels on this frame so it inherits the speech path's
+   * echo cancellation and ordering.
+   *
+   * Omitted entirely for speech, so an absent field means speech (including on
+   * daemons predating the marker). It is audio in every respect that reaches
+   * the speaker, and nothing beyond that: a marked frame must not be read as
+   * the assistant talking, which is what the phase, the barge-in gate, the
+   * client-heard latency, and the spoken-word cursor all measure.
+   */
+  readonly nonSpeech?: true;
 }
 
 export interface LiveVoiceTtsDoneServerFrame extends LiveVoiceServerFrameBase {
@@ -421,6 +444,13 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    * unchanged).
    */
   readonly progressUpdatesSpoken?: number;
+  /**
+   * Working cues played into the turn's silence. Present only when at least
+   * one played (otherwise the field is absent, keeping frames unchanged).
+   * The cue is the default floor-holder, so this is what separates a turn
+   * that hummed while it worked from one that sat silent.
+   */
+  readonly workingCuesPlayed?: number;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {

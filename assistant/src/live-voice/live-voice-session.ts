@@ -36,6 +36,8 @@ import {
   LiveVoiceFluxConfigSchema,
   type LiveVoiceFrontModelConfig,
   LiveVoiceFrontModelConfigSchema,
+  type LiveVoiceWorkingCueConfig,
+  LiveVoiceWorkingCueConfigSchema,
 } from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
@@ -142,6 +144,7 @@ import {
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
 } from "./protocol.js";
+import { renderWorkingCuePcm } from "./working-cue.js";
 
 const log = getLogger("live-voice-session");
 
@@ -365,6 +368,13 @@ export interface LiveVoiceSessionOptions {
    */
   frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
   /**
+   * Working-cue tuning: the wordless tone that holds a long turn's silence.
+   * The production factory seeds this from `liveVoice.workingCue` config when
+   * unset; absent fields fall back to the schema defaults, which leave the cue
+   * on.
+   */
+  workingCueConfig?: Partial<LiveVoiceWorkingCueConfig>;
+  /**
    * Deepgram Flux turn-detection tuning. The production factory seeds this
    * from `liveVoice.flux` config when unset; absent fields fall back to the
    * schema defaults, which leave `turnEnd.enabled` on. A test that needs the
@@ -524,6 +534,31 @@ type UtteranceStartResult =
   | { status: "unavailable"; message: string }
   | { status: "error"; message: string };
 
+// The block sequence for a segment that came from no model text block: a
+// fixed session phrase (the escalation bridge, the approval-pending line,
+// progress narration). Those exist to be heard while the turn works, so they
+// are never held, and no block-scoped selector can ever match them.
+export const NON_BLOCK_TTS_SEQ = -1;
+
+/**
+ * What a TTS segment is to the caller, which decides how the session accounts
+ * for it rather than how it is played. Every role reaches the client, enters
+ * the echo reference, and extends the playback-tail estimate.
+ *
+ * - `answer`: the turn's own speech. It anchors the first-TTS metrics and is
+ *   archived as the assistant's audio.
+ * - `filler`: a spoken floor-holder (progress narration, the approval-pending
+ *   line). Real speech, so it archives like any other, but it must not anchor
+ *   the first-TTS metrics: those measure when the ANSWER starts speaking, and
+ *   a filler plays into the dead air before it.
+ * - `cue`: the rendered working tone. Not speech at all, so on top of the
+ *   filler's exclusion it stays out of the archived assistant audio (its bare
+ *   PCM would interleave with whatever container a provider returned) and is
+ *   marked `nonSpeech` on the wire, where a client latches speaking state,
+ *   barge-in eligibility, and the spoken-word cursor on every tts_audio frame.
+ */
+type TtsSegmentAudioRole = "answer" | "filler" | "cue";
+
 // One TTS segment flowing through the turn's synthesis pipeline. Synthesis
 // may run ahead of the emission slot (prefetch), but frames only reach the
 // client in job-list order.
@@ -534,9 +569,18 @@ interface TtsSegmentJob {
   // the English fallback text carries "en" so an enforcing provider never
   // renders English words as ar/ko/ta. Undefined means the turn language.
   readonly language: string | undefined;
+  // Which of the leg's model text blocks this segment came from, so a
+  // block-scoped promotion or retraction selects exactly that block's
+  // segments. NON_BLOCK_TTS_SEQ marks a segment that belongs to no block.
+  readonly blockSeq: number;
+  // Whether this segment is the turn's answer, a spoken floor-holder, or the
+  // rendered cue (see TtsSegmentAudioRole).
+  readonly audioRole: TtsSegmentAudioRole;
   // The provider stream was started (the job holds an open-job slot).
   started: boolean;
-  // Emission finished; the slot is free for the next queued segment.
+  // The provider is done with this job, either because emission finished or
+  // because a retraction's abort tore the stream down. The synthesis slot is
+  // free for the next queued segment.
   settled: boolean;
   // The job owns the emission slot: provider chunks forward to the client
   // live instead of buffering.
@@ -544,6 +588,19 @@ interface TtsSegmentJob {
   // Chunks received while prefetching, flushed in order on promotion.
   // Dropped with the turn on cancellation.
   bufferedChunks: LiveVoiceTtsAudioChunk[];
+  // Enqueued for synthesis but deliberately kept off the emission chain until
+  // the caller promotes it. A held job has forwarded no audio, so it is still
+  // silently cancellable, but it does count as pending audio: promotion is all
+  // that stands between it and the caller's ears.
+  held: boolean;
+  // Retracted before promotion: dropped from the emission chain with its
+  // provider stream aborted. Only ever set while `emitting` is false. It goes
+  // true the instant the retraction lands, ahead of `settled`, because a job
+  // stops being audible before its aborted stream stops being open.
+  cancelled: boolean;
+  // Per-job synthesis abort, so retracting one segment leaves the turn's other
+  // segments alone (the turn controller aborts all of them).
+  readonly abort: AbortController;
   // Settles when the provider stream ends; rejects on synthesis failure.
   synthesis: Promise<void> | null;
   // Ordered tts_audio frame writes for this job.
@@ -750,7 +807,19 @@ interface ActiveAssistantTurn {
   // front-door leg's trailing completion from finalizing the turn, and makes
   // the hand-off idempotent.
   escalationHandedOff: boolean;
+  // The leg currently streaming into this turn. An escalated leg is doing
+  // work, so its model text is held until the turn's shape says whether that
+  // text was working commentary or the report back.
+  routingLeg: VoiceRoutingLeg;
+  // Which of the current leg's model text blocks the turn is accumulating.
+  // A tool-use block opening closes the current one and bumps this, so each
+  // block's held segments are selectable as a unit.
+  textBlockSeq: number;
   ttsBuffer: string;
+  // The turn is finalizing its TTS: every remaining enqueue is terminal by
+  // construction, so holds are ignored past this point (see
+  // enqueueTtsSegment) and stranded held jobs have already been swept.
+  ttsCompleting: boolean;
   // Strips inline <think> reasoning spans from the spoken stream. Stateful
   // per turn because spans and tags cross delta boundaries; display frames
   // keep the raw text.
@@ -758,16 +827,32 @@ interface ActiveAssistantTurn {
   // A non-empty speakable segment reached the TTS queue — gates the eager
   // first-segment flush that trades clause quality for speech onset.
   ttsSegmentEnqueued: boolean;
-  // Ordered TTS segment jobs for the turn; synthesis runs ahead of emission
-  // by at most one job (TTS_MAX_OPEN_SYNTHESIS_JOBS).
+  // Every TTS segment job of the turn, in enqueue order, whether or not it is
+  // on the emission chain. At most TTS_MAX_OPEN_SYNTHESIS_JOBS of them hold a
+  // provider stream open at once, and at most one of those may be a held job,
+  // so how far synthesis runs ahead of emission depends on which jobs are
+  // held: a held block's first segment is synthesized long before anything
+  // decides whether it will ever be spoken.
   ttsJobs: TtsSegmentJob[];
-  // Serial emission chain: one job's frames fully precede the next's, and
-  // the tts_done finale runs only after every job has drained.
+  // Serial emission chain: one job's frames fully precede the next's, and the
+  // tts_done finale runs after every job ON THE CHAIN has drained. A held job
+  // is deliberately off the chain, so completion never waits for one;
+  // completeTtsForTurn's sweep is what stops a held job outliving the turn.
   ttsQueue: Promise<void>;
   assistantMessageId: string | null;
   assistantAudioChunks: Buffer[];
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+}
+
+/**
+ * A held job that can still be promoted, which is the only sense in which a
+ * turn has pending held audio. Cancellation is what ends a hold: a retracted
+ * job keeps `held` set (it still names the block it came from) but nothing
+ * will ever emit it, so every question about the hold has to exclude it.
+ */
+function isPendingHeldTtsJob(job: TtsSegmentJob): boolean {
+  return job.held && !job.cancelled;
 }
 
 /**
@@ -792,30 +877,48 @@ interface ActiveAssistantTurn {
  * a marker, so this stripping is defense against a model that emits one
  * regardless: an unspoken, unpersisted "[-1]" is the correct handling of a
  * token that now means nothing.
+ *
+ * `dropPendingTail` abandons whatever is currently withheld. The withheld tail
+ * is the only text of a block that does not live in `ttsBuffer`, so a caller
+ * that drops the block (a tool-use block opening on an escalated leg) has to
+ * say so here as well: left in place it would be emitted later, stamped with
+ * the NEXT block's sequence, and spoken glued onto that block's text.
+ *
+ * Known residual: the daemon's own guard buffer
+ * (`pendingSentinelGuardBuffer` in `daemon/conversation-agent-loop-handlers.ts`)
+ * withholds text on the same shape of rule and flushes it at message end. It
+ * sits upstream of this session and is not reachable from here.
  */
-function createControlMarkerHoldback(
-  turn: ActiveAssistantTurn,
-  emit: (chunk: string) => void,
-): (raw: string, opts?: { force?: boolean }) => void {
+function createControlMarkerHoldback(emit: (chunk: string) => void): {
+  flush: (raw: string, opts?: { force?: boolean }) => void;
+  dropPendingTail: () => void;
+} {
   let emitted = 0;
-  return (raw, opts) => {
-    let safeEnd = raw.length;
-    if (opts?.force !== true) {
-      for (
-        let i = raw.indexOf("[", emitted);
-        i !== -1;
-        i = raw.indexOf("[", i + 1)
-      ) {
-        if (isIncompleteControlMarkerTail(raw.slice(i))) {
-          safeEnd = i;
-          break;
+  let seen = 0;
+  return {
+    flush: (raw, opts) => {
+      seen = raw.length;
+      let safeEnd = raw.length;
+      if (opts?.force !== true) {
+        for (
+          let i = raw.indexOf("[", emitted);
+          i !== -1;
+          i = raw.indexOf("[", i + 1)
+        ) {
+          if (isIncompleteControlMarkerTail(raw.slice(i))) {
+            safeEnd = i;
+            break;
+          }
         }
       }
-    }
-    if (safeEnd > emitted) {
-      emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
-      emitted = safeEnd;
-    }
+      if (safeEnd > emitted) {
+        emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
+        emitted = safeEnd;
+      }
+    },
+    dropPendingTail: () => {
+      emitted = seen;
+    },
   };
 }
 
@@ -855,6 +958,19 @@ const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
 // already tells it to escalate anything needing a tool rather than refuse.
 const LIVE_VOICE_SETUP_FLOW_TEACHING =
   "This includes connecting accounts. If a task needs an account connected or a sign-in completed, put the connection up on screen and let the user do it now. Do not decline it, and do not defer it to text chat. Say what you are connecting and that it is in front of them. ";
+
+// Holding stops the caller hearing the working commentary; nothing makes the
+// closing report short. A one-time instruction, not a per-block protocol the
+// model must keep executing. It also directly bounds the report's onset
+// delay, since the hold ends when this block finishes generating.
+//
+// The ESCALATED leg only. Its first sentence describes the caller's state
+// ("you already told them you were on it, and they have heard nothing since"),
+// and that is true of exactly one kind of turn: the one where a front-door leg
+// spoke a hand-off bridge and then went quiet while this leg works. Any other
+// leg is told something false about a call it is only now joining.
+const LIVE_VOICE_SPOKEN_CLOSE_TEACHING =
+  "You already told the caller you were on it, and they have heard nothing since. When you finish, close with one or two short sentences saying what you did or what you found: the result, not the route you took to it. If you need something from them to continue, ask for everything you need in one go. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
@@ -913,20 +1029,27 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
 }
 
 // Assemble a leg's model-facing control prompt: the base live-voice rules, the
-// screen-reveal and setup-flow teaching (both withheld from the front-door leg,
-// see LIVE_VOICE_SCREEN_REVEAL_TEACHING), plus any pending barge-in merge
-// context, completed-continuation context, and/or the announcement instruction.
+// screen-reveal and setup-flow teaching (both withheld from the front-door
+// leg, see LIVE_VOICE_SCREEN_REVEAL_TEACHING), the spoken-close teaching (the
+// escalated leg only, see LIVE_VOICE_SPOKEN_CLOSE_TEACHING), plus any pending
+// barge-in merge context, completed-continuation context, and/or the
+// announcement instruction.
 // A turn can carry several (a barge-in follow-up that also has a continuation
 // result waiting); the notes are model-only and never render as user bubbles.
+//
+// The two gates are separate because they answer different questions: whether
+// the leg can put something on screen, and whether the caller has already been
+// told to wait. A leg can be neither front-door nor escalated.
 function buildVoiceControlPrompt(
   turn: ActiveAssistantTurn,
-  leg: { frontDoor?: boolean },
+  leg: { frontDoor?: boolean; escalated?: boolean },
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true
       ? ""
-      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
+      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING) +
+    (leg.escalated === true ? LIVE_VOICE_SPOKEN_CLOSE_TEACHING : "");
   if (turn.language !== undefined) {
     prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
   }
@@ -1326,6 +1449,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // option once, so every field carries its `liveVoice.frontModel` schema
   // default when unset.
   private readonly frontModelConfig: LiveVoiceFrontModelConfig;
+  // Complete working-cue tunables (the constructor schema-parses the partial
+  // option once, so every field carries its `liveVoice.workingCue` default).
+  private readonly workingCueConfig: LiveVoiceWorkingCueConfig;
+  // The session's rendered cue, built on first use. The output sample rate is
+  // whatever the start frame asked for and never changes, so one render
+  // serves every cue the session plays.
+  private workingCuePcm: Buffer | null = null;
   // Complete Flux tunables (the constructor schema-parses the partial option
   // once, so every field carries its `liveVoice.flux` schema default).
   private readonly fluxConfig: LiveVoiceFluxConfig;
@@ -1423,6 +1553,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.progressNarrator = options.progressNarrator ?? null;
     this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
       options.frontModelConfig ?? {},
+    );
+    this.workingCueConfig = LiveVoiceWorkingCueConfigSchema.parse(
+      options.workingCueConfig ?? {},
     );
     this.fluxConfig = LiveVoiceFluxConfigSchema.parse(options.fluxConfig ?? {});
     const turnDetectorConfig: TurnDetectorConfig = {
@@ -3900,11 +4033,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!alreadyReleased) {
       void this.releaseUtterance();
     }
-    if (
-      this.frontModelConfig.progress.enabled &&
-      this.streamTtsAudio &&
-      this.progressNarrator
-    ) {
+    if (this.canHoldFloorWhileWorking()) {
       this.armProgressIdleTimer(turn);
     }
     return true;
@@ -4939,7 +5068,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       hiddenPrompt: opts?.hiddenPrompt === true,
       deltaEpoch: 0,
       escalationHandedOff: false,
+      routingLeg: "front-door",
+      textBlockSeq: 0,
       ttsBuffer: "",
+      ttsCompleting: false,
       ttsReasoningFilter: createReasoningTagFilter(),
       ttsSegmentEnqueued: false,
       ttsJobs: [],
@@ -4990,16 +5122,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }, this.frontModelConfig.endpointDecisionTimeoutMs);
     }
 
-    // Progress narration speaks into the turn's audible dead air on a
-    // cadence, wherever in the turn it occurs; without TTS or a narrator there
-    // is nothing to speak (the idle trigger's static fallback still needs a
-    // generation attempt to fall back from).
-    if (
-      this.frontModelConfig.progress.enabled &&
-      this.streamTtsAudio &&
-      this.progressNarrator &&
-      !opts?.speculative
-    ) {
+    // The floor-holder plays into the turn's audible dead air on a cadence,
+    // wherever in the turn it occurs.
+    if (this.canHoldFloorWhileWorking() && !opts?.speculative) {
       this.armProgressIdleTimer(activeTurn);
     }
 
@@ -5062,6 +5187,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return false;
     }
     const { token, utterance, turnId } = activeTurn;
+    // Set before anything of this leg can stream, so the TTS path knows which
+    // leg's text it is segmenting. The escalation bridge is enqueued before
+    // this runs, which is what keeps it on the front-door leg's terms.
+    activeTurn.routingLeg = leg.routingLeg ?? "front-door";
 
     // `rawText` accumulates this leg's full stream. A front-door leg starts
     // in `deciding` until its leading tokens classify as hold / escalate /
@@ -5096,7 +5225,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.bufferAssistantTextForTts(token, chunk);
     };
 
-    const flushLegText = createControlMarkerHoldback(activeTurn, emitLegText);
+    const legText = createControlMarkerHoldback(emitLegText);
 
     // Hand off once enough of the post-verdict stream has arrived to cap
     // the bridge (sentence terminator or hard cap). Until then nothing is
@@ -5152,6 +5281,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
           ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
+          escalated: leg.routingLeg === "escalated",
         }),
         onApprovalPending: (requestId) => {
           this.revealRoomForPendingApproval(activeTurn, requestId);
@@ -5239,7 +5369,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 }
                 frontDoorStage = "answer";
               }
-              flushLegText(rawText);
+              legText.flush(rawText);
               return;
             }
             // Defensive: speculative legs are always front-door today, but a
@@ -5255,7 +5385,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               }
             }
             rawText += msg.text;
-            flushLegText(rawText);
+            legText.flush(rawText);
           },
           message_complete: (msg) => {
             const current = this.activeAssistantTurn;
@@ -5302,10 +5432,55 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // and completeTtsForTurn signals the drain, so it is spoken and
             // emitted rather than dropped.
             if (!leg.frontDoor && msg.type === "message_complete") {
-              flushLegText(rawText, { force: true });
+              legText.flush(rawText, { force: true });
+              if (leg.routingLeg === "escalated") {
+                // Nothing followed this block, so it is the turn's report
+                // back: the answer, or the question it needs answered. Its
+                // first segment is already synthesized, so promotion starts
+                // audio without a TTS round trip. Ordering is load-bearing:
+                // the force-flush above segments the block's tail first, and
+                // this runs before assistantCompleted closes the TTS path.
+                const promoted = this.promoteHeldTtsSegments(
+                  token,
+                  (job) => job.blockSeq === current.textBlockSeq,
+                );
+                // A turn can stop with a tool-use block still open (the
+                // tool-turn ceiling, a hook ending the turn): textBlockSeq
+                // then points past the last block the model wrote, that block
+                // was retracted as commentary, and there is no report to
+                // promote. The caller hears the hand-off bridge and then
+                // nothing, which is indistinguishable from a working turn
+                // until it ends. Say so in the log rather than leaving the
+                // silence unexplained. A block whose text is still short of a
+                // segment boundary is not this case: completeTtsForTurn's
+                // terminal flush speaks that tail. Neither is a session with
+                // no TTS wired at all, which speaks nothing by design.
+                if (
+                  this.streamTtsAudio &&
+                  promoted === 0 &&
+                  current.ttsBuffer.trim().length === 0
+                ) {
+                  log.warn(
+                    {
+                      turnId,
+                      textBlockSeq: current.textBlockSeq,
+                      heldJobs:
+                        current.ttsJobs.filter(isPendingHeldTtsJob).length,
+                    },
+                    "Live voice escalated turn completed with no report to speak",
+                  );
+                }
+              }
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
+              // The turn produced no report, so its held blocks have nothing
+              // to be promoted onto. Retracting them here tears their
+              // provider streams down at once rather than leaving them
+              // running behind a cancelled turn.
+              this.retractHeldTtsSegments(token, (job) => job.held, {
+                discardPendingTail: true,
+              });
               void this.finalizeAssistantTurn(
                 current,
                 "cancelled",
@@ -5332,6 +5507,34 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.assistantMessageId = messageId;
+          },
+          tool_block_opened: (toolName) => {
+            const current = this.activeAssistantTurn;
+            if (current?.token !== token || leg.routingLeg !== "escalated") {
+              return;
+            }
+            // The provider opened a tool-use block, so the text block before
+            // it is closed and was working commentary, not this turn's
+            // report. It was never emitted, so dropping it is silent.
+            // Deterministic: this reads the response structure, not the text.
+            const seq = current.textBlockSeq;
+            const dropped = this.retractHeldTtsSegments(
+              token,
+              (job) => job.blockSeq === seq,
+              // The retraction owns the block's un-segmented tail: text short
+              // of a segment boundary is still this block's commentary.
+              { discardPendingTail: true },
+            );
+            // The marker holdback's withheld tail is the rest of the block's
+            // text, and it sits outside ttsBuffer where discardPendingTail
+            // cannot reach it. Kept, it would be emitted under the next
+            // block's sequence and spoken glued onto the report.
+            legText.dropPendingTail();
+            current.textBlockSeq += 1;
+            log.debug(
+              { turnId, toolName, dropped },
+              "Dropped held commentary segments at tool-use block open",
+            );
           },
           tool_use_start: (toolName, detail) => {
             const current = this.activeAssistantTurn;
@@ -5569,11 +5772,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         { type: "assistant_text_delta", text: spokenBridge },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
       );
-      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `);
+      // Enqueued while the turn is still on the front-door leg, so the bridge
+      // is not held: it is the one thing the caller is meant to hear before
+      // the escalated leg reports back, and only held segments can be
+      // retracted. Stamped NON_BLOCK_TTS_SEQ for the same reason the canned
+      // fallback below is: the bridge belongs to no block of the escalated
+      // leg, and the default stamp would be that leg's first block, which the
+      // first tool call retracts.
+      this.bufferAssistantTextForTts(activeTurn.token, `${spokenBridge} `, {
+        blockSeq: NON_BLOCK_TTS_SEQ,
+      });
       // Force-flush now: on the TTS path an unpunctuated bridge would
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.
-      this.flushTtsBuffer(activeTurn.token, true);
+      this.flushTtsBuffer(activeTurn.token, true, {
+        blockSeq: NON_BLOCK_TTS_SEQ,
+      });
     } else {
       // The canned bridge is a fixed localized-table phrase, enqueued
       // directly (it is already one complete sentence) so the segment can
@@ -5581,6 +5795,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const speakable = sanitizeForTts(spokenBridge).trim();
       if (speakable.length > 0) {
         this.enqueueTtsSegment(activeTurn.token, speakable, {
+          blockSeq: NON_BLOCK_TTS_SEQ,
           language: this.fixedPhraseLanguage(
             activeTurn,
             FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
@@ -5602,16 +5817,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     // Escalated legs run the slowest work in the system (strong-model
     // thinking + tool loops), and the bridge only covers the first couple of
-    // seconds of it — exactly the dead air progress narration exists for.
-    // Re-arm the idle narration timer (cleared above with the ack): its
-    // audible-silence gating means nothing speaks until the bridge audio has
+    // seconds of it, which is exactly the dead air the floor-holder exists
+    // for. Re-arm the idle timer (cleared above with the ack): its
+    // audible-silence gating means nothing plays until the bridge audio has
     // fully drained plus a whole idle interval. Acks stay suppressed
-    // post-handoff — the bridge already served that role.
-    if (
-      this.frontModelConfig.progress.enabled &&
-      this.streamTtsAudio &&
-      this.progressNarrator
-    ) {
+    // post-handoff, since the bridge already served that role.
+    if (this.canHoldFloorWhileWorking()) {
       this.armProgressIdleTimer(activeTurn);
     }
   }
@@ -5689,15 +5900,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn.deltaEpoch += 1;
   }
 
-  // Arms (or re-arms) the dead-air narration timer. The countdown measures
-  // audible silence — time since the turn's audio last (estimatedly) reached
-  // the user's ears — not time since launch, so it covers mid-turn silences
-  // for the whole turn. On expiry with audio still pending, or with the
-  // silence not yet a full interval old, it re-arms for the remainder; only a
-  // full interval of audible silence reaches the narration gatekeeper. The
-  // interval is a polling cadence, not a speaking cadence: most ticks find
-  // nothing new to report and stay quiet, so what the user hears follows the
-  // turn's tool activity (with `maxSilenceMs` as the heartbeat ceiling).
+  // Arms (or re-arms) the dead-air timer. The countdown measures audible
+  // silence (time since the turn's audio last, estimatedly, reached the user's
+  // ears) rather than time since launch, so it covers mid-turn silences for
+  // the whole turn. On expiry with audio still pending, or with the silence
+  // not yet a full interval old, it re-arms for the remainder; only a full
+  // interval of audible silence reaches the floor-holder gatekeeper.
+  //
+  // For the working cue the interval is the cue's own cadence: silence is the
+  // whole question it answers, so every tick that finds the turn quiet plays
+  // one. For spoken narration it is a polling cadence rather than a speaking
+  // cadence: most ticks find nothing new to report and stay quiet, so what
+  // the user hears follows the turn's tool activity (with `maxSilenceMs` as
+  // the heartbeat ceiling).
   private armProgressIdleTimer(
     turn: ActiveAssistantTurn,
     delayMs?: number,
@@ -5722,15 +5937,61 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       this.maybeNarrateProgress(turn, "idle");
       this.armProgressIdleTimer(turn);
-    }, delayMs ?? this.frontModelConfig.progress.idleIntervalMs);
+    }, delayMs ?? this.floorHolderIntervalMs);
   }
 
   // Wall-clock instant the current audible silence turns a full interval old.
   private progressIdleDeadlineMs(turn: ActiveAssistantTurn): number {
+    return this.progressSilenceSinceMs(turn) + this.floorHolderIntervalMs;
+  }
+
+  // Cadence of whichever floor-holder holds this turn, and so the resolution
+  // of every silence measurement built on the idle tick. The two are paced
+  // separately on purpose: a tone every few seconds is punctuation, while a
+  // sentence every few seconds is the chatter this design exists to remove.
+  private get floorHolderIntervalMs(): number {
+    return this.narrationFloorHolder() !== null
+      ? this.frontModelConfig.progress.idleIntervalMs
+      : this.workingCueConfig.intervalMs;
+  }
+
+  // The narrator when spoken narration, rather than the cue, is what a working
+  // turn plays into its silence; null when the cue has the floor.
+  //
+  // `liveVoice.frontModel.progress.enabled` defaults to false, so a true value
+  // can only have come from a workspace explicitly asking to be narrated at,
+  // and that ask outranks the cue's default. The narrator is part of the test:
+  // narration's static phrase is the fallback for a failed generation, not a
+  // substitute for having a narrator at all.
+  private narrationFloorHolder(): VoiceProgressNarrator | null {
+    return this.frontModelConfig.progress.enabled
+      ? this.progressNarrator
+      : null;
+  }
+
+  // Whether this session may play the working cue at all: the workspace has to
+  // want it AND the client has to be able to read it.
+  //
+  // The capability half is not belt-and-braces. A client that predates
+  // `nonSpeech` runs its old `tts_audio` handler on the tone and counts it as
+  // answer speech, latching speaking state, client-heard latency and the
+  // spoken-word cursor on a turn that has said nothing. A packaged client
+  // ships on its own cadence and can be older than the daemon serving it, so
+  // the cue waits to be told the frame will be understood. Absent means no.
+  private get workingCueEnabled(): boolean {
     return (
-      this.progressSilenceSinceMs(turn) +
-      this.frontModelConfig.progress.idleIntervalMs
+      this.workingCueConfig.enabled &&
+      this.context.startFrame.nonSpeechAudio === true
     );
+  }
+
+  // Whether the idle tick has anything to play, and so whether arming it is
+  // worth a timer at all.
+  private canHoldFloorWhileWorking(): boolean {
+    if (!this.streamTtsAudio) {
+      return false;
+    }
+    return this.narrationFloorHolder() !== null || this.workingCueEnabled;
   }
 
   // When the turn's current audible silence began: the latest of the last
@@ -5745,12 +6006,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // No assistant audio is pending or (estimatedly) still playing: nothing
-  // buffered toward the next sentence, every queued TTS segment fully
-  // emitted, and the client-side playback-tail estimate expired.
+  // buffered toward the next sentence, no queued TTS segment that can still be
+  // heard, and the client-side playback-tail estimate expired.
+  //
+  // A job sits on two independent axes. "Does it still occupy a provider
+  // synthesis slot" is `started && !settled`, and that is pumpTtsSynthesis's
+  // question, not this one. This is the other axis: "can it still produce
+  // audio the caller hears". A cancelled job never can, whatever its aborted
+  // stream is still doing, so it must not gate the idle tick: a provider that
+  // hangs on abort would otherwise mute narration for the rest of the turn. A
+  // held job is the opposite. It is heard the moment it is promoted, so a turn
+  // sitting on held segments is quiet rather than idle, and the tick must stay
+  // silent instead of talking over the answer that is about to land.
   private turnAudioIdle(turn: ActiveAssistantTurn): boolean {
     return (
       turn.ttsBuffer.length === 0 &&
-      turn.ttsJobs.every((job) => job.settled) &&
+      turn.ttsJobs.every((job) => job.settled || job.cancelled) &&
       Date.now() >= this.assistantPlaybackTailUntilMs
     );
   }
@@ -5809,29 +6080,79 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return false;
   }
 
-  // Gatekeeper for progress narration. It speaks only while the turn is
-  // audibly silent, with one generation at a time and the configured spacing.
+  // Gatekeeper for the turn's mid-work floor-holder. It plays only while the
+  // turn is audibly silent, one at a time and with the configured spacing.
   private maybeNarrateProgress(
     turn: ActiveAssistantTurn,
     trigger: "ops" | "idle" | "op_complete",
   ): void {
     const cfg = this.frontModelConfig.progress;
     const { progress } = turn;
-    const progressNarrator = this.progressNarrator;
     if (
-      !cfg.enabled ||
       !this.streamTtsAudio ||
-      !progressNarrator ||
       !this.turnCanNarrateProgress(turn) ||
-      progress.narrationInFlight ||
-      (progress.lastFloorHolderAtMs !== null &&
-        Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs) ||
-      (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||
-      (trigger === "idle" && !this.progressIdleHasSomethingToSay(turn))
+      progress.narrationInFlight
     ) {
       return;
     }
-    void this.speakProgressUpdate(turn, progressNarrator, trigger);
+
+    // Narration first: a workspace that turned it on asked to be told what is
+    // happening, and the cue is what a turn plays when nobody asked for words.
+    const progressNarrator = this.narrationFloorHolder();
+
+    // minGapMs is narration's own spacing guard, and it only applies to the
+    // holder it was tuned for. The cue is spaced by its own intervalMs, so
+    // letting a 6s narration gap veto a 3s cue would make the cue schema's
+    // cadence a lie and couple two tunables the config deliberately separates.
+    if (
+      progressNarrator !== null &&
+      progress.lastFloorHolderAtMs !== null &&
+      Date.now() - progress.lastFloorHolderAtMs < cfg.minGapMs
+    ) {
+      return;
+    }
+    if (progressNarrator !== null) {
+      if (
+        (trigger === "ops" && progress.opsSinceNarration < cfg.opsThreshold) ||
+        (trigger === "idle" && !this.progressIdleHasSomethingToSay(turn))
+      ) {
+        return;
+      }
+      void this.speakProgressUpdate(turn, progressNarrator, trigger);
+      return;
+    }
+
+    // The cue answers "am I still here", which is a question about silence and
+    // not about tool activity. A tool starting or finishing changes nothing a
+    // wordless tone could carry, so the activity triggers say nothing and only
+    // the idle tick plays it.
+    if (this.workingCueEnabled && trigger === "idle") {
+      this.playWorkingCue(turn);
+    }
+  }
+
+  // Play one working cue into the turn's silence. It holds the floor exactly
+  // as a spoken filler does, so the next tick spaces from it and the cadence
+  // is silence-to-silence rather than start-to-start.
+  //
+  // The audio is rendered on first use: the output sample rate is fixed for
+  // the session's life, so one render serves every cue it plays.
+  private playWorkingCue(turn: ActiveAssistantTurn): void {
+    // Non-empty by construction: the schema floors durationMs at 1ms and the
+    // start frame's sample rate at MIN_START_FRAME_SAMPLE_RATE, so the render
+    // always rounds to at least one frame. Both bounds are checked where the
+    // value enters, which is the only place a zero-length cue could have been
+    // built from.
+    const pcm = (this.workingCuePcm ??= renderWorkingCuePcm(
+      this.context.startFrame.audio.sampleRate,
+      {
+        frequencyHz: this.workingCueConfig.frequencyHz,
+        durationMs: this.workingCueConfig.durationMs,
+        gain: this.workingCueConfig.gain,
+      },
+    ));
+    this.enqueueTtsAudioCue(turn.token, pcm);
+    turn.progress.lastFloorHolderAtMs = Date.now();
   }
 
   // Generate and speak one audio-only progress narration. On a null result,
@@ -5937,6 +6258,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.enqueueTtsSegment(turn.token, phrase, {
       countsAsFirstSegment: false,
+      // A filler exists to be heard while the turn works, so it is never held
+      // and never retracted with the block it happens to land beside.
+      blockSeq: NON_BLOCK_TTS_SEQ,
+      // Real speech, but not the answer: it plays into the dead air BEFORE
+      // the answer, so anchoring the first-TTS metrics on it would report the
+      // filler's timing as the turn's speech latency. This reaches more than
+      // progress narration (which is off by default): the approval-pending
+      // line speaks on any turn that hits a decision gate.
+      audioRole: "filler",
       ...(language !== undefined ? { language } : {}),
     });
     // A spoken filler holds the floor, so narration's minGapMs spaces from it.
@@ -5959,7 +6289,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       : undefined;
   }
 
-  private bufferAssistantTextForTts(token: symbol, text: string): void {
+  private bufferAssistantTextForTts(
+    token: symbol,
+    text: string,
+    options: { blockSeq?: number } = {},
+  ): void {
     if (!this.streamTtsAudio || text.length === 0) {
       return;
     }
@@ -5970,7 +6304,131 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     activeTurn.ttsBuffer += activeTurn.ttsReasoningFilter.push(text);
-    this.flushTtsBuffer(token, false);
+    this.flushTtsBuffer(token, false, options);
+  }
+
+  /**
+   * Move held segments onto the emission chain. Their audio is already
+   * synthesized and buffered, so promotion is a buffer flush rather than a TTS
+   * round trip.
+   *
+   * Ordering contract: promoted jobs join the chain at promotion time, ordered
+   * among themselves by enqueue order, and land behind anything already queued.
+   * A held job deliberately does not reserve a position when it is enqueued.
+   * A reserved position would stall every later job behind a segment that may
+   * never be promoted at all, including the short "still working" tone whose
+   * entire purpose is to fill that hold, so the queue would go silent for
+   * exactly as long as the hold lasts. Keeping held jobs off the chain is what
+   * makes a hold quiet rather than blocking.
+   */
+  private promoteHeldTtsSegments(
+    token: symbol,
+    select: (job: TtsSegmentJob) => boolean,
+  ): number {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) {
+      return 0;
+    }
+
+    // `ttsJobs` is in enqueue order, so chaining in filter order is what keeps
+    // the promoted block internally ordered.
+    const promoted = activeTurn.ttsJobs.filter(
+      (job) => isPendingHeldTtsJob(job) && select(job),
+    );
+    for (const job of promoted) {
+      job.held = false;
+      activeTurn.ttsQueue = activeTurn.ttsQueue
+        .catch(() => {})
+        .then(() => this.emitTtsJob(token, job));
+    }
+    // Promotion frees the standing held-job slot, so a segment that was
+    // waiting behind the cap can start synthesizing now.
+    this.pumpTtsSynthesis(token);
+    return promoted.length;
+  }
+
+  /**
+   * Retract held segments that have not reached the client. Returns the number
+   * dropped.
+   *
+   * A job that is already `emitting` is left alone: spoken audio cannot be
+   * un-said and cutting a segment mid-phrase sounds broken. In this design no
+   * held job is ever emitting, so that guard is belt-and-braces.
+   *
+   * `discardPendingTail` declares that the caller also owns whatever sits in
+   * `ttsBuffer` below the next segment boundary, so a caller retracting a whole
+   * block sets it and a selective retraction does not. Ownership is stated
+   * rather than inferred: the buffer is turn-wide, the selector only sees jobs
+   * that have already formed, and a selective retraction has no way to tell
+   * whose text the un-segmented tail is. Guessing would silently delete speech
+   * the retraction never covered.
+   */
+  private retractHeldTtsSegments(
+    token: symbol,
+    select: (job: TtsSegmentJob) => boolean,
+    options: { discardPendingTail?: boolean } = {},
+  ): number {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) {
+      return 0;
+    }
+    return this.retractHeldTtsSegmentsOnTurn(activeTurn, select, options);
+  }
+
+  /**
+   * Retract against a turn directly rather than against whichever turn is
+   * active. A terminal path can have cleared `activeAssistantTurn` already
+   * (barge-in does, before it finalizes), and a dying turn's held jobs still
+   * have to be torn down.
+   */
+  private retractHeldTtsSegmentsOnTurn(
+    activeTurn: ActiveAssistantTurn,
+    select: (job: TtsSegmentJob) => boolean,
+    options: { discardPendingTail?: boolean } = {},
+  ): number {
+    const { token } = activeTurn;
+    const retracted = activeTurn.ttsJobs.filter(
+      (job) => isPendingHeldTtsJob(job) && !job.emitting && select(job),
+    );
+    for (const job of retracted) {
+      job.cancelled = true;
+      job.abort.abort(
+        createAbortReason("voice_session_aborted", "live-voice-tts-retract"),
+      );
+      job.bufferedChunks.length = 0;
+      if (job.synthesis === null) {
+        // Never handed to the provider, so it occupies no synthesis slot.
+        job.settled = true;
+        continue;
+      }
+      // A retracted job never reaches emitTtsJob, so nothing else will settle
+      // it. The slot stays taken until the provider stream actually tears
+      // down: a provider that does not honour the abort promptly would
+      // otherwise have the next job start alongside it and put more than
+      // TTS_MAX_OPEN_SYNTHESIS_JOBS streams open at once.
+      void job.synthesis.then(
+        () => this.settleRetractedTtsJob(token, job),
+        () => this.settleRetractedTtsJob(token, job),
+      );
+    }
+
+    if (options.discardPendingTail === true) {
+      // The block owns its un-segmented tail whether or not a job formed from
+      // it yet: text short of a segment boundary is still the block's, and a
+      // half-finished markdown or <think> construct left in the filter would
+      // bleed into the next block.
+      activeTurn.ttsBuffer = "";
+      activeTurn.ttsReasoningFilter.flush();
+    }
+    this.pumpTtsSynthesis(token);
+    return retracted.length;
+  }
+
+  // Releases a retracted job's synthesis slot once its aborted provider stream
+  // has torn down, and lets the next queued segment take it.
+  private settleRetractedTtsJob(token: symbol, job: TtsSegmentJob): void {
+    job.settled = true;
+    this.pumpTtsSynthesis(token);
   }
 
   private completeTtsForTurn(token: symbol): void {
@@ -5980,6 +6438,35 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.clearFillerTimers(activeTurn);
+    // Sweep held jobs the caller never resolved. Every held block is supposed
+    // to end in a promotion (it was the answer) or a retraction (a tool call
+    // proved it was commentary), but a caller that misses an exit would
+    // otherwise leave a provider request running past the turn: the job is off
+    // ttsQueue, so completion never awaits it, and its synthesis slot would
+    // still be occupied when the next turn starts. Retract rather than promote,
+    // because unresolved held text is commentary far more often than it is an
+    // answer, and speaking it is the failure this hold exists to prevent.
+    //
+    // Only when there is something to sweep: the option below also discards
+    // the turn's pending tail, and on an ordinary turn that tail is the last
+    // sentence of the answer, waiting for the terminal flush.
+    if (activeTurn.ttsJobs.some(isPendingHeldTtsJob)) {
+      const strandedHeldJobs = this.retractHeldTtsSegments(
+        token,
+        (job) => job.held,
+        // The sweep takes whole blocks, so it owns their un-segmented tail as
+        // well. Left behind, the terminal flush below would synthesize the
+        // trailing fragment of the very commentary just dropped and speak it
+        // as the turn's closing words.
+        { discardPendingTail: true },
+      );
+      log.warn(
+        { turnId: activeTurn.turnId, strandedHeldJobs },
+        "Live voice turn completed with held segments the caller never resolved",
+      );
+    }
+    // Past this point every enqueue is terminal, so nothing new is held.
+    activeTurn.ttsCompleting = true;
     activeTurn.ttsBuffer += activeTurn.ttsReasoningFilter.flush();
     this.flushTtsBuffer(token, true);
     activeTurn.ttsQueue = activeTurn.ttsQueue
@@ -6046,7 +6533,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       });
   }
 
-  private flushTtsBuffer(token: symbol, force: boolean): void {
+  // `blockSeq` overrides the block stamp every segment this flush forms
+  // carries. Only a fixed session phrase that happens to ride the segmenter
+  // passes it (the model-authored escalation bridge); model text leaves it
+  // undefined and takes the block the turn is accumulating.
+  private flushTtsBuffer(
+    token: symbol,
+    force: boolean,
+    options: { blockSeq?: number } = {},
+  ): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token) {
       return;
@@ -6073,14 +6568,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (speakable.length === 0) {
         continue;
       }
-      this.enqueueTtsSegment(token, speakable);
+      // An escalated leg is working, so what it says mid-turn is usually
+      // commentary on that work rather than the answer. Hold it: it is
+      // synthesized now (so promotion costs no provider round trip) and only
+      // the block the turn ends on is ever spoken.
+      this.enqueueTtsSegment(token, speakable, {
+        held: activeTurn.routingLeg === "escalated",
+        ...(options.blockSeq !== undefined
+          ? { blockSeq: options.blockSeq }
+          : {}),
+      });
     }
   }
 
   private enqueueTtsSegment(
     token: symbol,
     segment: string,
-    options: { countsAsFirstSegment?: boolean; language?: string } = {},
+    options: {
+      countsAsFirstSegment?: boolean;
+      language?: string;
+      // Synthesize now, speak later (or never): the job is queued for the
+      // provider but stays off the emission chain until promoteHeldTtsSegments
+      // puts it there, or retractHeldTtsSegments drops it.
+      held?: boolean;
+      // Which model text block the segment came from. Defaults to the block
+      // the turn is accumulating; a fixed session phrase passes
+      // NON_BLOCK_TTS_SEQ so no block-scoped selector can reach it.
+      blockSeq?: number;
+      // What the segment is to the caller. Defaults to the turn's own answer;
+      // a spoken floor-holder passes "filler" so it does not anchor the
+      // first-TTS metrics (see TtsSegmentAudioRole).
+      audioRole?: TtsSegmentAudioRole;
+    } = {},
   ): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token || !this.streamTtsAudio) {
@@ -6092,18 +6611,94 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (options.countsAsFirstSegment ?? true) {
       activeTurn.ttsSegmentEnqueued = true;
     }
+    // A hold means "wait and see whether a tool call follows this text". Once
+    // the turn is completing, nothing can follow it, so a segment flushed here
+    // is terminal by construction and must never be held: holding it would
+    // strand the tail of the answer off the emission chain, where the leftover
+    // sweep below would then drop it.
+    const held = (options.held ?? false) && !activeTurn.ttsCompleting;
     const job: TtsSegmentJob = {
       text: segment,
       language: options.language,
+      blockSeq: options.blockSeq ?? activeTurn.textBlockSeq,
+      audioRole: options.audioRole ?? "answer",
       started: false,
       settled: false,
       emitting: false,
+      held,
+      cancelled: false,
+      abort: new AbortController(),
       bufferedChunks: [],
       synthesis: null,
       frames: Promise.resolve(),
     };
     activeTurn.ttsJobs.push(job);
     this.pumpTtsSynthesis(token);
+    if (job.held) {
+      // Synthesis has started; emission has not. Chaining the job onto
+      // ttsQueue is exactly what promotion does, so doing it here would
+      // defeat the hold.
+      return;
+    }
+    activeTurn.ttsQueue = activeTurn.ttsQueue
+      .catch(() => {})
+      .then(() => this.emitTtsJob(token, job));
+  }
+
+  /**
+   * Enqueue rendered audio as a segment job. The bytes are already in hand, so
+   * the job is constructed `started` with its chunks pre-buffered and a
+   * resolved `synthesis`: `emitTtsJob` then promotes, flushes, and settles it
+   * exactly like a synthesized segment, with no change to the pump or the
+   * emission chain.
+   */
+  private enqueueTtsAudioCue(token: symbol, pcm: Buffer): void {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token || !this.streamTtsAudio) {
+      return;
+    }
+    const job: TtsSegmentJob = {
+      // Nothing synthesizes this job, so the only consumer of `text` (the
+      // provider dispatch in pumpTtsSynthesis) never sees it.
+      text: "",
+      language: undefined,
+      // The cue belongs to no model text block, so no block-scoped promotion
+      // or retraction can reach it.
+      blockSeq: NON_BLOCK_TTS_SEQ,
+      // Rendered tone rather than speech: out of the turn's first-TTS metrics
+      // and out of the archived assistant audio, and marked on the wire (see
+      // TtsSegmentAudioRole).
+      audioRole: "cue",
+      started: true,
+      settled: false,
+      emitting: false,
+      // The cue exists to be heard right now: holding one would be holding
+      // the very silence it was played to fill.
+      held: false,
+      cancelled: false,
+      abort: new AbortController(),
+      bufferedChunks: [
+        {
+          type: "tts_audio",
+          // Bare `audio/pcm` at the session rate is exactly what
+          // appendEchoReference accepts. Get either wrong and the cue still
+          // plays, but the echo canceller never learns the hum was us, so
+          // every cue reads as the user speaking over the assistant and the
+          // cadence becomes a periodic barge-in.
+          contentType: "audio/pcm",
+          sampleRate: this.context.startFrame.audio.sampleRate,
+          dataBase64: pcm.toString("base64"),
+        },
+      ],
+      synthesis: Promise.resolve(),
+      frames: Promise.resolve(),
+    };
+    activeTurn.ttsJobs.push(job);
+    // A cue does not spend the eager first-segment latch. `ttsSegmentEnqueued`
+    // gates the eager first-clause flush, which belongs to the model's opening
+    // words: whatever a turn plays into its dead air, its real first segment
+    // still flushes on the opening clause rather than waiting for a full
+    // sentence, so speech onset is as early as it would be without the cue.
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
       .then(() => this.emitTtsJob(token, job));
@@ -6129,42 +6724,103 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn.ttsJobs.filter((job) => job.started && !job.settled).length <
       TTS_MAX_OPEN_SYNTHESIS_JOBS
     ) {
-      const job = activeTurn.ttsJobs.find((candidate) => !candidate.started);
+      // Held jobs get at most one of the open slots. Pre-synthesizing a held
+      // block's FIRST segment is what removes the TTS round trip from the
+      // answer's onset; later segments pipeline during that first segment's
+      // playback anyway, so synthesizing further ahead only risks paying for
+      // audio a tool call is about to cancel. A held job stays open until it
+      // is promoted, or until a retraction's abort tears its stream down, so
+      // the cap is a standing one.
+      //
+      // A cancelled job does not hold that slot, however long its aborted
+      // stream stays open: it will never be promoted, so it is not the held
+      // prefetch this slot is reserved for. Counting it would let a provider
+      // that is slow to tear down block held prefetch for the rest of the
+      // turn, and the answer block would then pay the full TTS round trip
+      // this design exists to remove. Same reasoning as turnAudioIdle's.
+      const heldSlotTaken = activeTurn.ttsJobs.some(
+        (candidate) =>
+          isPendingHeldTtsJob(candidate) &&
+          candidate.started &&
+          !candidate.settled,
+      );
+      const job = activeTurn.ttsJobs.find(
+        (candidate) =>
+          !candidate.started &&
+          // A retracted job is dead: nothing will ever emit it.
+          !candidate.cancelled &&
+          (!candidate.held || !heldSlotTaken),
+      );
       if (!job) {
         return;
       }
-      job.started = true;
-      // The segment's own language override (fixed English fallback text)
-      // wins over the turn's language.
-      const language = job.language ?? activeTurn.language;
-      let synthesis: Promise<void>;
-      try {
-        synthesis = streamTtsAudio({
-          text: job.text,
-          ...(language !== undefined ? { language } : {}),
-          signal: activeTurn.abortController.signal,
-          outputFormat: "pcm",
-          sampleRate: this.context.startFrame.audio.sampleRate,
-          onAudioChunk: (chunk) => {
-            if (!this.isForwardingTts(token)) {
-              return;
-            }
-            if (job.emitting) {
-              this.forwardTtsChunk(token, job, chunk);
-            } else {
-              job.bufferedChunks.push(chunk);
-            }
-          },
-        }).then(() => undefined);
-      } catch (err) {
-        synthesis = Promise.reject(err);
+      this.startTtsSynthesis(token, job);
+      if (!job.started) {
+        // The session went away underneath the pump; the loop condition
+        // cannot make progress, so stop rather than spin.
+        return;
       }
-      // The job's emission step observes the rejection; this handler only
-      // keeps a failure on an already-cancelled turn from surfacing as an
-      // unhandled rejection.
-      synthesis.catch(() => {});
-      job.synthesis = synthesis;
     }
+  }
+
+  /**
+   * Open one job's provider stream, outside the open-job cap. Callers that are
+   * subject to the cap go through {@link pumpTtsSynthesis}; this is for the
+   * job the emission chain is already waiting on, which must produce audio
+   * whatever the prefetch budget currently looks like.
+   */
+  private startTtsSynthesis(token: symbol, job: TtsSegmentJob): void {
+    const activeTurn = this.activeAssistantTurn;
+    const streamTtsAudio = this.streamTtsAudio;
+    if (
+      activeTurn?.token !== token ||
+      !streamTtsAudio ||
+      activeTurn.abortController.signal.aborted ||
+      this.isClosed ||
+      job.started ||
+      job.cancelled
+    ) {
+      return;
+    }
+    job.started = true;
+    // The segment's own language override (fixed English fallback text)
+    // wins over the turn's language.
+    const language = job.language ?? activeTurn.language;
+    let synthesis: Promise<void>;
+    try {
+      synthesis = streamTtsAudio({
+        text: job.text,
+        ...(language !== undefined ? { language } : {}),
+        // Either the turn ending or this one segment being retracted stops
+        // the stream; the job's own controller is what lets a retraction
+        // leave the turn's other segments streaming.
+        signal: AbortSignal.any([
+          activeTurn.abortController.signal,
+          job.abort.signal,
+        ]),
+        outputFormat: "pcm",
+        sampleRate: this.context.startFrame.audio.sampleRate,
+        onAudioChunk: (chunk) => {
+          // A retracted job keeps nothing: its buffer was already released
+          // and no promotion will ever flush it.
+          if (!this.isForwardingTts(token) || job.cancelled) {
+            return;
+          }
+          if (job.emitting) {
+            this.forwardTtsChunk(token, job, chunk);
+          } else {
+            job.bufferedChunks.push(chunk);
+          }
+        },
+      }).then(() => undefined);
+    } catch (err) {
+      synthesis = Promise.reject(err);
+    }
+    // The job's emission step observes the rejection; this handler only
+    // keeps a failure on an already-cancelled turn from surfacing as an
+    // unhandled rejection.
+    synthesis.catch(() => {});
+    job.synthesis = synthesis;
   }
 
   // Emission slot for one job, run in strict segment order on the turn's
@@ -6184,10 +6840,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
 
-      // Both slots can be busy when a job is enqueued; every earlier job has
-      // settled once it reaches the head of the chain, so a slot is free.
+      if (job.cancelled) {
+        // Retracted while held: drop the prefetched audio without promoting
+        // it. Nothing was forwarded, so the client hears no seam.
+        job.bufferedChunks.length = 0;
+        return;
+      }
+
+      // Both slots can be busy when a job is enqueued, so a job can arrive
+      // here unstarted. At the head of the chain it is the job that must
+      // produce audio now, and it starts outside the open-job cap rather than
+      // asking the cap for permission: the cap orders prefetch, and jobs that
+      // are NOT ahead of this one on the chain can be holding both slots (a
+      // retracted job whose aborted stream has not torn down, plus a cue). Ask
+      // the pump instead and it would start nothing, leaving `synthesis` null,
+      // and the segment would settle having emitted no audio at all.
       if (!job.started) {
-        this.pumpTtsSynthesis(token);
+        this.startTtsSynthesis(token, job);
       }
 
       // Promote synchronously: no provider callback can land between the
@@ -6226,7 +6895,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     } finally {
       job.settled = true;
       const settledTurn = this.activeAssistantTurn;
-      if (settledTurn?.token === token) {
+      // A retracted job forwarded nothing, so it must not stand in for audio
+      // the user never heard and postpone the dead-air countdown.
+      if (settledTurn?.token === token && !job.cancelled) {
         // Anchor the dead-air countdown to the end of emission; the playback
         // -tail estimate covers any client-side buffer still draining.
         settledTurn.progress.lastAudibleAtMs = Date.now();
@@ -6247,21 +6918,34 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (activeTurn?.token !== token) {
       return;
     }
-    // Only retain the assistant TTS audio when it will be archived (see
-    // collectUserAudio); the mime/sample-rate are cheap and left unconditional.
-    if (this.archiveAudio) {
-      activeTurn.assistantAudioChunks.push(
-        Buffer.from(chunk.dataBase64, "base64"),
-      );
+    // The archive is a recording of what the assistant SAID, so the rendered
+    // cue stays out of it: its bare PCM would interleave with whatever
+    // container a provider returned for the speech around it (some return
+    // audio/wav despite outputFormat "pcm"), and the archived mime would
+    // describe whichever chunk landed last rather than the recording.
+    //
+    // Only retain the audio when it will be archived (see collectUserAudio);
+    // the mime/sample-rate are cheap and left unconditional.
+    if (job.audioRole !== "cue") {
+      if (this.archiveAudio) {
+        activeTurn.assistantAudioChunks.push(
+          Buffer.from(chunk.dataBase64, "base64"),
+        );
+      }
+      activeTurn.assistantAudioMimeType = chunk.contentType;
+      activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     }
-    activeTurn.assistantAudioMimeType = chunk.contentType;
-    activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     job.frames = job.frames.then(async () => {
       const sent = await this.sendFrame(
         {
           type: "tts_audio",
           mimeType: chunk.contentType,
           sampleRate: chunk.sampleRate,
+          // The client latches speaking state, hands-free barge-in
+          // eligibility, client-heard latency, and the spoken-word cursor on
+          // tts_audio frames. An unmarked tone corrupts all four, so say on
+          // the wire that this frame is not speech.
+          ...(job.audioRole === "cue" ? { nonSpeech: true } : {}),
           dataBase64: chunk.dataBase64,
         },
         () => this.isForwardingTts(token),
@@ -6272,6 +6956,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // a stale turn's late send from latching a newer turn.
       if (!sent) {
         return;
+      }
+      // Counted here rather than at enqueue: a cue queued behind earlier
+      // speech can be discarded by cancellation or a closing session before
+      // it is ever written, and a metric whose whole purpose is telling a
+      // turn that hummed from one that sat silent must not count a cue the
+      // caller did not hear. A cue is a single pre-buffered chunk, so this
+      // runs once per cue.
+      if (job.audioRole === "cue") {
+        const cueTurn = this.activeAssistantTurn;
+        if (cueTurn?.token === token) {
+          this.markWorkingCuePlayed(cueTurn);
+        }
       }
       // Extend the client playback-tail estimate by this chunk's PCM
       // duration (chunks queue gaplessly client-side, so the tail grows
@@ -6287,8 +6983,26 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.appendEchoReference(chunk);
       this.assistantPlaybackTailUntilMs =
         Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
+      // Everything above is what a cue or a spoken filler is here for: the
+      // client hears it, the canceller learns it was us, and the tail estimate
+      // covers it. The first-TTS latch is where both stop.
+      //
+      // What that mark means is narrower than "the answer began" and worth
+      // stating exactly, because this codebase has anchored a voice latency
+      // metric on the wrong event before. It is the first audio the caller
+      // hears that the model authored for this turn. A cue is not authored at
+      // all and a fixed filler phrase is not authored for this turn, so
+      // neither latches. The escalation bridge IS model-authored and does
+      // latch, so on an escalated turn this measures hand-off onset rather
+      // than report onset. That is deliberate for now: it is the behavior
+      // that predates the held-speech work, and changing it would silently
+      // move an existing metric by the length of a whole working phase.
       const turnAfterSend = this.activeAssistantTurn;
-      if (turnAfterSend?.token !== token || turnAfterSend.ttsAudioStarted) {
+      if (
+        job.audioRole !== "answer" ||
+        turnAfterSend?.token !== token ||
+        turnAfterSend.ttsAudioStarted
+      ) {
         return;
       }
       turnAfterSend.ttsAudioStarted = true;
@@ -6460,6 +7174,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.metrics.markProgressSpoken(activeTurn.turnId);
   }
 
+  private markWorkingCuePlayed(activeTurn: ActiveAssistantTurn): void {
+    const { utterance } = activeTurn;
+    if (!this.startMetricsTurnIfNeeded(utterance, activeTurn.turnId)) {
+      return;
+    }
+    this.metrics.markWorkingCuePlayed(activeTurn.turnId);
+  }
+
   private ensureTurnId(utterance: UtteranceCycle): string {
     if (!utterance.turnId) {
       utterance.turnId = this.createTurnId();
@@ -6546,6 +7268,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     turn.finalized = true;
     this.clearFillerTimers(turn);
+    // Every terminal path owns the turn's held prefetch, not just the two that
+    // remembered to. A held job is off ttsQueue, so completion never awaits
+    // it and nothing else settles it: without a retraction here an errored or
+    // cancelled turn leaves its provider stream open and un-abortable, billing
+    // for audio nobody will hear. The paths that already retracted
+    // (generation_cancelled) or aborted the turn controller (barge-in) find
+    // their jobs cancelled and select nothing.
+    if (status === "cancelled") {
+      this.retractHeldTtsSegmentsOnTurn(turn, (job) => job.held, {
+        discardPendingTail: true,
+      });
+    }
     turn.utterance.completed = true;
     await this.archiveBufferedAudio({
       turnId: turn.turnId,
@@ -6839,6 +7573,8 @@ export function createLiveVoiceSession(
       options.echoEmaHalfLifeMs ?? vadConfig?.echoEmaHalfLifeMs,
     echoDrainSlackMs: options.echoDrainSlackMs ?? vadConfig?.echoDrainSlackMs,
     frontModelConfig,
+    // Absent config leaves the schema defaults, which keep the cue on.
+    workingCueConfig: options.workingCueConfig ?? liveVoiceConfig?.workingCue,
     // Absent config leaves the schema defaults, which keep provider turn
     // detection off.
     fluxConfig: options.fluxConfig ?? liveVoiceConfig?.flux,

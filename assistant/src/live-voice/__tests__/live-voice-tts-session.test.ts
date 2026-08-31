@@ -1,9 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../../calls/voice-triage-escalate.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -12,6 +14,7 @@ import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
+  NON_BLOCK_TTS_SEQ,
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
 import type {
@@ -19,6 +22,7 @@ import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "../live-voice-tts.js";
+import { approvalPendingPhraseFor } from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -185,7 +189,9 @@ interface ControlledSynthesis {
 // A TTS streamer whose per-call completion is driven by the test: chunks are
 // injected via `calls[n].options.onAudioChunk` and the provider promise
 // settles on `finish`/`fail`. `events` records call starts and settles so
-// synthesis overlap can be asserted deterministically.
+// synthesis overlap can be asserted deterministically. Aborting a call does
+// not settle it, which is also how a provider that is slow to tear down on
+// abort behaves.
 function createControlledTtsStreamer(): {
   streamTtsAudio: LiveVoiceTtsStreamer;
   calls: ControlledSynthesis[];
@@ -212,9 +218,164 @@ function createControlledTtsStreamer(): {
   return { streamTtsAudio, calls, events };
 }
 
+// A TTS streamer that answers every segment with one chunk and settles at
+// once. `synthesized` is what reached the provider, which on a held segment
+// is deliberately a different set from what the client hears.
+function createEchoTtsStreamer(): {
+  streamTtsAudio: LiveVoiceTtsStreamer;
+  synthesized: LiveVoiceTtsOptions[];
+} {
+  const synthesized: LiveVoiceTtsOptions[] = [];
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    synthesized.push(options);
+    options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+    return makeTtsResult(options.text);
+  });
+  return { streamTtsAudio, synthesized };
+}
+
+function synthesizedTexts(synthesized: LiveVoiceTtsOptions[]): string[] {
+  return synthesized.map((options) => options.text);
+}
+
+// The front-door leg's escalate verdict plus the bridge it speaks across the
+// hand-off, and the sentences an escalated leg says while it works.
+const ESCALATE_VERDICT_DELTA = "[1] Let me look into that.";
+const BRIDGE_SENTENCE = "Let me look into that.";
+const FIRST_COMMENTARY = "Checking your calendar now.";
+const SECOND_COMMENTARY = "Now looking at tomorrow as well.";
+const REPORT_SENTENCE = "You have two meetings tomorrow.";
+const REPORT_QUESTION = "Which calendar should I check, work or personal?";
+
+/**
+ * Drive a turn through the escalate verdict and hand back the escalated leg's
+ * bridge options, so a test can script that leg block by block: text deltas,
+ * `tool_block_opened` for a tool block opening, and completion.
+ */
+async function startEscalatedTurn(
+  streamTtsAudio: LiveVoiceTtsStreamer,
+): Promise<{
+  frames: LiveVoiceServerFrame[];
+  session: LiveVoiceSession;
+  escalated: VoiceTurnOptions;
+}> {
+  let frontDoor: VoiceTurnCallbacks | undefined;
+  let escalated: VoiceTurnOptions | undefined;
+  const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+    if (options.content === ESCALATION_CONTINUATION_CONTENT) {
+      escalated = options;
+      return { turnId: "bridge-escalated", abort: mock() };
+    }
+    frontDoor = options.callbacks;
+    return { turnId: "bridge-front-door", abort: mock() };
+  });
+  const { frames, session } = createSessionHarness({
+    startVoiceTurn,
+    streamTtsAudio,
+  });
+
+  await startReleasedTurn(session);
+  frontDoor?.assistant_text_delta?.(makeTextDelta(ESCALATE_VERDICT_DELTA));
+  await waitFor(
+    () => escalated !== undefined,
+    "Timed out waiting for the escalated leg to start",
+  );
+  if (!escalated) {
+    throw new Error("Escalated leg never started");
+  }
+  return { frames, session, escalated };
+}
+
+function assistantTranscript(frames: LiveVoiceServerFrame[]): string {
+  return frames
+    .flatMap((frame) =>
+      frame.type === "assistant_text_delta" ? [frame.text] : [],
+    )
+    .join("");
+}
+
+// The slice of a TtsSegmentJob a held-segment selector can see. Kept
+// structural so the test does not need the session's private job type.
+interface HeldJobView {
+  readonly text: string;
+}
+
+// The block stamp a job carries, which decides which promotion or retraction
+// can select it. No frame exposes it, so the tests that pin it read the turn.
+interface StampedJobView {
+  readonly text: string;
+  readonly blockSeq: number;
+}
+
+function ttsJobStamps(session: LiveVoiceSession): StampedJobView[] {
+  const internals = session as unknown as {
+    activeAssistantTurn: { ttsJobs: StampedJobView[] } | null;
+  };
+  return internals.activeAssistantTurn?.ttsJobs ?? [];
+}
+
+// The slice of the session's private turn state these tests read.
+interface TurnView {
+  readonly token: symbol;
+  readonly ttsBuffer: string;
+}
+
+// Drives the private hold/promote/retract surface directly against the turn
+// that `startReleasedTurn` left active, for the queue mechanics an escalated
+// turn cannot script on its own (a segment held past completion, a provider
+// that ignores its abort).
+function heldTtsController(session: LiveVoiceSession): {
+  enqueue: (text: string) => void;
+  promote: (select: (job: HeldJobView) => boolean) => number;
+  retract: (
+    select: (job: HeldJobView) => boolean,
+    options?: { discardPendingTail?: boolean },
+  ) => number;
+  pendingTail: () => string;
+  audioIdle: () => boolean;
+} {
+  const internals = session as unknown as {
+    activeAssistantTurn: TurnView | null;
+    enqueueTtsSegment: (
+      token: symbol,
+      segment: string,
+      options?: { held?: boolean },
+    ) => void;
+    promoteHeldTtsSegments: (
+      token: symbol,
+      select: (job: HeldJobView) => boolean,
+    ) => number;
+    retractHeldTtsSegments: (
+      token: symbol,
+      select: (job: HeldJobView) => boolean,
+      options?: { discardPendingTail?: boolean },
+    ) => number;
+    turnAudioIdle: (turn: TurnView) => boolean;
+  };
+  const turn = internals.activeAssistantTurn;
+  if (!turn) {
+    throw new Error("No active assistant turn to hold TTS segments on");
+  }
+  const { token } = turn;
+  return {
+    enqueue: (text) => internals.enqueueTtsSegment(token, text, { held: true }),
+    promote: (select) => internals.promoteHeldTtsSegments(token, select),
+    retract: (select, options) =>
+      internals.retractHeldTtsSegments(token, select, options),
+    pendingTail: () => turn.ttsBuffer,
+    audioIdle: () => internals.turnAudioIdle(turn),
+  };
+}
+
+const HELD_SENTENCE = "The held answer is ready to speak.";
+const OTHER_HELD_SENTENCE = "A second held sentence waits behind it.";
+const THIRD_HELD_SENTENCE = "A third held sentence waits even further back.";
 const FIRST_SENTENCE = "This is the first spoken sentence.";
 const SECOND_SENTENCE = "Here comes the second spoken sentence.";
 const THIRD_SENTENCE = "And now a third spoken sentence arrives.";
+// No terminal punctuation, so it stays in the turn's buffer as an
+// un-segmented tail instead of forming a job.
+const PENDING_TAIL = "an unfinished clause with no boundary yet";
 
 describe("LiveVoiceSession TTS", () => {
   test("starts streaming TTS audio before the assistant message completes at a segment boundary", async () => {
@@ -739,5 +900,811 @@ describe("LiveVoiceSession TTS", () => {
       type: "tts_done",
       turnId: "live-turn-1",
     });
+  });
+
+  test("a held segment synthesizes but forwards no audio until it is promoted", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+
+    // Synthesis starts immediately: holding is about emission, not about
+    // deferring the provider round trip.
+    expect(events).toEqual([`start:${HELD_SENTENCE}`]);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+    calls[0]?.finish();
+    await flushAsyncCallbacks();
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+
+    expect(held.promote((job) => job.text === HELD_SENTENCE)).toBe(1);
+    await waitFor(() => ttsAudioPayloads(frames).length === 1);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:held-1")]);
+
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("a promoted held segment emits its buffered audio ahead of later segments", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+
+    // Promotion happens before the next segment is enqueued, so the held job
+    // is ahead of it on the emission chain.
+    expect(held.promote(() => true)).toBe(1);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    expect(calls).toHaveLength(2);
+
+    // The later segment finishes first; ordering still follows the chain.
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:later-1"));
+    calls[1]?.finish();
+    await flushAsyncCallbacks();
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-2"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:held-1"),
+      b64("audio:held-2"),
+      b64("audio:later-1"),
+    ]);
+  });
+
+  test("a retracted held segment forwards nothing and aborts only its own synthesis", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    expect(calls).toHaveLength(2);
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+
+    expect(held.retract((job) => job.text === HELD_SENTENCE)).toBe(1);
+    expect(calls[1]?.options.signal?.aborted).toBe(true);
+    expect(calls[0]?.options.signal?.aborted).toBe(false);
+
+    // Late provider chunks on a retracted job are dropped rather than
+    // rebuffered, and the retraction never touched the live turn.
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:held-2"));
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:live-1")]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("held segments occupy at most one synthesis slot", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    held.enqueue(OTHER_HELD_SENTENCE);
+    held.enqueue(THIRD_HELD_SENTENCE);
+
+    // A second open slot exists, but held jobs may not take it: the block may
+    // never be spoken, so only its first segment is worth synthesizing.
+    expect(events).toEqual([`start:${HELD_SENTENCE}`]);
+
+    // Promoting the first frees the held slot for the next one.
+    expect(held.promote((job) => job.text === HELD_SENTENCE)).toBe(1);
+    expect(events).toEqual([
+      `start:${HELD_SENTENCE}`,
+      `start:${OTHER_HELD_SENTENCE}`,
+    ]);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:held-1"));
+    calls[0]?.finish();
+    calls[1]?.finish();
+    expect(held.retract(() => true)).toBe(2);
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:held-1")]);
+  });
+
+  test("a retracted held job stops reserving the held prefetch slot", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+
+    // This provider ignores the abort, so the retracted stream stays open.
+    expect(held.retract((job) => job.text === HELD_SENTENCE)).toBe(1);
+    held.enqueue(OTHER_HELD_SENTENCE);
+    expect(events).toEqual([
+      `start:${FIRST_SENTENCE}`,
+      `start:${HELD_SENTENCE}`,
+    ]);
+
+    // The retracted job can never be promoted, so it is not the held prefetch
+    // the one held slot is reserved for. Counting it would leave the answer
+    // block un-synthesized until the turn ends, which is the full TTS round
+    // trip the hold exists to remove.
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    await waitFor(() => events.includes(`start:${OTHER_HELD_SENTENCE}`));
+
+    expect(held.promote((job) => job.text === OTHER_HELD_SENTENCE)).toBe(1);
+    calls[2]?.options.onAudioChunk(makeTtsChunk("audio:held-2"));
+    calls[2]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:live-1"),
+      b64("audio:held-2"),
+    ]);
+  });
+
+  test("a job that reaches the head of the chain synthesizes even with both slots busy", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+
+    // Both slots end up held by jobs that are NOT ahead of the second spoken
+    // segment on the emission chain: one retracted job whose provider has not
+    // torn the stream down, and one held job waiting on a promotion that may
+    // never come. Neither is on the chain at all.
+    held.enqueue(HELD_SENTENCE);
+    expect(held.retract((job) => job.text === HELD_SENTENCE)).toBe(1);
+    held.enqueue(OTHER_HELD_SENTENCE);
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:first-1"));
+    calls[0]?.finish();
+    await waitFor(() => events.includes(`start:${OTHER_HELD_SENTENCE}`));
+
+    // Enqueued behind a cap that is full, so it arrives at the head of the
+    // chain unstarted. Asking the cap for permission there would start
+    // nothing, and the segment would settle having emitted no audio at all:
+    // a silently dropped piece of the answer, with no frame, error, or log.
+    callbacks?.assistant_text_delta?.(makeTextDelta(SECOND_SENTENCE));
+    await waitFor(() => events.includes(`start:${SECOND_SENTENCE}`));
+    const secondCall = calls.find(
+      (call) => call.options.text === SECOND_SENTENCE,
+    );
+    secondCall?.options.onAudioChunk(makeTtsChunk("audio:second-1"));
+    secondCall?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:first-1"),
+      b64("audio:second-1"),
+    ]);
+  });
+
+  test("tts_done still fires on a turn holding one segment and retracting another", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    held.enqueue(OTHER_HELD_SENTENCE);
+
+    // One job stays held forever and one is retracted; neither is on the
+    // emission chain, so neither can stall the drain.
+    expect(held.retract((job) => job.text === OTHER_HELD_SENTENCE)).toBe(1);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:live-1")]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("turn completion sweeps a held segment the caller never resolved", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+
+    const strandedCall = calls.find(
+      (call) => call.options.text === HELD_SENTENCE,
+    );
+    expect(strandedCall).toBeDefined();
+    expect(strandedCall?.options.signal?.aborted).toBe(false);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:live-1"));
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The stranded job's provider request is aborted rather than left running
+    // into the next turn, and its audio is never spoken.
+    expect(strandedCall?.options.signal?.aborted).toBe(true);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:live-1")]);
+  });
+
+  test("a retracted segment holds its synthesis slot until the aborted stream settles", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    callbacks?.assistant_text_delta?.(makeTextDelta(SECOND_SENTENCE));
+
+    // Both slots are open, so the third segment is waiting on one.
+    expect(events).toEqual([
+      `start:${FIRST_SENTENCE}`,
+      `start:${HELD_SENTENCE}`,
+    ]);
+
+    // This provider ignores the abort, so the retracted stream is still open
+    // and its slot is still taken.
+    expect(held.retract((job) => job.text === HELD_SENTENCE)).toBe(1);
+    await flushAsyncCallbacks();
+    expect(events).toEqual([
+      `start:${FIRST_SENTENCE}`,
+      `start:${HELD_SENTENCE}`,
+    ]);
+
+    // Only the stream's own teardown releases it.
+    calls[1]?.finish();
+    await waitFor(() => events.includes(`start:${SECOND_SENTENCE}`));
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:first-1"));
+    calls[0]?.finish();
+    calls[2]?.options.onAudioChunk(makeTtsChunk("audio:second-1"));
+    calls[2]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:first-1"),
+      b64("audio:second-1"),
+    ]);
+  });
+
+  test("a held segment blocks audio idle and a retracted one does not", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    expect(held.audioIdle()).toBe(true);
+
+    // Held audio is seconds from being spoken, so the turn is quiet, not idle.
+    held.enqueue(HELD_SENTENCE);
+    expect(held.audioIdle()).toBe(false);
+
+    // Retraction makes it unhearable immediately, even though the provider is
+    // still sitting on the aborted stream and the job has not settled.
+    expect(held.retract(() => true)).toBe(1);
+    expect(held.audioIdle()).toBe(true);
+
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+  });
+
+  test("the completion sweep drops the stranded block's tail rather than speaking it", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    callbacks?.assistant_text_delta?.(makeTextDelta(PENDING_TAIL));
+    expect(held.pendingTail()).toBe(PENDING_TAIL);
+
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The sweep drops a stranded held block because unresolved held text is
+    // commentary. Its un-segmented tail is the same commentary, so leaving it
+    // for the terminal flush would speak the fragment of the very block just
+    // dropped, as the turn's closing words.
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+    expect(synthesizedTexts(synthesized)).not.toContain(PENDING_TAIL);
+  });
+
+  test("retraction discards the pending tail only when the caller owns it", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const held = heldTtsController(session);
+    held.enqueue(HELD_SENTENCE);
+    callbacks?.assistant_text_delta?.(makeTextDelta(PENDING_TAIL));
+    expect(held.pendingTail()).toBe(PENDING_TAIL);
+
+    // A selective retraction that matches nothing owns no speech, so the
+    // buffered tail survives it.
+    expect(held.retract((job) => job.text === SECOND_SENTENCE)).toBe(0);
+    expect(held.pendingTail()).toBe(PENDING_TAIL);
+
+    // A caller retracting its whole block says so, and the tail goes with it.
+    expect(held.retract(() => true, { discardPendingTail: true })).toBe(1);
+    expect(held.pendingTail()).toBe("");
+
+    calls[0]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+  });
+});
+
+describe("LiveVoiceSession escalated-turn speech", () => {
+  test("no commentary is ever audible on an escalated turn", async () => {
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // Two working blocks, each closed by a tool-use block opening, then the
+    // block nothing follows: the turn's report back.
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(`${SECOND_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-2");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The hard guarantee: the caller hears the hand-off bridge and the
+    // report, and no part of the play-by-play in between.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    // The commentary was synthesized (that is what makes a promotion
+    // instant), it just never reached the client.
+    expect(synthesizedTexts(synthesized)).toContain(FIRST_COMMENTARY);
+    // Holding is a TTS-only concern: the transcript still carries every word.
+    const transcript = assistantTranscript(frames);
+    expect(transcript).toContain(FIRST_COMMENTARY);
+    expect(transcript).toContain(SECOND_COMMENTARY);
+    expect(transcript).toContain(REPORT_SENTENCE);
+  });
+
+  test("a provider-native tool closes a block like any other", async () => {
+    // Web search and friends arrive as server_tool_start rather than a
+    // preview event. The bridge routes both to tool_block_opened, so from
+    // here a provider-native tool is not a special case at all: this asserts
+    // the session treats that boundary like any other. That the bridge
+    // actually routes it is asserted in voice-session-bridge.test.ts.
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("web_search", "srvtoolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    expect(synthesizedTexts(synthesized)).toContain(FIRST_COMMENTARY);
+    // Holding is a TTS-only concern here too: the transcript keeps every word.
+    expect(assistantTranscript(frames)).toContain(FIRST_COMMENTARY);
+  });
+
+  test("a direct front-door answer is unchanged", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(
+      makeTextDelta("Sure, I can help with that, and here is the rest."),
+    );
+
+    // A front-door answer is never held, so the eager first-clause flush
+    // still speaks before the message completes.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+    expect(ttsAudioPayloads(frames)[0]).toBe(
+      b64("audio:Sure, I can help with that,"),
+    );
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:Sure, I can help with that,"),
+      b64("audio:and here is the rest."),
+    ]);
+  });
+
+  test("the report's first segment is pre-synthesized", async () => {
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    await flushAsyncCallbacks();
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    await waitFor(() =>
+      synthesizedTexts(synthesized).includes(REPORT_SENTENCE),
+    );
+
+    // Synthesis of the report runs while the leg is still streaming; only
+    // its emission waits for completion.
+    expect(ttsAudioPayloads(frames)).toEqual([b64(`audio:${BRIDGE_SENTENCE}`)]);
+
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    // Promotion emits the audio it already has rather than re-synthesizing.
+    expect(
+      synthesizedTexts(synthesized).filter((text) => text === REPORT_SENTENCE),
+    ).toHaveLength(1);
+  });
+
+  test("a mid-turn question is spoken like an answer", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_QUESTION));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // Coming back with a question the turn needs answered is a report back
+    // like any other: nothing followed it, so it is spoken.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_QUESTION}`),
+    ]);
+  });
+
+  test("the approval-pending phrase is never held", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+    const approvalPhrase = sanitizeForTts(approvalPendingPhraseFor()).trim();
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    escalated.onApprovalPending?.("approval-request-1");
+
+    // The line exists to be heard during the wait, so it speaks straight
+    // away while the block beside it is still held.
+    await waitFor(() =>
+      ttsAudioPayloads(frames).includes(b64(`audio:${approvalPhrase}`)),
+    );
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${approvalPhrase}`),
+    ]);
+
+    legs?.tool_block_opened?.("send_email", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The retraction that dropped the commentary left the phrase alone.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${approvalPhrase}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+  });
+
+  test("a held escalated block blocks the idle gate and its retraction clears it", async () => {
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session, escalated } =
+      await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+    const held = heldTtsController(session);
+
+    // The bridge settles without ever producing a chunk, so no playback-tail
+    // estimate stands between the turn and the idle gate.
+    calls[0]?.finish();
+    await waitFor(() => held.audioIdle());
+
+    // A held block is seconds from being spoken, so the turn is quiet rather
+    // than idle and the working cue must not talk over it.
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    expect(held.audioIdle()).toBe(false);
+
+    // Retracting it makes it unhearable at once, even though the provider is
+    // still sitting on the aborted stream, so the tool phase reads idle.
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    expect(held.audioIdle()).toBe(true);
+
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    expect(held.audioIdle()).toBe(false);
+
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length >= 3);
+    calls[2]?.finish();
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+  });
+
+  test("the escalation bridge is never held or retracted", async () => {
+    const { streamTtsAudio, synthesized } = createEchoTtsStreamer();
+    const { frames, session, escalated } =
+      await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // The bridge is spoken during the tool phase, which is the whole point
+    // of it: it covers the silence the escalated leg is about to create.
+    await waitFor(() =>
+      ttsAudioPayloads(frames).includes(b64(`audio:${BRIDGE_SENTENCE}`)),
+    );
+
+    // Stamped as belonging to no block. Without the stamp it takes the
+    // escalated leg's first block, which the first tool call retracts, and
+    // the only thing keeping it audible would be the selectors' independent
+    // `held` filter: the audible outcome would be the same and the invariant
+    // NON_BLOCK_TTS_SEQ states would be false.
+    const bridgeJob = ttsJobStamps(session).find(
+      (job) => job.text === BRIDGE_SENTENCE,
+    );
+    expect(bridgeJob?.blockSeq).toBe(NON_BLOCK_TTS_SEQ);
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    await flushAsyncCallbacks();
+
+    const bridgeCall = synthesized.find(
+      (options) => options.text === BRIDGE_SENTENCE,
+    );
+    expect(bridgeCall?.signal?.aborted).toBe(false);
+    expect(ttsAudioPayloads(frames)).toEqual([b64(`audio:${BRIDGE_SENTENCE}`)]);
+
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+  });
+
+  test("a cancelled escalated turn speaks nothing", async () => {
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // The bridge settles silently, so nothing at all has been heard yet.
+    calls[0]?.finish();
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    await waitFor(() => calls.length >= 2);
+
+    legs?.message_complete?.({
+      type: "generation_cancelled",
+      conversationId: "conversation-123",
+    });
+    await flushAsyncCallbacks();
+
+    // The held block dies with the turn: nothing is promoted, and its
+    // provider stream is torn down rather than left running.
+    expect(calls[1]?.options.signal?.aborted).toBe(true);
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  test("an errored turn retracts its held prefetch instead of leaving it streaming", async () => {
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // The bridge settles silently, so the only open provider stream is the
+    // held block's prefetch.
+    calls[0]?.finish();
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    await waitFor(() => calls.length >= 2);
+    expect(calls[1]?.options.signal?.aborted).toBe(false);
+
+    escalated.onError?.("the provider fell over");
+
+    // A held job is off the emission chain, so nothing else will ever settle
+    // it: a terminal path that neither promotes nor retracts leaves its
+    // provider stream open past the turn, billing for audio nobody hears.
+    // Every terminal path has to cover it, not just the two that remembered.
+    await waitFor(() => calls[1]?.options.signal?.aborted === true);
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+  });
+
+  test("a turn that ends with a tool block open speaks only the hand-off bridge", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} `));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    // The loop stops with the tool block still open (the tool-turn ceiling, a
+    // hook ending the turn). The block before it was retracted as commentary
+    // and nothing followed, so the terminal promotion has nothing to select.
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The guarantee outranks having something to say: the commentary stays
+    // unspoken even when it is all the turn produced. The session logs the
+    // empty promotion so this reads as a known shape rather than a mystery.
+    expect(ttsAudioPayloads(frames)).toEqual([b64(`audio:${BRIDGE_SENTENCE}`)]);
+    expect(assistantTranscript(frames)).toContain(FIRST_COMMENTARY);
+  });
+
+  test("a withheld control-marker tail does not cross a block boundary", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    // "[US" is a live control-marker candidate ("[USER_ANSWERED:" and
+    // friends), so the holdback withholds it rather than speaking a marker
+    // that is still streaming. It sits outside ttsBuffer, where the block
+    // retraction cannot reach it.
+    legs?.assistant_text_delta?.(makeTextDelta(`${FIRST_COMMENTARY} [US`));
+    legs?.tool_block_opened?.("calendar_read", "toolu-1");
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // Kept, the fragment is stamped with the report's block and spoken glued
+    // onto the front of it.
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
+    expect(assistantTranscript(frames)).not.toContain("[US");
+  });
+
+  test("an escalated turn with no tool calls speaks its single block", async () => {
+    const { streamTtsAudio } = createEchoTtsStreamer();
+    const { frames, escalated } = await startEscalatedTurn(streamTtsAudio);
+    const legs = escalated.callbacks;
+
+    legs?.assistant_text_delta?.(makeTextDelta(REPORT_SENTENCE));
+    legs?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${BRIDGE_SENTENCE}`),
+      b64(`audio:${REPORT_SENTENCE}`),
+    ]);
   });
 });

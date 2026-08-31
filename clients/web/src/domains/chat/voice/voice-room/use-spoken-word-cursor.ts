@@ -13,6 +13,11 @@
  * keeps the cursor at the pace of real speech until the mapping becomes
  * trustworthy.
  *
+ * The progress the player reports counts only speech. Non-speech audio (the
+ * working cue that holds a long turn's silence) plays without entering either
+ * number, so a turn that spends minutes making tones and no words leaves the
+ * cursor where it was rather than dragging it across words nothing spoke.
+ *
  * The cursor advances only while audio remains scheduled
  * (`playedSeconds < totalSeconds`). When the queue is caught up
  * (played == total — a mid-response silence while synthesis lags the streamed

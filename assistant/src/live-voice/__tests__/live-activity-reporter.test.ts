@@ -32,6 +32,11 @@ function sttFinal(text: string): LiveVoiceServerFramePayload {
   return { type: "stt_final", text } as LiveVoiceServerFramePayload;
 }
 
+/** A `tts_audio` frame carrying the wordless working cue rather than speech. */
+function cue(): LiveVoiceServerFramePayload {
+  return { type: "tts_audio", nonSpeech: true } as LiveVoiceServerFramePayload;
+}
+
 /** A reporter whose dispatches are captured instead of sent. */
 class RecordingReporter extends LiveActivityReporter {
   readonly dispatched: Array<{ phase: string; event: string; detail: string }> =
@@ -92,6 +97,19 @@ describe("phaseForFrame", () => {
   // discarded.
   test("an empty final moves nothing", () => {
     expect(phaseForFrame(sttFinal("   "), "transcribing")).toBeNull();
+  });
+
+  // The whole point of the working cue is that the turn is NOT talking: it
+  // holds a silence. An island that flipped to "Speaking…" on the tone would
+  // stay there for the entire tool run, since every later cue repeats the
+  // claim and a silent turn sends no speech to correct it.
+  test("the working cue is audio, not speech, so it moves no phase", () => {
+    expect(phaseForFrame(cue(), "thinking")).toBeNull();
+    expect(phaseForFrame(cue(), "listening")).toBeNull();
+  });
+
+  test("speech after a cue still reaches speaking", () => {
+    expect(phaseForFrame(frame("tts_audio"), "thinking")).toBe("speaking");
   });
 });
 

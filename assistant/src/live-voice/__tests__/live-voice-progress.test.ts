@@ -9,6 +9,7 @@ import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type {
   LiveVoiceFrontModelConfig,
   LiveVoiceProgressConfig,
+  LiveVoiceWorkingCueConfig,
 } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
@@ -16,6 +17,8 @@ import type {
 } from "../../stt/types.js";
 import {
   LiveVoiceSession,
+  type LiveVoiceSessionArchiveAudioInput,
+  type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
@@ -26,6 +29,7 @@ import type {
   VoiceProgressTextInput,
 } from "../progress-narration.js";
 import {
+  approvalPendingPhraseFor,
   pickProgressPhrase,
   PROGRESS_FALLBACK_PHRASES,
   PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
@@ -35,8 +39,26 @@ import {
   type LiveVoiceClientStartFrame,
   type LiveVoiceServerFrame,
 } from "../protocol.js";
+import {
+  DEFAULT_WORKING_CUE_SHAPE,
+  renderWorkingCuePcm,
+} from "../working-cue.js";
 
 const START_FRAME = {
+  type: "start",
+  conversationId: "conversation-123",
+  audio: {
+    mimeType: "audio/pcm",
+    sampleRate: 24_000,
+    channels: 1,
+  },
+  // Every shipping client declares this, and the cue is gated on it, so the
+  // default frame here has to as well or no cue test would exercise a cue.
+  nonSpeechAudio: true,
+} as const satisfies LiveVoiceClientStartFrame;
+
+/** A client from before `nonSpeech`, which cannot be sent the cue. */
+const START_FRAME_NO_CUE_SUPPORT = {
   type: "start",
   conversationId: "conversation-123",
   audio: {
@@ -74,7 +96,7 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
-function createContext(): {
+function createContext(startFrame: LiveVoiceClientStartFrame = START_FRAME): {
   context: LiveVoiceSessionFactoryContext;
   frames: LiveVoiceServerFrame[];
 } {
@@ -85,7 +107,7 @@ function createContext(): {
     frames,
     context: {
       sessionId: "session-123",
-      startFrame: START_FRAME,
+      startFrame,
       sendFrame: mock(async (payload) => {
         const frame = sequencer.next(payload);
         frames.push(frame);
@@ -98,19 +120,34 @@ function createContext(): {
 function createCapturingTurnStarter(): {
   startVoiceTurn: LiveVoiceTurnStarter;
   getCallbacks: () => VoiceTurnCallbacks | undefined;
+  approvalPending: (requestId: string) => void;
 } {
   let callbacks: VoiceTurnCallbacks | undefined;
+  let onApprovalPending: VoiceTurnOptions["onApprovalPending"];
   const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
     callbacks = options.callbacks;
+    onApprovalPending = options.onApprovalPending;
     return { turnId: "bridge-turn-1", abort: mock() };
   });
-  return { startVoiceTurn, getCallbacks: () => callbacks };
+  return {
+    startVoiceTurn,
+    getCallbacks: () => callbacks,
+    approvalPending: (requestId) => onApprovalPending?.(requestId),
+  };
 }
 
 function createRecordingTtsStreamer(
   // Per-segment synthesis stall: a non-null promise keeps that segment's TTS
   // job unsettled (audio still emitting) until it resolves.
   gateTtsText?: (text: string) => Promise<void> | null,
+  // Emit this much silent PCM per segment. Without it the mock produces no
+  // audio at all, so the session's client playback-tail estimate never moves
+  // and every turn reads as instantly silent.
+  emitChunkMs?: number,
+  // Content type the provider labels its chunks with. Some return a container
+  // format despite outputFormat "pcm", which is what makes the archive's mime
+  // stamp worth pinning.
+  chunkContentType = "audio/pcm",
 ): {
   streamTtsAudio: LiveVoiceTtsStreamer;
   ttsTexts: string[];
@@ -121,6 +158,16 @@ function createRecordingTtsStreamer(
   const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
     ttsTexts.push(options.text);
     ttsCalls.push(options);
+    if (emitChunkMs !== undefined) {
+      options.onAudioChunk({
+        type: "tts_audio",
+        contentType: chunkContentType,
+        sampleRate: START_FRAME.audio.sampleRate,
+        dataBase64: Buffer.alloc(
+          Math.round((START_FRAME.audio.sampleRate * emitChunkMs) / 1_000) * 2,
+        ).toString("base64"),
+      });
+    }
     await gateTtsText?.(options.text);
     return {
       provider: "fish-audio" as const,
@@ -165,17 +212,29 @@ function progressConfig(
 function createProgressHarness(options: {
   frontModelConfig: Partial<LiveVoiceFrontModelConfig>;
   progressNarrator: VoiceProgressNarrator;
+  // The cue and spoken narration are alternatives, so a narration test turns
+  // the cue off. Cue tests pass their own config.
+  workingCueConfig?: Partial<LiveVoiceWorkingCueConfig>;
   emitMetrics?: boolean;
   gateTtsText?: (text: string) => Promise<void> | null;
+  emitChunkMs?: number;
+  chunkContentType?: string;
+  archiveAudio?: LiveVoiceSessionAudioArchiver;
   // Events the transcriber flushes at utterance release; defaults to a plain
   // untagged "hello" final.
   sttStopEvents?: SttStreamServerEvent[];
+  // Defaults to a client that declares `nonSpeechAudio`. Cue-gate tests pass a
+  // frame without it to stand in for a client packaged before the flag.
+  startFrame?: LiveVoiceClientStartFrame;
 }) {
-  const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+  const { startVoiceTurn, getCallbacks, approvalPending } =
+    createCapturingTurnStarter();
   const { streamTtsAudio, ttsTexts, ttsCalls } = createRecordingTtsStreamer(
     options.gateTtsText,
+    options.emitChunkMs,
+    options.chunkContentType,
   );
-  const { context, frames } = createContext();
+  const { context, frames } = createContext(options.startFrame);
   const session = new LiveVoiceSession(context, {
     resolveTranscriber: mock(
       async () => new MockStreamingTranscriber(options.sttStopEvents),
@@ -183,12 +242,21 @@ function createProgressHarness(options: {
     startVoiceTurn,
     streamTtsAudio,
     frontModelConfig: options.frontModelConfig,
+    workingCueConfig: options.workingCueConfig ?? { enabled: false },
     progressNarrator: options.progressNarrator,
+    ...(options.archiveAudio ? { archiveAudio: options.archiveAudio } : {}),
     createTurnId: () => "live-turn-1",
     emitMetrics: options.emitMetrics ?? false,
   });
 
-  return { frames, session, getCallbacks, ttsTexts, ttsCalls };
+  return {
+    frames,
+    session,
+    getCallbacks,
+    approvalPending,
+    ttsTexts,
+    ttsCalls,
+  };
 }
 
 async function startReleasedTurn(
@@ -925,5 +993,531 @@ describe("LiveVoiceSession progress narration", () => {
     expect(generateProgressText).toHaveBeenCalledTimes(2);
 
     emitMessageComplete(getCallbacks);
+  });
+});
+
+const CUE_INTERVAL_MS = 40;
+
+// A one-clause answer, so it survives sanitizeForTts unchanged and the text
+// the TTS mock records is the text emitted here.
+const ANSWER_TEXT = "Here is the answer.";
+
+const WORKING_CUE_CONFIG = {
+  enabled: true,
+  intervalMs: CUE_INTERVAL_MS,
+  // A cue leaves a playback-tail estimate behind, and that tail is part of
+  // the silence the next tick waits out. Shortening the tone keeps the
+  // silence-to-silence cadence close to the interval so these tests finish in
+  // a few hundred milliseconds.
+  durationMs: 20,
+} as const;
+
+// The cue the session renders for this start frame and config. Comparing
+// frames against the renderer's own output is what ties the emitted bytes to
+// the configured shape rather than to "some audio came out".
+const CUE_PCM = renderWorkingCuePcm(START_FRAME.audio.sampleRate, {
+  ...DEFAULT_WORKING_CUE_SHAPE,
+  durationMs: WORKING_CUE_CONFIG.durationMs,
+});
+const CUE_BASE64 = CUE_PCM.toString("base64");
+
+// One `emitChunkMs: 10` speech chunk at the session rate, as bytes. The
+// archive assertion compares against exactly this, so a cue spliced into the
+// recording shows up as extra length rather than as "some audio came out".
+const SPEECH_CHUNK_BYTES =
+  Math.round((START_FRAME.audio.sampleRate * 10) / 1_000) * 2;
+
+function cueFrames(
+  frames: LiveVoiceServerFrame[],
+): Extract<LiveVoiceServerFrame, { type: "tts_audio" }>[] {
+  return frames.filter(
+    (frame): frame is Extract<LiveVoiceServerFrame, { type: "tts_audio" }> =>
+      frame.type === "tts_audio" && frame.dataBase64 === CUE_BASE64,
+  );
+}
+
+// Session state the cue's contract is written against but no frame exposes.
+type TurnView = { ttsSegmentEnqueued: boolean; ttsAudioStarted: boolean };
+
+function turnInternals(session: LiveVoiceSession): {
+  ttsSegmentEnqueued: () => boolean | undefined;
+  ttsAudioStarted: () => boolean | undefined;
+  firstTtsAudioAtMs: () => number | null | undefined;
+  echoReference: () => Buffer;
+  audioIdle: () => boolean;
+} {
+  const internals = session as unknown as {
+    activeAssistantTurn: TurnView | null;
+    echoReferenceAudio: Buffer;
+    turnAudioIdle: (turn: TurnView) => boolean;
+    metrics: {
+      getSnapshot: () => {
+        activeTurn: { timestamps: { firstTtsAudioAtMs: number | null } } | null;
+      };
+    };
+  };
+  return {
+    ttsSegmentEnqueued: () => internals.activeAssistantTurn?.ttsSegmentEnqueued,
+    ttsAudioStarted: () => internals.activeAssistantTurn?.ttsAudioStarted,
+    firstTtsAudioAtMs: () =>
+      internals.metrics.getSnapshot().activeTurn?.timestamps.firstTtsAudioAtMs,
+    echoReference: () => internals.echoReferenceAudio,
+    audioIdle: () => {
+      const turn = internals.activeAssistantTurn;
+      return turn !== null && internals.turnAudioIdle(turn);
+    },
+  };
+}
+
+// Escalates the turn so it is in the working phase the cue exists for: the
+// canned bridge speaks, then the strong leg works in silence.
+async function startEscalatedProgressTurn(
+  session: LiveVoiceSession,
+  getCallbacks: () => VoiceTurnCallbacks | undefined,
+  ttsTexts: string[],
+): Promise<void> {
+  await startReleasedTurn(session, getCallbacks);
+  emitTextDelta(getCallbacks, "[1]");
+  emitMessageComplete(getCallbacks);
+  await waitFor(() => ttsTexts.length === 1);
+}
+
+describe("LiveVoiceSession working cue", () => {
+  // A packaged client ships on its own cadence and can be older than the
+  // daemon serving it. One that predates `nonSpeech` runs its old `tts_audio`
+  // handler on the tone and scores it as answer speech, so the cue is withheld
+  // rather than sent to be misread: the turn simply works in real silence.
+  test("a client that cannot read nonSpeech is sent no cue", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      startFrame: START_FRAME_NO_CUE_SUPPORT,
+      // Config says yes; only the missing capability holds the cue back.
+      frontModelConfig: progressConfig({
+        enabled: false,
+        idleIntervalMs: CUE_INTERVAL_MS,
+      }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    // Well past the interval a supported client would have played two on.
+    await new Promise((resolve) => setTimeout(resolve, CUE_INTERVAL_MS * 3));
+    expect(cueFrames(frames)).toHaveLength(0);
+    // Silence, not a fallback to the narration this feature replaced.
+    expect(ttsTexts).toHaveLength(1);
+    expect(generateProgressText).not.toHaveBeenCalled();
+  });
+
+  test("an idle escalated turn plays the cue and speaks no narration", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      // A narrator is wired up and would happily produce text, so what keeps
+      // the turn wordless is the config rather than a missing dependency.
+      frontModelConfig: progressConfig({
+        enabled: false,
+        idleIntervalMs: CUE_INTERVAL_MS,
+      }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    const cue = cueFrames(frames)[0];
+    // audio/pcm at the session rate: the contract appendEchoReference reads.
+    expect(cue?.mimeType).toBe("audio/pcm");
+    expect(cue?.sampleRate).toBe(START_FRAME.audio.sampleRate);
+
+    // The bridge is the only thing the turn spoke, and the narrator was never
+    // asked for a line to add to it.
+    expect(ttsTexts).toHaveLength(1);
+    expect(generateProgressText).not.toHaveBeenCalled();
+  });
+
+  test("the cue repeats on its interval while the silence lasts", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    const afterFirstCueMs = Date.now();
+    await waitFor(() => cueFrames(frames).length >= 3);
+
+    // Two further cues cost two further intervals: the cadence is the
+    // configured one, not a burst. Timers never fire early, so the lower
+    // bound is the reliable half of the assertion.
+    expect(Date.now() - afterFirstCueMs).toBeGreaterThanOrEqual(
+      2 * CUE_INTERVAL_MS,
+    );
+    // Every cue is the same rendered audio.
+    for (const frame of cueFrames(frames)) {
+      expect(frame.dataBase64).toBe(CUE_BASE64);
+    }
+  });
+
+  test("narration's minGap does not slow the cue's own cadence", async () => {
+    // minGapMs is narration's spacing guard, tuned for spoken filler. The cue
+    // is spaced by its own intervalMs, so a large narration gap must not veto
+    // it: the two tunables live in separate config sections precisely so a
+    // workspace can tune one without silently retuning the other.
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({
+        enabled: false,
+        minGapMs: 60_000,
+      }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    // A minGap 1500x the cue interval would pin this at one cue forever if the
+    // gap applied to the cue.
+    await waitFor(() => cueFrames(frames).length >= 3);
+    expect(cueFrames(frames).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("a turn whose speech is still playing waits it out before the cue", async () => {
+    const speechMs = 150;
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      // The bridge is real audio now, so the turn is audibly busy for
+      // `speechMs` after the frame goes out even though its job has settled.
+      emitChunkMs: speechMs,
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+    const bridgeSentAtMs = Date.now();
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+
+    // Several idle ticks fall inside the bridge's playback, and every one of
+    // them stays quiet: a cue over the assistant's own voice is the chatter
+    // this design removes, not a reassurance.
+    expect(Date.now() - bridgeSentAtMs).toBeGreaterThanOrEqual(speechMs);
+  });
+
+  test("tool activity alone plays no cue; only silence does", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false, opsThreshold: 1 }),
+      // Far longer than this test runs, so nothing here can reach the cue
+      // through the idle tick and any cue that appears came from a tool event.
+      workingCueConfig: { ...WORKING_CUE_CONFIG, intervalMs: 60_000 },
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+    // The bridge has to have drained first: a turn that is still speaking has
+    // its own reason to stay quiet, and this test is about the trigger.
+    await waitFor(() => turnInternals(session).audioIdle());
+
+    emitToolStart(getCallbacks, "web_search", "tool-1");
+    emitToolResult(getCallbacks, "web_search", "tool-1", "found it");
+    emitToolStart(getCallbacks, "file_read", "tool-2");
+    await sleep(CUE_INTERVAL_MS * 3);
+
+    // A tone carries nothing about which tool ran, so a tool starting or
+    // finishing is not news it can deliver. Only the silence is.
+    expect(cueFrames(frames)).toHaveLength(0);
+  });
+
+  test("with both off the working turn stays silent", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: { enabled: false },
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    await sleep(CUE_INTERVAL_MS * 3);
+    expect(cueFrames(frames)).toHaveLength(0);
+    expect(generateProgressText).not.toHaveBeenCalled();
+    expect(ttsTexts).toHaveLength(1);
+  });
+
+  test("a pending approval suppresses the cue and still speaks its phrase", async () => {
+    const approvalPhrase = sanitizeForTts(approvalPendingPhraseFor()).trim();
+    const { frames, session, getCallbacks, approvalPending, ttsTexts } =
+      createProgressHarness({
+        frontModelConfig: progressConfig({ enabled: false }),
+        workingCueConfig: WORKING_CUE_CONFIG,
+        progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    approvalPending("approval-request-1");
+    await waitFor(() => ttsTexts.includes(approvalPhrase));
+
+    // Nothing is in flight while the call waits on a person, so the cue's
+    // claim that work is happening would be false. The turn said so once and
+    // then goes quiet.
+    await sleep(CUE_INTERVAL_MS * 3);
+    expect(cueFrames(frames)).toHaveLength(0);
+  });
+
+  test("explicitly enabled narration outranks the cue", async () => {
+    const generateProgressText = mock(async () => GENERATED_NARRATION);
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      // Progress narration defaults to off, so `enabled: true` can only have
+      // come from a workspace asking for words. The cue is on as well, and
+      // loses.
+      frontModelConfig: progressConfig({
+        enabled: true,
+        idleIntervalMs: CUE_INTERVAL_MS,
+      }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(generateProgressText),
+    });
+    await startEscalatedProgressTurn(session, getCallbacks, ttsTexts);
+
+    await waitFor(() => ttsTexts.includes(GENERATED_NARRATION));
+    // A workspace that asked to be narrated at gets narration only, not
+    // narration punctuated by a tone it never configured.
+    expect(cueFrames(frames)).toHaveLength(0);
+  });
+
+  test("the cue does not anchor the turn's first-TTS metrics", async () => {
+    // The answer's synthesis stalls open, so the turn is still active (and its
+    // metrics still the live turn's) while the assertions below run.
+    const answerSpoken = deferred<void>();
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      gateTtsText: (text) =>
+        text === ANSWER_TEXT ? answerSpoken.promise : null,
+      // Real bytes per synthesized segment, so the speech below actually
+      // reaches forwardTtsChunk and can latch.
+      emitChunkMs: 10,
+    });
+    // A plain turn, so the cue is the first audio of any kind the turn emits.
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    // dispatchToFirstTtsAudioMs, roundTripMs, and
+    // firstAssistantDeltaToFirstTtsAudioMs all measure to this mark. Setting
+    // it here would report the hum's timing as the turn's speech latency on
+    // exactly the long working turns the cue exists for.
+    expect(turnInternals(session).ttsAudioStarted()).toBe(false);
+    expect(turnInternals(session).firstTtsAudioAtMs()).toBeNull();
+
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+
+    // The first real speech still latches: the cue skips the mark, it does not
+    // consume it.
+    await waitFor(() => turnInternals(session).ttsAudioStarted() === true);
+    expect(turnInternals(session).firstTtsAudioAtMs()).not.toBeNull();
+    answerSpoken.resolve(undefined);
+  });
+
+  test("the cue does not spend the eager first-segment latch", async () => {
+    const { frames, session, getCallbacks } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+    });
+    // A plain turn: nothing has been spoken, so the eager first-clause flush
+    // is still unspent when the cue plays.
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    expect(turnInternals(session).ttsSegmentEnqueued()).toBe(false);
+  });
+
+  test("the cue is marked non-speech on the wire and real speech is not", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitChunkMs: 10,
+    });
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    // The client drives speaking state, hands-free barge-in eligibility,
+    // client-heard latency, and the spoken-word cursor off tts_audio frames.
+    // An unmarked tone corrupts all four, and the payload is the only other
+    // thing that separates it from speech.
+    expect(cueFrames(frames)[0]?.nonSpeech).toBe(true);
+
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "tts_audio" && frame.dataBase64 !== CUE_BASE64,
+      ),
+    );
+
+    const speech = frames.filter(
+      (frame): frame is Extract<LiveVoiceServerFrame, { type: "tts_audio" }> =>
+        frame.type === "tts_audio" && frame.dataBase64 !== CUE_BASE64,
+    );
+    // Absent, not false: speech frames stay byte-identical to what they were
+    // before the cue existed.
+    for (const frame of speech) {
+      expect(frame).not.toHaveProperty("nonSpeech");
+    }
+  });
+
+  test("the cue stays out of the archived assistant audio", async () => {
+    const archived: LiveVoiceSessionArchiveAudioInput[] = [];
+    const { frames, session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitChunkMs: 10,
+      // A provider that returns a container format despite outputFormat
+      // "pcm", which real ones do.
+      chunkContentType: "audio/wav",
+      archiveAudio: (input) => {
+        archived.push(input);
+        return {
+          type: "warning",
+          warning: {
+            code: "archive_failed",
+            message: "not stored in tests",
+          },
+        };
+      },
+    });
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+    await waitFor(() => archived.some((input) => input.role === "assistant"));
+
+    // The archive is a recording of what the assistant said. Splicing raw cue
+    // PCM into it interleaves two encodings under one mime type, so the
+    // recording is corrupt from the first cue onward.
+    const assistant = archived.find((input) => input.role === "assistant");
+    expect(assistant?.mimeType).toBe("audio/wav");
+    const bytes = Buffer.from(assistant?.audio.dataBase64 ?? "", "base64");
+    expect(bytes.byteLength).toBe(SPEECH_CHUNK_BYTES);
+    expect(bytes.includes(CUE_PCM)).toBe(false);
+  });
+
+  test("a spoken filler does not anchor the turn's first-TTS metrics", async () => {
+    // The approval-pending line is not gated on progress.enabled, so it
+    // speaks on any turn that hits a decision gate in the default config.
+    const answerSpoken = deferred<void>();
+    const { frames, session, getCallbacks, approvalPending, ttsTexts } =
+      createProgressHarness({
+        frontModelConfig: progressConfig({ enabled: false }),
+        progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+        gateTtsText: (text) =>
+          text === ANSWER_TEXT ? answerSpoken.promise : null,
+        emitChunkMs: 10,
+      });
+    await startReleasedTurn(session, getCallbacks);
+
+    const approvalPhrase = sanitizeForTts(approvalPendingPhraseFor()).trim();
+    approvalPending("approval-request-1");
+    await waitFor(() => ttsTexts.includes(approvalPhrase));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // roundTripMs and friends measure to this mark, and they mean "when did
+    // the answer start". A filler plays into the dead air before the answer,
+    // so latching on it reports the wait as the turn's speech latency.
+    expect(turnInternals(session).ttsAudioStarted()).toBe(false);
+    expect(turnInternals(session).firstTtsAudioAtMs()).toBeNull();
+
+    emitTextDelta(getCallbacks, ANSWER_TEXT);
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.includes(ANSWER_TEXT));
+
+    // The first real answer audio still latches: a filler skips the mark, it
+    // does not consume it.
+    await waitFor(() => turnInternals(session).ttsAudioStarted() === true);
+    expect(turnInternals(session).firstTtsAudioAtMs()).not.toBeNull();
+    answerSpoken.resolve(undefined);
+  });
+
+  test("a cue turn lands workingCuesPlayed on the turn's metrics frame", async () => {
+    const { frames, session, getCallbacks } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitMetrics: true,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await waitFor(() => cueFrames(frames).length >= 1);
+
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    );
+
+    // progressUpdatesSpoken is omitted when zero and narration is off by
+    // default, so without this counter nothing in telemetry separates a turn
+    // that hummed through its silence from one that sat in it.
+    const completedMetrics = frames.find(
+      (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+    );
+    expect(completedMetrics).toMatchObject({
+      type: "metrics",
+      turnId: "live-turn-1",
+      workingCuesPlayed: 1,
+    });
+  });
+
+  test("a cue the caller never heard is not counted", async () => {
+    // The counter exists to separate a turn that hummed through its silence
+    // from one that sat in it, so a cue discarded before it reached the wire
+    // must not inflate it. Interrupting mid-turn stops the frame from being
+    // written while the cue job is still queued.
+    const { frames, session, getCallbacks } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+      emitMetrics: true,
+    });
+
+    await startReleasedTurn(session, getCallbacks);
+    await session.handleClientFrame({ type: "interrupt" });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event !== "turn_started",
+      ),
+    );
+
+    const terminal = frames.find(
+      (frame) => frame.type === "metrics" && frame.event !== "turn_started",
+    );
+    expect(terminal).toBeDefined();
+    // Omitted when zero, so absence is the assertion.
+    expect(terminal).not.toHaveProperty("workingCuesPlayed");
+    expect(cueFrames(frames).length).toBe(0);
+  });
+
+  test("the cue's chunk enters the echo reference", async () => {
+    const { frames, session, getCallbacks } = createProgressHarness({
+      frontModelConfig: progressConfig({ enabled: false }),
+      workingCueConfig: WORKING_CUE_CONFIG,
+      progressNarrator: makeProgressNarrator(async () => GENERATED_NARRATION),
+    });
+    await startReleasedTurn(session, getCallbacks);
+
+    await waitFor(() => cueFrames(frames).length >= 1);
+    // Without this the canceller has no record that the hum was the assistant,
+    // and the cue becomes a periodic barge-in trigger.
+    const reference = turnInternals(session).echoReference();
+    expect(reference.byteLength).toBeGreaterThanOrEqual(CUE_PCM.byteLength);
+    expect(reference.subarray(0, CUE_PCM.byteLength).equals(CUE_PCM)).toBe(
+      true,
+    );
   });
 });
