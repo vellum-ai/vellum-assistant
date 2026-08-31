@@ -224,7 +224,18 @@ export const MAX_PRESERVED_MODULE_PRELOADS = 12;
 
 const MODULE_PRELOAD_RE = /<link[^>]+rel="modulepreload"[^>]*>\s*/g;
 
-/** Hints only either way; the entry module still pulls what it needs. */
+/**
+ * A failed module fetch is cached in the document's module map (HTML's
+ * "fetch a single module script" stores the failure, and a later import
+ * returns it without refetching), so a dropped request for a BOOT chunk
+ * blanks the app whether or not the chunk was hinted: the entry's static
+ * imports fetch the same URLs through the same map moments later, with the
+ * same no-retry semantics. Hints for the boot set therefore add no failure
+ * surface; they only start the same fetches earlier. What the strip guards
+ * against is the whole-graph shape, where hundreds of NON-boot fetches
+ * amplify the odds of any failure and a dropped lazy chunk poisons a later
+ * dynamic import.
+ */
 function stripExcessModulePreloads(html: string): string {
   const count = html.match(MODULE_PRELOAD_RE)?.length ?? 0;
   if (count <= MAX_PRESERVED_MODULE_PRELOADS) {
