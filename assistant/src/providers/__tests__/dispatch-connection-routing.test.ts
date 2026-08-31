@@ -321,6 +321,26 @@ describe("routing identities", () => {
     expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
   });
 
+  test("a stored vellum GPU profile dispatches through the vellum adapter", async () => {
+    registerConnection(
+      { name: "vellum", provider: "vellum", auth: { type: "platform" } },
+      { name: "vellum", tag: "gpu-stub" },
+    );
+    setLlmConfig({
+      profiles: {
+        gpu: { provider: "vellum", model: "qwen/qwen3-8b" },
+      },
+    });
+
+    const result = await getConfiguredProvider("mainAgent", {
+      overrideProfile: "gpu",
+    });
+
+    expect(result).not.toBeNull();
+    expect(resolveProviderCalls[0]?.name).toBe("vellum");
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("vellum");
+  });
+
   test("a stored chatgpt profile dispatches end-to-end through the real config loader", async () => {
     registerConnection(
       {
@@ -356,6 +376,10 @@ describe("routing identities", () => {
     expect(
       resolveRoutingIdentity("vellum", "accounts/fireworks/models/glm-5p2"),
     ).toEqual({ connectionName: "vellum", expectedProvider: "fireworks" });
+    expect(resolveRoutingIdentity("vellum", "qwen/qwen3-8b")).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "vellum",
+    });
   });
 
   test("resolveRoutingIdentity throws loudly for an unroutable vellum model", () => {
@@ -421,6 +445,32 @@ describe("routing identities", () => {
     } as never);
     expect(resolveProviderCalls[0]?.name).toBe("vellum");
     expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
+  });
+
+  test("vellum identity + GPU model threads vellum as the upstream override", async () => {
+    fakeConnections.set("vellum", {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    fakeProviders.set("conn:vellum", { name: "vellum", tag: "gpu" });
+
+    const provider = await tryResolveProviderForConnectionName(
+      "ignored-stale-name",
+      { llm: {} } as never,
+      "vellum",
+      "qwen/qwen3-8b",
+    );
+
+    expect(provider).toEqual({
+      name: "vellum",
+      tag: "gpu",
+      routeAttribution: {
+        connectionName: "vellum",
+        isManagedRoute: true,
+      },
+    } as never);
+    expect(resolveProviderOpts[0]?.providerOverride).toBe("vellum");
   });
 
   test("chatgpt identity resolves the subscription row by name with an openai override", async () => {

@@ -65,6 +65,7 @@ import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
+  VELLUM_MANAGED_PROVIDER,
 } from "./vellum-model-routing.js";
 
 export { ConnectionResolutionError, resolveRoutingIdentity };
@@ -239,6 +240,12 @@ export async function tryResolveProviderForConnectionName(
   if (identity) {
     connectionName = identity.connectionName;
     expectedProvider = identity.expectedProvider;
+  }
+  // GPU models are served only by the vellum adapter. A leftover
+  // fireworks/anthropic declaration (legacy Vellum profile shape) must
+  // not send them through that provider's rate-card preflight.
+  if (model && getManagedUpstream(model) === VELLUM_MANAGED_PROVIDER) {
+    expectedProvider = VELLUM_MANAGED_PROVIDER;
   }
   let connection;
   try {

@@ -95,6 +95,19 @@ describe("vellum connection mismatch handling", () => {
     expect(resolveCalls[0].opts.providerOverride).toBe("fireworks");
   });
 
+  test("a leftover fireworks declaration still routes a GPU model through vellum", async () => {
+    fakeConnections.set("vellum", vellumConn);
+    const provider = await tryResolveProviderForConnectionName(
+      "vellum",
+      config,
+      "fireworks",
+      "qwen/qwen3-8b",
+    );
+    expect(provider).not.toBeNull();
+    expect(resolveCalls).toHaveLength(1);
+    expect(resolveCalls[0].opts.providerOverride).toBe("vellum");
+  });
+
   test("non-managed provider with no recovery throws provider_mismatch", async () => {
     fakeConnections.set("vellum", vellumConn);
     listResult = []; // no openrouter connection to recover to

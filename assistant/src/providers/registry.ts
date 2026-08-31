@@ -24,6 +24,7 @@ import {
 import { resolveAuth } from "./inference/resolve-auth.js";
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
+import { VELLUM_MANAGED_PROVIDER } from "./vellum-model-routing.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
@@ -313,16 +314,22 @@ export async function resolveProviderFromConnection(
   // For every other connection this is `undefined` and the effective provider
   // is the connection's own — no behavior change.
   const effectiveProvider = opts.providerOverride ?? connection.provider;
-  // Routing identities must be translated to a real upstream before this
-  // point (resolveRoutingIdentity in connection-resolution) — an identity
-  // reaching adapter construction would silently yield no adapter and the
-  // retry wire-normalization keys off real adapter provider names.
-  if (ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider)) {
-    throw new Error(
-      `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}" — translate to a real upstream before adapter construction`,
-    );
-  }
   const model = opts.model ?? resolveModel(config, effectiveProvider);
+  // Routing identities must be translated to a real upstream before this
+  // point (resolveRoutingIdentity in connection-resolution). An identity
+  // reaching adapter construction would silently yield no adapter.
+  // `vellum` is also the catalog id of hosted GPU models, so that pair
+  // is a real adapter, not an unresolved identity.
+  if (ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider)) {
+    const isVellumGpuUpstream =
+      effectiveProvider === VELLUM_MANAGED_PROVIDER &&
+      isModelInCatalog(VELLUM_MANAGED_PROVIDER, model);
+    if (!isVellumGpuUpstream) {
+      throw new Error(
+        `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}": translate to a real upstream before adapter construction`,
+      );
+    }
+  }
   const cacheKey = getConnectionProviderCacheKey(
     connection,
     model,
