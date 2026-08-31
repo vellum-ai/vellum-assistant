@@ -507,11 +507,7 @@ describe("Slack reaction event persistence", () => {
     expect(body.reaction).toBe("wake_dispatched");
     expect(dispatchedWakes).toHaveLength(1);
     expect(dispatchedWakes[0].conversationId).toBe(conversationId);
-    const meta = dispatchedWakes[0].ingressRowMetadata as Record<
-      string,
-      string
-    >;
-    expect(typeof meta.slackMeta).toBe("string");
+    expect(typeof dispatchedWakes[0].slackReactionRowMeta).toBe("string");
     const reactionRow = db.$client
       .prepare(
         "SELECT conversation_id AS conversationId FROM messages WHERE content = '[reaction]'",

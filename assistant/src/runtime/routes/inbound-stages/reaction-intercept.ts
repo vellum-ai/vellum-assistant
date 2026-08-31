@@ -42,6 +42,7 @@ import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { writeSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
 import {
   buildNeutralReactionMeta,
+  buildReactionRowEnvelope,
   buildSlackReactionMeta,
 } from "../../../messaging/reaction-envelopes.js";
 import {
@@ -289,14 +290,10 @@ export async function handleReactionIntercept(
 
   // An admitted actor ADDING a reaction to the assistant's own message is a
   // signal addressed to the assistant, like a thumbs-up sent to a person: it
-  // wakes the assistant for a discretion turn (the channel turn context
-  // already instructs `<no_response/>` for messages needing no reply).
-  // Everything else stays a passive transcript row: removals retract rather
-  // than address, and a reaction on another participant's message is
-  // between-humans signaling. The wake rides the ordinary channel-turn
-  // machinery, so the turn's own persisted user row IS the reaction row
-  // (same envelope the passive path writes) and delivery, admission
-  // ordering, and silence suppression all apply.
+  // wakes a discretion turn. Everything else stays a passive transcript
+  // row: removals retract rather than address, and a reaction on another
+  // participant's message is between-humans signaling. Mechanics on
+  // `buildReactionWakeTurn`.
   const wakeTurn =
     reaction.op === "added" && replyCallbackUrl && sourceInterface
       ? buildReactionWakeTurn({
@@ -311,7 +308,7 @@ export async function handleReactionIntercept(
           actorExternalId: canonicalSenderId ?? rawSenderId ?? undefined,
           reactedMessageTs,
           trustCtx: toTrustContext(trustCtx, conversationExternalId),
-          chatType: sourceMetadata?.chatType,
+          chatType: sourceMetadata?.chatType?.trim() || undefined,
           persistPassively,
         })
       : null;
@@ -385,19 +382,7 @@ function buildReactionWakeTurn(params: {
     return null;
   }
 
-  const facts = {
-    channel: params.sourceChannel,
-    chatId: params.conversationExternalId,
-    targetMessageId: params.reactedMessageTs,
-    emoji: params.reaction.emoji,
-    op: params.reaction.op,
-    ...(params.actorExternalId
-      ? { actorExternalId: params.actorExternalId }
-      : {}),
-    ...(params.actorDisplayName
-      ? { actorDisplayName: params.actorDisplayName }
-      : {}),
-  };
+  const facts = reactionFacts(params);
   const neutralMeta = buildNeutralReactionMeta(facts);
   const targetText = extractTextFromStoredMessageContent(targetRow.content);
   const content = renderReactionHistoryText(
@@ -412,7 +397,9 @@ function buildReactionWakeTurn(params: {
   // uses: the neutral `channelInbound` for every non-Slack channel (its
   // lane validates through the canonical schema and passes reaction-kind
   // envelopes verbatim), and the transitional Slack-only field while Slack
-  // still writes its own envelope.
+  // still writes its own envelope. The passive path keeps
+  // `buildReactionRowEnvelope`; the lanes here materialize the same
+  // builders' facts, so the two writers still cannot drift.
   const envelopeCarrier =
     params.sourceChannel === "slack"
       ? {
@@ -483,7 +470,40 @@ async function persistReactionAsMessage(params: {
   if (params.duplicate) {
     return;
   }
-  const facts = {
+  const facts = reactionFacts(params);
+
+  // Sentinel content: transcript renderers read the envelope to format the
+  // reaction line; the literal text is never displayed to the model.
+  const persisted = await addMessage(
+    params.conversationId,
+    "user",
+    "[reaction]",
+    {
+      metadata: {
+        ...provenanceFromTrustContext(params.trustCtx),
+        ...buildReactionRowEnvelope(facts),
+      },
+      skipIndexing: true,
+    },
+  );
+  linkMessage(params.eventId, persisted.id);
+  markProcessed(params.eventId);
+}
+
+/**
+ * The envelope facts of one inbound reaction, from the intercept's own
+ * vocabulary. Shared by the passive row and the wake turn's row so the two
+ * writers describe the same reaction identically.
+ */
+function reactionFacts(params: {
+  sourceChannel: ChannelId;
+  conversationExternalId: string;
+  reactedMessageTs: string;
+  reaction: InboundReactionPayload;
+  actorExternalId?: string;
+  actorDisplayName?: string;
+}) {
+  return {
     channel: params.sourceChannel,
     chatId: params.conversationExternalId,
     targetMessageId: params.reactedMessageTs,
@@ -496,41 +516,4 @@ async function persistReactionAsMessage(params: {
       ? { actorDisplayName: params.actorDisplayName }
       : {}),
   };
-
-  if (params.sourceChannel !== "slack") {
-    const persisted = await addMessage(
-      params.conversationId,
-      "user",
-      "[reaction]",
-      {
-        metadata: {
-          ...provenanceFromTrustContext(params.trustCtx),
-          providerMeta: JSON.stringify(buildNeutralReactionMeta(facts)),
-        },
-        skipIndexing: true,
-      },
-    );
-    linkMessage(params.eventId, persisted.id);
-    markProcessed(params.eventId);
-    return;
-  }
-
-  const slackMeta = buildSlackReactionMeta(facts);
-
-  // Sentinel content — Slack transcript renderers read `slackMeta` to format
-  // the reaction line; the literal text is never displayed to the model.
-  const persisted = await addMessage(
-    params.conversationId,
-    "user",
-    "[reaction]",
-    {
-      metadata: {
-        ...provenanceFromTrustContext(params.trustCtx),
-        slackMeta: writeSlackMetadata(slackMeta),
-      },
-      skipIndexing: true,
-    },
-  );
-  linkMessage(params.eventId, persisted.id);
-  markProcessed(params.eventId);
 }
