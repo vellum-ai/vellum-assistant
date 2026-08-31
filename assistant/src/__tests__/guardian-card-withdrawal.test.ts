@@ -361,6 +361,98 @@ describe("withdrawGuardianRequestCards", () => {
     expect(completeSurfaceAndNotify).toHaveBeenCalledTimes(1);
   });
 
+  test("completes the in-app projection of a channel card's paired conversation", async () => {
+    // A channel delivery is paired with a conversation whose in-app rendering
+    // carries the same actionable card; the channel edit alone leaves that
+    // projection clickable after the decision (LUM-3489).
+    const req = makeRequest({ kind: "tool_approval", toolName: "shell" });
+    const slack = bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "C1",
+      destinationMessageId: "1.0",
+      destinationConversationId: "conv-dm",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "slack",
+    });
+
+    expect(withdrawSlackApprovalCard).toHaveBeenCalledTimes(1);
+    expect(completeSurfaceAndNotify).toHaveBeenCalledWith(
+      "conv-dm",
+      `tool-approval-${req.id}`,
+      "Approved",
+    );
+    const byId = new Map(deliveriesFor(req.id).map((d) => [d.id, d.status]));
+    expect(byId.get(slack.id)).toBe("withdrawn");
+  });
+
+  test("suppresses only the acting conversation's broadcast for an in-app decision", async () => {
+    // Same request, two in-app projections: the vellum card and a channel
+    // card's paired conversation. The acting client's optimistic completion
+    // covers only the conversation it acted in; the sibling still needs its
+    // live ui_surface_complete.
+    const req = makeRequest({ kind: "tool_approval", toolName: "shell" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-acting",
+    });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "C1",
+      destinationMessageId: "1.0",
+      destinationConversationId: "conv-sibling",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "vellum",
+      originConversationId: "conv-acting",
+    });
+
+    expect(markSurfaceCompleted).toHaveBeenCalledWith(
+      { conversationId: "conv-acting" },
+      `tool-approval-${req.id}`,
+      "Approved",
+    );
+    expect(completeSurfaceAndNotify).toHaveBeenCalledWith(
+      "conv-sibling",
+      `tool-approval-${req.id}`,
+      "Approved",
+    );
+    expect(completeSurfaceAndNotify).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed in-app persist on a channel-paired projection holds the receipt back", async () => {
+    const req = makeRequest({ kind: "tool_approval", toolName: "shell" });
+    const slack = bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "C1",
+      destinationMessageId: "1.0",
+      destinationConversationId: "conv-dm",
+    });
+    completeSurfaceAndNotify.mockReturnValueOnce(false);
+
+    const result = await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "telegram",
+    });
+
+    // The Slack edit landed, but the paired conversation's block would revert
+    // to a clickable card on reload, so the surface stays unreceipted.
+    expect(result.complete).toBe(false);
+    const byId = new Map(deliveriesFor(req.id).map((d) => [d.id, d.status]));
+    expect(byId.get(slack.id)).not.toBe("withdrawn");
+  });
+
   test("tool-approval cards resolve to the tool-approval surface id", async () => {
     const req = makeRequest({ kind: "tool_approval", toolName: "shell" });
     bridgeState.seedDelivery({
@@ -703,6 +795,85 @@ describe("recordGuardianRequestDeliveries", () => {
     });
     const [delivery] = deliveriesFor(req.id);
     expect(delivery.destinationChatId).toBeNull();
+  });
+
+  test("re-runs withdrawal when the request resolved before its rows were recorded", async () => {
+    // Recording happens after the notification pipeline settles, so a
+    // guardian acting the moment the card lands can resolve the request
+    // before any delivery row exists; that decision's withdrawal pass finds
+    // nothing. The recorder reconciles by withdrawing what it just recorded.
+    const req = makeRequest({
+      kind: "tool_approval",
+      toolName: "shell",
+      status: "approved",
+    });
+
+    await recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "slack",
+          destination: "C999",
+          status: "sent",
+          messageId: "1700000000.1234",
+          conversationId: "conv-dm",
+        },
+      ],
+    });
+
+    expect(withdrawSlackApprovalCard).toHaveBeenCalledTimes(1);
+    const [delivery] = deliveriesFor(req.id);
+    expect(delivery.status).toBe("withdrawn");
+  });
+
+  test("leaves rows of a still-pending request alone after recording", async () => {
+    const req = makeRequest({ kind: "tool_approval", toolName: "shell" });
+    await recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "slack",
+          destination: "C999",
+          status: "sent",
+          messageId: "1700000000.1234",
+        },
+      ],
+    });
+
+    expect(withdrawSlackApprovalCard).not.toHaveBeenCalled();
+    const [delivery] = deliveriesFor(req.id);
+    expect(delivery.status).toBe("sent");
+  });
+
+  test("a late status patch cannot resurrect a withdrawn vellum row", async () => {
+    // The pre-created vellum row can be withdrawn by a fast decision while
+    // the broadcast is still settling; the recorder's sent patch must not
+    // overwrite that receipt (mirrors the gateway store's sticky rule).
+    const req = makeRequest({ status: "approved" });
+    const pre = await recordApprovalCardDelivery({
+      requestId: req.id,
+      channel: "vellum",
+      conversationId: "conv-1",
+    });
+    await bridgeState.module.updateGuardianRequestDelivery(pre!.id, {
+      status: "withdrawn",
+    });
+
+    await recordGuardianRequestDeliveries({
+      requestId: req.id,
+      deliveryResults: [
+        {
+          channel: "vellum",
+          destination: "",
+          status: "sent",
+          conversationId: "conv-1",
+        },
+      ],
+      vellumDeliveryId: pre?.id,
+    });
+
+    const [delivery] = deliveriesFor(req.id);
+    expect(delivery.status).toBe("withdrawn");
   });
 
   test("records a Slack delivery the withdrawal path can then edit in place", async () => {

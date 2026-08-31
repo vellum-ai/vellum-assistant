@@ -21,7 +21,7 @@ import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
 import type { AssistantEvent } from "../api/index.js";
-import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
+import { syncTerminalGuardianRequestStatus } from "../approvals/guardian-request-status-sync.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -2065,20 +2065,16 @@ export class Conversation {
     });
 
     // Sync the gateway request status so stale "pending" records don't get
-    // matched by later guardian reply routing. Fire-and-forget: this method
-    // is sync with many callers (HTTP handlers, /v1/confirm, channel
-    // bridges), the in-memory resolution above is authoritative, and a CAS
-    // miss (the decision primitive already resolved it, e.g. the channel
-    // approval path) is expected and harmless.
-    void decideGuardianRequest({
-      id: requestId,
-      expectedStatus: "pending",
+    // matched by later guardian reply routing, and withdraw the request's
+    // approval cards when this sync is the write that landed. Fire-and-forget:
+    // this method is sync with many callers (HTTP handlers, /v1/confirm,
+    // channel bridges), the in-memory resolution above is authoritative, and
+    // a CAS miss (the decision primitive already resolved it and withdrew the
+    // cards itself, e.g. the channel approval path) is expected and harmless.
+    void syncTerminalGuardianRequestStatus({
+      requestId,
       status: resolvedState,
-    }).catch((err) => {
-      log.warn(
-        { err, requestId },
-        "Post-confirmation guardian request status sync failed",
-      );
+      syncContext: "post-confirmation",
     });
   }
 

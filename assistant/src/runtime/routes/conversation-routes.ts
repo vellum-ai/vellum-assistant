@@ -23,8 +23,8 @@ import {
   type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
-  decideGuardianRequest,
   expireGuardianRequest,
   listGuardianRequestsOrEmpty,
   listPendingRequestsByScopeOrEmpty,
@@ -2323,18 +2323,15 @@ export async function handleSendMessage(
           source: "auto_deny" as const,
         });
         // Sync the gateway request status so stale "pending" records don't
-        // get matched by later guardian reply routing. Fire-and-forget: the
+        // get matched by later guardian reply routing, and withdraw the
+        // request's delivered approval cards so no surface keeps offering a
+        // decision that can no longer resolve anything. Fire-and-forget: the
         // in-memory denial is authoritative here; a CAS miss (already
         // decided elsewhere) or a lost sync is reaped by the orphan sweep.
-        void decideGuardianRequest({
-          id: interaction.requestId,
-          expectedStatus: "pending",
+        void syncTerminalGuardianRequestStatus({
+          requestId: interaction.requestId,
           status: "denied",
-        }).catch((err) => {
-          log.warn(
-            { err, requestId: interaction.requestId },
-            "Auto-deny guardian request status sync failed",
-          );
+          syncContext: "auto-deny-idle-send",
         });
       }
     }

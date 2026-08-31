@@ -1,5 +1,5 @@
 import { peekAcpSessionManager } from "../../acp/index.js";
-import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
   clearAll,
   getConversation,
@@ -522,18 +522,15 @@ export function supersedePendingInteractionsOnEnqueue(
           source: "auto_deny" as const,
         });
         // Sync the gateway request so stale "pending" rows aren't matched
-        // by later guardian reply routing. Fire-and-forget from this sync
-        // path: the in-memory denial is authoritative, and a CAS miss
+        // by later guardian reply routing, and withdraw the request's
+        // delivered approval cards so no surface keeps offering a decision
+        // that can no longer resolve anything. Fire-and-forget from this
+        // sync path: the in-memory denial is authoritative, and a CAS miss
         // (already decided elsewhere) is expected and harmless.
-        void decideGuardianRequest({
-          id: interaction.requestId,
-          expectedStatus: "pending",
+        void syncTerminalGuardianRequestStatus({
+          requestId: interaction.requestId,
           status: "denied",
-        }).catch((err) => {
-          log.warn(
-            { err, requestId: interaction.requestId },
-            "Auto-deny guardian request status sync failed",
-          );
+          syncContext: "supersede-on-enqueue",
         });
       }
     }

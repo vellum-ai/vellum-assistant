@@ -156,3 +156,10 @@ this exists to prevent. Telegram group chats carry the same exposure and are
 not covered: only Slack has a chat whose privacy can be read off its id. They remain load-bearing for that flow, and
 the reply router runs first for everything the pipeline owns. Converge new
 work on the pipeline; do not extend the legacy interception.
+
+Any flow that resolves a confirmation in-memory first (this rail, the in-app
+`/v1/confirm` route, the auto-deny sweeps) brings the gateway row to the
+matching terminal status through `approvals/guardian-request-status-sync.ts`,
+which also runs the same cross-surface card withdrawal the decision primitive
+runs whenever its CAS is the one that landed: no projection of a resolved
+request may stay actionable, whichever rail resolved it.

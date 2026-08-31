@@ -70,6 +70,16 @@ export interface WithdrawGuardianCardsParams {
    */
   originChannel?: string;
   /**
+   * Conversation the in-app decision was made from, when `originChannel` is
+   * `vellum`. The same request projects a card into several conversations
+   * (the vellum card plus each channel card's paired conversation), and only
+   * the acting conversation's client holds the optimistic completion the
+   * broadcast suppression exists to protect; every sibling projection still
+   * needs its live `ui_surface_complete`. Absent, every in-app projection is
+   * treated as the acting one (the pre-existing conservative behavior).
+   */
+  originConversationId?: string;
+  /**
    * The action the guardian took, when the terminal status came from a decision
    * (omitted for the expiry sweep). A `denied` status can mean either a neutral
    * park (`leave_unverified`) or an active rejection (`block`/`reject`); the
@@ -107,6 +117,7 @@ export async function withdrawGuardianRequestCards(
     request,
     status,
     originChannel,
+    originConversationId,
     decidedAction,
     hasOriginGuardianReply,
   } = params;
@@ -129,17 +140,26 @@ export async function withdrawGuardianRequestCards(
     }
     let withdrawn = false;
     try {
+      // Every delivery can carry two projections of the same card: the
+      // channel-native message, and the in-app rendering of the conversation
+      // the delivery was paired with (`destinationConversationId`; the
+      // decision engine injects the same actionable seed blocks into every
+      // channel's copy). Withdrawal must settle both, or the in-app
+      // projection of a channel card keeps live Approve/Reject buttons after
+      // the decision (LUM-3489).
+      const inAppWithdrawn = completeInAppProjection(
+        request,
+        delivery,
+        status,
+        originChannel,
+        originConversationId,
+        decidedAction,
+      );
       if (delivery.destinationChannel === "vellum") {
-        withdrawn = withdrawVellumCard(
-          request,
-          delivery,
-          status,
-          originChannel,
-          decidedAction,
-        );
+        withdrawn = inAppWithdrawn;
       } else if (delivery.destinationChannel === "slack") {
         await withdrawSlackCard(request, delivery, status, decidedAction);
-        withdrawn = true;
+        withdrawn = inAppWithdrawn;
       } else if (delivery.destinationChannel === "telegram") {
         const telegram = await withdrawTelegramCard(
           delivery,
@@ -148,17 +168,17 @@ export async function withdrawGuardianRequestCards(
           decidedAction,
           hasOriginGuardianReply ?? false,
         );
-        withdrawn = telegram.complete;
+        withdrawn = telegram.complete && inAppWithdrawn;
       } else if (delivery.destinationChannel === "discord") {
         await withdrawDiscordCard(delivery, status, decidedAction);
-        withdrawn = true;
+        withdrawn = inAppWithdrawn;
       } else {
         // WhatsApp direct delivery can't edit a message in place (it would
         // post a new one), so its stale clicks are left to the existing
         // "already resolved" reply until in-place edit support lands.
-        // Nothing a retry could fix, so the row is marked rather than
-        // allowed to pin its request.
-        withdrawn = true;
+        // Nothing a channel retry could fix, so only the in-app projection
+        // gates the row rather than letting it pin its request.
+        withdrawn = inAppWithdrawn;
       }
     } catch (err) {
       log.warn(
@@ -193,8 +213,12 @@ export async function withdrawGuardianRequestCards(
 }
 
 /**
- * Withdraw the in-app approval card so it stops offering live actions while
- * keeping its content.
+ * Complete a delivery's in-app card projection so it stops offering live
+ * actions while keeping its content. Applies to every delivery that records a
+ * paired conversation, not only the vellum card: a channel delivery's paired
+ * conversation renders the same actionable card in-app, and the channel edit
+ * alone leaves that projection clickable. No-ops (successfully) when the
+ * delivery recorded no conversation.
  *
  * The completion is always persisted onto the card's `ui_surface` block. The
  * acting client's optimistic completion is in-memory only, so without this write
@@ -204,13 +228,16 @@ export async function withdrawGuardianRequestCards(
  * The `ui_surface_complete` broadcast is the only origin-sensitive half: when the
  * decision came from in-app, the acting client is already showing the resolver's
  * guardian-facing reply, and broadcasting the canonical status label back would
- * replace that richer summary mid-session.
+ * replace that richer summary mid-session. When the acting conversation is
+ * known (`originConversationId`), only that conversation's broadcast is
+ * suppressed; sibling projections still need theirs to converge live.
  */
-function withdrawVellumCard(
+function completeInAppProjection(
   request: WithdrawableGuardianRequest,
   delivery: GuardianRequestDeliveryWire,
   status: GuardianRequestStatus,
   originChannel: string | undefined,
+  originConversationId: string | undefined,
   decidedAction: ApprovalAction | undefined,
 ): boolean {
   if (!delivery.destinationConversationId) {
@@ -224,7 +251,11 @@ function withdrawVellumCard(
   // A false here is a failed durable write: after a reload the persisted
   // block would revert to a pending, clickable card, so it must hold the
   // expiry sweep's receipt back and be retried.
-  if (originChannel === "vellum") {
+  if (
+    originChannel === "vellum" &&
+    (!originConversationId ||
+      delivery.destinationConversationId === originConversationId)
+  ) {
     return markSurfaceCompleted(
       { conversationId: delivery.destinationConversationId },
       surfaceId,

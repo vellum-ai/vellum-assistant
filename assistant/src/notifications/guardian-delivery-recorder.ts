@@ -24,6 +24,7 @@ import { DELIVERY_STATUS } from "@vellumai/gateway-client";
 
 import {
   createGuardianRequestDelivery,
+  getGuardianRequestOrNull,
   type GuardianRequestDeliveryWire,
   updateGuardianRequestDelivery,
 } from "../channels/gateway-guardian-requests.js";
@@ -164,5 +165,37 @@ export async function recordGuardianRequestDeliveries(params: {
     }
   }
 
+  await withdrawIfRequestAlreadyTerminal(requestId);
+
   return vellumDeliveryId;
+}
+
+/**
+ * Close the delivery/decision race: recording happens after the notification
+ * pipeline finishes, so a guardian who acts on a card the moment it lands can
+ * resolve the request before its delivery rows exist. That decision's
+ * withdrawal pass then finds nothing to withdraw, and the rows recorded here
+ * would describe live cards for an already-terminal request. Re-running
+ * withdrawal after recording converges them; rows a prior pass already
+ * withdrew are skipped, so the overlap never re-edits a surface.
+ *
+ * Best-effort like the rest of the recorder; the decided action isn't
+ * recoverable here, so denied outcomes render the plain status word.
+ */
+async function withdrawIfRequestAlreadyTerminal(
+  requestId: string,
+): Promise<void> {
+  const request = await getGuardianRequestOrNull(requestId);
+  if (!request || request.status === "pending") {
+    return;
+  }
+  // Imported at call time: the withdrawal module reaches the daemon's
+  // conversation-surface graph, and a static import here would put this
+  // recorder (imported by the guardian-request producers) into that cycle.
+  const { withdrawGuardianRequestCards } =
+    await import("../approvals/guardian-card-withdrawal.js");
+  await withdrawGuardianRequestCards({
+    request,
+    status: request.status,
+  });
 }

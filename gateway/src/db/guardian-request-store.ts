@@ -669,9 +669,6 @@ export function updateDelivery(
   const now = Date.now();
 
   const setValues: Record<string, unknown> = { updatedAt: now };
-  if (updates.status !== undefined) {
-    setValues.status = updates.status;
-  }
   if (updates.destinationMessageId !== undefined) {
     setValues.destinationMessageId = updates.destinationMessageId;
   }
@@ -680,6 +677,23 @@ export function updateDelivery(
     .set(setValues)
     .where(eq(guardianRequestDeliveries.id, id))
     .run();
+
+  // `withdrawn` is the terminal per-surface receipt that a card was durably
+  // withdrawn, preserved here the same way the per-request expire preserves
+  // it: delivery recording lands its sent/failed status patch after the
+  // broadcast settles, so a decision racing that window would otherwise
+  // overwrite the receipt and re-describe an already-withdrawn card as live.
+  if (updates.status !== undefined) {
+    db.update(guardianRequestDeliveries)
+      .set({ status: updates.status, updatedAt: now })
+      .where(
+        and(
+          eq(guardianRequestDeliveries.id, id),
+          ne(guardianRequestDeliveries.status, DELIVERY_STATUS.withdrawn),
+        ),
+      )
+      .run();
+  }
 
   const row = db
     .select()
