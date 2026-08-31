@@ -22,7 +22,12 @@ import type {
   SendResult,
 } from "../../provider-types.js";
 import * as gmail from "./client.js";
-import type { GmailMessage, GmailMessagePart } from "./types.js";
+import {
+  extractHeader,
+  extractPlainTextBody,
+  parseFromHeader,
+} from "./message-fields.js";
+import type { GmailMessage } from "./types.js";
 
 function requireConnection(
   connection: OAuthConnection | undefined,
@@ -35,53 +40,20 @@ function requireConnection(
   return connection;
 }
 
-function extractHeader(msg: GmailMessage, name: string): string {
-  const lower = name.toLowerCase();
-  return (
-    msg.payload?.headers?.find((h) => h.name.toLowerCase() === lower)?.value ??
-    ""
-  );
-}
-
-function extractPlainTextBody(msg: GmailMessage): string {
-  if (!msg.payload) {
-    return "";
-  }
-
-  function walkParts(part: GmailMessagePart): string | null {
-    if (part.mimeType === "text/plain" && part.body?.data) {
-      return Buffer.from(part.body.data, "base64url").toString("utf-8");
-    }
-    if (part.parts) {
-      for (const child of part.parts) {
-        const result = walkParts(child);
-        if (result) {
-          return result;
-        }
-      }
-    }
-    return null;
-  }
-
-  return walkParts(msg.payload) ?? msg.snippet ?? "";
-}
-
 function mapGmailMessage(msg: GmailMessage): Message {
   const from = extractHeader(msg, "From");
   const subject = extractHeader(msg, "Subject");
   const rfc822MessageId = extractHeader(msg, "Message-ID");
 
-  // Parse sender name/email from "Name <email>" format
-  const emailMatch = from.match(/<([^>]+)>/);
-  const senderEmail = emailMatch?.[1] ?? from;
-  const senderName = emailMatch ? from.replace(/<[^>]+>/, "").trim() : from;
+  const { displayName: senderName, address: senderEmail } =
+    parseFromHeader(from);
 
   return {
     id: msg.id,
     conversationId: msg.threadId,
     sender: {
       id: senderEmail,
-      name: senderName || senderEmail,
+      name: senderName,
       email: senderEmail,
     },
     text: extractPlainTextBody(msg),

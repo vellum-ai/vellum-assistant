@@ -13,6 +13,7 @@ import {
   GMAIL_REQUIRED_SCOPES,
   listMessages,
 } from "../../messaging/providers/gmail/client.js";
+import { extractHeader } from "../../messaging/providers/gmail/message-fields.js";
 import type { GmailMessage } from "../../messaging/providers/gmail/types.js";
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
@@ -40,14 +41,6 @@ interface HistoryListResponse {
   history?: HistoryRecord[];
   nextPageToken?: string;
   historyId?: string;
-}
-
-function extractHeader(msg: GmailMessage, name: string): string {
-  return (
-    msg.payload?.headers?.find(
-      (h) => h.name.toLowerCase() === name.toLowerCase(),
-    )?.value ?? ""
-  );
 }
 
 function messageToItem(msg: GmailMessage): WatcherItem {
