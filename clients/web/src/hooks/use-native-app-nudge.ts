@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
 import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 import {
   getLocalBool,
@@ -181,12 +182,14 @@ export function useNativeAppNudgeState(target: NudgeTarget): {
   }, [target]);
 
   const handleDownload = useCallback(() => {
+    emitNativeAppNudgeEvent("click", "banner", target);
     openNativeAppStore(target);
     writeNativeAppDownloaded(target);
     setDownloaded(true);
   }, [target]);
 
   const handleBannerDismiss = useCallback(() => {
+    emitNativeAppNudgeEvent("dismiss", "banner", target);
     writeNativeAppBannerDismissed(target);
     setBannerDismissed(true);
   }, [target]);

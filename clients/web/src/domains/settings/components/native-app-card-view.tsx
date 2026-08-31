@@ -6,6 +6,7 @@ import {
   writeNativeAppDownloaded,
   type NativeAppPromotion,
 } from "@/hooks/use-native-app-nudge";
+import { emitNativeAppNudgeEvent } from "@/utils/native-app-nudge-telemetry";
 import { useTranslation } from "@/i18n";
 
 export interface NativeAppCardViewProps {
@@ -37,6 +38,7 @@ export function NativeAppCardView({ promotion }: NativeAppCardViewProps) {
       ctaLabel={t("nativeAppCard.download")}
       ctaLeftIcon={<Smartphone size={16} />}
       onAction={() => {
+        emitNativeAppNudgeEvent("click", "settings", target);
         writeNativeAppDownloaded(target);
         openNativeAppStore(target);
       }}

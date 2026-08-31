@@ -37,6 +37,10 @@ import {
   useIsMacOSWeb,
   useIsMobileWeb,
 } from "@/runtime/platform-detection";
+import {
+  emitNativeAppNudgeEvent,
+  type NudgeTelemetryTarget,
+} from "@/utils/native-app-nudge-telemetry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -235,6 +239,22 @@ export function useAppNudges(
     bannerEligible &&
     nudge.bannerShouldShow &&
     !hasActiveInteractiveSurface;
+
+  // One impression per page session per target. `showBanner` flickers off and
+  // back whenever an interactive surface claims the slot, so counting every
+  // flip would inflate the denominator the click-through rate divides by.
+  const impressionTargetRef = useRef<NudgeTelemetryTarget | null>(null);
+  useEffect(() => {
+    if (!showBanner) {
+      return;
+    }
+    const impressionTarget: NudgeTelemetryTarget = nudgeTarget ?? "macos";
+    if (impressionTargetRef.current === impressionTarget) {
+      return;
+    }
+    impressionTargetRef.current = impressionTarget;
+    emitNativeAppNudgeEvent("impression", "banner", impressionTarget);
+  }, [showBanner, nudgeTarget]);
 
   // -------------------------------------------------------------------------
   // GitHub star nudge — only after platform nudge is resolved
