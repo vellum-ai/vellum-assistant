@@ -309,7 +309,7 @@
     "finishSetupBody": "Your assistant's email address hasn't been set up yet.",
     "finishSetupButton": "Finish setup",
     "finishSetupTitle": "Finish setting up your {plan} plan",
-    "loadingBillingAriaLabel": "Loading billing…",
+    "loadingLabel": "Loading billing",
     "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
     "usageTab": "Usage"
   },
@@ -1287,7 +1287,6 @@
     "freeForever": "Free Forever",
     "heading": "Plan",
     "loadError": "Failed to load plan.",
-    "loadingAriaLabel": "Loading plan",
     "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",

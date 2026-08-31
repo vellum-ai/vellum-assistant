@@ -61,6 +61,10 @@ let lifecycleIsLoading = false;
 // Drives the platform-session pre-settle window: the gate reports "pending",
 // `usePlatformGate` collapses it to "disabled", and nothing is settled yet.
 let platformSessionPending = false;
+// Local mode with the platform API off: the default gate answers "gated"
+// without consulting the session, so Billing can never win and the pre-settle
+// hold must not run.
+let billingGateGated = false;
 
 const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
@@ -104,6 +108,9 @@ mock.module("@/hooks/use-platform-gate", () => ({
       options?.platformHostedOnly === true &&
       !activeAssistantIsPlatformHosted
     ) {
+      return "gated";
+    }
+    if (billingGateGated) {
       return "gated";
     }
     return platformSessionPending ? "disabled" : "full";
@@ -197,6 +204,7 @@ mock.module("@/domains/settings/components/plan-card", () => ({
   PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
     <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
   ),
+  PlanCardSkeleton: () => <div data-testid="plan-card-skeleton" />,
 }));
 
 const { BillingPage } = await import("./billing-page");
@@ -283,6 +291,7 @@ beforeEach(() => {
   nativeAndroid = false;
   lifecycleIsLoading = false;
   platformSessionPending = false;
+  billingGateGated = false;
   activeAssistantIsPlatformHosted = true;
   setupIntentReturnUnmounts = 0;
 });
@@ -560,9 +569,14 @@ describe("BillingTab lifecycle loading", () => {
     expect(
       stack.querySelectorAll('[data-slot="skeleton"]').length,
     ).toBeGreaterThan(0);
-    expect(stack.getAttribute("aria-label")).toBe("Loading billing\u2026");
+    // The plan block is the card's own skeleton, not a generic stand-in, so
+    // the stack is as tall as what replaces it.
+    expect(
+      stack.querySelector('[data-testid="plan-card-skeleton"]'),
+    ).toBeTruthy();
+    expect(stack.getAttribute("aria-label")).toBe("Loading billing");
     // The loading copy exists only as the aria-label above, never as visible text.
-    expect(queryByText("Loading billing\u2026")).toBeNull();
+    expect(queryByText("Loading billing")).toBeNull();
     expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
     // The real tab chrome is already mounted here, so the lifecycle window
     // never needs the page-level stand-in.
@@ -587,10 +601,13 @@ describe("BillingPage platform-session pre-settle hold", () => {
     const panel = stack.closest('[data-slot="tabs-panel"]');
     expect(panel).toBeTruthy();
     expect(panel?.className).toContain("pt-4");
-    // The tab-bar stand-ins hold space only: they stay out of the
-    // accessibility tree, so the card stack is still the one announced region.
-    expect(tabList?.getAttribute("aria-hidden")).toBe("true");
-    const announced = shell.querySelectorAll('[role="status"][aria-label]');
+    // The tab bar is the real one: both triggers carry their labels and stay
+    // in the accessibility tree, so the hold is navigable rather than frozen.
+    expect(tabList?.hasAttribute("aria-hidden")).toBe(false);
+    expect(tabList?.textContent).toContain("Billing");
+    expect(tabList?.textContent).toContain("Usage");
+    // The card stack is the only announced region on the page.
+    const announced = shell.querySelectorAll('[role="status"]');
     expect(announced.length).toBe(1);
     expect(announced[0]).toBe(stack);
     // The Usage tree would otherwise mount its own skeletons here, only to be
@@ -636,5 +653,35 @@ describe("BillingPage platform-session pre-settle hold", () => {
     expect(getByTestId("loc").textContent).toBe(
       "/assistant/settings/usage?tab=billing",
     );
+  });
+
+  test("lets a click on Usage leave the hold without waiting for the probe", async () => {
+    platformSessionPending = true;
+    const { getByText, getByTestId, queryByTestId } = renderPage("");
+
+    expect(getByTestId("billing-page-skeleton")).toBeTruthy();
+
+    // Radix tab triggers select on mousedown, not on a synthesized click.
+    fireEvent.mouseDown(getByText("Usage"));
+
+    await waitFor(() => expect(getByTestId("usage-tab")).toBeTruthy());
+    expect(queryByTestId("billing-page-skeleton")).toBeNull();
+    expect(queryByTestId("billing-tab-skeleton")).toBeNull();
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/settings/usage?tab=usage",
+    );
+  });
+
+  test("skips the hold when the gate already rules Billing out", () => {
+    // Local mode with the platform API off: `shouldShowBillingTab` answers
+    // "no" whatever the probe returns, so holding would only stall the tab
+    // this viewer is actually going to.
+    billingGateGated = true;
+    platformSessionPending = true;
+    const { getByTestId, queryByTestId } = renderPage("");
+
+    expect(getByTestId("usage-tab")).toBeTruthy();
+    expect(queryByTestId("billing-page-skeleton")).toBeNull();
+    expect(queryByTestId("billing-tab-skeleton")).toBeNull();
   });
 });

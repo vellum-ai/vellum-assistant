@@ -95,17 +95,15 @@ function PlanHeading() {
  * Stand-in for the resolved card: a plan-name row, the renewal line, the usage
  * bar and the two plan tiles, so the card holds its height while the
  * subscription and plan catalog land.
+ *
+ * Presentational: the surface that mounts it owns the loading announcement, so
+ * this emits no live region of its own.
  */
-function PlanCardSkeleton() {
-  const { t } = useTranslation("settings");
+export function PlanCardSkeleton() {
   return (
     <Card padding="md">
       <PlanHeading />
-      <div
-        role="status"
-        aria-label={t("planCard.loadingAriaLabel")}
-        className="mt-4 flex flex-col gap-4"
-      >
+      <div className="mt-4 flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <Skeleton aria-hidden className="h-6 w-40 rounded-md" />
           <Skeleton aria-hidden className="h-4 w-56 rounded-md" />
