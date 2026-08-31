@@ -12,6 +12,11 @@
  *  - a server-rejected clear renders the DRF field error, not the generic copy
  *  - an errored auto top-up query fails open so the toggle still clears the
  *    limit, including when the error lands on top of stale cached data
+ *  - a pending limit query renders shimmer rows, not loading copy, and the
+ *    deep-link scroll still waits for that content
+ *  - the skeleton also holds while the billing-summary or auto top-up query is
+ *    still pending, so the card reveals once at its final height
+ *  - a failed sibling query settles the skeleton instead of stranding it
  *  - `validateDailyLimit` bounds checks (pure)
  *  - the exported anchor id stays in sync with the deep-link route constant
  *
@@ -49,6 +54,12 @@ let limitResponse: DailyCreditLimitResponse;
 let summaryResponse: BillingSummaryResponse;
 let autoTopUpResponse: AutoTopUpConfigResponse;
 let autoTopUpShouldFail = false;
+let summaryShouldFail = false;
+// Hold a GET unresolved so the card stays in its loading branch. One flag per
+// query, because the reveal now waits for all three.
+let limitRetrieveNeverSettles = false;
+let summaryRetrieveNeverSettles = false;
+let autoTopUpRetrieveNeverSettles = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -70,15 +81,27 @@ mock.module("@/generated/api/sdk.gen", () => ({
     });
   },
   organizationsBillingAutoTopUpRetrieve: () => {
+    if (autoTopUpRetrieveNeverSettles) {
+      return new Promise(() => {});
+    }
     if (autoTopUpShouldFail) {
       return Promise.reject(new Error("auto top-up unavailable"));
     }
     return Promise.resolve({ data: autoTopUpResponse, response: { ok: true } });
   },
   organizationsBillingDailyCreditLimitRetrieve: () =>
-    Promise.resolve({ data: limitResponse, response: { ok: true } }),
-  organizationsBillingSummaryRetrieve: () =>
-    Promise.resolve({ data: summaryResponse, response: { ok: true } }),
+    limitRetrieveNeverSettles
+      ? new Promise(() => {})
+      : Promise.resolve({ data: limitResponse, response: { ok: true } }),
+  organizationsBillingSummaryRetrieve: () => {
+    if (summaryRetrieveNeverSettles) {
+      return new Promise(() => {});
+    }
+    if (summaryShouldFail) {
+      return Promise.reject(new Error("summary unavailable"));
+    }
+    return Promise.resolve({ data: summaryResponse, response: { ok: true } });
+  },
   organizationsBillingDailyCreditLimitSkipTodayDestroy: (
     opts: Record<string, unknown>,
   ) => {
@@ -167,13 +190,24 @@ const SUMMARY: BillingSummaryResponse = {
   next_credit_expiry_at: null,
 };
 
-function makeClient(
-  config: DailyCreditLimitResponse,
-  autoTopUp?: AutoTopUpConfigResponse,
-): QueryClient {
-  const client = new QueryClient({
+/** No retries, so a rejected mock surfaces on the first attempt. */
+function newClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+}
+
+/**
+ * Leaves the auto top-up query unseeded so the mocked GET drives it from
+ * scratch, for the tests that exercise that query's own pending or error path.
+ */
+const UNSEEDED = "unseeded";
+
+function makeClient(
+  config: DailyCreditLimitResponse,
+  autoTopUp: AutoTopUpConfigResponse | typeof UNSEEDED = AUTO_TOP_UP_OFF,
+): QueryClient {
+  const client = newClient();
   client.setQueryData(
     organizationsBillingDailyCreditLimitRetrieveQueryKey(),
     config,
@@ -182,7 +216,7 @@ function makeClient(
     organizationsBillingSummaryRetrieveQueryKey(),
     summaryResponse,
   );
-  if (autoTopUp) {
+  if (autoTopUp !== UNSEEDED) {
     client.setQueryData(
       organizationsBillingAutoTopUpRetrieveQueryKey(),
       autoTopUp,
@@ -192,16 +226,18 @@ function makeClient(
 }
 
 /**
- * Render the card with the daily-limit and billing-summary GETs pre-seeded.
- * `autoTopUp` seeds the auto top-up GET too (and backs its refetch). Omit it to
- * leave that query unseeded, so the mocked GET drives it from scratch.
+ * Render the card with the daily-limit, billing-summary and auto top-up GETs
+ * pre-seeded. All three are load-bearing: the card holds its skeleton until
+ * every query that shapes a row has settled, so a test asserting synchronously
+ * needs each of them already in the cache. Pass `UNSEEDED` to leave the auto
+ * top-up query to the mocked GET instead.
  */
 function renderCard(
   config: DailyCreditLimitResponse,
-  autoTopUp?: AutoTopUpConfigResponse,
+  autoTopUp: AutoTopUpConfigResponse | typeof UNSEEDED = AUTO_TOP_UP_OFF,
 ): ReturnType<typeof render> & { client: QueryClient } {
   limitResponse = config;
-  if (autoTopUp) {
+  if (autoTopUp !== UNSEEDED) {
     autoTopUpResponse = autoTopUp;
   }
   const client = makeClient(config, autoTopUp);
@@ -254,6 +290,10 @@ beforeEach(() => {
   summaryResponse = { ...SUMMARY };
   autoTopUpResponse = { ...AUTO_TOP_UP_OFF };
   autoTopUpShouldFail = false;
+  summaryShouldFail = false;
+  limitRetrieveNeverSettles = false;
+  summaryRetrieveNeverSettles = false;
+  autoTopUpRetrieveNeverSettles = false;
 });
 
 afterEach(cleanup);
@@ -488,7 +528,7 @@ describe("DailyCreditLimitCard auto top-up dependency", () => {
 
   test("fails open when the auto top-up query errors", async () => {
     autoTopUpShouldFail = true;
-    const { client, getByRole, queryByTestId } = renderCard(ON);
+    const { client, getByRole, queryByTestId } = renderCard(ON, UNSEEDED);
 
     await settleAutoTopUpError(client);
 
@@ -533,5 +573,139 @@ describe("DailyCreditLimitCard auto top-up dependency", () => {
       }
     });
     expect(updateCalls[0]!.body).toEqual({ daily_credit_limit_usd: null });
+  });
+});
+
+describe("DailyCreditLimitCard loading state", () => {
+  /** Render inside the anchor container `BillingPanel` wraps the card in. */
+  function renderAtAnchor(client: QueryClient): ReturnType<typeof render> {
+    return render(
+      <QueryClientProvider client={client}>
+        <div id={DAILY_CREDIT_LIMIT_ANCHOR_ID}>
+          <DailyCreditLimitCard />
+        </div>
+      </QueryClientProvider>,
+    );
+  }
+
+  /** Seed every query except the one whose pending state is under test. */
+  function clientWithout(pending: "summary" | "autoTopUp"): QueryClient {
+    const client = newClient();
+    client.setQueryData(
+      organizationsBillingDailyCreditLimitRetrieveQueryKey(),
+      OFF,
+    );
+    if (pending !== "summary") {
+      client.setQueryData(
+        organizationsBillingSummaryRetrieveQueryKey(),
+        summaryResponse,
+      );
+    }
+    if (pending !== "autoTopUp") {
+      client.setQueryData(
+        organizationsBillingAutoTopUpRetrieveQueryKey(),
+        AUTO_TOP_UP_OFF,
+      );
+    }
+    return client;
+  }
+
+  test("a pending limit renders shimmer rows, not loading copy", () => {
+    limitRetrieveNeverSettles = true;
+    const { getByTestId } = renderAtAnchor(newClient());
+
+    const card = getByTestId("daily-credit-limit-card");
+    expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBe(2);
+    expect(
+      card.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Loading daily credit limit settings");
+    expect(card.textContent).toBe("");
+  });
+
+  test("a resolved limit keeps the skeleton while the summary is pending", () => {
+    // The summary carries `daily_limit_reached` / `daily_limit_snoozed`, so
+    // revealing on the limit alone lets those notices append after the fade in
+    // and grow the Credits card a second time.
+    summaryRetrieveNeverSettles = true;
+    const { getByTestId, queryByRole } = renderAtAnchor(
+      clientWithout("summary"),
+    );
+
+    expect(queryByRole("switch")).toBeNull();
+    expect(
+      getByTestId("daily-credit-limit-card").querySelectorAll(
+        '[data-slot="skeleton"]',
+      ).length,
+    ).toBe(2);
+  });
+
+  test("a resolved limit keeps the skeleton while auto top-up is pending", () => {
+    // Auto top-up decides the required note, another row that would otherwise
+    // land after the reveal.
+    autoTopUpRetrieveNeverSettles = true;
+    const { getByTestId, queryByRole } = renderAtAnchor(
+      clientWithout("autoTopUp"),
+    );
+
+    expect(queryByRole("switch")).toBeNull();
+    expect(
+      getByTestId("daily-credit-limit-card").querySelectorAll(
+        '[data-slot="skeleton"]',
+      ).length,
+    ).toBe(2);
+  });
+
+  test("a failed summary settles the reveal instead of stranding it", async () => {
+    // Settled-with-error is settled: the card already falls back to the limit
+    // payload for today's spend, so a broken summary must not hold the
+    // skeleton open forever.
+    summaryShouldFail = true;
+    const { queryByRole } = renderAtAnchor(clientWithout("summary"));
+
+    await waitFor(() => {
+      if (queryByRole("switch") == null) {
+        throw new Error("the card never revealed after the summary failed");
+      }
+    });
+  });
+
+  test("the deep-link scroll still waits for the resolved card", async () => {
+    // The skeleton is the same node the anchor points at, so scrolling to it
+    // while the card is still loading would land the user above content that
+    // has not taken its final height yet.
+    const proto = window.Element.prototype;
+    const originalScroll = proto.scrollIntoView;
+    const originalHash = window.location.hash;
+    let scrolls = 0;
+    proto.scrollIntoView = function countScroll(): void {
+      scrolls += 1;
+    };
+    window.location.hash = `#${DAILY_CREDIT_LIMIT_ANCHOR_ID}`;
+
+    try {
+      limitRetrieveNeverSettles = true;
+      renderAtAnchor(newClient());
+      expect(scrolls).toBe(0);
+      cleanup();
+
+      // A resolved limit alone is not the final height either: the summary can
+      // still append the reached or skipped notice below the anchor.
+      limitRetrieveNeverSettles = false;
+      summaryRetrieveNeverSettles = true;
+      renderAtAnchor(clientWithout("summary"));
+      expect(scrolls).toBe(0);
+      cleanup();
+
+      summaryRetrieveNeverSettles = false;
+      renderAtAnchor(makeClient(OFF));
+      await waitFor(() => {
+        if (scrolls === 0) {
+          throw new Error("the resolved card never scrolled to the anchor");
+        }
+      });
+    } finally {
+      proto.scrollIntoView = originalScroll;
+      window.location.hash = originalHash;
+    }
   });
 });

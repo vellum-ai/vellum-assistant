@@ -4,6 +4,7 @@
  *  - saving a new value PUTs the two-decimal threshold body
  *  - "Reset to default" PUTs `threshold_usd: null` to clear the override
  *  - out-of-bounds input shows an inline error and does NOT call the API
+ *  - an unseeded (pending) query renders a shimmer row, not loading copy
  *
  * The GET is seeded directly into the React Query cache so `useQuery` resolves
  * synchronously; the PUT SDK function is mocked to capture the request body.
@@ -33,6 +34,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  // Never settles: the seeded cases already have their data, and the pending
+  // case wants the card held in its loading branch.
+  organizationsBillingLowBalanceAlertRetrieve: () => new Promise(() => {}),
 }));
 
 import { organizationsBillingLowBalanceAlertRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
@@ -40,19 +44,22 @@ import type { LowBalanceAlertResponse } from "@/generated/api/types.gen";
 
 const { LowBalanceAlertCard } = await import("./low-balance-alert-card");
 
-function makeClient(config: LowBalanceAlertResponse): QueryClient {
+function makeClient(config: LowBalanceAlertResponse | null): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  client.setQueryData(
-    organizationsBillingLowBalanceAlertRetrieveQueryKey(),
-    config,
-  );
+  if (config) {
+    client.setQueryData(
+      organizationsBillingLowBalanceAlertRetrieveQueryKey(),
+      config,
+    );
+  }
   return client;
 }
 
+/** Pass `null` to leave the cache empty, which holds the query pending. */
 function renderCard(
-  config: LowBalanceAlertResponse,
+  config: LowBalanceAlertResponse | null,
 ): ReturnType<typeof render> {
   return render(
     <QueryClientProvider client={makeClient(config)}>
@@ -105,6 +112,17 @@ describe("LowBalanceAlertCard", () => {
       }
     });
     expect(updateCalls[0]!.body).toEqual({ threshold_usd: null });
+  });
+
+  test("a pending query renders a shimmer row, not loading copy", () => {
+    const { getByTestId } = renderCard(null);
+
+    const card = getByTestId("low-balance-alert-card");
+    expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBe(1);
+    expect(
+      card.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Loading low-balance alert settings");
+    expect(card.textContent).toBe("");
   });
 
   test("out-of-bounds input shows an error and does not call the API", () => {

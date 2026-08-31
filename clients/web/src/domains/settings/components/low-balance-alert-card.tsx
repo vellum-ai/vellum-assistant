@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import {
   organizationsBillingLowBalanceAlertRetrieveOptions,
   organizationsBillingLowBalanceAlertRetrieveQueryKey,
@@ -61,9 +63,12 @@ export function LowBalanceAlertCard() {
   if (alertQuery.isLoading) {
     return (
       <div data-testid="low-balance-alert-card">
-        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("lowBalanceAlertCard.loading")}
-        </p>
+        <SkeletonLines
+          lines={1}
+          lineClassName="h-14"
+          className="w-60 max-w-full"
+          label={t("lowBalanceAlertCard.loadingLabel")}
+        />
       </div>
     );
   }
@@ -124,7 +129,7 @@ export function LowBalanceAlertCard() {
   const showGenericError = updateMutation.isError;
   const visibleError = touched ? clientError : undefined;
 
-  return (
+  const cardBody = (
     <div data-testid="low-balance-alert-card">
       <div className="flex flex-wrap items-start gap-2">
         <div className="w-60 max-w-full">
@@ -181,4 +186,6 @@ export function LowBalanceAlertCard() {
       )}
     </div>
   );
+
+  return <ContentReveal>{cardBody}</ContentReveal>;
 }

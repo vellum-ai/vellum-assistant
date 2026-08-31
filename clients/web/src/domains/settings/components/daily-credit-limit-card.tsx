@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import { extractDrfFieldErrors } from "@/domains/settings/utils/drf-errors";
 import {
   organizationsBillingDailyCreditLimitRetrieveOptions,
@@ -78,13 +80,20 @@ export function DailyCreditLimitCard() {
   );
   const resumeMutation = useResumeDailyLimit();
 
-  // Deep links (`#daily-credit-limit`) land here once both queries have
-  // settled, so the content above the anchor has taken its final height
-  // before we scroll.
-  useScrollToAnchor(
-    DAILY_CREDIT_LIMIT_ANCHOR_ID,
-    !limitQuery.isLoading && !summaryQuery.isLoading,
-  );
+  // Every one of these can add or remove a row, so the skeleton holds until
+  // all three settle: revealing on the limit query alone lets the auto top-up
+  // note or the reached/skipped notices land afterwards and grow the card a
+  // second time. A failure counts as settled, since each has its own fallback
+  // below (the summary falls back to the limit payload, auto top-up fails
+  // open). `isPending` rather than `isLoading` for the auto top-up config: it
+  // idles with no data until the org store is ready, and that gap is loading.
+  const layoutQueriesPending =
+    limitQuery.isPending || summaryQuery.isPending || autoTopUpQuery.isPending;
+
+  // Deep links (`#daily-credit-limit`) land here once the card has revealed,
+  // so the content above the anchor has taken its final height before we
+  // scroll.
+  useScrollToAnchor(DAILY_CREDIT_LIMIT_ANCHOR_ID, !layoutQueriesPending);
 
   // `draft === null` means "not yet edited"; seed from the query below. Tracking
   // the edited value separately keeps the input controlled without an effect
@@ -95,23 +104,30 @@ export function DailyCreditLimitCard() {
   // amount. `null` limit + `pendingEnable` shows the input without a value yet.
   const [pendingEnable, setPendingEnable] = useState(false);
 
-  if (limitQuery.isLoading) {
+  const loadErrorCard = (
+    <div data-testid="daily-credit-limit-card">
+      <Notice tone="error">{t("dailyCreditLimitCard.loadError")}</Notice>
+    </div>
+  );
+
+  // A failed limit query is terminal for this card, so it skips the wait
+  // above: the siblings only shape rows this render will never reach.
+  if (limitQuery.isError) {
+    return loadErrorCard;
+  }
+  if (layoutQueriesPending) {
     return (
       <div data-testid="daily-credit-limit-card">
-        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          {t("dailyCreditLimitCard.loading")}
-        </p>
+        <SkeletonLines
+          lines={2}
+          lineClassName="h-6"
+          label={t("dailyCreditLimitCard.loadingLabel")}
+        />
       </div>
     );
   }
-  if (limitQuery.isError || !limitQuery.data) {
-    return (
-      <div data-testid="daily-credit-limit-card">
-        <Notice tone="error">
-          {t("dailyCreditLimitCard.loadError")}
-        </Notice>
-      </div>
-    );
+  if (!limitQuery.data) {
+    return loadErrorCard;
   }
 
   const config = limitQuery.data;
@@ -209,12 +225,10 @@ export function DailyCreditLimitCard() {
   ).daily_credit_limit_usd;
   const saveError =
     serverLimitError ??
-    (updateMutation.isError
-      ? t("dailyCreditLimitCard.saveError")
-      : undefined);
+    (updateMutation.isError ? t("dailyCreditLimitCard.saveError") : undefined);
   const visibleError = touched ? clientError : undefined;
 
-  return (
+  const cardBody = (
     <div data-testid="daily-credit-limit-card">
       <div className="flex flex-col gap-4">
         <Toggle
@@ -346,4 +360,6 @@ export function DailyCreditLimitCard() {
       )}
     </div>
   );
+
+  return <ContentReveal>{cardBody}</ContentReveal>;
 }

@@ -28,6 +28,7 @@
  *    so no second modal can stack on the one that outcome replays into.
  *  - The modal's `onSavedOptimistic` resolves with the synced card, which is
  *    what titles its success panel.
+ *  - A pending config renders shimmer rows rather than loading copy.
  *
  * Strategy: the render-only cases pre-populate the React Query cache so the
  * card's `useQuery` resolves synchronously — `renderToStaticMarkup` is
@@ -83,6 +84,8 @@ let retrieveResponse: AutoTopUpConfigResponse;
 // back null.
 let updateResponse: AutoTopUpConfigResponse | null = null;
 let dailyLimitResponse: DailyCreditLimitResponse;
+// Holds the config GET unresolved so the card stays in its loading branch.
+let retrieveNeverSettles = false;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -96,7 +99,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
     });
   },
   organizationsBillingAutoTopUpRetrieve: () =>
-    Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
+    retrieveNeverSettles
+      ? new Promise(() => {})
+      : Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
   // The real disable response only echoes the enabled bit, which is what makes
   // the card seed the cache from `DISABLED_CONFIG` instead.
   organizationsBillingAutoTopUpDisableCreate: () =>
@@ -170,13 +175,14 @@ const { AutoTopUpCard, DISABLED_CONFIG } = await import("./auto-top-up-card");
 const { useSetupIntentReturnStore } =
   await import("@/domains/settings/setup-intent-return-store");
 
+/** No retries, so a rejected mock surfaces on the first attempt. */
+const EAGER = {
+  queries: { retry: false },
+  mutations: { retry: false },
+} as const;
+
 function makeClient(config: AutoTopUpConfigResponse): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
+  const client = new QueryClient({ defaultOptions: EAGER });
   client.setQueryData(organizationsBillingAutoTopUpRetrieveQueryKey(), config);
   client.setQueryData(
     organizationsBillingDailyCreditLimitRetrieveQueryKey(),
@@ -299,6 +305,7 @@ beforeEach(() => {
   openedUrl = null;
   pmModalProps = null;
   updateResponse = null;
+  retrieveNeverSettles = false;
   useSetupIntentReturnStore.setState({ pending: false, outcome: null });
   retrieveResponse = { ...DISABLED_CONFIG };
   dailyLimitResponse = {
@@ -311,6 +318,22 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe("AutoTopUpCard loading state", () => {
+  test("a pending config renders shimmer rows, not loading copy", () => {
+    retrieveNeverSettles = true;
+    const { getByTestId } = render(
+      wrap(DISABLED_CONFIG, "/", new QueryClient({ defaultOptions: EAGER })),
+    );
+
+    const card = getByTestId("auto-top-up-card");
+    expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBe(2);
+    expect(
+      card.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Loading auto-reload settings");
+    expect(card.textContent).toBe("");
+  });
+});
 
 describe("AutoTopUpCard enabled-state layout", () => {
   test("renders both summary chips and Adjust swaps them for the form", () => {
@@ -597,9 +620,7 @@ describe("AutoTopUpCard enable gate", () => {
     // The pending enable continues into the configure form; the toggle stays
     // visually on (still pendingEnable until Save persists).
     await waitFor(() => {
-      if (
-        !container.querySelector('[data-testid="auto-top-up-save-button"]')
-      ) {
+      if (!container.querySelector('[data-testid="auto-top-up-save-button"]')) {
         throw new Error("form did not open after the card appeared");
       }
     });
@@ -641,9 +662,7 @@ describe("AutoTopUpCard enable gate", () => {
     );
 
     await waitFor(() => {
-      if (
-        !container.querySelector('[data-testid="auto-top-up-save-button"]')
-      ) {
+      if (!container.querySelector('[data-testid="auto-top-up-save-button"]')) {
         throw new Error("form did not open after the cutoff cleared");
       }
     });

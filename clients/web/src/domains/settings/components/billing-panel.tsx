@@ -1,4 +1,4 @@
-import { Coins, Loader2 } from "lucide-react";
+import { Coins } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,10 +15,12 @@ import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { useTranslation } from "@/i18n";
 import { BillingSectionHeader } from "./billing-section-header";
+import { ContentReveal } from "./content-reveal";
 import {
   DAILY_CREDIT_LIMIT_ANCHOR_ID,
   DailyCreditLimitCard,
@@ -166,10 +168,19 @@ export function BillingPanel() {
 
   const renderBalanceBody = (): ReactNode => {
     if (isLoading) {
+      // Built from the resolved tile so the placeholder is exactly as tall as
+      // the balance it stands in for.
       return (
-        <div className="mt-4 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("billingPanel.loading")}
+        <div
+          className="mt-4"
+          role="status"
+          aria-label={t("billingPanel.loadingLabel")}
+        >
+          <StatSquare
+            icon={<Skeleton aria-hidden className="h-4 w-4 rounded-sm" />}
+            value={<Skeleton aria-hidden className="h-5 w-28 rounded-md" />}
+            label={<Skeleton aria-hidden className="h-4 w-24 rounded-md" />}
+          />
         </div>
       );
     }
@@ -188,14 +199,14 @@ export function BillingPanel() {
       );
     }
     return (
-      <>
+      <ContentReveal>
         {renderBalanceBox()}
         {summary.is_degraded && (
           <div className="mt-4">
             <Notice tone="warning">{t("billingPanel.degradedNotice")}</Notice>
           </div>
         )}
-      </>
+      </ContentReveal>
     );
   };
 
