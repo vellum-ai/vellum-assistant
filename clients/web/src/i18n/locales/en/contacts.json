@@ -173,8 +173,6 @@
   "voiceprint": {
     "title": "Voice",
     "subtitle": "Recognizes this contact when they speak. Never used to grant access.",
-    "enroll": "Record voice",
-    "reenroll": "Re-record",
     "enrolling": "Enrolling…",
     "check": "Check a voice",
     "checking": "Checking…",
@@ -185,6 +183,10 @@
     "bestMatch": "{name} · {score}",
     "noMatch": "No match above {threshold}",
     "micDenied": "Microphone unavailable",
-    "recordFailed": "Could not process that recording"
+    "recordFailed": "Could not process that recording",
+    "captured": "{count} of {total} recorded",
+    "startOver": "Start over",
+    "deleteConfirmTitle": "Delete this voice profile?",
+    "deleteConfirmMessage": "This contact will no longer be recognized by voice. Recording a new profile takes about a minute."
   }
 }

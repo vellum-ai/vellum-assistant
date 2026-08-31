@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 import { useTranslation } from "@/i18n";
 import {
@@ -56,6 +57,7 @@ export function ContactVoiceprintSection({
 }: ContactVoiceprintSectionProps) {
   const { t } = useTranslation("contacts");
   const [phase, setPhase] = useState<Phase>("idle");
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // Which flow the in-flight recording feeds once stopped.
@@ -139,6 +141,28 @@ export function ContactVoiceprintSection({
     onEnroll(clips);
   }, [captured, intent, onEnroll, onIdentify, stopTimer, t]);
 
+  /**
+   * Drop the in-flight recording without feeding it to a flow.
+   *
+   * Without this the only exit from a recording is Stop, which is disabled
+   * until MIN_SECONDS, so a clip that captured the wrong thing has to be
+   * finished before it can be redone.
+   */
+  const cancelRecording = useCallback(() => {
+    stopTimer();
+    recorderRef.current?.cancel();
+    recorderRef.current = null;
+    setPhase("idle");
+    setElapsed(0);
+  }, [stopTimer]);
+
+  /** Abandon a part-finished enrollment and return to the first clip. */
+  const startOver = useCallback(() => {
+    setCaptured([]);
+    setError(null);
+    onClearIdentify();
+  }, [onClearIdentify]);
+
   const tooShort = elapsed < MIN_SECONDS;
 
   return (
@@ -151,7 +175,7 @@ export function ContactVoiceprintSection({
           <Button
             type="button"
             variant="danger"
-            onClick={() => onDelete(profile.id)}
+            onClick={() => setConfirmDeleteOpen(true)}
             disabled={busy || phase === "recording"}
           >
             {t("actions.delete")}
@@ -171,6 +195,11 @@ export function ContactVoiceprintSection({
           >
             {t("voiceprint.stop")}
           </Button>
+          {/* Stop stays disabled until MIN_SECONDS, so without this a
+              recording that caught the wrong thing cannot be abandoned. */}
+          <Button type="button" variant="outlined" onClick={cancelRecording}>
+            {t("actions.cancel")}
+          </Button>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -179,17 +208,21 @@ export function ContactVoiceprintSection({
             onClick={() => void begin("enroll")}
             disabled={busy}
           >
+            {/* Always name the clip about to be captured, so the two-clip
+                sequence is legible before it starts rather than only once
+                the user is already inside it. */}
             {enrollPending
               ? t("voiceprint.enrolling")
-              : captured.length > 0
-                ? t("voiceprint.enrollNext", {
-                    index: captured.length + 1,
-                    total: ENROLL_CLIPS,
-                  })
-                : profile
-                  ? t("voiceprint.reenroll")
-                  : t("voiceprint.enroll")}
+              : t("voiceprint.enrollNext", {
+                  index: captured.length + 1,
+                  total: ENROLL_CLIPS,
+                })}
           </Button>
+          {captured.length > 0 && !enrollPending ? (
+            <Button type="button" variant="outlined" onClick={startOver}>
+              {t("voiceprint.startOver")}
+            </Button>
+          ) : null}
           {voiceprints.length > 0 ? (
             <Button
               type="button"
@@ -205,11 +238,37 @@ export function ContactVoiceprintSection({
         </div>
       )}
 
+      {captured.length > 0 && phase !== "recording" ? (
+        <span className="text-sm">
+          {t("voiceprint.captured", {
+            count: captured.length,
+            total: ENROLL_CLIPS,
+          })}
+        </span>
+      ) : null}
+
       {error ? <span className="text-sm text-red-600">{error}</span> : null}
 
       {identifyResult ? (
         <IdentifyReadout result={identifyResult} contactId={contactId} />
       ) : null}
+
+      {/* Deleting a profile costs another recording session to undo, so it
+          confirms rather than firing straight off a danger button. */}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={t("voiceprint.deleteConfirmTitle")}
+        message={t("voiceprint.deleteConfirmMessage")}
+        confirmLabel={t("actions.delete")}
+        destructive
+        onConfirm={() => {
+          setConfirmDeleteOpen(false);
+          if (profile) {
+            onDelete(profile.id);
+          }
+        }}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </div>
   );
 }
