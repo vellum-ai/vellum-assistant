@@ -39,6 +39,7 @@ import {
   runDeterministicChecks,
 } from "./deterministic-checks.js";
 import { createEvent, setEventDedupeKey } from "./events-store.js";
+import { tierFromRoutingHints, tierShouldNotify } from "./filter/tier.js";
 import { writeHomeFeedItemForSignal } from "./home-feed-side-effect.js";
 import { dispatchDecision } from "./runtime-dispatch.js";
 import type {
@@ -265,11 +266,18 @@ function hasChannelSideEffect(
 /**
  * Emit a notification signal through the full pipeline:
  * createEvent -> (source-active pre-gate) -> evaluateSignal ->
- * runDeterministicChecks -> dispatchDecision.
+ * (attention-tier gate) -> runDeterministicChecks -> dispatchDecision ->
+ * writeHomeFeedItemForSignal.
  *
  * Source-active suppression runs before the decision engine: it depends only
  * on the signal, so a statically-suppressed signal short-circuits here without
  * paying for an LLM inference whose result would be discarded downstream.
+ *
+ * The attention-tier gate runs after the decision stage on purpose: a
+ * suppressed signal is meant to be answerable ("what did you suppress, and
+ * why?"), which takes both the event row and the decision row. It sits above
+ * every side effect this function drives, so a `suppress` tier reaches no
+ * surface: no channel, no home feed item.
  *
  * Fire-and-forget safe by default: errors are caught and logged unless
  * `throwOnError` is enabled by the caller.
@@ -378,6 +386,46 @@ export async function emitNotificationSignal<TEventName extends string>(
     );
 
     let decision = await evaluateSignal(signal, connectedChannels);
+
+    // Step 2.25: Attention-tier gate. A `suppress` tier means "do not surface
+    // at all", and this pipeline drives more than one surface: channel
+    // dispatch is one, the home feed mirror in step 5 is another. Gating
+    // inside the broadcaster could only ever stop the surfaces the
+    // broadcaster owns, and a suppressed signal still reached the home feed
+    // that way, so the drop is a pipeline-level verdict taken above every
+    // side effect. Every surface added later inherits it for free.
+    //
+    // Placed after `evaluateSignal`, which persists the decision row: the
+    // `notification_events` and `notification_decisions` rows both survive
+    // suppression, so "what did you suppress, and why?" has a real answer.
+    // Placed before the policy steps below because those exist to force
+    // channels onto a delivery, and forcing a channel for a signal that must
+    // not surface would contradict the tier while leaving a decision row
+    // naming channels nothing ever dispatched to.
+    //
+    // `tierShouldNotify` is the shared definition of what suppression means;
+    // the broadcaster backstops the same predicate for callers that construct
+    // it directly.
+    const tier = tierFromRoutingHints(signal.routingHints);
+    if (tier && !tierShouldNotify(tier)) {
+      log.info(
+        {
+          signalId,
+          tier,
+          sourceEventName: params.sourceEventName,
+          channels: decision.selectedChannels,
+        },
+        "Signal suppressed by attention tier before any surface",
+      );
+      return {
+        signalId,
+        deduplicated: false,
+        dispatched: false,
+        reason: `Signal suppressed: attention tier is ${tier}`,
+        deliveryResults: [],
+        pipelineFailed: false,
+      };
+    }
 
     // Baseline for the re-persist check below. Captured before the policy
     // steps (2.5a/2.5b/2.5c) so any of them replacing the decision triggers

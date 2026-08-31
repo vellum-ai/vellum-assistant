@@ -38,7 +38,7 @@ import { resolveDestinations } from "./destination-resolver.js";
 import {
   resolveSilent,
   type Tier,
-  TierSchema,
+  tierFromRoutingHints,
   tierShouldNotify,
 } from "./filter/tier.js";
 import {
@@ -205,14 +205,14 @@ function resolveQuestionOptionsContext(
 
 /**
  * Attention tier carried on `routingHints.tier` by the filter path, resolved
- * once per broadcast: it gates the broadcast on `tierShouldNotify`, decides
- * the shared `silent` value, and rides the payload so channel adapters read
- * it instead of re-parsing routing hints. Producers that do not go through
- * the filter carry no tier and keep their urgency-derived delivery.
+ * once per broadcast: it backstops the broadcast on `tierShouldNotify`,
+ * decides the shared `silent` value, and rides the payload so channel
+ * adapters read it instead of re-parsing routing hints. Producers that do not
+ * go through the filter carry no tier and keep their urgency-derived
+ * delivery.
  */
 function resolveTier(signal: NotificationSignal): Tier | undefined {
-  const parsed = TierSchema.safeParse(signal.routingHints?.tier);
-  return parsed.success ? parsed.data : undefined;
+  return tierFromRoutingHints(signal.routingHints);
 }
 
 /** Callback invoked immediately when a vellum notification conversation is created. */
@@ -336,11 +336,20 @@ export class NotificationBroadcaster {
 
     // A `suppress` tier means "do not surface at all", so no channel is
     // dispatched: not the vellum intent, not a device push, not a
-    // channel-native message. Defense in depth -- the filter path returns
-    // early on suppress, but `routingHints` reaches the broadcaster from any
-    // producer, so the drop cannot be left to the caller. The channels are
-    // reported skipped rather than failed: nothing was attempted, so nothing
-    // is worth retrying.
+    // channel-native message.
+    //
+    // This is a backstop, not the gate. `emitNotificationSignal` drops a
+    // suppressed signal before it reaches dispatch, because the broadcaster
+    // only owns the channel surfaces and suppression has to hold for the
+    // others too (the home feed mirror above all). What this keeps is the
+    // class-level invariant: `NotificationBroadcaster` is constructed
+    // directly in places other than the pipeline, and none of them should be
+    // able to push a suppressed signal onto a channel. It cannot double-count
+    // a delivery, because a signal that reaches here already skipped the
+    // pipeline gate.
+    //
+    // The channels are reported skipped rather than failed: nothing was
+    // attempted, so nothing is worth retrying.
     if (tier && !tierShouldNotify(tier)) {
       const suppressed: NotificationDeliveryResult[] =
         options?.resultsSink ?? [];

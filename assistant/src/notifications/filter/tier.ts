@@ -46,6 +46,22 @@ export function tierShouldNotify(tier: Tier): boolean {
   return tier !== "suppress";
 }
 
+/**
+ * The tier a signal carries on `routingHints.tier`, or undefined when it
+ * carries none (a producer that never reached the filter) or when the hint is
+ * not a tier this build knows.
+ *
+ * The single parse site, so the pipeline's suppression gate and the
+ * broadcaster's payload projection can never disagree about which tier a
+ * signal is on.
+ */
+export function tierFromRoutingHints(
+  routingHints: Record<string, unknown> | undefined,
+): Tier | undefined {
+  const parsed = TierSchema.safeParse(routingHints?.tier);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** Tiers allowed to claim attention with a banner once they are delivered. */
 const TIER_CLAIMS_ATTENTION: Record<Tier, boolean> = {
   suppress: false,

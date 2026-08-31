@@ -17,6 +17,7 @@ import {
   resolveSilent,
   type Tier,
   TIER_ORDER,
+  tierFromRoutingHints,
   tierShouldNotify,
   tierToUrgency,
 } from "./tier.js";
@@ -74,6 +75,28 @@ describe("tierShouldNotify", () => {
   test("is false only for suppress", () => {
     const notifying = TIER_ORDER.filter(tierShouldNotify);
     expect(notifying).toEqual(["hint", "offer", "response"]);
+  });
+});
+
+describe("tierFromRoutingHints", () => {
+  test("reads every tier back out of a routing hint", () => {
+    for (const tier of TIER_ORDER) {
+      expect(tierFromRoutingHints({ tier })).toBe(tier);
+    }
+  });
+
+  test("is undefined when there is no tier to read", () => {
+    expect(tierFromRoutingHints(undefined)).toBeUndefined();
+    expect(tierFromRoutingHints({})).toBeUndefined();
+    expect(tierFromRoutingHints({ preferred: "slack" })).toBeUndefined();
+  });
+
+  test("drops a hint that is not a tier rather than passing it through", () => {
+    // An unrecognized value must never read as a tier: the suppression gate
+    // reads this, and silently dropping notifications is the worse failure.
+    expect(tierFromRoutingHints({ tier: "urgent" })).toBeUndefined();
+    expect(tierFromRoutingHints({ tier: 3 })).toBeUndefined();
+    expect(tierFromRoutingHints({ tier: null })).toBeUndefined();
   });
 });
 
