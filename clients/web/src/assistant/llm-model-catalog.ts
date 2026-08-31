@@ -327,6 +327,24 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 131_072,
       supportsThinking: true,
     },
+    {
+      id: "accounts/fireworks/models/glm-5p3",
+      displayName: "GLM 5.3",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+    },
+    {
+      id: "accounts/fireworks/models/glm-5p3-flash",
+      displayName: "GLM 5.3 Flash",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+    },
     // Kimi K2.5 (kimi-k2p5) is intentionally absent: Fireworks serves it
     // on-demand/dedicated only, so serverless calls 404.
     {
