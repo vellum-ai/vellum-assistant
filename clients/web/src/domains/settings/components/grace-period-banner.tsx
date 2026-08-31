@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useReactivateSubscription } from "@/domains/settings/billing/use-reactivate-subscription";
 import { isDirectCancelEligible } from "@/domains/settings/components/adjust-plan-utils";
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -58,36 +59,38 @@ export function GracePeriodBanner() {
   const formatted = formatGraceDate(cancelDate);
 
   return (
-    <Notice
-      tone="info"
-      title={t("gracePeriodBanner.title", { date: formatted })}
-      actions={
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={() => {
-            if (isNativeAndroid) {
-              openBillingPathInBrowser(routes.settings.usageBilling);
-              return;
+    <ContentReveal>
+      <Notice
+        tone="info"
+        title={t("gracePeriodBanner.title", { date: formatted })}
+        actions={
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() => {
+              if (isNativeAndroid) {
+                openBillingPathInBrowser(routes.settings.usageBilling);
+                return;
+              }
+              if (!isDirectCancelEligible(data)) {
+                portalMutation.mutate({});
+                return;
+              }
+              void reactivateSubscription();
+            }}
+            disabled={isPending}
+            leftIcon={
+              isPending ? <Loader2 className="animate-spin" /> : undefined
             }
-            if (!isDirectCancelEligible(data)) {
-              portalMutation.mutate({});
-              return;
-            }
-            void reactivateSubscription();
-          }}
-          disabled={isPending}
-          leftIcon={
-            isPending ? <Loader2 className="animate-spin" /> : undefined
-          }
-          data-testid="grace-period-reactivate-button"
-        >
-          {t("gracePeriodBanner.reactivate")}
-        </Button>
-      }
-      data-testid="grace-period-banner"
-    >
-      {t("gracePeriodBanner.body")}
-    </Notice>
+            data-testid="grace-period-reactivate-button"
+          >
+            {t("gracePeriodBanner.reactivate")}
+          </Button>
+        }
+        data-testid="grace-period-banner"
+      >
+        {t("gracePeriodBanner.body")}
+      </Notice>
+    </ContentReveal>
   );
 }

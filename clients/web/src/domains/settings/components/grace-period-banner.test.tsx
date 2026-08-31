@@ -98,6 +98,32 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+describe("GracePeriodBanner", () => {
+  test("renders the banner content through the reveal wrapper", () => {
+    const { getByTestId } = renderBanner();
+
+    const banner = getByTestId("grace-period-banner");
+    expect(banner.textContent).toContain(
+      "You'll keep Pro features until then.",
+    );
+    expect(banner.textContent).toContain("Your Pro plan will end on");
+    expect(getByTestId("grace-period-reactivate-button")).toBeDefined();
+  });
+
+  test("renders no wrapper at all without a pending cancellation", () => {
+    const { container, queryByTestId } = renderBanner({
+      ...gracePeriodSubscription(),
+      cancel_at_period_end: false,
+      cancel_at: null,
+    });
+
+    expect(queryByTestId("grace-period-banner")).toBeNull();
+    // The reveal wrapper sits inside the guards, so a hidden banner leaves
+    // nothing behind for the surrounding `space-y-*` stack to space around.
+    expect(container.firstChild).toBeNull();
+  });
+});
+
 describe("GracePeriodBanner Reactivate", () => {
   test("posts the reactivate endpoint and clears the banner", async () => {
     const { getByTestId, queryByTestId } = renderBanner();

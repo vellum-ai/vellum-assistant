@@ -16,6 +16,7 @@ import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
 import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler";
 import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/billing-usage-panel";
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
@@ -127,25 +128,27 @@ function FinishProSetupNotice({
   }
 
   return (
-    <Notice
-      tone="info"
-      title={t("billingPage.finishSetupTitle", {
-        plan: proPackageDisplayName(subscription?.package),
-      })}
-      actions={
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={onFinishSetup}
-          data-testid="finish-pro-setup-button"
-        >
-          {t("billingPage.finishSetupButton")}
-        </Button>
-      }
-      data-testid="finish-pro-setup-notice"
-    >
-      {t("billingPage.finishSetupBody")}
-    </Notice>
+    <ContentReveal>
+      <Notice
+        tone="info"
+        title={t("billingPage.finishSetupTitle", {
+          plan: proPackageDisplayName(subscription?.package),
+        })}
+        actions={
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={onFinishSetup}
+            data-testid="finish-pro-setup-button"
+          >
+            {t("billingPage.finishSetupButton")}
+          </Button>
+        }
+        data-testid="finish-pro-setup-notice"
+      >
+        {t("billingPage.finishSetupBody")}
+      </Notice>
+    </ContentReveal>
   );
 }
 

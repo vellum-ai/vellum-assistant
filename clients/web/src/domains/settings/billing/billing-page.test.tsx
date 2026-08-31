@@ -426,6 +426,9 @@ describe("Finish Pro setup nudge", () => {
     await waitFor(() =>
       expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
     );
+    expect(getByTestId("finish-pro-setup-notice").textContent).toContain(
+      "Your assistant's email address hasn't been set up yet.",
+    );
     expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
       "false",
     );
