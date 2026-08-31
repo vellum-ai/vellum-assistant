@@ -391,14 +391,6 @@
       "values": ["control", "terra", "glm-5p2"]
     },
     {
-      "id": "obscure-credits",
-      "scope": "client",
-      "key": "obscure-credits",
-      "label": "Obscure Credits",
-      "description": "Obscures raw credit dollar amounts across the web billing surfaces in favor of a usage-relative view. The Plan section's current-plan tile trades its price footer for a Usage Balance bar and its credits spec chip reads \"<Package> usage, reset monthly\"; the plans takeover, custom-plan modal, and Pro provisioning takeover swap dollar credit wording for the catalog's usage labels; the Credits balance tile and the chat preferences menu show only credit bought or earned beyond the plan's included grants. Chat low-balance and daily-limit banners still name credits. Off leaves every surface exactly as it ships today.",
-      "defaultEnabled": false
-    },
-    {
       "id": "ios-avatar-app-icon",
       "scope": "client",
       "key": "ios-avatar-app-icon",

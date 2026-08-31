@@ -21,7 +21,6 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  act,
   cleanup,
   fireEvent,
   render,
@@ -40,7 +39,6 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as nativeAuth from "@/runtime/native-auth";
 import * as platformGate from "@/hooks/use-platform-gate";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
@@ -489,7 +487,7 @@ describe("CustomPlanModal — base subscriber", () => {
     selectOption("Storage", "30 GB");
     expect(continueButton().disabled).toBe(true);
 
-    selectOption("Credit bundle", "No extra credits");
+    selectOption("Usage bundle", "No extra usage");
     expect(continueButton().disabled).toBe(false);
   });
 
@@ -522,7 +520,7 @@ describe("CustomPlanModal — base subscriber", () => {
 
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     selectOption("Storage", "30 GB");
-    selectOption("Credit bundle", "50 credits");
+    selectOption("Usage bundle", "50 credits");
 
     // $20 base + $60 machine + $10 storage + $50 credits.
     getByText("$140/mo");
@@ -546,7 +544,7 @@ describe("CustomPlanModal — base subscriber", () => {
 
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     selectOption("Storage", "30 GB");
-    selectOption("Credit bundle", "50 credits");
+    selectOption("Usage bundle", "50 credits");
 
     expect(deltaLine()).toBeNull();
     expect(strikethroughs()).toEqual([]);
@@ -559,7 +557,7 @@ describe("CustomPlanModal — base subscriber", () => {
 
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     selectOption("Storage", "30 GB");
-    selectOption("Credit bundle", "No extra credits");
+    selectOption("Usage bundle", "No extra usage");
     fireEvent.click(continueButton());
 
     await waitFor(() => expect(upgradeCall).not.toBeNull());
@@ -638,7 +636,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
-      "No extra credits",
+      "No extra usage",
     ]);
 
     // Changing any dimension diverges from the seed and enables Continue.
@@ -657,7 +655,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
-      "No extra credits",
+      "No extra usage",
     ]);
     expect(deltaLine()).toBeNull();
     expect(strikethroughs()).toEqual([]);
@@ -677,7 +675,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)Large machine (4 vCPU, 8 GiB)",
       "10 GB storage",
-      "No extra credits",
+      "No extra usage",
     ]);
 
     // Only the changed row's check goes green; the rest stay grey.
@@ -751,7 +749,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     const rows = recapRows();
     expect(rows).toContain(BASELINE_MACHINE_LABEL);
     expect(rows).toContain("10 GB storage");
-    expect(rows).toContain("No extra credits");
+    expect(rows).toContain("No extra usage");
   });
 
   test("the baseline machine is offered to nobody else", () => {
@@ -855,7 +853,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     // Raise the machine, keep storage at its current size, add a credit bundle.
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     selectOption("Storage", "10 GB");
-    selectOption("Credit bundle", "50 credits");
+    selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
     await waitFor(() => expect(machineTierCall).not.toBeNull());
@@ -917,7 +915,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
 
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     selectOption("Storage", "10 GB");
-    selectOption("Credit bundle", "No extra credits");
+    selectOption("Usage bundle", "No extra usage");
     fireEvent.click(continueButton());
 
     await waitFor(() => expect(machineTierCall).not.toBeNull());
@@ -963,7 +961,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     );
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openSelect("Credit bundle");
+    openSelect("Usage bundle");
 
     // The held legacy bundle appears so the current selection is visible, but
     // it's disabled — a new config can never pick it.
@@ -1000,14 +998,14 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     const { getByRole } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
-    openSelect("Credit bundle");
+    openSelect("Usage bundle");
 
     const labels = optionLabels();
     expect(labels.some((l) => l.startsWith("50 credits"))).toBe(true);
     expect(labels.some((l) => l.startsWith("25 credits"))).toBe(false);
   });
 
-  test("an untouched deprecated credit bundle is not recapped as 'No extra credits'", () => {
+  test("an untouched deprecated credit bundle is not recapped as 'No extra usage'", () => {
     const { getByRole } = renderPage(
       proMightySubscription({ selected_credit_tier: "credits_25" }),
     );
@@ -1044,7 +1042,7 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "250 GB storage",
-      "No extra credits",
+      "No extra usage",
     ]);
     // base $20 + medium $35 + legacy 250 GB $60.
     getByText("$115/mo");
@@ -1084,22 +1082,8 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
   });
 });
 
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
-
-describe("CustomPlanModal: obscure-credits flag", () => {
-  afterEach(() => {
-    setObscureCredits(false);
-  });
-
-  test("flag on: the bundle picker's chrome reads as usage, not credits", () => {
-    setObscureCredits(true);
+describe("CustomPlanModal: bundle picker wording", () => {
+  test("the bundle picker's chrome reads as usage, not credits", () => {
     const { getByRole, getByText } = renderPage(freeSubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
@@ -1118,8 +1102,7 @@ describe("CustomPlanModal: obscure-credits flag", () => {
     expect(recapRows()).toContain("No extra usage");
   });
 
-  test("flag on: a seeded no-bundle Pro sub strikes through the usage wording", () => {
-    setObscureCredits(true);
+  test("a seeded no-bundle Pro sub strikes through the usage wording", () => {
     const { getByRole } = renderPage(proMightySubscription());
 
     fireEvent.click(getByRole("button", { name: "Configure" }));
@@ -1128,16 +1111,5 @@ describe("CustomPlanModal: obscure-credits flag", () => {
     // The previous "none" value is struck with the same usage wording the
     // sentinel row uses, so the recap never mixes the two vocabularies.
     expect(strikethroughs()).toEqual(["No extra usage"]);
-  });
-
-  test("flag off: the picker keeps its credits wording", () => {
-    const { getByRole, getByText } = renderPage(freeSubscription());
-
-    fireEvent.click(getByRole("button", { name: "Configure" }));
-
-    getByText("Bundle some credits:");
-    selectTrigger("Credit bundle");
-    selectOption("Credit bundle", "No extra credits");
-    expect(recapRows()).toContain("No extra credits");
   });
 });

@@ -86,13 +86,11 @@ mock.module("@/stores/auth-store", () => {
 });
 
 const flagsRef = {};
-const obscureCreditsRef = { value: false };
 
 mock.module("@/stores/client-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     velvet: () => false,
-    obscureCredits: () => obscureCreditsRef.value,
   };
   store.getState = () => flagsRef;
   return { useClientFeatureFlagStore: store };
@@ -263,7 +261,6 @@ beforeEach(() => {
     lastName: "",
   };
   billingRef.data = undefined;
-  obscureCreditsRef.value = false;
   usageRef.value = null;
   usageRef.opts = undefined;
   panelPropsRef.conversationId = undefined;
@@ -487,17 +484,8 @@ describe("PreferencesMenu", () => {
   });
 });
 
-describe("PreferencesMenu credits row under obscure-credits", () => {
-  test("the flag off keeps the row exactly as it is today", async () => {
-    billingRef.data = { effective_balance: "60.4" };
-    // No reading at all, which is what an org with nothing to measure has.
-    await openMenu();
-
-    expect(screen.getByTestId("credits-card")).toBeTruthy();
-  });
-
+describe("PreferencesMenu credits row", () => {
   test("the row is hidden while the bundle still has room", async () => {
-    obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "60.4" };
     usageRef.value = usage(0.68);
     await openMenu();
@@ -506,19 +494,18 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
   });
 
   test("a spent bundle with credits left keeps the row hidden", async () => {
-    obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "60.4" };
     usageRef.value = usage(1);
     await openMenu();
 
     // The panel already names the wallet takeover in the bar's place, so a
-    // dollar row beneath it would only restate the number the flag hides.
+    // dollar row beneath it would only restate the number the bar stands in
+    // for.
     expect(screen.getByTestId("preferences-usage")).toBeTruthy();
     expect(screen.queryByTestId("credits-card")).toBeNull();
   });
 
   test("the row names only the credit held on top of the usage grants", async () => {
-    obscureCreditsRef.value = true;
     billingRef.data = {
       effective_balance: "34.65",
       available_usage_balance: "9.10",
@@ -531,18 +518,7 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     expect(screen.getByTestId("credits-card").textContent).toContain("25.55");
   });
 
-  test("the flag off names the whole balance", async () => {
-    billingRef.data = {
-      effective_balance: "34.65",
-      available_usage_balance: "9.10",
-    };
-    await openMenu();
-
-    expect(screen.getByTestId("credits-card").textContent).toContain("34.65");
-  });
-
   test("a free plan's used-up grant keeps the row hidden too", async () => {
-    obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "12.00" };
     // The whole usage grant is gone and the panel names the extra credits
     // covering the next turn, so the row has nothing left to add.
@@ -559,7 +535,6 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
   });
 
   test("a spent bundle with an empty wallet leaves the strip to say it", async () => {
-    obscureCreditsRef.value = true;
     billingRef.data = { effective_balance: "0" };
     usageRef.value = usage(1, true);
     await openMenu();
@@ -567,8 +542,7 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
     expect(screen.queryByTestId("credits-card")).toBeNull();
   });
 
-  test("the flag on with nothing to measure keeps the row", async () => {
-    obscureCreditsRef.value = true;
+  test("with nothing to measure the row stays", async () => {
     billingRef.data = { effective_balance: "60.4" };
     await openMenu();
 
@@ -579,19 +553,13 @@ describe("PreferencesMenu credits row under obscure-credits", () => {
 });
 
 describe("showsMenuCredits", () => {
-  test("the flag off always shows the row", () => {
-    expect(showsMenuCredits(false, null)).toBe(true);
-    expect(showsMenuCredits(false, usage(0.4))).toBe(true);
-    expect(showsMenuCredits(false, usage(1, true))).toBe(true);
-  });
-
-  test("the flag on hides the row whenever there is a reading", () => {
-    expect(showsMenuCredits(true, usage(0.99))).toBe(false);
-    expect(showsMenuCredits(true, usage(1))).toBe(false);
-    expect(showsMenuCredits(true, usage(1, true))).toBe(false);
+  test("hides the row whenever there is a reading", () => {
+    expect(showsMenuCredits(usage(0.99))).toBe(false);
+    expect(showsMenuCredits(usage(1))).toBe(false);
+    expect(showsMenuCredits(usage(1, true))).toBe(false);
   });
 
   test("an unmeasurable reading falls back to showing the row", () => {
-    expect(showsMenuCredits(true, null)).toBe(true);
+    expect(showsMenuCredits(null)).toBe(true);
   });
 });

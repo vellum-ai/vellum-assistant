@@ -9,7 +9,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  act,
   cleanup,
   fireEvent,
   render,
@@ -21,7 +20,6 @@ import * as motionReact from "motion/react";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -219,20 +217,6 @@ describe("confirming", () => {
     expect(container.querySelector(".lucide-arrow-right")).toBeNull();
   });
 
-  test("renders a credits chip when the custom intent bundles credits", () => {
-    const { getByText } = renderState({
-      state: "CONFIRMING",
-      intent: {
-        kind: "custom",
-        machineTier: "medium",
-        storageTier: "s",
-        creditTier: "credits_50",
-        savedAt: Date.now(),
-      },
-    });
-
-    expect(getByText("50 credits")).toBeTruthy();
-  });
 });
 
 describe("waiting / resizing", () => {
@@ -293,36 +277,8 @@ describe("waiting / resizing", () => {
     ).toBeTruthy();
   });
 
-  test("renders a checkout credits chip as a monthly rate from $0", () => {
-    const { getByText } = renderState({
-      state: "WAITING",
-      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
-      targets: { machineSize: null, storageGib: null },
-      fromSnapshot: { machineSize: null, storageGib: null },
-    });
-
-    expect(getByText("Credits")).toBeTruthy();
-    expect(getByText("$0/mo")).toBeTruthy();
-    expect(getByText("$50/mo")).toBeTruthy();
-  });
-
-  test("an in-place credit change renders the same from-to rate, in either direction", () => {
-    // One format for checkout and for a switch: the chip states the move, so a
-    // downgrade reads as plainly as an upgrade.
-    const { getByTestId } = renderState({
-      state: "WAITING",
-      creditsChange: { fromTier: "credits_50", toTier: "credits_25" },
-      targets: { machineSize: null, storageGib: null },
-      fromSnapshot: { machineSize: null, storageGib: null },
-    });
-
-    const chip = getByTestId("chip-credits");
-    expect(chip.textContent).toContain("$50/mo");
-    expect(chip.textContent).toContain("$25/mo");
-  });
-
-  test("omits the credits chip when the catalog can't resolve a label", () => {
-    const { queryByText } = renderState(
+  test("omits the credits chip while the catalog has not resolved", () => {
+    const { queryByTestId } = renderState(
       {
         state: "WAITING",
         intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
@@ -332,7 +288,7 @@ describe("waiting / resizing", () => {
       null,
     );
 
-    expect(queryByText("Credits")).toBeNull();
+    expect(queryByTestId("chip-credits")).toBeNull();
   });
 
   for (const reduce of [false, true]) {
@@ -353,8 +309,8 @@ describe("waiting / resizing", () => {
       expect(getByText("Large")).toBeTruthy();
       expect(getByText("Storage")).toBeTruthy();
       expect(getByText("100 GB")).toBeTruthy();
-      expect(getByText("Credits")).toBeTruthy();
-      expect(getByText("$50/mo")).toBeTruthy();
+      expect(getByText("Usage")).toBeTruthy();
+      expect(getByText("Mighty Usage")).toBeTruthy();
       // One row holds all three; there is no sibling row to wrap onto.
       const row = chipRow(container);
       expect(within(row).getAllByTestId(CHIP_TESTID).length).toBe(3);
@@ -607,7 +563,7 @@ describe("chip fit at narrow widths", () => {
     const cases: Array<[string, string, string]> = [
       ["chip-machine", "Machine", "Large"],
       ["chip-storage", "Storage", "100 GB"],
-      ["chip-credits", "Credits", "$50/mo"],
+      ["chip-credits", "Usage", "Mighty Usage"],
     ];
 
     for (const [key, label, value] of cases) {
@@ -702,8 +658,7 @@ describe("done / not_applicable", () => {
 
     expect(getByText("Your plan is ready")).toBeTruthy();
     const chip = getByTestId("chip-credits");
-    expect(chip.textContent).toContain("$25/mo");
-    expect(chip.textContent).toContain("$50/mo");
+    expect(chip.textContent).toContain("Mighty Usage");
     expect(within(chip).getByTestId("chip-check")).toBeTruthy();
   });
 
@@ -748,19 +703,6 @@ describe("done / not_applicable", () => {
     expect(getByTestId("chip-credits")).toBeTruthy();
   });
 
-  test("not_applicable renders a dropped bundle as a move to $0", () => {
-    // "No extra credits" is an endpoint of the change like any other, so the
-    // chip prices it rather than falling back to a bare status word.
-    const { getByTestId } = renderState({
-      state: "NOT_APPLICABLE",
-      creditsChange: { fromTier: "credits_50", toTier: null },
-    });
-
-    const chip = getByTestId("chip-credits");
-    expect(chip.textContent).toContain("$50/mo");
-    expect(chip.textContent).toContain("$0/mo");
-  });
-
   test("done carries the credits chip alongside the resource chips", () => {
     const { getByText, getByTestId } = renderState({
       state: "DONE",
@@ -772,8 +714,8 @@ describe("done / not_applicable", () => {
     expect(getByText("All done!")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     const chip = getByTestId("chip-credits");
-    expect(chip.textContent).toContain("$0/mo");
-    expect(chip.textContent).toContain("$50/mo");
+    expect(chip.textContent).toContain("No extra usage");
+    expect(chip.textContent).toContain("Mighty Usage");
   });
 });
 
@@ -1391,27 +1333,10 @@ describe("ProvisioningState phase hold", () => {
 });
 
 // ---------------------------------------------------------------------------
-// obscure-credits flag: the chips name usage bundles, never a credit amount
+// The credits chips name usage bundles, never a credit amount
 // ---------------------------------------------------------------------------
 
-/** Drives the `obscure-credits` client flag the way the app's LD sync does. */
-function setObscureCredits(value: boolean): void {
-  act(() => {
-    useClientFeatureFlagStore
-      .getState()
-      .setFlags({ obscureCredits: value }, null);
-  });
-}
-
-describe("obscure-credits flag", () => {
-  beforeEach(() => {
-    setObscureCredits(true);
-  });
-
-  afterEach(() => {
-    setObscureCredits(false);
-  });
-
+describe("credits chip wording", () => {
   test("the resize credits chip names the bundles, not monthly rates", () => {
     const { getByTestId } = renderState({
       state: "WAITING",
@@ -1451,8 +1376,8 @@ describe("obscure-credits flag", () => {
   });
 
   test("a from-side the catalog can't label is left unstated", () => {
-    // credits_25 is absent from the fixture catalog: its key still prices the
-    // off-flag rate, but under the flag there is no wording to show for it.
+    // credits_25 is absent from the fixture catalog: its key still resolves
+    // an amount, but there is no wording to show for it.
     const { getByTestId } = renderState({
       state: "WAITING",
       creditsChange: { fromTier: "credits_25", toTier: "credits_50" },

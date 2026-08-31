@@ -362,9 +362,10 @@ export const ResourceAndEntitlementWalls: Story = {
                     Next Plan
                   </Tag>
                 }
-                specs={packageSpecs(SUPER_PACKAGE, {
-                  usageIncludedLabel: "Super Usage included",
-                })}
+                specs={packageSpecs(
+                  SUPER_PACKAGE,
+                  "Super usage, reset monthly",
+                )}
                 footer={
                   <Button
                     variant="primary"

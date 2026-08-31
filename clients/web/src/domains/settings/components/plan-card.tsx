@@ -43,7 +43,6 @@ import type {
 import { useTranslation } from "@/i18n";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
-import { useObscureCredits } from "@/hooks/use-obscure-credits-flag";
 import { usePlanUsageBalance } from "@/hooks/use-plan-usage-balance";
 import { openBillingPathInBrowser } from "@/lib/billing/android-billing-handoff";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
@@ -119,11 +118,6 @@ interface RecommendedUpgradeProps {
    */
   relation: SwitchRelation;
   /**
-   * Whether the `obscure-credits` flag is on. Read once by `PlanCard` and
-   * passed down so both tiles answer to the same read.
-   */
-  obscureCredits: boolean;
-  /**
    * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
    * non-entitlement Pro sub that the change-package flow cannot act on.
    */
@@ -142,7 +136,6 @@ function RecommendedUpgrade({
   isProUser,
   canChangePackage,
   relation,
-  obscureCredits,
   onManage,
   onTierUpgraded,
 }: RecommendedUpgradeProps) {
@@ -294,18 +287,10 @@ function RecommendedUpgrade({
             {t("planCard.nextPlan")}
           </Tag>
         }
-        specs={packageSpecs(recommended, {
-          obscuredUsageLabel: obscureCredits
-            ? t("planCard.usageChip", { name: recommended.name })
-            : undefined,
-          usageIncludedLabel:
-            recommended.usage_label != null
-              ? t("planCard.usageIncludedChip", {
-                  label: recommended.usage_label,
-                })
-              : undefined,
-        })}
-        specsWrap={obscureCredits}
+        specs={packageSpecs(
+          recommended,
+          t("planCard.usageChip", { name: recommended.name }),
+        )}
         footer={
           <Button
             variant="primary"
@@ -372,7 +357,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     organizationsBillingSubscriptionRetrieveOptions(),
   );
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
-  const obscureCredits = useObscureCredits();
   const { balance, availableUsageBalance, totalUsageBalance } =
     useBillingBalanceStatus();
   const [addCreditsOpen, setAddCreditsOpen] = useState(false);
@@ -480,17 +464,10 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const currentSpecs = isFreePlan
     ? freePlanSpecs()
     : currentPackage
-      ? packageSpecs(currentPackage, {
-          obscuredUsageLabel: obscureCredits
-            ? t("planCard.usageChip", { name: currentPackage.name })
-            : undefined,
-          usageIncludedLabel:
-            currentPackage.usage_label != null
-              ? t("planCard.usageIncludedChip", {
-                  label: currentPackage.usage_label,
-                })
-              : undefined,
-        })
+      ? packageSpecs(
+          currentPackage,
+          t("planCard.usageChip", { name: currentPackage.name }),
+        )
       : null;
   const currentPriceCents = isFreePlan
     ? 0
@@ -528,15 +505,12 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       onAddCredits={() => setAddCreditsOpen(true)}
     />
   ) : null;
-  // A tile under the flag trades its price for the usage balance, so the two
-  // never state the same allowance twice. With no bar to trade for (a free
-  // account that was never granted usage, or a platform whose summary reports
-  // no grant figures), the price row stays as the footer rather than leaving
-  // the tile with an empty bottom slot.
-  let currentFooter: ReactNode = priceRow;
-  if (obscureCredits && usagePanel != null) {
-    currentFooter = usagePanel;
-  }
+  // The tile trades its price for the usage balance, so the two never state
+  // the same allowance twice. With no bar to trade for (a free account that
+  // was never granted usage, or a platform whose summary reports no grant
+  // figures), the price row stays as the footer rather than leaving the tile
+  // with an empty bottom slot.
+  const currentFooter: ReactNode = usagePanel ?? priceRow;
 
   return (
     <Card padding="md">
@@ -594,7 +568,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             nameTestId="plan-card-name"
             tag={<Tag tone="info">{t("planCard.current")}</Tag>}
             specs={currentSpecs}
-            specsWrap={obscureCredits}
             footer={currentFooter}
           />
           <RecommendedUpgrade
@@ -604,7 +577,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             isProUser={currentPlan.id !== "base"}
             canChangePackage={canChangePackage}
             relation={switchRelation}
-            obscureCredits={obscureCredits}
             onManage={onManage}
             onTierUpgraded={onTierUpgraded}
           />

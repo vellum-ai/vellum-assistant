@@ -29,9 +29,6 @@ import {
 export const NO_EXTRA_CREDITS = "__none__";
 export type CreditChoice = CreditTierEnum | typeof NO_EXTRA_CREDITS;
 
-/** Shared by the credit dropdown's sentinel option and its recap row. */
-export const NO_CREDITS_LABEL = "No extra credits";
-
 /**
  * Sentinel for the baseline machine. `MachineTierEnum` names only the paid
  * tiers, so the small machine a package with no tier runs on has no value to
@@ -83,13 +80,13 @@ export function computeCustomPlanDiff(input: {
   creditChoice: CreditChoice | "";
   /**
    * Wording for the no-bundle sentinel's recap row (and its struck-through
-   * previous value). Defaults to the credits wording; the `obscure-credits`
-   * surfaces pass the localized `customPlanModal.noExtraUsage` copy instead.
+   * previous value): the localized `customPlanModal.noExtraUsage` copy,
+   * supplied by the caller because this pure module has no `t()`.
    */
-  noBundleLabel?: string;
+  noBundleLabel: string;
 }): CustomPlanDiff {
-  const { proPlan, seed, machineTier, storageTier, creditChoice } = input;
-  const noBundleLabel = input.noBundleLabel ?? NO_CREDITS_LABEL;
+  const { proPlan, seed, machineTier, storageTier, creditChoice, noBundleLabel } =
+    input;
 
   // Resolve against the full catalog, legacy tiers included: a tier a
   // subscriber still holds has to price and label even where the modal no

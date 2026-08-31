@@ -18,6 +18,9 @@ import {
   computeCustomPlanDiff,
 } from "./custom-plan-diff";
 
+/** The localized no-bundle wording the modal passes in production. */
+const NO_BUNDLE_LABEL = "No extra usage";
+
 function proPlan(): ProPlan {
   return {
     id: "pro",
@@ -98,6 +101,7 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
   test("full selection has null delta and all rows unchanged", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: null,
       machineTier: "large",
       storageTier: "s",
@@ -119,9 +123,10 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
     expect(diff.rows[0].key).toBe("base");
   });
 
-  test("'No extra credits' renders the none label", () => {
+  test("'No extra usage' renders the none label", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: null,
       machineTier: "medium",
       storageTier: "xs",
@@ -132,13 +137,14 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
       "Platform fee: $20/mo",
       "Medium machine (2.5 vCPU, 5 GiB)",
       "10 GB storage",
-      "No extra credits",
+      "No extra usage",
     ]);
   });
 
   test("incomplete selection omits the unset dimensions", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: null,
       machineTier: "",
       storageTier: "s",
@@ -151,6 +157,7 @@ describe("computeCustomPlanDiff — base checkout (no seed)", () => {
   test("selecting a non-legacy tier still resolves normally", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: null,
       machineTier: "medium",
       storageTier: "s",
@@ -166,6 +173,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("no-op selection has zero delta and no changed rows", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: "medium", storageTier: "xs", creditTier: null },
       machineTier: "medium",
       storageTier: "xs",
@@ -181,6 +189,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("a machine increase marks the machine row and carries the previous label", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: "medium", storageTier: "xs", creditTier: null },
       machineTier: "large",
       storageTier: "xs",
@@ -206,6 +215,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("a machine decrease yields a negative delta", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: "large", storageTier: "xs", creditTier: null },
       machineTier: "medium",
       storageTier: "xs",
@@ -219,6 +229,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("adding a credit bundle marks the credit row from the none baseline", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: "medium", storageTier: "xs", creditTier: null },
       machineTier: "medium",
       storageTier: "xs",
@@ -228,13 +239,14 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     expect(diff.deltaCents).toBe(5000);
     const creditRow = diff.rows.find((r) => r.key === "credit");
     expect(creditRow?.changed).toBe(true);
-    expect(creditRow?.previousLabel).toBe("No extra credits");
+    expect(creditRow?.previousLabel).toBe("No extra usage");
     expect(creditRow?.label).toBe("50 credits");
   });
 
   test("a baseline seed machine strikes through the baseline it left", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: null, storageTier: "xs", creditTier: null },
       machineTier: "medium",
       storageTier: "xs",
@@ -253,6 +265,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("an untouched baseline machine gets its own unchanged row", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: null, storageTier: "xs", creditTier: null },
       machineTier: BASELINE_MACHINE,
       storageTier: "xs",
@@ -279,6 +292,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("a legacy seed storage tier resolves and contributes its real price", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       // xl is a legacy tier ($60 / 250 GB) the subscriber still pays for.
       seed: { machineTier: "medium", storageTier: "xl", creditTier: null },
       machineTier: "medium",
@@ -304,6 +318,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     // `!legacy`-filtered list would have dropped it and mispriced the total).
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: "medium", storageTier: "xl", creditTier: null },
       machineTier: "medium",
       storageTier: "xl",
@@ -326,6 +341,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     // modal's own selectable list drops it).
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: {
         machineTier: "medium",
         storageTier: "xs",
@@ -348,6 +364,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("removing a deprecated seed credit bundle is detected as a change but suppresses the delta", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       // credits_100 is not present in the fixture's credit_tiers (deprecated).
       seed: {
         machineTier: "medium",
@@ -361,7 +378,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
 
     const creditRow = diff.rows.find((r) => r.key === "credit");
     expect(creditRow?.changed).toBe(true);
-    expect(creditRow?.label).toBe("No extra credits");
+    expect(creditRow?.label).toBe("No extra usage");
     // The deprecated bundle's price/label is absent from the catalog → omitted.
     expect(creditRow?.previousLabel).toBeUndefined();
     // The held bundle can't be priced, so the comparison is suppressed rather
@@ -373,6 +390,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("switching from a deprecated seed credit to a live bundle is a change with no delta or previous label", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: {
         machineTier: "medium",
         storageTier: "xs",
@@ -396,9 +414,10 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("an untouched deprecated credit bundle gets no row at all", () => {
     // Reopening seeded to a bundle the catalog dropped: the choice is still the
     // held `credits_100`, which resolves to nothing. Labelling that row "No
-    // extra credits" would be false for a subscriber paying for the bundle.
+    // extra usage" would be false for a subscriber paying for the bundle.
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: {
         machineTier: "medium",
         storageTier: "xs",
@@ -417,6 +436,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
     // Pricing it at $0 would report this downgrade as a $35 increase.
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       seed: { machineTier: "xl", storageTier: "xs", creditTier: null },
       machineTier: "medium",
       storageTier: "xs",
@@ -435,6 +455,7 @@ describe("computeCustomPlanDiff — seeded reconfigure", () => {
   test("a seed storage tier the catalog dropped suppresses the comparison", () => {
     const diff = computeCustomPlanDiff({
       proPlan: proPlan(),
+      noBundleLabel: NO_BUNDLE_LABEL,
       // `xxl` is a valid storage tier absent from the fixture's storage_tiers.
       seed: { machineTier: "medium", storageTier: "xxl", creditTier: null },
       machineTier: "medium",
