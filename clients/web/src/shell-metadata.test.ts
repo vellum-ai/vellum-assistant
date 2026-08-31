@@ -145,6 +145,16 @@ describe("SPA shell: boot splash", () => {
     expect(doc.querySelector('script[src*="theme-init"]')).toBeNull();
   });
 
+  // Every other assertion here is a substring check, which a syntactically
+  // broken script still satisfies: a stray fragment pasted into the source
+  // (a commit-message tail, a bad conflict resolution) leaves every expected
+  // string present while the browser throws on load and the whole shell init
+  // never runs. Parsing it is the only assertion that catches that, and the
+  // failure is silent in production because nothing else reads the console.
+  test("the shell init parses as JavaScript", () => {
+    expect(() => new Function(SHELL_INIT)).not.toThrow();
+  });
+
   test("its static label is the same string the app's own spinner uses", () => {
     expect(splash?.getAttribute("aria-label")).toBe(
       loadingLabel(DEFAULT_LOCALE),
