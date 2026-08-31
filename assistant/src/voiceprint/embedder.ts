@@ -11,8 +11,9 @@
  * may feed an ACL decision. See `README.md` in this directory.
  */
 
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -38,8 +39,23 @@ export const EMBEDDING_DIM = 192;
 export const MIN_AUDIO_SECONDS = 1.5;
 
 const MODEL_FILENAME = "ecapa-tdnn512-lm.onnx";
-const MODEL_URL =
-  "https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/main/voxceleb_ECAPA512_LM.onnx";
+
+/**
+ * The weights are pinned to an immutable revision and verified by digest.
+ *
+ * `resolve/main` would let an upstream push swap the weights while every
+ * stored row still carries the fixed `VOICEPRINT_MODEL_ID`, and that failure
+ * is silent: a different model still returns a well-formed 192-dim vector,
+ * just one that is not comparable to the embeddings already on disk. Nothing
+ * would throw and every score would quietly be wrong. The revision and digest
+ * below are the exact bytes every measurement in `README.md` was taken
+ * against; changing them invalidates existing enrollments.
+ */
+const MODEL_REVISION = "a2f3dcb1c8702caccc7a55ceb57f5e8d1842112b";
+const MODEL_SHA256 =
+  "d71b85d9b48058ef68004f04f1b78acebefb9dfcf542e19b976a12a5ad1f10b0";
+const MODEL_BYTES = 24_861_931;
+const MODEL_URL = `https://huggingface.co/Wespeaker/wespeaker-ecapa-tdnn512-LM/resolve/${MODEL_REVISION}/voxceleb_ECAPA512_LM.onnx`;
 
 export class AudioTooShortError extends Error {
   constructor(seconds: number) {
@@ -62,18 +78,78 @@ export class AudioTooShortError extends Error {
  * is 6.4 MB). Keeping resolution behind one function means that
  * decision changes this file and nothing else.
  */
+async function sha256OfFile(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk as Uint8Array);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Throw unless the file at `path` is byte-for-byte the expected artifact.
+ *
+ * Size is checked first because it rejects a truncated download without
+ * reading 24.9 MB. The expectation is passed in rather than read from the
+ * pin above so this stays a plain, testable predicate.
+ */
+export async function assertArtifactMatches(
+  path: string,
+  expected: { bytes: number; sha256: string },
+): Promise<void> {
+  const { size } = await stat(path);
+  if (size !== expected.bytes) {
+    throw new Error(
+      `Speaker model at ${path} is ${size} bytes; expected ${expected.bytes}.`,
+    );
+  }
+  const digest = await sha256OfFile(path);
+  if (digest !== expected.sha256) {
+    throw new Error(
+      `Speaker model at ${path} has sha256 ${digest}; expected ${expected.sha256}.`,
+    );
+  }
+}
+
+const PINNED_ARTIFACT = { bytes: MODEL_BYTES, sha256: MODEL_SHA256 };
+
+/**
+ * Whether the cache already holds the pinned artifact.
+ *
+ * A cache that fails verification is reported and treated as missing, so the
+ * next step re-downloads it. Loading it anyway is the silent-failure case this
+ * whole path exists to prevent.
+ */
+async function hasVerifiedCache(cached: string): Promise<boolean> {
+  try {
+    await stat(cached);
+  } catch {
+    return false;
+  }
+  try {
+    await assertArtifactMatches(cached, PINNED_ARTIFACT);
+    return true;
+  } catch (err) {
+    log.warn(
+      { err, path: cached },
+      "Cached speaker model does not match the pinned artifact; re-downloading",
+    );
+    return false;
+  }
+}
+
 async function resolveModelPath(): Promise<string> {
+  // An explicit override is deliberately not digest-checked: it exists so a
+  // different export (a quantized build, a local test fixture) can be pointed
+  // at. Embeddings it produces are only comparable to others from that model.
   const override = getVoiceprintModelPath();
   if (override) {
     return override;
   }
 
   const cached = join(getDataDir(), "models", MODEL_FILENAME);
-  try {
-    await stat(cached);
+  if (await hasVerifiedCache(cached)) {
     return cached;
-  } catch {
-    // Not cached yet.
   }
 
   log.info(
@@ -95,6 +171,14 @@ async function resolveModelPath(): Promise<string> {
     Readable.fromWeb(response.body as never),
     createWriteStream(tmp),
   );
+  // Verify before the rename, so bytes that are not the pinned artifact never
+  // become the cache.
+  try {
+    await assertArtifactMatches(tmp, PINNED_ARTIFACT);
+  } catch (err) {
+    await rm(tmp, { force: true });
+    throw err;
+  }
   await rename(tmp, cached);
   log.info({ dest: cached }, "Speaker embedding model ready");
   return cached;

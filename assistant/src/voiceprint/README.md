@@ -33,6 +33,14 @@ The weights (24.9 MB fp32) are fetched on first use into
 quantization exists and is 3.9x smaller at a cost of 0.033 separation;
 switching is isolated to that one function.
 
+The download is pinned to an immutable HuggingFace revision
+(`a2f3dcb1c8702caccc7a55ceb57f5e8d1842112b`) and its sha256 is verified before
+the file is cached; a cache that fails verification is discarded and refetched.
+This is not ceremony. Loading different weights does not throw: the model still
+returns a well-formed 192-dim vector, so an unpinned swap would silently score
+every existing enrollment against embeddings it cannot be compared to. The
+pinned digest is the artifact every measurement below was taken against.
+
 ## Why inference runs in a separate process
 
 `onnxruntime-node` cannot be bundled into the daemon. `bun --compile` embeds
