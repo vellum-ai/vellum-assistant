@@ -388,6 +388,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/glm-5p3",
       displayName: "GLM 5.3",
+      vendor: "zhipu",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -397,6 +398,7 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "accounts/fireworks/models/glm-5p3-flash",
       displayName: "GLM 5.3 Flash",
+      vendor: "zhipu",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,

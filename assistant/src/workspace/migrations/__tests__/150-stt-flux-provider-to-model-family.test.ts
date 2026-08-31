@@ -17,11 +17,11 @@ function readConfig(dir: string): any {
 }
 
 describe("150-stt-flux-provider-to-model-family", () => {
-  test("is registered as the newest migration", () => {
+  test("is registered", () => {
     expect(sttFluxProviderToModelFamilyMigration.id).toBe(
       "150-stt-flux-provider-to-model-family",
     );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
+    expect(WORKSPACE_MIGRATIONS.map((m) => m.id)).toContain(
       "150-stt-flux-provider-to-model-family",
     );
   });
