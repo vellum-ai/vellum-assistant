@@ -30,7 +30,7 @@ mock.module("../../ipc/gateway-client.js", () => ({
 
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { upsertContact } from "../contact-store.js";
+import { deleteContact, upsertContact } from "../contact-store.js";
 import { upsertContactChannel } from "../contacts-write.js";
 import { runMirrorReconcile } from "../mirror-reconciler.js";
 await initializeDb();
@@ -257,6 +257,39 @@ describe("what a pull must never touch", () => {
     expect(after.u).toBe(before.u);
     // Display name still the mirror's own (a no-op pass rewrites nothing).
     expect(contactRow("co-1")?.displayName).toBe("Alice Example");
+  });
+
+  test("a snapshot pulled before a delete cannot resurrect the deleted contact", async () => {
+    // The gateway deleted co-gone (and the explicit mirror delete op landed)
+    // while a snapshot still listing it was in flight. Healing from that
+    // stale snapshot would bring the ghost back, and the additive contract
+    // would then keep it forever.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UGONE",
+      displayName: "Alice Example",
+      contactId: "co-gone",
+      channelId: "ch-gone",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+    deleteContact("co-gone");
+    snapshot = {
+      ok: true,
+      contacts: [
+        gatewayContact({
+          id: "co-gone",
+          displayName: "Alice Example",
+          channels: [{ id: "ch-gone", type: "slack", address: "UGONE" }],
+        }),
+      ],
+    };
+
+    await runMirrorReconcile();
+
+    expect(contactRow("co-gone")).toBeNull();
+    expect(channelRow("slack", "UGONE")).toBeNull();
   });
 
   test("a failed snapshot pull heals nothing and throws nothing", async () => {

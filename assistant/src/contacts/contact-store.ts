@@ -9,6 +9,7 @@ import {
   contacts,
 } from "../persistence/schema/index.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { recordContactTombstone } from "./mirror-tombstones.js";
 import { notifyContactsChanged } from "./notify-contacts-changed.js";
 import type {
   AssistantContactMetadata,
@@ -412,6 +413,9 @@ export function upsertContact(params: {
  */
 export function deleteContact(id: string): void {
   getDb().delete(contacts).where(eq(contacts.id, id)).run();
+  // The mirror reconciler must not resurrect this id from a gateway snapshot
+  // pulled before the delete.
+  recordContactTombstone(id);
   notifyContactsChanged();
 }
 
@@ -795,6 +799,7 @@ export function mergeContactMirror(params: {
 
     // Delete the donor (cascade removes remaining duplicate channels).
     tx.delete(contacts).where(eq(contacts.id, params.mergeContactId)).run();
+    recordContactTombstone(params.mergeContactId);
     return true;
   });
 

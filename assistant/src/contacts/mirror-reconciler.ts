@@ -39,6 +39,7 @@ import { contactChannels, contacts } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { upsertContact } from "./contact-store.js";
 import { upsertContactChannel } from "./contacts-write.js";
+import { isContactTombstoned } from "./mirror-tombstones.js";
 
 const log = getLogger("mirror-reconciler");
 
@@ -131,6 +132,12 @@ export async function runMirrorReconcile(): Promise<void> {
 
     let healed = 0;
     for (const contact of snapshot.contacts) {
+      // A contact deleted (or merged away) after this snapshot was pulled
+      // must not be resurrected from it; the additive contract would keep
+      // the ghost forever.
+      if (isContactTombstoned(contact.id)) {
+        continue;
+      }
       if (contact.channels.length === 0) {
         // A channel-less gateway contact (a guardian-authored record) whose
         // mirror row is missing: recreate the identity stub.
