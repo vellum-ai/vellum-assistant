@@ -32,11 +32,6 @@ const activatorSchema = z.discriminatedUnion("kind", [
     kind: z.literal("modifierOnly"),
     modifiers: z.array(modifierSchema),
   }),
-  z.object({
-    kind: z.literal("key"),
-    label: z.string().min(1),
-    modifiers: z.array(modifierSchema),
-  }),
 ]);
 const resultSchema = z.union([
   z.object({ ok: z.literal(true), enabled: z.boolean() }),

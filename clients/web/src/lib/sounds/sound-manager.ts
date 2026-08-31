@@ -9,9 +9,7 @@
  * default Tink.
  */
 
-import { getAudioContextCtor } from "@/domains/chat/voice/audio-context";
 import { fetchSoundFile } from "@/lib/sounds/api";
-import { playBlip } from "@/lib/sounds/blip";
 import {
   type SoundEventId,
   type SoundsConfig,
@@ -168,17 +166,40 @@ class SoundManager {
     return promise;
   }
 
-  private playFallbackBlip(volume: number): void {
+  private async playFallbackBlip(volume: number): Promise<void> {
     if (typeof window === "undefined") {
       return;
     }
     try {
-      const AudioContextCtor = getAudioContextCtor();
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
       if (!AudioContextCtor) {
         return;
       }
-      this.audioContext ??= new AudioContextCtor();
-      playBlip(this.audioContext, volume);
+      if (!this.audioContext) {
+        this.audioContext = new AudioContextCtor();
+      }
+      const ctx = this.audioContext;
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+
+      const peak = Math.max(0, Math.min(1, volume)) * 0.25;
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(peak, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.2);
     } catch {
       // Autoplay can be blocked until the user interacts with the page.
     }

@@ -10,15 +10,12 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
 {
     public const string SetMethod = "hotkey.setPushToTalk";
     public const string EventMethod = "hotkey.pushToTalk";
-    private const int HoldDelayMs = 100;
 
     private readonly object _gate = new();
     private readonly PushToTalkChordTracker _tracker = new();
     private readonly Channel<string> _events = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Task _outputTask;
-    private Timer? _holdTimer;
-    private long _holdGeneration;
     private GlobalKeyboardHook? _hook;
 
     public PushToTalkService()
@@ -49,13 +46,10 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
             return ValueTask.FromResult<object?>(new SetResponse(false, false, reason));
         }
 
-        PushToTalkTransition transition;
         lock (_gate)
         {
-            CancelTimer();
-            transition = _tracker.Configure(keys);
+            _tracker.Configure(keys);
         }
-        Emit(transition);
         if (!enabled)
         {
             StopHook();
@@ -78,13 +72,10 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
 
     private void Disable()
     {
-        PushToTalkTransition transition;
         lock (_gate)
         {
-            CancelTimer();
-            transition = _tracker.Configure([]);
+            _tracker.Configure([]);
         }
-        Emit(transition);
         StopHook();
     }
 
@@ -113,64 +104,28 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
 
     private void OnKeyboardEvent(ushort key, bool down)
     {
-        PushToTalkTransition transition;
+        bool tap;
         lock (_gate)
         {
-            transition = down ? _tracker.KeyDown(key) : _tracker.KeyUp(key);
-            if (transition == PushToTalkTransition.Pending)
+            if (down)
             {
-                CancelTimer();
-                var generation = _holdGeneration;
-                _holdTimer = new Timer(
-                    _ => ActivatePending(generation),
-                    null,
-                    HoldDelayMs,
-                    Timeout.Infinite);
+                _tracker.KeyDown(key);
+                tap = false;
             }
-            else if (!_tracker.Pending)
+            else
             {
-                CancelTimer();
+                tap = _tracker.KeyUp(key);
             }
         }
-        Emit(transition);
-    }
-
-    private void ActivatePending(long generation)
-    {
-        PushToTalkTransition transition;
-        lock (_gate)
-        {
-            if (generation != _holdGeneration)
-            {
-                return;
-            }
-            _holdTimer?.Dispose();
-            _holdTimer = null;
-            transition = _tracker.ActivatePending();
-        }
-        Emit(transition);
-    }
-
-    private void CancelTimer()
-    {
-        _holdGeneration += 1;
-        _holdTimer?.Dispose();
-        _holdTimer = null;
-    }
-
-    private void Emit(PushToTalkTransition transition)
-    {
-        var state = transition switch
-        {
-            PushToTalkTransition.Down => "down",
-            PushToTalkTransition.Up => "up",
-            _ => null,
-        };
-        if (state is null)
+        if (!tap)
         {
             return;
         }
-        _events.Writer.TryWrite(state);
+        // A completed tap is reported as a down/up pair, the shape the macOS
+        // helper uses for a completed bare-Fn tap; the renderer toggles on
+        // the down edge.
+        _events.Writer.TryWrite("down");
+        _events.Writer.TryWrite("up");
     }
 
     private async Task DrainEventsAsync()

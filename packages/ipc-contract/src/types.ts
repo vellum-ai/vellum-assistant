@@ -179,8 +179,7 @@ export type PushToTalkModifier =
 
 export type PushToTalkActivator =
   | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: PushToTalkModifier[] }
-  | { kind: "key"; label: string; modifiers: PushToTalkModifier[] };
+  | { kind: "modifierOnly"; modifiers: PushToTalkModifier[] };
 
 export interface HotkeyEvent {
   kind: "fnPushToTalk" | "pushToTalk";

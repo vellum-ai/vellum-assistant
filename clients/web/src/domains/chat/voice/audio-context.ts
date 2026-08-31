@@ -5,6 +5,9 @@
  * call site needs the `AudioContext ?? webkitAudioContext` fallback. This
  * centralizes that fallback so capture/playback (and any future voice audio
  * code) don't each hand-roll their own copy.
+ *
+ * Note: `sound-manager.ts` and `use-push-to-talk.ts` predate this helper and
+ * still inline the same fallback; they can adopt this in a follow-up.
  */
 
 /** Window augmented with Safari's prefixed AudioContext constructor. */

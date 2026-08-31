@@ -4,30 +4,6 @@ import { isElectron, type HotkeyEvent } from "@/runtime/is-electron";
 
 export type { HotkeyEvent };
 
-let configurableRegistrationActive = false;
-const registrationListeners = new Set<(active: boolean) => void>();
-
-export function isConfigurablePushToTalkActive(): boolean {
-  return configurableRegistrationActive;
-}
-
-export function setConfigurablePushToTalkActive(active: boolean): void {
-  if (configurableRegistrationActive === active) {
-    return;
-  }
-  configurableRegistrationActive = active;
-  for (const listener of registrationListeners) {
-    listener(active);
-  }
-}
-
-export function subscribeToConfigurablePushToTalk(
-  listener: (active: boolean) => void,
-): () => void {
-  registrationListeners.add(listener);
-  return () => registrationListeners.delete(listener);
-}
-
 export function supportsFnPushToTalk(): boolean {
   return (
     isElectron() &&

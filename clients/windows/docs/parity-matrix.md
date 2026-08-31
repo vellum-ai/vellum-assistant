@@ -49,14 +49,14 @@ that exercises the Windows behavior.
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `menu.titles`, `menu.popup`                                         | The shell hides the native frame, so the renderer draws the menu bar in its title bar.                                                                                          |
 | `mainWindow.setTitleBarOverlay`                                     | Native caption buttons are themed with the renderer's palette.                                                                                                                  |
-| `helper.hotkey.setPushToTalk`, `helper.hotkey.onRegistrationChange` | The keyboard hook takes a configurable chord and reports whether the registration is live, so the renderer only suppresses its focused-window fallback while native capture is. |
+| `helper.hotkey.setPushToTalk`, `helper.hotkey.onRegistrationChange` | The keyboard hook takes the voice mode shortcut's bare-modifier chord and reports whether the registration is live, so the renderer only quiets its focused-window tap listener while native capture is. |
 
 ## Not applicable on Windows
 
 | macOS concept                                           | Windows equivalent                                                                                                                 |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `companion`, `voiceActivity` (companion surface)        | None. The shell opens no floating companion window; the renderer feature-detects both keys.                                        |
-| `helper.hotkey.fnPushToTalk` (Fn push-to-talk)          | `helper.hotkey.setPushToTalk`: a modifier-only chord registered with the helper's keyboard hook (`main/features/push-to-talk.ts`). |
+| `helper.hotkey.fnPushToTalk` (Fn voice mode tap)        | `helper.hotkey.setPushToTalk`: the voice mode shortcut's bare-modifier chord, registered with the helper's keyboard hook (`main/features/push-to-talk.ts`). |
 | Dock badge and bounce                                   | Taskbar overlay icon and attention flash (`main/taskbar.ts`).                                                                      |
 | Share sheet                                             | Native Save As dialog (`main/features/share.ts`).                                                                                  |
 | Quick Look extension                                    | Explorer preview and thumbnail handler.                                                                                            |

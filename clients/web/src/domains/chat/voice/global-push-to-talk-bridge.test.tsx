@@ -71,7 +71,7 @@ mock.module("@/domains/chat/voice/use-push-to-talk", () => ({
   usePushToTalk: () => undefined,
 }));
 
-mock.module("@/utils/keyboard-activation-host", () => ({
+mock.module("@/domains/chat/voice/keyboard-activation-host", () => ({
   supportsKeyboardActivation: () => false,
 }));
 

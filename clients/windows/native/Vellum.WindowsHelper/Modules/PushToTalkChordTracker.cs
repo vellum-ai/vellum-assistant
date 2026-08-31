@@ -1,72 +1,48 @@
 namespace Vellum.WindowsHelper.Modules;
 
-public enum PushToTalkTransition
-{
-    None,
-    Down,
-    Up,
-    Pending,
-}
-
+/// <summary>
+/// Detects a completed clean tap of the configured chord: every chord key
+/// pressed (and nothing else), then a chord key released with no other key
+/// event in between. Mirrors the renderer's focused-window tap listener, so
+/// a shortcut passing through the chord's keys (Alt+Tab, Ctrl+C over a Ctrl
+/// binding) disarms instead of toggling.
+/// </summary>
 public sealed class PushToTalkChordTracker
 {
     private HashSet<ushort> _required = [];
     private readonly HashSet<ushort> _pressed = [];
 
-    public bool Active { get; private set; }
-    public bool Pending { get; private set; }
+    public bool Armed { get; private set; }
 
-    public PushToTalkTransition Configure(IEnumerable<ushort> keys)
+    public void Configure(IEnumerable<ushort> keys)
     {
-        var transition = Active ? PushToTalkTransition.Up : PushToTalkTransition.None;
         _required = [.. keys];
         _pressed.Clear();
-        Active = false;
-        Pending = false;
-        return transition;
+        Armed = false;
     }
 
-    public PushToTalkTransition KeyDown(ushort key)
+    public void KeyDown(ushort key)
     {
         if (!_pressed.Add(key) || _required.Count == 0)
         {
-            return PushToTalkTransition.None;
+            return;
         }
-        if (!MatchesChord())
-        {
-            Pending = false;
-            return PushToTalkTransition.None;
-        }
-        // Every chord waits out the hold guard, so a shortcut that shares its
-        // prefix (Ctrl+Shift+T over Ctrl+Shift) cancels instead of recording.
-        Pending = true;
-        return PushToTalkTransition.Pending;
+        // Arm on the keydown that completes the exact chord; any other key on
+        // the way disarms, and a re-match (release one chord key, press it
+        // again) re-arms.
+        Armed = MatchesChord();
     }
 
-    public PushToTalkTransition ActivatePending()
+    /// <summary>Returns true when this release completes a clean tap.</summary>
+    public bool KeyUp(ushort key)
     {
-        if (!Pending || !MatchesChord())
-        {
-            return PushToTalkTransition.None;
-        }
-        Pending = false;
-        Active = true;
-        return PushToTalkTransition.Down;
-    }
-
-    public PushToTalkTransition KeyUp(ushort key)
-    {
+        var completesTap = Armed && _required.Contains(key);
         _pressed.Remove(key);
-        if (Pending && !MatchesChord())
+        if (completesTap)
         {
-            Pending = false;
+            Armed = false;
         }
-        if (!Active || !_required.Contains(key))
-        {
-            return PushToTalkTransition.None;
-        }
-        Active = false;
-        return PushToTalkTransition.Up;
+        return completesTap;
     }
 
     private bool MatchesChord() =>

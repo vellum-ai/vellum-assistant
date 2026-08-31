@@ -47,11 +47,6 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
   useManagedVoiceSelection: () => voiceSelection,
 }));
 
-const keyboardActivation = { supported: true };
-mock.module("@/utils/keyboard-activation-host", () => ({
-  supportsKeyboardActivation: () => keyboardActivation.supported,
-}));
-
 // The listening-language card reads daemon config through React Query too.
 // Hoisted with the mocks above (a mid-file `mock.module` does not re-link on
 // CI's bun), so its shape is swapped through this mutable seed instead.
@@ -95,7 +90,6 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  keyboardActivation.supported = true;
   voiceSelection.available = false;
   voiceSelection.settled = true;
   languageSelection.available = false;
@@ -343,28 +337,6 @@ describe("VoiceSections microphone picker", () => {
       expect(micTrigger().textContent).toContain("not connected"),
     );
     expect(localStorage.getItem("vellum:voice:inputDeviceId")).toBe("mic-gone");
-  });
-});
-
-describe("VoiceSections push-to-talk availability", () => {
-  test("hides push-to-talk when the host has no keyboard activation", () => {
-    keyboardActivation.supported = false;
-
-    renderPage();
-
-    expect(screen.queryByText("Push to Talk")).toBe(null);
-  });
-
-  test("labels a recorded Space binding", () => {
-    // The recorder stores `KeyboardEvent.key`, which is " " for Space.
-    localStorage.setItem(
-      "vellum:voice:activationKey",
-      JSON.stringify({ kind: "key", label: " ", modifiers: [] }),
-    );
-
-    renderPage();
-
-    expect(screen.getByRole("button", { name: "Space" })).toBeTruthy();
   });
 });
 

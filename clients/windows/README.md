@@ -24,11 +24,11 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
   text insertion (security model in `native/README.md`).
   `native/Vellum.PreviewHandler` is the Explorer preview and thumbnail handler
   for `.vellum` bundles.
-- `src/main/features/push-to-talk.ts` registers the chosen push-to-talk
-  binding with the helper's low-level keyboard hook so it works system-wide.
-  Bindings are modifier-only; every binding waits out a 100 ms hold guard so
-  taps and shortcuts sharing the prefix (Ctrl+Shift+T over Ctrl+Shift) cancel
-  instead of recording.
+- `src/main/features/push-to-talk.ts` registers the voice mode shortcut's
+  bare-modifier binding with the helper's low-level keyboard hook, because an
+  Electron `globalShortcut` cannot express one. A clean tap (chord down, chord
+  key up, nothing else in between) toggles voice mode system-wide; a shortcut
+  passing through the chord's keys (Alt+Tab over Alt) disarms instead.
 - [`docs/parity-matrix.md`](docs/parity-matrix.md) maps every bridge key and
   main-process capability to its Windows module, its macOS counterpart, and the
   test or packaged smoke that covers it, and lists the macOS concepts with no

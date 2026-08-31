@@ -7,53 +7,85 @@ public static class PushToTalkChordTrackerTests
 {
     public static void Run()
     {
-        SingleKeyRequiresHold();
-        ExtraKeyCancelsPendingActivation();
-        ChordRequiresHold();
-        ExtraKeyCancelsPendingChord();
+        CleanTapFires();
+        ChordTapFiresOnFirstChordKeyRelease();
+        ExtraKeyDisarmsTap();
+        PassingShortcutNeverFires();
+        RearmsAfterPartialRelease();
+        ReconfigurationDisarms();
         RejectsNonModifierGlobalBindings();
-        ReconfigurationReleasesActiveChord();
         KeepsSidedModifiersPressed();
     }
 
-    private static void SingleKeyRequiresHold()
+    private static void CleanTapFires()
     {
         var tracker = new PushToTalkChordTracker();
         tracker.Configure([0x11]);
-        Assert(tracker.KeyDown(0x11) == PushToTalkTransition.Pending);
-        Assert(tracker.ActivatePending() == PushToTalkTransition.Down);
-        Assert(tracker.KeyUp(0x11) == PushToTalkTransition.Up);
+        tracker.KeyDown(0x11);
+        Assert(tracker.Armed);
+        Assert(tracker.KeyUp(0x11));
+        Assert(!tracker.Armed);
     }
 
-    private static void ExtraKeyCancelsPendingActivation()
-    {
-        var tracker = new PushToTalkChordTracker();
-        tracker.Configure([0x12]);
-        Assert(tracker.KeyDown(0x12) == PushToTalkTransition.Pending);
-        Assert(tracker.KeyDown(0x43) == PushToTalkTransition.None);
-        Assert(tracker.ActivatePending() == PushToTalkTransition.None);
-    }
-
-    private static void ChordRequiresHold()
-    {
-        var tracker = new PushToTalkChordTracker();
-        tracker.Configure([0x11, 0x10]);
-        Assert(tracker.KeyDown(0x11) == PushToTalkTransition.None);
-        Assert(tracker.KeyDown(0x10) == PushToTalkTransition.Pending);
-        Assert(tracker.ActivatePending() == PushToTalkTransition.Down);
-        Assert(tracker.KeyUp(0x11) == PushToTalkTransition.Up);
-    }
-
-    private static void ExtraKeyCancelsPendingChord()
+    private static void ChordTapFiresOnFirstChordKeyRelease()
     {
         var tracker = new PushToTalkChordTracker();
         tracker.Configure([0x11, 0x10]);
         tracker.KeyDown(0x11);
-        Assert(tracker.KeyDown(0x10) == PushToTalkTransition.Pending);
-        Assert(tracker.KeyDown(0x54) == PushToTalkTransition.None);
-        Assert(!tracker.Pending);
-        Assert(tracker.ActivatePending() == PushToTalkTransition.None);
-        Assert(tracker.KeyUp(0x10) == PushToTalkTransition.None);
+        Assert(!tracker.Armed);
+        tracker.KeyDown(0x10);
+        Assert(tracker.Armed);
+        Assert(tracker.KeyUp(0x11));
+        Assert(!tracker.KeyUp(0x10));
+    }
+
+    private static void ExtraKeyDisarmsTap()
+    {
+        var tracker = new PushToTalkChordTracker();
+        tracker.Configure([0x12]);
+        tracker.KeyDown(0x12);
+        Assert(tracker.Armed);
+        tracker.KeyDown(0x43);
+        Assert(!tracker.Armed);
+        Assert(!tracker.KeyUp(0x43));
+        Assert(!tracker.KeyUp(0x12));
+    }
+
+    private static void PassingShortcutNeverFires()
+    {
+        // Ctrl+Shift bound; Ctrl+Shift+T passes through the chord's keys.
+        var tracker = new PushToTalkChordTracker();
+        tracker.Configure([0x11, 0x10]);
+        tracker.KeyDown(0x11);
+        tracker.KeyDown(0x10);
+        tracker.KeyDown(0x54);
+        Assert(!tracker.KeyUp(0x54));
+        Assert(!tracker.KeyUp(0x10));
+        Assert(!tracker.KeyUp(0x11));
+    }
+
+    private static void RearmsAfterPartialRelease()
+    {
+        var tracker = new PushToTalkChordTracker();
+        tracker.Configure([0x11, 0x10]);
+        tracker.KeyDown(0x11);
+        tracker.KeyDown(0x10);
+        Assert(tracker.KeyUp(0x10));
+        // Ctrl is still held; tapping Shift again completes the chord again.
+        tracker.KeyDown(0x10);
+        Assert(tracker.Armed);
+        Assert(tracker.KeyUp(0x10));
+    }
+
+    private static void ReconfigurationDisarms()
+    {
+        var tracker = new PushToTalkChordTracker();
+        tracker.Configure([0x11]);
+        tracker.KeyDown(0x11);
+        Assert(tracker.Armed);
+        tracker.Configure([0x12]);
+        Assert(!tracker.Armed);
+        Assert(!tracker.KeyUp(0x11));
     }
 
     private static void RejectsNonModifierGlobalBindings()
@@ -76,16 +108,6 @@ public static class PushToTalkChordTrackerTests
         Assert(!json.GetProperty("ok").GetBoolean());
         Assert(json.GetProperty("reason").GetString() ==
             "Global push-to-talk supports modifier-only bindings");
-    }
-
-    private static void ReconfigurationReleasesActiveChord()
-    {
-        var tracker = new PushToTalkChordTracker();
-        tracker.Configure([0x11, 0x10]);
-        tracker.KeyDown(0x11);
-        tracker.KeyDown(0x10);
-        Assert(tracker.ActivatePending() == PushToTalkTransition.Down);
-        Assert(tracker.Configure([0x12]) == PushToTalkTransition.Up);
     }
 
     private static void KeepsSidedModifiersPressed()
