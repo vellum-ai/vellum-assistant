@@ -60,7 +60,11 @@ import {
   updateMetaFile,
 } from "../persistence/conversation-disk-view.js";
 import { SIGHT_FRAME_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import {
+  attachmentIdFragment,
+  type ContentBlock,
+  type Message,
+} from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
@@ -464,10 +468,16 @@ async function prepareUserAttachmentReferences(
   return prepared;
 }
 
+/** One requested camera frame: the id the caller held, and what was stored. */
+interface SightFrameEntry {
+  inputId: string;
+  storedId: string;
+}
+
 /**
- * Translate the caller's ambient-camera-frame ids into the ids the persisted
- * blocks are attributable by, walking each materialized attachment back to the
- * input it came from.
+ * Pair each requested ambient camera frame with the id its persisted block is
+ * attributable by, walking every materialized attachment back to the input it
+ * came from.
  *
  * Which id that is depends on how the attachment landed. A stored one is named
  * by its linked row, which is also what its `workspace_ref` block carries. One
@@ -476,6 +486,32 @@ async function prepareUserAttachmentReferences(
  * reads both shapes through `mediaBlockAttachmentId`, and an inline frame is
  * the heaviest thing in every later request precisely because its bytes are in
  * the row.
+ */
+function requestedSightFrameEntries(
+  requestedIds: readonly string[] | undefined,
+  attachmentInputs: MessageAttachmentInput[],
+  prepared: PreparedUserAttachment[],
+): SightFrameEntry[] {
+  if (!requestedIds || requestedIds.length === 0) {
+    return [];
+  }
+  const requested = new Set(requestedIds);
+  const entries: SightFrameEntry[] = [];
+  for (const p of prepared) {
+    const inputId = attachmentInputs[p.position]?.id;
+    if (inputId === undefined || !requested.has(inputId)) {
+      continue;
+    }
+    entries.push({
+      inputId,
+      storedId: p.link ? p.link.attachmentId : inputId,
+    });
+  }
+  return entries;
+}
+
+/**
+ * The ids to tag the row with.
  *
  * Exactly one id per frame, never both. A stored attachment's pre-clone id
  * belongs to a DIFFERENT conversation's row, so naming it as well would mark
@@ -484,24 +520,81 @@ async function prepareUserAttachmentReferences(
  * fork's widened tag (`widenForkSightFrameTags`), where the two ids are two
  * names for the same image.
  */
-function sightFrameTagIds(
-  requestedIds: readonly string[] | undefined,
-  attachmentInputs: MessageAttachmentInput[],
-  prepared: PreparedUserAttachment[],
-): string[] {
-  if (!requestedIds || requestedIds.length === 0) {
-    return [];
+function sightFrameTagIds(entries: SightFrameEntry[]): string[] {
+  return [...new Set(entries.map((entry) => entry.storedId))];
+}
+
+/**
+ * Frames whose stored id differs from the one the caller handed in, by the
+ * caller's id. Empty unless conversation scoping cloned a row.
+ */
+function sightFrameBlockRenames(
+  entries: SightFrameEntry[],
+): Map<string, string> {
+  return new Map(
+    entries
+      .filter((entry) => entry.storedId !== entry.inputId)
+      .map((entry) => [entry.inputId, entry.storedId]),
+  );
+}
+
+/**
+ * Point an inline media block at the id its attachment was stored under.
+ *
+ * Only the inline shape is restamped. A `workspace_ref` names its row inside
+ * `source`, which materialization already filled with the stored id, so there
+ * is nothing to correct and rewriting `_attachmentId` alone would leave the two
+ * halves disagreeing.
+ */
+function restampInlineAttachmentId(
+  block: ContentBlock,
+  renames: ReadonlyMap<string, string>,
+): ContentBlock {
+  if (block.type !== "image" && block.type !== "file") {
+    return block;
   }
-  const requested = new Set(requestedIds);
-  const tagged = new Set<string>();
-  for (const p of prepared) {
-    const inputId = attachmentInputs[p.position]?.id;
-    if (inputId === undefined || !requested.has(inputId)) {
-      continue;
-    }
-    tagged.add(p.link ? p.link.attachmentId : inputId);
+  if (block.source.type === "workspace_ref") {
+    return block;
   }
-  return [...tagged];
+  const renamed =
+    block._attachmentId === undefined
+      ? undefined
+      : renames.get(block._attachmentId);
+  if (renamed === undefined) {
+    return block;
+  }
+  return { ...block, ...attachmentIdFragment(renamed) };
+}
+
+/**
+ * Rewrite the live message's camera-frame blocks to the ids their rows were
+ * stored under.
+ *
+ * The in-memory message is built from the attachments the caller handed in, so
+ * its blocks name the ids the caller held while the tag names what
+ * materialization stored. Those differ whenever conversation scoping cloned a
+ * row, and retention walking the live history would then find no frame to age:
+ * the tag matches nothing until a reload rebuilds the blocks from the persisted
+ * content. Restamping is what makes the array a turn actually sends agree with
+ * the tag, so a cloned frame is bounded on the turn that created it rather than
+ * only after a restart.
+ *
+ * Matched by id, never by position: `attachmentsToContentBlocks` emits nothing
+ * for an attachment it cannot turn into a block, so positions do not line up.
+ */
+function restampInlineAttachmentIds(
+  message: Message,
+  renames: ReadonlyMap<string, string>,
+): Message {
+  if (renames.size === 0) {
+    return message;
+  }
+  return {
+    ...message,
+    content: message.content.map((block) =>
+      restampInlineAttachmentId(block, renames),
+    ),
+  };
 }
 
 function extractTurnChannelContext(
@@ -1086,7 +1179,18 @@ export async function persistQueuedMessageBody(
     const sentAttachments = preparedAttachments.map(
       (p) => attachmentInputs[p.position],
     );
-    const cleanMessage = await createUserMessage(content, sentAttachments);
+    const sightFrameEntries = requestedSightFrameEntries(
+      options.sightFrameAttachmentIds,
+      attachmentInputs,
+      preparedAttachments,
+    );
+    const sightFrameRenames = sightFrameBlockRenames(sightFrameEntries);
+    // The blocks are built from the ids the caller held, so a cloned frame is
+    // pointed at its stored row before the message reaches the live history.
+    const cleanMessage = restampInlineAttachmentIds(
+      await createUserMessage(content, sentAttachments),
+      sightFrameRenames,
+    );
 
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message
@@ -1099,11 +1203,7 @@ export async function persistQueuedMessageBody(
     );
     // Composed here rather than with the rest of the metadata above, because
     // materialization is what decides the id each frame is stored under.
-    const sightFrameIds = sightFrameTagIds(
-      options.sightFrameAttachmentIds,
-      attachmentInputs,
-      preparedAttachments,
-    );
+    const sightFrameIds = sightFrameTagIds(sightFrameEntries);
     const metadataToPersist =
       sightFrameIds.length > 0
         ? { ...mergedMetadata, [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: sightFrameIds }
@@ -1183,7 +1283,13 @@ export async function persistQueuedMessageBody(
         );
         if (inline) {
           repairedBlocks ??= preparedAttachments.map((pp) => pp.block);
-          repairedBlocks[idx] = inline;
+          // Rebuilt from the caller's attachment, so it names the id the
+          // caller held while the tag written above names the stored row.
+          // Restamping keeps a repaired frame matchable by retention.
+          repairedBlocks[idx] = restampInlineAttachmentId(
+            inline,
+            sightFrameRenames,
+          );
         }
       }
     }

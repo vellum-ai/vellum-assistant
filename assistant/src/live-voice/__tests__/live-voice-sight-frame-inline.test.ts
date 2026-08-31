@@ -34,8 +34,23 @@ const realStore = { ...attachmentsStoreNamespace };
 
 const unstorableAttachmentIds = new Set<string>();
 
+// Armed for exactly one link, which is how the persist path's repair branch is
+// reached without breaking the linking a test's own setup depends on.
+let failNextLink = false;
+
 mock.module("../../persistence/attachments-store.js", () => ({
   ...realStore,
+  linkAttachmentToMessage: (
+    messageId: string,
+    attachmentId: string,
+    position: number,
+  ) => {
+    if (failNextLink) {
+      failNextLink = false;
+      throw new Error("simulated message_attachments write failure");
+    }
+    return realStore.linkAttachmentToMessage(messageId, attachmentId, position);
+  },
   scopeAttachmentToMessageConversation: (
     conversationId: string,
     conversationCreatedAt: number,
@@ -57,6 +72,7 @@ import {
 } from "../../daemon/conversation-registry.js";
 import { applySightFrameRetention } from "../../daemon/conversation-runtime-assembly.js";
 import {
+  addMessage,
   createConversation,
   getMessages,
   type MessageRow,
@@ -206,6 +222,42 @@ describe("a camera frame that falls back to inline bytes", () => {
       expect(retained[2].content.some((b) => b.type === "image")).toBe(true);
     } finally {
       live.dispose();
+    }
+  });
+});
+
+describe("a camera frame whose message link fails", () => {
+  test("is repaired to inline bytes naming the id its tag names", async () => {
+    // The tag is written with the row, before the link is attempted, so it
+    // already names the CLONE that scoping stored. The repair rebuilds the
+    // block from the caller's attachment, which names the id the session held.
+    // Left disagreeing, the repaired row's frame never ages out.
+    const source = liveConversation("Live voice repair source");
+    const live = liveConversation("Live voice repair");
+    try {
+      // Linked under another conversation, so materialization clones it.
+      const arrivedAs = await uploadFrame("repair.png");
+      const elsewhere = await addMessage(source.id, "user", "look at this");
+      realStore.linkAttachmentToMessage(elsewhere.id, arrivedAs, 0);
+
+      failNextLink = true;
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
+      expect(failNextLink).toBe(false);
+
+      const [row] = getMessages(live.id);
+      // The repair really fired: bytes in the row rather than a reference.
+      expect(hasInlineImage(row)).toBe(true);
+
+      const tagged = sightFrameAttachmentIdsFromMetadata(metadataOf(row));
+      expect(tagged).toHaveLength(1);
+      expect(tagged[0]).not.toBe(arrivedAs);
+      // The block the retention pass reads names what the tag names.
+      expect(attributableImageId(row)).toBe(tagged[0]);
+    } finally {
+      live.dispose();
+      source.dispose();
     }
   });
 });

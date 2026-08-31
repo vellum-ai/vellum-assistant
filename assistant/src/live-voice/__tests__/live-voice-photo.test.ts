@@ -34,6 +34,7 @@ import { initializeDb } from "../../persistence/db-init.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
+  _setProcessingWaitMsForTests,
   _standaloneImageQueueSizeForTests,
   persistLiveVoicePhoto,
   persistLiveVoiceSightFrame,
@@ -109,6 +110,22 @@ async function uploadFrame(name: string): Promise<string> {
 /** True while the attachment's row is still in the store. */
 function frameStored(attachmentId: string): boolean {
   return getAttachmentById(attachmentId) !== null;
+}
+
+/**
+ * Attachment ids the conversation's LIVE history is attributable by, which is
+ * the array a turn sends rather than the rows a reload would rebuild.
+ */
+function liveImageIds(conversation: Conversation): Array<string | undefined> {
+  const ids: Array<string | undefined> = [];
+  for (const message of conversation.messages) {
+    for (const block of message.content) {
+      if (block.type === "image") {
+        ids.push(mediaBlockAttachmentId(block));
+      }
+    }
+  }
+  return ids;
 }
 
 /**
@@ -361,6 +378,62 @@ describe("persistLiveVoiceSightFrame", () => {
     }
   });
 
+  test("the live in-memory block names the cloned id, not the arriving one", async () => {
+    // The live message is built from the attachments the caller handed in, so
+    // its block names the id the session held while the tag names what
+    // materialization stored. Left disagreeing, the turn that created the
+    // frame sends it full size and only a reload ever bounds it.
+    const source = liveConversation("Live voice live block source");
+    const live = liveConversation("Live voice live block clone");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(source.id);
+
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
+
+      const stored = storedImageId(getMessages(live.id)[0]);
+      expect(stored).toBeDefined();
+      expect(stored).not.toBe(arrivedAs);
+      // The array a turn actually sends agrees with the tag.
+      expect(liveImageIds(live.activeConversation)).toEqual([stored]);
+    } finally {
+      live.dispose();
+      source.dispose();
+    }
+  });
+
+  test("retention ages a cloned frame in the live history", async () => {
+    // The reload path is covered below; this is the same conversation before
+    // any reload, which is where a long call spends all its time.
+    const source = liveConversation("Live voice live retention source");
+    const live = liveConversation("Live voice live retention");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(source.id);
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
+      for (const name of ["live-fresh-a.png", "live-fresh-b.png"]) {
+        const fresh = await uploadFrame(name);
+        expect((await persistLiveVoiceSightFrame(live.id, fresh)).ok).toBe(
+          true,
+        );
+      }
+
+      const live_ = live.activeConversation;
+      expect(live_.messages).toHaveLength(3);
+      const retained = live_.trimAgedSightFrames(live_.messages);
+
+      // Three frames, a budget of two: the cloned one is the oldest and goes.
+      expect(retained[0].content.some((b) => b.type === "image")).toBe(false);
+      expect(retained[1].content.some((b) => b.type === "image")).toBe(true);
+      expect(retained[2].content.some((b) => b.type === "image")).toBe(true);
+    } finally {
+      live.dispose();
+      source.dispose();
+    }
+  });
+
   test("retention ages a cloned frame, because the tag matches its block", async () => {
     // The end of the same thread: a tag naming the id the caller held leaves
     // this frame unrecognized, so it is never counted and never stubbed, and
@@ -596,6 +669,52 @@ describe("standalone image persists are serialized per conversation", () => {
       }
     } finally {
       live.dispose();
+    }
+  });
+
+  test("a keep whose wait runs out gives up its upload", async () => {
+    // A turn longer than the wait drops the keep, and nothing else would ever
+    // collect the row: the client's abandon-delete fires on a refused send,
+    // and this send was accepted.
+    const restoreWait = _setProcessingWaitMsForTests(120);
+    const live = liveConversation("Live voice keep wait timeout");
+    try {
+      const frame = await uploadFrame("timed-out.png");
+
+      // A turn that outlasts the wait.
+      live.activeConversation.setProcessing(true);
+      expect(await persistLiveVoiceSightFrame(live.id, frame)).toEqual({
+        ok: false,
+      });
+
+      expect(frameStored(frame)).toBe(false);
+      expect(getMessages(live.id)).toHaveLength(0);
+    } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+      _setProcessingWaitMsForTests(restoreWait);
+    }
+  });
+
+  test("a photo whose wait runs out keeps its upload", async () => {
+    // A photo is a deliberate upload the user watched themselves make, so a
+    // failed persist is theirs to retry rather than the daemon's to delete.
+    const restoreWait = _setProcessingWaitMsForTests(120);
+    const live = liveConversation("Live voice photo wait timeout");
+    try {
+      const photo = await uploadFrame("timed-out-photo.png");
+
+      live.activeConversation.setProcessing(true);
+      expect(await persistLiveVoicePhoto(live.id, photo)).toEqual({
+        ok: false,
+      });
+
+      expect(frameStored(photo)).toBe(true);
+      expect(getMessages(live.id)).toHaveLength(0);
+    } finally {
+      live.activeConversation.setProcessing(false);
+      live.dispose();
+      _setProcessingWaitMsForTests(restoreWait);
     }
   });
 

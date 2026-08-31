@@ -84,6 +84,19 @@ const log = getLogger("live-voice-photo");
  * say.
  */
 const PROCESSING_WAIT_MS = 30_000;
+
+/**
+ * The wait actually applied. Mutable only so a test can reach the timeout
+ * without holding a conversation busy for the full half minute.
+ */
+let processingWaitMs = PROCESSING_WAIT_MS;
+
+/** Shorten the idle wait for a test. Returns the value it replaced. */
+export function _setProcessingWaitMsForTests(ms: number): number {
+  const previous = processingWaitMs;
+  processingWaitMs = ms;
+  return previous;
+}
 const PROCESSING_POLL_MS = 100;
 
 const PHOTO_MESSAGE_CONTENT = "here's a photo:";
@@ -165,7 +178,7 @@ async function enqueueStandaloneImagePersist(
         { conversationId, attachmentId: ticket.attachmentId },
         "A newer camera frame replaced one still waiting to persist",
       );
-      reclaimSupersededFrame(ticket.attachmentId);
+      reclaimDroppedFrame(ticket.attachmentId);
       return { ok: false };
     }
     return job();
@@ -191,23 +204,30 @@ async function enqueueStandaloneImagePersist(
 }
 
 /**
- * Give up the upload behind a keep no message will ever carry.
+ * Give up the upload behind a keep no message will ever carry: one a newer
+ * frame replaced before it started, one whose wait for an idle conversation
+ * ran out, and one whose write threw.
  *
- * The client uploaded it and then the daemon chose to drop it, so nothing else
- * will ever collect it: the client's own abandon-delete fires only when the
- * send fails, and attachment collection is candidate-driven with no sweep.
- * Link-aware through {@link deleteOrphanAttachments}, so an id that did reach a
- * message is left alone, and only ever called for a job that never wrote.
+ * The client uploaded it and then the daemon dropped it, so nothing else will
+ * ever collect it: the client's own abandon-delete fires only when the send
+ * fails, and attachment collection is candidate-driven with no sweep.
+ * {@link deleteOrphanAttachments} is link-aware, which is the backstop that
+ * makes this safe on the thrown path: a write that failed after linking leaves
+ * a `message_attachments` row, and an id with a link is refused.
+ *
+ * Keeps only. A photo is a deliberate upload the user watched themselves make,
+ * and one that failed to persist is theirs to retry, not the daemon's to
+ * delete.
  *
  * Best effort. Losing a row's bytes is not worth failing a call over.
  */
-function reclaimSupersededFrame(attachmentId: string): void {
+function reclaimDroppedFrame(attachmentId: string): void {
   try {
     deleteOrphanAttachments([attachmentId]);
   } catch (err) {
     log.warn(
       { err, attachmentId },
-      "Could not reclaim a superseded live-voice camera frame",
+      "Could not reclaim a dropped live-voice camera frame",
     );
   }
 }
@@ -235,7 +255,7 @@ async function acquireProcessingFlag(conversation: {
   isProcessing: () => boolean;
   setProcessing: (value: boolean) => void;
 }): Promise<boolean> {
-  const deadline = Date.now() + PROCESSING_WAIT_MS;
+  const deadline = Date.now() + processingWaitMs;
   for (;;) {
     if (!conversation.isProcessing()) {
       conversation.setProcessing(true);
@@ -300,6 +320,9 @@ async function writeStandaloneImage(
         { conversationId, attachmentId, kind },
         "Live-voice image timed out waiting for the conversation to go idle",
       );
+      if (kind === "sight_frame") {
+        reclaimDroppedFrame(attachmentId);
+      }
       return { ok: false };
     }
 
@@ -335,6 +358,9 @@ async function writeStandaloneImage(
       { err, conversationId, attachmentId, kind },
       "Failed to persist a live-voice image",
     );
+    if (kind === "sight_frame") {
+      reclaimDroppedFrame(attachmentId);
+    }
     return { ok: false };
   }
 }
