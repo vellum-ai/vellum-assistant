@@ -941,6 +941,7 @@ describe("AssistantConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30000,
         bargeInMinSpeechMs: 250,
+        bargeInMinVoicedRatio: 0.25,
         echoBargeInMargin: 1.5,
         echoEmaHalfLifeMs: 400,
         echoDrainSlackMs: 300,

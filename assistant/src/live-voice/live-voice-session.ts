@@ -70,6 +70,10 @@ import {
   pcm16MaxNormalizedCorrelation,
   pcm16MeanAmplitude,
 } from "../stt/speech-energy.js";
+import {
+  isPcm16Voiced,
+  VoicedSpeechWindow,
+} from "../stt/speech-periodicity.js";
 import type {
   StreamingTranscriber,
   SttProviderId,
@@ -240,6 +244,23 @@ const BARGE_IN_GAP_TOLERANCE_MS = 200;
 // (1 / (1 + ratio) ≈ 20%): once the run is mostly silence it resets, so genuine
 // choppy speech still lands but periodic noise cannot accumulate into one.
 const BARGE_IN_MAX_TOLERATED_SILENCE_RATIO = 4;
+// Fraction of a barge-in run's most recent above-gate audio that has to look
+// like voiced speech before the run may cancel the assistant. The energy gate
+// and the noise floor together only ever ask how loud a sound is, so sustained
+// aperiodic noise (typing, rustling, running water, a fan) still clears them
+// for the full guard duration and kills a reply. Requiring a voice somewhere in
+// the run costs nothing a real interruption has to pay: a quarter is far below
+// the voiced share of any spoken word, which leaves room for the unvoiced
+// consonants a word opens with and for chunks too degraded by the client's echo
+// canceller to measure. Mirrors the liveVoice.vad.bargeInMinVoicedRatio default.
+const DEFAULT_BARGE_IN_MIN_VOICED_RATIO = 0.25;
+// Floor on the span of audio the voiced fraction is measured over, whatever
+// interrupt sensitivity the client asks for. A word is not a chunk: with the
+// web client's 50 ms framing, a window shorter than a syllable would ask each
+// frame to look like a voice on its own, and the fricative a word opens with
+// never does. The floor only binds once a run outlives it, so a run still fires
+// as soon as it has the speech it needs.
+const BARGE_IN_VOICING_WINDOW_MIN_MS = 200;
 // Slack added to the configured end-of-turn timeout before the session stops
 // waiting for an event that is not coming and falls the utterance back onto
 // the silence-boundary path. A turn-detecting provider force-ends its own turn
@@ -362,6 +383,14 @@ export interface LiveVoiceSessionOptions {
    * defaults to `DEFAULT_BARGE_IN_MIN_SPEECH_MS`.
    */
   bargeInMinSpeechMs?: number;
+  /**
+   * Voiced fraction a barge-in run's recent above-gate audio must reach before
+   * it may interrupt. The production factory seeds this from
+   * `liveVoice.vad.bargeInMinVoicedRatio` config when unset; defaults to
+   * `DEFAULT_BARGE_IN_MIN_VOICED_RATIO`. Values at or below 0 disable the test
+   * (used by tests that are about the energy accounting alone).
+   */
+  bargeInMinVoicedRatio?: number;
   /**
    * Multiplier over the learned playback echo level that input must exceed
    * to count as speech while assistant audio is playing. Values at or below
@@ -1239,6 +1268,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Mutable so a mid-session `update_config` frame can retune "interrupt
   // sensitivity" live (see applyConfigUpdate).
   private bargeInMinSpeechMs: number;
+  private readonly bargeInMinVoicedRatio: number;
   // Sustained-speech barge-in guard, armed at speech onset while the
   // assistant turn is audibly speaking: above-gate speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
@@ -1259,6 +1289,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // chunks); resets speechMs once it exceeds the duty-cycle ceiling so sparse
     // periodic blips cannot sum into a barge-in.
     toleratedSilenceMs: number;
+    // Voiced share of the run's most recent bargeInMinSpeechMs of above-gate
+    // audio, which the run must clear alongside speechMs to fire.
+    voicing: VoicedSpeechWindow;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -1442,6 +1475,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       context.startFrame.bargeInMinSpeechMs ??
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
+    this.bargeInMinVoicedRatio =
+      options.bargeInMinVoicedRatio ?? DEFAULT_BARGE_IN_MIN_VOICED_RATIO;
     this.echoBargeInMargin =
       options.echoBargeInMargin ?? DEFAULT_ECHO_BARGE_IN_MARGIN;
     this.echoEmaHalfLifeMs =
@@ -2684,6 +2719,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         speechMs: 0,
         silenceMs: 0,
         toleratedSilenceMs: 0,
+        voicing: new VoicedSpeechWindow(
+          Math.max(this.bargeInMinSpeechMs, BARGE_IN_VOICING_WINDOW_MIN_MS),
+        ),
       };
       return;
     }
@@ -2736,7 +2774,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     guard.silenceMs = 0;
     guard.speechMs += chunkMs;
+    guard.voicing.observe(chunkMs, this.chunkSoundsVoiced(chunk));
     if (guard.speechMs < this.bargeInMinSpeechMs) {
+      return;
+    }
+    // Loud for long enough, but nothing in it repeats at a pitch period: a
+    // sound, not a voice. Hold rather than reset, so the run is still standing
+    // the moment the user does speak over the noise and can fire on that
+    // chunk instead of restarting from zero.
+    if (guard.voicing.voicedFraction < this.bargeInMinVoicedRatio) {
       return;
     }
     this.pendingBargeIn = null;
@@ -2756,11 +2802,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     guard.speechMs = 0;
     guard.silenceMs = 0;
     guard.toleratedSilenceMs = 0;
+    guard.voicing.reset();
     if (this.echoWindowGuardCarryover) {
       this.echoWindowGuardCarryover = false;
       this.echoEnergyEma = 0;
       this.echoProbeChunks = [];
     }
+  }
+
+  // Whether an above-gate chunk carries a repeating waveform. Only reached
+  // while a barge-in guard is armed, so the correlation search runs on the
+  // handful of chunks that are about to cancel a reply rather than on every
+  // chunk of the call. A chunk too short or too flat to measure counts as a
+  // voice: this test may only withhold an interruption, so it must never be
+  // the thing that decides one on evidence it does not have.
+  private chunkSoundsVoiced(chunk: Buffer): boolean {
+    if (this.bargeInMinVoicedRatio <= 0) {
+      return true;
+    }
+    return isPcm16Voiced(chunk, this.context.startFrame.audio.sampleRate);
   }
 
   private bargeIn(turn: ActiveAssistantTurn): void {
@@ -6897,6 +6957,8 @@ export function createLiveVoiceSession(
     noiseFloorMargin: options.noiseFloorMargin ?? vadConfig?.noiseFloorMargin,
     bargeInMinSpeechMs:
       options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
+    bargeInMinVoicedRatio:
+      options.bargeInMinVoicedRatio ?? vadConfig?.bargeInMinVoicedRatio,
     echoBargeInMargin:
       options.echoBargeInMargin ?? vadConfig?.echoBargeInMargin,
     echoEmaHalfLifeMs:

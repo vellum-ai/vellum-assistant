@@ -44,6 +44,7 @@ describe("LiveVoiceVadConfigSchema", () => {
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
+      bargeInMinVoicedRatio: 0.25,
       echoBargeInMargin: 1.5,
       echoEmaHalfLifeMs: 400,
       echoDrainSlackMs: 300,
@@ -71,6 +72,22 @@ describe("LiveVoiceVadConfigSchema", () => {
   test("rejects a negative noiseFloorMargin", () => {
     expect(() =>
       LiveVoiceVadConfigSchema.parse({ noiseFloorMargin: -1 }),
+    ).toThrow();
+  });
+
+  test("accepts a bargeInMinVoicedRatio of 0 (voicing test disabled)", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({ bargeInMinVoicedRatio: 0 });
+    expect(parsed.bargeInMinVoicedRatio).toBe(0);
+  });
+
+  test("rejects a bargeInMinVoicedRatio outside 0..1", () => {
+    // It is a fraction of the run, so above 1 is unsatisfiable (barge-in would
+    // become impossible) and below 0 is meaningless.
+    expect(() =>
+      LiveVoiceVadConfigSchema.parse({ bargeInMinVoicedRatio: 1.5 }),
+    ).toThrow();
+    expect(() =>
+      LiveVoiceVadConfigSchema.parse({ bargeInMinVoicedRatio: -0.1 }),
     ).toThrow();
   });
 
@@ -333,6 +350,7 @@ describe("LiveVoiceConfigSchema", () => {
         silenceThresholdMs: 1200,
         maxTurnDurationMs: 30_000,
         bargeInMinSpeechMs: 250,
+        bargeInMinVoicedRatio: 0.25,
         echoBargeInMargin: 1.5,
         echoEmaHalfLifeMs: 400,
         echoDrainSlackMs: 300,

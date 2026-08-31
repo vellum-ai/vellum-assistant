@@ -97,6 +97,54 @@ function tonePcm(
   return new Uint8Array(buffer);
 }
 
+// A vowel-shaped 50 ms frame: a fundamental plus a decaying harmonic stack,
+// the waveform vocal folds driving a vocal tract actually produce. Periodic,
+// so the barge-in voicing test reads it as a voice.
+function vowelPcm(
+  amplitude: number,
+  fundamentalHz = 120,
+  sampleCount = 1_200,
+): Uint8Array {
+  const harmonics = [1, 0.7, 0.5, 0.35, 0.22, 0.14, 0.08];
+  const buffer = Buffer.alloc(sampleCount * 2);
+  for (let index = 0; index < sampleCount; index += 1) {
+    let value = 0;
+    for (let harmonic = 0; harmonic < harmonics.length; harmonic += 1) {
+      value +=
+        harmonics[harmonic]! *
+        Math.sin(
+          (2 * Math.PI * fundamentalHz * (harmonic + 1) * index) / SAMPLE_RATE,
+        );
+    }
+    buffer.writeInt16LE(Math.round((amplitude * value) / 2), index * 2);
+  }
+  return new Uint8Array(buffer);
+}
+
+// A broadband 50 ms frame with no repeating structure: a stand-in for the
+// sustained non-speech that clears the energy gate (typing, rustling, a tap
+// running, a fan). Deterministic so a threshold assertion cannot flake.
+function noisePcm(amplitude: number, sampleCount = 1_200): Uint8Array {
+  let state = 1_234_567;
+  const buffer = Buffer.alloc(sampleCount * 2);
+  for (let index = 0; index < sampleCount; index += 1) {
+    state = (state * 1_103_515_245 + 12_345) & 0x7fffffff;
+    const uniform = (state / 0x7fffffff) * 2 - 1;
+    buffer.writeInt16LE(Math.round(amplitude * uniform), index * 2);
+  }
+  return new Uint8Array(buffer);
+}
+
+function meanAmplitude(chunk: Uint8Array): number {
+  const buffer = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  const count = Math.floor(buffer.length / 2);
+  let total = 0;
+  for (let index = 0; index < count; index += 1) {
+    total += Math.abs(buffer.readInt16LE(index * 2));
+  }
+  return total / count;
+}
+
 // 10 ms of speech at 24 kHz.
 const LOUD_CHUNK = pcm(8_000);
 // 300 ms of speech at 24 kHz — comfortably exceeds the default sustained-speech
@@ -179,6 +227,7 @@ function createHarness(options: {
   speechEnergyThreshold?: number;
   noiseFloorMargin?: number;
   bargeInMinSpeechMs?: number;
+  bargeInMinVoicedRatio?: number;
   echoBargeInMargin?: number;
   echoEmaHalfLifeMs?: number;
   echoDrainSlackMs?: number;
@@ -264,6 +313,12 @@ function createHarness(options: {
     noiseFloorMargin:
       options.noiseFloorMargin ?? (options.viaFactory ? undefined : 0),
     bargeInMinSpeechMs: options.bargeInMinSpeechMs,
+    // Like echoBargeInMargin and noiseFloorMargin: a directly-constructed
+    // session judges barge-in on energy alone unless a test asks for the
+    // voicing test, so a case about the guard's time accounting is not also a
+    // case about the shape of its synthetic audio.
+    bargeInMinVoicedRatio:
+      options.bargeInMinVoicedRatio ?? (options.viaFactory ? undefined : 0),
     echoBargeInMargin:
       options.echoBargeInMargin ?? (options.viaFactory ? undefined : 1),
     echoEmaHalfLifeMs: options.echoEmaHalfLifeMs,
@@ -3344,6 +3399,7 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
       silenceThresholdMs: 1200,
       maxTurnDurationMs: 30_000,
       bargeInMinSpeechMs: 250,
+      bargeInMinVoicedRatio: 0.25,
       echoBargeInMargin: 1.5,
       echoEmaHalfLifeMs: 400,
       echoDrainSlackMs: 300,
@@ -3460,6 +3516,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   // detector timers stay out of the guard's audio-duration accounting.
   function createSpeakingTurnHarness(options: {
     bargeInMinSpeechMs: number;
+    bargeInMinVoicedRatio?: number;
     echoEmaHalfLifeMs?: number;
     echoBargeInMargin?: number;
     echoDrainSlackMs?: number;
@@ -3486,6 +3543,9 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       startVoiceTurn,
       streamTtsAudio,
       bargeInMinSpeechMs: options.bargeInMinSpeechMs,
+      ...(options.bargeInMinVoicedRatio !== undefined
+        ? { bargeInMinVoicedRatio: options.bargeInMinVoicedRatio }
+        : {}),
       echoEmaHalfLifeMs: options.echoEmaHalfLifeMs ?? 4,
       echoBargeInMargin: options.echoBargeInMargin ?? 1,
       echoDrainSlackMs: options.echoDrainSlackMs ?? 60_000,
@@ -4031,6 +4091,134 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
       }
 
       await waitFor(() => countType(frames, "turn_cancelled") === 1);
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+  });
+
+  describe("voiced-speech requirement", () => {
+    // 50 ms frames, the size the web client batches microphone PCM into, at
+    // matched loudness. Everything the energy gate and the noise floor can see
+    // is identical between them; only the shape of the waveform differs.
+    const VOWEL_FRAME = vowelPcm(7_500);
+    const NOISE_FRAME = noisePcm(5_800);
+
+    test("the two probe frames really are the same loudness", () => {
+      // If this drifts, the pair below stops being a controlled comparison and
+      // starts being a test about energy again.
+      const vowel = meanAmplitude(VOWEL_FRAME);
+      const noise = meanAmplitude(NOISE_FRAME);
+      expect(vowel).toBeGreaterThan(800);
+      expect(Math.abs(vowel - noise) / vowel).toBeLessThan(0.05);
+    });
+
+    test("sustained noise loud enough to barge in does not cancel the turn", async () => {
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 250,
+          bargeInMinVoicedRatio: 0.25,
+        });
+      await speakFirstReply();
+
+      // 500 ms of above-gate broadband noise: twice the guard duration, with no
+      // gap for the duty-cycle ceiling to catch. Energy alone would have fired
+      // at 250 ms.
+      for (let index = 0; index < 10; index += 1) {
+        await session.handleBinaryAudio(NOISE_FRAME);
+      }
+      await flushAsyncCallbacks();
+
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+      expect(abort).not.toHaveBeenCalled();
+    });
+
+    test("a voice at that same loudness cancels the turn", async () => {
+      // The control: same harness, same energy, same durations, periodic
+      // waveform. A failure here means the test is rejecting real speech.
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 250,
+          bargeInMinVoicedRatio: 0.25,
+        });
+      await speakFirstReply();
+
+      for (let index = 0; index < 10; index += 1) {
+        await session.handleBinaryAudio(VOWEL_FRAME);
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+
+    test("the same noise cancels the turn with the requirement disabled", async () => {
+      // Proof the noise clears every other gate on the way in, so the case
+      // above is the voicing test doing the work and not the audio being quiet.
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 250,
+          bargeInMinVoicedRatio: 0,
+        });
+      await speakFirstReply();
+
+      for (let index = 0; index < 10; index += 1) {
+        await session.handleBinaryAudio(NOISE_FRAME);
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+
+    test("speaking over noise that never stops still interrupts", async () => {
+      // The failure this must not have: a tap left running holds the gate open
+      // indefinitely, and if its unvoiced time accumulated without limit the
+      // user would be unable to interrupt at all. The window only remembers the
+      // recent stretch, so their voice fires the run it is already standing in.
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 250,
+          bargeInMinVoicedRatio: 0.25,
+        });
+      await speakFirstReply();
+
+      // Two full seconds of noise: forty frames of unvoiced above-gate audio.
+      for (let index = 0; index < 40; index += 1) {
+        await session.handleBinaryAudio(NOISE_FRAME);
+      }
+      await flushAsyncCallbacks();
+      expect(countType(frames, "turn_cancelled")).toBe(0);
+
+      // 100 ms of voice is a quarter of the 250 ms window, so the run fires
+      // without the user having to out-talk the noise's whole history.
+      for (let index = 0; index < 2; index += 1) {
+        await session.handleBinaryAudio(VOWEL_FRAME);
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
+      await waitFor(() => abort.mock.calls.length === 1);
+    });
+
+    test("a word that opens on an unvoiced consonant still interrupts", async () => {
+      // "stop": 100 ms of fricative, then the vowel. The fricative is
+      // acoustically noise and scores like noise, so a per-chunk verdict would
+      // throw away the front of the word; the run is judged as a stretch.
+      const { frames, session, abort, speakFirstReply } =
+        createSpeakingTurnHarness({
+          bargeInMinSpeechMs: 250,
+          bargeInMinVoicedRatio: 0.25,
+        });
+      await speakFirstReply();
+
+      for (let index = 0; index < 2; index += 1) {
+        await session.handleBinaryAudio(NOISE_FRAME);
+      }
+      for (let index = 0; index < 3; index += 1) {
+        await session.handleBinaryAudio(VOWEL_FRAME);
+      }
+      await waitFor(() =>
+        frames.some((frame) => frame.type === "turn_cancelled"),
+      );
       await waitFor(() => abort.mock.calls.length === 1);
     });
   });

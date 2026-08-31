@@ -49,6 +49,16 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Sustained speech (ms) required before speech during assistant playback interrupts it — the default 'interrupt sensitivity' (higher = harder to interrupt). 0 disables the guard. Clients may override it per-session via the start frame. Raised from 60 so brief TTS bleed through imperfect echo cancellation no longer self-interrupts the assistant.",
       ),
+    bargeInMinVoicedRatio: z
+      .number({
+        error: "liveVoice.vad.bargeInMinVoicedRatio must be a number",
+      })
+      .min(0, "liveVoice.vad.bargeInMinVoicedRatio must be between 0 and 1")
+      .max(1, "liveVoice.vad.bargeInMinVoicedRatio must be between 0 and 1")
+      .default(0.25)
+      .describe(
+        "Fraction of a barge-in's most recent above-gate audio that must look like voiced speech (a waveform repeating at a pitch period) before it may interrupt the assistant. Keeps sustained aperiodic noise (typing, rustling, running water, fans) from cancelling a reply. Only ever withholds an interruption, never causes one. 0 disables the test.",
+      ),
     echoBargeInMargin: z
       .number({ error: "liveVoice.vad.echoBargeInMargin must be a number" })
       .gt(1, "liveVoice.vad.echoBargeInMargin must be greater than 1")
