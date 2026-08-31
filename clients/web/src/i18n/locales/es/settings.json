@@ -309,7 +309,7 @@
     "finishSetupBody": "La dirección de correo de tu asistente aún no se ha configurado.",
     "finishSetupButton": "Finalizar configuración",
     "finishSetupTitle": "Termina de configurar tu plan {plan}",
-    "loadingBilling": "Cargando facturación…",
+    "loadingBillingAriaLabel": "Cargando facturación…",
     "platformLoginNotice": "Inicia sesión en la plataforma Vellum para administrar la facturación y el uso.",
     "usageTab": "Uso"
   },

@@ -309,7 +309,7 @@
     "finishSetupBody": "Your assistant's email address hasn't been set up yet.",
     "finishSetupButton": "Finish setup",
     "finishSetupTitle": "Finish setting up your {plan} plan",
-    "loadingBilling": "Loading billing…",
+    "loadingBillingAriaLabel": "Loading billing…",
     "platformLoginNotice": "Log in to the Vellum platform to manage billing and usage.",
     "usageTab": "Usage"
   },

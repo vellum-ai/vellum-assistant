@@ -1,5 +1,4 @@
-import { Loader2 } from "lucide-react";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
@@ -21,6 +20,7 @@ import { GracePeriodBanner } from "@/domains/settings/components/grace-period-ba
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
 import { PlanCard } from "@/domains/settings/components/plan-card";
+import { SkeletonCardBlock } from "@/domains/settings/components/skeleton-card-block";
 import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
@@ -35,11 +35,13 @@ import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
+  usePlatformGateWithPending,
 } from "@/hooks/use-platform-gate";
 import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tabs } from "@vellumai/design-library/components/tabs";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -147,6 +149,61 @@ function FinishProSetupNotice({
   );
 }
 
+/**
+ * Stand-in for the whole Billing tab while it cannot render yet: three blocks
+ * for the plan, payment-method, and credits cards, so the swap to real content
+ * does not jump. Only the stack is labeled, so a screen reader hears one
+ * announcement rather than one per block.
+ */
+function BillingTabSkeleton() {
+  const { t } = useTranslation("settings");
+  return (
+    <div
+      role="status"
+      aria-label={t("billingPage.loadingBillingAriaLabel")}
+      className="space-y-4"
+      data-testid="billing-tab-skeleton"
+    >
+      <SkeletonCardBlock />
+      <SkeletonCardBlock />
+      <SkeletonCardBlock />
+    </div>
+  );
+}
+
+/**
+ * Stand-in for the whole page while the platform-session probe is still
+ * pending. It reuses the settled render's wrappers exactly: the `space-y-6`
+ * shell, a `Tabs.List` built from the real trigger parts so the bar's height
+ * matches to the pixel, and the panel's `pt-4` around the card stack. Settling
+ * therefore swaps content in place instead of mounting chrome above the cards.
+ *
+ * The triggers stand in for labels the probe has not decided on yet, so they
+ * are disabled and hidden from the accessibility tree; the card stack inside
+ * carries the loading announcement.
+ */
+function BillingPageSkeleton() {
+  return (
+    <div className="space-y-6" data-testid="billing-page-skeleton">
+      <Tabs.Root value="billing">
+        <Tabs.List aria-hidden>
+          <Tabs.Trigger value="billing" disabled>
+            {/* Matches the trigger's 18px line box, so the placeholder bar is
+                exactly as tall as one holding a real label. */}
+            <Skeleton className="h-[18px] w-12 rounded-md" />
+          </Tabs.Trigger>
+          <Tabs.Trigger value="usage" disabled>
+            <Skeleton className="h-[18px] w-12 rounded-md" />
+          </Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Panel value="billing" className="pt-4">
+          <BillingTabSkeleton />
+        </Tabs.Panel>
+      </Tabs.Root>
+    </div>
+  );
+}
+
 function BillingTabContent() {
   const { t } = useTranslation("settings");
   const platformGate = usePlatformGate({ platformHostedOnly: true });
@@ -250,14 +307,7 @@ function BillingTabContent() {
   }
 
   if (isLifecycleLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("billingPage.loadingBilling")}
-        </div>
-      </div>
-    );
+    return <BillingTabSkeleton />;
   }
 
   const showPlanManagement = isPlatformHosted;
@@ -275,19 +325,15 @@ function BillingTabContent() {
   if (!isPlatformHosted && platformGate !== "gated") {
     return (
       <div className="space-y-4">
-        <Notice tone="warning">
-          {t("billingPage.billingUnavailable")}
-        </Notice>
+        <Notice tone="warning">{t("billingPage.billingUnavailable")}</Notice>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <Suspense fallback={null}>
-        <BillingStatusHandler onCheckoutCancelled={onCheckoutCancelled} />
-        <BillingPortalReturnHandler />
-      </Suspense>
+      <BillingStatusHandler onCheckoutCancelled={onCheckoutCancelled} />
+      <BillingPortalReturnHandler />
       {showPlanManagement && <GracePeriodBanner />}
       {showPlanManagement && (
         <FinishProSetupNotice onFinishSetup={openProOnboarding} />
@@ -307,15 +353,9 @@ function BillingTabContent() {
         onOpenChange={onBonusOpenChange}
         amountUsd={amountUsd}
       />
-      <Suspense fallback={null}>
-        <PaymentMethodsCard />
-      </Suspense>
-      <Suspense fallback={null}>
-        <BillingPanel />
-      </Suspense>
-      <Suspense fallback={null}>
-        <InvoicesTable />
-      </Suspense>
+      <PaymentMethodsCard />
+      <BillingPanel />
+      <InvoicesTable />
       {showProOnboarding && (
         <BillingOnboardingModal
           open={hasSessionId || proOnboardingOpen}
@@ -354,6 +394,9 @@ function UsagePanel() {
 export function BillingPage() {
   const { t } = useTranslation("settings");
   const billingGate = usePlatformGate();
+  // The same gate with the pre-settle window kept distinct, for the hold
+  // below. Every other branch here reads that window as `"disabled"`.
+  const platformSessionPending = usePlatformGateWithPending() === "pending";
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -373,8 +416,15 @@ export function BillingPage() {
   // When Billing is available it leads the tab list and is the default;
   // Usage is reached via `?tab=usage`. With no Billing tab, Usage is all
   // there is.
-  const activeTab =
-    showBillingTab && searchParams.get("tab") !== "usage" ? "billing" : "usage";
+  const wantsUsageTab = searchParams.get("tab") === "usage";
+  const activeTab = showBillingTab && !wantsUsageTab ? "billing" : "usage";
+
+  // Hold the tab decision through the pre-settle window unless the URL asks
+  // for Usage: no session has resolved yet, so `activeTab` falls to "usage"
+  // and a viewer heading for Billing would watch the Usage tree mount its own
+  // skeletons and then get torn down when the probe lands. The gate bounds
+  // its own pending state, so this cannot hold forever.
+  const holdForPlatformSession = platformSessionPending && !wantsUsageTab;
 
   // Keep the active tab explicit in the URL so both tabs are symmetric and
   // the address bar always names what's shown: a bare `/settings/usage` — or
@@ -400,6 +450,10 @@ export function BillingPage() {
   const handleTabChange = (value: string) => {
     replaceSearchParams(navigate, location, (next) => next.set("tab", value));
   };
+
+  if (holdForPlatformSession) {
+    return <BillingPageSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
