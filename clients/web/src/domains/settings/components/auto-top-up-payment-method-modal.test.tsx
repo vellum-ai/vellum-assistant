@@ -87,10 +87,14 @@ import * as platformDetection from "@/runtime/platform-detection";
 import * as runtimeBrowser from "@/runtime/browser";
 
 let setupIntentCalls = 0;
+let setupIntentFails = false;
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
   organizationsBillingAutoTopUpSetupIntentCreate: () => {
     setupIntentCalls += 1;
+    if (setupIntentFails) {
+      return Promise.reject(new Error("setup intent unavailable"));
+    }
     return Promise.resolve({
       data: { client_secret: "seti_123_secret_456" },
       response: { ok: true },
@@ -232,6 +236,7 @@ beforeEach(() => {
   confirmSetupCalls = [];
   confirmSetupResult = Promise.resolve({});
   setupIntentCalls = 0;
+  setupIntentFails = false;
   nativeAndroid = false;
   openedUrl = null;
   useAuthStore.setState(initialAuthState, true);
@@ -645,6 +650,90 @@ describe("AutoTopUpPaymentMethodModal submit", () => {
   });
 });
 
+describe("AutoTopUpPaymentMethodModal field skeleton", () => {
+  test("opens on the field skeleton rather than a spinner", async () => {
+    const result = renderModal();
+
+    const skeleton = result.getByTestId("auto-top-up-pm-modal-skeleton");
+    expect(result.queryByTestId("auto-top-up-pm-modal-spinner")).toBeNull();
+    expect(result.queryByTestId("stripe-address-element")).toBeNull();
+
+    await result.findByTestId("stripe-address-element");
+    // The same skeleton spans both waits, so the shimmer does not restart
+    // when the SetupIntent lands.
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).toBe(skeleton);
+  });
+
+  test("suppresses Stripe's own loader so ours is the only one", async () => {
+    await renderModalWithForm();
+
+    expect((elementsProps?.options as Record<string, unknown>).loader).toBe(
+      "never",
+    );
+  });
+
+  test("holds the skeleton until both elements are ready, then reveals the fields", async () => {
+    const result = await renderModalWithForm();
+    const addressElement = result.getByTestId("stripe-address-element");
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+
+    fireOnReady(paymentElementProps);
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+
+    fireOnReady(addressElementProps);
+    expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
+    // The reveal must not tear the elements down and boot them again.
+    expect(result.getByTestId("stripe-address-element")).toBe(addressElement);
+  });
+
+  test("a re-open goes back to the skeleton until the new fields are ready", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const tree = (open: boolean) => (
+      <QueryClientProvider client={client}>
+        <AutoTopUpPaymentMethodModal
+          open={open}
+          onClose={() => {}}
+          onSavedOptimistic={() => {}}
+        />
+      </QueryClientProvider>
+    );
+    const result = render(tree(true));
+    await result.findByTestId("stripe-address-element");
+    fireOnReady(paymentElementProps);
+    fireOnReady(addressElementProps);
+    expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
+
+    result.rerender(tree(false));
+    result.rerender(tree(true));
+
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+    // The second SetupIntent lands with the elements still booting, so the
+    // readiness from the first open must not have carried over.
+    await result.findByTestId("stripe-address-element");
+    expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+  });
+
+  test("a failed SetupIntent swaps the skeleton for the retry action", async () => {
+    setupIntentFails = true;
+    const result = renderModal();
+
+    const notice = await result.findByTestId("auto-top-up-pm-modal-error");
+    expect(notice.textContent).toContain("Failed to start card setup");
+    expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
+
+    setupIntentFails = false;
+    fireEvent.click(result.getByText("Try again"));
+
+    await result.findByTestId("stripe-address-element");
+    expect(setupIntentCalls).toBe(2);
+  });
+});
+
 describe("AutoTopUpPaymentMethodModal redirect return", () => {
   test("a saved outcome renders the panel without creating a SetupIntent", async () => {
     const { getByTestId, queryByTestId } = renderModal({
@@ -661,7 +750,7 @@ describe("AutoTopUpPaymentMethodModal redirect return", () => {
     );
     expect(setupIntentCalls).toBe(0);
     expect(queryByTestId("stripe-address-element")).toBeNull();
-    expect(queryByTestId("auto-top-up-pm-modal-spinner")).toBeNull();
+    expect(queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
   });
 
   test("a saved outcome closes itself on the same auto-close delay", async () => {
