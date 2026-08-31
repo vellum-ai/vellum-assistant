@@ -72,16 +72,25 @@ mock.module("../deliveries-store.js", () => ({
   findDeliveryByDecisionAndChannel: () => undefined,
 }));
 
-mock.module("../adapters/macos.js", () => ({
-  isGuardianSensitiveEvent: () => false,
-}));
-
 // Mock conversation-crud so deep-link fallback tests can control which
-// conversation ids resolve to real rows.
+// conversation ids resolve to real rows. Only getConversation is stubbed;
+// keeping the rest real means the mock is harmless if it leaks into another
+// file under a shared run.
+const realConversationCrud =
+  await import("../../persistence/conversation-crud.js");
 let knownConversations: Set<string> = new Set();
 mock.module("../../persistence/conversation-crud.js", () => ({
+  ...realConversationCrud,
   getConversation: (id: string) =>
     knownConversations.has(id) ? { id } : undefined,
+}));
+
+// Stub only isGuardianSensitiveEvent; keep the real VellumAdapter so this
+// mock is harmless if it leaks into another file under a shared run.
+const realMacosAdapter = await import("../adapters/macos.js");
+mock.module("../adapters/macos.js", () => ({
+  ...realMacosAdapter,
+  isGuardianSensitiveEvent: () => false,
 }));
 
 // Mock destination-resolver so platform channel tests get a destination
@@ -761,5 +770,50 @@ describe("NotificationBroadcaster question option actions", () => {
       "approve_once",
       "reject",
     ]);
+  });
+});
+
+describe("NotificationBroadcaster tier projection", () => {
+  function tierDecision(): NotificationDecision {
+    return makeDecision({
+      selectedChannels: ["vellum"],
+      renderedCopy: { vellum: { title: "Title", body: "Body" } },
+    });
+  }
+
+  test("projects a routing-hint tier onto the payload", async () => {
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "offer" } }),
+      tierDecision(),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.tier).toBe("offer");
+  });
+
+  test("a signal with no routing hints carries no tier", async () => {
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(makeSignal(), tierDecision());
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.tier).toBeUndefined();
+  });
+
+  test("a routing hint that is not a tier is dropped rather than passed through", async () => {
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal({ routingHints: { tier: "urgent", preferred: "slack" } }),
+      tierDecision(),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.tier).toBeUndefined();
   });
 });

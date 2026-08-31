@@ -6,10 +6,16 @@
  * client uses for two distinct purposes: paired-conversation bookkeeping
  * (mark-unseen + history catch-up, fallback dedup) and posting an OS
  * banner via `UNUserNotificationCenter`. The banner posting is gated by
- * the `silent` flag — set to true for non-urgent (`low`/`medium`) signals
- * so the notification center inbox still receives the entry but the OS
- * does not surface a push banner. Urgent signals (`high`/`critical`)
- * broadcast with `silent: false` and fire the banner.
+ * the `silent` flag.
+ *
+ * `payload.tier` takes precedence when the filter path set one: Hint is
+ * silent, Offer and Response fire the banner. Offer and Response deliver
+ * identically here because Electron's Notification API exposes no
+ * `interruptionLevel` to distinguish them. A payload with no tier falls back
+ * to urgency: non-urgent (`low`/`medium`) signals are silent so the
+ * notification center inbox still receives the entry but the OS does not
+ * surface a push banner, and urgent signals (`high`/`critical`) broadcast
+ * with `silent: false` and fire the banner.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so that only clients
@@ -99,8 +105,9 @@ export class VellumAdapter implements ChannelAdapter {
           ? guardianPrincipalId
           : undefined;
 
-      const silent =
-        payload.urgency !== "high" && payload.urgency !== "critical";
+      const silent = payload.tier
+        ? payload.tier === "hint"
+        : payload.urgency !== "high" && payload.urgency !== "critical";
 
       this.broadcast({
         type: "notification_intent",

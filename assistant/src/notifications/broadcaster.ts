@@ -32,6 +32,7 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
+import { type Tier, TierSchema } from "./filter/tier.js";
 import {
   buildQuestionAnswerActions,
   buildToolApprovalSourceView,
@@ -194,6 +195,17 @@ function resolveQuestionOptionsContext(
   };
 }
 
+/**
+ * Attention tier carried on `routingHints.tier` by the filter path, resolved
+ * once per broadcast so channel adapters read it off the payload instead of
+ * re-parsing routing hints. Producers that do not go through the filter carry
+ * no tier and keep their urgency-derived delivery.
+ */
+function resolveTier(signal: NotificationSignal): Tier | undefined {
+  const parsed = TierSchema.safeParse(signal.routingHints?.tier);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** Callback invoked immediately when a vellum notification conversation is created. */
 export interface ConversationCreatedInfo {
   conversationId: string;
@@ -344,6 +356,7 @@ export class NotificationBroadcaster {
     const resolvedApproval = resolveApprovalContext(signal);
     const approvalContext = resolvedApproval?.approval;
     const toolApprovalSource = resolvedApproval?.toolApprovalSource;
+    const tier = resolveTier(signal);
     const accessRequestContext =
       signal.sourceEventName === "ingress.access_request" &&
       signal.contextPayload
@@ -661,6 +674,7 @@ export class NotificationBroadcaster {
           deepLinkTarget,
           contextPayload: signal.contextPayload,
           urgency: signal.attentionHints.urgency,
+          tier,
           approvalContext,
           accessRequestContext,
           toolApprovalSource,
