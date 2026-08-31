@@ -42,6 +42,7 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+  silent: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

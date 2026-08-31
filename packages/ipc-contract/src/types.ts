@@ -543,6 +543,14 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * Suppresses the OS banner while still filing the notification in the
+   * notification center. Originates from the daemon's urgency-derived
+   * flag on the `notification_intent` event
+   * (`assistant/src/notifications/adapters/macos.ts`). Omitted means not
+   * silent.
+   */
+  silent?: boolean;
 }
 
 export type TextInsertionResult =

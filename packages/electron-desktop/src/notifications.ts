@@ -265,7 +265,7 @@ const showNotification = (
   )({
     title: payload.title,
     body: payload.body,
-    silent: false,
+    silent: payload.silent ?? false,
     actions,
   });
 

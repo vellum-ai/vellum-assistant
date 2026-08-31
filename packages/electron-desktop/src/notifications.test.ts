@@ -226,6 +226,51 @@ describe("category action buttons", () => {
   }
 });
 
+// --- Silent flag -----------------------------------------------------------
+
+describe("silent flag", () => {
+  test("forwards silent: true so the OS files the entry without a banner", async () => {
+    const result = await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "silent-1",
+      silent: true,
+    });
+    expect(result.success).toBe(true);
+    expect(constructed[0]!.options.silent).toBe(true);
+  });
+
+  test("defaults to not silent when the payload omits the flag", async () => {
+    await show({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "silent-2",
+    });
+    expect(constructed[0]!.options.silent).toBe(false);
+  });
+
+  test("the captured schema accepts the silent flag and rejects a non-boolean", () => {
+    const { schema } = showHandler();
+    expect(() =>
+      schema.parse([
+        { category: "notificationIntent", title: "t", body: "b", silent: true },
+      ]),
+    ).not.toThrow();
+    expect(() =>
+      schema.parse([
+        {
+          category: "notificationIntent",
+          title: "t",
+          body: "b",
+          silent: "yes",
+        },
+      ]),
+    ).toThrow();
+  });
+});
+
 // --- Dedup / cooldown ------------------------------------------------------
 
 describe("dedup / cooldown", () => {
@@ -251,6 +296,23 @@ describe("dedup / cooldown", () => {
     at(11_000);
     expect((await show(payload)).success).toBe(true);
     expect(constructed).toHaveLength(2);
+  });
+
+  test("the cooldown keys on the notification, not the silent flag", async () => {
+    const payload = {
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "dup-2",
+    };
+
+    at(0);
+    expect((await show({ ...payload, silent: true })).success).toBe(true);
+    expect(constructed).toHaveLength(1);
+
+    at(5_000);
+    expect((await show(payload)).success).toBe(true);
+    expect(constructed).toHaveLength(1);
   });
 
   test("toolConfirmation has no cooldown and always posts", async () => {
