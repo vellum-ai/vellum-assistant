@@ -824,10 +824,17 @@ export function isToolActiveForContext(
   }
   // The react capability follows the transport's declaration: the tool is on
   // the wire exactly when the turn's channel transport implements `react`,
-  // so the model never sees an option the channel cannot honor. Wake pins
-  // clear channelCapabilities, which reads as no channel and hides it.
+  // so the model never sees an option the channel cannot honor. The turn's
+  // own capabilities take precedence over the conversation's structural ones
+  // (same order as `conversationSupportsDynamicUi`): an app-side turn on a
+  // channel-origin conversation has no channel message to react to, and the
+  // executor's channel comes from the turn. Wake pins read as no channel
+  // and hide it.
   if (name === "react_to_message") {
-    return supportsChannelReaction(channelCapabilities?.channel);
+    const turnChannel = pin
+      ? undefined
+      : (ctx.currentTurnChannelCapabilities ?? channelCapabilities)?.channel;
+    return supportsChannelReaction(turnChannel);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
