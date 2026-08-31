@@ -7,11 +7,6 @@
  * `topBarRightSlot`. The thing worth protecting is the *composition*: whether
  * the title still shrinks, and whether the cluster stays readable beside it.
  *
- * Agent sessions used to sit in this cluster too, as a pill. They now live in
- * the progress stack's Agents card (`ProgressAgentsCard`), which would have
- * shown the same sessions at the same time, so the pill went and its
- * stacked-chip look moved with it.
- *
  * Notifications is a stand-in, not the real `NotificationsBell`: that component
  * belongs to the home domain and `routes.tsx` injects it into the chat layout at
  * runtime, so importing it here trips the cross-domain import rule. The stand-in

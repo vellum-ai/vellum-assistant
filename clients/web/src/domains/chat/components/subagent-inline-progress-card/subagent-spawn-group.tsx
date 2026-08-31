@@ -2,15 +2,13 @@
  * The subagents a message spawned, shown where it spawned them.
  *
  * Renders the SAME control as the floating status cluster ({@link AgentsControl}):
- * the stacked agent marks, opening the same list of sessions. It used to be its
- * own thing — an avatar-chip summary behind a "Details" chevron, then a flat row
- * list — which meant the chat had two different-looking ways to look at a set of
- * agents. Now there is one, in two places.
+ * the stacked agent marks, opening the same list of sessions, so one set of
+ * agents has one appearance wherever it is met.
  *
- * The two places don't compete. While this control is on screen the floating
+ * The two mounts do not compete. While this control is on screen the floating
  * copy stands down (see {@link useInlineAgentsVisibilityStore}), because two
- * copies of one control on one screen is noise and the inline one is the one
- * anchored to the work. Scroll it away and the floating copy returns.
+ * copies of one control on one screen is noise and this one is anchored to the
+ * work. Scroll it away and the floating copy returns.
  *
  * Visibility is reported through an `IntersectionObserver` rather than a scroll
  * calculation: the transcript's scrollport, the message's position in it, and

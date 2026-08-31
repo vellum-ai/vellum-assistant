@@ -2,9 +2,9 @@
  * The loading sweep has to survive the design library's `iconOnly` slot.
  *
  * `Button` DROPS `children` when `iconOnly` is set, so an overlay passed as a
- * child renders on the labelled controls and silently vanishes on the icon-only
- * ones — which is exactly what happened to the progress control. These tests
- * pin both slots, because the bug was invisible in the one that worked.
+ * child reaches the DOM on a labelled control and never on an icon-only one.
+ * Both slots are covered here: a sweep that works in one and not the other
+ * looks like a working sweep from either side alone.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";

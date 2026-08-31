@@ -107,7 +107,7 @@ const noop = () => {};
  * Open every spawn group's control so its session rows mount.
  *
  * The group now renders the same marks-pill the floating cluster does, and the
- * rows live in the popover behind it — so a test that wants the rows has to
+ * rows live in the popover behind it, so a test that wants the rows has to
  * open it, and the rows land in a body portal rather than inside `container`.
  */
 async function expandSubagentSummary(container: HTMLElement) {
@@ -264,7 +264,7 @@ function assistantMessageWithMixedSpawns(
   return { kind: "message", key: id, message: withContentBlocks(msg) };
 }
 
-describe("Transcript — subagent spawn group", () => {
+describe("Transcript: subagent spawn group", () => {
   test("renders one inline row per spawn, in spawn order, with no disclosure", async () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "spawn two agents"),
@@ -297,7 +297,7 @@ describe("Transcript — subagent spawn group", () => {
       assistantMessageWithSpawn("a1", ["sa-1"]),
     ];
 
-    const { container, getByTestId } = render(
+    const { container } = render(
       <Transcript
         items={items}
         conversationId={null}
@@ -310,10 +310,13 @@ describe("Transcript — subagent spawn group", () => {
     await expandSubagentSummary(container);
 
     act(() => {
-      fireEvent.click(getByTestId("subagent-inline-card-open"));
+      fireEvent.click(screen.getByTestId("subagent-inline-card-open"));
     });
+
+    // Opening a row closes the panel, so stopping needs it reopened.
+    await expandSubagentSummary(container);
     act(() => {
-      fireEvent.click(getByTestId("subagent-inline-card-stop"));
+      fireEvent.click(screen.getByTestId("subagent-inline-card-stop"));
     });
 
     expect(opened).toEqual(["sa-1"]);
@@ -587,8 +590,8 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
 
     // The two spawns land in distinct activity groups (split by the interleaved
     // text), so each renders its own control. They are separate popovers, and
-    // opening one dismisses the other, so the claim under test — that the two
-    // groups map 1:1 onto distinct ids with no duplication — is checked one
+    // opening one dismisses the other, so the claim under test (that the two
+    // groups map 1:1 onto distinct ids with no duplication) is checked one
     // group at a time rather than by counting both at once.
     const triggers = container.querySelectorAll<HTMLButtonElement>(
       '[data-testid="subagent-spawn-group-trigger"]',

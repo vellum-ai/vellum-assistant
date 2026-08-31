@@ -5,7 +5,7 @@
  * assistant nav row, the onboarding tour's narration and nav flood): find the
  * avatar's eye style, union its paths into a viewBox, size it by the per-style
  * hand-tuned width. This packages that derivation so a fourth caller does not
- * have to repeat it — the existing three predate it and are left alone rather
+ * have to repeat it. The existing three predate it and are left alone rather
  * than refactored under an unrelated change.
  *
  * Static: no blink, no pulse. The nav row's eyes live inside a loop that also

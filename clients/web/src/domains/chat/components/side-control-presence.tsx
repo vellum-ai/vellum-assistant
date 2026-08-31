@@ -4,7 +4,7 @@
  * Progress and Agents are not standing chrome: each is on screen only while it
  * has something to say, so its appearance IS the notification and its
  * departure is the all-clear. There is no badge or toast doing that job, which
- * puts the whole burden of "notice me" on the motion — hence a slide with a
+ * puts the whole burden of "notice me" on the motion, hence a slide with a
  * bounce rather than a fade, and an avatar-colored wash on top of it.
  *
  * Three parts:
@@ -26,8 +26,8 @@
  *    came. Together they say whose work this is before you have read anything.
  *
  * An assistant with a CUSTOM avatar image gets the slide and nothing else. The
- * takeover is built from the character avatar's two parts — its accent color
- * and its eye sprite — and a custom image has neither: there is no hue to wash
+ * takeover is built from the character avatar's two parts (its accent color
+ * and its eye sprite), and a custom image has neither: there is no hue to wash
  * with and no eyes to surface, so the flood would be a grey rectangle over the
  * pill and the eyes simply absent. Better to drop the gesture than to play a
  * hollow version of it.

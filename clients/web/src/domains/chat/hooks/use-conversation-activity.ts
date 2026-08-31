@@ -174,7 +174,7 @@ const RUN_START_TOLERANCE_MS = 2_000;
  * run. Sessions are the unit here rather than the spawning message, because ACP
  * runs carry no message identity and would otherwise need a second rule.
  *
- * With nothing running there is no current run, and this reports empty — which
+ * With nothing running there is no current run, and this reports empty, which
  * is also when the floating control is hidden anyway.
  */
 export function useCurrentRunActivity(

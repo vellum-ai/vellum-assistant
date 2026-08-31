@@ -1214,6 +1214,14 @@
     "goToFile": "前往文件",
     "noPreviewForType": "此文件类型无预览"
   },
+  "progressRail": {
+    "agentsLabel": "代理",
+    "agentsToggleAria": "代理：{running, plural, =0 {无运行中} other {# 个运行中}}，{completed, plural, =0 {无已完成} other {# 个已完成}}",
+    "railAria": "进度",
+    "stepCounter": "第 {current} 步，共 {total} 步",
+    "title": "进度",
+    "toggleAria": "进度"
+  },
   "promptSubmission": {
     "noActiveSession": "无活动会话。请重试。"
   },

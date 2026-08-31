@@ -869,12 +869,9 @@ function renderTouchTabletComposer(props: RenderComposerProps = {}) {
 }
 
 /**
- * The group that comes and goes with the keyboard.
- *
- * The row it sits in is always up now, because the status controls beside the
- * pills (Progress, Agents) report work the assistant is doing and do not depend
- * on the composer having focus. So the `hidden` gate these tests are about
- * moved off the row and onto this inner group.
+ * The group that comes and goes with the keyboard, and carries the `hidden`
+ * gate these tests are about. The row around it stands whether or not the
+ * composer has focus, because the status controls beside the pills do.
  */
 function pillsRow(container: HTMLElement) {
   return container.querySelector(

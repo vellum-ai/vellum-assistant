@@ -2,23 +2,24 @@
  * The progress control: a bare glyph that opens the assistant's current plan.
  *
  * The plan itself is a `task_progress` card surface, which the assistant emits
- * when it breaks a complicated request into steps. It used to render inline in
- * the transcript, where it scrolled out of view exactly when it was most
- * useful. `TranscriptMessageBody` now suppresses it and this control is its
- * only host.
+ * when it breaks a complicated request into steps. `TranscriptMessageBody`
+ * suppresses that surface inline, so this control is its only host and holds a
+ * fixed position while the thread scrolls.
  *
- * **It is not standing chrome.** It appears when a plan starts and leaves once
- * the user has seen how that plan ended, so its presence alone means "there is
- * something to read here" and its arrival is the notification. That is what
- * earns it the entrance animation (see {@link ProgressEntrance}); a control
- * that was always there could not say anything by showing up.
+ * **It is not standing chrome.** It is on screen only while it has something to
+ * say, so its presence means "there is something to read here" and its arrival
+ * is the notification (see {@link SideControlPresence}).
  *
- * The leaving half is the subtle one. A finished plan does NOT disappear on
- * completion, because that is the moment the outcome is worth reading and it
- * would vanish exactly as you looked at it. It stays until acknowledged, and
- * acknowledgement means the user opened it while it was finished — see
- * {@link useProgressAckStore}. It then goes on close, not on open, so the panel
- * doesn't collapse out from under the click that dismissed it.
+ * It shows while a plan runs, and keeps showing after one finishes until the
+ * user has seen the outcome: leaving on completion would take the result away
+ * at the moment it is worth reading. Acknowledgement is opening the panel while
+ * the plan is finished (see {@link useProgressAckStore}), and the control
+ * leaves on close rather than on open, so the panel does not collapse out from
+ * under the click that dismissed it.
+ *
+ * Only plans this client watched run can announce themselves. The transcript
+ * scan reaches into server history, so a thread opened fresh holds plans that
+ * finished long ago; those start acknowledged and stay silent.
  *
  * It carries its label, unlike the Agents control beside it. Agents identifies
  * itself with the agents' own marks, which say who is working better than a
@@ -30,7 +31,7 @@
 
 import { CircleCheck } from "lucide-react";
 import { AnimatePresence } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AdaptivePopover } from "@/domains/chat/components/adaptive-popover";
 import { SideControlPresence } from "@/domains/chat/components/side-control-presence";
@@ -50,7 +51,7 @@ export function ProgressCard() {
 
   // Either signal counts. `status` is the model's own assertion about the card
   // and it is not always set mid-run, while the steps always say what is
-  // happening — so a plan with a step in flight counts as running even if the
+  // happening, so a plan with a step in flight counts as running even if the
   // card header hasn't caught up.
   const isRunning =
     progress?.status === "in_progress" ||
@@ -63,11 +64,25 @@ export function ProgressCard() {
   const acknowledge = useProgressAckStore.use.acknowledge();
   const [open, setOpen] = useState(false);
 
-  // Opening a finished plan IS the acknowledgement. Done in an effect rather
-  // than in the open handler so a plan that finishes while the panel is
-  // already open also counts as seen.
+  // Plans this client has watched run. A plan is only worth announcing if its
+  // work happened while the user was here: the transcript scan reaches into
+  // server history, so opening a thread surfaces plans that finished long ago,
+  // and an empty acknowledgement set would present each of them as news.
+  const watchedRunning = useRef(new Set<string>());
+
   useEffect(() => {
-    if (open && surfaceId && !isRunning) {
+    if (!surfaceId) {
+      return;
+    }
+    if (isRunning) {
+      watchedRunning.current.add(surfaceId);
+      return;
+    }
+    // Terminal and never seen running: history, so it starts acknowledged and
+    // never appears. Terminal after being watched: the outcome is news, and
+    // opening the panel is what acknowledges it. The effect covers a plan that
+    // finishes while the panel is already open, which an open handler misses.
+    if (!watchedRunning.current.has(surfaceId) || open) {
       acknowledge(surfaceId);
     }
   }, [open, surfaceId, isRunning, acknowledge]);

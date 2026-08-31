@@ -802,9 +802,9 @@ export function ComposerSettingsMenu({
   // The glyph rides as a child rather than in the Button's own icon box, so
   // the Button's `gap-1.5` supplies the design's 6px between glyph and label.
   //
-  // 16px, not the 20px the pills originally carried: at 20px these read a size
-  // larger than everything around them — the desktop variants of the same two
-  // triggers use 14px, and the status controls now sharing this row are 16px.
+  // 16px, matching the status controls sharing this row. The desktop variants
+  // of these same two triggers sit at 14px, so a larger glyph here reads as a
+  // size out of step with everything around it.
   const pillIconClass =
     "flex size-4 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-4";
 

@@ -4,8 +4,8 @@
  *
  * The transcript is centred and capped at `--chat-max-width`, so a wide column
  * leaves an empty strip either side and the controls can sit in the right one
- * without covering anything. As the column narrows — a drawer opens, the window
- * shrinks, the sidebar widens — that strip closes, and controls pinned to the
+ * without covering anything. As the column narrows (a drawer opens, the window
+ * shrinks, the sidebar widens) that strip closes, and controls pinned to the
  * right edge start overlapping the messages they are meant to annotate.
  *
  * Measured rather than assumed from a breakpoint, because the column's width is

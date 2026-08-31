@@ -46,7 +46,7 @@ export interface AdaptivePopoverProps {
   contentMaxHeightClassName?: string;
   /**
    * Controlled open state. Omit to let the popover own it. Supplied by callers
-   * that have to react to being opened — the progress control marks a finished
+   * that have to react to being opened. The progress control marks a finished
    * plan as seen that way.
    */
   open?: boolean;

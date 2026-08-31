@@ -3,7 +3,7 @@
  *
  * The group renders the SAME control as the floating status cluster: a pill of
  * stacked agent marks that opens the session list in a popover. So the rows are
- * not in the tree at rest — opening the pill is what mounts them, which is also
+ * not in the tree at rest. Opening the pill is what mounts them, which is also
  * what triggers their timeline fetches.
  *
  * Drives the Zustand subagent store with spawned ids, opens the control, and
@@ -159,6 +159,8 @@ describe("SubagentSpawnGroup", () => {
     );
     expect(clicked).toEqual([ids[0]]);
 
+    // Opening a row closes the panel, so the stop button needs it reopened.
+    openControl();
     const stopButtons = screen.getAllByTestId("inline-process-card-stop");
     fireEvent.click(stopButtons[1]);
     expect(stopped).toEqual([ids[1]]);

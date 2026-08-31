@@ -10,12 +10,9 @@
  * marks that are its only label. Click it to see the rows.
  *
  * The control is present only while agents are actually WORKING, and slides out
- * once the last one finishes — so the all-finished fixtures render nothing.
+ * once the last one finishes, so the all-finished fixtures render nothing.
  * Finished sessions are still listed inside while it is up; they just do not
  * hold it open on their own.
- *
- * The fixtures moved here from the header stories when the activity pill this
- * replaced was removed: this is the surface they describe now.
  */
 
 import { useEffect, useState, type CSSProperties } from "react";
@@ -120,7 +117,7 @@ function seed(fixture: Fixture): void {
 /**
  * A random character avatar, so the entrance plays its takeover: the wash needs
  * an accent color and the eyes need an eye style, and an unseeded assistant has
- * neither. Random rather than fixed on purpose — the treatment has to hold up
+ * neither. Random rather than fixed on purpose: the treatment has to hold up
  * across the whole palette, and rerunning the story is the cheapest way to see
  * that.
  *

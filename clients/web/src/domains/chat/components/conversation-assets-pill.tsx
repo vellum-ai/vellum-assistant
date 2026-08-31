@@ -264,7 +264,7 @@ export function ConversationAssetsPill({
     />
   ) : (
     // Desktop: a bare glyph, matching the notifications bell it shares the
-    // header cluster with — same `ghost` + `iconOnly` Button, no `active` fill
+    // header cluster with: same `ghost` + `iconOnly` Button, no `active` fill
     // and no pill. The count moves to the tooltip and the accessible name,
     // which is where the bell keeps its own unread count too.
     <Button

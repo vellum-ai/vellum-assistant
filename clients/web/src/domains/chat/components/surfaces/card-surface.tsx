@@ -280,10 +280,8 @@ function TaskStepList({
  * `null` when the surface is not a plan card (wrong template, missing or empty
  * `steps`).
  *
- * Exported because the plan card no longer renders in the transcript. The
- * progress rail (desktop) and sticky card (mobile) own it now, and they parse
- * the surface through this one function so their reading of the payload cannot
- * drift from the one that used to run inline.
+ * Exported so the progress control can parse a plan surface without
+ * duplicating the narrowing.
  */
 export interface TaskProgress {
   title: string;
@@ -351,7 +349,7 @@ export function TaskProgressBody({ progress }: { progress: TaskProgress }) {
         <TitleStatusIcon status={progress.status} />
         {/* `leading-snug` + a little vertical padding: `title-small` ships a
             tight line-height, and with `truncate` (which is `overflow:hidden`)
-            that clips descenders — the "g" in a title like "Long Task" loses
+            that clips descenders: the "g" in a title like "Long Task" loses
             its tail. Same fix `DetailShell` applies to its own header. */}
         <span className="min-w-0 truncate py-0.5 text-title-small leading-snug text-[var(--content-strong)]">
           {progress.title}

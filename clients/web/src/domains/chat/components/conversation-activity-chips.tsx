@@ -2,10 +2,7 @@
  * The stacked agent marks that stand in for a conversation's sessions, capped
  * at {@link MAX_CHIPS_PER_GROUP} per status group.
  *
- * Lifted out of the header's activity pill, which this replaced. The pill and
- * the progress rail's Agents card would have shown the same sessions in the
- * same place at the same time, so the pill went and the card kept its look:
- * you can still see WHO is working without opening anything.
+ * Shows WHO is working without anything being opened.
  *
  * Two status groups rather than one flat run, so running agents lead and
  * finished ones follow. Neither carries a status glyph: the trigger's own

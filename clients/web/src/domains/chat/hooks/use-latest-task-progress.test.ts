@@ -64,6 +64,30 @@ function message(id: string, surfaces?: Surface[]) {
 }
 
 describe("useLatestTaskProgress", () => {
+  test("finds a finished plan too, leaving liveness to the caller", () => {
+    // The scan reaches into server history, so a thread opened fresh resolves
+    // whatever plan it finds there. Distinguishing a live plan from one that
+    // ended before this session is `ProgressCard`'s job, not this hook's.
+    seed([
+      message("m1", [
+        {
+          surfaceId: "done",
+          type: "card",
+          data: {
+            template: "task_progress",
+            templateData: {
+              title: "Yesterday",
+              status: "completed",
+              steps: [{ label: "Step", status: "completed" }],
+            },
+          },
+        } as unknown as Surface,
+      ]),
+    ]);
+    const { result } = renderHook(() => useLatestTaskProgress());
+    expect(result.current?.surfaceId).toBe("done");
+  });
+
   beforeEach(() => {
     seed([]);
   });

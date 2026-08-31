@@ -49,7 +49,7 @@ const SURFACE_SWEEP_DURATION_MS = 3200;
  * This is what lets two pills of different widths read as one effect. The sweep
  * advances exactly one tile per iteration over a fixed duration, so a tile
  * sized to the element would give a narrow pill and a wide one different band
- * sizes AND different sweep speeds — phase-locked but visibly out of step. A
+ * sizes AND different sweep speeds: phase-locked but visibly out of step. A
  * constant tile gives every surface the same glint travelling at the same rate;
  * a wider pill simply fits more repeats of it.
  *
@@ -77,7 +77,7 @@ const SPREAD_PX = 22;
  * How strongly the glint reads over the trigger's own fill. The band is the
  * assistant's accent at full saturation; undimmed it recolors the pill instead
  * of passing over it. Kept low enough that the glyph underneath stays legible
- * as the band crosses it — the sweep is a highlight passing over the content,
+ * as the band crosses it. The sweep is a highlight passing over the content,
  * not a tint sitting on top of it.
  */
 const SURFACE_OPACITY = 0.34;

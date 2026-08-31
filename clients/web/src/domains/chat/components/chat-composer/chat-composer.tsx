@@ -1672,8 +1672,8 @@ export function ChatComposer({
             // The inset lands the last pill's edge over the send circle's, so
             // the row reads as hung off the card rather than floated past it.
             //
-            // The margin is dropped when the row has nothing showing — no
-            // status controls, pills hidden — so an idle unfocused composer
+            // The margin is dropped when the row has nothing showing (no
+            // status controls, pills hidden), so an idle unfocused composer
             // does not carry 12px of empty strip above it. The selector asks
             // for a group that is not itself hidden AND has an element in it,
             // which is exactly "something is on screen here".

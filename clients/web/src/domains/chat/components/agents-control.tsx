@@ -4,16 +4,17 @@
  * One component, two mounts. The floating status cluster shows the whole
  * conversation's agents; the transcript shows the ones a particular turn
  * spawned, where it spawned them. They look and behave identically because they
- * ARE the same control — the only difference is which rows they are handed.
+ * ARE the same control; the only difference is which rows they are handed.
  *
- * The marks are the label. Each agent's avatar (or an ACP run's brand mark) is
- * already how it identifies itself everywhere else, so the trigger shows who is
- * working and a word beside them would only repeat what the faces say. The
- * accessible name carries the counts the marks cannot.
+ * The marks are the label: each agent's avatar (or an ACP run's brand mark) is
+ * how it identifies itself everywhere else, so the trigger shows who is working
+ * and the accessible name carries the counts the marks cannot.
  *
  * Rows inside are the descriptor's own `InlineProcessCardRow`, so a session
  * looks the same here as in every other list of processes.
  */
+
+import { useState } from "react";
 
 import { AdaptivePopover } from "@/domains/chat/components/adaptive-popover";
 import {
@@ -46,6 +47,10 @@ export function AgentsControl({
 }: AgentsControlProps) {
   const { t } = useTranslation("chat");
   const { running, completed } = activity;
+  // Owned here so opening a row can close the panel. On touch the panel is a
+  // modal sheet, and a detail opened behind it is unreachable until the sheet
+  // is dismissed by hand.
+  const [open, setOpen] = useState(false);
 
   const label = t("progressRail.agentsToggleAria", {
     running: running.length,
@@ -65,7 +70,12 @@ export function AgentsControl({
   );
 
   return (
-    <AdaptivePopover trigger={trigger} title={t("progressRail.agentsLabel")}>
+    <AdaptivePopover
+      trigger={trigger}
+      title={t("progressRail.agentsLabel")}
+      open={open}
+      onOpenChange={setOpen}
+    >
       <div className="flex flex-col gap-1 p-2">
         {/* Running first, then finished: the order the activity hook reports,
             and the one the rows read best in. */}
@@ -97,11 +107,14 @@ export function AgentsControl({
                   ? t("subagentSpawnGroup.stopSubagentAria")
                   : undefined
               }
-              onOpen={() =>
-                onOpenRow
-                  ? onOpenRow(row.kind, row.id)
-                  : descriptor.onOpenDetail(row.id)
-              }
+              onOpen={() => {
+                setOpen(false);
+                if (onOpenRow) {
+                  onOpenRow(row.kind, row.id);
+                } else {
+                  descriptor.onOpenDetail(row.id);
+                }
+              }}
               onStop={isRunning ? stop : undefined}
             />
           );

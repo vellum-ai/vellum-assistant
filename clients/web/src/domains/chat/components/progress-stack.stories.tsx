@@ -2,12 +2,12 @@
  * The status cluster as a whole: Progress and Agents together.
  *
  * The individual triggers have their own stories; this file exists for what
- * only shows up when the two sit side by side — that their heights agree, that
+ * only shows up when the two sit side by side: that their heights agree, that
  * they align on one edge, and that the loading sweep runs across both in step
  * rather than each starting its own cycle.
  *
  * Both arrangements are covered. The harness mounts BOTH `ProgressStack`
- * instances the app does — the floating one and the composer-row one — inside a
+ * instances the app does (the floating one and the composer-row one) inside a
  * real `SideControlPlacementBoundary`, so the stories exercise the actual
  * measurement rather than a mocked flag, and show which mount wins at a given
  * column width. Exactly one draws.
@@ -129,7 +129,7 @@ function seedAgents(running: boolean): void {
  * takeover: the wash needs an accent color and the eyes need an eye style, and
  * an unseeded assistant has neither.
  *
- * Random rather than fixed on purpose — the treatment has to hold up across the
+ * Random rather than fixed on purpose: the treatment has to hold up across the
  * whole palette, not just one flattering hue, and rerunning the story is the
  * cheapest way to see that. `--avatar-accent` is set on the element because
  * that is the property the wash reads; the app publishes it from
@@ -248,7 +248,7 @@ type Story = StoryObj<typeof Harness>;
  * A wide column: the cluster floats in the right gutter, clear of both the
  * thread and the input.
  *
- * At rest only Assets and Progress are present — Assets is always there, and
+ * At rest only Assets and Progress are present. Assets is always there, and
  * Progress is holding a finished, unacknowledged plan. Agents has left, because
  * nothing is working. That asymmetry is the design, not a gap.
  */
@@ -266,7 +266,7 @@ export const FloatingLoading: Story = {
 };
 
 /**
- * A column too narrow to hold a gutter — what a document viewer opening beside
+ * A column too narrow to hold a gutter, which is what a document viewer opening beside
  * the chat looks like. The floating mount stands down and the controls reappear
  * in the composer's settings row, the one strip that is free at any width. They
  * enter from the BOTTOM there rather than the right, following the edge they

@@ -6,7 +6,7 @@ import { createSelectors } from "@/utils/create-selectors";
  * How many in-transcript agent controls are currently on screen.
  *
  * The same agents appear twice: inline, where the turn spawned them, and in the
- * floating status cluster. Both are useful, but not at the same time — two
+ * floating status cluster. Both are useful, but not at the same time: two
  * copies of one control on one screen is just noise, and the floating one is
  * the redundant copy whenever you can already see the real thing in the thread.
  *

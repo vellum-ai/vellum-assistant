@@ -5,22 +5,18 @@ import { createSelectors } from "@/utils/create-selectors";
 /**
  * Which finished plans the user has actually looked at.
  *
- * The progress control is only on screen while it has something to say: a plan
- * is running, or a plan has finished and the user hasn't seen the outcome yet.
- * Without that second half the control would vanish the instant the work
- * completed, which is the one moment it is most worth reading — you would
- * watch it disappear and never learn how it went.
+ * The progress control is on screen while a plan is running, and stays after
+ * one finishes until the user has seen the outcome. Leaving on completion would
+ * take the result away at the moment it is worth reading.
  *
- * So a finished plan holds the control open until it is acknowledged, and
- * acknowledgement means the user opened it while it was finished. Keyed by the
- * plan's own `surfaceId`, so the next plan on the same thread gets its own
+ * A finished plan therefore holds the control open until it is acknowledged,
+ * and acknowledgement means the user opened it while it was finished. Keyed by
+ * the plan's own `surfaceId`, so the next plan on the same thread gets its own
  * turn rather than inheriting the last one's.
  *
- * Deliberately in-memory and not persisted: "did you see the thing that just
- * happened" is a fact about this session. On reload there is no live turn to
- * be mid-flight, and resurfacing a finished plan from yesterday would be
- * noise, so the set starting empty costs nothing — the surface only shows for
- * plans this session actually produced.
+ * In-memory and unpersisted: "did you see the thing that just happened" is a
+ * fact about this session. `ProgressCard` seeds this for plans it never watched
+ * run, so history arrives already acknowledged.
  */
 interface ProgressAckState {
   acknowledged: ReadonlySet<string>;

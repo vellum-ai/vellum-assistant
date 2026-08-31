@@ -806,10 +806,9 @@ describe("mobile pill triggers", () => {
    * Both classes matter: the box holds the space, the `svg` rule sizes the
    * icon, which would otherwise render at its own default.
    *
-   * 16px, down from the 20px this originally pinned (Figma 7840-8818): at 20px
-   * the glyphs read a size larger than everything around them — the desktop
-   * variants of these same two triggers use 14px, and the status controls that
-   * now share this row are 16px.
+   * 16px, matching the status controls sharing this row. The desktop variants
+   * of these same two triggers sit at 14px, so a larger glyph here reads as a
+   * size out of step with everything around it.
    */
   function expectGlyphSizedForPill(pill: HTMLElement) {
     const glyph = pill.querySelector('span[aria-hidden="true"]');

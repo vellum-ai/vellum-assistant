@@ -16,7 +16,7 @@
  * The control is not standing chrome: it is present only while a plan is
  * running, or while a finished plan has not been acknowledged, and it slides in
  * and out accordingly. The acknowledgement store is in-memory, so each story
- * starts unacknowledged and a finished plan still shows here — open it and
+ * starts unacknowledged and a finished plan still shows here. Open it and
  * close it to watch it leave.
  */
 
@@ -75,7 +75,7 @@ function seedPlan(
 /**
  * A random character avatar, so the entrance plays its takeover: the wash needs
  * an accent color and the eyes need an eye style, and an unseeded assistant has
- * neither. Random rather than fixed on purpose — the treatment has to hold up
+ * neither. Random rather than fixed on purpose: the treatment has to hold up
  * across the whole palette, and rerunning the story is the cheapest way to see
  * that.
  *
@@ -211,7 +211,7 @@ export const LongPlan: Story = {
 
 /**
  * No plan in the thread: nothing renders at all. The control has nothing to
- * report, so it stays away rather than sitting there empty — its presence is
+ * report, so it stays away rather than sitting there empty. Its presence is
  * what tells you there is something to read.
  */
 export const NoPlan: Story = {

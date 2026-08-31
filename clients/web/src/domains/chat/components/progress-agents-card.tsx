@@ -3,7 +3,7 @@
  * subagents and ACP runs.
  *
  * The same {@link AgentsControl} the transcript renders inline, handed the
- * conversation's rows instead of one message's. Its job is reach — the agents
+ * conversation's rows instead of one message's. Its job is reach: the agents
  * are still working long after the turn that spawned them has scrolled away.
  *
  * **It is not standing chrome**, and it defers twice over:
@@ -47,8 +47,8 @@ export function ProgressAgentsCard({
 
   return (
     // The presence wrapper is INSIDE this component's own `AnimatePresence`, so
-    // both reasons to leave — the last agent finishing, and the inline copy
-    // scrolling into view — play the exit rather than the control vanishing
+    // both reasons to leave (the last agent finishing, and the inline copy
+    // scrolling into view) play the exit rather than the control vanishing
     // between frames.
     <AnimatePresence>
       {visible ? (

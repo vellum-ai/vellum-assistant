@@ -1,11 +1,9 @@
 /**
  * The newest task-progress card in the open thread.
  *
- * The progress surfaces auto-follow the live plan rather than being pointed at
- * one: the card no longer renders in the transcript, so nothing clicks a
- * specific card and the rail has to resolve its own target. That target is the
- * last `task_progress` card surface in the thread, which is live while the
- * assistant works through its steps and settles on the finished plan after.
+ * The progress control resolves its own target rather than being pointed at
+ * one: the last `task_progress` card surface in the thread, live while the
+ * assistant works through its steps and settled on the finished plan after.
  *
  * Scans the rendered transcript (server history and the in-flight turn)
  * backwards, newest message first, and within a message takes its LAST

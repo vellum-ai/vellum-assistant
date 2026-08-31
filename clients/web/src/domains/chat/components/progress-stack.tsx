@@ -35,12 +35,14 @@
  * See `docs/PLATFORM_ADAPTATION.md` on branching by window size vs. by space.
  */
 
+import { useLocation } from "react-router";
 import type { CSSProperties } from "react";
 
 import { ProgressAgentsCard } from "@/domains/chat/components/progress-agents-card";
 import { ProgressCard } from "@/domains/chat/components/progress-card";
 import { useSideControlsFitGutterValue } from "@/domains/chat/components/side-control-placement";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isPopoutWindow } from "@/runtime/popout-window";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
@@ -61,11 +63,19 @@ export interface ProgressStackProps {
 export function ProgressStack({ placement }: ProgressStackProps) {
   const { t } = useTranslation("chat");
   const isMobile = useIsMobile();
+  const location = useLocation();
   const conversationId = useConversationStore.use.activeConversationId();
 
   // Measured once by the column boundary and read by both mounts, so the two
   // can never disagree and draw the cluster twice or not at all.
   const fitsGutter = useSideControlsFitGutterValue();
+
+  // A pop-out has no header and carries every process kind in its own
+  // `ActiveProcessOverlay` row (see `POPOUT_OVERLAY_PROCESS_KINDS`), so a
+  // cluster here would report the same subagents and ACP runs a second time.
+  if (isPopoutWindow(location.search)) {
+    return null;
+  }
 
   // The gutter is a desktop affordance that also needs the room for it;
   // everything else falls to the composer row. Hooks above run either way.

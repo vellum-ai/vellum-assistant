@@ -1,15 +1,15 @@
 /**
- * The chat's side control: one pill in the Assets / Progress / Agents cluster.
+ * The chat's side control: one pill in the Progress / Agents cluster.
  *
- * The three used to each build their own trigger, which is how they drifted
- * into three heights and two shapes. This is the single definition: same
- * surface, same radius, and above all the same height as a left
- * side-menu row ({@link SIDE_MENU_TILE_SIZE}), so the controls floating over
- * the chat sit on the same vertical rhythm as the navigation across from them.
+ * The single definition of that pill, so the controls cannot drift into
+ * different heights or shapes: one surface, one radius, and the same height as
+ * a left side-menu row ({@link SIDE_MENU_TILE_SIZE}), so the controls floating
+ * over the chat sit on the same vertical rhythm as the navigation across from
+ * them.
  *
  * Built on the design library `Button` rather than a bare `<button>` so it
  * keeps the library's focus ring, disabled handling, and tooltip, and so it can
- * still be cloned onto a Radix trigger via `asChild` — which is how every one
+ * still be cloned onto a Radix trigger via `asChild`, which is how every one
  * of these opens its panel (see {@link AdaptivePopover}).
  *
  * `loading` sweeps the whole pill rather than a label, because these controls
@@ -17,13 +17,13 @@
  * clipping box, which is why `relative overflow-hidden` is baked in here rather
  * than left to each caller to remember.
  *
- * The sweep is folded into whichever slot the button actually renders, because
- * `Button` DROPS `children` entirely when `iconOnly` is set — passing the
- * overlay as a child silently rendered nothing on the icon-only controls while
- * working fine on the others. Injecting it alongside the glyph is what makes
- * the two behave the same. It still positions against the button rather than
- * the glyph: the icon slot is a plain `inline-flex` span with no `position`, so
- * `absolute inset-0` resolves to this component's `relative` box.
+ * The sweep is folded into whichever slot the button renders, because `Button`
+ * DROPS `children` entirely when `iconOnly` is set: an overlay passed as a
+ * child reaches the DOM on a labelled control and never on an icon-only one.
+ * Injecting it alongside the glyph makes both behave the same. It still
+ * positions against the button rather than the glyph, since the icon slot is a
+ * plain `inline-flex` span with no `position`, so `absolute inset-0` resolves
+ * to this component's `relative` box.
  */
 
 import type { ComponentProps, ReactNode } from "react";
@@ -80,7 +80,7 @@ export function SideControlButton({
       className={cn(
         // `border-0` drops the ghost Button's own 1px border: an outline made
         // these read as inset rather than as chips sitting on the surface. No
-        // shadow either, for the same reason — the fill alone is the shape.
+        // shadow either, for the same reason: the fill alone is the shape.
         "relative overflow-hidden rounded-full border-0 bg-[var(--surface-lift)]",
         className,
       )}
