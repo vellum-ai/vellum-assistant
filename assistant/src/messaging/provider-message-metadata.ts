@@ -89,7 +89,19 @@ export const providerMessageMetadataSchema = z
     eventKind: z.enum(["message", "reaction"]),
     reaction: providerReactionMetadataSchema.optional(),
     editedAt: z.number().optional(),
+    /**
+     * The row is no longer visible on the channel: every provider post it
+     * produced has been deleted. Readers treat this as the whole row's
+     * deletion mark, as before rows could name several posts.
+     */
     deletedAt: z.number().optional(),
+    /**
+     * Provider ids among `messageId`/`additionalMessageIds` whose posts have
+     * been deleted on the channel. A split reply can lose one post while the
+     * others stay visible, so deletion is tracked per id; `deletedAt` is
+     * stamped only once every id is here.
+     */
+    deletedMessageIds: z.array(z.string()).optional(),
   })
   .passthrough();
 

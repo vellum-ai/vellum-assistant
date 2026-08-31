@@ -57,6 +57,17 @@ const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
  * almost no recall and keeps the cost flat as the database grows.
  */
 const OUTBOUND_MESSAGE_ID_MAX_SCAN = 400;
+const PROVIDER_MESSAGE_ID_SCAN_BATCH_SIZE = 200;
+const UNRECONCILED_OUTBOUND_ROW_SCAN = 25;
+
+/**
+ * Widened `maxScan` for the deletion path. A delete can target an
+ * arbitrarily old assistant post, so recency is not a completeness
+ * contract there, but deletes are rare and run off the gateway-ack hot
+ * path, so a deep batched scan is affordable. Beyond this bound the delete
+ * degrades exactly as an unresolvable one always has.
+ */
+export const DELETE_PROVIDER_MESSAGE_ID_MAX_SCAN = 20_000;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -305,24 +316,94 @@ export function findInboundEvent(
  * describes its rows in the neutral shape as well as Slack's own envelope.
  *
  * The search is confined to conversations already bound to the same
- * channel address and to the most recent
- * {@link OUTBOUND_MESSAGE_ID_MAX_SCAN} rows among them; beyond that it gives
- * up and the caller drops the annotation, which is the same outcome as never
- * finding it at all.
+ * channel address and, by default, to the most recent
+ * {@link OUTBOUND_MESSAGE_ID_MAX_SCAN} rows among them: reactions land on
+ * recent messages and the reaction path runs while the gateway waits for
+ * its ack. A caller resolving an event that can target arbitrarily old
+ * posts off the hot path (a deletion) widens the window via `maxScan`;
+ * beyond whichever bound applies the lookup gives up and the caller drops
+ * the annotation, which is the same outcome as never finding it at all.
  */
 export function findMessageByProviderMessageId(
   sourceChannel: string,
   externalChatId: string,
   providerMessageId: string,
+  opts?: { maxScan?: number },
 ): { messageId: string; conversationId: string } | null {
   const db = getDb();
   const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
+  const maxScan = opts?.maxScan ?? OUTBOUND_MESSAGE_ID_MAX_SCAN;
+
+  let offset = 0;
+  while (offset < maxScan) {
+    const batchLimit = Math.min(
+      PROVIDER_MESSAGE_ID_SCAN_BATCH_SIZE,
+      maxScan - offset,
+    );
+    const rows = db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        metadata: messages.metadata,
+      })
+      .from(messages)
+      .innerJoin(
+        conversationKeys,
+        eq(conversationKeys.conversationId, messages.conversationId),
+      )
+      .where(
+        and(
+          or(
+            eq(conversationKeys.conversationKey, keyPrefix),
+            like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
+          ),
+          or(
+            like(messages.metadata, '%"providerMeta"%'),
+            like(messages.metadata, '%"slackMeta"%'),
+          ),
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(batchLimit)
+      .offset(offset)
+      .all();
+
+    for (const row of rows) {
+      const meta = readProviderMetadata(row.metadata, {
+        allowFlatLegacy: true,
+      });
+      if (
+        meta?.conversationExternalId === externalChatId &&
+        (meta.messageId === providerMessageId ||
+          meta.additionalMessageIds?.includes(providerMessageId))
+      ) {
+        return { messageId: row.id, conversationId: row.conversationId };
+      }
+    }
+    if (rows.length < batchLimit) {
+      return null;
+    }
+    offset += rows.length;
+  }
+  return null;
+}
+
+/**
+ * Whether the chat has a recent outbound row still awaiting its post-send id
+ * reconciliation (a neutral envelope naming no `messageId`). The deletion
+ * path's evidence that "unresolvable" may mean "not reconciled yet" rather
+ * than "never stored": with no such row, a miss is final and the delete
+ * returns without paying a retry window. Bounded to the newest handful of
+ * rows: the race it detects is one delivery round-trip wide.
+ */
+export function hasUnreconciledOutboundRow(
+  sourceChannel: string,
+  externalChatId: string,
+): boolean {
+  const db = getDb();
+  const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
   const rows = db
-    .select({
-      id: messages.id,
-      conversationId: messages.conversationId,
-      metadata: messages.metadata,
-    })
+    .select({ metadata: messages.metadata })
     .from(messages)
     .innerJoin(
       conversationKeys,
@@ -334,27 +415,23 @@ export function findMessageByProviderMessageId(
           eq(conversationKeys.conversationKey, keyPrefix),
           like(conversationKeys.conversationKey, `${keyPrefix}:thread:%`),
         ),
-        or(
-          like(messages.metadata, '%"providerMeta"%'),
-          like(messages.metadata, '%"slackMeta"%'),
-        ),
+        like(messages.metadata, '%"providerMeta"%'),
       ),
     )
     .orderBy(desc(messages.createdAt))
-    .limit(OUTBOUND_MESSAGE_ID_MAX_SCAN)
+    .limit(UNRECONCILED_OUTBOUND_ROW_SCAN)
     .all();
-
   for (const row of rows) {
-    const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
+    const meta = readProviderMetadata(row.metadata);
     if (
       meta?.conversationExternalId === externalChatId &&
-      (meta.messageId === providerMessageId ||
-        meta.additionalMessageIds?.includes(providerMessageId))
+      meta.eventKind === "message" &&
+      meta.messageId === undefined
     ) {
-      return { messageId: row.id, conversationId: row.conversationId };
+      return true;
     }
   }
-  return null;
+  return false;
 }
 
 export function recordInbound(

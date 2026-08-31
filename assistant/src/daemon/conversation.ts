@@ -1191,12 +1191,17 @@ export class Conversation {
             const text = extractTextFromStoredMessageContent(row.content);
             if (text) {
               // A split reply posts several provider messages from one row;
-              // a reaction may name any of them.
+              // a reaction may name any of them. A post deleted on its own
+              // (partial deletion of a split reply) stops being quotable
+              // while its siblings remain.
               for (const id of [
                 rowMeta.messageId,
                 ...(rowMeta.additionalMessageIds ?? []),
               ]) {
-                if (!reactionTargetIndexMemo.has(id)) {
+                if (
+                  !reactionTargetIndexMemo.has(id) &&
+                  !rowMeta.deletedMessageIds?.includes(id)
+                ) {
                   reactionTargetIndexMemo.set(id, text);
                 }
               }

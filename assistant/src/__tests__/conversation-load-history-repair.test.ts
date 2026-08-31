@@ -750,6 +750,77 @@ describe("loadFromDb history repair", () => {
     expect(allText).not.toContain("an earlier message");
   });
 
+  test("a partially deleted split reply quotes only its surviving posts", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    const reactionRow = (target: string, emoji: string, id: string) => ({
+      id,
+      role: "user",
+      content: [{ type: "text", text: "[reaction]" }],
+      metadata: JSON.stringify({
+        providerMeta: JSON.stringify({
+          source: "discord",
+          conversationExternalId: "chan-1",
+          eventKind: "reaction",
+          reaction: {
+            targetMessageId: target,
+            emoji,
+            op: "added",
+            actorDisplayName: "Alice",
+          },
+        }),
+      }),
+    });
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "Deploy finished cleanly." }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            additionalMessageIds: ["555.2"],
+            deletedMessageIds: ["555.2"],
+            eventKind: "message",
+          }),
+        }),
+      },
+      // Reaction on the surviving post: still quotable.
+      reactionRow("555.1", "tada", "m2"),
+      // Reaction on the deleted post: degrades to the unresolved form
+      // rather than quoting content no longer on the channel.
+      reactionRow("555.2", "eyes", "m3"),
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    // The row itself is NOT fully deleted: its content stays.
+    expect(allText).toContain("Deploy finished cleanly.");
+    // :tada: (surviving target) quotes; :eyes: (deleted target) does not.
+    const tadaLine = allText
+      .split("\n")
+      .find((line) => line.includes(":tada:"));
+    const eyesLine = allText
+      .split("\n")
+      .find((line) => line.includes(":eyes:"));
+    expect(tadaLine).toContain("Deploy finished cleanly.");
+    expect(eyesLine).toContain("an earlier message");
+  });
+
   test("the assistant's own reaction row renders second-person", async () => {
     mockConversation = {
       id: "conv-1",
