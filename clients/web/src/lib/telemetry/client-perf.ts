@@ -3,6 +3,10 @@ import { captureError } from "@/lib/sentry/capture-error";
 import type { TelemetryJsonValueWritable } from "@/generated/daemon/types.gen";
 import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { mintRandomId } from "@/lib/telemetry/random-id";
+import {
+  __resetReportedConditionsForTests,
+  claimUnreportedConditions,
+} from "@/lib/telemetry/report-once";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   detectClientOs,
@@ -74,16 +78,6 @@ export type ClientPerfCheckName =
   | "client_list.drain";
 
 /**
- * Relay rejections already reported this page load, keyed by status.
- *
- * A rejection is systemic (this client sends something the daemon's wire
- * schema refuses), so one report shows it and one per event would flood.
- * 404 is not a condition: a daemon predating the relay route answers 404
- * per event, expected and quiet, and telemetry from it is simply absent.
- */
-const reportedRelayRejections = new Set<number>();
-
-/**
  * Posts one `client_*` watchdog event through the daemon relay. Fire and
  * forget: never throws into the caller, so a probe can sit on a hot render
  * or navigation path without adding a failure mode. Transport failures
@@ -141,15 +135,15 @@ export function sendClientWatchdogEvent(event: {
     })
       .then(({ response }) => {
         const status = response?.status ?? 0;
-        if (
-          status < 400 ||
-          status >= 500 ||
-          status === 404 ||
-          reportedRelayRejections.has(status)
-        ) {
+        // 404 is not a reportable condition: a daemon predating the relay
+        // route answers it per event, expected and quiet, and telemetry from
+        // it is simply absent.
+        if (status < 400 || status >= 500 || status === 404) {
           return;
         }
-        reportedRelayRejections.add(status);
+        if (claimUnreportedConditions([`relay:${status}`]).length === 0) {
+          return;
+        }
         captureError(
           new Error(
             `telemetry relay rejected ${event.checkName} with ${status}`,
@@ -242,5 +236,5 @@ export function emitClientPerfEvent(
 export function __resetClientPerfForTests(): void {
   bootId = null;
   pageLoadId = null;
-  reportedRelayRejections.clear();
+  __resetReportedConditionsForTests();
 }
