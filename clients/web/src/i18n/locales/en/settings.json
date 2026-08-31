@@ -281,7 +281,7 @@
     "confirmFailed": "Failed to save payment method.",
     "confirmingWithBank": "Confirming with your bank…",
     "declined": "Your bank declined this card. Try another, or contact them.",
-    "loadingFields": "Loading payment fields",
+    "loadingLabel": "Loading payment fields",
     "paymentFormLoadError": "Failed to load the payment form. Please close and reopen this dialog.",
     "primaryAdd": "Save card",
     "primaryReplace": "Replace card",
@@ -928,7 +928,6 @@
     "loadError": "Failed to load invoices.",
     "loadMore": "Load more",
     "loadMoreError": "Failed to load more invoices.",
-    "loadingAriaLabel": "Loading invoices",
     "retry": "Retry",
     "showButton": "Show Invoices",
     "showLess": "Show less",
@@ -1264,7 +1263,6 @@
     "addButton": "Add Payment Method",
     "empty": "No payment method on file. Add one to use auto-reload.",
     "loadError": "Failed to load payment methods.",
-    "loadingAriaLabel": "Loading payment method",
     "title": "Payment Method"
   },
   "pendingPairingRequests": {

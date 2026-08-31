@@ -96,7 +96,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
       return Promise.reject(new Error("setup intent unavailable"));
     }
     return Promise.resolve({
-      data: { client_secret: "seti_123_secret_456" },
+      data: { client_secret: `seti_123_secret_${setupIntentCalls}` },
       response: { ok: true },
     });
   },
@@ -462,7 +462,7 @@ describe("AutoTopUpPaymentMethodModal submit", () => {
         throw new Error("onSavedOptimistic not called");
       }
     });
-    // The mocked client_secret is `seti_123_secret_456`.
+    // The mocked client_secret is `seti_123_secret_<call number>`.
     expect(savedArgs[0]).toEqual({ setupIntentId: "seti_123" });
   });
 
@@ -655,6 +655,10 @@ describe("AutoTopUpPaymentMethodModal field skeleton", () => {
     const result = renderModal();
 
     const skeleton = result.getByTestId("auto-top-up-pm-modal-skeleton");
+    // The modal is its own surface, so this skeleton keeps the labelled
+    // loading region the billing cards' presentational ones gave up.
+    expect(skeleton.getAttribute("role")).toBe("status");
+    expect(skeleton.getAttribute("aria-label")).toBe("Loading payment fields");
     expect(result.queryByTestId("auto-top-up-pm-modal-spinner")).toBeNull();
     expect(result.queryByTestId("stripe-address-element")).toBeNull();
 
@@ -686,6 +690,17 @@ describe("AutoTopUpPaymentMethodModal field skeleton", () => {
     expect(result.getByTestId("stripe-address-element")).toBe(addressElement);
   });
 
+  test("the skeleton and the mounted form share one field-stack rhythm", async () => {
+    // They stand in for each other, so the two must keep the same spacing or
+    // the reveal changes the modal's height.
+    const result = await renderModalWithForm();
+
+    const skeleton = result.getByTestId("auto-top-up-pm-modal-skeleton");
+    const form = result.getByTestId("stripe-address-element").parentElement;
+    expect(skeleton.className).toContain("gap-[10px]");
+    expect(form?.className).toContain("gap-[10px]");
+  });
+
   test("a re-open goes back to the skeleton until the new fields are ready", async () => {
     const client = new QueryClient({
       defaultOptions: {
@@ -712,10 +727,17 @@ describe("AutoTopUpPaymentMethodModal field skeleton", () => {
     result.rerender(tree(true));
 
     expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
-    // The second SetupIntent lands with the elements still booting, so the
-    // readiness from the first open must not have carried over.
+    // The second SetupIntent lands on a new client secret with the elements
+    // still booting, so the readiness from the first open must not have
+    // carried over.
     await result.findByTestId("stripe-address-element");
     expect(result.getByTestId("auto-top-up-pm-modal-skeleton")).not.toBeNull();
+
+    // The re-mounted form reports readiness again, so the reset the re-open
+    // made is answered rather than left holding the skeleton forever.
+    fireOnReady(paymentElementProps);
+    fireOnReady(addressElementProps);
+    expect(result.queryByTestId("auto-top-up-pm-modal-skeleton")).toBeNull();
   });
 
   test("a failed SetupIntent swaps the skeleton for the retry action", async () => {

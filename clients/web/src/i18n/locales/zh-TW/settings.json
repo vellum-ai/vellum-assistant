@@ -281,7 +281,7 @@
     "confirmFailed": "無法儲存付款方式。",
     "confirmingWithBank": "正在與您的銀行確認…",
     "declined": "您的銀行拒絕了這張卡。請改用其他卡片，或與銀行聯絡。",
-    "loadingFields": "正在載入付款欄位",
+    "loadingLabel": "正在載入付款欄位",
     "paymentFormLoadError": "無法載入付款表單。請關閉並重新開啟此對話方塊。",
     "primaryAdd": "儲存信用卡",
     "primaryReplace": "替換信用卡",
@@ -928,7 +928,6 @@
     "loadError": "載入發票失敗。",
     "loadMore": "載入更多",
     "loadMoreError": "載入更多發票失敗。",
-    "loadingAriaLabel": "正在載入發票",
     "retry": "重試",
     "showButton": "顯示發票",
     "showLess": "顯示較少",
@@ -1264,7 +1263,6 @@
     "addButton": "新增付款方式",
     "empty": "未儲存任何付款方式。新增一個以使用自動儲值。",
     "loadError": "載入付款方式失敗。",
-    "loadingAriaLabel": "正在載入付款方式",
     "title": "付款方式"
   },
   "pendingPairingRequests": {
