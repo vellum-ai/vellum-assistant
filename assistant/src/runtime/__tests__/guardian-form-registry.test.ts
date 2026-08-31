@@ -182,3 +182,35 @@ describe("hasUnclaimedGuardianForm", () => {
     await settled;
   });
 });
+
+describe("resolveFormFromCallback", () => {
+  test("passes a writer's own fields through untouched", async () => {
+    // The rail is only reusable if a new form's result reaches its caller. A
+    // callback that enumerated contact fields would drop everything else.
+    const { requestId, settled } = openForm();
+
+    const { resolveFormFromCallback } =
+      await import("../routes/guardian-form-routes.js");
+    resolveFormFromCallback({
+      body: { requestId, id: "row-7", rows: 3, skipped: false },
+    } as never);
+
+    expect(await settled).toEqual({
+      ok: true,
+      id: "row-7",
+      rows: 3,
+      skipped: false,
+    } as never);
+  });
+
+  test("an error makes the outcome a failure", async () => {
+    const { requestId, settled } = openForm();
+    const { resolveFormFromCallback } =
+      await import("../routes/guardian-form-routes.js");
+    resolveFormFromCallback({
+      body: { requestId, error: "nope", id: "ignored" },
+    } as never);
+
+    expect(await settled).toEqual({ ok: false, error: "nope" });
+  });
+});

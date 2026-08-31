@@ -40,6 +40,7 @@ import {
   openGuardianForm,
   resolveGuardianForm,
 } from "../guardian-form-registry.js";
+import { claimForm, resolveFormFromCallback } from "./guardian-form-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /** Form kinds on the guardian-form rail that carry a contact card. */
@@ -87,52 +88,6 @@ function announceContactFormClosed(
   reason: GuardianFormClosedReason,
 ): void {
   broadcastMessage({ type: "contact_form_closed", requestId, reason });
-}
-
-/**
- * Called by the gateway after it writes the contact and channel. Resolves the
- * parked promise so the CLI's `contacts/prompt` IPC call returns.
- */
-function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
-  resolved: boolean;
-} {
-  const {
-    requestId,
-    contactId,
-    channelId,
-    channelType,
-    address,
-    verified,
-    notesSaved,
-    nothingWritten,
-    error,
-  } = body as {
-    requestId: string;
-    contactId?: string;
-    channelId?: string;
-    channelType?: string;
-    address?: string;
-    verified?: boolean;
-    notesSaved?: boolean;
-    nothingWritten?: boolean;
-    error?: string;
-  };
-
-  return resolveGuardianForm(
-    requestId,
-    error
-      ? { ok: false, error }
-      : {
-          ok: true,
-          contactId,
-          channelId,
-          channelType,
-          address,
-          verified,
-          notesSaved,
-          nothingWritten,
-        },
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -345,15 +300,6 @@ async function handleContactRecordPrompt({
   });
 }
 
-function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
-  claimed: boolean;
-  reason?: "already_claimed" | "unknown";
-  settleMs?: number;
-} {
-  const { requestId } = ContactPromptFlagsParams.parse(body);
-  return claimGuardianForm(requestId);
-}
-
 /**
  * Read-only flags for a pending prompt. The gateway asks this after it writes
  * the channel so a `--verify` prompt can attest without the client having to
@@ -425,7 +371,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: resolveContactPrompt,
+    handler: resolveFormFromCallback,
     summary: "Gateway callback: resolve a pending contact prompt",
     description:
       "Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt call.",
@@ -439,7 +385,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: claimContactPrompt,
+    handler: claimForm,
     summary: "Claim a pending contact form for one submission",
     description:
       "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is pending. A granted claim carries the window its write has to report back in.",

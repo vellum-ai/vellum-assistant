@@ -40,6 +40,15 @@ const log = getLogger("contact-prompt");
 const ADDRESS_FORM = "contacts.address";
 const RECORD_FORM = "contacts.record";
 
+/**
+ * The contact forms' own IPC names, which predate the form-agnostic pair. Kept
+ * so a gateway running against an older daemon still reaches routes it serves.
+ */
+const CONTACT_FORM_IPC = {
+  claimOperation: "contact_prompt_claim",
+  resolveOperation: "resolve_contact_prompt",
+} as const;
+
 let store: ContactStore | null = null;
 
 function getStore(): ContactStore {
@@ -140,12 +149,14 @@ export async function handleContactPromptSubmit(
       requestId,
       cancelled: true,
       logContext: { form: ADDRESS_FORM },
+      ...CONTACT_FORM_IPC,
     });
   }
 
   return submitGuardianForm({
     requestId,
     logContext: { form: ADDRESS_FORM, channelType },
+    ...CONTACT_FORM_IPC,
     write: () =>
       bindSubmittedChannel({
         requestId,
@@ -592,6 +603,7 @@ export async function handleContactRecordSubmit(
       requestId,
       cancelled: true,
       logContext: { form: RECORD_FORM },
+      ...CONTACT_FORM_IPC,
     });
   }
 
@@ -625,6 +637,7 @@ export async function handleContactRecordSubmit(
   return submitGuardianForm({
     requestId,
     logContext: { form: RECORD_FORM, operation, contactId },
+    ...CONTACT_FORM_IPC,
     write: () =>
       writeContactRecord({
         requestId,

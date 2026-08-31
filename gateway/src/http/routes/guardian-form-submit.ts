@@ -40,6 +40,14 @@ interface SubmitGuardianFormBase {
   requestId: string;
   /** Form-specific fields folded into this submission's log lines. */
   logContext?: Record<string, unknown>;
+  /**
+   * The daemon IPC operations to claim through and report back on. Default to
+   * the form-agnostic pair. The contact forms pin their own older names,
+   * because the gateway ships separately from the daemon and one running
+   * against an older daemon must keep calling what that daemon serves.
+   */
+  claimOperation?: string;
+  resolveOperation?: string;
 }
 
 /**
@@ -73,9 +81,14 @@ export type SubmitGuardianFormOptions = SubmitGuardianFormBase &
 export async function submitGuardianForm(
   options: SubmitGuardianFormOptions,
 ): Promise<Response> {
-  const { requestId, logContext = {} } = options;
+  const {
+    requestId,
+    logContext = {},
+    claimOperation = "guardian_form_claim",
+    resolveOperation = "resolve_guardian_form",
+  } = options;
 
-  const claim = await claimForm(requestId);
+  const claim = await claimForm(requestId, claimOperation);
   if (!claim.claimed) {
     log.warn(
       { requestId, reason: claim.reason, ...logContext },
@@ -93,6 +106,7 @@ export async function submitGuardianForm(
       requestId,
       { requestId, error: "Cancelled by user" },
       settleDeadline,
+      resolveOperation,
     );
     return Response.json({ accepted: true });
   }
@@ -113,6 +127,7 @@ export async function submitGuardianForm(
       requestId,
       { requestId, error: "The write failed" },
       settleDeadline,
+      resolveOperation,
     );
     return Response.json(
       { accepted: false, error: "The write failed" },
@@ -125,6 +140,7 @@ export async function submitGuardianForm(
       requestId,
       { requestId, error: outcome.failure.error },
       settleDeadline,
+      resolveOperation,
     );
     return Response.json(
       { accepted: false, error: outcome.failure.error },
@@ -136,6 +152,7 @@ export async function submitGuardianForm(
     requestId,
     { requestId, ...outcome.resolution },
     settleDeadline,
+    resolveOperation,
   );
   return Response.json({ accepted: true });
 }
@@ -151,9 +168,10 @@ export async function submitGuardianForm(
  */
 async function claimForm(
   requestId: string,
+  operation: string,
 ): Promise<{ claimed: boolean; reason?: string; settleMs?: number }> {
   try {
-    const result = await ipcCallAssistant("contact_prompt_claim", {
+    const result = await ipcCallAssistant(operation, {
       body: { requestId },
     });
     return result as { claimed: boolean; reason?: string; settleMs?: number };
@@ -215,12 +233,13 @@ async function reportResolution(
   requestId: string,
   body: Record<string, unknown>,
   deadline: number,
+  operation: string,
 ): Promise<void> {
   const inlineUntil = Date.now() + RESOLVE_INLINE_BUDGET_MS;
 
   const attempt = async (): Promise<boolean> => {
     try {
-      const result = await ipcCallAssistant("resolve_contact_prompt", { body });
+      const result = await ipcCallAssistant(operation, { body });
       if ((result as { resolved?: boolean }).resolved === false) {
         // The form is gone, so nobody is waiting. Retrying cannot change that.
         log.warn(

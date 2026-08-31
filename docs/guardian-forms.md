@@ -58,10 +58,13 @@ never rejects. Whatever the writer reports comes back to the caller verbatim.
 `submitGuardianForm`:
 
 ```ts
+if (body.cancelled === true) {
+  return submitGuardianForm({ requestId, cancelled: true, logContext });
+}
+
 return submitGuardianForm({
   requestId,
-  cancelled: body.cancelled === true,
-  logContext: { form: "my-feature.thing" },
+  logContext,
   write: async () => {
     try {
       const row = await doTheWrite(...);
@@ -73,8 +76,16 @@ return submitGuardianForm({
 });
 ```
 
-Classify expected failures into `failure` rather than throwing. A throw is
-caught as a backstop and reported as a 500, which loses the status you meant.
+A dismissal and a write are separate calls: the options type takes one or the
+other, so a caller cannot accidentally report "cancelled" over a form the
+guardian answered. Classify expected failures into `failure` rather than
+throwing; a throw is caught as a backstop and reported as a 500, which loses
+the status you meant.
+
+Whatever you put in `resolution` reaches the parked caller untouched, via the
+form-agnostic `resolve_guardian_form` callback. Contacts pin the older
+`resolve_contact_prompt` name, so pass `resolveOperation` only if you have the
+same reason.
 
 **3. Render the card.** Add the form event to the web client's pending
 interaction pipeline and give it a card. This is still per-form wiring; see
