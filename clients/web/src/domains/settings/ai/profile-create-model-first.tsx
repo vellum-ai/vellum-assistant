@@ -366,13 +366,18 @@ export function ProfileCreateModelFirst({
   const fieldLabelClass =
     "block text-body-small-default text-[var(--content-tertiary)]";
 
-  // Only while the list is the control on screen. A typed model id has no
-  // list to open, so reserving room for one would leave a hole under it.
-  const roomForList = reserveListRoom && draft.kind !== "custom";
+  // Only while the Model field is the whole of the dialog. Once a model is
+  // answered, the provider step and the Advanced disclosure stand in the room
+  // the list needs, so holding it open past that point is white space. The
+  // test is the answer, not whether the list happens to be open: reserving on
+  // the open state would grow and shrink the dialog under the user as they
+  // browse it.
+  const roomForList = reserveListRoom && draft.kind === "none";
 
   return (
     <div
       className="space-y-4"
+      data-testid="model-first-fields"
       style={roomForList ? { minHeight: MODEL_LIST_ROOM } : undefined}
     >
       <div className="space-y-1">

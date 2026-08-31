@@ -26,6 +26,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+import { SEARCHABLE_SELECT_MENU_REACH } from "@vellumai/design-library/components/searchable-select";
+
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
@@ -145,6 +147,17 @@ function renderCreate(
     </Wrapper>,
   );
   return saveCalls;
+}
+
+/** The field stack, which is where the dialog's reserve for the list sits. */
+function fieldStack(): HTMLElement {
+  const stack = document.querySelector<HTMLElement>(
+    '[data-testid="model-first-fields"]',
+  );
+  if (!stack) {
+    throw new Error("expected the model-first field stack");
+  }
+  return stack;
 }
 
 function modelField(): HTMLInputElement {
@@ -494,6 +507,29 @@ describe("the model list", () => {
       expect(saveCalls.length).toBe(1);
     });
     expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+  });
+});
+
+describe("the room the dialog keeps for the open list", () => {
+  test("is reserved while the Model field is the whole of it", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    // The list is portaled, so the dialog holds it only because the stack
+    // under the field says how far it reaches.
+    expect(
+      Number.parseInt(fieldStack().style.minHeight, 10),
+    ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_REACH);
+  });
+
+  test("is given back once a model answers the question", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    selectModel("Claude Opus 5");
+
+    // The provider step now stands in that room. Anything still reserved
+    // would open as a gap between the flow and the dialog's footer.
+    expect(candidateCards().length).toBeGreaterThan(0);
+    expect(fieldStack().style.minHeight).toBe("");
   });
 });
 
