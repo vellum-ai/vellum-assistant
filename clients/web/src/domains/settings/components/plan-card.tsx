@@ -58,7 +58,7 @@ import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { ContentReveal } from "@/domains/settings/components/content-reveal";
+import { ContentReveal } from "@/components/content-reveal";
 import {
   formatDollars,
   priceLabelFromCents,

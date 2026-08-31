@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AddCreditsModal } from "@/components/add-credits-modal";
+import { ContentReveal } from "@/components/content-reveal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
 import {
   organizationsBillingSummaryRetrieveOptions,
@@ -20,7 +21,6 @@ import { StatSquare } from "@vellumai/design-library/components/stat-square";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { useTranslation } from "@/i18n";
 import { BillingSectionHeader } from "./billing-section-header";
-import { ContentReveal } from "./content-reveal";
 import {
   DAILY_CREDIT_LIMIT_ANCHOR_ID,
   DailyCreditLimitCard,

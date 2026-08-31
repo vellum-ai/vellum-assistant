@@ -6,6 +6,7 @@ import { Link } from "react-router";
 
 import { useQuery } from "@tanstack/react-query";
 
+import { ContentReveal } from "@/components/content-reveal";
 import { DetailCard } from "@/components/detail-card";
 import {
   checkAssistantHandleAvailable,
@@ -662,7 +663,6 @@ function ProfileHandles({
 }: Pick<ProfileCardProps, "assistant">) {
   const [me, setMe] = useState<UserMe | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const prefersReducedMotion = useReducedMotion();
 
   // Mirror the assistant prop into local state so a successful save can
   // replace the cached snapshot without a full re-fetch from the parent.
@@ -709,12 +709,7 @@ function ProfileHandles({
     return <ProfileCardSkeleton />;
   }
   return (
-    <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: "easeOut" }}
-      className="flex flex-col gap-6"
-    >
+    <ContentReveal className="flex flex-col gap-6">
       <UserHandleSection initial={me} onSaved={setMe} />
       {assistant && (
         <>
@@ -728,6 +723,6 @@ function ProfileHandles({
           />
         </>
       )}
-    </motion.div>
+    </ContentReveal>
   );
 }
