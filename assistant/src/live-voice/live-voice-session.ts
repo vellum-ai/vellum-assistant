@@ -2202,6 +2202,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     for (const classified of this.classifyVadEnergy(chunk)) {
+      // TEMPORARY (JARVIS-1695): echo route probe. Revert before merge.
+      this.recordEchoProbe(classified);
       await this.handleClassifiedVadAudio(detector, classified);
     }
   }
@@ -2487,6 +2489,118 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       classification: meanAmplitude > baseThreshold ? "speech" : "silence",
     };
   }
+
+  // ==== TEMPORARY (JARVIS-1695): echo route probe. Revert before merge. ====
+  //
+  // Answers one question a code reading cannot: on this handset, does the
+  // assistant's own voice reach the microphone, and does that change when the
+  // audio route changes mid-call (AirPods in or out, speaker to receiver)?
+  //
+  // The hypothesis is that WebKit binds its MediaStream renderer to whichever
+  // capture unit is live when the renderer starts, that a route change rebuilds
+  // that unit, and that nothing rebinds the renderer afterwards, so echo
+  // cancellation silently stops. The client cannot report this: the route it
+  // can see stays "media-stream" either way, because the element is still
+  // playing. What changes is only observable here, where both the microphone
+  // audio and the PCM we sent to the speaker are in hand.
+  //
+  // The number to read is `ratio`: microphone level during assistant playback
+  // divided by the same room's level while the assistant is silent.
+  //
+  //   ratio near 1  -> the microphone hears the room, echo cancellation is live
+  //   ratio >> 1    -> the microphone hears the loudspeaker, cancellation is gone
+  //
+  // A step change in `ratio` that begins at a route change and persists is the
+  // hypothesis confirmed. A `ratio` that stays near 1 across the change refutes
+  // it, and this whole line of investigation closes.
+  //
+  // Logged only while a live-voice session is running, at most once a second,
+  // and never persisted or sent anywhere: it must not reach the diagnostics
+  // rings, which leave the device inside support bundles. See
+  // `clients/web/docs/CAPACITOR.md` on why microphone-derived aggregates are
+  // out of bounds in shipped code, and why this belongs on a branch that is
+  // deleted rather than in a permanent field.
+  private echoProbe = {
+    playbackMs: 0,
+    playbackMicSum: 0,
+    quietMs: 0,
+    quietMicSum: 0,
+    speech: 0,
+    echo: 0,
+    silence: 0,
+    lastFlushAtMs: 0,
+  };
+
+  private recordEchoProbe(classified: VadClassifiedChunk): void {
+    const chunkMs = pcm16DurationMs(
+      classified.chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
+    const mean = pcm16MeanAmplitude(classified.chunk);
+    // Split by whether the assistant was expected at the speaker, which is the
+    // same window the echo gate uses. Quiet-side audio is the control: it is
+    // this room, measured through this microphone, with nothing playing.
+    if (this.isAssistantPlaybackEchoPossible()) {
+      this.echoProbe.playbackMs += chunkMs;
+      this.echoProbe.playbackMicSum += mean * chunkMs;
+    } else {
+      this.echoProbe.quietMs += chunkMs;
+      this.echoProbe.quietMicSum += mean * chunkMs;
+    }
+    if (classified.classification === "speech") {
+      this.echoProbe.speech += 1;
+    } else if (classified.classification === "echo") {
+      this.echoProbe.echo += 1;
+    } else {
+      this.echoProbe.silence += 1;
+    }
+
+    const now = Date.now();
+    if (this.echoProbe.lastFlushAtMs === 0) {
+      this.echoProbe.lastFlushAtMs = now;
+      return;
+    }
+    if (now - this.echoProbe.lastFlushAtMs < 1_000) {
+      return;
+    }
+    this.echoProbe.lastFlushAtMs = now;
+
+    // Both sides need audio before a ratio means anything. Early in a call the
+    // quiet side fills first, so this simply stays silent until the assistant
+    // has spoken.
+    const playbackMean =
+      this.echoProbe.playbackMs > 0
+        ? this.echoProbe.playbackMicSum / this.echoProbe.playbackMs
+        : null;
+    const quietMean =
+      this.echoProbe.quietMs > 0
+        ? this.echoProbe.quietMicSum / this.echoProbe.quietMs
+        : null;
+    if (playbackMean === null || quietMean === null || quietMean <= 0) {
+      return;
+    }
+
+    log.warn(
+      `[echo-probe] ratio=${(playbackMean / quietMean).toFixed(2)} ` +
+        `playbackMic=${playbackMean.toFixed(0)} quietMic=${quietMean.toFixed(0)} ` +
+        `roomFloor=${this.roomNoiseFloor.floor?.toFixed(0) ?? "none"} ` +
+        `gate=${this.effectiveBaseThreshold().toFixed(0)} ` +
+        `echoEma=${this.echoEnergyEma.toFixed(0)} ` +
+        `cls=speech:${this.echoProbe.speech}/echo:${this.echoProbe.echo}/quiet:${this.echoProbe.silence}`,
+    );
+
+    // Windowed, not cumulative: a cumulative mean would dilute the step change
+    // this probe exists to catch, since the minutes before a route change would
+    // outweigh the seconds after it.
+    this.echoProbe.playbackMs = 0;
+    this.echoProbe.playbackMicSum = 0;
+    this.echoProbe.quietMs = 0;
+    this.echoProbe.quietMicSum = 0;
+    this.echoProbe.speech = 0;
+    this.echoProbe.echo = 0;
+    this.echoProbe.silence = 0;
+  }
+  // ==== end TEMPORARY probe ====
 
   private isAssistantPlaybackEchoPossible(): boolean {
     return (
