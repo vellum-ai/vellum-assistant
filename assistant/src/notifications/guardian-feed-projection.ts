@@ -416,7 +416,7 @@ export async function reconcileGuardianFeedProjections(): Promise<void> {
     // to learn its terminal status. Deliberately the throwing lookup: the
     // degrading variant returns null on a transport failure too, and a
     // hiccup must skip the row rather than receipt a live request as
-    // cancelled. A row the gateway genuinely no longer has reads as
+    // cancelled. A row absent from the gateway reads as
     // cancelled.
     let request: GuardianRequestWire | null;
     try {

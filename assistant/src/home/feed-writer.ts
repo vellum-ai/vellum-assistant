@@ -450,8 +450,8 @@ async function runWrite(): Promise<void> {
       }
       // Bulk dismissal ("Clear all") never clears the live projection of
       // an unresolved guardian request: the item is the request's one
-      // canonical home, and only resolution may retire it. Its terminal
-      // receipt (no longer pending) clears like any other item, and a
+      // canonical home, and only resolution may retire it. A terminal
+      // receipt is not pending and clears like any other item, and a
       // deliberate single-item dismissal stays available.
       if (op.to === "dismissed" && isPendingGuardianFeedItem(current)) {
         continue;

@@ -230,8 +230,8 @@ export const GuardianQuestionPending: Story = {
 };
 
 /**
- * The terminal receipt: the same item after resolution, with the buttons
- * replaced by the outcome and the row now an ordinary clearable
+ * The terminal receipt: the same item after resolution, with the outcome
+ * in place of the buttons and the row an ordinary clearable
  * notification.
  */
 export const GuardianApprovalResolved: Story = {
