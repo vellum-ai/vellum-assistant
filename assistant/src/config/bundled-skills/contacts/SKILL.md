@@ -172,7 +172,7 @@ Replace `<channel_id>` with the channel's `id` from the contact's `channels` arr
 
 ## Invite Links
 
-Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code; email, WhatsApp, and Slack invites use a 6-digit code that the invitee sends to the assistant on the respective channel.
+Invite links let the guardian share a link or code that automatically grants access when used. Telegram invites use a deep link; voice invites use a phone number + numeric code; email, WhatsApp, Slack, and Discord invites use a 6-digit code that the invitee sends to the assistant on the respective channel. Discord invitees must share a server with the bot and have DMs from server members enabled before they can send it the code.
 
 **Every invite must be bound to a contact.** Before creating an invite, look up the contact with `assistant contacts list` and pass the contact's `id` via the required `--contact-id` flag. If the target contact doesn't exist yet, create it first with `assistant contacts create --name "<name>"` and wait for the guardian to confirm; the invite needs only a name, never the invitee's address on that channel.
 
