@@ -532,7 +532,10 @@ export interface LatestInboundEventReference {
  *
  * The `LIKE` is an indexable prefilter only (same contract as
  * `selectProviderMetaCandidateMetadata`); every candidate is parsed and
- * source-checked before its name is trusted.
+ * source-checked before its name is trusted. The patterns are unquoted
+ * on purpose: `slackMeta` is stored as a JSON string inside the outer
+ * metadata, so its inner keys appear with escaped quotes on disk, which
+ * a quoted pattern would never match.
  */
 export function getLatestExternalConversationName(
   conversationId: string,
@@ -546,8 +549,8 @@ export function getLatestExternalConversationName(
       and(
         eq(messages.conversationId, conversationId),
         or(
-          like(messages.metadata, '%"conversationName"%'),
-          like(messages.metadata, '%"channelName"%'),
+          like(messages.metadata, "%conversationName%"),
+          like(messages.metadata, "%channelName%"),
         ),
       ),
     )
