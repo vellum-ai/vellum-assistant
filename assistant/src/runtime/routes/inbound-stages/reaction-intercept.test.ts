@@ -105,15 +105,37 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
 }));
 
 let addMessageCalls = 0;
+let targetRow: { role: string; content: unknown } | null = null;
 mock.module("../../../persistence/conversation-crud.js", () => ({
   addMessage: async () => {
     addMessageCalls++;
     return { id: "msg-1" };
   },
+  getMessageById: () => targetRow,
 }));
 
+let markProcessedCalls = 0;
 mock.module("../../../persistence/delivery-status.js", () => ({
-  markProcessed: () => {},
+  markProcessed: () => {
+    markProcessedCalls++;
+  },
+}));
+
+let dispatchedTurns: Array<Record<string, unknown>> = [];
+mock.module("./background-dispatch.js", () => ({
+  processChannelMessageInBackground: (params: Record<string, unknown>) => {
+    dispatchedTurns.push(params);
+  },
+}));
+
+// The intercept imports `processMessage` only to hand it to the dispatch;
+// stub it so the test never drags the daemon turn machinery in at import
+// time.
+mock.module("../../../daemon/process-message.js", () => ({
+  processMessage: async () => ({ messageId: "turn-user-row" }),
+}));
+mock.module("../../../daemon/approval-generators.js", () => ({
+  createApprovalCopyGenerator: () => ({}),
 }));
 mock.module("../../../persistence/external-conversation-store.js", () => ({
   upsertBinding: () => {},
@@ -184,11 +206,12 @@ let msgCounter = 0;
 function buildParams(overrides: {
   rawSenderId: string;
   trustVerdict?: TrustVerdict;
+  op?: "added" | "removed";
 }) {
   msgCounter++;
   return {
     reaction: {
-      op: "added" as const,
+      op: overrides.op ?? ("added" as const),
       emoji: "white_check_mark",
       targetMessageId: "1700000000.1",
     },
@@ -235,6 +258,14 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     guardianReplyCalls = [];
     guardianReplyResponse = undefined;
     storedTarget = { messageId: "msg-target", conversationId: "conv-target" };
+    // Default target: a user-authored row, so reactions stay passive unless
+    // a test makes the target the assistant's own post.
+    targetRow = {
+      role: "user",
+      content: [{ type: "text", text: "the reacted-to message" }],
+    };
+    dispatchedTurns = [];
+    markProcessedCalls = 0;
   });
 
   test("guardian verdict routes the reaction into the approval decision pipeline", async () => {
@@ -275,10 +306,14 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(recordInboundCalls).toEqual([{ conversationId: "conv-target" }]);
   });
 
-  test("a reaction on the assistant's own post resolves through its stored envelope", async () => {
+  test("a reaction added to the assistant's own post wakes a discretion turn", async () => {
     // Outbound posts open no inbound event, so the id is only on the row.
     storedTarget = null;
     outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+    };
 
     const result = await handleReactionIntercept(
       buildParams({
@@ -290,16 +325,40 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(recordInboundCalls).toEqual([
       { conversationId: "conv-assistant-post" },
     ]);
-    expect(addMessageCalls).toBe(1);
-    expect(result).toMatchObject({ accepted: true, duplicate: false });
     // The outbound-row lookup is scoped to the reaction's own channel: a
     // Slack reaction never scans another channel's conversations.
     expect(outboundLookupChannels).toEqual(["slack"]);
+    expect(result).toMatchObject({
+      accepted: true,
+      duplicate: false,
+      reaction: "wake_dispatched",
+    });
+    // The turn's own persisted row is the reaction row: no passive write,
+    // and the event is settled up front (wake turns opt out of sweep replay).
+    expect(addMessageCalls).toBe(0);
+    expect(markProcessedCalls).toBe(1);
+    expect(dispatchedTurns).toHaveLength(1);
+    const turn = dispatchedTurns[0];
+    expect(turn.conversationId).toBe("conv-assistant-post");
+    expect(turn.clientMessageId).toBe("reaction:evt-1");
+    expect(turn.skipUserMessageIndexing).toBe(true);
+    // The model's turn content is the same line the reload renderer
+    // produces, with the quoted target resolved.
+    expect(String(turn.content)).toContain("reacted with");
+    expect(String(turn.content)).toContain("Deploy finished cleanly.");
+    // The row's envelope matches what the passive path would have written,
+    // riding the transitional Slack-only carrier.
+    expect(typeof turn.slackReactionRowMeta).toBe("string");
+    expect(turn.channelInbound).toBeUndefined();
   });
 
-  test("a non-Slack reaction resolves the assistant's post on its own channel", async () => {
+  test("a non-Slack reaction on the assistant's post wakes with the neutral envelope", async () => {
     storedTarget = null;
     outboundTargetConversationId = "conv-discord-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+    };
 
     const params = {
       ...buildParams({
@@ -307,15 +366,68 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
         trustVerdict: MEMBER_VERDICT,
       }),
       sourceChannel: "discord" as const,
-      sourceInterface: undefined,
+      sourceInterface: "discord" as const,
     };
     const result = await handleReactionIntercept(params);
 
     expect(outboundLookupChannels).toEqual(["discord"]);
-    expect(recordInboundCalls).toEqual([
-      { conversationId: "conv-discord-post" },
-    ]);
-    expect(result).toMatchObject({ accepted: true, duplicate: false });
+    expect(result).toMatchObject({
+      accepted: true,
+      duplicate: false,
+      reaction: "wake_dispatched",
+    });
+    expect(dispatchedTurns).toHaveLength(1);
+    // Non-Slack wake turns ride the ordinary neutral-envelope carrier, the
+    // same lane inbound messages use.
+    const channelInbound = dispatchedTurns[0].channelInbound as Record<
+      string,
+      unknown
+    >;
+    expect(channelInbound.eventKind).toBe("reaction");
+    expect(channelInbound.source).toBe("discord");
+    expect(dispatchedTurns[0].slackReactionRowMeta).toBeUndefined();
+  });
+
+  test("a reaction REMOVED from the assistant's post stays passive", async () => {
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+    };
+
+    const result = await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+        op: "removed",
+      }),
+    );
+
+    expect(dispatchedTurns).toHaveLength(0);
+    expect(addMessageCalls).toBe(1);
+    expect(result.reaction).toBeUndefined();
+  });
+
+  test("losing the lock after admission degrades the wake to the passive row", async () => {
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [{ type: "text", text: "Deploy finished cleanly." }],
+    };
+
+    await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+    expect(addMessageCalls).toBe(0);
+    const fallback = dispatchedTurns[0].onTurnLostToBusy as () => Promise<void>;
+    await fallback();
+    // Exactly the row the passive path would have written.
+    expect(addMessageCalls).toBe(1);
   });
 
   test("a reaction on a message that is not stored is dropped without minting", async () => {

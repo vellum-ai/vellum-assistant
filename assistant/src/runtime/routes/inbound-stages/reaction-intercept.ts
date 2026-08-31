@@ -1,9 +1,9 @@
 /**
- * Slack reaction intercept stage.
+ * Reaction intercept stage, on any channel.
  *
- * Reactions are passive channel signals — not messages, and not access
- * attempts. They are dispatched here *before* the message pipeline (ACL,
- * admission floor, disk-pressure block, conversation binding) so that:
+ * Reactions are not messages and not access attempts. They are dispatched
+ * here *before* the message pipeline (ACL, admission floor, disk-pressure
+ * block, conversation binding) so that:
  *
  *   - a 👍 never triggers an ingress access challenge / verification handshake
  *     or an access-request notification (LUM-2489),
@@ -17,7 +17,13 @@
  *
  * The reactor's trust is read solely from the gateway-stamped verdict on
  * `sourceMetadata`; a missing/failed/contradictory verdict fails closed to
- * `unknown` (drop). Reactions never drive an agent turn.
+ * `unknown` (drop).
+ *
+ * One reaction shape addresses the assistant rather than annotating the
+ * room: an admitted actor ADDING a reaction to a message the assistant
+ * itself authored. That one wakes a discretion turn through the ordinary
+ * channel-turn machinery (`buildReactionWakeTurn`); every other reaction
+ * stays a passive transcript row and never drives a turn.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
@@ -26,9 +32,12 @@ import {
 } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import { createApprovalCopyGenerator } from "../../../daemon/approval-generators.js";
 import { findConversation } from "../../../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
+import { processMessage } from "../../../daemon/process-message.js";
+import { renderReactionHistoryText } from "../../../daemon/reaction-history-render.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { writeSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
 import {
@@ -37,6 +46,7 @@ import {
 } from "../../../messaging/reaction-envelopes.js";
 import {
   addMessage,
+  getMessageById,
   provenanceFromTrustContext,
 } from "../../../persistence/conversation-crud.js";
 import {
@@ -47,13 +57,16 @@ import {
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
 import { markProcessed } from "../../../persistence/delivery-status.js";
+import { extractTextFromStoredMessageContent } from "../../../persistence/message-content.js";
 import { getLogger } from "../../../util/logger.js";
 import { toTrustContext } from "../../actor-trust-resolver.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 import {
   actorTrustContextFromVerdict,
   verdictUsability,
 } from "../../trust-verdict-consumer.js";
+import { processChannelMessageInBackground } from "./background-dispatch.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
 const log = getLogger("runtime-http");
@@ -217,21 +230,19 @@ export async function handleReactionIntercept(
   // them. The assistant's own posts open no inbound event, so a reaction on
   // one is resolved through the envelope those rows carry (`slackMeta` on
   // Slack, the neutral `providerMeta` everywhere else).
-  const targetConversationId = reactedMessageTs
-    ? ((
-        findMessageBySourceId(
-          sourceChannel,
-          conversationExternalId,
-          reactedMessageTs,
-        ) ??
-        findMessageByProviderMessageId(
-          sourceChannel,
-          conversationExternalId,
-          reactedMessageTs,
-        )
-      )?.conversationId ?? null)
+  const target = reactedMessageTs
+    ? (findMessageBySourceId(
+        sourceChannel,
+        conversationExternalId,
+        reactedMessageTs,
+      ) ??
+      findMessageByProviderMessageId(
+        sourceChannel,
+        conversationExternalId,
+        reactedMessageTs,
+      ))
     : null;
-  if (!targetConversationId || !reactedMessageTs) {
+  if (!target || !reactedMessageTs) {
     log.debug(
       { sourceChannel, conversationExternalId, reactedMessageTs },
       "Dropping reaction: reacted message is not stored",
@@ -247,11 +258,17 @@ export async function handleReactionIntercept(
     // own message, and a reaction is not one. Claiming the reacted message's
     // id here would put two linked rows on that id, leaving a later edit or
     // delete of it free to resolve to the reaction instead.
-    { conversationId: targetConversationId },
+    { conversationId: target.conversationId },
   );
+  if (result.duplicate) {
+    return {
+      accepted: result.accepted,
+      duplicate: true,
+      eventId: result.eventId,
+    };
+  }
 
-  // Record the reaction as an inline transcript signal.
-  try {
+  const persistPassively = async (): Promise<void> => {
     await persistReactionAsMessage({
       conversationId: result.conversationId,
       conversationExternalId,
@@ -261,19 +278,59 @@ export async function handleReactionIntercept(
       actorDisplayName,
       actorExternalId: canonicalSenderId ?? rawSenderId ?? undefined,
       reactedMessageTs,
-      duplicate: result.duplicate,
+      duplicate: false,
       trustCtx: toTrustContext(trustCtx, conversationExternalId),
     });
-    if (!result.duplicate) {
-      // Reactions never drive a turn, so a resident conversation would
-      // otherwise carry the new row only after eviction. Marking it stale
-      // makes the next turn's history reload pick the reaction up.
-      findConversation(result.conversationId)?.markHistoryStale();
-    }
+    // A passive row lands in the store only, so a resident conversation
+    // would otherwise carry it only after eviction. Marking it stale makes
+    // the next turn's history reload pick the reaction up.
+    findConversation(result.conversationId)?.markHistoryStale();
+  };
+
+  // An admitted actor ADDING a reaction to the assistant's own message is a
+  // signal addressed to the assistant, like a thumbs-up sent to a person: it
+  // wakes the assistant for a discretion turn (the channel turn context
+  // already instructs `<no_response/>` for messages needing no reply).
+  // Everything else stays a passive transcript row: removals retract rather
+  // than address, and a reaction on another participant's message is
+  // between-humans signaling. The wake rides the ordinary channel-turn
+  // machinery, so the turn's own persisted user row IS the reaction row
+  // (same envelope the passive path writes) and delivery, admission
+  // ordering, and silence suppression all apply.
+  const wakeTurn =
+    reaction.op === "added" && replyCallbackUrl && sourceInterface
+      ? buildReactionWakeTurn({
+          target,
+          result,
+          reaction,
+          sourceChannel,
+          sourceInterface,
+          conversationExternalId,
+          replyCallbackUrl,
+          actorDisplayName,
+          actorExternalId: canonicalSenderId ?? rawSenderId ?? undefined,
+          reactedMessageTs,
+          trustCtx: toTrustContext(trustCtx, conversationExternalId),
+          chatType: sourceMetadata?.chatType,
+          persistPassively,
+        })
+      : null;
+  if (wakeTurn) {
+    wakeTurn();
+    return {
+      accepted: result.accepted,
+      duplicate: false,
+      eventId: result.eventId,
+      reaction: "wake_dispatched",
+    };
+  }
+
+  try {
+    await persistPassively();
   } catch (err) {
     log.error(
       { err, conversationId: result.conversationId, eventId: result.eventId },
-      "Failed to persist Slack reaction event",
+      "Failed to persist reaction event",
     );
   }
 
@@ -285,10 +342,115 @@ export async function handleReactionIntercept(
 }
 
 /**
+ * Build the dispatch thunk for a reaction-driven discretion turn, or null
+ * when the reaction does not qualify: only a reaction on a message the
+ * assistant itself authored addresses the assistant.
+ *
+ * The turn rides `processChannelMessageInBackground` unchanged, so it defers
+ * behind an in-flight turn, streams and delivers its reply through the
+ * channel rail, and a `<no_response/>` outcome is suppressed everywhere. Its
+ * persisted user row carries the same reaction envelope the passive path
+ * writes, so the row reads as a reaction to every envelope consumer, and its
+ * live content is the same line `renderReactionHistoryText` produces at
+ * reload, so the model sees one wording on both paths.
+ *
+ * Wake turns are at-most-once. The retry sweep replays stored payloads as
+ * plain message turns, which would corrupt a reaction into a fabricated
+ * user message, so no payload is stored and the event is marked processed
+ * up front: a crash mid-turn loses the discretionary turn, never a row the
+ * store already held. The one recoverable loss, a non-channel turn stealing
+ * the lock after admission, degrades through `persistPassively` to exactly
+ * the row the passive path would have written.
+ */
+function buildReactionWakeTurn(params: {
+  target: { messageId: string; conversationId: string };
+  result: { eventId: string; conversationId: string };
+  reaction: InboundReactionPayload;
+  sourceChannel: ChannelId;
+  sourceInterface: InterfaceId;
+  conversationExternalId: string;
+  replyCallbackUrl: string;
+  actorDisplayName: string | undefined;
+  actorExternalId: string | undefined;
+  reactedMessageTs: string;
+  trustCtx: TrustContext;
+  chatType: string | undefined;
+  persistPassively: () => Promise<void>;
+}): (() => void) | null {
+  const targetRow = getMessageById(
+    params.target.messageId,
+    params.target.conversationId,
+  );
+  if (!targetRow || targetRow.role !== "assistant") {
+    return null;
+  }
+
+  const facts = {
+    channel: params.sourceChannel,
+    chatId: params.conversationExternalId,
+    targetMessageId: params.reactedMessageTs,
+    emoji: params.reaction.emoji,
+    op: params.reaction.op,
+    ...(params.actorExternalId
+      ? { actorExternalId: params.actorExternalId }
+      : {}),
+    ...(params.actorDisplayName
+      ? { actorDisplayName: params.actorDisplayName }
+      : {}),
+  };
+  const neutralMeta = buildNeutralReactionMeta(facts);
+  const targetText = extractTextFromStoredMessageContent(targetRow.content);
+  const content = renderReactionHistoryText(
+    neutralMeta,
+    () => targetText || undefined,
+    { selfAuthored: false },
+  );
+  if (!content) {
+    return null;
+  }
+  // The reaction envelope rides the same carrier lanes ordinary ingress
+  // uses: the neutral `channelInbound` for every non-Slack channel (its
+  // lane validates through the canonical schema and passes reaction-kind
+  // envelopes verbatim), and the transitional Slack-only field while Slack
+  // still writes its own envelope.
+  const envelopeCarrier =
+    params.sourceChannel === "slack"
+      ? {
+          slackReactionRowMeta: writeSlackMetadata(
+            buildSlackReactionMeta(facts),
+          ),
+        }
+      : { channelInbound: neutralMeta };
+
+  return () => {
+    markProcessed(params.result.eventId);
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: params.result.conversationId,
+      eventId: params.result.eventId,
+      content,
+      sourceChannel: params.sourceChannel,
+      sourceInterface: params.sourceInterface,
+      externalChatId: params.conversationExternalId,
+      trustCtx: params.trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: params.replyCallbackUrl,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      approvalCopyGenerator: createApprovalCopyGenerator(),
+      ...(params.chatType ? { chatType: params.chatType } : {}),
+      ...envelopeCarrier,
+      clientMessageId: `reaction:${params.result.eventId}`,
+      skipUserMessageIndexing: true,
+      onTurnLostToBusy: params.persistPassively,
+    });
+  };
+}
+
+/**
  * Persist a Slack reaction event as a `messages` row with a `slackMeta`
  * envelope so the renderer can surface it inline in the chronological
- * transcript. Reactions do not trigger an agent response — the row is written
- * and the inbound event is linked, but the agent loop is not dispatched.
+ * transcript. The row is written and the inbound event is linked; the wake
+ * decision is the caller's (`buildReactionWakeTurn`).
  *
  * The caller is expected to have run `recordInbound` already so that
  * deduplication and conversation resolution have happened. Duplicate inbound
