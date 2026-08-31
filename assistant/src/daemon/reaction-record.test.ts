@@ -28,6 +28,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
 }));
 
 const { persistReactionRecords } = await import("./reaction-record.js");
+const { drainQueuedReactionRecords } =
+  await import("./conversation-agent-loop.js");
 
 function record(
   overrides: Partial<QueuedReactionRecord> = {},
@@ -95,6 +97,37 @@ describe("persistReactionRecords", () => {
       targetChannelTs: "1700.1",
       op: "added",
     });
+  });
+
+  test("the terminal drain persists queued records, clears the queue, and stale-marks", async () => {
+    // The drain runs in the agent loop's finally, so an error exit still
+    // reaches it: a delivered reaction's record must not depend on the turn
+    // finishing cleanly.
+    let staleMarked = 0;
+    const ctx = {
+      conversationId: "conv-1",
+      pendingReactionRecords: [record(), record({ emoji: "👍" })],
+      markHistoryStale: () => {
+        staleMarked += 1;
+      },
+    };
+    await drainQueuedReactionRecords(ctx);
+    expect(persisted).toHaveLength(2);
+    expect(ctx.pendingReactionRecords).toHaveLength(0);
+    expect(staleMarked).toBe(1);
+  });
+
+  test("the terminal drain is a no-op on an empty queue", async () => {
+    let staleMarked = 0;
+    await drainQueuedReactionRecords({
+      conversationId: "conv-1",
+      pendingReactionRecords: [],
+      markHistoryStale: () => {
+        staleMarked += 1;
+      },
+    });
+    expect(persisted).toHaveLength(0);
+    expect(staleMarked).toBe(0);
   });
 
   test("a failed write is logged, not thrown, and later records still persist", async () => {

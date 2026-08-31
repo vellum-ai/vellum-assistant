@@ -1578,16 +1578,6 @@ export async function runAgentLoopImpl(
     // assistant message. Testing only the tail keeps the synthetic error row
     // below reachable for mid-turn failures, which is the only durable record
     // of why the turn stopped.
-    // Reactions the turn delivered get their durable rows now, after the
-    // turn's own rows are settled, so they never land inside a
-    // tool_use/tool_result pair. The resident history misses them until the
-    // next reload, so the conversation is stale-marked.
-    if (ctx.pendingReactionRecords.length > 0) {
-      const queuedReactions = ctx.pendingReactionRecords.splice(0);
-      await persistReactionRecords(ctx.conversationId, queuedReactions);
-      ctx.markHistoryStale();
-    }
-
     const hasAssistantResponse =
       newMessages[newMessages.length - 1]?.role === "assistant";
     // A reply that is nothing but the `<no_response/>` sentinel is deliberate
@@ -2051,6 +2041,14 @@ export async function runAgentLoopImpl(
       // the API, enabling stable prefix caching across turns.  Compaction
       // consolidates when it summarizes old messages (cache miss is expected).
     } finally {
+      // Reactions the turn delivered get their durable rows on every
+      // terminal path, error exits included: the reaction already happened
+      // on the channel, and the record must not depend on the turn
+      // finishing cleanly. Writing here, after the turn stops producing
+      // rows, keeps the record out of any tool_use/tool_result pair; the
+      // resident history misses the rows until the next reload, so the
+      // conversation is stale-marked.
+      await drainQueuedReactionRecords(ctx);
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.
@@ -2059,6 +2057,30 @@ export async function runAgentLoopImpl(
         "agent_loop_finally",
       );
     }
+  }
+}
+
+/**
+ * Persist and clear the turn's queued reaction records. Non-throwing: a
+ * failure here must never mask the turn's own outcome, and
+ * `persistReactionRecords` already logs per-record failures.
+ */
+export async function drainQueuedReactionRecords(
+  ctx: Pick<
+    Conversation,
+    "conversationId" | "pendingReactionRecords" | "markHistoryStale"
+  >,
+): Promise<void> {
+  if (ctx.pendingReactionRecords.length === 0) {
+    return;
+  }
+  const queuedReactions = ctx.pendingReactionRecords.splice(0);
+  try {
+    await persistReactionRecords(ctx.conversationId, queuedReactions);
+    ctx.markHistoryStale();
+  } catch {
+    // persistReactionRecords is itself non-throwing per record; this guard
+    // covers only unexpected faults so the finally block stays safe.
   }
 }
 
