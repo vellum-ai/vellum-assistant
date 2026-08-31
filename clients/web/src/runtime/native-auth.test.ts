@@ -70,6 +70,9 @@ const { useResolvedAssistantsStore } = await import(
   "@/stores/resolved-assistants-store"
 );
 const { routes } = await import("@/utils/routes");
+const { NEW_ASSISTANT_PARAM } = await import(
+  "@/domains/onboarding/onboarding-destination"
+);
 
 describe("resolveNativePostAuthDestination", () => {
   beforeEach(() => {
@@ -185,6 +188,26 @@ describe("resolveNativePostAuthDestination", () => {
     expect(
       resolveNativePostAuthDestination("login", routes.onboarding.research),
     ).toBe(routes.assistant);
+  });
+
+  // The web funnel got this exemption in #41656; native post-auth is the same
+  // decision and had none, so a returning user's deliberate new-assistant walk
+  // was rewritten away.
+  test("native login keeps a marked new-assistant returnTo", () => {
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          hatchedAt: new Date(Date.now() - ONBOARDED_HATCH_AGE_MS).toISOString(),
+          isLocal: false,
+          isPlatformHosted: true,
+          isPaired: false,
+        },
+      ],
+    });
+    const returnTo = `${routes.onboarding.privacy}?${NEW_ASSISTANT_PARAM}=1`;
+
+    expect(resolveNativePostAuthDestination("login", returnTo)).toBe(returnTo);
   });
 });
 

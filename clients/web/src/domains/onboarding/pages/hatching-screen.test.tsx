@@ -318,6 +318,7 @@ mock.module("@/domains/onboarding/plugin-attribution", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalClient: () => isLocalClientValue,
+  markLockfileAssistantOnboarded: async () => {},
   loadLockfile: async () => {},
   primeLocalGatewayConnection: async () => {},
   probeLocalGatewayReady: async () => true,

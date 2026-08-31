@@ -348,6 +348,26 @@ export async function renameLockfileAssistant(
 }
 
 /**
+ * Stamp `onboardedAt` on an existing entry so the CLI and tray see that this
+ * assistant finished first-run onboarding. Field-scoped and never creates an
+ * entry: a cloud-only or unknown assistant simply has no lockfile record, and
+ * the device-scoped record in `onboarded-assistant-record.ts` covers it.
+ */
+export async function markLockfileAssistantOnboarded(
+  assistantId: string,
+  onboardedAt: string,
+): Promise<void> {
+  if (isRemoteGatewayMode() || !isLocalModeHostAvailable()) {
+    return;
+  }
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry || entry.onboardedAt) {
+    return;
+  }
+  await updateLockfileAssistant({ ...entry, onboardedAt });
+}
+
+/**
  * Mark an already-known assistant as the lockfile's active assistant, leaving
  * its other fields untouched. Used when switching managed assistants so the
  * lockfile `activeAssistant` — read by the macOS tray, the CLI, and the native

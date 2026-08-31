@@ -653,6 +653,7 @@ export interface LockfileAssistant {
   runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
+  onboardedAt?: string;
   organizationId?: string;
   platformAssistantId?: string;
   platformBaseUrl?: string;

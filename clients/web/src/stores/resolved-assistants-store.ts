@@ -40,6 +40,7 @@ import {
   writeSelectedAssistantId,
 } from "@/assistant/selected-assistant-storage";
 import { useLockfileStore } from "@/stores/lockfile-store";
+import { readOnboardedAt } from "@/domains/onboarding/onboarded-assistant-record";
 import type { Lockfile } from "@/runtime/local-mode-host";
 import type { Assistant, ReleaseChannelEnum } from "@/generated/api/types.gen";
 
@@ -47,6 +48,12 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   hatchedAt?: string;
+  /**
+   * When this assistant finished first-run onboarding. Absent for assistants
+   * that predate the record; `onboarded-assistant.ts` falls back to hatch age
+   * for those.
+   */
+  onboardedAt?: string;
   cloud?: string;
   runtimeVersion?: string;
   currentReleaseVersion?: string | null;
@@ -182,6 +189,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
+        onboardedAt: resolveOnboardedAt(a.assistantId, a.onboardedAt),
         cloud: a.cloud,
         runtimeVersion: a.resources?.runtimeVersion,
         avatarUrl: existingById.get(a.assistantId)?.avatarUrl,
@@ -221,6 +229,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
               id: a.id,
               name: a.name,
               hatchedAt: a.created,
+              onboardedAt: resolveOnboardedAt(a.id, lockfileFields.onboardedAt),
               cloud: lockfileFields.cloud,
               runtimeVersion: lockfileFields.runtimeVersion,
               runtimeUrl: lockfileFields.runtimeUrl,
@@ -250,6 +259,10 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
+          onboardedAt: resolveOnboardedAt(
+            assistant.id,
+            lockfileFields.onboardedAt,
+          ),
           ingressUrl: assistant.ingress_url,
           avatarUrl: apiAvatarUrl(assistant),
           currentReleaseVersion: assistant.current_release_version,
@@ -377,9 +390,21 @@ function classifyApiEntry(
   };
 }
 
+/**
+ * The onboarding stamp, lockfile first. Local mode writes both targets, so the
+ * two agree; cloud and browser clients only ever have the device record.
+ */
+function resolveOnboardedAt(
+  assistantId: string,
+  fromLockfile: string | undefined,
+): string | undefined {
+  return fromLockfile ?? readOnboardedAt(assistantId);
+}
+
 function getLockfileFields(assistantId: string): {
   cloud?: string;
   organizationId?: string;
+  onboardedAt?: string;
   runtimeVersion?: string;
   runtimeUrl?: string;
   platformAssistantId?: string;
@@ -394,6 +419,7 @@ function getLockfileFields(assistantId: string): {
   return {
     cloud: entry?.cloud,
     organizationId: entry?.organizationId,
+    onboardedAt: entry?.onboardedAt,
     runtimeVersion: entry?.resources?.runtimeVersion,
     runtimeUrl: entry?.runtimeUrl,
     platformAssistantId: entry?.platformAssistantId,

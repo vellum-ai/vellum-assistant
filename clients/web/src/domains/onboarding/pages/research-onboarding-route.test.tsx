@@ -39,6 +39,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { type ReactNode } from "react";
 
 import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
+import { readOnboardedAt } from "@/domains/onboarding/onboarded-assistant-record";
 import {
   readResearchSnapshot,
   writeResearchSnapshot,
@@ -140,8 +141,10 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => false,
 }));
 
+const markLockfileOnboardedMock = mock(async (..._args: unknown[]) => {});
 mock.module("@/lib/local-mode", () => ({
   isLocalClient: () => false,
+  markLockfileAssistantOnboarded: markLockfileOnboardedMock,
 }));
 
 // The real module builds its destinations from `routes` at import time, and the
@@ -365,8 +368,16 @@ mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
 }));
 
 mock.module("@/domains/onboarding/screens/existing-assistant-step", () => ({
-  ExistingAssistantStep: (props: { assistantName: string | null }) => (
-    <div data-testid="existing-step">{props.assistantName ?? "unknown"}</div>
+  ExistingAssistantStep: (props: {
+    assistantName: string | null;
+    onKeep?: () => void;
+  }) => (
+    <>
+      <div data-testid="existing-step">{props.assistantName ?? "unknown"}</div>
+      <button type="button" data-testid="existing-keep" onClick={props.onKeep}>
+        Keep
+      </button>
+    </>
   ),
 }));
 
@@ -594,6 +605,46 @@ describe("ResearchOnboardingRoute resume guard", () => {
     fireEvent.click(screen.getByTestId("letschat-start"));
     await waitFor(() => expect(navigateMock).toHaveBeenCalled());
     expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  // The completion record: this is the only place the assistant the user just
+  // finished onboarding is known, so it is where the stamp has to happen.
+  test("handing off to chat stamps the assistant as onboarded", async () => {
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, doneSnapshot());
+    backgroundHatch.ready = true;
+    backgroundHatch.assistantId = "asst-1";
+
+    render(<ResearchOnboardingRoute />);
+
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    expect(readOnboardedAt("asst-1")).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId("letschat-start"));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled());
+    expect(readOnboardedAt("asst-1")).toBeTruthy();
+    expect(markLockfileOnboardedMock).toHaveBeenCalled();
+  });
+
+  test("keeping an established assistant stamps it too", async () => {
+    establishedResult = { established: true, assistantName: "Viper" };
+    writeResearchSnapshot(USER_ID, postFormSnapshot());
+    backgroundHatch.ready = true;
+    backgroundHatch.assistantId = "asst-1";
+
+    render(<ResearchOnboardingRoute />);
+    await waitFor(() =>
+      expect(screen.getByTestId("existing-step")).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByTestId("existing-keep"));
+
+    await waitFor(() => expect(readOnboardedAt("asst-1")).toBeTruthy());
   });
 
   test("parking on the guard from a resume never persists a resumable 'existing' snapshot", async () => {
