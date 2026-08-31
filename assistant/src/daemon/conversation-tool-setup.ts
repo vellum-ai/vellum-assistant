@@ -16,6 +16,7 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -820,6 +821,13 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  // The react capability follows the transport's declaration: the tool is on
+  // the wire exactly when the turn's channel transport implements `react`,
+  // so the model never sees an option the channel cannot honor. Wake pins
+  // clear channelCapabilities, which reads as no channel and hides it.
+  if (name === "react_to_message") {
+    return supportsChannelReaction(channelCapabilities?.channel);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (

@@ -33,7 +33,7 @@ export function DeveloperGuideFeaturesContent() {
             The unified messaging layer provides platform-agnostic tools (<code className="text-sm">messaging_send</code>,{" "}
             <code className="text-sm">messaging_read</code>, <code className="text-sm">messaging_search</code>) that delegate to
             provider adapters for Gmail, Slack, and Telegram. Platform-specific tools (e.g.{" "}
-            <code className="text-sm">gmail_archive</code>, <code className="text-sm">slack_add_reaction</code>) extend beyond the
+            <code className="text-sm">gmail_archive</code>) extend beyond the
             generic interface.
           </p>
           <p className="mb-4 text-zinc-600">

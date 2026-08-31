@@ -72,6 +72,22 @@ export interface EditTarget {
 }
 
 /**
+ * The message an emoji reaction lands on, and what to do there.
+ *
+ * `emoji` is spelled in the channel's own vocabulary (a Slack emoji name, a
+ * unicode emoji elsewhere): Vellum names the operation and the channel
+ * decides what its argument means, the same way `EditTarget.text` renders
+ * per channel.
+ */
+export interface ReactionTarget {
+  readonly chatId: string;
+  /** The target message, in the channel's own id space. */
+  readonly messageId: string;
+  readonly emoji: string;
+  readonly action: "add" | "remove";
+}
+
+/**
  * Direct outbound delivery for one channel, wrapping the channel's provider-API
  * send functions behind a uniform surface. Transports are registered statically
  * (delivery runs in non-daemon contexts) and dispatched by channel, resolved
@@ -106,6 +122,18 @@ export interface ChannelTransport {
     ctx: CallbackContext,
     target: EditTarget,
   ): Promise<ChannelDeliveryResult>;
+
+  /**
+   * Add or remove one of the assistant's own emoji reactions on a message.
+   *
+   * Takes no callback context: a reaction addresses its message absolutely
+   * (`chatId` + `messageId`) and carries no per-callback thread state, which
+   * is also what lets a producer with no callback URL, a tool running inside
+   * a turn, reach it. A channel whose platform has no reaction affordance
+   * omits the method, and the tool surface reads that omission as the
+   * capability's absence.
+   */
+  react?(target: ReactionTarget): Promise<ChannelDeliveryResult>;
 
   /**
    * Show how busy the assistant is, in whatever form the channel has.

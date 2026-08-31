@@ -92,6 +92,11 @@ assistant oauth request --provider slack_channel \
 
 ### Add a reaction
 
+To react in the conversation you are currently answering, prefer the
+`react_to_message` tool: it targets the triggering message by default and
+works the same on every channel that supports reactions. The raw API call
+below is for reacting anywhere else, e.g. a message in another channel:
+
 ```bash
 assistant oauth request --provider slack_channel \
   -X POST \

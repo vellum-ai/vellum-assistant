@@ -8,7 +8,9 @@ const slack = {
   sendSlackReply: mock((..._args: unknown[]) =>
     Promise.resolve({ ts: "slack-ts" }),
   ),
-  sendSlackReaction: mock((..._args: unknown[]) => Promise.resolve()),
+  sendSlackReaction: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true }),
+  ),
   sendSlackAgentSessionStatus: mock((..._args: unknown[]) => Promise.resolve()),
   sendSlackAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
@@ -63,9 +65,11 @@ mock.module("../../../util/logger.js", () => ({
 const {
   deliverDirect,
   editChannelMessage,
+  sendChannelReaction,
   sendChannelStreamOp,
   setChannelActivity,
   supportsChannelActivity,
+  supportsChannelReaction,
   isDirectDelivery,
   getTransportForCallback,
 } = await import("../index.js");
@@ -200,6 +204,42 @@ describe("Slack sub-operation selection", () => {
     ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, ts: "stream-ts" });
+  });
+});
+
+describe("react dispatch", () => {
+  test("sendChannelReaction routes to the Slack reaction sender", async () => {
+    const result = await sendChannelReaction("slack", {
+      chatId: "C1",
+      messageId: "123.456",
+      emoji: "thumbsup",
+      action: "add",
+    });
+    expect(result.ok).toBe(true);
+    expect(slack.sendSlackReaction).toHaveBeenCalledWith(
+      "C1",
+      "thumbsup",
+      "123.456",
+      "add",
+    );
+  });
+
+  test("supportsChannelReaction follows the transport declaration", () => {
+    expect(supportsChannelReaction("slack")).toBe(true);
+    expect(supportsChannelReaction("whatsapp")).toBe(false);
+    expect(supportsChannelReaction("some-plugin-channel")).toBe(false);
+    expect(supportsChannelReaction(undefined)).toBe(false);
+  });
+
+  test("a channel without react resolves to nothing and sends nothing", async () => {
+    const result = await sendChannelReaction("whatsapp", {
+      chatId: "W1",
+      messageId: "m1",
+      emoji: "thumbsup",
+      action: "add",
+    });
+    expect(result).toEqual({ ok: true });
+    expect(whatsapp.sendWhatsAppReply).not.toHaveBeenCalled();
   });
 });
 

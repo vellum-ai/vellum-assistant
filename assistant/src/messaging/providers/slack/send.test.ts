@@ -28,8 +28,12 @@ mock.module("./api.js", () => ({
 // the (unmocked) shared transport, so thrown test errors must be real
 // instances or every branch under test would silently take the generic path.
 const { SlackApiError } = await import("./web-api-transport.js");
-const { sendSlackAgentSessionStatus, sendSlackReply, updateSlackMessage } =
-  await import("./send.js");
+const {
+  sendSlackAgentSessionStatus,
+  sendSlackReaction,
+  sendSlackReply,
+  updateSlackMessage,
+} = await import("./send.js");
 
 describe("sendSlackAgentSessionStatus", () => {
   const threadTs = "1700000000.000100";
@@ -134,6 +138,43 @@ describe("sendSlackAgentSessionStatus", () => {
     await sendSlackAgentSessionStatus({ channel: "D123", phase: "thinking" });
 
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendSlackReaction", () => {
+  test("adds with the bare emoji name, colons stripped", async () => {
+    const result = await sendSlackReaction("C1", ":tada:", "123.456", "add");
+    expect(result).toEqual({ ok: true });
+    expect(callSlackApiMock).toHaveBeenCalledWith("reactions.add", {
+      channel: "C1",
+      name: "tada",
+      timestamp: "123.456",
+    });
+  });
+
+  test("remove routes to reactions.remove", async () => {
+    await sendSlackReaction("C1", "tada", "123.456", "remove");
+    expect(callSlackApiMock).toHaveBeenCalledWith("reactions.remove", {
+      channel: "C1",
+      name: "tada",
+      timestamp: "123.456",
+    });
+  });
+
+  test("already_reacted reads as success: the end state holds", async () => {
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new SlackApiError("already_reacted");
+    });
+    const result = await sendSlackReaction("C1", "tada", "123.456", "add");
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("any other failure reports ok false without throwing", async () => {
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new SlackApiError("channel_not_found");
+    });
+    const result = await sendSlackReaction("C1", "tada", "123.456", "add");
+    expect(result).toEqual({ ok: false });
   });
 });
 
