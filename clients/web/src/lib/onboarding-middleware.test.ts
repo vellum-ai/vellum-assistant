@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { markAssistantOnboarded } from "@/domains/onboarding/onboarded-assistant-record";
 import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import { onboardingCompletedMiddleware } from "@/lib/onboarding-middleware";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -108,6 +109,31 @@ describe("onboardingCompletedMiddleware", () => {
 
       expect(result).toBe("ok");
       expect(next).toHaveBeenCalled();
+    });
+
+    // The stamp is read live, not cached on the assistant row: a completion
+    // has to take effect without waiting for the assistant list to be rebuilt
+    // (and reaches other tabs the same way).
+    test("a fresh stamp arms the bounce with no store refresh", async () => {
+      useResolvedAssistantsStore.setState({
+        assistants: [row("asst-new", new Date().toISOString())],
+        assistantsHydrated: true,
+      });
+      writeSelectedAssistantId("asst-new");
+      const request = () =>
+        ({
+          request: makeRequest(`${routes.onboarding.privacy}?hosting=local`),
+        }) as Parameters<typeof onboardingCompletedMiddleware>[0];
+
+      expect(
+        await onboardingCompletedMiddleware(request(), async () => "ok"),
+      ).toBe("ok");
+
+      markAssistantOnboarded("asst-new");
+
+      await expect(
+        onboardingCompletedMiddleware(request(), async () => "ok"),
+      ).rejects.toThrow();
     });
 
     test("lets a marked provisioning walk through", async () => {

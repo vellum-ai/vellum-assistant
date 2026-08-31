@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   ONBOARDED_HATCH_AGE_MS,
@@ -7,8 +7,13 @@ import {
   isSelectedAssistantOnboarded,
   userHasOnboardedAssistant,
 } from "@/domains/onboarding/onboarded-assistant";
+import { markAssistantOnboarded } from "@/domains/onboarding/onboarded-assistant-record";
 
 const NOW = Date.parse("2026-08-21T12:00:00.000Z");
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe("isHatchedOnboarded", () => {
   test("treats a hatch at least a week old as onboarded", () => {
@@ -48,8 +53,9 @@ describe("userHasOnboardedAssistant", () => {
     expect(
       userHasOnboardedAssistant(
         [
-          { hatchedAt: new Date(NOW).toISOString() },
+          { id: "a", hatchedAt: new Date(NOW).toISOString() },
           {
+            id: "b",
             hatchedAt: new Date(NOW - ONBOARDED_HATCH_AGE_MS).toISOString(),
           },
         ],
@@ -62,8 +68,11 @@ describe("userHasOnboardedAssistant", () => {
     expect(
       userHasOnboardedAssistant(
         [
-          { hatchedAt: new Date(NOW - 3 * 24 * 60 * 60 * 1000).toISOString() },
-          {},
+          {
+            id: "a",
+            hatchedAt: new Date(NOW - 3 * 24 * 60 * 60 * 1000).toISOString(),
+          },
+          { id: "b" },
         ],
         NOW,
       ),
@@ -76,16 +85,29 @@ const FRESH = new Date(NOW).toISOString();
 const WEEK_OLD = new Date(NOW - ONBOARDED_HATCH_AGE_MS).toISOString();
 
 describe("isAssistantOnboarded", () => {
-  test("a stamped assistant is onboarded however fresh its hatch", () => {
+  test("a lockfile-stamped assistant is onboarded however fresh its hatch", () => {
     expect(
-      isAssistantOnboarded({ hatchedAt: FRESH, onboardedAt: FRESH }, NOW),
+      isAssistantOnboarded({ id: "a", hatchedAt: FRESH, onboardedAt: FRESH }, NOW),
     ).toBe(true);
   });
 
+  // The device half is read live, so a completion answers immediately rather
+  // than waiting for the assistant list to be rebuilt.
+  test("the device record answers for an assistant the lockfile has not stamped", () => {
+    expect(isAssistantOnboarded({ id: "a", hatchedAt: FRESH }, NOW)).toBe(false);
+
+    markAssistantOnboarded("a", FRESH);
+
+    expect(isAssistantOnboarded({ id: "a", hatchedAt: FRESH }, NOW)).toBe(true);
+    expect(isAssistantOnboarded({ id: "b", hatchedAt: FRESH }, NOW)).toBe(false);
+  });
+
   test("falls back to hatch age when unstamped", () => {
-    expect(isAssistantOnboarded({ hatchedAt: WEEK_OLD }, NOW)).toBe(true);
-    expect(isAssistantOnboarded({ hatchedAt: FRESH }, NOW)).toBe(false);
-    expect(isAssistantOnboarded({}, NOW)).toBe(false);
+    expect(isAssistantOnboarded({ id: "a", hatchedAt: WEEK_OLD }, NOW)).toBe(
+      true,
+    );
+    expect(isAssistantOnboarded({ id: "a", hatchedAt: FRESH }, NOW)).toBe(false);
+    expect(isAssistantOnboarded({ id: "a" }, NOW)).toBe(false);
   });
 });
 
