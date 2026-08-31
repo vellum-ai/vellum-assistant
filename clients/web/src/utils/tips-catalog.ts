@@ -5,6 +5,10 @@
  * shows when.
  */
 
+import {
+  desktopComputerName,
+  resolveDesktopHostOS,
+} from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 
 export type TipKind = "info"; // future: "action"
@@ -33,6 +37,9 @@ export interface Tip {
   gates?: TipGates;
 }
 
+const desktopHostOS = resolveDesktopHostOS();
+const desktopComputer = desktopComputerName(desktopHostOS);
+
 export const TIPS_CATALOG: readonly Tip[] = [
   {
     id: "what-are-skills",
@@ -49,7 +56,10 @@ export const TIPS_CATALOG: readonly Tip[] = [
     source: "curated",
     eyebrow: "Plugins",
     title: "Change how I behave",
-    body: "From a personal-finance copilot to a mode that lives in your MacBook notch.",
+    body:
+      desktopHostOS === "windows"
+        ? "From a personal-finance copilot to a mode that lives in your taskbar."
+        : "From a personal-finance copilot to a mode that lives in your MacBook notch.",
     learnMore: { label: "Browse plugins", to: routes.plugins },
     gates: { requiresPluginsSurface: true },
   },
@@ -106,8 +116,8 @@ export const TIPS_CATALOG: readonly Tip[] = [
     kind: "info",
     source: "curated",
     eyebrow: "Desktop",
-    title: "Let me use your Mac",
-    body: "On this Mac I can control apps and the desktop for you.",
+    title: `Let me use your ${desktopComputer}`,
+    body: `On this ${desktopComputer} I can control apps and the desktop for you.`,
     gates: { requiresElectron: true },
   },
   {

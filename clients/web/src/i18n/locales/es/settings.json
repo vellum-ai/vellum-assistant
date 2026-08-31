@@ -1346,7 +1346,7 @@
     "keyboardShortcutsDescription": "Personaliza los atajos de los comandos de Vellum.",
     "keyboardShortcutsTitle": "Atajos de teclado",
     "launchAtLoginAriaLabel": "Abrir al iniciar sesión",
-    "launchAtLoginDescription": "Inicia Vellum automáticamente cuando inicies sesión en tu Mac.",
+    "launchAtLoginDescription": "Inicia Vellum automáticamente cuando inicies sesión en tu {computer}.",
     "launchAtLoginTitle": "Abrir al iniciar sesión",
     "sendWithCmdEnter": "Enviar con Cmd+Enter",
     "sendWithCmdEnterHelper": "Cuando está activado, Enter inserta una nueva línea y Cmd+Enter envía.",

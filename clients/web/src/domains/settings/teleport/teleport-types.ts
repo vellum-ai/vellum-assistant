@@ -1,3 +1,8 @@
+import {
+  desktopComputerName,
+  type ElectronHostOS,
+} from "@/runtime/platform-detection";
+
 /**
  * Pure types and decision logic for the teleport feature — the web/Electron
  * port of the macOS `TeleportSection.swift`.
@@ -106,14 +111,16 @@ export function destinationLabel(destination: TeleportDestination): string {
 /** One-line description for a destination, mirroring Swift `description`. */
 export function destinationDescription(
   destination: TeleportDestination,
+  hostOS: ElectronHostOS = "macos",
 ): string {
+  const computer = desktopComputerName(hostOS);
   switch (destination) {
     case "docker":
-      return "Run your assistant in a Docker container on this Mac.";
+      return `Run your assistant in a Docker container on this ${computer}.`;
     case "platform":
       return "Run your assistant in the cloud, managed by the Vellum platform.";
     case "local":
-      return "Run your assistant locally on this Mac.";
+      return `Run your assistant locally on this ${computer}.`;
   }
 }
 

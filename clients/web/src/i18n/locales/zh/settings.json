@@ -1346,7 +1346,7 @@
     "keyboardShortcutsDescription": "自定义 Vellum 命令的快捷方式。",
     "keyboardShortcutsTitle": "键盘快捷键",
     "launchAtLoginAriaLabel": "登录时启动",
-    "launchAtLoginDescription": "登录 Mac 时自动启动 Vellum。",
+    "launchAtLoginDescription": "登录 {computer} 时自动启动 Vellum。",
     "launchAtLoginTitle": "登录时启动",
     "sendWithCmdEnter": "使用 Cmd+Enter 发送",
     "sendWithCmdEnterHelper": "启用后，Enter 键插入新行，Cmd+Enter 键发送。",

@@ -1333,7 +1333,7 @@
     "keyboardShortcutsDescription": "Настройка сочетаний для команд Vellum.",
     "keyboardShortcutsTitle": "Сочетания клавиш",
     "launchAtLoginAriaLabel": "Запускать при входе",
-    "launchAtLoginDescription": "Автоматический запуск Vellum при входе в Mac.",
+    "launchAtLoginDescription": "Автоматический запуск Vellum при входе в {computer}.",
     "launchAtLoginTitle": "Запускать при входе",
     "sendWithCmdEnter": "Отправлять через Cmd+Enter",
     "sendWithCmdEnterHelper": "Если включено, Enter добавляет новую строку, а Cmd+Enter отправляет.",
