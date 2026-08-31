@@ -29,11 +29,13 @@
 
 import { v7 as uuidv7 } from "uuid";
 
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
+import {
+  type PersistMessageOptions,
+  persistQueuedMessageBody,
+} from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { resolveAttachmentsForPersist } from "../persistence/attachments-store.js";
 import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
-import { SIGHT_FRAME_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -95,13 +97,10 @@ async function waitForIdle(conversation: {
 async function persistStandaloneImage(
   conversationId: string,
   attachmentId: string,
-  options: {
-    readonly kind: "photo" | "sight_frame";
-    readonly content: string;
-    readonly metadata: Record<string, unknown>;
-  },
+  kind: "photo" | "sight_frame",
+  persistOptions: Omit<PersistMessageOptions, "attachments" | "requestId">,
 ): Promise<LiveVoicePhotoResult> {
-  const { kind, content } = options;
+  const { content } = persistOptions;
   try {
     const attachments = resolveAttachmentsForPersist([attachmentId]);
     if (attachments.length === 0) {
@@ -128,10 +127,9 @@ async function persistStandaloneImage(
     conversation.setProcessing(true);
     try {
       const persisted = await persistQueuedMessageBody(conversation, {
-        content,
+        ...persistOptions,
         attachments,
         requestId: uuidv7(),
-        metadata: options.metadata,
       });
 
       // The row exists but no turn will announce it, so the clients that
@@ -174,8 +172,7 @@ export async function persistLiveVoicePhoto(
   conversationId: string,
   attachmentId: string,
 ): Promise<LiveVoicePhotoResult> {
-  return persistStandaloneImage(conversationId, attachmentId, {
-    kind: "photo",
+  return persistStandaloneImage(conversationId, attachmentId, "photo", {
     content: PHOTO_MESSAGE_CONTENT,
     metadata: {
       // Marks the row as something the user did on a call rather than
@@ -192,18 +189,22 @@ export async function persistLiveVoicePhoto(
  * The sight tag names the attachment on the row that carries it, because an
  * attachment holds no metadata of its own. Retention reads the tag to decide
  * which images a turn still sends in full and which become timestamped stubs,
- * so an untagged frame would sit in every later request forever.
+ * so an untagged frame would sit in every later request forever. The persist
+ * stamps it, from the id materialization ended up storing rather than the one
+ * asked for here.
+ *
+ * `scripted` because the camera's gate sent this, not the user: a keep every
+ * few seconds would otherwise read downstream as that many turns the user
+ * took, and activation counts turns that claim they were typed.
  */
 export async function persistLiveVoiceSightFrame(
   conversationId: string,
   attachmentId: string,
 ): Promise<LiveVoicePhotoResult> {
-  return persistStandaloneImage(conversationId, attachmentId, {
-    kind: "sight_frame",
+  return persistStandaloneImage(conversationId, attachmentId, "sight_frame", {
     content: SIGHT_FRAME_MESSAGE_CONTENT,
-    metadata: {
-      voiceSessionTurn: true,
-      [SIGHT_FRAME_ATTACHMENT_IDS_KEY]: [attachmentId],
-    },
+    metadata: { voiceSessionTurn: true },
+    scripted: true,
+    sightFrameAttachmentIds: [attachmentId],
   });
 }

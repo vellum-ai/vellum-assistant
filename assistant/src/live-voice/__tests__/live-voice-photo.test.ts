@@ -15,17 +15,22 @@ import {
   deleteConversation,
   setConversation,
 } from "../../daemon/conversation-registry.js";
+import { applySightFrameRetention } from "../../daemon/conversation-runtime-assembly.js";
 import {
   getAttachmentsForMessage,
+  linkAttachmentToMessage,
   uploadAttachment,
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
   getMessages,
+  type MessageRow,
   selectSightFrameCaptureTimes,
 } from "../../persistence/conversation-crud.js";
+import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversation-types.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import {
   persistLiveVoicePhoto,
@@ -62,6 +67,45 @@ function liveConversation(title: string) {
       activeConversation.dispose();
     },
   };
+}
+
+function metadataOf(row: MessageRow): Record<string, unknown> {
+  return JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
+}
+
+/** The attachment id the row's persisted image block actually references. */
+function storedImageId(row: MessageRow): string | undefined {
+  for (const block of row.content) {
+    if (block.type !== "image") {
+      continue;
+    }
+    const id = mediaBlockAttachmentId(block);
+    if (id !== undefined) {
+      return id;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * An attachment already linked to a message in another conversation, which is
+ * what makes the persist clone it rather than reuse the row.
+ */
+async function attachmentLinkedElsewhere(
+  otherConversationId: string,
+): Promise<string> {
+  const attachment = await uploadAttachment(
+    "frame.png",
+    "image/png",
+    IMAGE_BASE64,
+  );
+  const elsewhere = await addMessage(
+    otherConversationId,
+    "user",
+    "look at this",
+  );
+  linkAttachmentToMessage(elsewhere.id, attachment.id, 0);
+  return attachment.id;
 }
 
 describe("persistLiveVoicePhoto", () => {
@@ -149,6 +193,27 @@ describe("persistLiveVoicePhoto", () => {
       live.dispose();
     }
   });
+
+  test("leaves the photo unscripted, the shutter being a turn the user took", async () => {
+    // Pressing the shutter is the user acting, so the row keeps asserting
+    // "the user did this" and stays inside activation.
+    const live = liveConversation("Live voice photo scripted");
+    try {
+      const attachment = await uploadAttachment(
+        "photo.png",
+        "image/png",
+        IMAGE_BASE64,
+      );
+
+      expect((await persistLiveVoicePhoto(live.id, attachment.id)).ok).toBe(
+        true,
+      );
+
+      expect(metadataOf(getMessages(live.id)[0]).scripted).toBe(false);
+    } finally {
+      live.dispose();
+    }
+  });
 });
 
 describe("persistLiveVoiceSightFrame", () => {
@@ -175,6 +240,91 @@ describe("persistLiveVoiceSightFrame", () => {
       ]);
     } finally {
       live.dispose();
+    }
+  });
+
+  test("marks the row scripted, so keeps are not counted as turns the user took", async () => {
+    // The gate sent this, not the user. A keep every few seconds would
+    // otherwise read downstream as that many turns taken, and activation
+    // believes a row that claims it was typed.
+    const live = liveConversation("Live voice sight frame scripted");
+    try {
+      const attachment = await uploadAttachment(
+        "frame.png",
+        "image/png",
+        IMAGE_BASE64,
+      );
+
+      expect(
+        (await persistLiveVoiceSightFrame(live.id, attachment.id)).ok,
+      ).toBe(true);
+
+      expect(metadataOf(getMessages(live.id)[0]).scripted).toBe(true);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("tags the id the attachment was cloned into, not the one it arrived as", async () => {
+    // An attachment already linked to another conversation is cloned into this
+    // one under a fresh id, and both the persisted block and the link carry the
+    // clone. A tag naming the id the caller held would match nothing.
+    const source = liveConversation("Live voice sight frame source");
+    const live = liveConversation("Live voice sight frame clone");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(source.id);
+
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
+
+      const [row] = getMessages(live.id);
+      const stored = storedImageId(row);
+      expect(stored).toBeDefined();
+      expect(stored).not.toBe(arrivedAs);
+      expect(sightFrameAttachmentIdsFromMetadata(metadataOf(row))).toEqual([
+        stored!,
+      ]);
+      expect([...selectSightFrameCaptureTimes(live.id).keys()]).toEqual([
+        stored!,
+      ]);
+    } finally {
+      live.dispose();
+      source.dispose();
+    }
+  });
+
+  test("retention ages a cloned frame, because the tag matches its block", async () => {
+    // The end of the same thread: a tag naming the id the caller held leaves
+    // this frame unrecognized, so it is never counted and never stubbed, and
+    // it rides every later request for the rest of the call.
+    const source = liveConversation("Live voice cloned retention source");
+    const live = liveConversation("Live voice cloned retention");
+    try {
+      const arrivedAs = await attachmentLinkedElsewhere(source.id);
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
+      for (const name of ["later-a.png", "later-b.png"]) {
+        const fresh = await uploadAttachment(name, "image/png", IMAGE_BASE64);
+        expect((await persistLiveVoiceSightFrame(live.id, fresh.id)).ok).toBe(
+          true,
+        );
+      }
+
+      const assembled: Message[] = getMessages(live.id).map((row) => ({
+        role: "user" as const,
+        content: row.content,
+      }));
+      const retained = applySightFrameRetention(assembled, live.id);
+
+      // Three frames, a budget of two: the cloned one is the oldest and goes.
+      expect(retained[0].content.some((b) => b.type === "image")).toBe(false);
+      expect(retained[1].content.some((b) => b.type === "image")).toBe(true);
+      expect(retained[2].content.some((b) => b.type === "image")).toBe(true);
+    } finally {
+      live.dispose();
+      source.dispose();
     }
   });
 
