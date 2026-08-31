@@ -13,6 +13,7 @@ mock.module("@/domains/chat/components/credits-upsell-card", () => ({
   CreditsUpsellCard: () => <div data-testid="credits-upsell-card-stub" />,
 }));
 
+import { displayReactionEmoji } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import type { CreditsUpsellItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -89,6 +90,16 @@ describe("TranscriptRow reaction dispatch", () => {
     const text = getByTestId("reaction-line-row").textContent ?? "";
     expect(text).toContain(":vex:");
     expect(text).not.toContain("<:vex:12345>");
+  });
+
+  test("a custom emoji sharing a catalog name keeps its identity", () => {
+    // A Discord custom emoji named like a catalog shortcode is a distinct
+    // guild emoji; the display must stay ":name:" and never swap into the
+    // unrelated standard emoji once the catalog loads.
+    expect(displayReactionEmoji("<:heart:99>", () => "❤️")).toBe(":heart:");
+    expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
+    expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
+    expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
   });
 });
 
