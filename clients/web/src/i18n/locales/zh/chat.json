@@ -1465,10 +1465,6 @@
   "storeCredentialDialog": {
     "successToast": "已安全存储。密钥从未进入聊天。"
   },
-  "subagentAvatarRow": {
-    "details": "详情",
-    "showDetailsAria": "显示子代理详情"
-  },
   "subagentDetailPanel": {
     "backToTimelineAria": "返回时间线",
     "backTooltip": "返回",
@@ -1490,8 +1486,6 @@
     "workedFor": "运行了 {duration}"
   },
   "subagentSpawnGroup": {
-    "collapse": "收起",
-    "collapseDetailsAria": "收起子代理详情",
     "stopSubagentAria": "停止子代理"
   },
   "suggestionCard": {

@@ -125,8 +125,15 @@ describe("useChatHeaderRegistration top-right slot", () => {
     renderRegistration();
 
     const { queryByTestId } = render(<>{slotRef.value}</>);
-    expect(queryByTestId("assets-pill")).not.toBeNull();
     expect(queryByTestId("plugin-pill")).toBeNull();
+  });
+
+  test("mounts the assets pill", () => {
+    supportsRef.value = true;
+    renderRegistration();
+
+    const { queryByTestId } = render(<>{slotRef.value}</>);
+    expect(queryByTestId("assets-pill")).not.toBeNull();
   });
 
   test("mounts the channel source link pill for a Slack conversation with a link", () => {

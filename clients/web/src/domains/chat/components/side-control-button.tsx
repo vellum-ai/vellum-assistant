@@ -1,0 +1,89 @@
+/**
+ * The chat's side control: one pill in the Assets / Progress / Agents cluster.
+ *
+ * The three used to each build their own trigger, which is how they drifted
+ * into three heights and two shapes. This is the single definition: same
+ * surface, same radius, same shadow, and above all the same height as a left
+ * side-menu row ({@link SIDE_MENU_TILE_SIZE}), so the controls floating over
+ * the chat sit on the same vertical rhythm as the navigation across from them.
+ *
+ * Built on the design library `Button` rather than a bare `<button>` so it
+ * keeps the library's focus ring, disabled handling, and tooltip, and so it can
+ * still be cloned onto a Radix trigger via `asChild` — which is how every one
+ * of these opens its panel (see {@link AdaptivePopover}).
+ *
+ * `loading` sweeps the whole pill rather than a label, because these controls
+ * have no text to sweep. The overlay needs the pill to be a positioned,
+ * clipping box, which is why `relative overflow-hidden` is baked in here rather
+ * than left to each caller to remember.
+ *
+ * The sweep is folded into whichever slot the button actually renders, because
+ * `Button` DROPS `children` entirely when `iconOnly` is set — passing the
+ * overlay as a child silently rendered nothing on the icon-only controls while
+ * working fine on the others. Injecting it alongside the glyph is what makes
+ * the two behave the same. It still positions against the button rather than
+ * the glyph: the icon slot is a plain `inline-flex` span with no `position`, so
+ * `absolute inset-0` resolves to this component's `relative` box.
+ */
+
+import type { ComponentProps, ReactNode } from "react";
+
+import { Button, SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
+
+import { ShimmerSurface } from "@/domains/chat/components/shimmer-surface";
+import { cn } from "@/utils/misc";
+
+export interface SideControlButtonProps
+  extends Omit<ComponentProps<typeof Button>, "size" | "variant"> {
+  /** Sweeps the whole pill while true. */
+  loading?: boolean;
+  children?: ReactNode;
+}
+
+export function SideControlButton({
+  loading = false,
+  className,
+  children,
+  iconOnly,
+  ...rest
+}: SideControlButtonProps) {
+  const shimmer = loading ? <ShimmerSurface /> : null;
+  return (
+    <Button
+      variant="ghost"
+      active
+      {...rest}
+      iconOnly={
+        iconOnly ? (
+          <>
+            {iconOnly}
+            {shimmer}
+          </>
+        ) : (
+          iconOnly
+        )
+      }
+      // Height is set inline from the side-menu token rather than a `h-*`
+      // utility so the two can never drift: change the tile size and these
+      // follow. `min-w` keeps an icon-only pill circular at that height
+      // instead of collapsing to its glyph.
+      style={{
+        height: SIDE_MENU_TILE_SIZE,
+        minWidth: SIDE_MENU_TILE_SIZE,
+        ...rest.style,
+      }}
+      className={cn(
+        // `border-0` drops the ghost Button's own 1px border: these pills read
+        // as floating chips over the chat, and an outline on top of the shadow
+        // made them look inset instead.
+        "relative overflow-hidden rounded-full border-0 bg-[var(--surface-lift)] shadow-sm",
+        className,
+      )}
+    >
+      {children}
+      {/* Only reached when there is no `iconOnly`; otherwise the sweep rides
+          with the glyph above and this branch is never rendered. */}
+      {iconOnly ? null : shimmer}
+    </Button>
+  );
+}

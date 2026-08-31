@@ -49,6 +49,7 @@ import {
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
+  isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
 import { ResponseArtifactCard } from "@/domains/chat/transcript/response-artifact-card";
@@ -796,10 +797,20 @@ export function TranscriptMessageBody({
     surface: ConversationMessageSurface,
     key: string,
   ): ReactNode => {
+    const displaySurface = wireSurfaceToDisplay(surface);
+    // The plan card has one home now, and it is not the transcript: the
+    // progress rail (desktop) / sticky card (mobile) follows the newest plan
+    // from a fixed position, so it stays readable while the assistant works
+    // instead of scrolling away mid-run. Drawing it here too would leave a
+    // stale second copy of a card that is already on screen. See
+    // `useLatestTaskProgress`.
+    if (isTaskProgressSurface(displaySurface)) {
+      return null;
+    }
     return (
       <div key={key} className="w-full">
         <SurfaceRouter
-          surface={wireSurfaceToDisplay(surface)}
+          surface={displaySurface}
           onAction={onSurfaceAction}
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
