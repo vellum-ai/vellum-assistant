@@ -40,7 +40,7 @@ import {
   removeBackgroundTool,
 } from "../background-tool-registry.js";
 import {
-  formatShellOutput,
+  attachBoundedStdio,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
 import {
@@ -336,7 +336,7 @@ export const hostShellTool = {
               untrustedOutput: {
                 content: output || "(no output)",
                 source: "tool_result",
-                // Preserve formatShellOutput's recovery marker (see shell.ts).
+                // Bounded output plus the truncation marker (see shell.ts).
                 maxChars: MAX_OUTPUT_LENGTH * 2,
               },
             });
@@ -475,8 +475,7 @@ export const hostShellTool = {
         windowsHide: true,
       });
 
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
+      const collector = attachBoundedStdio(child);
       let timedOut = false;
       // Set when cancelled via the registry's cancel callback so the completion
       // event reports "cancelled" rather than "failed".
@@ -489,9 +488,6 @@ export const hostShellTool = {
         killTree();
       }, timeoutMs);
 
-      child.stdout.on("data", (data: Buffer) => stdoutChunks.push(data));
-      child.stderr.on("data", (data: Buffer) => stderrChunks.push(data));
-
       // Guard against double-wake: when spawn fails (e.g. invalid cwd),
       // Node emits both 'error' and 'close' for the same child process.
       // Only the first handler to fire should wake the agent.
@@ -503,15 +499,7 @@ export const hostShellTool = {
         }
         completed = true;
         clearTimeout(timer);
-        const stdout = Buffer.concat(stdoutChunks).toString();
-        const stderr = Buffer.concat(stderrChunks).toString();
-        const result = formatShellOutput(
-          stdout,
-          stderr,
-          code,
-          timedOut,
-          timeoutSec,
-        );
+        const result = collector.format(code, timedOut, timeoutSec);
         // Cancel takes precedence over the SIGKILL-induced error result.
         const status = aborted
           ? "cancelled"
@@ -564,7 +552,7 @@ export const hostShellTool = {
           untrustedOutput: {
             content: output || "(no output)",
             source: "tool_result",
-            // Preserve formatShellOutput's recovery marker (see shell.ts).
+            // Bounded output plus the truncation marker (see shell.ts).
             maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
@@ -650,8 +638,6 @@ export const hostShellTool = {
     }
 
     return new Promise<ToolExecutionResult>((resolve) => {
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
       const wrapped = buildShellInvocation(command);
@@ -661,6 +647,9 @@ export const hostShellTool = {
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
         windowsHide: true,
+      });
+      const collector = attachBoundedStdio(child, {
+        onOutput: context.onOutput,
       });
 
       const killTree = () => terminateProcessTree(child);
@@ -680,29 +669,11 @@ export const hostShellTool = {
         }
       }
 
-      child.stdout.on("data", (data: Buffer) => {
-        stdoutChunks.push(data);
-        context.onOutput?.(data.toString());
-      });
-
-      child.stderr.on("data", (data: Buffer) => {
-        stderrChunks.push(data);
-        context.onOutput?.(data.toString());
-      });
-
       child.on("close", (code) => {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
 
-        const stdout = Buffer.concat(stdoutChunks).toString();
-        const stderr = Buffer.concat(stderrChunks).toString();
-        const result = formatShellOutput(
-          stdout,
-          stderr,
-          code,
-          timedOut,
-          timeoutSec,
-        );
+        const result = collector.format(code, timedOut, timeoutSec);
 
         resolve({
           content: result.content,

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
@@ -40,7 +40,11 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import { formatShellOutput } from "../tools/shared/shell-output.js";
+import {
+  formatShellOutput,
+  MAX_OUTPUT_LENGTH,
+  OUTPUT_TRUNCATED_TAG,
+} from "../tools/shared/shell-output.js";
 import {
   ALWAYS_INJECTED_ENV_VARS,
   buildSanitizedEnv,
@@ -360,12 +364,8 @@ describe("formatShellOutput", () => {
   test("truncates very long output", () => {
     const longOutput = "x".repeat(30_000);
     const result = formatShellOutput(longOutput, "", 0, false, 120);
-    expect(result.content).toContain('limit="20K"');
-    // Extract the file="..." attribute from the truncation tag
-    const fileMatch = result.content.match(/file="([^"]+)"/);
-    expect(fileMatch).not.toBeNull();
-    const filePath = fileMatch![1];
-    expect(existsSync(filePath)).toBe(true);
-    expect(readFileSync(filePath, "utf-8")).toBe(longOutput);
+    expect(result.content).toContain(OUTPUT_TRUNCATED_TAG);
+    expect(result.content).not.toContain("file=");
+    expect(result.content.length).toBeLessThan(MAX_OUTPUT_LENGTH + 80);
   });
 });

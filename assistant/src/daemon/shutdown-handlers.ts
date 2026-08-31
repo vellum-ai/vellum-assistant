@@ -21,7 +21,6 @@ import { stopScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { stopUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
-import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
@@ -167,7 +166,6 @@ async function shutdown(): Promise<void> {
 
   await stopRuntimeHttpServer();
   await browserManager.closeAllPages();
-  cleanupShellOutputTempFiles();
   stopScheduler();
 
   // The memory jobs worker process is SIGTERM'd by the memory plugin's own
