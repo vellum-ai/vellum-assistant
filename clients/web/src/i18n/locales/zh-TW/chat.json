@@ -610,9 +610,10 @@
     "title": "已達每日點數限制"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "我了解相關資產和記憶可能仍會保留",
     "cancel": "取消",
     "confirm": "刪除",
-    "message": "刪除「{title}」？這將永久移除對話及其訊息。此動作無法復原。",
+    "message": "刪除「{title}」？這將永久移除對話及其訊息。相關資產和記憶可能仍會保留。此動作無法復原。",
     "title": "刪除對話",
     "untitled": "未命名"
   },

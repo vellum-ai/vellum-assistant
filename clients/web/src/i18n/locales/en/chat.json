@@ -632,9 +632,10 @@
     "title": "Daily credit limit reached"
   },
   "deleteConversationConfirmDialog": {
+    "acknowledgment": "I understand that related assets and memories may still persist",
     "cancel": "Cancel",
     "confirm": "Delete",
-    "message": "Delete “{title}”? This permanently removes the conversation and its messages. This cannot be undone.",
+    "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
     "title": "Delete conversation",
     "untitled": "Untitled"
   },
