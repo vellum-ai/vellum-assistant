@@ -630,6 +630,9 @@ export async function handleChannelInbound({
         { deletedAt: Date.now() },
       );
       updateMessageMetadata(original.messageId, { providerMeta });
+      // The stamp lands in the store only; stale-marking makes a resident
+      // conversation's next turn reload and see the row as deleted.
+      findConversation(original.conversationId)?.markHistoryStale();
       log.info(
         {
           conversationExternalId,
@@ -650,6 +653,7 @@ export async function handleChannelInbound({
     // (channel, interface, provenance, etc.) untouched. Content column
     // is intentionally not updated.
     updateMessageMetadata(original.messageId, { slackMeta: updatedSlackMeta });
+    findConversation(original.conversationId)?.markHistoryStale();
 
     log.info(
       {

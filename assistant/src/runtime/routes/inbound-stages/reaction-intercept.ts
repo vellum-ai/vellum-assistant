@@ -26,6 +26,7 @@ import {
 } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import { findConversation } from "../../../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
 import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
@@ -252,6 +253,12 @@ export async function handleReactionIntercept(
       reactedMessageTs,
       duplicate: result.duplicate,
     });
+    if (!result.duplicate) {
+      // Reactions never drive a turn, so a resident conversation would
+      // otherwise carry the new row only after eviction. Marking it stale
+      // makes the next turn's history reload pick the reaction up.
+      findConversation(result.conversationId)?.markHistoryStale();
+    }
   } catch (err) {
     log.error(
       { err, conversationId: result.conversationId, eventId: result.eventId },

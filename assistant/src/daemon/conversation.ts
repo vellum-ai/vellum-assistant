@@ -41,6 +41,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { isGuardianCardRow } from "../notifications/approval-card-data.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -55,6 +56,7 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { extractTextFromStoredMessageContent } from "../persistence/message-content.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
@@ -173,6 +175,7 @@ import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import { renderReactionHistoryText } from "./reaction-history-render.js";
 import {
   resolveSummarizeBoundary,
   startsNewTurn,
@@ -539,6 +542,7 @@ export class Conversation {
   /** @internal */ currentTurnSourceActorPrincipalId?: string;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
+  /** @internal */ loadedHistoryStale = false;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /**
@@ -1063,6 +1067,9 @@ export class Conversation {
 
   async loadFromDb(): Promise<LoadFromDbResult> {
     const loadStartedAt = performance.now();
+    // Cleared before the rows are read: a channel event persisted mid-load
+    // re-marks the flag, so the next turn reloads rather than missing it.
+    this.loadedHistoryStale = false;
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
@@ -1153,12 +1160,56 @@ export class Conversation {
       }
       return v3PrunedSlugsMemo;
     };
+    // Provider-id → row-text index for reaction target resolution, built
+    // lazily on the first reaction row: most conversations carry none, so
+    // most loads never walk the rows a second time. Keyed over the full
+    // (unsliced) history so a reaction whose target was compacted out of
+    // context still resolves its quote.
+    let reactionTargetIndexMemo: Map<string, string> | null = null;
+    const resolveReactionTarget = (
+      targetMessageId: string,
+    ): string | undefined => {
+      if (reactionTargetIndexMemo === null) {
+        reactionTargetIndexMemo = new Map();
+        for (const row of dbMessages) {
+          const rowMeta = readProviderMetadata(row.metadata);
+          if (
+            rowMeta?.eventKind === "message" &&
+            rowMeta.messageId &&
+            !reactionTargetIndexMemo.has(rowMeta.messageId)
+          ) {
+            const text = extractTextFromStoredMessageContent(row.content);
+            if (text) {
+              reactionTargetIndexMemo.set(rowMeta.messageId, text);
+            }
+          }
+        }
+      }
+      return reactionTargetIndexMemo.get(targetMessageId);
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
       let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
+
+      // A reaction row's stored content is the "[reaction]" sentinel; the
+      // fact lives in its metadata. Rendered here rather than at persist
+      // time so every stored row reads legibly to the model, whenever it
+      // was written.
+      if (role === "user") {
+        const providerMeta = readProviderMetadata(m.metadata);
+        if (providerMeta?.eventKind === "reaction") {
+          const rendered = renderReactionHistoryText(
+            providerMeta,
+            resolveReactionTarget,
+          );
+          if (rendered) {
+            content = [{ type: "text", text: rendered }];
+          }
+        }
+      }
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
@@ -1533,12 +1584,24 @@ export class Conversation {
       this.trustContext,
     );
     if (
+      !this.loadedHistoryStale &&
       this.loadedHistoryTrustClass === currentTrustClass &&
       this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
     ) {
       return;
     }
     await this.loadFromDb();
+  }
+
+  /**
+   * Mark the resident history stale: a channel event (a reaction, edit, or
+   * delete) was persisted straight to the store while this conversation was
+   * loaded, so `this.messages` no longer reflects the rows. The next
+   * {@link ensureActorScopedHistory} reloads instead of reusing the resident
+   * history.
+   */
+  markHistoryStale(): void {
+    this.loadedHistoryStale = true;
   }
 
   /**

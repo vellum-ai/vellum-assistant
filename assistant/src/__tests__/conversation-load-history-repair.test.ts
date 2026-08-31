@@ -435,6 +435,115 @@ describe("loadFromDb history repair", () => {
     ]);
   });
 
+  test("a stored reaction row loads as rendered text, not the sentinel", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Deploy is done" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            eventKind: "message",
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.1",
+              emoji: "thumbsup",
+              op: "added",
+              actorDisplayName: "Ashlee",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    // History repair merges the two adjacent user rows into one message;
+    // what matters is that the model reads the rendered fact, never the
+    // sentinel.
+    const allText = messages
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).not.toContain("[reaction]");
+    expect(allText).toContain(
+      'Ashlee reacted with :thumbsup: to the message "Deploy is done"',
+    );
+    expect(allText).toContain("<external_content");
+  });
+
+  test("markHistoryStale makes the next ensureActorScopedHistory reload", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Hi" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "guardian",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+    expect(conversation.getMessages()).toHaveLength(2);
+
+    // A channel event lands straight in the store while the conversation
+    // stays resident.
+    mockDbMessages.push({
+      id: "m3",
+      role: "user",
+      content: [{ type: "text", text: "[reaction]" }],
+    });
+
+    // Same actor, no stale mark: the resident history is reused.
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()).toHaveLength(2);
+
+    conversation.markHistoryStale();
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()).toHaveLength(3);
+  });
+
   test("persistUserMessage reloads actor-scoped history before persisting on role switch", async () => {
     mockConversation = {
       id: "conv-1",
