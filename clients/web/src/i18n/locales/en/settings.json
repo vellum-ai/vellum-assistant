@@ -1286,7 +1286,7 @@
     "freeForever": "Free Forever",
     "heading": "Plan",
     "loadError": "Failed to load plan.",
-    "loading": "Loading plan...",
+    "loadingAriaLabel": "Loading plan",
     "manageSubscription": "Manage Subscription",
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",

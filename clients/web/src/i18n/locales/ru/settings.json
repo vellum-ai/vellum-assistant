@@ -1273,7 +1273,7 @@
     "freeForever": "Бесплатно навсегда",
     "heading": "План",
     "loadError": "Не удалось загрузить план.",
-    "loading": "Загрузка плана...",
+    "loadingAriaLabel": "Загрузка плана",
     "manageSubscription": "Управление подпиской",
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",

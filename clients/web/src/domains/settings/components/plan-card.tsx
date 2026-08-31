@@ -54,9 +54,11 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { ContentReveal } from "@/domains/settings/components/content-reveal";
 import {
   formatDollars,
   priceLabelFromCents,
@@ -86,6 +88,35 @@ function PlanHeading() {
     >
       {t("planCard.heading")}
     </Typography>
+  );
+}
+
+/**
+ * Stand-in for the resolved card: a plan-name row, the renewal line, the usage
+ * bar and the two plan tiles, so the card holds its height while the
+ * subscription and plan catalog land.
+ */
+function PlanCardSkeleton() {
+  const { t } = useTranslation("settings");
+  return (
+    <Card padding="md">
+      <PlanHeading />
+      <div
+        role="status"
+        aria-label={t("planCard.loadingAriaLabel")}
+        className="mt-4 flex flex-col gap-4"
+      >
+        <div className="flex flex-col gap-2">
+          <Skeleton aria-hidden className="h-6 w-40 rounded-md" />
+          <Skeleton aria-hidden className="h-4 w-56 rounded-md" />
+        </div>
+        <Skeleton aria-hidden className="h-3 w-full rounded-full" />
+        <div className="grid grid-cols-2 gap-4">
+          <Skeleton aria-hidden className="h-24 rounded-lg" />
+          <Skeleton aria-hidden className="h-24 rounded-lg" />
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -389,17 +420,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   });
 
   if (subscriptionQuery.isLoading || plansQuery.isLoading) {
-    return (
-      <Card padding="md">
-        <PlanHeading />
-        <div className="mt-4 flex items-center gap-2 text-[var(--content-tertiary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <Typography as="span" variant="body-small-default">
-            {t("planCard.loading")}
-          </Typography>
-        </div>
-      </Card>
-    );
+    return <PlanCardSkeleton />;
   }
 
   const subscription = subscriptionQuery.data;
@@ -540,7 +561,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
 
   return (
     <Card padding="md">
-      <div className="flex flex-col gap-4">
+      <ContentReveal className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <PlanHeading />
@@ -609,7 +630,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             onTierUpgraded={onTierUpgraded}
           />
         </div>
-      </div>
+      </ContentReveal>
       <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
     </Card>
   );
