@@ -68,7 +68,6 @@
     "ariaLabelUnread": "通知 (未读)",
     "heading": "通知",
     "loadFailed": "无法加载通知。",
-    "empty": "暂无通知。",
     "actionFailed": "无法开始该对话。请重试。"
   },
   "notificationsBellDetail": {
