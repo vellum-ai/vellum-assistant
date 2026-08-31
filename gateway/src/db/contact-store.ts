@@ -130,6 +130,54 @@ export class ContactStore {
       .get();
   }
 
+  /**
+   * Identity projection of every contact + channel, for the daemon's mirror
+   * reconciler: ids, ownership, addresses, delivery chat ids. No ACL columns
+   * (the mirror never carries them) and no assistant-info join (the caller IS
+   * the assistant), so the read is uncapped and cheap.
+   */
+  listIdentitySnapshot(): Array<{
+    id: string;
+    displayName: string;
+    channels: Array<{
+      id: string;
+      contactId: string;
+      type: string;
+      address: string;
+      externalChatId: string | null;
+      isPrimary: boolean;
+    }>;
+  }> {
+    const contactRows = this.db
+      .select({ id: contacts.id, displayName: contacts.displayName })
+      .from(contacts)
+      .all();
+    const channelRows = this.db
+      .select({
+        id: contactChannels.id,
+        contactId: contactChannels.contactId,
+        type: contactChannels.type,
+        address: contactChannels.address,
+        externalChatId: contactChannels.externalChatId,
+        isPrimary: contactChannels.isPrimary,
+      })
+      .from(contactChannels)
+      .all();
+    const channelsByContact = new Map<string, typeof channelRows>();
+    for (const ch of channelRows) {
+      const list = channelsByContact.get(ch.contactId);
+      if (list) {
+        list.push(ch);
+      } else {
+        channelsByContact.set(ch.contactId, [ch]);
+      }
+    }
+    return contactRows.map((c) => ({
+      ...c,
+      channels: channelsByContact.get(c.id) ?? [],
+    }));
+  }
+
   getChannelsForContact(contactId: string): ContactChannel[] {
     return this.db
       .select()
