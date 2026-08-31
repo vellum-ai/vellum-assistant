@@ -22,6 +22,15 @@ const telemetryIngestPostMock = mock((_options: unknown) =>
 );
 const detectClientOsMock = mock(() => "web");
 
+const captureErrorMock = mock(
+  (_error: unknown, _opts: { context: string }) => {},
+);
+const actualCapture = await import("@/lib/sentry/capture-error");
+mock.module("@/lib/sentry/capture-error", () => ({
+  ...actualCapture,
+  captureError: captureErrorMock,
+}));
+
 const actualSdk = await import("@/generated/daemon/sdk.gen");
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...actualSdk,
@@ -102,6 +111,7 @@ beforeEach(() => {
   activeAssistantId = "assistant-1";
   telemetryIngestPostMock.mockClear();
   telemetryIngestPostMock.mockImplementation(() => Promise.resolve({}));
+  captureErrorMock.mockClear();
   detectClientOsMock.mockClear();
   __resetClientPerfForTests();
 });
@@ -184,6 +194,43 @@ describe("sendClientWatchdogEvent", () => {
     });
 
     expect(telemetryIngestPostMock).not.toHaveBeenCalled();
+  });
+
+  test("reports a non-404 rejection once per status, per page load", async () => {
+    telemetryIngestPostMock.mockImplementation(() =>
+      Promise.resolve({ response: { ok: false, status: 400 } }),
+    );
+
+    sendClientWatchdogEvent({ checkName: "client_boot", value: 1, detail: {} });
+    sendClientWatchdogEvent({ checkName: "client_boot", value: 2, detail: {} });
+    await Bun.sleep(0);
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect((captureErrorMock.mock.calls[0]![0] as Error).message).toContain(
+      "400",
+    );
+  });
+
+  test("stays quiet on 404: a daemon predating the relay route is expected", async () => {
+    telemetryIngestPostMock.mockImplementation(() =>
+      Promise.resolve({ response: { ok: false, status: 404 } }),
+    );
+
+    sendClientWatchdogEvent({ checkName: "client_boot", value: 1, detail: {} });
+    await Bun.sleep(0);
+
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("stays quiet on 5xx: an unreachable daemon is transport, not contract", async () => {
+    telemetryIngestPostMock.mockImplementation(() =>
+      Promise.resolve({ response: { ok: false, status: 503 } }),
+    );
+
+    sendClientWatchdogEvent({ checkName: "client_boot", value: 1, detail: {} });
+    await Bun.sleep(0);
+
+    expect(captureErrorMock).not.toHaveBeenCalled();
   });
 
   test("swallows a rejecting transport", async () => {

@@ -1,4 +1,5 @@
 import { telemetryIngestPost } from "@/generated/daemon/sdk.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { TelemetryJsonValueWritable } from "@/generated/daemon/types.gen";
 import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { mintRandomId } from "@/lib/telemetry/random-id";
@@ -73,9 +74,22 @@ export type ClientPerfCheckName =
   | "client_list.drain";
 
 /**
+ * Relay rejections already reported this page load, keyed by status.
+ *
+ * A rejection is systemic (this client sends something the daemon's wire
+ * schema refuses), so one report shows it and one per event would flood.
+ * 404 is not a condition: a daemon predating the relay route answers 404
+ * per event, expected and quiet, and telemetry from it is simply absent.
+ */
+const reportedRelayRejections = new Set<number>();
+
+/**
  * Posts one `client_*` watchdog event through the daemon relay. Fire and
  * forget: never throws into the caller, so a probe can sit on a hot render
- * or navigation path without adding a failure mode.
+ * or navigation path without adding a failure mode. Transport failures
+ * (network, unreachable daemon) are swallowed; a 4xx rejection other than
+ * 404 is reported to Sentry once per status per page load, because a batch
+ * the daemon refuses is silent data loss otherwise.
  *
  * Precision is the caller's: durations arrive already rounded to whole
  * milliseconds, scores keep their decimals, and `value` is null when the
@@ -124,7 +138,30 @@ export function sendClientWatchdogEvent(event: {
       // The request must survive a pagehide flush.
       keepalive: true,
       throwOnError: false,
-    }).catch(() => {});
+    })
+      .then(({ response }) => {
+        const status = response?.status ?? 0;
+        if (
+          status < 400 ||
+          status >= 500 ||
+          status === 404 ||
+          reportedRelayRejections.has(status)
+        ) {
+          return;
+        }
+        reportedRelayRejections.add(status);
+        captureError(
+          new Error(
+            `telemetry relay rejected ${event.checkName} with ${status}`,
+          ),
+          {
+            context: "client-perf-relay",
+            level: "warning",
+            extra: { status, checkName: event.checkName },
+          },
+        );
+      })
+      .catch(() => {});
   } catch {
     // Telemetry is best-effort.
   }
@@ -205,4 +242,5 @@ export function emitClientPerfEvent(
 export function __resetClientPerfForTests(): void {
   bootId = null;
   pageLoadId = null;
+  reportedRelayRejections.clear();
 }
