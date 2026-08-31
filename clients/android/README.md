@@ -60,11 +60,10 @@ so the icon stays in sync with the in-app avatars. Launcher background colors
 distinguish production (`#4C9B50`, the avatar palette green), staging, and dev
 installs.
 
-The launch screen follows the saved app appearance, falling back to the Android
-light or dark setting until the web app has stored a preference. Android's app
-night mode keeps the OS splash and native overlay on the same theme. Android 11
-and older skip the OS preview window so the themed native overlay is the first
-app frame.
+The launch screen uses a centered white Vellum wordmark on black. The Android
+12 system splash and the native loading overlay share the same drawable and
+colors, so the handoff remains visually consistent. Android 11 and older skip
+the OS preview window so the native overlay is the first app frame.
 
 ## HTTPS App Links
 

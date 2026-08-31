@@ -151,7 +151,7 @@ public class MainActivity extends BridgeActivity {
         }
         ImageView view = new ImageView(this);
         view.setBackgroundColor(NativeLaunchScreenPlugin.backgroundColor(this));
-        view.setImageResource(R.drawable.vellum_mark);
+        view.setImageResource(R.drawable.vellum_logo);
         view.setColorFilter(NativeLaunchScreenPlugin.foregroundColor(this));
         view.setScaleType(ImageView.ScaleType.CENTER);
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
