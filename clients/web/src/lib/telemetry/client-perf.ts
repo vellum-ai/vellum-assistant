@@ -12,16 +12,14 @@ import {
 /**
  * Shared transport and emitter for the `client_*` performance families.
  *
- * ## Transport: the daemon relay, not platform session ingest
+ * ## Transport
  *
  * Events post to the daemon's `/v1/assistants/{id}/telemetry/ingest` route
- * (the same path `onboarding_research` ships on) and reach the warehouse
- * through the daemon's outbox under its API key. This is the only transport
- * that works in every mode the web client runs in: platform session ingest
- * only ever reaches the platform from cloud web, is aborted client-side in
- * remote-gateway mode (no session exists), and is gated off in local mode.
- * The relay also buys outbox durability (retry, offline) over a
- * fire-and-forget beacon.
+ * and reach the warehouse through the daemon's outbox (with its retry and
+ * offline durability) under its API key. The relay is the one transport
+ * reachable in every mode the web client runs in; platform session ingest is
+ * not (its allowlist drops `watchdog` from browsers, and remote-gateway and
+ * local modes cannot reach it at all), so never route these events there.
  *
  * The daemon stamps the base fields: `recorded_at` is daemon receipt time,
  * not emit time, so timing data must ride `value`/`detail`, never be inferred
@@ -29,9 +27,9 @@ import {
  * consent; the client-side `readAnalyticsConsent()` gate stays so the
  * viewing user's own opt-out holds regardless of the owner's.
  *
- * A boot with no resolved assistant has no relay target and is unreportable;
- * `sendClientWatchdogEvent` drops silently then. Terminal boot flushes run
- * after resolution, so in practice this loses only early-pagehide boots and
+ * An event with no resolvable assistant has no relay target and drops
+ * silently in `sendClientWatchdogEvent`. Terminal boot flushes run after
+ * resolution, so in practice this loses only early-pagehide boots and
  * surfaces that never reach an assistant.
  *
  * ## Shape
@@ -91,12 +89,22 @@ export function sendClientWatchdogEvent(event: {
   detail: ClientPerfDetail;
   /** Deterministic collapse key; omitted, the daemon mints a per-row id. */
   daemonEventId?: string;
+  /**
+   * The assistant that owns the measured operation. Events about the surface
+   * the user is on (boot, switch arrival, resume) omit this and route to the
+   * active assistant; events about one assistant's data (a list drain) must
+   * pass the owner, or a switch completing mid-operation would attribute the
+   * measurement, and its consent decision, to the wrong assistant.
+   */
+  assistantId?: string;
 }): void {
   if (typeof window === "undefined") {
     return;
   }
   try {
-    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId =
+      event.assistantId ??
+      useResolvedAssistantsStore.getState().activeAssistantId;
     if (assistantId === null) {
       return;
     }
@@ -167,6 +175,8 @@ export function emitClientPerfEvent(
   checkName: ClientPerfCheckName,
   value: number,
   detail?: ClientPerfDetail,
+  /** Owner of the measured operation; see {@link sendClientWatchdogEvent}. */
+  assistantId?: string,
 ): void {
   if (typeof window === "undefined") {
     return;
@@ -177,6 +187,7 @@ export function emitClientPerfEvent(
     }
     sendClientWatchdogEvent({
       checkName,
+      assistantId,
       value: Math.round(value),
       detail: {
         page_load_id: getPageLoadId(),

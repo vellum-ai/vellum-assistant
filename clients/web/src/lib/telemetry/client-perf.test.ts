@@ -148,6 +148,32 @@ describe("sendClientWatchdogEvent", () => {
     expect(lastCall().body.fields.value).toBeNull();
   });
 
+  test("routes to the caller's owning assistant over the active one", () => {
+    // A switch completing mid-operation must not attribute the measurement,
+    // and its consent decision, to the newly active assistant.
+    sendClientWatchdogEvent({
+      checkName: "client_list.drain",
+      assistantId: "owner-of-the-drained-list",
+      value: 12,
+      detail: {},
+    });
+
+    expect(lastCall().path.assistant_id).toBe("owner-of-the-drained-list");
+  });
+
+  test("an explicit owner still sends when no assistant is active", () => {
+    activeAssistantId = null;
+
+    sendClientWatchdogEvent({
+      checkName: "client_list.drain",
+      assistantId: "owner-of-the-drained-list",
+      value: 12,
+      detail: {},
+    });
+
+    expect(lastCall().path.assistant_id).toBe("owner-of-the-drained-list");
+  });
+
   test("drops the event when no assistant is resolved: there is no relay target", () => {
     activeAssistantId = null;
 
@@ -219,6 +245,11 @@ describe("emitClientPerfEvent", () => {
     expect(typeof first).toBe("string");
     emitClientPerfEvent("client_list.drain", 2);
     expect(lastDetail().page_load_id).toBe(first);
+  });
+
+  test("threads the owning assistant through to the relay path", () => {
+    emitClientPerfEvent("client_list.drain", 3, {}, "owner-a");
+    expect(lastCall().path.assistant_id).toBe("owner-a");
   });
 
   test("merges caller detail last so its keys win", () => {
