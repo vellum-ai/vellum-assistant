@@ -82,6 +82,7 @@ import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import {
   hasAttributableImages,
+  resolveSightKeepLatestFrames,
   stripAgedSightFrames,
 } from "./conversation-sight-frames.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
@@ -750,10 +751,10 @@ export function stripNowScratchpad(messages: Message[]): Message[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Trim the conversation's ambient camera frames down to the newest few
- * (`KEEP_LATEST_SIGHT_FRAMES`), replacing the rest with text stubs.
+ * Trim the conversation's ambient camera frames down to the newest
+ * `sight.keepLatestFrames`, replacing the rest with text stubs.
  *
- * A camera call samples a frame about once per spoken turn, and history resends
+ * A camera call samples a frame every few seconds, and history resends
  * every inline image on every later request, so an hour-long call otherwise
  * grows its own context until the provider rejects it. Trimming here, on the
  * assembled copy the turn is about to send, keeps the stored transcript and its
@@ -789,7 +790,11 @@ export function applySightFrameRetention(
     if (captureTimes.size === 0) {
       return messages;
     }
-    return stripAgedSightFrames(messages, captureTimes).messages;
+    return stripAgedSightFrames(
+      messages,
+      captureTimes,
+      resolveSightKeepLatestFrames(),
+    ).messages;
   } catch (err) {
     log.warn(
       { conversationId, err },

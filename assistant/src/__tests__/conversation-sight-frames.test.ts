@@ -1,15 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
+import {
+  KEEP_LATEST_SIGHT_FRAMES,
+  MAX_SIGHT_KEEP_LATEST_FRAMES,
+  MIN_SIGHT_KEEP_LATEST_FRAMES,
+} from "../config/schemas/sight.js";
 import {
   countMediaBlocks,
   stripMediaPayloadsForRetry,
 } from "../daemon/conversation-media-retry.js";
 import {
-  KEEP_LATEST_SIGHT_FRAMES,
+  resolveSightKeepLatestFrames,
   stripAgedSightFrames,
 } from "../daemon/conversation-sight-frames.js";
 import { sightFrameAttachmentIdsFromMetadata } from "../persistence/conversation-types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,6 +133,34 @@ describe("stripAgedSightFrames", () => {
     expect(textOf(result.messages[4], 1)).toBe(
       "[Camera frame omitted from context: captured 2026-08-30T14:25:02.000Z, image/jpeg, 1024 bytes]",
     );
+  });
+
+  test("keeps as many frames as the caller's budget allows", () => {
+    const messages: Message[] = [
+      user(referenceImage("f1")),
+      user(referenceImage("f2")),
+      user(referenceImage("f3")),
+      user(referenceImage("f4")),
+      user(referenceImage("f5")),
+    ];
+
+    const result = stripAgedSightFrames(
+      messages,
+      captureTimes("f1", "f2", "f3", "f4", "f5"),
+      4,
+    );
+
+    expect(result.replacedBlocks).toBe(1);
+    expect(
+      result.messages.flatMap((m) =>
+        m.content.filter((b) => b.type === "image"),
+      ),
+    ).toEqual([
+      referenceImage("f2"),
+      referenceImage("f3"),
+      referenceImage("f4"),
+      referenceImage("f5"),
+    ]);
   });
 
   test("stubs several frames on one message independently", () => {
@@ -446,6 +480,38 @@ describe("stripAgedSightFrames composed with stripMediaPayloadsForRetry", () => 
     for (const stub of cameraStubs) {
       expect(stub.includes("retry context")).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Configured retention budget
+// ---------------------------------------------------------------------------
+
+describe("resolveSightKeepLatestFrames", () => {
+  afterEach(() => {
+    setConfig("sight", {});
+  });
+
+  test("defaults to the constant when the workspace configures nothing", () => {
+    expect(resolveSightKeepLatestFrames()).toBe(KEEP_LATEST_SIGHT_FRAMES);
+  });
+
+  test("honors a configured value inside the guardrail", () => {
+    setConfig("sight", { keepLatestFrames: 4 });
+    expect(resolveSightKeepLatestFrames()).toBe(4);
+  });
+
+  test("caps a value above the ceiling instead of resetting it", () => {
+    // Ten live images per request is what the ceiling exists to prevent, and
+    // falling back to the default would show fewer frames than the guardrail
+    // itself allows.
+    setConfig("sight", { keepLatestFrames: 99 });
+    expect(resolveSightKeepLatestFrames()).toBe(MAX_SIGHT_KEEP_LATEST_FRAMES);
+  });
+
+  test("raises a value below the floor", () => {
+    setConfig("sight", { keepLatestFrames: 0 });
+    expect(resolveSightKeepLatestFrames()).toBe(MIN_SIGHT_KEEP_LATEST_FRAMES);
   });
 });
 
