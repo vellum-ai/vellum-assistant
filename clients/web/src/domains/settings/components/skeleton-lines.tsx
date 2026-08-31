@@ -1,11 +1,16 @@
 import { Skeleton, cn } from "@vellumai/design-library";
 
-const DEFAULT_LINE_CLASSES = "h-4 w-full rounded-md";
+const DEFAULT_LINE_CLASSES = "w-full rounded-md";
 
 export interface SkeletonLinesProps {
   lines: number;
   lineClassName?: string;
   className?: string;
+  /**
+   * Announces the stack as a live region. Leave it off inside a surface that
+   * already labels an outer region, so a screen reader hears one announcement
+   * instead of one per placeholder.
+   */
   label?: string;
 }
 
@@ -21,7 +26,7 @@ export function SkeletonLines({
 }: SkeletonLinesProps) {
   return (
     <div
-      role="status"
+      role={label == null ? undefined : "status"}
       aria-label={label}
       className={cn("space-y-2", className)}
     >

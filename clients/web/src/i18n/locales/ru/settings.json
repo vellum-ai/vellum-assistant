@@ -297,7 +297,7 @@
     "finishSetupBody": "Почта ассистента ещё не настроена.",
     "finishSetupButton": "Завершить настройку",
     "finishSetupTitle": "Завершение настройки плана {plan}",
-    "loadingBillingAriaLabel": "Загрузка оплаты…",
+    "loadingLabel": "Загрузка оплаты",
     "platformLoginNotice": "Вход на платформу Vellum для управления оплатой и использованием.",
     "usageTab": "Использование"
   },
@@ -1274,7 +1274,6 @@
     "freeForever": "Бесплатно навсегда",
     "heading": "План",
     "loadError": "Не удалось загрузить план.",
-    "loadingAriaLabel": "Загрузка плана",
     "manageSubscription": "Управление подпиской",
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",

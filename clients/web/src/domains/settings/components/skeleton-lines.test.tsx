@@ -27,21 +27,31 @@ describe("SkeletonLines", () => {
     expect(status.getAttribute("aria-label")).toBe("Loading invoices");
   });
 
-  test("omits aria-label when no label is given", () => {
-    const { getByRole } = render(<SkeletonLines lines={1} />);
-    expect(getByRole("status").hasAttribute("aria-label")).toBe(false);
+  test("stays out of the accessibility tree when no label is given", () => {
+    const { container, queryByRole } = render(<SkeletonLines lines={1} />);
+    expect(queryByRole("status")).toBeNull();
+    const stack = container.firstElementChild;
+    expect(stack?.hasAttribute("role")).toBe(false);
+    expect(stack?.hasAttribute("aria-label")).toBe(false);
   });
 
   test("applies the line and container classNames", () => {
-    const { container, getByRole } = render(
+    const { container } = render(
       <SkeletonLines
         lines={1}
         lineClassName="h-10 rounded-lg"
         className="py-2"
       />,
     );
-    expect(getByRole("status").className).toContain("py-2");
+    expect(container.firstElementChild?.className).toContain("py-2");
     const row = container.querySelector('[data-slot="skeleton"]');
     expect(row?.className).toContain("h-10 rounded-lg");
+  });
+
+  test("leaves the row height to the caller", () => {
+    const { container } = render(<SkeletonLines lines={1} />);
+    expect(
+      container.querySelector('[data-slot="skeleton"]')?.className,
+    ).not.toContain("h-4");
   });
 });

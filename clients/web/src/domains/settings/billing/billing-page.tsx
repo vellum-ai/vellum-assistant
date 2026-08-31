@@ -20,8 +20,11 @@ import { ContentReveal } from "@/domains/settings/components/content-reveal";
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PaymentMethodsCard } from "@/domains/settings/components/payment-methods-card";
-import { PlanCard } from "@/domains/settings/components/plan-card";
-import { SkeletonCardBlock } from "@/domains/settings/components/skeleton-card-block";
+import {
+  PlanCard,
+  PlanCardSkeleton,
+} from "@/domains/settings/components/plan-card";
+import { SkeletonLines } from "@/domains/settings/components/skeleton-lines";
 import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
@@ -41,6 +44,7 @@ import {
 import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
 import { Tabs } from "@vellumai/design-library/components/tabs";
@@ -153,23 +157,64 @@ function FinishProSetupNotice({
 }
 
 /**
- * Stand-in for the whole Billing tab while it cannot render yet: three blocks
- * for the plan, payment-method, and credits cards, so the swap to real content
- * does not jump. Only the stack is labeled, so a screen reader hears one
- * announcement rather than one per block.
+ * Stand-in for `PaymentMethodsCard`, built from its own geometry: the section
+ * header with its action slot, then the single card row.
+ */
+function PaymentMethodCardSkeleton() {
+  return (
+    <Card padding="md">
+      <div className="flex items-center justify-between gap-4">
+        <Skeleton aria-hidden className="h-6 w-40 rounded-md" />
+        <Skeleton aria-hidden className="h-8 w-24 rounded-md" />
+      </div>
+      <SkeletonLines
+        lines={1}
+        lineClassName="h-10 rounded-lg"
+        className="mt-4"
+      />
+    </Card>
+  );
+}
+
+/**
+ * Stand-in for `BillingPanel`, built from its own geometry: the header with a
+ * subtitle and two actions, the balance `StatSquare` (a 40px icon in `p-3`),
+ * then the auto-reload and daily-limit rows nested below it.
+ */
+function CreditsCardSkeleton() {
+  return (
+    <Card padding="md">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 space-y-2">
+          <Skeleton aria-hidden className="h-6 w-32 rounded-md" />
+          <Skeleton aria-hidden className="h-4 w-64 max-w-full rounded-md" />
+        </div>
+        <Skeleton aria-hidden className="h-9 w-40 shrink-0 rounded-md" />
+      </div>
+      <Skeleton aria-hidden className="mt-4 h-16 w-full rounded-xl" />
+      <SkeletonLines lines={2} lineClassName="h-6" className="mt-6" />
+    </Card>
+  );
+}
+
+/**
+ * Stand-in for the whole Billing tab while it cannot render yet: the real plan
+ * skeleton plus placeholders shaped like the payment-method and credits cards,
+ * so the swap to real content does not jump. Only the stack is labeled, so a
+ * screen reader hears one announcement rather than one per card.
  */
 function BillingTabSkeleton() {
   const { t } = useTranslation("settings");
   return (
     <div
       role="status"
-      aria-label={t("billingPage.loadingBillingAriaLabel")}
+      aria-label={t("billingPage.loadingLabel")}
       className="space-y-4"
       data-testid="billing-tab-skeleton"
     >
-      <SkeletonCardBlock />
-      <SkeletonCardBlock />
-      <SkeletonCardBlock />
+      <PlanCardSkeleton />
+      <PaymentMethodCardSkeleton />
+      <CreditsCardSkeleton />
     </div>
   );
 }
@@ -177,27 +222,30 @@ function BillingTabSkeleton() {
 /**
  * Stand-in for the whole page while the platform-session probe is still
  * pending. It reuses the settled render's wrappers exactly: the `space-y-6`
- * shell, a `Tabs.List` built from the real trigger parts so the bar's height
- * matches to the pixel, and the panel's `pt-4` around the card stack. Settling
- * therefore swaps content in place instead of mounting chrome above the cards.
+ * shell, the `Tabs.List`, and the panel's `pt-4` around the card stack.
+ * Settling therefore swaps content in place instead of mounting chrome above
+ * the cards.
  *
- * The triggers stand in for labels the probe has not decided on yet, so they
- * are disabled and hidden from the accessibility tree; the card stack inside
+ * Only the card stack is a placeholder. Both triggers carry their real labels
+ * and stay enabled on the page's own tab handler, so a viewer whose
+ * destination is Usage leaves the hold on the first click rather than waiting
+ * out a probe that was never going to give them Billing. The stack inside
  * carries the loading announcement.
  */
-function BillingPageSkeleton() {
+function BillingPageSkeleton({
+  onTabChange,
+}: {
+  onTabChange: (value: string) => void;
+}) {
+  const { t } = useTranslation("settings");
   return (
     <div className="space-y-6" data-testid="billing-page-skeleton">
-      <Tabs.Root value="billing">
-        <Tabs.List aria-hidden>
-          <Tabs.Trigger value="billing" disabled>
-            {/* Matches the trigger's 18px line box, so the placeholder bar is
-                exactly as tall as one holding a real label. */}
-            <Skeleton className="h-[18px] w-12 rounded-md" />
+      <Tabs.Root value="billing" onValueChange={onTabChange}>
+        <Tabs.List>
+          <Tabs.Trigger value="billing">
+            {t("billingPage.billingTab")}
           </Tabs.Trigger>
-          <Tabs.Trigger value="usage" disabled>
-            <Skeleton className="h-[18px] w-12 rounded-md" />
-          </Tabs.Trigger>
+          <Tabs.Trigger value="usage">{t("billingPage.usageTab")}</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Panel value="billing" className="pt-4">
           <BillingTabSkeleton />
@@ -394,12 +442,23 @@ function UsagePanel() {
   );
 }
 
+/**
+ * How long the pre-settle hold waits for the probe before letting the tabs
+ * resolve on their own. Shorter than the gate's own 5s default: this hold
+ * replaces the entire page, so an unanswered probe should hand the tabs back
+ * sooner than on a surface that stays usable while it waits.
+ */
+const PRE_SETTLE_HOLD_TIMEOUT_MS = 2_000;
+
 export function BillingPage() {
   const { t } = useTranslation("settings");
   const billingGate = usePlatformGate();
   // The same gate with the pre-settle window kept distinct, for the hold
   // below. Every other branch here reads that window as `"disabled"`.
-  const platformSessionPending = usePlatformGateWithPending() === "pending";
+  const platformSessionPending =
+    usePlatformGateWithPending({
+      settleTimeoutMs: PRE_SETTLE_HOLD_TIMEOUT_MS,
+    }) === "pending";
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -427,7 +486,12 @@ export function BillingPage() {
   // and a viewer heading for Billing would watch the Usage tree mount its own
   // skeletons and then get torn down when the probe lands. The gate bounds
   // its own pending state, so this cannot hold forever.
-  const holdForPlatformSession = platformSessionPending && !wantsUsageTab;
+  //
+  // A `"gated"` gate is decided without the session (local mode with the
+  // platform API off), and `shouldShowBillingTab` never shows Billing for it,
+  // so those viewers skip the hold and mount Usage on the first paint.
+  const holdForPlatformSession =
+    platformSessionPending && !wantsUsageTab && billingGate !== "gated";
 
   // Keep the active tab explicit in the URL so both tabs are symmetric and
   // the address bar always names what's shown: a bare `/settings/usage` — or
@@ -455,7 +519,7 @@ export function BillingPage() {
   };
 
   if (holdForPlatformSession) {
-    return <BillingPageSkeleton />;
+    return <BillingPageSkeleton onTabChange={handleTabChange} />;
   }
 
   return (

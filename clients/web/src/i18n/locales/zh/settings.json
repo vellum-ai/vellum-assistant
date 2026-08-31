@@ -309,7 +309,7 @@
     "finishSetupBody": "您的助手电子邮件地址尚未设置。",
     "finishSetupButton": "完成设置",
     "finishSetupTitle": "完成 {plan} 套餐的设置",
-    "loadingBillingAriaLabel": "加载账单中…",
+    "loadingLabel": "加载账单中",
     "platformLoginNotice": "登录 Vellum 平台以管理账单和用量。",
     "usageTab": "用量"
   },
@@ -1287,7 +1287,6 @@
     "freeForever": "永久免费",
     "heading": "套餐",
     "loadError": "加载套餐失败。",
-    "loadingAriaLabel": "正在加载套餐",
     "manageSubscription": "管理订阅",
     "nextPlan": "下一套餐",
     "powerUp": "升级",

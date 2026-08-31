@@ -1550,9 +1550,11 @@ describe("PlanCard loading state", () => {
     expect(row?.className).toContain("lg:flex-row");
   });
 
-  test("announces the placeholder region", () => {
-    const status = renderLoadingCardDom().querySelector('[role="status"]');
-    expect(status?.getAttribute("aria-label")).toBe("Loading plan");
+  test("leaves the announcement to the surface that mounts it", () => {
+    // The billing tab labels one region around the whole card stack, so a
+    // second live region here would nest inside it.
+    const host = renderLoadingCardDom();
+    expect(host.querySelector('[role="status"]')).toBeNull();
   });
 
   test("drops the placeholders once the queries resolve", () => {
