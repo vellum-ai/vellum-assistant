@@ -62,24 +62,35 @@ const THINKING_LEVEL_BY_NAME: Record<ThinkingLevelName, ThinkingLevel> = {
  */
 const GEMINI_PRO_DEFAULT_THINKING_LEVEL: ThinkingLevelName = "high";
 
+function normalizeGeminiModelId(model: string): string {
+  return model.startsWith("models/") ? model.slice("models/".length) : model;
+}
+
 /**
  * Gemini 3.x Pro family accepts only `low`/`medium`/`high` (no `"minimal"`) and
  * cannot fully disable thinking. Matches `gemini-3.1-pro-preview`,
  * `gemini-3.1-pro-preview-customtools`, and future `gemini-3*pro*`.
  */
 function isGeminiProModel(model: string): boolean {
-  const normalized = model.startsWith("models/")
-    ? model.slice("models/".length)
-    : model;
-  return /^gemini-3.*pro/.test(normalized);
+  return /^gemini-3.*pro/.test(normalizeGeminiModelId(model));
 }
 
 /**
- * Lowest thinking level the model accepts. Pro's floor is `"low"`; every other
- * thinking-capable Gemini model accepts `"minimal"`.
+ * Gemini 3.7 Flash accepts only `low`/`medium`/`high`. `"minimal"` is rejected
+ * upstream. Unlike Pro, an absent level still resolves to Google's per-model
+ * default (`"medium"`), so we only raise the floor, we do not pin a default.
+ */
+function isGemini37Flash(model: string): boolean {
+  return normalizeGeminiModelId(model) === "gemini-3.7-flash";
+}
+
+/**
+ * Lowest thinking level the model accepts. Pro and Gemini 3.7 Flash reject
+ * `"minimal"` (floor `"low"`); every other thinking-capable Gemini model
+ * accepts `"minimal"`.
  */
 function geminiThinkingFloor(model: string): ThinkingLevelName {
-  return isGeminiProModel(model) ? "low" : "minimal";
+  return isGeminiProModel(model) || isGemini37Flash(model) ? "low" : "minimal";
 }
 
 /**
@@ -102,9 +113,9 @@ function clampThinkingLevelToFloor(
  * Google's per-model default apply (e.g. `gemini-3.5-flash` defaults to
  * dynamic medium-level thinking).
  *
- * - `enabled: false` maps to the model's floor — the most "off" state it
- *   allows (`"minimal"` for most models, `"low"` for Pro, which can't disable
- *   thinking).
+ * - `enabled: false` maps to the model's floor (the most "off" state it
+ *   allows): `"minimal"` for most models, `"low"` for Pro and Gemini 3.7
+ *   Flash, which reject `"minimal"`.
  * - An explicit `level` below the floor is raised to the floor.
  * - When no `level` is pinned, Pro models get the documented default (`"high"`)
  *   because an absent level resolves to the unsupported `"minimal"` upstream;
@@ -161,9 +172,7 @@ function buildThinkingConfig(
  * behavior); only an explicit `supportsThinking: false` suppresses it.
  */
 function geminiModelSupportsThinking(model: string): boolean {
-  const normalized = model.startsWith("models/")
-    ? model.slice("models/".length)
-    : model;
+  const normalized = normalizeGeminiModelId(model);
   const catalogModel = PROVIDER_CATALOG.find(
     (provider) => provider.id === "gemini",
   )?.models.find((m) => m.id === normalized);

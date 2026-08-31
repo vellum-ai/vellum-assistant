@@ -251,8 +251,20 @@ describe("geminiThinkingLevels", () => {
     expect(levels).not.toContain("minimal");
   });
 
-  test("non-pro models include 'minimal'", () => {
+  test("gemini-3.7-flash excludes 'minimal'", () => {
+    const levels = geminiThinkingLevels("gemini-3.7-flash");
+    expect(levels).toEqual(["low", "medium", "high"]);
+    expect(levels).not.toContain("minimal");
+  });
+
+  test("other flash models include 'minimal'", () => {
     const levels = geminiThinkingLevels("gemini-2.5-flash");
     expect(levels).toEqual(["minimal", "low", "medium", "high"]);
+    expect(geminiThinkingLevels("gemini-3.6-flash")).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
   });
 });
