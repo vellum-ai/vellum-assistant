@@ -12,13 +12,16 @@
  *  - a server-rejected clear renders the DRF field error, not the generic copy
  *  - an errored auto top-up query fails open so the toggle still clears the
  *    limit, including when the error lands on top of stale cached data
- *  - a pending limit query renders shimmer rows, not loading copy, and the
- *    deep-link scroll still waits for that content
+ *  - a pending limit query renders shimmer rows, not loading copy, announces
+ *    the wait through its own labeled status region, and the deep-link scroll
+ *    still waits for that content
  *  - the skeleton also holds while the billing-summary or auto top-up query is
  *    still pending, so the card reveals once at its final height
  *  - a failed sibling query settles the skeleton instead of stranding it
  *  - a disabled sibling query settles it too, so a stuck org-header readiness
  *    cannot skeleton the card forever
+ *  - the deep-link scroll additionally waits for org-header readiness, so it
+ *    cannot latch while the card can still fall back to its skeleton
  *  - `validateDailyLimit` bounds checks (pure)
  *  - the exported anchor id stays in sync with the deep-link route constant
  *
@@ -651,15 +654,18 @@ describe("DailyCreditLimitCard loading state", () => {
     expect(card.textContent).toBe("");
   });
 
-  test("the placeholder announces nothing of its own", () => {
-    // Several cards skeleton at once inside the Credits card, so the single
-    // loading announcement lives on the tab-level stack instead.
+  test("the placeholder announces the wait", () => {
+    // This card waits on the org-gated auto top-up config, so it keeps
+    // loading after the tab-level stack is gone and its placeholder is the
+    // only loading signal a screen reader has left.
     stalledQuery = "limit";
     const { getByTestId } = renderAtAnchor(newClient());
 
     const card = getByTestId("daily-credit-limit-card");
-    expect(card.getAttribute("aria-hidden")).toBe("true");
-    expect(card.querySelector('[role="status"][aria-label]')).toBeNull();
+    expect(card.getAttribute("aria-hidden")).toBeNull();
+    expect(
+      card.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("Loading daily credit limit settings");
   });
 
   test("a resolved limit keeps the skeleton while the summary is pending", () => {
@@ -753,13 +759,25 @@ describe("DailyCreditLimitCard loading state", () => {
       expect(scrolls).toBe(0);
       cleanup();
 
+      // Readiness "resolving" disables the auto top-up query, which the
+      // reveal counts as settled, so the card comes up before the org header
+      // does. Latching the one-shot scroll here would aim at a height the
+      // readiness flip can still grow.
       stalledQuery = null;
+      orgReadiness = "resolving";
+      const resolving = renderAtAnchor(clientWithout("autoTopUp"));
+      expect(resolving.getByRole("switch")).toBeTruthy();
+      expect(scrolls).toBe(0);
+      cleanup();
+
+      orgReadiness = "ready";
       renderAtAnchor(makeClient(OFF));
       await waitFor(() => {
         if (scrolls === 0) {
           throw new Error("the resolved card never scrolled to the anchor");
         }
       });
+      expect(scrolls).toBe(1);
     } finally {
       proto.scrollIntoView = originalScroll;
       window.location.hash = originalHash;

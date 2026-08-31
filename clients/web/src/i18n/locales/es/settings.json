@@ -621,6 +621,7 @@
     "helperText": "Se restablece a diario a las {time}.",
     "inputLabel": "Dejar de gastar créditos de Vellum después de",
     "loadError": "No se pudo cargar la configuración del límite diario de créditos.",
+    "loadingLabel": "Cargando la configuración del límite diario de créditos",
     "progress": "{spent} de {limit} gastados hoy",
     "reachedNotice": "El gasto de créditos de Vellum de hoy ha alcanzado este límite. La generación se reanuda a las {time} o cuando subas el límite.",
     "requiredNote": "Se requiere un límite diario de créditos mientras la recarga automática está activada.",

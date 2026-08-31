@@ -621,6 +621,7 @@
     "helperText": "每日 {time} 重設。",
     "inputLabel": "Vellum 點數支出達到此額度後停止",
     "loadError": "載入每日點數限制設定失敗。",
+    "loadingLabel": "正在載入每日點數限制設定",
     "progress": "今日已支出 {limit} 中的 {spent}",
     "reachedNotice": "今日 Vellum 點數支出已達到此限制。生成將於 {time} 恢復，或在您提高限制後恢復。",
     "requiredNote": "啟用自動儲值時，需要設定每日點數限制。",

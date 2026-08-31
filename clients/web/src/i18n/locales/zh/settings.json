@@ -621,6 +621,7 @@
     "helperText": "每日 {time} 重置。",
     "inputLabel": "Vellum 积分支出达到此额度后停止",
     "loadError": "加载每日积分限额设置失败。",
+    "loadingLabel": "正在加载每日积分限额设置",
     "progress": "今日已支出 {limit} 中的 {spent}",
     "reachedNotice": "今日 Vellum 积分支出已达到此限额。生成将在 {time} 恢复，或在您提高限额后恢复。",
     "requiredNote": "启用自动充值时，需要设置每日积分限额。",

@@ -14,6 +14,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useAutoTopUpConfigQuery } from "@/hooks/use-auto-top-up-config";
 import { useResumeDailyLimit } from "@/hooks/use-daily-limit-skip";
+import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useScrollToAnchor } from "@/hooks/use-scroll-to-anchor";
 import { t, useTranslation } from "@/i18n";
 import { dailyResetTimePhrase } from "@/utils/daily-reset-time";
@@ -90,6 +91,7 @@ export function DailyCreditLimitCard() {
   );
   const summaryQuery = useQuery(organizationsBillingSummaryRetrieveOptions());
   const autoTopUpQuery = useAutoTopUpConfigQuery();
+  const orgReadiness = useOrgHeaderReadiness();
   const updateMutation = useMutation(
     organizationsBillingDailyCreditLimitUpdateMutation(),
   );
@@ -106,10 +108,16 @@ export function DailyCreditLimitCard() {
     isAwaitingData(summaryQuery) ||
     isAwaitingData(autoTopUpQuery);
 
-  // Deep links (`#daily-credit-limit`) land here once the card has revealed,
-  // so the content above the anchor has taken its final height before we
-  // scroll.
-  useScrollToAnchor(DAILY_CREDIT_LIMIT_ANCHOR_ID, !layoutQueriesPending);
+  // Anchor readiness is stricter than card readiness. The reveal treats a
+  // disabled auto top-up query as settled, so the card can come up while the
+  // org header is still resolving; the scroll is one-shot and latches, and
+  // readiness flipping afterwards puts the card back into its skeleton and
+  // re-reveals it taller. Waiting out `"resolving"` keeps the scroll on the
+  // final height without holding the card itself.
+  useScrollToAnchor(
+    DAILY_CREDIT_LIMIT_ANCHOR_ID,
+    !layoutQueriesPending && orgReadiness !== "resolving",
+  );
 
   // `draft === null` means "not yet edited"; seed from the query below. Tracking
   // the edited value separately keeps the input controlled without an effect
@@ -133,10 +141,15 @@ export function DailyCreditLimitCard() {
   }
   if (layoutQueriesPending) {
     return (
-      // Presentational: the tab-level skeleton stack owns the single loading
-      // announcement, so this placeholder stays out of the accessibility tree.
-      <div data-testid="daily-credit-limit-card" aria-hidden>
-        <SkeletonLines lines={2} lineClassName="h-6" />
+      // Labeled: this card's queries include the org-gated auto top-up config,
+      // so it routinely loads after the tab-level stack is gone and its
+      // placeholder is the only loading signal a screen reader has left.
+      <div data-testid="daily-credit-limit-card">
+        <SkeletonLines
+          lines={2}
+          lineClassName="h-6"
+          label={t("dailyCreditLimitCard.loadingLabel")}
+        />
       </div>
     );
   }
