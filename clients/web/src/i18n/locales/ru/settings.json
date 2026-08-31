@@ -1426,6 +1426,7 @@
   },
   "profileCreateModelFirst": {
     "addApiKeyTag": "Добавить API-ключ",
+    "cancelConnect": "Отменить настройку",
     "chooseFromList": "Выбрать из списка",
     "connectedTag": "Подключено",
     "customModelAriaLabel": "Свой ID модели",

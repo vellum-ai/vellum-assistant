@@ -44,6 +44,13 @@ const CUSTOM_MODEL_OPTION_VALUE = "__custom-model-id__";
 const SHOW_OLDER_PREFIX = "__show-older__:";
 
 /**
+ * Where one model row stands in its section's disclosure: the newest of its
+ * line, an older one still folded away, or an older one the section's unfold
+ * row has revealed.
+ */
+type ModelRowState = "current" | "folded" | "disclosed";
+
+/**
  * What the user has answered to the flow's first question. A catalog pick is
  * held by display name because that is the identity a model keeps across the
  * providers that host it; the per-provider id follows from the route chosen
@@ -275,12 +282,13 @@ export function ProfileCreateModelFirst({
     const modelRow = (
       option: ModelFirstOption,
       group: string,
-      folded: boolean,
+      state: ModelRowState,
     ): SearchableSelectOption => ({
       value: option.displayName,
       label: option.displayName,
       group,
-      folded,
+      folded: state === "folded",
+      disclosed: state === "disclosed",
       suffix: (
         <PickerMeta
           text={
@@ -296,12 +304,14 @@ export function ProfileCreateModelFirst({
       const { shown, hidden } = collapseSupersededVersions(group.options);
       const unfolded = unfoldedGroups.includes(group.key);
       for (const option of shown) {
-        rows.push(modelRow(option, group.label, false));
+        rows.push(modelRow(option, group.label, "current"));
       }
       for (const option of hidden) {
         // Folded away while the list is being browsed, but never hidden from
         // a query: someone who types a version's name means that version.
-        rows.push(modelRow(option, group.label, !unfolded));
+        rows.push(
+          modelRow(option, group.label, unfolded ? "disclosed" : "folded"),
+        );
       }
       if (hidden.length > 0 && !unfolded) {
         rows.push({
@@ -436,13 +446,17 @@ function ProviderStep({
   // reused across two routes would write the previous one's connection.
   const connectSection =
     selectedCandidate && setupExpanded ? (
-      <ConnectSection
-        key={selectedCandidate.value}
-        assistantId={assistantId}
-        candidate={selectedCandidate}
-        editor={editor}
-        onCancel={onCancelConnect}
-      />
+      // The rule sets the form apart from the row that names the route, so
+      // the form's own actions read as the form's rather than the dialog's.
+      <div className="border-t border-[var(--border-subtle)] pt-3">
+        <ConnectSection
+          key={selectedCandidate.value}
+          assistantId={assistantId}
+          candidate={selectedCandidate}
+          editor={editor}
+          onCancel={onCancelConnect}
+        />
+      </div>
     ) : null;
 
   function setupAction(candidate: ProviderCandidate) {
@@ -461,6 +475,18 @@ function ProviderStep({
     );
   }
 
+  /**
+   * The route's own tag, withheld from the card whose connect form is open:
+   * the form below it is already the answer to what the tag asks for, and
+   * the two on one row read as two ways to do the same thing.
+   */
+  function candidateTag(candidate: ProviderCandidate) {
+    if (setupExpanded && candidate.value === selectedCandidate?.value) {
+      return null;
+    }
+    return <CandidateTag candidate={candidate} />;
+  }
+
   return (
     <div className="space-y-1">
       <span
@@ -472,15 +498,17 @@ function ProviderStep({
 
       {soleCandidate ? (
         <div className="space-y-2">
+          {/* A statement, not a control: nothing here is choosable, so it
+              carries no field border, no chevron and no text cursor. */}
           <div
             data-testid="provider-candidate"
             data-candidate={soleCandidate.value}
-            className="flex min-h-9 items-center justify-between gap-2 rounded-lg border border-[var(--border-element)] px-3 py-2"
+            className="flex min-h-9 cursor-default items-center justify-between gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2"
           >
             <Typography variant="body-medium-lighter" as="span">
               {soleCandidate.label}
             </Typography>
-            <CandidateTag candidate={soleCandidate} />
+            {candidateTag(soleCandidate)}
           </div>
           {soleCandidate.connected ? (
             <Typography
@@ -527,7 +555,7 @@ function ProviderStep({
                       </span>
                     }
                   />
-                  <CandidateTag candidate={candidate} />
+                  {candidateTag(candidate)}
                 </div>
                 {selected ? setupAction(candidate) : null}
                 {selected ? connectSection : null}
@@ -593,6 +621,7 @@ function ConnectSection({
   editor,
   onCancel,
 }: ConnectSectionProps) {
+  const { t } = useTranslation("settings");
   // The subscription is signed into, not created: it has no name, no key, and
   // no endpoint for the create form to collect.
   if (candidate.provider === CHATGPT_CONNECTION_PROVIDER) {
@@ -615,6 +644,9 @@ function ConnectSection({
       hideProviderSelect
       onCreated={editor.handleProviderCreated}
       onCancel={onCancel}
+      // The dialog's own Cancel sits right below this one and abandons the
+      // whole profile; this one only puts the key form away.
+      cancelLabel={t("profileCreateModelFirst.cancelConnect")}
     />
   );
 }

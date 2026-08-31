@@ -79,6 +79,13 @@ export interface ProviderCreateFormProps {
   hideProviderSelect?: boolean;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
+  /**
+   * What the dismiss action says. Give it something more specific than
+   * "Cancel" wherever the form sits inside a dialog that has a Cancel of its
+   * own, so the two are told apart by what they read rather than by which one
+   * is nearer the pointer.
+   */
+  cancelLabel?: ReactNode;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
   variant?: "modal" | "inline";
   /**
@@ -99,6 +106,7 @@ export function ProviderCreateForm({
   hideProviderSelect = false,
   onCreated,
   onCancel,
+  cancelLabel,
   variant = "modal",
   actionsSlot,
 }: ProviderCreateFormProps) {
@@ -609,7 +617,7 @@ export function ProviderCreateForm({
   const footer: ReactNode = (
     <>
       <Button variant="ghost" onClick={onCancel}>
-        {t("providerCreateForm.cancel")}
+        {cancelLabel ?? t("providerCreateForm.cancel")}
       </Button>
       {!isChatgpt && (
         <Button

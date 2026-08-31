@@ -1439,6 +1439,7 @@
   },
   "profileCreateModelFirst": {
     "addApiKeyTag": "Añadir clave API",
+    "cancelConnect": "Cancelar configuración",
     "chooseFromList": "Elegir de la lista",
     "connectedTag": "Conectado",
     "customModelAriaLabel": "ID de modelo personalizado",

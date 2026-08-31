@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, screen, userEvent, waitFor } from "storybook/test";
+import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
@@ -171,6 +171,72 @@ export const CreateDuplicateName: Story = {
 export const CreateModelFirst: Story = {
   args: { mode: "create" },
   beforeEach: withModelFirstCreate,
+};
+
+/**
+ * The open model list. Sections are named for whoever made the model, spelled
+ * the way that vendor spells it, and each heading stays pinned while its own
+ * rows scroll under it. The row that unfolds a section's older versions is
+ * drawn as a secondary action, not as one more model.
+ */
+export const CreateModelFirstListOpen: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
+ * A section with its older versions revealed: the block the unfold row opened
+ * is set off by a hairline, and the list stays where the user left it.
+ */
+export const CreateModelFirstOlderVersions: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    // Scoped to the section: every section that folds anything offers a row
+    // of the same shape, and several fold the same number.
+    const anthropic = await screen.findByRole("group", { name: "Anthropic" });
+    await userEvent.click(
+      within(anthropic).getByRole("option", { name: /Show older versions/ }),
+    );
+    await waitFor(() =>
+      expect(
+        within(anthropic).getByRole("option", { name: /Claude Opus 4\.8/ }),
+      ).toBeTruthy(),
+    );
+  },
+};
+
+/**
+ * A route with no connection yet. Its card carries the key form, so the tag
+ * that asked for the key steps aside and the form's own dismiss action says
+ * what it dismisses rather than repeating the dialog's Cancel.
+ */
+export const CreateModelFirstConnectForm: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Claude Opus 5/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("radio", { name: /OpenRouter/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel setup" })).toBeTruthy(),
+    );
+  },
 };
 
 /**

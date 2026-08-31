@@ -322,19 +322,12 @@ function hasInputWithPlaceholder(placeholder: string): boolean {
   );
 }
 
-/** The inline connect form's own Cancel, not the modal footer's. */
+/**
+ * The inline connect form's own dismiss action. It is named apart from the
+ * dialog's Cancel, which sits right below it and abandons the whole profile.
+ */
 function inlineCancelButton(): HTMLButtonElement {
-  const match = Array.from(
-    document.querySelectorAll<HTMLButtonElement>("button"),
-  ).find(
-    (b) =>
-      b.textContent?.trim() === "Cancel" &&
-      b.dataset.testid !== "modal-cancel-btn",
-  );
-  if (!match) {
-    throw new Error("expected the connect form's Cancel button");
-  }
-  return match;
+  return getButton("Cancel setup");
 }
 
 /**
@@ -661,6 +654,38 @@ describe("a route with no connection yet", () => {
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe("Ollama");
     // Ollama authenticates with nothing, so no key is asked for either.
     expect(hasInputWithPlaceholder("Enter your API key")).toBe(false);
+  });
+
+  test("puts the tag that asked for a key away while the form is open", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    selectModel("Claude Opus 5");
+    expect(candidateCard("openrouter").textContent).toContain("Add API key");
+
+    pickCandidate("openrouter");
+
+    // The form below the row is already the answer to what the tag asked
+    // for, so the row states the route and nothing else.
+    expect(candidateCard("openrouter").textContent).not.toContain(
+      "Add API key",
+    );
+    // Only that route's tag: the others still say where they stand.
+    expect(candidateCard("anthropic").textContent).toContain("Connected");
+
+    fireEvent.click(inlineCancelButton());
+    expect(candidateCard("openrouter").textContent).toContain("Add API key");
+  });
+
+  test("names its dismiss action apart from the dialog's Cancel", () => {
+    renderCreate([makeConnection("anthropic-personal")]);
+
+    selectModel("Gemini 3.6 Flash");
+
+    const dialogCancel = document.querySelector<HTMLButtonElement>(
+      '[data-testid="modal-cancel-btn"]',
+    );
+    expect(dialogCancel?.textContent?.trim()).toBe("Cancel");
+    expect(inlineCancelButton()).not.toBe(dialogCancel);
   });
 
   test("keeps a lone route reachable after its setup is cancelled", () => {

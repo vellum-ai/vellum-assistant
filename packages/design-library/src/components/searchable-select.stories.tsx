@@ -3,7 +3,11 @@ import { useState } from "react";
 import { useArgs } from "storybook/preview-api";
 import { expect, screen, userEvent, waitFor } from "storybook/test";
 
-import { SearchableSelect, type SearchableSelectOption } from "./searchable-select";
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+  type SearchableSelectProps,
+} from "./searchable-select";
 
 const MODELS: SearchableSelectOption[] = [
   { value: "claude-opus-4-8", label: "Claude Opus 4.8" },
@@ -208,6 +212,57 @@ export const NoMatches: Story = {
 };
 
 /**
+ * Vendors whose names an `uppercase` transform would spell wrong, and enough
+ * of them to make the list scroll past its own headings.
+ */
+const BRAND_MODELS: SearchableSelectOption[] = [
+  { value: "grok-4-6", label: "Grok 4.6", group: "xAI" },
+  { value: "grok-4-6-fast", label: "Grok 4.6 Fast", group: "xAI" },
+  { value: "glm-5-2", label: "GLM 5.2", group: "Z.ai" },
+  { value: "glm-5-2-air", label: "GLM 5.2 Air", group: "Z.ai" },
+  { value: "minimax-m3", label: "MiniMax M3", group: "MiniMax" },
+  { value: "minimax-m2-her", label: "MiniMax M2-her", group: "MiniMax" },
+  { value: "deepseek-v4-pro", label: "DeepSeek V4 Pro", group: "DeepSeek" },
+  { value: "deepseek-v4-flash", label: "DeepSeek V4 Flash", group: "DeepSeek" },
+  { value: "deepseek-r1", label: "DeepSeek R1", group: "DeepSeek" },
+  { value: "kimi-k3", label: "Kimi K3", group: "Moonshot AI" },
+  { value: "kimi-k2-thinking", label: "Kimi K2 Thinking", group: "Moonshot AI" },
+  { value: "llama-4-maverick", label: "Llama 4 Maverick", group: "Meta" },
+  { value: "llama-4-scout", label: "Llama 4 Scout", group: "Meta" },
+  { value: "__custom__", label: "Enter a custom model ID…", sticky: true },
+];
+
+/**
+ * Shared by the two grouped stories. The state a `listAction` row toggles
+ * belongs to the caller, so it is owned here rather than through args, and a
+ * revealed row is marked `disclosed` so the list can set the revealed block
+ * off from what was already there.
+ */
+function RenderGrouped(args: SearchableSelectProps) {
+  const [value, setValue] = useState("");
+  const [unfolded, setUnfolded] = useState(false);
+  const options = unfolded
+    ? GROUPED_MODELS.filter((option) => !option.listAction).map((option) =>
+        option.folded ? { ...option, folded: false, disclosed: true } : option,
+      )
+    : GROUPED_MODELS;
+  return (
+    <SearchableSelect
+      {...args}
+      options={options}
+      value={value}
+      onChange={(next) => {
+        if (next === "__older-anthropic__") {
+          setUnfolded(true);
+          return;
+        }
+        setValue(next);
+      }}
+    />
+  );
+}
+
+/**
  * Sections and progressive disclosure. Headings come from each row's `group`,
  * in the order their first row appears; a `folded` row waits for a query or
  * for the `listAction` row that stands in for it, which is the one row a pick
@@ -219,29 +274,7 @@ export const NoMatches: Story = {
 export const Grouped: Story = {
   args: { value: "" },
   parameters: { controls: { disable: true } },
-  render: function RenderGrouped(args) {
-    const [value, setValue] = useState("");
-    const [unfolded, setUnfolded] = useState(false);
-    const options = unfolded
-      ? GROUPED_MODELS.filter((option) => !option.listAction).map((option) =>
-          option.folded ? { ...option, folded: false } : option,
-        )
-      : GROUPED_MODELS;
-    return (
-      <SearchableSelect
-        {...args}
-        options={options}
-        value={value}
-        onChange={(next) => {
-          if (next === "__older-anthropic__") {
-            setUnfolded(true);
-            return;
-          }
-          setValue(next);
-        }}
-      />
-    );
-  },
+  render: RenderGrouped,
   play: async ({ canvasElement }) => {
     const field = canvasElement.querySelector<HTMLInputElement>(
       'input[role="combobox"]',
@@ -256,7 +289,14 @@ export const Grouped: Story = {
       ).not.toContain("Claude Opus 4.7"),
     );
 
-    await userEvent.click(await screen.findByText("Show older versions (2)"));
+    // The unfold row is an action on the list, not an answer to it: it says
+    // so with `aria-expanded` and is drawn as a secondary action.
+    const unfold = await screen.findByRole("option", {
+      name: "Show older versions (2)",
+    });
+    expect(unfold.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(unfold);
 
     // The list stays open on the row that acted on it, and the folded rows
     // take the place of the row that stood in for them.
@@ -267,5 +307,55 @@ export const Grouped: Story = {
       expect(labels).toContain("Claude Opus 4.7");
       expect(labels).not.toContain("Show older versions (2)");
     });
+  },
+};
+
+/**
+ * The same list with its older versions already revealed, which is the state
+ * the hairline is for: the block a list action opened is set off from the
+ * rows that were there before it.
+ */
+/**
+ * Headings whose own capitalisation is the point, in a list long enough to
+ * scroll: nothing transforms the letters, and each heading stays pinned to
+ * the top of the list while its own rows are still on screen.
+ */
+export const GroupedStickyHeadings: Story = {
+  args: { value: "", options: BRAND_MODELS },
+  parameters: { controls: { disable: true } },
+  render: function RenderSticky(args) {
+    const [value, setValue] = useState("");
+    return <SearchableSelect {...args} value={value} onChange={setValue} />;
+  },
+  play: async ({ canvasElement }) => {
+    const field = canvasElement.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    );
+    if (!field) {
+      throw new Error("expected the combobox field");
+    }
+    await userEvent.click(field);
+    await waitFor(() =>
+      expect(screen.getByText("xAI").textContent).toBe("xAI"),
+    );
+  },
+};
+
+export const GroupedDisclosed: Story = {
+  args: { value: "" },
+  parameters: { controls: { disable: true } },
+  render: RenderGrouped,
+  play: async ({ canvasElement }) => {
+    const field = canvasElement.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    );
+    if (!field) {
+      throw new Error("expected the combobox field");
+    }
+    await userEvent.click(field);
+    await userEvent.click(await screen.findByText("Show older versions (2)"));
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /Claude Opus 4\.7/ })).toBeTruthy(),
+    );
   },
 };
