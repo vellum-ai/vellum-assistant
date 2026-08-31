@@ -220,17 +220,21 @@ function parseStoredChannelInbound(
 /**
  * Fallback when the payload carries no captured `channelInbound`, the
  * non-Slack counterpart of {@link buildReplaySlackInbound}: reconstruct the
- * turn-shaping identity fields from what the payload has always carried
- * (`messageId` mirrors the live `sourceMessageId ?? externalMessageId`
- * derivation). Actor fields (`displayName`, `actorExternalId`) stay absent:
- * no envelope reader keys on them, matching the Slack fallback's
- * partial-slackMeta stance.
+ * envelope from what the payload has always carried, so a crash between
+ * `storePayload` and `storeInboundChannelMetadata` recovers the same row a
+ * live turn would have persisted. `messageId` mirrors the live
+ * `sourceMessageId ?? externalMessageId` derivation; `displayName` mirrors
+ * the live `actorDisplayName ?? actorUsername` (stored as the payload's
+ * `senderName` / `senderUsername`); `actorExternalId` comes from the same
+ * trust context the live envelope read.
  */
 function buildReplayChannelInbound(params: {
   sourceChannel: ChannelId;
   externalChatId: string | undefined;
   sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
   externalMessageId: string | undefined;
+  senderDisplayName: string | undefined;
+  actorExternalId: string | undefined;
 }): ProviderMessageMetadata | undefined {
   if (params.sourceChannel === "slack" || !params.externalChatId) {
     return undefined;
@@ -253,6 +257,12 @@ function buildReplayChannelInbound(params: {
     messageId,
     eventKind: "message",
     ...(threadId ? { threadId } : {}),
+    ...(params.senderDisplayName
+      ? { displayName: params.senderDisplayName }
+      : {}),
+    ...(params.actorExternalId
+      ? { actorExternalId: params.actorExternalId }
+      : {}),
   };
 }
 
@@ -491,6 +501,14 @@ export async function sweepFailedEvents(
         externalChatId,
         sourceMetadata,
         externalMessageId,
+        senderDisplayName:
+          (typeof payload.senderName === "string" && payload.senderName
+            ? payload.senderName
+            : undefined) ??
+          (typeof payload.senderUsername === "string" && payload.senderUsername
+            ? payload.senderUsername
+            : undefined),
+        actorExternalId: trustContext.requesterExternalUserId,
       });
     // The captured `slackInbound` carries the sender's Slack `app_context`, so
     // the replayed turn is prepared with the same context block the live turn

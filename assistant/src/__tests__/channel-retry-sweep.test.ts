@@ -241,6 +241,8 @@ function seedFailedTelegramEvent(opts: {
   externalChatId: string;
   messageId: string;
   threadId?: string;
+  /** Sender display name as `storePayload` records it at ingress. */
+  senderName?: string;
   /** Stands in for the `channelInbound` the live path captures onto the payload. */
   channelInbound?: Record<string, unknown>;
 }): string {
@@ -259,6 +261,7 @@ function seedFailedTelegramEvent(opts: {
       messageId: opts.messageId,
       ...(opts.threadId ? { threadId: opts.threadId } : {}),
     },
+    ...(opts.senderName ? { senderName: opts.senderName } : {}),
     ...(opts.channelInbound ? { channelInbound: opts.channelInbound } : {}),
     trustCtx: {
       trustClass: "guardian",
@@ -532,11 +535,15 @@ describe("channel-retry-sweep", () => {
   });
 
   test("reconstructs channelInbound from the stored payload when no capture exists", async () => {
+    // The crash window: `storePayload` ran at ingress but the daemon died
+    // before `storeInboundChannelMetadata`. Recovery must rebuild the same
+    // envelope the live turn would have persisted, sender fields included.
     seedFailedTelegramEvent({
       content: "retry me",
       externalChatId: "chat-501",
       messageId: "tg-msg-2",
       threadId: "topic-9",
+      senderName: "Alice",
     });
 
     let capturedOptions:
@@ -565,6 +572,8 @@ describe("channel-retry-sweep", () => {
       conversationExternalId: "chat-501",
       messageId: "tg-msg-2",
       threadId: "topic-9",
+      displayName: "Alice",
+      actorExternalId: "user-1",
       eventKind: "message",
     });
   });
