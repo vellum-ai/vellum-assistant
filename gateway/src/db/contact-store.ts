@@ -54,6 +54,16 @@ export type IngressInviteRow = typeof ingressInvites.$inferSelect;
  */
 export const NO_INVITE_CODE_HASH = "";
 
+/**
+ * Outcome of {@link ContactStore.seedInboundChannel}. `blocked` means the
+ * authoritative row refused the seed (no writes happened); the other two carry
+ * the gateway ids the assistant mirror should key the same identity under.
+ */
+export type SeedInboundChannelResult =
+  | { outcome: "existing"; contactId: string; channelId: string }
+  | { outcome: "created"; contactId: string; channelId: string }
+  | { outcome: "blocked" };
+
 export class ContactStore {
   private injectedDb?: GatewayDb;
 
@@ -1413,6 +1423,135 @@ export class ContactStore {
         );
       }
     }
+  }
+
+  /**
+   * Gateway-DB core of inbound contact seeding: resolve a first-seen actor's
+   * `(type, address)` identity to a contact, creating one when none exists.
+   *
+   * The lookup runs against the gateway DB (the source of truth), never the
+   * assistant mirror. Seeding used to dedupe via a daemon identity lookup, so
+   * any mirror gap for an already-bound address (e.g. the guardian's own
+   * Slack identity after a failed best-effort binding mirror) minted a fresh
+   * gateway contact whose channel insert then no-op'd on the (type, address)
+   * unique index: a channel-less duplicate of an existing contact in the
+   * Contacts pane (LUM-2672 family).
+   *
+   * One transaction, and the contact row is keyed to its channel landing: a
+   * create either commits contact + channel together or nothing. The belt-and-
+   * suspenders conflict re-check inside the transaction downgrades a raced
+   * create to the update path rather than ever leaving a channel-less contact.
+   *
+   * ACL is untouched: an existing row keeps its status/policy (revoked stays
+   * revoked, and a `blocked` row short-circuits with no writes at all); a new
+   * channel seeds the schema defaults (`unverified`/`allow`). The existing
+   * contact's displayName is also left alone: the gateway name is the
+   * guardian-curated one; only the assistant mirror tracks the live platform
+   * profile name (the caller's mirror op carries `refreshDisplayName`).
+   */
+  seedInboundChannel(params: {
+    type: string;
+    /** Canonical address (callers canonicalize via canonicalizeInboundIdentity). */
+    address: string;
+    externalChatId?: string;
+    /** Name for a newly created contact only; existing names are preserved. */
+    displayName: string;
+  }): SeedInboundChannelResult {
+    const now = Date.now();
+
+    return this.db.transaction((tx) => {
+      const findExisting = () =>
+        tx
+          .select({
+            id: contactChannels.id,
+            contactId: contactChannels.contactId,
+            status: contactChannels.status,
+          })
+          .from(contactChannels)
+          .where(
+            and(
+              eq(contactChannels.type, params.type),
+              sql`${contactChannels.address} = ${params.address} COLLATE NOCASE`,
+            ),
+          )
+          .get();
+      const refreshIdentity = (channelId: string): void => {
+        // Identity refresh only: canonical address casing self-heal, and the
+        // delivery chat id when the caller learned one (a DM). Omitted
+        // externalChatId preserves the stored value.
+        tx.update(contactChannels)
+          .set({
+            address: params.address,
+            ...(params.externalChatId
+              ? { externalChatId: params.externalChatId }
+              : {}),
+            updatedAt: now,
+          })
+          .where(eq(contactChannels.id, channelId))
+          .run();
+      };
+
+      const existing = findExisting();
+      if (existing) {
+        if (existing.status === "blocked") {
+          return { outcome: "blocked" };
+        }
+        refreshIdentity(existing.id);
+        return {
+          outcome: "existing",
+          contactId: existing.contactId,
+          channelId: existing.id,
+        };
+      }
+
+      const contactId = crypto.randomUUID();
+      const channelId = crypto.randomUUID();
+      tx.insert(contacts)
+        .values({
+          id: contactId,
+          displayName: params.displayName,
+          role: "contact",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      const inserted = tx
+        .insert(contactChannels)
+        .values({
+          id: channelId,
+          contactId,
+          type: params.type,
+          address: params.address,
+          isPrimary: false,
+          externalChatId: params.externalChatId ?? null,
+          status: "unverified",
+          policy: "allow",
+          interactionCount: 0,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning({ id: contactChannels.id })
+        .all();
+      if (inserted.length === 0) {
+        // A foreign writer landed the (type, address) row between the lookup
+        // and the insert. Take the contact insert back and downgrade to the
+        // update path: a contact must never outlive a channel insert that
+        // didn't happen.
+        tx.delete(contacts).where(eq(contacts.id, contactId)).run();
+        const raced = findExisting();
+        if (!raced || raced.status === "blocked") {
+          return { outcome: "blocked" };
+        }
+        refreshIdentity(raced.id);
+        return {
+          outcome: "existing",
+          contactId: raced.contactId,
+          channelId: raced.id,
+        };
+      }
+      return { outcome: "created", contactId, channelId };
+    });
   }
 
   /**

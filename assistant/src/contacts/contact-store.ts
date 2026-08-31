@@ -317,8 +317,19 @@ export function upsertContact(params: {
     }
   }
 
-  // Try to find by channel canonical identity to avoid duplicates
-  if (!contactId && canonicalChannels && canonicalChannels.length > 0) {
+  // Try to find by channel canonical identity to avoid duplicates. This also
+  // covers an explicit-id CREATE (the id was not found above) when the caller
+  // did not opt into reassignment: syncChannels would skip a channel owned by
+  // another contact, so inserting the supplied id would mint a channel-less
+  // duplicate of that contact (LUM-2672 family, mirror side). Adopting the
+  // existing owner instead keeps one contact per channel identity; the
+  // supplied id is dropped. Reassigning callers (invite binding, the guardian
+  // bootstrap mirror) skip this and keep their bind-to-target semantics.
+  if (
+    canonicalChannels &&
+    canonicalChannels.length > 0 &&
+    (!contactId || !params.reassignConflictingChannels)
+  ) {
     for (const ch of canonicalChannels) {
       const existingChannel = findConflictingChannel(db, ch.type, ch.address);
 

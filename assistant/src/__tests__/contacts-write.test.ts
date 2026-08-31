@@ -39,6 +39,24 @@ function channelCount(type: string, address: string): number {
   return row.n;
 }
 
+function contactExists(contactId: string): boolean {
+  // bun:sqlite .get() returns null (not undefined) when no row matches.
+  const row = getSqlite()
+    .query("SELECT 1 AS one FROM contacts WHERE id = ?")
+    .get(contactId) as { one: number } | null;
+  return row !== null;
+}
+
+/** Contacts parenting zero channels: the duplicate shape LUM-2672 surfaced. */
+function channelLessContactCount(): number {
+  const row = getSqlite()
+    .query(
+      "SELECT COUNT(*) AS n FROM contacts c WHERE NOT EXISTS (SELECT 1 FROM contact_channels ch WHERE ch.contact_id = c.id)",
+    )
+    .get() as { n: number };
+  return row.n;
+}
+
 function workspaceDir(): string {
   const dir = process.env.VELLUM_WORKSPACE_DIR;
   if (!dir) {
@@ -219,6 +237,42 @@ describe("mirror channel-reparenting race semantics", () => {
     expect(channelOwnerById("gw-ch-race-1")).toBe("co-race-1");
     expect(channelOwnerById("gw-ch-race-2")).toBeUndefined();
     expect(channelCount("slack", "URACE")).toBe(1);
+    // The losing seed adopts contact #1 rather than minting a channel-less
+    // contact under its own id (LUM-2672 family, mirror side).
+    expect(contactExists("co-race-2")).toBe(false);
+    expect(channelLessContactCount()).toBe(0);
+  });
+
+  test("explicit-id create over a conflicting channel adopts the owner instead of minting an empty contact", () => {
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPT",
+      externalChatId: "DADOPT",
+      displayName: "Owner",
+      contactId: "co-adopt-owner",
+      channelId: "gw-ch-adopt",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    // A divergence-shaped write: the gateway hands down a contact id the
+    // mirror has never seen, for an identity the mirror already parents.
+    const result = upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UADOPT",
+      displayName: "Owner Renamed",
+      contactId: "co-adopt-foreign",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    expect(result?.contact.id).toBe("co-adopt-owner");
+    expect(result?.contact.displayName).toBe("Owner Renamed");
+    expect(channelOwnerById("gw-ch-adopt")).toBe("co-adopt-owner");
+    expect(contactExists("co-adopt-foreign")).toBe(false);
+    expect(channelLessContactCount()).toBe(0);
   });
 
   test("INVITE-binding path (reassignConflictingChannels:true) DOES reparent", () => {
