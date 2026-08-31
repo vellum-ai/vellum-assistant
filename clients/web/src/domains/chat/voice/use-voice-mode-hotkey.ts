@@ -21,7 +21,7 @@ import {
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
 import { type PTTModifier } from "@/utils/ptt-activator";
-import type { PushToTalkActivator } from "@vellumai/ipc-contract";
+import type { VoiceModeChord } from "@vellumai/ipc-contract";
 import {
   type HotkeyEvent,
   subscribeToHotkeyEvents,
@@ -106,7 +106,7 @@ export function useVoiceModeHotkey({
   const setNativeChordRegistered = useCallback((registered: boolean) => {
     nativeChordRegisteredRef.current = registered;
   }, []);
-  const desiredNativeChord = useCallback((): PushToTalkActivator | null => {
+  const desiredNativeChord = useCallback((): VoiceModeChord | null => {
     if (!enabled || !supportsBareModifierVoiceMode()) {
       return null;
     }

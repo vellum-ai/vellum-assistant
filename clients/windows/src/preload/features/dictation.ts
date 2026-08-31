@@ -13,14 +13,14 @@ import {
   HELPER_GET_STATE,
   HELPER_HOTKEY_EVENT,
   HELPER_HOTKEY_REGISTRATION_EVENT,
-  HELPER_HOTKEY_SET_PTT,
+  HELPER_HOTKEY_SET_VOICE_MODE_CHORD,
   HELPER_PING,
   HELPER_RESTART,
   HELPER_STATE_EVENT,
   type DictationPartialEvent,
   type HelperState,
   type HotkeyEvent,
-  type PushToTalkRegistrationResult,
+  type VoiceModeChordRegistrationResult,
   type VellumBridge,
 } from "@vellumai/ipc-contract";
 
@@ -39,7 +39,7 @@ const subscribe =
 /**
  * The Windows native helper's bridge: dictation plus the global voice mode
  * chord. `hotkey.fnPushToTalk` is deliberately absent (Windows has no Fn-key
- * contract); `setPushToTalk` registers the voice mode shortcut's
+ * contract); `setVoiceModeChord` registers the voice mode shortcut's
  * bare-modifier chord with the helper's keyboard hook instead.
  */
 const dictation: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
@@ -51,11 +51,11 @@ const dictation: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
       restart: () => ipcRenderer.invoke(HELPER_RESTART),
       onState: subscribe<HelperState>(HELPER_STATE_EVENT),
       hotkey: {
-        setPushToTalk: (activator) =>
+        setVoiceModeChord: (activator) =>
           ipcRenderer.invoke(
-            HELPER_HOTKEY_SET_PTT,
+            HELPER_HOTKEY_SET_VOICE_MODE_CHORD,
             activator,
-          ) as Promise<PushToTalkRegistrationResult>,
+          ) as Promise<VoiceModeChordRegistrationResult>,
         onRegistrationChange: subscribe<boolean>(
           HELPER_HOTKEY_REGISTRATION_EVENT,
         ),

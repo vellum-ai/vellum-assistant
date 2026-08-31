@@ -7,7 +7,7 @@ namespace Vellum.WindowsHelper.Modules;
 /// a shortcut passing through the chord's keys (Alt+Tab, Ctrl+C over a Ctrl
 /// binding) disarms instead of toggling.
 /// </summary>
-public sealed class PushToTalkChordTracker
+public sealed class ChordTapTracker
 {
     private HashSet<ushort> _required = [];
     private readonly HashSet<ushort> _pressed = [];

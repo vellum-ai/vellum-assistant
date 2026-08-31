@@ -16,22 +16,22 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => onElectron,
 }));
 
-const setNativePushToTalkActivator = mock(async (_activator: unknown) => {
+const setNativeVoiceModeChord = mock(async (_activator: unknown) => {
   return chordRegistrationSucceeds;
 });
 mock.module("@/runtime/hotkey", () => ({
   supportsFnPushToTalk: () => fnSupported,
-  supportsConfigurablePushToTalk: () => chordSupported,
+  supportsVoiceModeChord: () => chordSupported,
   setFnPushToTalkEnabled: async (enable: boolean) =>
     enable ? fnRegistrationSucceeds : true,
-  setNativePushToTalkActivator,
+  setNativeVoiceModeChord,
   subscribeToHotkeyEvents: (callback: (event: HotkeyEvent) => void) => {
     emitHotkeyEvent = callback;
     return () => {
       emitHotkeyEvent = null;
     };
   },
-  subscribeToPushToTalkRegistration: (
+  subscribeToVoiceModeChordRegistration: (
     callback: (active: boolean) => void,
   ) => {
     emitRegistrationChange = callback;
@@ -95,7 +95,7 @@ beforeEach(() => {
   onElectron = false;
   emitHotkeyEvent = null;
   emitRegistrationChange = null;
-  setNativePushToTalkActivator.mockClear();
+  setNativeVoiceModeChord.mockClear();
   startVoiceFromSurface.mockClear();
   stop.mockClear();
   localStorage.removeItem(LS_VOICE_MODE_ACTIVATION_KEY);
@@ -359,7 +359,7 @@ describe("useVoiceModeHotkey", () => {
       renderVoiceModeHotkey();
 
       await waitFor(() => {
-        expect(setNativePushToTalkActivator).toHaveBeenCalledWith({
+        expect(setNativeVoiceModeChord).toHaveBeenCalledWith({
           kind: "modifierOnly",
           modifiers: ["option"],
         });
@@ -373,11 +373,11 @@ describe("useVoiceModeHotkey", () => {
       writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
       renderVoiceModeHotkey();
       await waitFor(() => {
-        expect(setNativePushToTalkActivator).toHaveBeenCalled();
+        expect(setNativeVoiceModeChord).toHaveBeenCalled();
       });
 
-      emitHotkeyEvent?.({ kind: "pushToTalk", state: "down" });
-      emitHotkeyEvent?.({ kind: "pushToTalk", state: "up" });
+      emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
+      emitHotkeyEvent?.({ kind: "voiceModeChord", state: "up" });
 
       expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
@@ -389,7 +389,7 @@ describe("useVoiceModeHotkey", () => {
       writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
       renderVoiceModeHotkey();
       await waitFor(() => {
-        expect(setNativePushToTalkActivator).toHaveBeenCalled();
+        expect(setNativeVoiceModeChord).toHaveBeenCalled();
       });
 
       // The hook sees the same physical press; only the bridge event toggles.
@@ -429,7 +429,7 @@ describe("useVoiceModeHotkey", () => {
       writeVoiceModeActivator({ kind: "modifierOnly", modifiers: ["option"] });
       renderVoiceModeHotkey();
       await waitFor(() => {
-        expect(setNativePushToTalkActivator).toHaveBeenCalled();
+        expect(setNativeVoiceModeChord).toHaveBeenCalled();
       });
 
       window.dispatchEvent(
@@ -453,7 +453,7 @@ describe("useVoiceModeHotkey", () => {
       writeVoiceModeActivator({ kind: "off" });
       renderVoiceModeHotkey();
 
-      emitHotkeyEvent?.({ kind: "pushToTalk", state: "down" });
+      emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
 
       expect(startVoiceFromSurface).not.toHaveBeenCalled();
     });

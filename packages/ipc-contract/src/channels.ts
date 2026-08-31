@@ -51,7 +51,7 @@ export const HELPER_GET_STATE = "vellum:helper:state:get";
 export const HELPER_RESTART = "vellum:helper:restart";
 export const HELPER_STATE_EVENT = "vellum:helper:state";
 export const HELPER_HOTKEY_FN_PTT = "vellum:helper:hotkey:fnPushToTalk";
-export const HELPER_HOTKEY_SET_PTT = "vellum:helper:hotkey:setPushToTalk";
+export const HELPER_HOTKEY_SET_VOICE_MODE_CHORD = "vellum:helper:hotkey:setVoiceModeChord";
 export const HELPER_HOTKEY_EVENT = "vellum:helper:hotkey:event";
 export const HELPER_HOTKEY_REGISTRATION_EVENT =
   "vellum:helper:hotkey:registration";

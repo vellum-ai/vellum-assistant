@@ -78,10 +78,10 @@ const required = VELLUM_BRIDGE_KEYS.filter(
 );
 
 // Windows draws its own menu bar, themes the native caption buttons, and
-// registers a configurable push-to-talk chord with its keyboard hook.
+// registers the voice mode shortcut's chord with its keyboard hook.
 const WINDOWS_ONLY_SURFACE = [
   "helper.hotkey.onRegistrationChange",
-  "helper.hotkey.setPushToTalk",
+  "helper.hotkey.setVoiceModeChord",
   "mainWindow.setTitleBarOverlay",
   "menu.popup",
   "menu.titles",

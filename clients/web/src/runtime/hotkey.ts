@@ -1,4 +1,4 @@
-import type { PushToTalkActivator } from "@vellumai/ipc-contract";
+import type { VoiceModeChord } from "@vellumai/ipc-contract";
 
 import { isElectron, type HotkeyEvent } from "@/runtime/is-electron";
 
@@ -12,23 +12,23 @@ export function supportsFnPushToTalk(): boolean {
   );
 }
 
-export function supportsConfigurablePushToTalk(): boolean {
+export function supportsVoiceModeChord(): boolean {
   return (
     isElectron() &&
-    typeof window.vellum?.helper?.hotkey?.setPushToTalk === "function" &&
+    typeof window.vellum?.helper?.hotkey?.setVoiceModeChord === "function" &&
     typeof window.vellum?.helper?.hotkey?.onEvent === "function"
   );
 }
 
-export async function setNativePushToTalkActivator(
-  activator: PushToTalkActivator | null,
+export async function setNativeVoiceModeChord(
+  activator: VoiceModeChord | null,
 ): Promise<boolean> {
-  if (!supportsConfigurablePushToTalk()) {
+  if (!supportsVoiceModeChord()) {
     return false;
   }
   try {
     const result =
-      await window.vellum!.helper!.hotkey!.setPushToTalk!(activator);
+      await window.vellum!.helper!.hotkey!.setVoiceModeChord!(activator);
     return result.ok;
   } catch {
     return false;
@@ -56,7 +56,7 @@ export function subscribeToHotkeyEvents(
   return subscribe ? subscribe(callback) : () => undefined;
 }
 
-export function subscribeToPushToTalkRegistration(
+export function subscribeToVoiceModeChordRegistration(
   callback: (active: boolean) => void,
 ): () => void {
   const subscribe = window.vellum?.helper?.hotkey?.onRegistrationChange;

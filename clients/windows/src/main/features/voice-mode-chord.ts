@@ -8,10 +8,10 @@ import type {
 import {
   HELPER_HOTKEY_EVENT,
   HELPER_HOTKEY_REGISTRATION_EVENT,
-  HELPER_HOTKEY_SET_PTT,
+  HELPER_HOTKEY_SET_VOICE_MODE_CHORD,
   type HotkeyEvent,
-  type PushToTalkActivator,
-  type PushToTalkRegistrationResult,
+  type VoiceModeChord,
+  type VoiceModeChordRegistrationResult,
 } from "@vellumai/ipc-contract";
 
 import { handle } from "../ipc.client";
@@ -40,14 +40,14 @@ const resultSchema = z.union([
 const eventSchema = z.object({ state: z.enum(["down", "up"]) });
 
 let owner: Electron.WebContents | null = null;
-let registeredActivator: PushToTalkActivator | null = null;
+let registeredActivator: VoiceModeChord | null = null;
 
 const sendState = (state: HotkeyEvent["state"]): void => {
   if (!owner || owner.isDestroyed()) {
     owner = null;
     return;
   }
-  owner.send(HELPER_HOTKEY_EVENT, { kind: "pushToTalk", state });
+  owner.send(HELPER_HOTKEY_EVENT, { kind: "voiceModeChord", state });
 };
 
 const sendRegistrationState = (active: boolean): void => {
@@ -59,10 +59,10 @@ const sendRegistrationState = (active: boolean): void => {
 };
 
 const feature: CapabilityModule<DesktopCapabilityRegistry> = {
-  id: "push-to-talk",
+  id: "voice-mode-chord",
   install: () => {
     const helper = getWindowsHelperClient();
-    helper.onNotification("hotkey.pushToTalk", eventSchema, ({ state }) => {
+    helper.onNotification("hotkey.voiceModeChord", eventSchema, ({ state }) => {
       sendState(state);
     });
     helper.onState((state) => {
@@ -76,31 +76,31 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
         !owner.isDestroyed()
       ) {
         void helper
-          .call("hotkey.setPushToTalk", { activator: registeredActivator })
+          .call("hotkey.setVoiceModeChord", { activator: registeredActivator })
           .then((value) => {
             const result = resultSchema.parse(value);
             sendRegistrationState(result.ok && result.enabled);
           })
           .catch((error: unknown) => {
             sendRegistrationState(false);
-            log.warn("[push-to-talk] failed to restore binding:", error);
+            log.warn("[voice-mode-chord] failed to restore binding:", error);
           });
       }
     });
 
     handle(
-      HELPER_HOTKEY_SET_PTT,
+      HELPER_HOTKEY_SET_VOICE_MODE_CHORD,
       z.tuple([activatorSchema.nullable()]),
-      async ([activator], event): Promise<PushToTalkRegistrationResult> => {
+      async ([activator], event): Promise<VoiceModeChordRegistrationResult> => {
         if (event.sender !== current()?.webContents) {
-          return { ok: false, reason: "Main window owns push-to-talk" };
+          return { ok: false, reason: "Main window owns the voice mode chord" };
         }
         owner = activator ? event.sender : null;
         registeredActivator = activator;
-        let result: PushToTalkRegistrationResult;
+        let result: VoiceModeChordRegistrationResult;
         try {
           result = resultSchema.parse(
-            await helper.call("hotkey.setPushToTalk", { activator }),
+            await helper.call("hotkey.setVoiceModeChord", { activator }),
           );
         } catch (error) {
           sendRegistrationState(false);

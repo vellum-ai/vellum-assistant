@@ -6,19 +6,19 @@ using Vellum.WindowsHelper.Rpc;
 
 namespace Vellum.WindowsHelper.Modules;
 
-public sealed class PushToTalkService : IRpcModule, IDisposable
+public sealed class VoiceModeChordService : IRpcModule, IDisposable
 {
-    public const string SetMethod = "hotkey.setPushToTalk";
-    public const string EventMethod = "hotkey.pushToTalk";
+    public const string SetMethod = "hotkey.setVoiceModeChord";
+    public const string EventMethod = "hotkey.voiceModeChord";
 
     private readonly object _gate = new();
-    private readonly PushToTalkChordTracker _tracker = new();
+    private readonly ChordTapTracker _tracker = new();
     private readonly Channel<string> _events = Channel.CreateUnbounded<string>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
     private readonly Task _outputTask;
     private GlobalKeyboardHook? _hook;
 
-    public PushToTalkService()
+    public VoiceModeChordService()
     {
         _outputTask = DrainEventsAsync();
     }
@@ -152,7 +152,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         out string reason)
     {
         keys = [];
-        reason = "Invalid push-to-talk binding";
+        reason = "Invalid voice mode chord binding";
         RawRequest? request;
         try
         {
@@ -169,7 +169,7 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
         }
         if (request.Activator.Kind != "modifierOnly")
         {
-            reason = "Global push-to-talk supports modifier-only bindings";
+            reason = "The voice mode chord supports modifier-only bindings";
             return false;
         }
 
@@ -245,7 +245,7 @@ internal sealed partial class GlobalKeyboardHook : IDisposable
         _thread = new Thread(() => Run(started))
         {
             IsBackground = true,
-            Name = "Vellum push-to-talk hook",
+            Name = "Vellum voice mode chord hook",
         };
         _thread.Start();
         started.Wait();

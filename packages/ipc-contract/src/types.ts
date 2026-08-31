@@ -170,19 +170,19 @@ export interface ResolvedHotkey {
 
 export type HotkeyEventState = "down" | "up";
 
-export type PushToTalkModifier =
+export type VoiceModeChordModifier =
   | "function"
   | "control"
   | "shift"
   | "option"
   | "command";
 
-export type PushToTalkActivator =
+export type VoiceModeChord =
   | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: PushToTalkModifier[] };
+  | { kind: "modifierOnly"; modifiers: VoiceModeChordModifier[] };
 
 export interface HotkeyEvent {
-  kind: "fnPushToTalk" | "pushToTalk";
+  kind: "fnPushToTalk" | "voiceModeChord";
   state: HotkeyEventState;
 }
 
@@ -190,7 +190,7 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
-export type PushToTalkRegistrationResult = FnPushToTalkResult;
+export type VoiceModeChordRegistrationResult = FnPushToTalkResult;
 
 // ---------------------------------------------------------------------------
 // System permissions

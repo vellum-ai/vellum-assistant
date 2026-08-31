@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 
-import type { PushToTalkActivator } from "@vellumai/ipc-contract";
+import type { VoiceModeChord } from "@vellumai/ipc-contract";
 
 import {
-  setNativePushToTalkActivator,
-  subscribeToPushToTalkRegistration,
-  supportsConfigurablePushToTalk,
+  setNativeVoiceModeChord,
+  subscribeToVoiceModeChordRegistration,
+  supportsVoiceModeChord,
 } from "@/runtime/hotkey";
 import { watchSetting } from "@/utils/local-settings";
 
@@ -31,12 +31,12 @@ import { watchSetting } from "@/utils/local-settings";
  * re-applies it.
  */
 export function useNativeChordRegistration(
-  desiredActivator: () => PushToTalkActivator | null,
+  desiredActivator: () => VoiceModeChord | null,
   settingKey: string,
   onRegistered: (registered: boolean) => void,
 ): void {
   useEffect(() => {
-    if (typeof window === "undefined" || !supportsConfigurablePushToTalk()) {
+    if (typeof window === "undefined" || !supportsVoiceModeChord()) {
       return;
     }
 
@@ -58,7 +58,7 @@ export function useNativeChordRegistration(
           if (appliedKey === nextKey) {
             return;
           }
-          const ok = await setNativePushToTalkActivator(next);
+          const ok = await setNativeVoiceModeChord(next);
           if (!ok) {
             appliedKey = null;
             onRegistered(false);
@@ -85,7 +85,7 @@ export function useNativeChordRegistration(
       settingKey,
       updateDesiredRegistration,
     );
-    const unsubscribeRegistration = subscribeToPushToTalkRegistration(
+    const unsubscribeRegistration = subscribeToVoiceModeChordRegistration(
       (active) => {
         if (!active) {
           appliedKey = null;
@@ -100,7 +100,7 @@ export function useNativeChordRegistration(
       unsubscribeRegistration();
       onRegistered(false);
       if (appliedKey !== NOTHING) {
-        void setNativePushToTalkActivator(null);
+        void setNativeVoiceModeChord(null);
       }
     };
   }, [desiredActivator, settingKey, onRegistered]);

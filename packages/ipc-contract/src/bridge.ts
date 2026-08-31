@@ -46,8 +46,8 @@ import type {
   LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
-  PushToTalkActivator,
-  PushToTalkRegistrationResult,
+  VoiceModeChord,
+  VoiceModeChordRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
   SystemPermissionKind,
@@ -218,15 +218,15 @@ export interface VellumBridge {
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
     /**
-     * Global push-to-talk. macOS exposes the Fn hold; Windows exposes the
-     * configurable chord (`setPushToTalk`) plus registration-state events.
-     * Absent on shells with no global push-to-talk trigger.
+     * The global voice mode tap. macOS exposes the Fn hold; Windows exposes
+     * the shortcut's bare-modifier chord (`setVoiceModeChord`) plus
+     * registration-state events. Absent on shells with no global trigger.
      */
     hotkey?: {
       fnPushToTalk?(enable: boolean): Promise<FnPushToTalkResult>;
-      setPushToTalk?(
-        activator: PushToTalkActivator | null,
-      ): Promise<PushToTalkRegistrationResult>;
+      setVoiceModeChord?(
+        activator: VoiceModeChord | null,
+      ): Promise<VoiceModeChordRegistrationResult>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };

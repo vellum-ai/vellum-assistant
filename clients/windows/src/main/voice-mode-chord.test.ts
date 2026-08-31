@@ -67,7 +67,7 @@ mock.module("./windows-helper", () => ({
   getWindowsHelperClient: () => helper,
 }));
 
-const feature = (await import("./features/push-to-talk")).default;
+const feature = (await import("./features/voice-mode-chord")).default;
 feature.install({} as never);
 
 test("restores the main window binding after a helper restart", async () => {
@@ -79,7 +79,7 @@ test("restores the main window binding after a helper restart", async () => {
   helper.notificationListener!({ state: "down" });
   expect(mainSender.send).toHaveBeenCalledWith(
     "vellum:helper:hotkey:event",
-    { kind: "pushToTalk", state: "down" },
+    { kind: "voiceModeChord", state: "down" },
   );
   helper.stateListener!({ status: "backing-off" });
   expect(mainSender.send).toHaveBeenLastCalledWith(
@@ -91,7 +91,7 @@ test("restores the main window binding after a helper restart", async () => {
   await Promise.resolve();
   expect(helper.calls).toHaveLength(2);
   expect(helper.calls[1]).toEqual({
-    method: "hotkey.setPushToTalk",
+    method: "hotkey.setVoiceModeChord",
     params: { activator },
   });
   expect(mainSender.send).toHaveBeenLastCalledWith(
@@ -101,7 +101,7 @@ test("restores the main window binding after a helper restart", async () => {
 
   expect(await handler!([null], { sender: popoutSender })).toEqual({
     ok: false,
-    reason: "Main window owns push-to-talk",
+    reason: "Main window owns the voice mode chord",
   });
   expect(helper.calls).toHaveLength(2);
 
@@ -136,7 +136,7 @@ test("restores the main window binding after a helper restart", async () => {
   helper.stateListener!({ status: "running" });
   await Promise.resolve();
   expect(helper.calls).toContainEqual({
-    method: "hotkey.setPushToTalk",
+    method: "hotkey.setVoiceModeChord",
     params: { activator: nextActivator },
   });
 });

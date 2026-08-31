@@ -3,7 +3,7 @@ using Vellum.WindowsHelper.Modules;
 
 namespace Vellum.WindowsHelper.Tests;
 
-public static class PushToTalkChordTrackerTests
+public static class ChordTapTrackerTests
 {
     public static void Run()
     {
@@ -19,7 +19,7 @@ public static class PushToTalkChordTrackerTests
 
     private static void CleanTapFires()
     {
-        var tracker = new PushToTalkChordTracker();
+        var tracker = new ChordTapTracker();
         tracker.Configure([0x11]);
         tracker.KeyDown(0x11);
         Assert(tracker.Armed);
@@ -29,7 +29,7 @@ public static class PushToTalkChordTrackerTests
 
     private static void ChordTapFiresOnFirstChordKeyRelease()
     {
-        var tracker = new PushToTalkChordTracker();
+        var tracker = new ChordTapTracker();
         tracker.Configure([0x11, 0x10]);
         tracker.KeyDown(0x11);
         Assert(!tracker.Armed);
@@ -41,7 +41,7 @@ public static class PushToTalkChordTrackerTests
 
     private static void ExtraKeyDisarmsTap()
     {
-        var tracker = new PushToTalkChordTracker();
+        var tracker = new ChordTapTracker();
         tracker.Configure([0x12]);
         tracker.KeyDown(0x12);
         Assert(tracker.Armed);
@@ -54,7 +54,7 @@ public static class PushToTalkChordTrackerTests
     private static void PassingShortcutNeverFires()
     {
         // Ctrl+Shift bound; Ctrl+Shift+T passes through the chord's keys.
-        var tracker = new PushToTalkChordTracker();
+        var tracker = new ChordTapTracker();
         tracker.Configure([0x11, 0x10]);
         tracker.KeyDown(0x11);
         tracker.KeyDown(0x10);
@@ -66,7 +66,7 @@ public static class PushToTalkChordTrackerTests
 
     private static void RearmsAfterPartialRelease()
     {
-        var tracker = new PushToTalkChordTracker();
+        var tracker = new ChordTapTracker();
         tracker.Configure([0x11, 0x10]);
         tracker.KeyDown(0x11);
         tracker.KeyDown(0x10);
@@ -79,7 +79,7 @@ public static class PushToTalkChordTrackerTests
 
     private static void ReconfigurationDisarms()
     {
-        var tracker = new PushToTalkChordTracker();
+        var tracker = new ChordTapTracker();
         tracker.Configure([0x11]);
         tracker.KeyDown(0x11);
         Assert(tracker.Armed);
@@ -90,7 +90,7 @@ public static class PushToTalkChordTrackerTests
 
     private static void RejectsNonModifierGlobalBindings()
     {
-        using var service = new PushToTalkService();
+        using var service = new VoiceModeChordService();
         var parameters = JsonSerializer.SerializeToElement(new
         {
             activator = new
@@ -101,13 +101,13 @@ public static class PushToTalkChordTrackerTests
             },
         });
         var response = service.InvokeAsync(
-            PushToTalkService.SetMethod,
+            VoiceModeChordService.SetMethod,
             parameters,
             CancellationToken.None).AsTask().GetAwaiter().GetResult();
         var json = JsonSerializer.SerializeToElement(response);
         Assert(!json.GetProperty("ok").GetBoolean());
         Assert(json.GetProperty("reason").GetString() ==
-            "Global push-to-talk supports modifier-only bindings");
+            "The voice mode chord supports modifier-only bindings");
     }
 
     private static void KeepsSidedModifiersPressed()
@@ -123,7 +123,7 @@ public static class PushToTalkChordTrackerTests
     {
         if (!condition)
         {
-            throw new Exception("Push-to-talk chord tracker assertion failed");
+            throw new Exception("Chord tap tracker assertion failed");
         }
     }
 }

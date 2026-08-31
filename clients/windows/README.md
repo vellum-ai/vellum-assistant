@@ -24,7 +24,7 @@ bundled `resources/web-dist` over a privileged `app://` protocol.
   text insertion (security model in `native/README.md`).
   `native/Vellum.PreviewHandler` is the Explorer preview and thumbnail handler
   for `.vellum` bundles.
-- `src/main/features/push-to-talk.ts` registers the voice mode shortcut's
+- `src/main/features/voice-mode-chord.ts` registers the voice mode shortcut's
   bare-modifier binding with the helper's low-level keyboard hook, because an
   Electron `globalShortcut` cannot express one. A clean tap (chord down, chord
   key up, nothing else in between) toggles voice mode system-wide; a shortcut
