@@ -30,6 +30,10 @@ import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { platformAvatarUrlsQueryKey } from "@/hooks/use-platform-avatar-urls";
+import {
+  contactVoiceprintsQueryKey,
+  contactVoiceprintsQueryKeyPrefix,
+} from "@/domains/contacts/invalidate-voiceprint-queries";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -391,6 +395,67 @@ describe("useAssistantResourceSync", () => {
               path: { assistant_id: "asst-1" },
             },
           ],
+        ]) as never,
+      );
+    });
+  });
+
+  // The card that reads this keys by contact, and the tag is not per-contact,
+  // so the invalidation has to match by assistant prefix. A key built at the
+  // call site instead of via the domain helper would silently stop matching.
+  test("invalidates contact voiceprint queries on contacts:voiceprints sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(
+      syncEvent([SYNC_TAGS.contactVoiceprints]) as unknown as AssistantEvent,
+    );
+
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          contactVoiceprintsQueryKeyPrefix("asst-1"),
+        ]) as never,
+      );
+    });
+    // The prefix has to be a prefix of the card's real key, or TanStack's
+    // partial match never reaches it.
+    const prefix = contactVoiceprintsQueryKeyPrefix("asst-1");
+    const cardKey = contactVoiceprintsQueryKey("asst-1", "contact-123");
+    expect(cardKey.slice(0, prefix.length)).toEqual(prefix as never);
+  });
+
+  test("reconciles contact voiceprint queries on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          contactVoiceprintsQueryKeyPrefix("asst-1"),
         ]) as never,
       );
     });

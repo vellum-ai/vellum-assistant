@@ -2,9 +2,9 @@
  * Bus consumer for assistant-level resource cache invalidation.
  *
  * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
- * apps, documents, plugins) and discrete SSE events (`home_feed_updated`,
- * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
- * TanStack Query cache invalidations.
+ * apps, documents, plugins, contact voiceprints) and discrete SSE events
+ * (`home_feed_updated`, `relationship_state_updated`, `identity_changed`,
+ * `avatar_updated`) into TanStack Query cache invalidations.
  *
  * Also handles `sse.opened` (non-fresh) to invalidate cached resources on
  * reconnect — the client may have missed `sync_changed` events during the
@@ -32,6 +32,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
+import { invalidateVoiceprintQueries } from "@/domains/contacts/invalidate-voiceprint-queries";
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
@@ -187,6 +188,9 @@ export function useAssistantResourceSync(
             case SYNC_TAGS.pluginsList:
               invalidatePluginQueries(queryClient, assistantId);
               break;
+            case SYNC_TAGS.contactVoiceprints:
+              invalidateVoiceprintQueries(queryClient, assistantId);
+              break;
           }
         }
         return;
@@ -335,6 +339,7 @@ function refreshAssistantResources(
     refetchType,
   });
   invalidatePluginQueries(queryClient, assistantId, undefined, refetchType);
+  invalidateVoiceprintQueries(queryClient, assistantId, refetchType);
   void queryClient.invalidateQueries({
     predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
     refetchType,

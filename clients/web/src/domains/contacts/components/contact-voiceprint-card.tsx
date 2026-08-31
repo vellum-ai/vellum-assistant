@@ -11,6 +11,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactVoiceprintSection } from "@/domains/contacts/components/contact-voiceprint-section";
+import { contactVoiceprintsQueryKey } from "@/domains/contacts/invalidate-voiceprint-queries";
 import {
   deleteVoiceprint,
   enrollVoiceprint,
@@ -38,7 +39,7 @@ export function ContactVoiceprintCard({
   const [error, setError] = useState<string | null>(null);
 
   const queryKey = useMemo(
-    () => ["contact-voiceprints", assistantId, contactId],
+    () => contactVoiceprintsQueryKey(assistantId, contactId),
     [assistantId, contactId],
   );
 

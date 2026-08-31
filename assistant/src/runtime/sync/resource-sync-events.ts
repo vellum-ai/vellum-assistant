@@ -308,3 +308,14 @@ export function publishConversationInferenceProfileChanged(
     originClientId,
   );
 }
+
+/**
+ * A contact's voice profiles changed: enrolled, relabelled, or deleted.
+ *
+ * There is no bespoke event for this. Voice profiles are ordinary persisted
+ * state, so the generic invalidation contract carries them and every client
+ * converges by refetching the list it already knows how to fetch.
+ */
+export function publishContactVoiceprintsChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.contactVoiceprints], originClientId);
+}

@@ -31,6 +31,10 @@ import {
 import { UnsupportedAudioError } from "../../voiceprint/wav.js";
 import { decodeWav } from "../../voiceprint/wav.js";
 import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
+import {
+  getOriginClientId,
+  publishContactVoiceprintsChanged,
+} from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -138,7 +142,11 @@ function handleList(contactId: string) {
   return { ok: true, voiceprints: listVoiceprintsForContact(contactId) };
 }
 
-async function handleEnroll(contactId: string, body: unknown) {
+async function handleEnroll(
+  contactId: string,
+  body: unknown,
+  originClientId?: string,
+) {
   const parsed = EnrollBodySchema.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(`Invalid request body: ${parsed.error.message}`);
@@ -152,6 +160,7 @@ async function handleEnroll(contactId: string, body: unknown) {
       embeddings,
       label: parsed.data.label ?? null,
     });
+    publishContactVoiceprintsChanged(originClientId);
     return { ok: true, voiceprint };
   } catch (err) {
     if (err instanceof VoiceprintError) {
@@ -174,7 +183,11 @@ async function handleIdentify(body: unknown) {
   return { ok: true, ...result };
 }
 
-function handleSetLabel(voiceprintId: string, body: unknown) {
+function handleSetLabel(
+  voiceprintId: string,
+  body: unknown,
+  originClientId?: string,
+) {
   const parsed = LabelBodySchema.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(`Invalid request body: ${parsed.error.message}`);
@@ -183,13 +196,15 @@ function handleSetLabel(voiceprintId: string, body: unknown) {
   if (!updated) {
     throw new NotFoundError(`No voiceprint with id ${voiceprintId}`);
   }
+  publishContactVoiceprintsChanged(originClientId);
   return { ok: true, voiceprint: updated };
 }
 
-function handleDelete(voiceprintId: string) {
+function handleDelete(voiceprintId: string, originClientId?: string) {
   if (!deleteVoiceprint(voiceprintId)) {
     throw new NotFoundError(`No voiceprint with id ${voiceprintId}`);
   }
+  publishContactVoiceprintsChanged(originClientId);
   return { ok: true };
 }
 
@@ -237,8 +252,12 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["contacts", "voiceprints"],
     requestBody: LabelBodySchema,
     responseBody: z.object({ ok: z.boolean(), voiceprint: voiceprintSchema }),
-    handler: ({ pathParams, body }: RouteHandlerArgs) =>
-      handleSetLabel(requireParam(pathParams, "voiceprintId"), body),
+    handler: ({ pathParams, body, headers }: RouteHandlerArgs) =>
+      handleSetLabel(
+        requireParam(pathParams, "voiceprintId"),
+        body,
+        getOriginClientId(headers),
+      ),
   },
   {
     operationId: "delete_voiceprint",
@@ -248,8 +267,11 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Delete a voice profile",
     tags: ["contacts", "voiceprints"],
     responseBody: z.object({ ok: z.boolean() }),
-    handler: ({ pathParams }: RouteHandlerArgs) =>
-      handleDelete(requireParam(pathParams, "voiceprintId")),
+    handler: ({ pathParams, headers }: RouteHandlerArgs) =>
+      handleDelete(
+        requireParam(pathParams, "voiceprintId"),
+        getOriginClientId(headers),
+      ),
   },
   {
     operationId: "list_contact_voiceprints",
@@ -278,7 +300,11 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["contacts", "voiceprints"],
     requestBody: EnrollBodySchema,
     responseBody: z.object({ ok: z.boolean(), voiceprint: voiceprintSchema }),
-    handler: ({ pathParams, body }: RouteHandlerArgs) =>
-      handleEnroll(requireParam(pathParams, "id"), body),
+    handler: ({ pathParams, body, headers }: RouteHandlerArgs) =>
+      handleEnroll(
+        requireParam(pathParams, "id"),
+        body,
+        getOriginClientId(headers),
+      ),
   },
 ];

@@ -15,6 +15,10 @@ export const SYNC_TAGS = {
    *  Invalidated when a token write retires them, so a client holding a
    *  restored prompt for the replaced token stops offering it. */
   acpAuthRecovery: "acp:auth-recovery",
+  /** Contact voice profiles. Published after an enroll, relabel, or delete
+   *  so another client with the same contact open stops showing the profile
+   *  set it fetched before the write. */
+  contactVoiceprints: "contacts:voiceprints",
 } as const;
 
 export type KnownSyncInvalidationTag =
