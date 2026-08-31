@@ -4,6 +4,7 @@ import {
 } from "@vellumai/plugin-api";
 import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
+import { sightFrameAttachmentIdsFromMetadata } from "../../../../../persistence/conversation-types.js";
 import { getDb } from "../../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
@@ -28,6 +29,22 @@ import { memoryDbOrNull } from "../../memory-db.js";
 import { extractMediaBlockMeta } from "../../message-media.js";
 
 const log = getLogger("memory-jobs-worker");
+
+/** True for a row carrying ambient camera frames sampled during a call. */
+function isSightFrameRow(metadata: string | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    return (
+      sightFrameAttachmentIdsFromMetadata(
+        JSON.parse(metadata) as Record<string, unknown>,
+      ).length > 0
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
@@ -66,7 +83,11 @@ export async function rebuildIndexJob(): Promise<void> {
     }
 
     const imageMessages = db
-      .select({ id: messages.id, content: messages.content })
+      .select({
+        id: messages.id,
+        content: messages.content,
+        metadata: messages.metadata,
+      })
       .from(messages)
       .where(
         and(
@@ -76,6 +97,13 @@ export async function rebuildIndexJob(): Promise<void> {
       )
       .all();
     for (const msg of imageMessages) {
+      // Ambient camera frames were persisted with indexing skipped, and a
+      // rebuild must not be the thing that quietly puts them into memory
+      // after all. The row's own tag is the only durable record of that
+      // choice, `skipIndexing` being a per-write option rather than a column.
+      if (isSightFrameRow(msg.metadata)) {
+        continue;
+      }
       const blocks = extractMediaBlockMeta(msg.content);
       for (const block of blocks) {
         enqueueMemoryJob("embed_attachment", {

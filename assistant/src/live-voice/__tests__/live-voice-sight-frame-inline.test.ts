@@ -171,6 +171,23 @@ mock.module("../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
+// Lexical indexing, the host-infrastructure half of the indexing gate that runs
+// whatever the memory config says. Recorded so a row can be shown to stay out
+// of the extraction pipeline entirely.
+import * as messageLexicalNamespace from "../../persistence/job-handlers/message-lexical.js";
+
+const realMessageLexical = { ...messageLexicalNamespace };
+
+const lexicallyIndexed: string[] = [];
+
+mock.module("../../persistence/job-handlers/message-lexical.js", () => ({
+  ...realMessageLexical,
+  enqueueLexicalIndexForMessage: (messageId: string) => {
+    lexicallyIndexed.push(messageId);
+    return realMessageLexical.enqueueLexicalIndexForMessage(messageId);
+  },
+}));
+
 import { Conversation } from "../../daemon/conversation.js";
 import {
   deleteConversation,
@@ -710,6 +727,47 @@ describe("a clone whose materialization fails", () => {
       expect(existsSync(sharedFile)).toBe(true);
     } finally {
       rmSync(sharedFile, { force: true });
+    }
+  });
+});
+
+describe("ambient frames stay out of the indexing pipeline", () => {
+  test("a kept frame is never handed to the indexer", async () => {
+    // The camera sampled it, so indexing would feed extraction a frame every
+    // few seconds of whatever the room contains, and commit those visuals to
+    // memory with no consent surface. The transcript is the record the design
+    // signed off on.
+    const live = liveConversation("Live voice keep not indexed");
+    try {
+      const frame = await uploadFrame("not-indexed.png");
+
+      lexicallyIndexed.length = 0;
+      expect((await persistLiveVoiceSightFrame(live.id, frame)).ok).toBe(true);
+
+      const [row] = getMessages(live.id);
+      expect(row).toBeDefined();
+      expect(lexicallyIndexed).not.toContain(row.id);
+      expect(lexicallyIndexed).toHaveLength(0);
+    } finally {
+      live.dispose();
+    }
+  });
+
+  test("a photo is still indexed, being something the user sent", async () => {
+    // Deliberate user content, and its indexing is pre-existing behavior that
+    // this change must not quietly take away.
+    const live = liveConversation("Live voice photo still indexed");
+    try {
+      const photo = await uploadFrame("still-indexed.png");
+
+      lexicallyIndexed.length = 0;
+      expect((await persistLiveVoicePhoto(live.id, photo)).ok).toBe(true);
+
+      const [row] = getMessages(live.id);
+      expect(row).toBeDefined();
+      expect(lexicallyIndexed).toContain(row.id);
+    } finally {
+      live.dispose();
     }
   });
 });

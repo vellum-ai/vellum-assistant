@@ -502,6 +502,13 @@ export async function persistLiveVoiceSightFrame(
     content: SIGHT_FRAME_MESSAGE_CONTENT,
     metadata: { voiceSessionTurn: true },
     scripted: true,
+    // The camera sampled this, nobody sent it. Indexing it would feed
+    // extraction a frame every few seconds of whatever the room happens to
+    // contain, and commit those visuals to long-term memory with no consent
+    // surface: the design puts keeps in the TRANSCRIPT, which the user can see
+    // and delete, and says nothing about memory. The text half is worthless to
+    // search anyway, every row reading "(camera frame)".
+    skipIndexing: true,
     sightFrameAttachmentIds: [attachmentId],
   });
 }
