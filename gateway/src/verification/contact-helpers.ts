@@ -22,6 +22,7 @@ import { ContactStore } from "../db/contact-store.js";
 import {
   contactChannels as gwContactChannels,
   contacts as gwContacts,
+  ingressInvites as gwIngressInvites,
 } from "../db/schema.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import {
@@ -221,7 +222,9 @@ function reassignChannelContact(params: {
  * Deletion is deliberately narrow so a claim can never destroy real data:
  * the gateway contact must have role `contact`, no principal, no
  * guardian-set auto-approve ceiling (a threshold is guardian-authored
- * configuration, so a contact carrying one is not a disposable seed), and
+ * configuration, so a contact carrying one is not a disposable seed), no
+ * invite rows targeting it (invites are guardian-minted, so any row proves
+ * intent, and `ingress_invites.contact_id` cascades on contact delete), and
  * no remaining channels; the assistant mirror must agree (no channels) and
  * carry no guardian-authored data (notes, persona-file pointer, non-default
  * contact type, or assistant-species metadata). When any check fails, BOTH
@@ -251,6 +254,7 @@ export async function deleteContactIfOrphaned(
     sql`${gwContacts.principalId} IS NULL`,
     sql`${gwContacts.autoApproveThreshold} IS NULL`,
     sql`NOT EXISTS (SELECT 1 FROM ${gwContactChannels} WHERE ${gwContactChannels.contactId} = ${contactId})`,
+    sql`NOT EXISTS (SELECT 1 FROM ${gwIngressInvites} WHERE ${gwIngressInvites.contactId} = ${contactId})`,
   );
 
   try {
@@ -600,13 +604,21 @@ export function applyVerifiedChannelGatewayWrites(params: {
     const gatewayReparented = boundContactId !== row.contactId;
     let orphanedDonorContactId: string | null = null;
     if (gatewayReparented) {
-      orphanedDonorContactId = reassignChannelContact({
-        type: sourceChannel,
-        address,
-        toContactId: boundContactId,
-        displayName: contactDisplayName,
-        now,
-      });
+      // The gateway-truth donor when the row actually moves now. When the
+      // gateway already belongs to the target (a prior bind whose mirror op
+      // failed softly and left the mirror stale), the reassign reports no
+      // donor, but the mirror's recorded owner IS the stripped donor from
+      // that earlier move whose cleanup never ran. Carry it so the
+      // drift-healing bind finishes the GC; the GC's own guards decide
+      // whether the candidate really is a disposable orphan.
+      orphanedDonorContactId =
+        reassignChannelContact({
+          type: sourceChannel,
+          address,
+          toContactId: boundContactId,
+          displayName: contactDisplayName,
+          now,
+        }) ?? row.contactId;
     }
 
     // The assistant channel id may not exist in the gateway DB

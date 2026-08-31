@@ -75,7 +75,9 @@ const { deleteContactIfOrphaned } =
   await import("../verification/contact-helpers.js");
 const { initGatewayDb, getGatewayDb, resetGatewayDb } =
   await import("../db/connection.js");
-const { contacts, contactChannels } = await import("../db/schema.js");
+const { contacts, contactChannels, ingressInvites } =
+  await import("../db/schema.js");
+const { seedInvite } = await import("./helpers/contact-fixtures.js");
 
 function seedContact(opts: {
   id: string;
@@ -131,6 +133,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   const db = getGatewayDb();
+  db.delete(ingressInvites).run();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
   probeImpl = async () => ABSENT_MIRROR;
@@ -177,6 +180,18 @@ describe("eligibility", () => {
     await deleteContactIfOrphaned("guardian");
 
     expect(contactIds().sort()).toEqual(["bound", "guardian"]);
+  });
+
+  test("an invite targeting the contact vetoes the delete", async () => {
+    // Invites are guardian-minted, so any row targeting the contact proves
+    // intent, and ingress_invites.contact_id cascades on contact delete: the
+    // GC must never take live invites down with a supposed seed.
+    seedContact({ id: "invitee" });
+    seedInvite({ contactId: "invitee" });
+
+    await deleteContactIfOrphaned("invitee");
+
+    expect(contactIds()).toEqual(["invitee"]);
   });
 
   test("a remaining channel vetoes the delete", async () => {
