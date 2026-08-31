@@ -98,6 +98,23 @@ const DEFAULT_MENU_MAX_HEIGHT = 280;
 /** Breathing room kept between the open list and the edge it collides with. */
 const COLLISION_PADDING = 12;
 
+/** The gap the list leaves between itself and the field it hangs from. */
+const MENU_SIDE_OFFSET = 4;
+
+/** The frame the rows are drawn in: `p-1` on both edges, plus the border. */
+const MENU_FRAME_HEIGHT = 2 * 4 + 2 * 1;
+
+/**
+ * How far a list at the default cap reaches below the field it hangs from:
+ * the gap above it, its frame, and the rows themselves.
+ *
+ * A host whose own height follows its content, such as a dialog, has no room
+ * under the field until it makes some. Reserving this much there is what lets
+ * the list open inside the host rather than over whatever sits below it.
+ */
+export const SEARCHABLE_SELECT_MENU_REACH =
+  MENU_SIDE_OFFSET + MENU_FRAME_HEIGHT + DEFAULT_MENU_MAX_HEIGHT;
+
 /**
  * A `Select` whose list is filtered by typing: the trigger is the search
  * field, so the whole interaction is one control and one Tab stop.
@@ -399,7 +416,7 @@ export function SearchableSelect({
           </Popover.Anchor>
           <Popover.Content
             align="start"
-            sideOffset={4}
+            sideOffset={MENU_SIDE_OFFSET}
             // The list's natural home is a dialog body, where an unconstrained
             // menu runs past the dialog's own edge and buries its actions.
             // Radix flips it above the field when there is more room there,

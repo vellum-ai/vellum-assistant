@@ -421,7 +421,11 @@ export function ProfileEditorFields({
     return (
       <div className="space-y-4">
         {modelFirstCreate ? (
-          <ProfileCreateModelFirst editor={editor} assistantId={assistantId} />
+          <ProfileCreateModelFirst
+            editor={editor}
+            assistantId={assistantId}
+            reserveListRoom={!flat}
+          />
         ) : (
           createProviderSection
         )}

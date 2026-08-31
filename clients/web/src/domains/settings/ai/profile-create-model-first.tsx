@@ -5,6 +5,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import {
   SearchableSelect,
+  SEARCHABLE_SELECT_MENU_REACH,
   type SearchableSelectOption,
 } from "@vellumai/design-library/components/searchable-select";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -63,10 +64,40 @@ type ModelDraft =
 
 const NO_MODEL: ModelDraft = { kind: "none" };
 
+/** The Model label: one line of `text-body-small-default`, whose leading is 1. */
+const MODEL_LABEL_HEIGHT = 12;
+
+/** The `space-y-1` between the label and the field under it. */
+const MODEL_LABEL_GAP = 4;
+
+/** The field itself, which is an `h-9` input. */
+const MODEL_FIELD_HEIGHT = 36;
+
+/**
+ * Room the Model field and its open list need, measured from the top of the
+ * label to the bottom of a list at its full height.
+ *
+ * The dialog is as tall as what it holds, which before a model is picked is
+ * two lines and a footer. The list is portaled and so is not what it holds:
+ * without this reserve the dialog stays that short and the list opens across
+ * its footer, over the very buttons the flow ends on.
+ */
+const MODEL_LIST_ROOM =
+  MODEL_LABEL_HEIGHT +
+  MODEL_LABEL_GAP +
+  MODEL_FIELD_HEIGHT +
+  SEARCHABLE_SELECT_MENU_REACH;
+
 export interface ProfileCreateModelFirstProps {
   editor: ProfileEditor;
   /** Assistant whose connections the inline connect form writes to. */
   assistantId: string;
+  /**
+   * Whether to keep room under the Model field for its open list. The modal
+   * host is only as tall as its content, so it has to; the settings sidepanel
+   * is already full height and would gain nothing but a gap.
+   */
+  reserveListRoom?: boolean;
 }
 
 /**
@@ -84,6 +115,7 @@ export interface ProfileCreateModelFirstProps {
 export function ProfileCreateModelFirst({
   editor,
   assistantId,
+  reserveListRoom = false,
 }: ProfileCreateModelFirstProps) {
   const { t } = useTranslation("settings");
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
@@ -337,8 +369,15 @@ export function ProfileCreateModelFirst({
   const fieldLabelClass =
     "block text-body-small-default text-[var(--content-tertiary)]";
 
+  // Only while the list is the control on screen. A typed model id has no
+  // list to open, so reserving room for one would leave a hole under it.
+  const roomForList = reserveListRoom && draft.kind !== "custom";
+
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4"
+      style={roomForList ? { minHeight: MODEL_LIST_ROOM } : undefined}
+    >
       <div className="space-y-1">
         <label className={fieldLabelClass}>
           {t("profileCreateModelFirst.modelLabel")}

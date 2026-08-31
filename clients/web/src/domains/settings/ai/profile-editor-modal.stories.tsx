@@ -191,6 +191,23 @@ export const CreateModelFirstListOpen: Story = {
 };
 
 /**
+ * The same open list in a window too short to hold it. The dialog gives back
+ * the room it reserved, the body scrolls instead, and the list caps itself to
+ * what is left, so Cancel and Save stay on screen.
+ */
+export const CreateModelFirstListOpenShort: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  globals: { viewport: { value: "sbShort", isRotated: false } },
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
  * A section with its older versions revealed: the block the unfold row opened
  * is set off by a hairline, and the list stays where the user left it.
  */
