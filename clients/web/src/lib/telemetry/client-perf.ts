@@ -1,6 +1,8 @@
+import { telemetryIngestPost } from "@/generated/daemon/sdk.gen";
+import type { TelemetryJsonValueWritable } from "@/generated/daemon/types.gen";
 import { readAnalyticsConsent } from "@/lib/telemetry/consent";
-import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 import { mintRandomId } from "@/lib/telemetry/random-id";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   detectClientOs,
   isNativeAndroid,
@@ -8,14 +10,37 @@ import {
 } from "@/runtime/platform-detection";
 
 /**
- * Shared emitter for the `client_*` performance families.
+ * Shared transport and emitter for the `client_*` performance families.
  *
- * Rides the existing `watchdog` event shape: `check_name` is a closed union
- * client-side but an open string on the wire, `value` a float magnitude,
- * `detail` an open JSON bag. So a new family lands in the existing
- * `stg_telemetry__watchdog` BigQuery model with no platform work. This is the
- * same ride-an-existing-shape move `memory-telemetry.ts` makes on the
- * `onboarding` event type.
+ * ## Transport: the daemon relay, not platform session ingest
+ *
+ * Events post to the daemon's `/v1/assistants/{id}/telemetry/ingest` route
+ * (the same path `onboarding_research` ships on) and reach the warehouse
+ * through the daemon's outbox under its API key. This is the only transport
+ * that works in every mode the web client runs in: platform session ingest
+ * only ever reaches the platform from cloud web, is aborted client-side in
+ * remote-gateway mode (no session exists), and is gated off in local mode.
+ * The relay also buys outbox durability (retry, offline) over a
+ * fire-and-forget beacon.
+ *
+ * The daemon stamps the base fields: `recorded_at` is daemon receipt time,
+ * not emit time, so timing data must ride `value`/`detail`, never be inferred
+ * from `recorded_at`. The daemon also re-checks the owner's `share_analytics`
+ * consent; the client-side `readAnalyticsConsent()` gate stays so the
+ * viewing user's own opt-out holds regardless of the owner's.
+ *
+ * A boot with no resolved assistant has no relay target and is unreportable;
+ * `sendClientWatchdogEvent` drops silently then. Terminal boot flushes run
+ * after resolution, so in practice this loses only early-pagehide boots and
+ * surfaces that never reach an assistant.
+ *
+ * ## Shape
+ *
+ * Rides the `watchdog` event: `check_name` is a closed union client-side but
+ * an open string on the wire, `value` a float magnitude, `detail` an open
+ * JSON bag (4096 serialized bytes, enforced server-side). The `client_`
+ * prefix keeps the families disjoint from the daemon's own health checks in
+ * the shared `watchdog_raw` table.
  *
  * Detail-bag convention, so the families stay queryable together:
  *   - Values are raw JSON scalars. Numbers stay numbers, booleans stay
@@ -23,11 +48,10 @@ import {
  *     like "unknown": both force a cast before any aggregation.
  *   - An unknown or unavailable value is `null`.
  *   - A bounded nested object is allowed when its keys are a closed set (for
- *     example a per-endpoint-group count map). Unbounded key spaces are not.
+ *     example the boot event's per-mark duration map). Unbounded key spaces
+ *     are not.
  *
- * Metadata only: detail bags carry no conversation or assistant ids and no
- * raw pathnames. Consent is read at emit time through the shared
- * `readAnalyticsConsent()`, the same decision every other emitter gates on.
+ * Metadata only: detail bags carry no conversation ids and no raw pathnames.
  */
 
 /**
@@ -35,12 +59,68 @@ import {
  * queried by name downstream, so the union is closed: a typo is a compile
  * error rather than a silent phantom series.
  */
+/**
+ * A detail bag: JSON-safe values only, typed by the wire contract so a
+ * non-serializable value is a compile error at the emit site.
+ */
+export type ClientPerfDetail = Record<string, TelemetryJsonValueWritable>;
+
 export type ClientPerfCheckName =
+  | "client_boot"
   | "client_switch.transcript_painted"
   | "client_switch.stalled"
   | "client_switch.abandoned"
   | "client_resume.request_count"
+  | "client_resume.to_sse_open"
   | "client_list.drain";
+
+/**
+ * Posts one `client_*` watchdog event through the daemon relay. Fire and
+ * forget: never throws into the caller, so a probe can sit on a hot render
+ * or navigation path without adding a failure mode.
+ *
+ * Precision is the caller's: durations arrive already rounded to whole
+ * milliseconds, scores keep their decimals, and `value` is null when the
+ * event carries no scalar. Consent is also the caller's, checked immediately
+ * before calling, because the families read it at different moments (the
+ * boot family buffers marks and checks at flush; the others check at emit).
+ */
+export function sendClientWatchdogEvent(event: {
+  checkName: ClientPerfCheckName;
+  value: number | null;
+  detail: ClientPerfDetail;
+  /** Deterministic collapse key; omitted, the daemon mints a per-row id. */
+  daemonEventId?: string;
+}): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (assistantId === null) {
+      return;
+    }
+    void telemetryIngestPost({
+      path: { assistant_id: assistantId },
+      body: {
+        type: "watchdog",
+        ...(event.daemonEventId === undefined
+          ? {}
+          : { daemon_event_id: event.daemonEventId }),
+        fields: {
+          check_name: event.checkName,
+          value: event.value,
+          detail: event.detail,
+        },
+      },
+      // The request must survive a pagehide flush.
+      keepalive: true,
+      throwOnError: false,
+    }).catch(() => {});
+  } catch {
+    // Telemetry is best-effort.
+  }
+}
 
 let pageLoadId: string | null = null;
 
@@ -57,8 +137,9 @@ function getPageLoadId(): string {
 let bootId: string | null = null;
 
 /**
- * Registers a boot id so the perf families become joinable with a boot series.
- * Until a caller registers one, `boot_id` is absent from the detail bag.
+ * Registers a boot id so the perf families become joinable with the boot
+ * series. Until a caller registers one, `boot_id` is absent from the detail
+ * bag.
  */
 export function setClientPerfBootId(id: string): void {
   bootId = id;
@@ -77,13 +158,15 @@ function detectSurface(): PerfSurface {
 }
 
 /**
- * Fire-and-forget: never throws into the caller's path, so a perf probe can sit
- * on a hot render or navigation path without adding a failure mode.
+ * Emits one single-magnitude perf event with the shared context stamp
+ * (page-load id, surface, os, boot id). `value` rounds to whole
+ * milliseconds; a family whose value is a score builds its event through
+ * {@link sendClientWatchdogEvent} directly.
  */
 export function emitClientPerfEvent(
   checkName: ClientPerfCheckName,
   value: number,
-  detail?: Record<string, unknown>,
+  detail?: ClientPerfDetail,
 ): void {
   if (typeof window === "undefined") {
     return;
@@ -92,22 +175,17 @@ export function emitClientPerfEvent(
     if (!readAnalyticsConsent()) {
       return;
     }
-    postTelemetryEvents([
-      {
-        type: "watchdog",
-        daemon_event_id: mintRandomId(),
-        recorded_at: Date.now(),
-        check_name: checkName,
-        value: Math.round(value),
-        detail: {
-          page_load_id: getPageLoadId(),
-          surface: detectSurface(),
-          os: detectClientOs(),
-          ...(bootId === null ? {} : { boot_id: bootId }),
-          ...detail,
-        },
+    sendClientWatchdogEvent({
+      checkName,
+      value: Math.round(value),
+      detail: {
+        page_load_id: getPageLoadId(),
+        surface: detectSurface(),
+        os: detectClientOs(),
+        ...(bootId === null ? {} : { boot_id: bootId }),
+        ...detail,
       },
-    ]);
+    });
   } catch {
     // Telemetry is best-effort.
   }
