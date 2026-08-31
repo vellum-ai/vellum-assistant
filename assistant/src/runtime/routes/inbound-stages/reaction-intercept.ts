@@ -40,9 +40,9 @@ import {
   provenanceFromTrustContext,
 } from "../../../persistence/conversation-crud.js";
 import {
+  findConversationByProviderMessageId,
   findInboundEvent,
   findMessageBySourceId,
-  findSlackConversationByMessageTs,
   linkMessage,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
@@ -215,14 +215,16 @@ export async function handleReactionIntercept(
   // reaction is dropped rather than given a conversation of its own.
   // Inbound messages carry their provider id on the event that delivered
   // them. The assistant's own posts open no inbound event, so a reaction on
-  // one is resolved through the `slackMeta` those rows carry.
+  // one is resolved through the envelope those rows carry (`slackMeta` on
+  // Slack, the neutral `providerMeta` everywhere else).
   const targetConversationId = reactedMessageTs
     ? (findMessageBySourceId(
         sourceChannel,
         conversationExternalId,
         reactedMessageTs,
       )?.conversationId ??
-      findSlackConversationByMessageTs(
+      findConversationByProviderMessageId(
+        sourceChannel,
         conversationExternalId,
         reactedMessageTs,
       ))

@@ -72,6 +72,7 @@ mock.module("../../../contacts/contact-store.js", () => ({
 let recordInboundCalls: Array<{ conversationId?: string }> = [];
 let recordedEvent: { eventId: string; conversationId: string } | null = null;
 let outboundTargetConversationId: string | null = null;
+let outboundLookupChannels: string[] = [];
 let storedTarget: { messageId: string; conversationId: string } | null = null;
 mock.module("../../../persistence/delivery-crud.js", () => ({
   recordInbound: (
@@ -89,7 +90,10 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     };
   },
   findMessageBySourceId: () => storedTarget,
-  findSlackConversationByMessageTs: () => outboundTargetConversationId,
+  findConversationByProviderMessageId: (sourceChannel: string) => {
+    outboundLookupChannels.push(sourceChannel);
+    return outboundTargetConversationId;
+  },
   findInboundEvent: () => recordedEvent,
   clearPayload: () => {},
   linkMessage: () => {},
@@ -221,6 +225,7 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     recordInboundCalls = [];
     recordedEvent = null;
     outboundTargetConversationId = null;
+    outboundLookupChannels = [];
     addMessageCalls = 0;
     guardianReplyCalls = [];
     guardianReplyResponse = undefined;
@@ -265,8 +270,8 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(recordInboundCalls).toEqual([{ conversationId: "conv-target" }]);
   });
 
-  test("a reaction on the assistant's own post resolves through slackMeta", async () => {
-    // Outbound posts open no inbound event, so the ts is only on the row.
+  test("a reaction on the assistant's own post resolves through its stored envelope", async () => {
+    // Outbound posts open no inbound event, so the id is only on the row.
     storedTarget = null;
     outboundTargetConversationId = "conv-assistant-post";
 
@@ -281,6 +286,30 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
       { conversationId: "conv-assistant-post" },
     ]);
     expect(addMessageCalls).toBe(1);
+    expect(result).toMatchObject({ accepted: true, duplicate: false });
+    // The outbound-row lookup is scoped to the reaction's own channel: a
+    // Slack reaction never scans another channel's conversations.
+    expect(outboundLookupChannels).toEqual(["slack"]);
+  });
+
+  test("a non-Slack reaction resolves the assistant's post on its own channel", async () => {
+    storedTarget = null;
+    outboundTargetConversationId = "conv-discord-post";
+
+    const params = {
+      ...buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+      sourceChannel: "discord" as const,
+      sourceInterface: undefined,
+    };
+    const result = await handleReactionIntercept(params);
+
+    expect(outboundLookupChannels).toEqual(["discord"]);
+    expect(recordInboundCalls).toEqual([
+      { conversationId: "conv-discord-post" },
+    ]);
     expect(result).toMatchObject({ accepted: true, duplicate: false });
   });
 

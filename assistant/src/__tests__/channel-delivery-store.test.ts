@@ -10,6 +10,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   clearPayload,
+  findConversationByProviderMessageId,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
@@ -120,6 +121,53 @@ describe("channel-delivery-store", () => {
       .get();
 
     expect(row!.sourceMessageId).toBe("src-42");
+  });
+
+  test("resolves an assistant post by its provider id on a non-Slack channel", () => {
+    const chatId = "999000111222333444";
+    const minted = recordInbound("discord", chatId, "evt-seed");
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "assistant-post-1",
+        conversationId: minted.conversationId,
+        role: "assistant",
+        content: "outbound reply",
+        createdAt: Date.now(),
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: chatId,
+            messageId: "1234567890123456789",
+            eventKind: "message",
+          }),
+        }),
+      })
+      .run();
+
+    expect(
+      findConversationByProviderMessageId(
+        "discord",
+        chatId,
+        "1234567890123456789",
+      ),
+    ).toBe(minted.conversationId);
+    // The scan is scoped to the reaction's own channel address: the same id
+    // is invisible from another channel's or another chat's key space.
+    expect(
+      findConversationByProviderMessageId(
+        "telegram",
+        chatId,
+        "1234567890123456789",
+      ),
+    ).toBeNull();
+    expect(
+      findConversationByProviderMessageId(
+        "discord",
+        "other-chat",
+        "1234567890123456789",
+      ),
+    ).toBeNull();
   });
 
   test("same chat on same channel reuses the same conversation", () => {

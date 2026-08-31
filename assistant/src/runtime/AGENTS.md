@@ -205,10 +205,15 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   channel belongs here rather than in a sixth key of its own.
 
   Every channel except Slack writes it: a reaction row carries the whole
-  shape (`inbound-stages/reaction-intercept.ts`), and an edit or a delete
+  shape (`inbound-stages/reaction-intercept.ts`), an edit or a delete
   stamps `editedAt` / `deletedAt` onto whatever the row already said about
   itself through `mergeProviderMessageMetadata`
-  (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`). Slack
+  (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`), and an
+  outbound assistant reply is stamped with a partial envelope at reserve time
+  (`buildAssistantChannelMetadata`) whose `messageId` the post-send
+  reconciliation in `channel-reply-delivery.ts` back-fills from the
+  transport's delivery result, which is what lets a later reaction on the
+  assistant's own post resolve back to its row. Slack
   keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
   onto this shape on read, so the channel-agnostic readers in
   `persistence/delivery-crud.ts` (thread evidence, and finding the

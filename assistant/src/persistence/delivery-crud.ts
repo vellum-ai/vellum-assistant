@@ -51,12 +51,12 @@ const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
 const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
 
 /**
- * Rows examined when locating a Slack message the assistant itself posted.
+ * Rows examined when locating a channel message the assistant itself posted.
  * Bounded on purpose: the scan runs on the inbound path while the gateway
  * waits for its ack, and reactions land on recent messages, so a cap costs
  * almost no recall and keeps the cost flat as the database grows.
  */
-const SLACK_OUTBOUND_TS_MAX_SCAN = 400;
+const OUTBOUND_MESSAGE_ID_MAX_SCAN = 400;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -295,8 +295,8 @@ export function findInboundEvent(
 }
 
 /**
- * The conversation holding the message with this provider id, found by reading
- * the metadata the assistant's own posts carry.
+ * The conversation holding the message with this provider id, found by
+ * reading the metadata the assistant's own posts carry, on any channel.
  *
  * Reads through `readProviderMetadata`, so it matches any channel that
  * describes its rows in the neutral shape as well as Slack's own envelope.
@@ -305,16 +305,18 @@ export function findInboundEvent(
  * event. It cannot see what the assistant posted, because an outbound reply
  * opens no inbound event, so a reaction on the assistant's own message needs
  * this. The search is confined to conversations already bound to the same
- * Slack channel and to the most recent {@link SLACK_OUTBOUND_TS_MAX_SCAN}
- * rows among them; beyond that it gives up and the caller drops the
- * annotation, which is the same outcome as never finding it at all.
+ * channel address and to the most recent
+ * {@link OUTBOUND_MESSAGE_ID_MAX_SCAN} rows among them; beyond that it gives
+ * up and the caller drops the annotation, which is the same outcome as never
+ * finding it at all.
  */
-export function findSlackConversationByMessageTs(
+export function findConversationByProviderMessageId(
+  sourceChannel: string,
   externalChatId: string,
-  channelTs: string,
+  providerMessageId: string,
 ): string | null {
   const db = getDb();
-  const keyPrefix = `${CONVERSATION_KEY_SCOPE}:slack:${externalChatId}`;
+  const keyPrefix = `${CONVERSATION_KEY_SCOPE}:${sourceChannel}:${externalChatId}`;
   const rows = db
     .select({
       conversationId: messages.conversationId,
@@ -338,14 +340,14 @@ export function findSlackConversationByMessageTs(
       ),
     )
     .orderBy(desc(messages.createdAt))
-    .limit(SLACK_OUTBOUND_TS_MAX_SCAN)
+    .limit(OUTBOUND_MESSAGE_ID_MAX_SCAN)
     .all();
 
   for (const row of rows) {
     const meta = readProviderMetadata(row.metadata, { allowFlatLegacy: true });
     if (
       meta?.conversationExternalId === externalChatId &&
-      meta.messageId === channelTs
+      meta.messageId === providerMessageId
     ) {
       return row.conversationId;
     }

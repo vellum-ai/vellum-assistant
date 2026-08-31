@@ -185,7 +185,7 @@ import { setConfig } from "./helpers/set-config.js";
 function makeDeps(
   conversationId: string,
   overrides: {
-    assistantMessageChannel?: "slack" | "vellum" | "telegram";
+    assistantMessageChannel?: "slack" | "vellum" | "telegram" | "discord";
     requesterChatId?: string;
     requesterTimezoneLabel?: string;
     clientTimezone?: string;
@@ -518,7 +518,97 @@ describe("outbound assistant Slack metadata persistence", () => {
 
     const persisted = lastAssistantPersisted();
     expect(persisted.metadata).toBeDefined();
-    // Non-Slack channels must leave the existing metadata shape untouched.
+    // Non-Slack channels must leave the existing metadata shape untouched,
+    // and a vellum turn is not a provider message, so it gets no neutral
+    // envelope either.
     expect(persisted.metadata?.slackMeta).toBeUndefined();
+    expect(persisted.metadata?.providerMeta).toBeUndefined();
+  });
+
+  test("stamps a partial neutral envelope on non-Slack channel replies", async () => {
+    const conversationId = "conv-discord-stamp";
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "discord",
+      requesterChatId: "9990001112223334445",
+    });
+    await handleLlmCallStarted(state, deps);
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("discord reply"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    const providerMetaRaw = persisted.metadata?.providerMeta;
+    expect(typeof providerMetaRaw).toBe("string");
+    const providerMeta = JSON.parse(providerMetaRaw as string) as Record<
+      string,
+      unknown
+    >;
+    expect(providerMeta.source).toBe("discord");
+    expect(providerMeta.conversationExternalId).toBe("9990001112223334445");
+    expect(providerMeta.eventKind).toBe("message");
+    // Persistence runs BEFORE the transport posts the message, so the
+    // provider-assigned id is not yet known; the post-send reconciliation in
+    // `deliverReplyViaCallback` fills `messageId` once the transport returns
+    // it. `threadId` is never stamped: a value there asserts a thread exists.
+    expect(providerMeta.messageId).toBeUndefined();
+    expect(providerMeta.threadId).toBeUndefined();
+    expect(persisted.metadata?.slackMeta).toBeUndefined();
+  });
+
+  test("post-send reconciliation patches messageId into the neutral envelope", async () => {
+    const conversationId = "conv-discord-reconcile";
+    const chatId = "9990001112223334445";
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "discord",
+      requesterChatId: chatId,
+    });
+    await handleLlmCallStarted(state, deps);
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("discord reconciliation reply"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    nextDeliveryTs = "1234567890123456789";
+    await deliverReplyViaCallback(
+      conversationId,
+      chatId,
+      "http://gateway/deliver/discord",
+      "assistant-1",
+      { messageId: persisted.id },
+    );
+
+    const row = persistedRows.find(
+      (candidate) => candidate.id === persisted.id,
+    );
+    expect(typeof row?.metadata).toBe("string");
+    const envelope = JSON.parse(row!.metadata!) as Record<string, unknown>;
+    const reconciled = JSON.parse(envelope.providerMeta as string) as Record<
+      string,
+      unknown
+    >;
+    expect(reconciled.messageId).toBe("1234567890123456789");
+    expect(reconciled.source).toBe("discord");
+    expect(reconciled.conversationExternalId).toBe(chatId);
+
+    // A second delivery report must not overwrite the reconciled id.
+    nextDeliveryTs = "8888888888888888888";
+    await deliverReplyViaCallback(
+      conversationId,
+      chatId,
+      "http://gateway/deliver/discord",
+      "assistant-1",
+      { messageId: persisted.id },
+    );
+    const rowAfter = persistedRows.find(
+      (candidate) => candidate.id === persisted.id,
+    );
+    const metaAfter = JSON.parse(
+      JSON.parse(rowAfter!.metadata!).providerMeta as string,
+    ) as Record<string, unknown>;
+    expect(metaAfter.messageId).toBe("1234567890123456789");
   });
 });
