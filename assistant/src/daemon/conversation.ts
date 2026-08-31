@@ -1186,12 +1186,20 @@ export class Conversation {
           if (
             rowMeta?.eventKind === "message" &&
             rowMeta.deletedAt === undefined &&
-            rowMeta.messageId &&
-            !reactionTargetIndexMemo.has(rowMeta.messageId)
+            rowMeta.messageId
           ) {
             const text = extractTextFromStoredMessageContent(row.content);
             if (text) {
-              reactionTargetIndexMemo.set(rowMeta.messageId, text);
+              // A split reply posts several provider messages from one row;
+              // a reaction may name any of them.
+              for (const id of [
+                rowMeta.messageId,
+                ...(rowMeta.additionalMessageIds ?? []),
+              ]) {
+                if (!reactionTargetIndexMemo.has(id)) {
+                  reactionTargetIndexMemo.set(id, text);
+                }
+              }
             }
           }
         }

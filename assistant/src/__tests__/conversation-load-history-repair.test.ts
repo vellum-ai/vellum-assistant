@@ -645,6 +645,64 @@ describe("loadFromDb history repair", () => {
     expect(allText).not.toContain("secret text");
   });
 
+  test("a reaction naming a later post of a split reply still quotes it", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "Deploy finished cleanly." }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            messageId: "555.1",
+            additionalMessageIds: ["555.2"],
+            eventKind: "message",
+          }),
+        }),
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          providerMeta: JSON.stringify({
+            source: "discord",
+            conversationExternalId: "chan-1",
+            eventKind: "reaction",
+            reaction: {
+              targetMessageId: "555.2",
+              emoji: "tada",
+              op: "added",
+              actorDisplayName: "Alice",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).toContain(":tada:");
+    // The quote resolves through the split reply's later post id: the line
+    // never degrades to the unresolved "an earlier message" form.
+    expect(allText).not.toContain("an earlier message");
+  });
+
   test("the assistant's own reaction row renders second-person", async () => {
     mockConversation = {
       id: "conv-1",

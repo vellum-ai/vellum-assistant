@@ -385,15 +385,14 @@ async function deliverPersistedAssistantMessageViaCallback(
   }
 
   // Compose an `onMessageTs` that reconciles the persisted assistant row's
-  // provider message id once the transport returns the authoritative one.
-  // The assistant row was written BEFORE the gateway POST, so its pre-send
-  // envelope names no id of its own: a Slack row's partial `slackMeta` is
-  // missing `channelTs` and would otherwise be rejected by
-  // `readSlackMetadata`, dropping the row out of chronological/thread-tag
-  // rendering, and a neutral-envelope row is missing the `messageId` a later
-  // reaction on it resolves by. We only act on the FIRST ts (top-level
-  // segment); any subsequent split segments become independent provider
-  // messages with their own ids and are not represented as separate DB rows.
+  // provider message ids as the transport reports the authoritative ones.
+  // The assistant row is written BEFORE the gateway POST, so its pre-send
+  // envelope names no id of its own: a Slack row's partial `slackMeta` lacks
+  // `channelTs` and reads as null through `readSlackMetadata`, and a
+  // neutral-envelope row lacks the `messageId` a later reaction or delete
+  // naming it resolves by. A reply split into several segments reports one
+  // id per posted provider message, all reconciled onto this one row; see
+  // `makeSentMessageIdReconciler` for the per-envelope rules.
   const reconcileOnMessageTs = makeSentMessageIdReconciler(msg.id);
   const callerOnMessageTs = options?.onMessageTs;
   const composedOnMessageTs = (ts: string): void => {
@@ -493,30 +492,29 @@ export async function deliverReplyViaCallback(
 }
 
 /**
- * Build a one-shot `onMessageTs` handler that reconciles the persisted
- * assistant row's provider message id from the transport's authoritative id:
- * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` for a row
- * carrying the neutral envelope (Discord today, any transport whose delivery
- * result reports the sent id). The back-filled id is what lets a later
- * reaction on the assistant's own post resolve back to this row.
+ * Build an `onMessageTs` handler that reconciles the persisted assistant
+ * row's provider message ids from the transport's authoritative ones:
+ * `slackMeta.channelTs` for a Slack row, `providerMeta.messageId` plus
+ * `additionalMessageIds` for a row carrying the neutral envelope (Discord
+ * today, any transport whose delivery result reports the sent id). The
+ * back-filled ids are what let a later reaction or delete naming the
+ * assistant's own post resolve back to this row.
  *
  * Behavior:
- * - Acts only on the first invocation per delivery (subsequent segments
- *   correspond to independent provider messages with their own ids and are
- *   not represented as separate DB rows).
+ * - A Slack row acts on the first invocation only: `channelTs` is the one
+ *   id its envelope names, and later split segments are independent Slack
+ *   messages it cannot carry.
+ * - A neutral-envelope row records every reported id: the first as
+ *   `messageId`, the rest under `additionalMessageIds`, all naming this
+ *   same row. An id already recorded (a redelivery) is skipped.
  * - No-op when the row was persisted with neither envelope (e.g. vellum
- *   outbound), and when the row's id is already present (a prior
- *   reconciliation ran, or backfill stamped the field).
+ *   outbound).
  * - Failures are logged and swallowed so a transient DB error cannot break
  *   the outbound delivery itself.
  */
 function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
-  let applied = false;
+  let slackApplied = false;
   return (ts: string): void => {
-    if (applied) {
-      return;
-    }
-    applied = true;
     if (!ts) {
       return;
     }
@@ -544,6 +542,10 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
         reconcileProviderMessageId(messageId, envelope, ts);
         return;
       }
+      if (slackApplied) {
+        return;
+      }
+      slackApplied = true;
       // If the existing slackMeta already parses cleanly via the strict
       // reader, channelTs is already present (a prior reconciliation ran,
       // or backfill stamped the field) — nothing to do.
@@ -586,10 +588,12 @@ function makeSentMessageIdReconciler(messageId: string): (ts: string) => void {
 }
 
 /**
- * The neutral-envelope arm of the reconciliation: patch the transport's
- * sent-message id into a row's `providerMeta` when the pre-send stamp left
- * it absent. A row whose envelope already names an id, or carries no valid
- * neutral envelope at all, is left untouched.
+ * The neutral-envelope arm of the reconciliation: record the transport's
+ * sent-message id on the row's `providerMeta`. The first reported id
+ * becomes `messageId`; further ids (a reply split at tool boundaries posts
+ * several provider messages) accumulate under `additionalMessageIds`. An id
+ * the envelope already names is a redelivery and is skipped, and a row
+ * carrying no valid neutral envelope is left untouched.
  */
 function reconcileProviderMessageId(
   messageId: string,
@@ -597,10 +601,25 @@ function reconcileProviderMessageId(
   ts: string,
 ): void {
   const providerMeta = readProviderMessageMetadata(envelope.providerMeta);
-  if (providerMeta === null || providerMeta.messageId !== undefined) {
+  if (providerMeta === null) {
+    return;
+  }
+  if (providerMeta.messageId === undefined) {
+    updateMessageMetadata(messageId, {
+      providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),
+    });
+    return;
+  }
+  if (
+    providerMeta.messageId === ts ||
+    providerMeta.additionalMessageIds?.includes(ts)
+  ) {
     return;
   }
   updateMessageMetadata(messageId, {
-    providerMeta: JSON.stringify({ ...providerMeta, messageId: ts }),
+    providerMeta: JSON.stringify({
+      ...providerMeta,
+      additionalMessageIds: [...(providerMeta.additionalMessageIds ?? []), ts],
+    }),
   });
 }

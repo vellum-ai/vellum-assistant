@@ -210,9 +210,10 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   itself through `mergeProviderMessageMetadata`
   (`inbound-stages/edit-intercept.ts`, `inbound-message-handler.ts`), and an
   outbound assistant reply is stamped with a partial envelope at reserve time
-  (`buildAssistantChannelMetadata`) whose `messageId` the post-send
+  (`buildAssistantChannelMetadata`) whose `messageId` (and, for a reply
+  split into several posts, `additionalMessageIds`) the post-send
   reconciliation in `channel-reply-delivery.ts` back-fills from the
-  transport's delivery result, which is what lets a later reaction on the
+  transport's delivery results, which is what lets a later reaction on the
   assistant's own post resolve back to its row. Slack
   keeps writing `slackMeta`, and `readProviderMetadata` maps that envelope
   onto this shape on read, so the channel-agnostic readers in

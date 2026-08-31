@@ -594,7 +594,9 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(reconciled.source).toBe("discord");
     expect(reconciled.conversationExternalId).toBe(chatId);
 
-    // A second delivery report must not overwrite the reconciled id.
+    // A later report with a NEW id is another post of the same reply (a
+    // split at a tool boundary): it lands in additionalMessageIds and the
+    // first id keeps naming the row.
     nextDeliveryTs = "8888888888888888888";
     await deliverReplyViaCallback(
       conversationId,
@@ -610,5 +612,25 @@ describe("outbound assistant Slack metadata persistence", () => {
       JSON.parse(rowAfter!.metadata!).providerMeta as string,
     ) as Record<string, unknown>;
     expect(metaAfter.messageId).toBe("1234567890123456789");
+    expect(metaAfter.additionalMessageIds).toEqual(["8888888888888888888"]);
+
+    // A redelivery reporting an already-recorded id changes nothing.
+    nextDeliveryTs = "8888888888888888888";
+    await deliverReplyViaCallback(
+      conversationId,
+      chatId,
+      "http://gateway/deliver/discord",
+      "assistant-1",
+      { messageId: persisted.id },
+    );
+    const rowRedelivered = persistedRows.find(
+      (candidate) => candidate.id === persisted.id,
+    );
+    const metaRedelivered = JSON.parse(
+      JSON.parse(rowRedelivered!.metadata!).providerMeta as string,
+    ) as Record<string, unknown>;
+    expect(metaRedelivered.additionalMessageIds).toEqual([
+      "8888888888888888888",
+    ]);
   });
 });
