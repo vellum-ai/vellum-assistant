@@ -15,6 +15,10 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import {
+  type ProviderMessageMetadata,
+  providerMessageMetadataSchema,
+} from "../messaging/provider-message-metadata.js";
 import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
   clearPayload,
@@ -197,6 +201,58 @@ function buildReplaySlackInbound(params: {
     ...(Array.isArray(appContext?.entities) && appContext.entities.length > 0
       ? { appContext }
       : {}),
+  };
+}
+
+/**
+ * Read the neutral `channelInbound` envelope the live path captured onto the
+ * payload (via `storeInboundChannelMetadata`), the non-Slack counterpart of
+ * {@link parseStoredSlackInbound}: the EXACT envelope the live turn used, so
+ * the replayed row carries an identical `providerMeta`.
+ */
+function parseStoredChannelInbound(
+  value: unknown,
+): ProviderMessageMetadata | undefined {
+  const parsed = providerMessageMetadataSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Fallback when the payload carries no captured `channelInbound`, the
+ * non-Slack counterpart of {@link buildReplaySlackInbound}: reconstruct the
+ * turn-shaping identity fields from what the payload has always carried
+ * (`messageId` mirrors the live `sourceMessageId ?? externalMessageId`
+ * derivation). Actor fields (`displayName`, `actorExternalId`) stay absent:
+ * no envelope reader keys on them, matching the Slack fallback's
+ * partial-slackMeta stance.
+ */
+function buildReplayChannelInbound(params: {
+  sourceChannel: ChannelId;
+  externalChatId: string | undefined;
+  sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
+  externalMessageId: string | undefined;
+}): ProviderMessageMetadata | undefined {
+  if (params.sourceChannel === "slack" || !params.externalChatId) {
+    return undefined;
+  }
+  const messageId =
+    (typeof params.sourceMetadata?.messageId === "string"
+      ? params.sourceMetadata.messageId
+      : undefined) ?? params.externalMessageId;
+  if (!messageId) {
+    return undefined;
+  }
+  const threadId =
+    typeof params.sourceMetadata?.threadId === "string" &&
+    params.sourceMetadata.threadId.trim().length > 0
+      ? params.sourceMetadata.threadId.trim()
+      : undefined;
+  return {
+    source: params.sourceChannel,
+    conversationExternalId: params.externalChatId,
+    messageId,
+    eventKind: "message",
+    ...(threadId ? { threadId } : {}),
   };
 }
 
@@ -428,6 +484,14 @@ export async function sweepFailedEvents(
         sourceMetadata,
         externalMessageId,
       });
+    const replayChannelInbound =
+      parseStoredChannelInbound(payload.channelInbound) ??
+      buildReplayChannelInbound({
+        sourceChannel,
+        externalChatId,
+        sourceMetadata,
+        externalMessageId,
+      });
     // The captured `slackInbound` carries the sender's Slack `app_context`, so
     // the replayed turn is prepared with the same context block the live turn
     // rendered. Payloads predating the capture simply have none.
@@ -462,6 +526,10 @@ export async function sweepFailedEvents(
       ...(prepared.displayContent !== undefined
         ? { displayContent: prepared.displayContent }
         : {}),
+      // Not idempotency-bearing (the derived key reads only `slackInbound`),
+      // so it is shared with the incomplete-turn re-run below: the completing
+      // row should carry the same `providerMeta` a live turn would.
+      ...(replayChannelInbound ? { channelInbound: replayChannelInbound } : {}),
     };
 
     let userMessageId: string | undefined;

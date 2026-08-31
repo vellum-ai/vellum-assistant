@@ -9,6 +9,7 @@ import { and, desc, eq, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { ChannelId } from "../channels/types.js";
+import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
@@ -55,8 +56,15 @@ const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
  * Bounded on purpose: the scan runs on the inbound path while the gateway
  * waits for its ack, and reactions land on recent messages, so a cap costs
  * almost no recall and keeps the cost flat as the database grows.
+ *
+ * Sized for the candidate density the `providerMeta`/`slackMeta` prefilter
+ * admits: inbound user rows carry `providerMeta` too, so in a busy room
+ * roughly half the candidates are inbound rows the primary
+ * `findMessageBySourceId` path already resolves. The cap is doubled from the
+ * 400 that sufficed when only assistant-authored and reaction rows matched,
+ * keeping the same reachable window of assistant posts.
  */
-const OUTBOUND_MESSAGE_ID_MAX_SCAN = 400;
+const OUTBOUND_MESSAGE_ID_MAX_SCAN = 800;
 
 /**
  * Channels where an inbound thread id scopes the conversation: a Slack thread
@@ -650,6 +658,21 @@ export function storeInboundSlackMetadata(
   slackInbound: SlackInboundMessageMetadata,
 ): void {
   mergeRawPayload(eventId, { slackInbound });
+}
+
+/**
+ * Persist the neutral channel inbound envelope captured at ingress onto the
+ * stored payload, the non-Slack counterpart of
+ * {@link storeInboundSlackMetadata}: the retry sweep replays the turn with
+ * the SAME `channelInbound` the live path used, so the replayed row carries
+ * an identical `providerMeta` envelope. No-ops when the payload was cleared
+ * (e.g. a secret-bearing ingress), so cleared secrets are never resurrected.
+ */
+export function storeInboundChannelMetadata(
+  eventId: string,
+  channelInbound: ProviderMessageMetadata,
+): void {
+  mergeRawPayload(eventId, { channelInbound });
 }
 
 /**

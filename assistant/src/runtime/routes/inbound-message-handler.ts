@@ -46,6 +46,7 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import type { ProviderMessageMetadata } from "../../messaging/provider-message-metadata.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import { editChannelMessage } from "../../messaging/providers/index.js";
 import {
@@ -1417,6 +1418,30 @@ export async function handleChannelInbound({
             }
           : undefined;
 
+      // Neutral per-row envelope for every non-Slack channel, mirroring the
+      // Slack capture above field for field: it is persisted as the row's
+      // `providerMeta` so the row can say which external message it is, in
+      // which thread, from whom. Slack keeps its own `slackMeta` envelope
+      // (mapped to the neutral shape on read), so nothing is stored twice.
+      const inboundActorDisplayName =
+        body.actorDisplayName ?? body.actorUsername;
+      const channelInbound: ProviderMessageMetadata | undefined =
+        sourceChannel !== "slack"
+          ? {
+              source: sourceChannel,
+              conversationExternalId,
+              messageId: sourceMessageId ?? externalMessageId,
+              eventKind: "message",
+              ...(channelThreadId ? { threadId: channelThreadId } : {}),
+              ...(inboundActorDisplayName
+                ? { displayName: inboundActorDisplayName }
+                : {}),
+              ...(trustCtx.requesterExternalUserId
+                ? { actorExternalId: trustCtx.requesterExternalUserId }
+                : {}),
+            }
+          : undefined;
+
       // Account identifier threaded into backfill so `resolveConnection()`
       // can pick the right workspace in multi-account setups. Best-effort:
       // the gateway forwards `sourceMetadata.account` when it knows which
@@ -1524,6 +1549,7 @@ export async function handleChannelInbound({
         clientTimezone: inboundClientTimezone,
         slackBotMentioned,
         slackInbound,
+        channelInbound,
       });
     }
   }

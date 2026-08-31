@@ -28,6 +28,10 @@ import {
 } from "../channels/types.js";
 import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
+  type ProviderMessageMetadata,
+  providerMessageMetadataSchema,
+} from "../messaging/provider-message-metadata.js";
+import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -547,6 +551,38 @@ export function buildSlackMetaForPersistence(params: {
   return writeSlackMetadata(slackMeta);
 }
 
+/**
+ * Build the neutral channel envelope persisted under the `providerMeta` key
+ * on a user message's `metadata` JSON, the non-Slack counterpart of
+ * {@link buildSlackMetaForPersistence}. Returns `null` (do not include the
+ * key) when the turn channel does not match the envelope's own `source`, so
+ * a stale plumbing field can never tag a row with another channel's
+ * identity. Slack turns also return `null`: Slack keeps writing `slackMeta`,
+ * which `readProviderMetadata` maps onto the neutral shape on read, and a
+ * `providerMeta` key on a Slack row would shadow that richer envelope.
+ */
+export function buildProviderMetaForPersistence(params: {
+  channelInbound: ProviderMessageMetadata | undefined;
+  turnChannel: string | undefined;
+}): string | null {
+  const inbound = params.channelInbound;
+  if (!inbound) {
+    return null;
+  }
+  if (
+    params.turnChannel === undefined ||
+    params.turnChannel === "slack" ||
+    params.turnChannel !== inbound.source
+  ) {
+    return null;
+  }
+  const parsed = providerMessageMetadataSchema.safeParse(inbound);
+  if (!parsed.success) {
+    return null;
+  }
+  return JSON.stringify(parsed.data);
+}
+
 // ── EnqueueMessageOptions ────────────────────────────────────────────
 
 /** Options for `enqueueMessage`. Only `content` is required; everything
@@ -887,16 +923,22 @@ export async function persistQueuedMessageBody(
     // never reported.
     const {
       slackInbound: rawSlackInbound,
+      channelInbound: rawChannelInbound,
       scripted: rawScriptedFromMetadata,
       clientOsFromRequest: _rawClientOsFromRequest,
       ...metadataWithoutSlackInbound
     } = (metadata ?? {}) as Record<string, unknown> & {
       slackInbound?: SlackInboundMessageMetadata;
+      channelInbound?: ProviderMessageMetadata;
       scripted?: unknown;
       clientOsFromRequest?: unknown;
     };
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: rawSlackInbound,
+      turnChannel: turnCtx?.userMessageChannel,
+    });
+    const providerMeta = buildProviderMetaForPersistence({
+      channelInbound: rawChannelInbound,
       turnChannel: turnCtx?.userMessageChannel,
     });
 
@@ -978,6 +1020,7 @@ export async function persistQueuedMessageBody(
       ...(clientOsFromRequest ? { clientOsFromRequest: true } : {}),
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
+      ...(providerMeta ? { providerMeta } : {}),
       // Scripted-turn marker, forwarded by `turn-events-store` onto
       // `TurnTelemetryEvent.scripted`. Written LAST so it cannot be
       // half-overwritten by the raw metadata spread above.

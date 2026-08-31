@@ -38,6 +38,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
+  buildProviderMetaForPersistence,
   buildSlackMetaForPersistence,
   CONVERSATION_BUSY_MESSAGE,
   serializePersistedUserMessageContent,
@@ -436,6 +437,10 @@ export async function processMessage(
     slackInbound: options?.slackInbound,
     turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,
   });
+  const providerMeta = buildProviderMetaForPersistence({
+    channelInbound: options?.channelInbound,
+    turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,
+  });
 
   if (slashResult.kind === "unknown") {
     const serverTurnCtx = conversation.getTurnChannelContext();
@@ -469,9 +474,11 @@ export async function processMessage(
         : {}),
       ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
     };
-    const userMetaWithSlack = slackMeta
-      ? { ...serverChannelMeta, slackMeta }
-      : serverChannelMeta;
+    const userMetaWithSlack = {
+      ...serverChannelMeta,
+      ...(slackMeta ? { slackMeta } : {}),
+      ...(providerMeta ? { providerMeta } : {}),
+    };
     const cleanMsg = await createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
     const persisted = await addMessage(
@@ -566,9 +573,11 @@ export async function processMessage(
           }
         : {}),
     };
-    const compactUserMeta = slackMeta
-      ? { ...compactChannelMeta, slackMeta }
-      : compactChannelMeta;
+    const compactUserMeta = {
+      ...compactChannelMeta,
+      ...(slackMeta ? { slackMeta } : {}),
+      ...(providerMeta ? { providerMeta } : {}),
+    };
     const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await addMessage(
       conversationId,
@@ -624,9 +633,11 @@ export async function processMessage(
           }
         : {}),
     };
-    const cleanUserMeta = slackMeta
-      ? { ...cleanChannelMeta, slackMeta }
-      : cleanChannelMeta;
+    const cleanUserMeta = {
+      ...cleanChannelMeta,
+      ...(slackMeta ? { slackMeta } : {}),
+      ...(providerMeta ? { providerMeta } : {}),
+    };
     const cleanMsg = await createUserMessage(content, attachments);
     const persisted = await addMessage(
       conversationId,
@@ -660,9 +671,17 @@ export async function processMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = uuidv7();
-  const persistMetadata = options?.slackInbound
-    ? { slackInbound: options.slackInbound }
-    : undefined;
+  const persistMetadata =
+    options?.slackInbound || options?.channelInbound
+      ? {
+          ...(options.slackInbound
+            ? { slackInbound: options.slackInbound }
+            : {}),
+          ...(options.channelInbound
+            ? { channelInbound: options.channelInbound }
+            : {}),
+        }
+      : undefined;
   const ingressKey = deriveIngressIdempotencyKey(options);
   const { id: messageId, deduplicated } = await conversation.persistUserMessage(
     {
@@ -743,9 +762,17 @@ export async function processMessageInBackground(
   const emitEvent = buildEventEmitter(options?.onEvent);
 
   const requestId = uuidv7();
-  const persistMetadata = options?.slackInbound
-    ? { slackInbound: options.slackInbound }
-    : undefined;
+  const persistMetadata =
+    options?.slackInbound || options?.channelInbound
+      ? {
+          ...(options.slackInbound
+            ? { slackInbound: options.slackInbound }
+            : {}),
+          ...(options.channelInbound
+            ? { channelInbound: options.channelInbound }
+            : {}),
+        }
+      : undefined;
   const ingressKey = deriveIngressIdempotencyKey(options);
   const { id: messageId, deduplicated } = await conversation.persistUserMessage(
     {
