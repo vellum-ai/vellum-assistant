@@ -26,7 +26,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
-import { SEARCHABLE_SELECT_MENU_REACH } from "@vellumai/design-library/components/searchable-select";
+import {
+  SEARCHABLE_SELECT_MENU_MIN_REACH,
+  SEARCHABLE_SELECT_MENU_REACH,
+} from "@vellumai/design-library/components/searchable-select";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
@@ -521,14 +524,27 @@ describe("the room the dialog keeps for the open list", () => {
     ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_REACH);
   });
 
-  test("is given back once a model answers the question", () => {
+  test("still stands once a model answers the question", () => {
+    renderCreate([makeConnection("gemini-key", "gemini")]);
+
+    selectModel("Gemini 3.6 Flash");
+
+    // The field outlives the question, so the list can be reopened over
+    // whatever the answer put under it. A sole connected route is the
+    // shortest of those, and giving the room back here is what let a
+    // reopened list cover the dialog's own footer.
+    expect(candidateCards().length).toBe(1);
+    expect(
+      Number.parseInt(fieldStack().style.minHeight, 10),
+    ).toBeGreaterThanOrEqual(SEARCHABLE_SELECT_MENU_MIN_REACH);
+  });
+
+  test("is given back to the custom id, which has no list to open", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    selectModel("Claude Opus 5");
+    openModelList();
+    clickModelOption("Enter a custom model ID…");
 
-    // The provider step now stands in that room. Anything still reserved
-    // would open as a gap between the flow and the dialog's footer.
-    expect(candidateCards().length).toBeGreaterThan(0);
     expect(fieldStack().style.minHeight).toBe("");
   });
 });

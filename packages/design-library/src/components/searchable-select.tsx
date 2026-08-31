@@ -84,6 +84,18 @@ export interface SearchableSelectProps {
   readonly "aria-labelledby"?: string;
   /** Preferred height cap on the list, in pixels. */
   readonly menuMaxHeight?: number;
+  /**
+   * Element the open list is kept inside, in place of the viewport. Pass the
+   * scrolling box of a host whose own actions sit under the field, such as a
+   * dialog body with a footer below it: the list then caps itself to the room
+   * left in that box, or flips above the field when more of it is there,
+   * instead of opening across the host's edge and over its buttons.
+   *
+   * Opting in is also a promise to keep `SEARCHABLE_SELECT_MENU_MIN_REACH`
+   * of room under the field, since a bounded list never shrinks past the
+   * height it can still be read at.
+   */
+  readonly menuBoundary?: Element | null;
   readonly className?: string;
   /**
    * What the live region says when the number of matches changes. Narrowing
@@ -104,16 +116,49 @@ const MENU_SIDE_OFFSET = 4;
 /** The frame the rows are drawn in: `p-1` on both edges, plus the border. */
 const MENU_FRAME_HEIGHT = 2 * 4 + 2 * 1;
 
+/** One option row: `py-2` around a line of `text-body-medium-default`. */
+const MENU_ROW_HEIGHT = 33;
+
+/** A section heading, which is pinned and so is never scrolled away. */
+const MENU_HEADING_HEIGHT = 22;
+
+/** The pinned block at the foot of the list, with its rule and its margin. */
+const MENU_PINNED_HEIGHT = 42;
+
+/** Rows a bounded list shows before it is quicker to type than to scroll. */
+const MENU_MIN_ROWS = 3;
+
 /**
- * How far a list at the default cap reaches below the field it hangs from:
- * the gap above it, its frame, and the rows themselves.
+ * The shortest list still worth opening: a heading, the pinned row, and three
+ * rows between them. Under that a menu is mostly its own furniture, so a
+ * bounded list takes this much even where its boundary cannot spare it.
+ */
+const MENU_MIN_HEIGHT =
+  MENU_HEADING_HEIGHT + MENU_MIN_ROWS * MENU_ROW_HEIGHT + MENU_PINNED_HEIGHT;
+
+/** Everything a list reaches past its own rows: the gap, the frame, the pad. */
+const MENU_CHROME_HEIGHT =
+  MENU_SIDE_OFFSET + MENU_FRAME_HEIGHT + COLLISION_PADDING;
+
+/**
+ * How far below the field the list reaches at its full height.
  *
  * A host whose own height follows its content, such as a dialog, has no room
- * under the field until it makes some. Reserving this much there is what lets
- * the list open inside the host rather than over whatever sits below it.
+ * under the field until it makes some, and a boundary the host cannot honour
+ * only moves the collision. Reserving this much there is what lets the list
+ * open at the height it is meant to be read at rather than over whatever sits
+ * below it.
  */
 export const SEARCHABLE_SELECT_MENU_REACH =
-  MENU_SIDE_OFFSET + MENU_FRAME_HEIGHT + DEFAULT_MENU_MAX_HEIGHT;
+  MENU_CHROME_HEIGHT + DEFAULT_MENU_MAX_HEIGHT;
+
+/**
+ * The same reach for a list at its floor, for a host that cannot spare the
+ * full one: what it must keep under the field for a bounded list to still be
+ * worth reopening.
+ */
+export const SEARCHABLE_SELECT_MENU_MIN_REACH =
+  MENU_CHROME_HEIGHT + MENU_MIN_HEIGHT;
 
 /**
  * A `Select` whose list is filtered by typing: the trigger is the search
@@ -151,6 +196,7 @@ export function SearchableSelect({
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
   menuMaxHeight = DEFAULT_MENU_MAX_HEIGHT,
+  menuBoundary,
   className,
   announceResults,
 }: SearchableSelectProps) {
@@ -278,6 +324,15 @@ export function SearchableSelect({
     event.stopPropagation();
     close();
   }
+
+  // The frame is part of what the reported height has to hold, so the rows
+  // get what is left of it; without that the list ends flush against the edge
+  // it was told to stay clear of. Floored where a boundary is set, since a
+  // boundary can leave less room than a list can be read in.
+  const availableHeight = `min(${menuMaxHeight}px, calc(var(--radix-popover-content-available-height, ${menuMaxHeight + MENU_FRAME_HEIGHT}px) - ${MENU_FRAME_HEIGHT}px))`;
+  const menuHeight = menuBoundary
+    ? `max(${MENU_MIN_HEIGHT}px, ${availableHeight})`
+    : availableHeight;
 
   const emptyMessage = (
     <p className="px-3 py-2 text-body-medium-default text-[var(--content-tertiary)]">
@@ -409,6 +464,12 @@ export function SearchableSelect({
                   // to a model name nobody meant to edit.
                   event.currentTarget.select();
                 }}
+                onClick={() => {
+                  // Focus opens the list, and a pick leaves the focus where
+                  // it was. Without this the one gesture that means "show me
+                  // the list again" is the one that does nothing.
+                  setOpen(true);
+                }}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={handleFieldKeyDown}
               />
@@ -417,13 +478,15 @@ export function SearchableSelect({
           <Popover.Content
             align="start"
             sideOffset={MENU_SIDE_OFFSET}
-            // The list's natural home is a dialog body, where an unconstrained
+            // The list's natural home is a dialog body, where an unbounded
             // menu runs past the dialog's own edge and buries its actions.
-            // Radix flips it above the field when there is more room there,
-            // and reports what is left as
+            // The empty boundary is Radix's own default, the viewport: a
+            // caller that names a box instead has the list flip or shrink to
+            // stay inside it. Either way Radix reports what is left as
             // `--radix-popover-content-available-height`, which the list caps
             // itself to below.
             collisionPadding={COLLISION_PADDING}
+            collisionBoundary={menuBoundary ?? []}
             data-slot="searchable-select-menu"
             // The edge matters where the list floats over a surface its own
             // colour: without it a menu overlapping a dialog reads as the
@@ -451,9 +514,7 @@ export function SearchableSelect({
           >
             <Combobox.List
               ref={listRef}
-              style={{
-                maxHeight: `min(${menuMaxHeight}px, var(--radix-popover-content-available-height, ${menuMaxHeight}px))`,
-              }}
+              style={{ maxHeight: menuHeight }}
               emptyState={emptyMessage}
             >
               {/* A sticky escape hatch keeps the walkable list non-empty, so

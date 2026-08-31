@@ -50,6 +50,12 @@ export interface ProfileEditorFieldsProps {
    *   is flat and always visible.
    */
   variant: "modal" | "panel";
+  /**
+   * Box the model-first create flow keeps its open list inside, and which it
+   * then keeps tall enough to hold it. The modal host passes its own body;
+   * the sidepanel is already full height and passes nothing.
+   */
+  menuBoundary?: Element | null;
 }
 
 /**
@@ -70,6 +76,7 @@ export function ProfileEditorFields({
   assistantId,
   connections,
   variant,
+  menuBoundary,
 }: ProfileEditorFieldsProps) {
   const { t } = useTranslation("settings");
   const providerAvailability = useProviderPickerAvailability();
@@ -424,7 +431,7 @@ export function ProfileEditorFields({
           <ProfileCreateModelFirst
             editor={editor}
             assistantId={assistantId}
-            reserveListRoom={!flat}
+            menuBoundary={menuBoundary}
           />
         ) : (
           createProviderSection

@@ -191,9 +191,32 @@ export const CreateModelFirstListOpen: Story = {
 };
 
 /**
- * The same open list in a window too short to hold it. The dialog gives back
- * the room it reserved, the body scrolls instead, and the list caps itself to
- * what is left, so Cancel and Save stay on screen.
+ * The list reopened over the answer to its own question. The dialog is at its
+ * shortest here, since one connected route is stated in a line rather than
+ * offered as cards, and the list still opens inside it: bounded by the body,
+ * clear of the footer, and no shorter than it can be read at.
+ */
+export const CreateModelFirstListReopened: Story = {
+  args: { mode: "create", connections: [connection("gemini")] },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    const modelField = await screen.findByRole("combobox", { name: "Model" });
+    await userEvent.click(modelField);
+    await userEvent.click(
+      await screen.findByRole("option", { name: /Gemini 3\.6 Flash/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Only Google Gemini serves this model.")).toBeTruthy(),
+    );
+    await userEvent.click(modelField);
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeTruthy());
+  },
+};
+
+/**
+ * The same open list in a window too short to hold it. The dialog stops at
+ * its own ceiling, the body scrolls instead of growing, and the list caps
+ * itself to what is left of the body, so Cancel and Save stay on screen.
  */
 export const CreateModelFirstListOpenShort: Story = {
   args: { mode: "create" },

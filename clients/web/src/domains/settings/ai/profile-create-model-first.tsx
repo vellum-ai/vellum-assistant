@@ -5,6 +5,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import {
   SearchableSelect,
+  SEARCHABLE_SELECT_MENU_MIN_REACH,
   SEARCHABLE_SELECT_MENU_REACH,
   type SearchableSelectOption,
 } from "@vellumai/design-library/components/searchable-select";
@@ -72,31 +73,37 @@ const MODEL_LABEL_GAP = 4;
 /** The field itself, which is an `h-9` input. */
 const MODEL_FIELD_HEIGHT = 36;
 
+/** The Model field with its label, from the top of one to the foot of the other. */
+const MODEL_FIELD_BLOCK =
+  MODEL_LABEL_HEIGHT + MODEL_LABEL_GAP + MODEL_FIELD_HEIGHT;
+
 /**
  * Room the Model field and its open list need, measured from the top of the
  * label to the bottom of a list at its full height.
  *
- * The dialog is as tall as what it holds, which before a model is picked is
- * two lines and a footer. The list is portaled and so is not what it holds:
- * without this reserve the dialog stays that short and the list opens across
- * its footer, over the very buttons the flow ends on.
+ * The dialog is as tall as what it holds, and the list is portaled, so it is
+ * not what it holds. Bounding the list to the dialog body is what keeps it
+ * off the footer; reserving this is what keeps the body from being too short
+ * to hold the list the bound then caps.
  */
-const MODEL_LIST_ROOM =
-  MODEL_LABEL_HEIGHT +
-  MODEL_LABEL_GAP +
-  MODEL_FIELD_HEIGHT +
-  SEARCHABLE_SELECT_MENU_REACH;
+const MODEL_LIST_ROOM = MODEL_FIELD_BLOCK + SEARCHABLE_SELECT_MENU_REACH;
+
+/** The same room for a list at its floor, which is all a picked model spares. */
+const MODEL_LIST_MIN_ROOM =
+  MODEL_FIELD_BLOCK + SEARCHABLE_SELECT_MENU_MIN_REACH;
 
 export interface ProfileCreateModelFirstProps {
   editor: ProfileEditor;
   /** Assistant whose connections the inline connect form writes to. */
   assistantId: string;
   /**
-   * Whether to keep room under the Model field for its open list. The modal
-   * host is only as tall as its content, so it has to; the settings sidepanel
-   * is already full height and would gain nothing but a gap.
+   * Box the open model list is kept inside, and which the field stack then
+   * keeps tall enough to hold it. Pass the scrolling body of a host whose own
+   * actions sit under the field: a dialog, which is only as tall as its
+   * content and whose footer is the next thing below the field. The settings
+   * sidepanel is already full height and passes nothing.
    */
-  reserveListRoom?: boolean;
+  menuBoundary?: Element | null;
 }
 
 /**
@@ -114,7 +121,7 @@ export interface ProfileCreateModelFirstProps {
 export function ProfileCreateModelFirst({
   editor,
   assistantId,
-  reserveListRoom = false,
+  menuBoundary,
 }: ProfileCreateModelFirstProps) {
   const { t } = useTranslation("settings");
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
@@ -366,19 +373,28 @@ export function ProfileCreateModelFirst({
   const fieldLabelClass =
     "block text-body-small-default text-[var(--content-tertiary)]";
 
-  // Only while the Model field is the whole of the dialog. Once a model is
-  // answered, the provider step and the Advanced disclosure stand in the room
-  // the list needs, so holding it open past that point is white space. The
-  // test is the answer, not whether the list happens to be open: reserving on
-  // the open state would grow and shrink the dialog under the user as they
-  // browse it.
-  const roomForList = reserveListRoom && draft.kind === "none";
+  // Held for as long as there is a list to open, which is every state but the
+  // custom id, where free text has replaced it. It cannot be held only until
+  // a model is picked: the field outlives the question, and reopening it in a
+  // dialog that had given the room back is what put the list over the footer.
+  // How much is held is the part that changes. While the field is the whole
+  // of the dialog the list gets the height it is meant to be read at; once
+  // the answer stands under it, the room drops to the least the list can be
+  // reopened at, so what the flow gained is not paid for in white space. The
+  // test is never whether the list happens to be open, which would grow and
+  // shrink the dialog under the user as they browse it.
+  const roomForList =
+    !menuBoundary || draft.kind === "custom"
+      ? null
+      : draft.kind === "none"
+        ? MODEL_LIST_ROOM
+        : MODEL_LIST_MIN_ROOM;
 
   return (
     <div
       className="space-y-4"
       data-testid="model-first-fields"
-      style={roomForList ? { minHeight: MODEL_LIST_ROOM } : undefined}
+      style={roomForList === null ? undefined : { minHeight: roomForList }}
     >
       <div className="space-y-1">
         <label className={fieldLabelClass}>
@@ -423,6 +439,7 @@ export function ProfileCreateModelFirst({
             aria-label={t("profileCreateModelFirst.modelAriaLabel")}
             placeholder={t("profileCreateModelFirst.modelPlaceholder")}
             emptyText={t("profileCreateModelFirst.modelNoMatches")}
+            menuBoundary={menuBoundary}
             announceResults={(count) =>
               t("profileCreateModelFirst.modelResultsAnnouncement", { count })
             }
