@@ -13128,6 +13128,56 @@ paths:
                 additionalProperties: false
         "403":
           description: Cannot reorder system groups
+  /v1/guardian_form_claim:
+    post:
+      operationId: guardian_form_claim_post
+      summary: Claim a pending guardian form for one submission
+      description:
+        Marks a pending form as answered so a second client submitting the same form writes nothing. Returns
+        claimed=false with reason 'already_claimed' when somebody got there first, 'unknown' when no such form is
+        pending, or 'wrong_kind' when the id belongs to a different form than the caller named. A granted claim carries
+        the window its write has to report back in.
+      tags:
+        - guardian-forms
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: The pending form's id.
+                kind:
+                  description:
+                    The form the caller believes it is writing for. Rejected when it is not what the id is holding. Omitted by
+                    callers that predate the check.
+                  type: string
+              required:
+                - requestId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  claimed:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - already_claimed
+                      - unknown
+                      - wrong_kind
+                  settleMs:
+                    description: How long a granted claim has to report its write back before the waiting call gives up.
+                    type: number
+                required:
+                  - claimed
+                additionalProperties: false
   /v1/guardian-actions/decision:
     post:
       operationId: guardianactions_decision_post
@@ -26506,6 +26556,41 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/resolve_guardian_form:
+    post:
+      operationId: resolve_guardian_form_post
+      summary: Report a guardian form's outcome back to the waiting command
+      description:
+        Called by the writer once it has committed (or failed). Fields other than requestId and error are passed
+        through to the parked caller untouched; an error makes the outcome a failure.
+      tags:
+        - guardian-forms
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: The pending form's id.
+              required:
+                - requestId
+              additionalProperties: {}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resolved:
+                    type: boolean
+                required:
+                  - resolved
+                additionalProperties: false
   /v1/resource-pressure/status:
     get:
       operationId: resourcepressure_status_get

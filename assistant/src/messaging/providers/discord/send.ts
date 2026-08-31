@@ -5,7 +5,10 @@
  * attachments, by calling the Discord REST API directly via ./api.ts.
  */
 
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
+import type {
+  ApprovalUIMetadata,
+  ChannelDeliveryResult,
+} from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
@@ -414,6 +417,44 @@ export async function sendDiscordAttachments(
  * Discord expires it after about ten seconds, so a caller that wants it to
  * persist re-sends on a timer rather than clearing it; there is no stop route.
  */
+/**
+ * The REST path spelling of a reaction emoji: a custom emoji arrives in its
+ * mention form (`<:name:id>` / `<a:name:id>`, the shape inbound forwards)
+ * and the route wants the bare `name:id`; a unicode emoji rides URL-encoded
+ * as itself.
+ */
+function discordReactionPathEmoji(emoji: string): string {
+  const custom = /^<a?:([^:>]+):(\d+)>$/.exec(emoji);
+  return encodeURIComponent(custom ? `${custom[1]}:${custom[2]}` : emoji);
+}
+
+/**
+ * Add or remove the bot's own emoji reaction on a message.
+ *
+ * `PUT`/`DELETE .../reactions/{emoji}/@me` are idempotent (204 either way
+ * when the end state already holds), so no already-reacted special case
+ * exists. Guild channels need the `Add Reactions` permission for `PUT`;
+ * a rejection reports `ok: false` rather than throwing.
+ */
+export async function sendDiscordReaction(
+  chatId: string,
+  emoji: string,
+  messageId: string,
+  action: "add" | "remove",
+): Promise<ChannelDeliveryResult> {
+  const route = `/channels/${chatId}/messages/${messageId}/reactions/${discordReactionPathEmoji(emoji)}/@me`;
+  try {
+    await callDiscordApi(action === "add" ? "PUT" : "DELETE", route);
+    return { ok: true };
+  } catch (err) {
+    log.warn(
+      { err, chatId, messageId, action },
+      "Failed to deliver Discord reaction",
+    );
+    return { ok: false };
+  }
+}
+
 export async function sendDiscordTypingIndicator(
   target: DiscordSendTarget,
 ): Promise<void> {

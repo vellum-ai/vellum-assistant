@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { askQuestionTool } from "../ask-question/ask-question-tool.js";
+import { reactToMessageTool } from "../channel/react-to-message.js";
 import { fileEditTool } from "../filesystem/edit.js";
 import { fileListTool } from "../filesystem/list.js";
 import { fileReadTool } from "../filesystem/read.js";
@@ -140,6 +141,7 @@ describe("derived input_schema", () => {
     hostShellTool,
     requestSystemPermissionTool,
     notifyParentTool,
+    reactToMessageTool,
   ];
 
   test("every registered schema belongs to a tool whose input_schema is derived from it", () => {

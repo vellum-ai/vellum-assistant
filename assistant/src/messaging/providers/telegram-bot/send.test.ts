@@ -30,8 +30,12 @@ mock.module("./api.js", () => ({
 }));
 
 const { TelegramNonRetryableError } = await import("./api.js");
-const { editTelegramMessage, sendTelegramReply, sendTelegramRichReply } =
-  await import("./send.js");
+const {
+  editTelegramMessage,
+  sendTelegramReaction,
+  sendTelegramReply,
+  sendTelegramRichReply,
+} = await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
 
 const approval: ApprovalUIMetadata = {
@@ -320,6 +324,49 @@ describe("telegramTransport topic targeting", () => {
       chat_id: "123",
       action: "typing",
     });
+  });
+});
+
+describe("sendTelegramReaction", () => {
+  test("add sends setMessageReaction with a single emoji entry", async () => {
+    const result = await sendTelegramReaction("12345", "👍", "678", "add");
+    expect(result).toEqual({ ok: true });
+    const calls = callsTo("setMessageReaction");
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({
+      chat_id: "12345",
+      message_id: 678,
+      reaction: [{ type: "emoji", emoji: "👍" }],
+    });
+  });
+
+  test("remove clears the bot's reaction with the empty list", async () => {
+    await sendTelegramReaction("12345", "👍", "678", "remove");
+    const calls = callsTo("setMessageReaction");
+    expect(calls[0][1]).toEqual({
+      chat_id: "12345",
+      message_id: 678,
+      reaction: [],
+    });
+  });
+
+  test("a non-numeric message id reports ok false without calling the API", async () => {
+    const result = await sendTelegramReaction(
+      "12345",
+      "👍",
+      "not-an-id",
+      "add",
+    );
+    expect(result).toEqual({ ok: false });
+    expect(callsTo("setMessageReaction")).toHaveLength(0);
+  });
+
+  test("an API rejection reports ok false without throwing", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new TelegramNonRetryableError("400", "REACTION_INVALID");
+    });
+    const result = await sendTelegramReaction("12345", "👍", "678", "add");
+    expect(result).toEqual({ ok: false });
   });
 });
 

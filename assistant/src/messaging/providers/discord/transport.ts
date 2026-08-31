@@ -11,6 +11,7 @@ import type { DiscordSendTarget } from "./send.js";
 import {
   editDiscordMessage,
   sendDiscordAttachments,
+  sendDiscordReaction,
   sendDiscordReply,
   sendDiscordTypingIndicator,
 } from "./send.js";
@@ -74,6 +75,15 @@ export const discordTransport: ChannelTransport = {
       "Discord typing indicator delivered (direct)",
     );
     return { ok: true };
+  },
+
+  async react(target) {
+    return sendDiscordReaction(
+      target.threadId ?? target.chatId,
+      target.emoji,
+      target.messageId,
+      target.action,
+    );
   },
 
   async deliver(ctx, payload) {

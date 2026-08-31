@@ -6,6 +6,7 @@ import type { ChannelTransport } from "../channel-transport.js";
 import {
   sendSlackAgentSessionStatus,
   sendSlackAttachments,
+  sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
   updateSlackMessage,
@@ -20,6 +21,15 @@ function mutedBlocks(text: string): KnownBlock[] {
 
 export const slackTransport: ChannelTransport = {
   channel: "slack",
+
+  async react(target) {
+    return sendSlackReaction(
+      target.chatId,
+      target.emoji,
+      target.messageId,
+      target.action,
+    );
+  },
 
   async deliver(ctx, payload) {
     const { chatId, text, attachments } = payload;

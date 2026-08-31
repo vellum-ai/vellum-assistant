@@ -29,8 +29,31 @@ import {
   deleteContactCore,
   upsertContactRecordCore,
 } from "./contacts-control-plane-proxy.js";
+import {
+  type GuardianFormWriteOutcome,
+  submitGuardianForm,
+} from "./guardian-form-submit.js";
 
 const log = getLogger("contact-prompt");
+
+/**
+ * Guardian-form kinds these routes write for.
+ *
+ * The daemon opens its forms under the same strings and now rejects a claim
+ * that names a different one, so these are a cross-package contract, pinned on
+ * both sides by `contact-form-kinds.test.ts`.
+ */
+export const ADDRESS_FORM = "contacts.address";
+export const RECORD_FORM = "contacts.record";
+
+/**
+ * The contact forms' own IPC names, which predate the form-agnostic pair. Kept
+ * so a gateway running against an older daemon still reaches routes it serves.
+ */
+const CONTACT_FORM_IPC = {
+  claimOperation: "contact_prompt_claim",
+  resolveOperation: "resolve_contact_prompt",
+} as const;
 
 let store: ContactStore | null = null;
 
@@ -127,25 +150,48 @@ export async function handleContactPromptSubmit(
     }
   }
 
-  // Claim before writing anything, exactly as the record form does: the form
-  // went to every connected client, and an answer landing near the deadline
-  // must stop that deadline rather than race the write it started. A dismissal
-  // takes the same claim, so it cannot report "cancelled" over an answer that
-  // is already committing.
-  const claim = await claimPrompt(requestId);
-  if (!claim.claimed) {
-    log.warn(
-      { requestId, reason: claim.reason },
-      "contact-prompt-submit: submission did not get the claim",
-    );
-    return lostClaimResponse(claim.reason);
-  }
-  const settleDeadline = Date.now() + (claim.settleMs ?? DEFAULT_SETTLE_MS);
-
   if (body.cancelled === true) {
-    await reportFailure(requestId, "Cancelled by user", settleDeadline);
-    return Response.json({ accepted: true });
+    return submitGuardianForm({
+      requestId,
+      cancelled: true,
+      logContext: { form: ADDRESS_FORM },
+      formKind: ADDRESS_FORM,
+      ...CONTACT_FORM_IPC,
+    });
   }
+
+  return submitGuardianForm({
+    requestId,
+    logContext: { form: ADDRESS_FORM, channelType },
+    formKind: ADDRESS_FORM,
+    ...CONTACT_FORM_IPC,
+    write: () =>
+      bindSubmittedChannel({
+        requestId,
+        address,
+        channelType,
+        role,
+        displayName,
+        verify: body.verify,
+      }),
+  });
+}
+
+/**
+ * Bind the address the guardian submitted to a contact and a channel.
+ *
+ * Runs with the form's claim already held, so the submission it is writing is
+ * the only one that will land.
+ */
+async function bindSubmittedChannel(input: {
+  requestId: string;
+  address: string;
+  channelType: string;
+  role?: "guardian" | "trusted-contact" | "unknown";
+  displayName?: string;
+  verify?: boolean;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, address, channelType, role, displayName } = input;
 
   const normalizedAddress =
     canonicalizeInboundIdentity(channelType, address) ?? address.trim();
@@ -250,19 +296,18 @@ export async function handleContactPromptSubmit(
           { channelType, address: normalizedAddress, contactId },
           "contact-prompt-submit: channel resolution failed after upsert",
         );
-        return await channelResolutionError(requestId, settleDeadline);
+        return CHANNEL_RESOLUTION_FAILED;
       }
 
       // Non-guardian is fully resolved by upsertContact; skip the guardian-only
       // Phase 2 channel-creation block below and go straight to resolve.
-      return await resolveContactPrompt({
+      return await channelResolution({
         requestId,
         contactId,
         channelId,
         channelType,
         address: normalizedAddress,
-        verify: body.verify,
-        settleDeadline,
+        verify: input.verify,
       });
     }
 
@@ -325,18 +370,12 @@ export async function handleContactPromptSubmit(
         },
         "contact-prompt-submit: channel already assigned to another contact",
       );
-      await reportFailure(
-        requestId,
-        "Channel already assigned to another contact",
-        settleDeadline,
-      );
-      return Response.json(
-        {
-          accepted: false,
+      return {
+        failure: {
           error: "Channel already assigned to another contact",
+          status: 409,
         },
-        { status: 409 },
-      );
+      };
     } else {
       // Compensating delete — only remove the contact if we created it here.
       // "Stale over lost": delete gateway-first, then mirror the delete to
@@ -378,16 +417,9 @@ export async function handleContactPromptSubmit(
         );
         await rollbackCreatedContact();
 
-        // Notify daemon of failure so the CLI doesn't hang.
-        await reportFailure(
-          requestId,
-          "Failed to create contact channel",
-          settleDeadline,
-        );
-        return Response.json(
-          { accepted: false, error: "Failed to create contact channel" },
-          { status: 500 },
-        );
+        return {
+          failure: { error: "Failed to create contact channel", status: 500 },
+        };
       }
 
       if (!channelId) {
@@ -404,7 +436,7 @@ export async function handleContactPromptSubmit(
             body: { kind: "contacts_changed" },
           } as unknown as Record<string, unknown>).catch(() => {});
         }
-        return await channelResolutionError(requestId, settleDeadline);
+        return CHANNEL_RESOLUTION_FAILED;
       }
 
       log.info(
@@ -414,11 +446,7 @@ export async function handleContactPromptSubmit(
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
-    await reportFailure(requestId, "Database error", settleDeadline);
-    return Response.json(
-      { accepted: false, error: "Database error" },
-      { status: 500 },
-    );
+    return { failure: { error: "Database error", status: 500 } };
   }
 
   // Invalidate the daemon guardian-id/role caches after a gateway-owned
@@ -427,37 +455,26 @@ export async function handleContactPromptSubmit(
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});
 
-  return await resolveContactPrompt({
+  return await channelResolution({
     requestId,
     contactId,
     channelId,
     channelType,
     address: normalizedAddress,
-    verify: body.verify,
-    settleDeadline,
+    verify: input.verify,
   });
 }
 
 /**
- * Notify the daemon of a failed channel resolution and return 500. Used when the
- * gateway DB read can't find the just-bound channel — resolving the prompt with
- * an empty channelId would falsely report success for a channel-less contact.
+ * The read-back after a bind could not find the channel. Reporting an empty
+ * channelId would claim success for a channel-less contact.
  */
-async function channelResolutionError(
-  requestId: string,
-  deadline: number,
-): Promise<Response> {
-  await reportFailure(requestId, "Channel resolution failed", deadline);
-  return Response.json(
-    { accepted: false, error: "Channel resolution failed" },
-    { status: 500 },
-  );
-}
+const CHANNEL_RESOLUTION_FAILED: GuardianFormWriteOutcome = {
+  failure: { error: "Channel resolution failed", status: 500 },
+};
 
 /**
- * Notify the daemon to unblock the waiting contacts/prompt IPC call, then
- * return { accepted: true }. IPC failures are best-effort — they only mean the
- * CLI may time out, not that the write failed.
+ * Whether the guardian left the "mark verified" box checked.
  */
 async function promptWantsVerify(
   requestId: string,
@@ -485,15 +502,18 @@ async function promptWantsVerify(
   }
 }
 
-async function resolveContactPrompt(args: {
+/**
+ * The outcome for a committed channel bind, attesting it first if the guardian
+ * asked for that.
+ */
+async function channelResolution(args: {
   requestId: string;
   contactId: string;
   channelId: string;
   channelType: string;
   address: string;
   verify: boolean | undefined;
-  settleDeadline: number;
-}): Promise<Response> {
+}): Promise<GuardianFormWriteOutcome> {
   const { requestId, contactId, channelId, channelType, address } = args;
   // What the channel ends up as, not what was asked for: the guardian's box
   // decides, an attest that fails leaves it unverified, and an address that
@@ -507,10 +527,9 @@ async function resolveContactPrompt(args: {
       verified = (await getStore().markChannelVerified(channelId)) !== null;
     } catch (err) {
       // The binding is already committed, so a failed attest is a channel that
-      // exists as it stood, not a failed submission. Letting this throw would
-      // skip the report and park the command on a claimed form. Read the
-      // channel rather than assuming unverified: attesting one that already
-      // was leaves it verified, and reporting otherwise invents a downgrade.
+      // exists as it stood, not a failed submission. Read the channel rather
+      // than assuming unverified: attesting one that already was leaves it
+      // verified, and reporting otherwise invents a downgrade.
       log.error(
         { err, requestId, contactId, channelId },
         "contact-prompt-submit: attesting the channel threw",
@@ -526,30 +545,10 @@ async function resolveContactPrompt(args: {
   } else {
     verified = isChannelVerified(contactId, channelId);
   }
-  await reportResolution(
-    requestId,
-    { requestId, contactId, channelId, channelType, address, verified },
-    args.settleDeadline,
-  );
 
-  return Response.json({ accepted: true });
-}
-
-/**
- * Tell the waiting call that its form ended in an error.
- *
- * Claiming a form takes ownership of its ending, so a failure owes the caller
- * a report as much as a success does: a claimed form nobody reports on parks
- * the command until its settle timer, and the client's retry comes back as a
- * duplicate because the claim is still held. Retried on the same window a
- * committed write gets.
- */
-async function reportFailure(
-  requestId: string,
-  error: string,
-  deadline: number,
-): Promise<void> {
-  await reportResolution(requestId, { requestId, error }, deadline);
+  return {
+    resolution: { contactId, channelId, channelType, address, verified },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -608,20 +607,13 @@ export async function handleContactRecordSubmit(
   // mid-submit would otherwise tell the caller nothing happened while the
   // other answer was still on its way to the database.
   if (body.cancelled === true) {
-    const cancelClaim = await claimPrompt(requestId);
-    if (!cancelClaim.claimed) {
-      log.info(
-        { requestId, reason: cancelClaim.reason },
-        "contact-record-submit: dismissal did not get the claim",
-      );
-      return lostClaimResponse(cancelClaim.reason);
-    }
-    await reportResolution(
+    return submitGuardianForm({
       requestId,
-      { requestId, error: "Cancelled by user" },
-      Date.now() + (cancelClaim.settleMs ?? DEFAULT_SETTLE_MS),
-    );
-    return Response.json({ accepted: true });
+      cancelled: true,
+      logContext: { form: RECORD_FORM },
+      formKind: RECORD_FORM,
+      ...CONTACT_FORM_IPC,
+    });
   }
 
   if (
@@ -651,18 +643,41 @@ export async function handleContactRecordSubmit(
   const displayName =
     typeof body.displayName === "string" ? body.displayName : undefined;
 
-  // Claim the form before writing. It is broadcast to every connected client,
-  // so a second one can answer it with the values it was seeded with and
-  // overwrite the answer the guardian actually gave on the first.
-  const claim = await claimPrompt(requestId);
-  if (!claim.claimed) {
-    log.warn(
-      { requestId, operation, reason: claim.reason },
-      "contact-record-submit: submission did not get the claim",
-    );
-    return lostClaimResponse(claim.reason);
-  }
-  const settleDeadline = Date.now() + (claim.settleMs ?? DEFAULT_SETTLE_MS);
+  return submitGuardianForm({
+    requestId,
+    logContext: { form: RECORD_FORM, operation, contactId },
+    formKind: RECORD_FORM,
+    ...CONTACT_FORM_IPC,
+    write: () =>
+      writeContactRecord({
+        requestId,
+        operation,
+        contactId,
+        displayName,
+        notes: body.notes,
+        expectedChannels: Array.isArray(body.expectedChannels)
+          ? body.expectedChannels
+          : undefined,
+      }),
+  });
+}
+
+/**
+ * Apply the record write the guardian confirmed.
+ *
+ * Runs with the form's claim already held: the form is broadcast to every
+ * connected client, so without it a second one could answer with the values it
+ * was seeded with and overwrite the answer the guardian actually gave.
+ */
+async function writeContactRecord(input: {
+  requestId: string;
+  operation: "create" | "update" | "delete";
+  contactId?: string;
+  displayName?: string;
+  notes?: string | null;
+  expectedChannels?: Array<{ type: string; address: string }>;
+}): Promise<GuardianFormWriteOutcome> {
+  const { requestId, operation, contactId, displayName, notes } = input;
 
   try {
     if (operation === "delete") {
@@ -671,14 +686,9 @@ export async function handleContactRecordSubmit(
       // the contact's channels in the same transaction as the delete, so a
       // channel reparented in between (an invite redeemed, say) is not
       // cascaded away unseen.
-      await deleteContactCore(
-        contactId!,
-        Array.isArray(body.expectedChannels)
-          ? body.expectedChannels
-          : undefined,
-      );
+      await deleteContactCore(contactId!, input.expectedChannels);
       log.info({ requestId, contactId }, "contact-record-submit: deleted");
-      return await resolveRecordPrompt(requestId, contactId!, settleDeadline);
+      return { resolution: { contactId } };
     }
 
     const { contact, notesSaved, nothingWritten } =
@@ -686,60 +696,20 @@ export async function handleContactRecordSubmit(
         operation,
         contactId: operation === "update" ? contactId : undefined,
         displayName,
-        notes: body.notes,
+        notes,
       });
     const writtenId = contact.id as string;
     log.info(
       { requestId, contactId: writtenId, operation },
       "contact-record-submit: wrote contact record",
     );
-    return await resolveRecordPrompt(
-      requestId,
-      writtenId,
-      settleDeadline,
-      notesSaved,
-      nothingWritten,
-    );
+    return { resolution: { contactId: writtenId, notesSaved, nothingWritten } };
   } catch (err) {
     if (err instanceof ContactRecordNativeError) {
-      await reportFailure(requestId, err.message, settleDeadline);
-      return Response.json(
-        { accepted: false, error: err.message },
-        { status: err.statusCode },
-      );
+      return { failure: { error: err.message, status: err.statusCode } };
     }
     log.error({ err, requestId, operation }, "contact-record-submit: failed");
-    await reportFailure(requestId, "Contact write failed", settleDeadline);
-    return Response.json(
-      { accepted: false, error: "Contact write failed" },
-      { status: 500 },
-    );
-  }
-}
-
-/**
- * Ask the daemon to claim this form for the caller.
- *
- * A transport failure is a lost claim rather than a granted one: the daemon
- * holds the waiting call, so a write it cannot hear about has nobody to report
- * to. `unreachable` is kept distinct from the daemon's own answers, because a
- * caller that cannot be reached says nothing about whether the form was
- * already answered.
- */
-async function claimPrompt(
-  requestId: string,
-): Promise<{ claimed: boolean; reason?: string; settleMs?: number }> {
-  try {
-    const result = await ipcCallAssistant("contact_prompt_claim", {
-      body: { requestId },
-    });
-    return result as { claimed: boolean; reason?: string; settleMs?: number };
-  } catch (err) {
-    log.warn(
-      { err, requestId },
-      "contact-record-submit: contact_prompt_claim IPC failed; refusing the write",
-    );
-    return { claimed: false, reason: "unreachable" };
+    return { failure: { error: "Contact write failed", status: 500 } };
   }
 }
 
@@ -762,136 +732,4 @@ function isChannelVerified(contactId: string, channelId: string): boolean {
     );
     return false;
   }
-}
-
-/** Fallback settle window when a claim did not carry one. */
-const DEFAULT_SETTLE_MS = 180_000;
-
-/** Longest a submission waits on the callback before answering its client. */
-const RESOLVE_INLINE_BUDGET_MS = 2_000;
-
-/**
- * Report a committed write back to the assistant, retrying until the claimed
- * form's settle window runs out.
- *
- * The write has already happened by the time this runs, so a lost callback is
- * not a lost write: it is a command told its form failed while the contact was
- * created, renamed, or deleted. Retries run to the claim's deadline rather
- * than to a fixed count, which a fast-failing socket would burn through in
- * seconds. The deadline is absolute and dates from the claim, because the
- * window is the daemon's and started running there: measuring it again after
- * a slow write would retry against a form that has already expired.
- *
- * The first couple of seconds are awaited so the ordinary case answers the
- * client with the callback already delivered; past that the retries continue
- * on their own, since the client is waiting on a write that is already done.
- *
- * A callback that never lands leaves the command reporting failure over a
- * write that happened. Nothing here can close that gap, so it is logged at
- * error rather than papered over.
- */
-async function reportResolution(
-  requestId: string,
-  body: Record<string, unknown>,
-  deadline: number,
-): Promise<void> {
-  const inlineUntil = Date.now() + RESOLVE_INLINE_BUDGET_MS;
-
-  const attempt = async (): Promise<boolean> => {
-    try {
-      const result = await ipcCallAssistant("resolve_contact_prompt", { body });
-      if ((result as { resolved?: boolean }).resolved === false) {
-        // The form is gone, so nobody is waiting. Retrying cannot change that.
-        log.warn(
-          { requestId },
-          "contact-prompt: resolve found no pending form; the command may already have given up",
-        );
-      }
-      return true;
-    } catch (err) {
-      log.warn({ err, requestId }, "contact-prompt: resolve failed, retrying");
-      return false;
-    }
-  };
-
-  const retryUntilDeadline = async (waitMs: number): Promise<void> => {
-    let backoff = waitMs;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, backoff));
-      if (Date.now() >= deadline) {
-        break;
-      }
-      if (await attempt()) {
-        return;
-      }
-      backoff = Math.min(backoff * 2, 10_000);
-    }
-    log.error(
-      { requestId, body },
-      "contact-prompt: could not report a committed write to the assistant; the command will report failure over a write that happened",
-    );
-  };
-
-  if (await attempt()) {
-    return;
-  }
-
-  // Inline retries while the client's own wait is still short, then hand the
-  // rest to the background so the response is not held for the whole window.
-  let backoff = 500;
-  while (Date.now() < inlineUntil) {
-    await new Promise((resolve) => setTimeout(resolve, backoff));
-    if (await attempt()) {
-      return;
-    }
-    backoff = Math.min(backoff * 2, 10_000);
-  }
-  void retryUntilDeadline(backoff);
-}
-
-/**
- * The response for a claim the caller did not get.
- *
- * A competing claim is success from this client's side: the form it was
- * showing has been answered, and there is nothing for it to fix. Anything else
- * is a failure it needs to see, so its card stays and can be retried: an
- * unreachable assistant means the submission never landed, and an unknown form
- * means nothing is waiting for one.
- */
-function lostClaimResponse(reason: string | undefined): Response {
-  if (reason === "already_claimed") {
-    return Response.json({ accepted: true, duplicate: true });
-  }
-  if (reason === "unreachable") {
-    return Response.json(
-      { accepted: false, error: "Could not reach the assistant" },
-      { status: 503 },
-    );
-  }
-  return Response.json(
-    {
-      accepted: false,
-      error: "This request is no longer waiting for an answer",
-    },
-    { status: 409 },
-  );
-}
-
-/**
- * Unblock the parked CLI call after a record write. There is no channel to
- * report, so only the contact id crosses back.
- */
-async function resolveRecordPrompt(
-  requestId: string,
-  contactId: string,
-  deadline: number,
-  notesSaved?: boolean,
-  nothingWritten?: boolean,
-): Promise<Response> {
-  await reportResolution(
-    requestId,
-    { requestId, contactId, notesSaved, nothingWritten },
-    deadline,
-  );
-  return Response.json({ accepted: true });
 }

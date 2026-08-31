@@ -1,57 +1,71 @@
 /**
  * IPC routes for the contact forms the guardian fills in their app.
  *
- * Two commands park on this rail:
+ * Two commands park on the guardian-form rail:
  *   - `contacts/prompt` collects a channel address and binds a channel.
  *   - `contacts/record-prompt` confirms a contact record write the assistant
  *     proposed (create, update, delete). No channel is touched.
  *
  * Flow, identical for both:
  *   1. CLI calls the IPC route with what the assistant proposes.
- *   2. Daemon broadcasts a `contact_request` / `contact_record_request` to all
- *      connected clients and parks the call.
+ *   2. The route parks the call in the guardian-form registry, which broadcasts
+ *      a `contact_request` / `contact_record_request` to connected clients.
  *   3. Client shows the form. The guardian edits and submits, or dismisses.
  *   4. Client POSTs to the gateway (`/v1/contacts/prompt/submit` or
  *      `/v1/contacts/record/submit`).
  *   5. Gateway performs the write (gateway owns all contact writes), attesting
  *      the channel when the guardian left the verify box checked.
  *   6. Gateway calls daemon IPC `resolve_contact_prompt`.
- *   7. Daemon resolves the pending promise and the CLI call returns.
+ *   7. The registry resolves the parked promise and the CLI call returns.
  *
  * The daemon only broadcasts and waits. It never writes contacts. That is what
  * makes these commands guardian-gated: with no human at a form, nothing is
  * written, and the call times out.
+ *
+ * The lifecycle itself lives in `runtime/guardian-form-registry.ts` and is
+ * shared by every guardian form. What is here is the contact-shaped half: the
+ * schemas, the two wire events, and the result the CLI gets back.
  */
 
-import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import {
-  CONTACT_FORM_DEFAULT_TIMEOUT_MS,
-  CONTACT_FORM_MAX_TIMEOUT_MS,
-  CONTACT_FORM_SETTLE_MS,
-} from "../../util/contact-form-timeouts.js";
-import { getLogger } from "../../util/logger.js";
+import { GUARDIAN_FORM_MAX_TIMEOUT_MS } from "../../util/guardian-form-timeouts.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  getGuardianFormMeta,
+  type GuardianFormClosedReason,
+  hasUnclaimedGuardianForm,
+  openGuardianForm,
+} from "../guardian-form-registry.js";
+import { claimForm, resolveFormFromCallback } from "./guardian-form-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-const log = getLogger("contact-prompt-routes");
+/**
+ * Form kinds on the guardian-form rail that carry a contact card.
+ *
+ * The gateway names the same kind when it claims, so these two strings are a
+ * cross-package contract. `contact-form-kinds.test.ts` on each side pins the
+ * literals, since a rename on one side alone would only surface as claims
+ * rejected at runtime.
+ */
+export const CONTACT_ADDRESS_FORM_KIND = "contacts.address";
+export const CONTACT_RECORD_FORM_KIND = "contacts.record";
+const ADDRESS_FORM = CONTACT_ADDRESS_FORM_KIND;
+const RECORD_FORM = CONTACT_RECORD_FORM_KIND;
+const CONTACT_FORMS = [ADDRESS_FORM, RECORD_FORM] as const;
 
 const TimeoutMsParam = z
   .number()
   .int()
   .positive()
-  .max(CONTACT_FORM_MAX_TIMEOUT_MS)
+  .max(GUARDIAN_FORM_MAX_TIMEOUT_MS)
   .optional()
   .describe(
     "How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is what ends the wait. Defaults to 300000.",
   );
 
-// ---------------------------------------------------------------------------
-// Pending contact prompts
-// ---------------------------------------------------------------------------
-
+/** What the CLI gets back once the guardian has answered, or not. */
 export interface ContactPromptResult {
   ok: boolean;
   error?: string;
@@ -70,109 +84,17 @@ export interface ContactPromptResult {
   nothingWritten?: boolean;
 }
 
-interface PendingContactPrompt {
-  resolve: (result: ContactPromptResult) => void;
-  timer: ReturnType<typeof setTimeout>;
-  /** When true, the gateway marks the submitted channel verified (manual attest). */
-  verify: boolean;
-  /**
-   * Set once a submission has been accepted for this form. The form is
-   * broadcast to every connected client, so more than one can answer it; the
-   * first claim wins and the rest write nothing.
-   */
-  claimed?: boolean;
-}
-
-const pendingContactPrompts = new Map<string, PendingContactPrompt>();
-
 /**
- * End a form that nobody answered in time, and tell the clients showing it.
- *
- * Without the broadcast the card stays up offering an answer the gateway
- * would refuse: a form that has closed accepts no submission.
- */
-function expireContactPrompt(
-  requestId: string,
-  pending: PendingContactPrompt,
-  error: string,
-): void {
-  pendingContactPrompts.delete(requestId);
-  pending.resolve({ ok: false, error });
-  announceFormClosed(requestId, "timed_out");
-}
-
-/**
- * Tell every client a form is over.
+ * Tell every client a contact form is over.
  *
  * The form went to all of them, so one client answering leaves the others
  * holding a card that would now be refused. This is what takes those down.
  */
-function announceFormClosed(
+function announceContactFormClosed(
   requestId: string,
-  reason: "answered" | "cancelled" | "timed_out",
+  reason: GuardianFormClosedReason,
 ): void {
   broadcastMessage({ type: "contact_form_closed", requestId, reason });
-}
-
-/**
- * Called by the gateway after it writes the contact and channel.
- * Resolves the pending promise so the CLI's `contacts/prompt` IPC call returns.
- */
-function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
-  resolved: boolean;
-} {
-  const {
-    requestId,
-    contactId,
-    channelId,
-    channelType,
-    address,
-    verified,
-    notesSaved,
-    nothingWritten,
-    error,
-  } = body as {
-    requestId: string;
-    contactId?: string;
-    channelId?: string;
-    channelType?: string;
-    address?: string;
-    verified?: boolean;
-    notesSaved?: boolean;
-    nothingWritten?: boolean;
-    error?: string;
-  };
-  const pending = pendingContactPrompts.get(requestId);
-  if (!pending) {
-    log.warn({ requestId }, "resolve_contact_prompt: no pending prompt found");
-    return { resolved: false };
-  }
-
-  clearTimeout(pending.timer);
-  pendingContactPrompts.delete(requestId);
-
-  if (error) {
-    pending.resolve({ ok: false, error });
-  } else {
-    pending.resolve({
-      ok: true,
-      contactId,
-      channelId,
-      channelType,
-      address,
-      verified,
-      notesSaved,
-      nothingWritten,
-    });
-  }
-
-  // Retire the card everywhere it is showing, not just on the client that
-  // answered. An error here covers a dismissal and a failed write alike: the
-  // form is over either way, and the caller is the one told why.
-  announceFormClosed(requestId, error ? "cancelled" : "answered");
-
-  log.info({ requestId, contactId }, "Contact prompt resolved");
-  return { resolved: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +197,7 @@ const ContactPromptFlagsParams = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Handler
+// Handlers
 // ---------------------------------------------------------------------------
 
 async function handleContactPrompt({
@@ -292,43 +214,31 @@ async function handleContactPrompt({
     timeoutMs,
   } = ContactPromptParams.parse(body);
 
-  const requestId = uuid();
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const pending = pendingContactPrompts.get(requestId);
-      if (!pending) {
-        return;
-      }
-      log.warn({ requestId }, "Contact prompt timed out");
-      expireContactPrompt(requestId, pending, "Prompt timed out");
-    }, timeoutMs ?? CONTACT_FORM_DEFAULT_TIMEOUT_MS);
-
-    pendingContactPrompts.set(requestId, {
-      resolve,
-      timer,
-      verify: verify === true,
-    });
-
-    broadcastMessage({
-      type: "contact_request",
-      requestId,
-      channel,
-      placeholder,
-      defaultValue,
-      label,
-      description,
-      role,
-      // The checkbox's initial state. Carried in the broadcast so the form can
-      // show what submitting will do; the client's answer is what the gateway
-      // acts on.
-      verify: verify === true,
-    });
-
-    log.info(
-      { requestId, channel, role, verify: verify === true },
-      "Contact prompt broadcast",
-    );
+  return openGuardianForm<ContactPromptResult>({
+    kind: ADDRESS_FORM,
+    timeoutMs,
+    // Read back by the gateway when a client too old for the checkbox submits
+    // no answer of its own.
+    meta: { verify: verify === true },
+    logContext: { channel, role, verify: verify === true },
+    broadcast: {
+      open: (requestId) =>
+        broadcastMessage({
+          type: "contact_request",
+          requestId,
+          channel,
+          placeholder,
+          defaultValue,
+          label,
+          description,
+          role,
+          // The checkbox's initial state. Carried in the broadcast so the form
+          // can show what submitting will do; the client's answer is what the
+          // gateway acts on.
+          verify: verify === true,
+        }),
+      closed: announceContactFormClosed,
+    },
   });
 }
 
@@ -360,14 +270,11 @@ async function handleContactRecordPrompt({
     return { ok: false, error: `contactId is required to ${operation}` };
   }
 
-  // Clients hold one contact form at a time, so a second broadcast replaces the
-  // first card and leaves its command waiting on a form nobody can answer.
-  // Refusing here fails the second command immediately instead, which is a
-  // caller that can retry rather than one that hangs.
-  const openForm = [...pendingContactPrompts.values()].some(
-    (pending) => !pending.claimed,
-  );
-  if (openForm) {
+  // Clients hold one contact card at a time, so a second broadcast replaces the
+  // first and leaves its command waiting on a form nobody can answer. Refusing
+  // here fails the second command immediately instead, which is a caller that
+  // can retry rather than one that hangs.
+  if (hasUnclaimedGuardianForm(CONTACT_FORMS)) {
     return {
       ok: false,
       error:
@@ -375,97 +282,41 @@ async function handleContactRecordPrompt({
     };
   }
 
-  const requestId = uuid();
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      const pending = pendingContactPrompts.get(requestId);
-      if (!pending) {
-        return;
-      }
-      log.warn({ requestId, operation }, "Contact record prompt timed out");
-      expireContactPrompt(requestId, pending, "Prompt timed out");
-    }, timeoutMs ?? CONTACT_FORM_DEFAULT_TIMEOUT_MS);
-
-    pendingContactPrompts.set(requestId, { resolve, timer, verify: false });
-
-    broadcastMessage({
-      type: "contact_record_request",
-      requestId,
-      operation,
-      contactId,
-      currentDisplayName,
-      currentNotes,
-      channels,
-      displayName,
-      notes,
-      notesProposed,
-      label,
-      description,
-    });
-
-    log.info(
-      { requestId, operation, contactId },
-      "Contact record prompt broadcast",
-    );
+  return openGuardianForm<ContactPromptResult>({
+    kind: RECORD_FORM,
+    timeoutMs,
+    logContext: { operation, contactId },
+    broadcast: {
+      open: (requestId) =>
+        broadcastMessage({
+          type: "contact_record_request",
+          requestId,
+          operation,
+          contactId,
+          currentDisplayName,
+          currentNotes,
+          channels,
+          displayName,
+          notes,
+          notesProposed,
+          label,
+          description,
+        }),
+      closed: announceContactFormClosed,
+    },
   });
 }
 
 /**
- * Claim a pending form so exactly one submission can write.
- *
- * The daemon holds the only record of which forms are still open, so it is the
- * one place that can decide a race between two clients answering the same
- * broadcast. First caller wins; the rest are told why they lost, so the
- * gateway can tell "somebody already answered this" (leave their answer alone)
- * apart from "no such form" (expired or already resolved, so nothing should be
- * written at all).
- */
-function claimContactPrompt({ body = {} }: RouteHandlerArgs): {
-  claimed: boolean;
-  reason?: "already_claimed" | "unknown";
-  settleMs?: number;
-} {
-  const { requestId } = ContactPromptFlagsParams.parse(body);
-  const pending = pendingContactPrompts.get(requestId);
-  if (!pending) {
-    return { claimed: false, reason: "unknown" };
-  }
-  if (pending.claimed) {
-    return { claimed: false, reason: "already_claimed" };
-  }
-  pending.claimed = true;
-  // The form has been answered, so swap its open-for-answers deadline for a
-  // bounded settle window while the write reports back.
-  clearTimeout(pending.timer);
-  pending.timer = setTimeout(() => {
-    log.warn(
-      { requestId },
-      "Contact prompt claimed but never settled; the write never reported back",
-    );
-    expireContactPrompt(
-      requestId,
-      pending,
-      "The submitted form never completed",
-    );
-  }, CONTACT_FORM_SETTLE_MS);
-  // The claimer needs the window too: it is how long its write has to report
-  // back before the caller gives up, and it should not have to know the number
-  // independently.
-  return { claimed: true, settleMs: CONTACT_FORM_SETTLE_MS };
-}
-
-/**
- * Read-only flags for a pending prompt. The gateway asks this after it
- * writes the channel so a `--verify` prompt can attest without the client
- * having to echo the flag on submit.
+ * Read-only flags for a pending prompt. The gateway asks this after it writes
+ * the channel so a `--verify` prompt can attest without the client having to
+ * echo the flag on submit.
  */
 function readContactPromptFlags({ body = {} }: RouteHandlerArgs): {
   verify: boolean;
 } {
   const { requestId } = ContactPromptFlagsParams.parse(body);
-  const pending = pendingContactPrompts.get(requestId);
-  return { verify: pending?.verify === true };
+  return { verify: getGuardianFormMeta(requestId)?.verify === true };
 }
 
 // ---------------------------------------------------------------------------
@@ -527,7 +378,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: resolveContactPrompt,
+    handler: resolveFormFromCallback,
     summary: "Gateway callback: resolve a pending contact prompt",
     description:
       "Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt call.",
@@ -541,7 +392,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    handler: claimContactPrompt,
+    handler: claimForm,
     summary: "Claim a pending contact form for one submission",
     description:
       "Marks a pending form as answered so a second client submitting the same form writes nothing. Returns claimed=false with reason 'already_claimed' when somebody got there first, or 'unknown' when no such form is pending. A granted claim carries the window its write has to report back in.",

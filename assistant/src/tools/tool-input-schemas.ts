@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import { askQuestionInputSchema } from "./ask-question/ask-question-tool.js";
+import { reactToMessageInputSchema } from "./channel/react-to-message.js";
 import { fileEditInputSchema } from "./filesystem/edit.js";
 import { fileListInputSchema } from "./filesystem/list.js";
 import { fileReadInputSchema } from "./filesystem/read.js";
@@ -56,6 +57,7 @@ export const TOOL_INPUT_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   host_file_read: hostFileReadInputSchema,
   host_file_write: hostFileWriteInputSchema,
   notify_parent: notifyParentInputSchema,
+  react_to_message: reactToMessageInputSchema,
   request_system_permission: requestSystemPermissionInputSchema,
 };
 
