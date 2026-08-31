@@ -106,10 +106,9 @@ function openDb(stateDir: string): Database {
 
 function getAccountHistoryId(db: Database, email: string): string | null {
   const row = db
-    .query<
-      { history_id: string },
-      [string]
-    >("SELECT history_id FROM accounts WHERE email = ?")
+    .query<{ history_id: string }, [string]>(
+      "SELECT history_id FROM accounts WHERE email = ?",
+    )
     .get(email);
   return row?.history_id ?? null;
 }
