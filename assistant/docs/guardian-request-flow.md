@@ -80,14 +80,15 @@ it end to end:
   request row (no conversation is generated), and an item still
   actionable for a terminal request is receipted with a loud log line.
 
-Routing policy for the Slack guardian DM: the card message there is a
-delivery projection, not conversation content. Its delivery is not
-paired with any conversation (`conversation-pairing.ts` skips
-guardian.question Slack deliveries), and the Slack DM cold backfill
-skips messages whose ts matches a recorded guardian delivery for the
-chat (`guardian_requests_list_deliveries_by_chat`), so the card never
-enters a Vellum transcript. The in-app homes of a request are the feed
-item and the source conversation's pinned vellum card.
+Routing policy for channel-delivered cards: a guardian card sent to a
+channel chat (Slack, Telegram, Discord, WhatsApp) is a delivery
+projection, not conversation content. Channel deliveries are not
+paired with any conversation (`conversation-pairing.ts` skips every
+non-vellum guardian delivery), and the Slack DM cold backfill skips
+messages whose ts matches a recorded guardian delivery for the chat
+(`guardian_requests_list_deliveries_by_chat`), so a card never enters
+a Vellum transcript. The in-app homes of a request are the feed item
+and the source conversation's pinned vellum card.
 
 ## Cards are not conversation history
 
