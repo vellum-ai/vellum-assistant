@@ -2071,11 +2071,15 @@ export async function drainQueuedReactionRecords(
     "conversationId" | "pendingReactionRecords" | "markHistoryStale"
   >,
 ): Promise<void> {
-  if (ctx.pendingReactionRecords.length === 0) {
-    return;
-  }
-  const queuedReactions = ctx.pendingReactionRecords.splice(0);
+  // Runs inside the loop's finally, where a throw would mask the turn's own
+  // outcome, so every access sits inside the guard: partial Conversation
+  // doubles in loop tests carry no reaction queue, and the optional chain
+  // makes their absence a no-op rather than a TypeError.
   try {
+    if (!ctx.pendingReactionRecords?.length) {
+      return;
+    }
+    const queuedReactions = ctx.pendingReactionRecords.splice(0);
     await persistReactionRecords(ctx.conversationId, queuedReactions);
     ctx.markHistoryStale();
   } catch {
