@@ -69,18 +69,40 @@ numeric drift, so only the forward pass crosses the process boundary.
 ## Thresholds
 
 `DEFAULT_MATCH_THRESHOLD` is the cosine score above which a clip is called a
-match. Measured on real hardware (laptop mic, Electron dev app):
+match. Measured on real hardware (laptop mic, Electron dev app), with two
+humans enrolled separately from their own clips:
 
-| condition                | cosine |
-| ------------------------ | ------ |
-| same human, at the mic   | 0.784  |
-| same human, further away | 0.73   |
-| different speaker        | 0.11   |
+| condition                       | cosine      |
+| ------------------------------- | ----------- |
+| same human, at the mic          | 0.766-0.784 |
+| same human, further away        | 0.73        |
+| **second human, same mic**      | **0.144**   |
+| TTS voice                       | 0.064-0.11  |
 
-Distance alone eats most of the headroom above a 0.70 cutoff, so **0.70 is
-not a settled number**. The measurement that would settle it — two real
-humans of similar voice on the same mic — has not been taken. A TTS voice
-scores 0.11 and is not a plausible confuser, so it cannot stand in.
+The second human is the row that settles it, and it settles it in the
+opposite direction to the one originally feared. A real person scores 0.144
+against another person's profile, barely above a TTS voice at 0.064. Speaker
+confusion is not the constraint.
+
+What is the constraint is the genuine speaker's own variability. The gap runs
+from 0.73 (worst genuine) down to 0.144 (best impostor), and every realistic
+degradation — distance, a worse mic, background noise, a cold — moves a
+genuine score DOWN rather than an impostor's up. A 0.70 cutoff sat 0.03 under
+the worst genuine observation and 0.586 over the best impostor: calibrated
+against a risk that does not exist, one bad room away from rejecting the
+enrolled speaker.
+
+Hence **0.50**. The equal-margin midpoint of the measured gap is 0.437, so
+0.50 is already biased toward rejecting impostors while keeping ~0.23 of room
+under the worst genuine score. The asymmetry is deliberate: a voiceprint is
+context and never an access decision, so a false accept mislabels a speaker
+while a false reject makes the feature look broken.
+
+Two speakers is still a thin sample. The open question is a same-gender,
+same-accent confuser, which has not been measured; given the size of the gap
+it would have to be extraordinary to threaten 0.50, but it is the row worth
+adding next. Also unmeasured: the second speaker's own same-speaker score,
+and the reverse direction against their profile.
 
 Enrolling from more than one clip is the cheapest accuracy win available:
 the store averages any number of clips, and averaging removes room, mic and

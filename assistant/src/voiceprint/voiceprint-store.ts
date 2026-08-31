@@ -24,13 +24,27 @@ import {
 /**
  * Default match cutoff.
  *
- * UNTUNED. On synthetic voices, same-speaker pairs scored 0.96 and the
- * closest different-speaker pair scored 0.45, so anything in that gap
- * separates them. Real speakers sit much closer together, so treat this
- * as a starting point and re-derive it from real recordings before
- * relying on it. Callers get the raw score either way.
+ * Derived from real recordings on one mic (see README.md). Two humans
+ * enrolled separately: the genuine speaker scored 0.766-0.784 at the mic
+ * and 0.73 further away, while the other human scored 0.144 against that
+ * profile. Impostor confusion is not the constraint here; the genuine
+ * speaker's own variability is, and every real degradation (distance, a
+ * worse mic, noise, a cold) pushes a genuine score DOWN rather than an
+ * impostor's up.
+ *
+ * So this sits well below the worst genuine score rather than just above
+ * the best impostor. The equal-margin midpoint of the measured gap is
+ * 0.437; 0.50 is deliberately a little above it, keeping ~0.23 of room
+ * under the worst genuine observation and ~0.36 over the best impostor.
+ * The asymmetry is intended: a voiceprint is context, never a credential
+ * and never an access decision, so a false accept mislabels a speaker
+ * while a false reject makes the feature look broken.
+ *
+ * Still only two speakers. Widen the sample before treating this as
+ * settled, especially with a same-gender, same-accent confuser. Callers
+ * get the raw score either way.
  */
-export const DEFAULT_MATCH_THRESHOLD = 0.7;
+export const DEFAULT_MATCH_THRESHOLD = 0.5;
 
 export interface Voiceprint {
   id: string;
