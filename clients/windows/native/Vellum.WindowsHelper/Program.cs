@@ -20,7 +20,8 @@ try
         {
             continue;
         }
-        await RpcOutput.WriteLineAsync(response, shutdown.Token);
+        await Console.Out.WriteLineAsync(response);
+        await Console.Out.FlushAsync(shutdown.Token);
     }
 }
 catch (OperationCanceledException) when (shutdown.IsCancellationRequested)

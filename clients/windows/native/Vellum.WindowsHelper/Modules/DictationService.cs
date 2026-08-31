@@ -794,14 +794,16 @@ internal sealed class BlockingPcmStream : Stream
 }
 
 /// <summary>
-/// JSON-RPC notification writer. Frames go through the shared stdout gate so
-/// they never interleave with response or push-to-talk frames.
+/// JSON-RPC notification writer. `Console.Out` is synchronized, so each
+/// serialized frame lands on stdout as one uninterleaved line alongside
+/// the response frames written by the request loop.
 /// </summary>
 internal static class HelperNotifications
 {
     public static void Emit(string method, object parameters)
     {
-        RpcOutput.WriteLine(JsonSerializer.Serialize(
+        Console.Out.WriteLine(JsonSerializer.Serialize(
             new { jsonrpc = "2.0", method, @params = parameters }));
+        Console.Out.Flush();
     }
 }

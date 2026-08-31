@@ -40,23 +40,19 @@ const resultSchema = z.union([
 const eventSchema = z.object({ state: z.enum(["down", "up"]) });
 
 let owner: Electron.WebContents | null = null;
-let pressed = false;
 let registeredActivator: PushToTalkActivator | null = null;
 
 const sendState = (state: HotkeyEvent["state"]): void => {
   if (!owner || owner.isDestroyed()) {
     owner = null;
-    pressed = false;
     return;
   }
   owner.send(HELPER_HOTKEY_EVENT, { kind: "pushToTalk", state });
-  pressed = state === "down";
 };
 
 const sendRegistrationState = (active: boolean): void => {
   if (!owner || owner.isDestroyed()) {
     owner = null;
-    pressed = false;
     return;
   }
   owner.send(HELPER_HOTKEY_REGISTRATION_EVENT, active);
@@ -71,9 +67,6 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
     });
     helper.onState((state) => {
       if (state.status !== "running") {
-        if (pressed) {
-          sendState("up");
-        }
         sendRegistrationState(false);
       }
       if (
@@ -102,9 +95,6 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
         if (event.sender !== current()?.webContents) {
           return { ok: false, reason: "Main window owns push-to-talk" };
         }
-        if (pressed) {
-          sendState("up");
-        }
         owner = activator ? event.sender : null;
         registeredActivator = activator;
         let result: PushToTalkRegistrationResult;
@@ -130,7 +120,6 @@ const feature: CapabilityModule<DesktopCapabilityRegistry> = {
     // The dictation feature owns the helper's graceful shutdown.
     app.once("before-quit", () => {
       owner = null;
-      pressed = false;
       registeredActivator = null;
     });
   },

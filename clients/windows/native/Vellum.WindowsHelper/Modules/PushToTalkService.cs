@@ -130,14 +130,19 @@ public sealed class PushToTalkService : IRpcModule, IDisposable
 
     private async Task DrainEventsAsync()
     {
+        // `Console.Out` is synchronized, so each frame lands on stdout as one
+        // uninterleaved line alongside response and notification frames. The
+        // channel exists for the hook thread: a low-level keyboard callback
+        // must never block on I/O, so it only enqueues and this task writes.
         await foreach (var state in _events.Reader.ReadAllAsync())
         {
-            await RpcOutput.WriteLineAsync(JsonSerializer.Serialize(new
+            Console.Out.WriteLine(JsonSerializer.Serialize(new
             {
                 jsonrpc = "2.0",
                 method = EventMethod,
                 @params = new { state },
             }));
+            Console.Out.Flush();
         }
     }
 

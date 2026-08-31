@@ -77,11 +77,11 @@ test("restores the main window binding after a helper restart", async () => {
   ).toEqual({ ok: true, enabled: true });
 
   helper.notificationListener!({ state: "down" });
-  helper.stateListener!({ status: "backing-off" });
   expect(mainSender.send).toHaveBeenCalledWith(
     "vellum:helper:hotkey:event",
-    { kind: "pushToTalk", state: "up" },
+    { kind: "pushToTalk", state: "down" },
   );
+  helper.stateListener!({ status: "backing-off" });
   expect(mainSender.send).toHaveBeenLastCalledWith(
     "vellum:helper:hotkey:registration",
     false,

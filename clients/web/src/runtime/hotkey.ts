@@ -20,10 +20,6 @@ export function supportsConfigurablePushToTalk(): boolean {
   );
 }
 
-export function supportsNativePushToTalk(): boolean {
-  return supportsConfigurablePushToTalk() || supportsFnPushToTalk();
-}
-
 export async function setNativePushToTalkActivator(
   activator: PushToTalkActivator | null,
 ): Promise<boolean> {
@@ -56,10 +52,8 @@ export async function setFnPushToTalkEnabled(
 export function subscribeToHotkeyEvents(
   callback: (event: HotkeyEvent) => void,
 ): () => void {
-  if (!supportsNativePushToTalk()) {
-    return () => undefined;
-  }
-  return window.vellum!.helper!.hotkey!.onEvent(callback);
+  const subscribe = window.vellum?.helper?.hotkey?.onEvent;
+  return subscribe ? subscribe(callback) : () => undefined;
 }
 
 export function subscribeToPushToTalkRegistration(
