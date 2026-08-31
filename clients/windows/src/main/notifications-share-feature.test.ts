@@ -104,7 +104,6 @@ describe("helper toast factory", () => {
     const toast = create({
       title: "T",
       body: "B",
-      silent: false,
       actions: [
         { type: "button", text: "Allow" },
         { type: "button", text: "Deny" },
@@ -152,7 +151,6 @@ describe("helper toast factory", () => {
       const toast = create({
         title: "T",
         body: "B",
-        silent: false,
         actions: [],
       });
       toast.on("failed", (_event: unknown, message: string) => {
