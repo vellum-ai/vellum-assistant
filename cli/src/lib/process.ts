@@ -489,7 +489,7 @@ export async function stopOrphanedDaemonProcesses(
               (/^vellum-daemon\.exe$/i.test(imageName) ||
                 (/^bun\.exe$/i.test(imageName) &&
                   /vellum-daemon|[\\/]assistant[\\/]src[\\/](?:index|daemon[\\/]main)\.ts/i.test(
-                    readWindowsCommandLine(pid),
+                    readProcessCommandLine(pid, hostPlatform),
                   ))),
           )
           .map(({ pid }) =>
