@@ -678,6 +678,89 @@ describe("replacePlatformAssistants", () => {
     });
   });
 
+  // `onboardedAt` is recorded by the client and unknown to the platform, so the
+  // rows a sync builds from the API never carry it. Dropping it here would let
+  // a routine session refresh erase the completion record.
+  test("carries an existing onboardedAt onto the replacement row", () => {
+    writeOnDisk({
+      activeAssistant: "asst_p",
+      assistants: [
+        {
+          assistantId: "asst_p",
+          cloud: "vellum",
+          runtimeUrl: "http://old",
+          onboardedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const result = replacePlatformAssistants(
+      [lockfilePath],
+      [{ assistantId: "asst_p", cloud: "vellum", runtimeUrl: "http://new" }],
+    );
+
+    expect(result.ok).toBe(true);
+    expect(readOnDisk().assistants).toEqual([
+      {
+        assistantId: "asst_p",
+        cloud: "vellum",
+        runtimeUrl: "http://new",
+        onboardedAt: "2026-08-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("an incoming onboardedAt wins over the stored one", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        {
+          assistantId: "asst_p",
+          cloud: "vellum",
+          onboardedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [
+        {
+          assistantId: "asst_p",
+          cloud: "vellum",
+          onboardedAt: "2026-08-31T00:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(
+      (readOnDisk().assistants as Array<Record<string, unknown>>)[0]
+        ?.onboardedAt,
+    ).toBe("2026-08-31T00:00:00.000Z");
+  });
+
+  test("a retired-then-recreated id does not inherit a stale stamp from another entry", () => {
+    writeOnDisk({
+      activeAssistant: null,
+      assistants: [
+        {
+          assistantId: "asst_a",
+          cloud: "vellum",
+          onboardedAt: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    replacePlatformAssistants(
+      [lockfilePath],
+      [{ assistantId: "asst_b", cloud: "vellum" }],
+    );
+
+    expect(readOnDisk().assistants).toEqual([
+      { assistantId: "asst_b", cloud: "vellum" },
+    ]);
+  });
+
   test("replaces platform assistants while keeping local ones and unknown fields", () => {
     writeOnDisk({
       schemaVersion: 99,

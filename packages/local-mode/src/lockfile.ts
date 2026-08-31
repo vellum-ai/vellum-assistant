@@ -394,7 +394,24 @@ export function replacePlatformAssistants(
       if (syncedIds.has(a.assistantId)) return false;
       return organizationId != null && a.organizationId !== organizationId;
     });
-    lockfile.assistants = [...preserved, ...platformAssistants];
+    // `onboardedAt` is recorded by the client and unknown to the platform, so
+    // the replacement rows never carry it. Without this it is erased by every
+    // routine session sync.
+    const priorOnboardedAt = new Map<string, unknown>();
+    for (const a of existing as Array<Record<string, unknown>>) {
+      if (typeof a?.assistantId === "string" && a.onboardedAt != null) {
+        priorOnboardedAt.set(a.assistantId, a.onboardedAt);
+      }
+    }
+    lockfile.assistants = [
+      ...preserved,
+      ...platformAssistants.map((a) => {
+        const prior = priorOnboardedAt.get(a.assistantId as string);
+        return a.onboardedAt == null && prior != null
+          ? { ...a, onboardedAt: prior }
+          : a;
+      }),
+    ];
 
     const active = lockfile.activeAssistant as string | null;
     if (active) {
