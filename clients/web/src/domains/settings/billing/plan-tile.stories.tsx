@@ -30,6 +30,7 @@ import {
   makeProPackage,
   makeSuperPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import { PlanTileRow } from "@/domains/settings/components/plan-tile-row";
 import {
   formatDollars,
   priceLabelFromCents,
@@ -47,8 +48,8 @@ const SUPER = makeSuperPackage();
 
 /** The width the settings row gives a single tile (roughly half a card). */
 const TILE_WIDTH_PX = 420;
-/** Two tiles plus the row's `gap-2`. */
-const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 8;
+/** Two tiles plus the row's `gap-4`. */
+const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 16;
 
 /** The upgrade CTA quotes the price difference, as `plan-card.tsx` composes it. */
 const UPGRADE_LABEL = `Power Up for +${formatDollars(
@@ -265,14 +266,14 @@ export const NextPlanPending: Story = {
 };
 
 /**
- * The real pairing, in the row `plan-card.tsx` renders: the current tile
- * inherits the app theme while the next-plan tile inverts it, exactly as
- * `RecommendedUpgrade` does. `useDocumentTheme()` reads the `data-theme`
- * attribute the themes addon stamps on the preview document, so toggling the
- * Storybook theme flips the next tile the way the app does. The row stacks
- * below the `lg` breakpoint: select `Mobile` in the viewport toolbar to see
- * that treatment, since the Canvas holds a desktop width regardless of window
- * size.
+ * The real pairing, inside the shared `PlanTileRow` that `plan-card.tsx` wraps
+ * both tiles in: the current tile inherits the app theme while the next-plan
+ * tile inverts it, exactly as `RecommendedUpgrade` does. `useDocumentTheme()`
+ * reads the `data-theme` attribute the themes addon stamps on the preview
+ * document, so toggling the Storybook theme flips the next tile the way the
+ * app does. The row stacks below the `lg` breakpoint: select `Mobile` in the
+ * viewport toolbar to see that treatment, since the Canvas holds a desktop
+ * width regardless of window size.
  */
 export const SideBySide: Story = {
   parameters: {
@@ -282,7 +283,7 @@ export const SideBySide: Story = {
   render: function SideBySideRender() {
     const inverted = useDocumentTheme() === "light" ? "dark" : "light";
     return (
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
+      <PlanTileRow>
         <PlanTile
           testId="plan-tile-current"
           tierKey={MIGHTY.key}
@@ -305,7 +306,7 @@ export const SideBySide: Story = {
           })}
           footer={upgradeCta()}
         />
-      </div>
+      </PlanTileRow>
     );
   },
 };

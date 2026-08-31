@@ -25,9 +25,21 @@ export function BillingPanelBalanceSkeleton({
       data-testid="billing-panel-balance-skeleton"
     >
       <StatSquare
-        icon={<Skeleton aria-hidden className="h-4 w-4 rounded-sm" />}
-        value={<Skeleton aria-hidden className="h-5 w-28 rounded-md" />}
-        label={<Skeleton aria-hidden className="h-4 w-24 rounded-md" />}
+        icon={<Skeleton as="span" aria-hidden className="h-4 w-4 rounded-sm" />}
+        value={
+          <Skeleton
+            as="span"
+            aria-hidden
+            className="block h-5 w-28 rounded-md"
+          />
+        }
+        label={
+          <Skeleton
+            as="span"
+            aria-hidden
+            className="block h-4 w-24 rounded-md"
+          />
+        }
       />
     </div>
   );

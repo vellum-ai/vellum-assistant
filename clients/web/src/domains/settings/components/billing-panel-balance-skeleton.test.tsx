@@ -16,6 +16,18 @@ describe("BillingPanelBalanceSkeleton", () => {
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(3);
   });
 
+  test("stands each slot in with phrasing content the tile can hold", () => {
+    const { container } = render(<BillingPanelBalanceSkeleton />);
+
+    const placeholders = Array.from(
+      container.querySelectorAll('[data-slot="skeleton"]'),
+    );
+    expect(placeholders.length).toBe(3);
+    for (const placeholder of placeholders) {
+      expect(placeholder.tagName).toBe("SPAN");
+    }
+  });
+
   test("announces only when it is given a label", () => {
     const { container, rerender } = render(<BillingPanelBalanceSkeleton />);
     expect(container.querySelector('[role="status"]')).toBeNull();

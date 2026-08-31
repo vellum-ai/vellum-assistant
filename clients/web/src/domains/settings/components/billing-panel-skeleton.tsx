@@ -23,16 +23,14 @@ export function BillingPanelSkeleton() {
           </>
         }
       />
-      <div data-testid="billing-panel-skeleton-body">
-        <BillingPanelBalanceSkeleton />
-        <SkeletonLines lines={2} lineClassName="h-6" className="mt-6" />
-        <BillingPanelRowGroup>
-          <SkeletonLines lines={2} lineClassName="h-6" />
-        </BillingPanelRowGroup>
-        <BillingPanelRowGroup>
-          <SkeletonLines lines={1} lineClassName="h-6" />
-        </BillingPanelRowGroup>
-      </div>
+      <BillingPanelBalanceSkeleton />
+      <SkeletonLines lines={2} lineClassName="h-6" className="mt-6" />
+      <BillingPanelRowGroup>
+        <SkeletonLines lines={2} lineClassName="h-6" />
+      </BillingPanelRowGroup>
+      <BillingPanelRowGroup>
+        <SkeletonLines lines={1} lineClassName="h-6" />
+      </BillingPanelRowGroup>
     </Card>
   );
 }
