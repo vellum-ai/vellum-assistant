@@ -14,6 +14,8 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
+import { eq } from "drizzle-orm";
+
 import {
   createMockProvider,
   textResponse,
@@ -148,6 +150,10 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   },
 }));
 
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
 import { Conversation } from "../../daemon/conversation.js";
 import {
   deleteConversation,
@@ -161,8 +167,11 @@ import {
   type MessageRow,
   selectSightFrameCaptureTimes,
 } from "../../persistence/conversation-crud.js";
+import { getConversationAttachmentsDirPath } from "../../persistence/conversation-directories.js";
 import { sightFrameAttachmentIdsFromMetadata } from "../../persistence/conversation-types.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { attachments } from "../../persistence/schema.js";
 import { mediaBlockAttachmentId, type Message } from "../../providers/types.js";
 import {
   persistLiveVoicePhoto,
@@ -192,6 +201,7 @@ function liveConversation(title: string) {
   setConversation(conversation.id, activeConversation);
   return {
     id: conversation.id,
+    createdAt: conversation.createdAt,
     dispose: () => {
       deleteConversation(conversation.id);
       activeConversation.dispose();
@@ -555,6 +565,105 @@ describe("attachments a failed persist attempt cloned for itself", () => {
       expect(realStore.getAttachmentById(photo)).not.toBeNull();
     } finally {
       live.dispose();
+    }
+  });
+});
+
+describe("a clone whose materialization fails", () => {
+  /** Rows in the attachment store, so a leaked clone shows up as a count. */
+  function attachmentRowCount(): number {
+    return getDb().select({ id: attachments.id }).from(attachments).all()
+      .length;
+  }
+
+  /** Give a row a real file on disk, the shape a clone inherits its path from. */
+  function backWithFile(attachmentId: string, name: string): string {
+    const filePath = join(tmpdir(), `sight-frame-${name}`);
+    writeFileSync(filePath, Buffer.from(IMAGE_BASE64, "base64"));
+    getDb()
+      .update(attachments)
+      .set({ filePath })
+      .where(eq(attachments.id, attachmentId))
+      .run();
+    return filePath;
+  }
+
+  test("leaves no row behind and costs the source nothing", async () => {
+    // Materialization is fallible AFTER the clone row is inserted: it copies
+    // the bytes and repoints the row, and until that lands the clone still
+    // names the file the bytes came FROM. A failure used to leave that row for
+    // good, because the persist recovers by inlining and no error ever reached
+    // the callers that clean up.
+    const source = liveConversation("Live voice clone materialize source");
+    const live = liveConversation("Live voice clone materialize");
+    const attachDir = getConversationAttachmentsDirPath(
+      live.id,
+      live.createdAt,
+    );
+    let sourceFile: string | null = null;
+    try {
+      const arrivedAs = await uploadFrame("clone-materialize.png");
+      const elsewhere = await addMessage(source.id, "user", "look at this");
+      realStore.linkAttachmentToMessage(elsewhere.id, arrivedAs, 0);
+      // The clone is inserted carrying exactly this path.
+      sourceFile = backWithFile(arrivedAs, "source.png");
+
+      const rowsBefore = attachmentRowCount();
+
+      // A plain file where the destination's attachments directory belongs, so
+      // the very first thing materialization does fails.
+      mkdirSync(dirname(attachDir), { recursive: true });
+      writeFileSync(attachDir, "");
+
+      expect((await persistLiveVoiceSightFrame(live.id, arrivedAs)).ok).toBe(
+        true,
+      );
+
+      // The recovery is unchanged: the frame still lands, inline.
+      const [row] = getMessages(live.id);
+      expect(hasInlineImage(row)).toBe(true);
+
+      // No clone row survived the failure.
+      expect(attachmentRowCount()).toBe(rowsBefore);
+
+      // The source keeps its row, the file the clone was aliasing, and its own
+      // message's link.
+      expect(realStore.getAttachmentById(arrivedAs)).not.toBeNull();
+      expect(existsSync(sourceFile)).toBe(true);
+      expect(realStore.getAttachmentsForMessage(elsewhere.id)).toHaveLength(1);
+    } finally {
+      rmSync(attachDir, { force: true });
+      if (sourceFile) {
+        rmSync(sourceFile, { force: true });
+      }
+      live.dispose();
+      source.dispose();
+    }
+  });
+
+  test("orphan collection spares a file another row still names", async () => {
+    // The same aliasing seen from the other side. A clone carries the source's
+    // path until materialization repoints it, so a row being collected can
+    // share its file with one that outlives it, and unlinking then takes the
+    // survivor's bytes.
+    const kept = await uploadFrame("shared-kept.png");
+    const alias = await uploadFrame("shared-alias.png");
+    const sharedFile = backWithFile(kept, "shared.png");
+    getDb()
+      .update(attachments)
+      .set({ filePath: sharedFile })
+      .where(eq(attachments.id, alias))
+      .run();
+
+    try {
+      expect(realStore.deleteOrphanAttachments([alias])).toBe(1);
+
+      expect(realStore.getAttachmentById(alias)).toBeNull();
+      expect(realStore.getAttachmentById(kept)).not.toBeNull();
+      // The survivor's bytes are still there.
+      expect(existsSync(sharedFile)).toBe(true);
+    } finally {
+      rmSync(sharedFile, { force: true });
     }
   });
 });
