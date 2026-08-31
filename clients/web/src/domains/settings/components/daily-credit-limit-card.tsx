@@ -80,13 +80,20 @@ export function DailyCreditLimitCard() {
   );
   const resumeMutation = useResumeDailyLimit();
 
-  // Deep links (`#daily-credit-limit`) land here once both queries have
-  // settled, so the content above the anchor has taken its final height
-  // before we scroll.
-  useScrollToAnchor(
-    DAILY_CREDIT_LIMIT_ANCHOR_ID,
-    !limitQuery.isLoading && !summaryQuery.isLoading,
-  );
+  // Every one of these can add or remove a row, so the skeleton holds until
+  // all three settle: revealing on the limit query alone lets the auto top-up
+  // note or the reached/skipped notices land afterwards and grow the card a
+  // second time. A failure counts as settled, since each has its own fallback
+  // below (the summary falls back to the limit payload, auto top-up fails
+  // open). `isPending` rather than `isLoading` for the auto top-up config: it
+  // idles with no data until the org store is ready, and that gap is loading.
+  const layoutQueriesPending =
+    limitQuery.isPending || summaryQuery.isPending || autoTopUpQuery.isPending;
+
+  // Deep links (`#daily-credit-limit`) land here once the card has revealed,
+  // so the content above the anchor has taken its final height before we
+  // scroll.
+  useScrollToAnchor(DAILY_CREDIT_LIMIT_ANCHOR_ID, !layoutQueriesPending);
 
   // `draft === null` means "not yet edited"; seed from the query below. Tracking
   // the edited value separately keeps the input controlled without an effect
@@ -97,7 +104,18 @@ export function DailyCreditLimitCard() {
   // amount. `null` limit + `pendingEnable` shows the input without a value yet.
   const [pendingEnable, setPendingEnable] = useState(false);
 
-  if (limitQuery.isLoading) {
+  const loadErrorCard = (
+    <div data-testid="daily-credit-limit-card">
+      <Notice tone="error">{t("dailyCreditLimitCard.loadError")}</Notice>
+    </div>
+  );
+
+  // A failed limit query is terminal for this card, so it skips the wait
+  // above: the siblings only shape rows this render will never reach.
+  if (limitQuery.isError) {
+    return loadErrorCard;
+  }
+  if (layoutQueriesPending) {
     return (
       <div data-testid="daily-credit-limit-card">
         <SkeletonLines
@@ -108,12 +126,8 @@ export function DailyCreditLimitCard() {
       </div>
     );
   }
-  if (limitQuery.isError || !limitQuery.data) {
-    return (
-      <div data-testid="daily-credit-limit-card">
-        <Notice tone="error">{t("dailyCreditLimitCard.loadError")}</Notice>
-      </div>
-    );
+  if (!limitQuery.data) {
+    return loadErrorCard;
   }
 
   const config = limitQuery.data;
