@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
 import { useTranslation } from "@/i18n";
+import { useDesktopAppPlatform } from "@/runtime/platform-detection";
 
 interface HatchErrorOverlayProps {
   /** Terminal failure message from the background hatch. */
@@ -33,6 +34,7 @@ interface HatchErrorOverlayProps {
  */
 export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
   const { t } = useTranslation("onboarding");
+  const desktopAppPlatform = useDesktopAppPlatform();
   const platformHostedDisabled = error === PLATFORM_HOSTED_DISABLED_MESSAGE;
   return createPortal(
     <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[calc(var(--safe-area-inset-top,env(safe-area-inset-top,0px))+5rem)]">
@@ -44,7 +46,9 @@ export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
           platformHostedDisabled ? (
             <Button asChild variant="primary" size="regular">
               <a href={`${window.location.origin}/download`}>
-                {t("actions.downloadMacApp")}
+                {t("actions.downloadDesktopApp", {
+                  platform: desktopAppPlatform,
+                })}
               </a>
             </Button>
           ) : (

@@ -5,6 +5,18 @@ import { useSyncExternalStore } from "react";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 
+function getBrowserPlatform(): string {
+  if (typeof navigator === "undefined") {
+    return "";
+  }
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    }
+  ).userAgentData;
+  return uaData?.platform || navigator.platform;
+}
+
 /**
  * Returns true when the current browser is running on iOS (iPhone, iPod, or iPad).
  *
@@ -31,14 +43,7 @@ export function isIOSBrowser(): boolean {
   }
 
   // iPadOS 13+ in desktop mode: reports as Mac but has multitouch
-  const uaData = (
-    navigator as Navigator & {
-      userAgentData?: { platform?: string };
-    }
-  ).userAgentData;
-  const isMacPlatform = uaData?.platform
-    ? uaData.platform.toLowerCase().includes("mac")
-    : navigator.platform.toLowerCase().includes("mac");
+  const isMacPlatform = getBrowserPlatform().toLowerCase().includes("mac");
 
   return isMacPlatform && navigator.maxTouchPoints > 1;
 }
@@ -82,15 +87,7 @@ export function isMacOSBrowser(): boolean {
   if (isIOSBrowser()) {
     return false;
   }
-  const uaData = (
-    navigator as Navigator & {
-      userAgentData?: { platform?: string };
-    }
-  ).userAgentData;
-  if (uaData?.platform) {
-    return uaData.platform.toLowerCase().includes("mac");
-  }
-  return navigator.platform.toLowerCase().includes("mac");
+  return getBrowserPlatform().toLowerCase().includes("mac");
 }
 
 /**
@@ -171,6 +168,7 @@ export function isMobileBrowser(): boolean {
  */
 export type ClientOs = ElectronHostOS | "ios" | "android" | "web";
 export type { ElectronHostOS };
+export type DesktopAppPlatform = ElectronHostOS;
 
 const CLIENT_OS_DISPLAY_NAMES: Readonly<Record<ClientOs, string>> = {
   macos: "macOS",
@@ -196,7 +194,29 @@ export function detectElectronHostOS(): ElectronHostOS | null {
   if (window.vellum?.hostOS) {
     return window.vellum.hostOS;
   }
-  return navigator.platform.toLowerCase().includes("win") ? "windows" : "macos";
+  return getBrowserPlatform().toLowerCase().includes("win")
+    ? "windows"
+    : "macos";
+}
+
+/**
+ * Pick the desktop app promoted to the current user. Windows is the only
+ * positive match; every other or unavailable browser signal defaults to macOS.
+ */
+export function detectDesktopAppPlatform(): DesktopAppPlatform {
+  if (typeof navigator === "undefined") {
+    return "macos";
+  }
+
+  const electronHostOS = detectElectronHostOS();
+  if (electronHostOS) {
+    return electronHostOS;
+  }
+
+  const platform = getBrowserPlatform();
+  return /win/i.test(platform) || /Windows/i.test(navigator.userAgent)
+    ? "windows"
+    : "macos";
 }
 
 /**
@@ -431,6 +451,11 @@ export function useIsMacOSWeb(): boolean {
     () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
+}
+
+/** Hook form of `detectDesktopAppPlatform()`, safe in render bodies. */
+export function useDesktopAppPlatform(): DesktopAppPlatform {
+  return useSyncExternalStore(noop, detectDesktopAppPlatform, () => "macos");
 }
 
 /**

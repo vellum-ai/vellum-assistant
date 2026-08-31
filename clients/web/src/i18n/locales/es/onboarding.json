@@ -13,7 +13,7 @@
     "logIn": "Iniciar sesión",
     "logOut": "Cerrar sesión",
     "loginToUse": "Inicia sesión para usar",
-    "downloadMacApp": "Descargar la app de macOS",
+    "downloadDesktopApp": "{platform, select, windows {Descargar la app de Windows} other {Descargar la app de macOS}}",
     "claim": "Reclamar",
     "skipForNow": "Omitir por ahora",
     "starting": "Empezando…"

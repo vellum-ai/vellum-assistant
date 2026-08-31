@@ -54,6 +54,7 @@ import {
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
+import { useDesktopAppPlatform } from "@/runtime/platform-detection";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
@@ -157,6 +158,7 @@ export function decideHatchGate(): HatchGateDecision {
 
 export function HatchingScreen() {
   const { t } = useTranslation("onboarding");
+  const desktopAppPlatform = useDesktopAppPlatform();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -811,7 +813,9 @@ export function HatchingScreen() {
                 className={electron ? undefined : "h-11 text-base"}
               >
                 <a href={`${window.location.origin}/download`}>
-                  {t("actions.downloadMacApp")}
+                  {t("actions.downloadDesktopApp", {
+                    platform: desktopAppPlatform,
+                  })}
                 </a>
               </Button>
             </div>

@@ -1,7 +1,7 @@
 {
   "aboutPage": {
     "build": "建置",
-    "tagline": "您 Mac 的 AI 助理",
+    "tagline": "{platform, select, windows {您 Windows PC 的 AI 助理} other {您 Mac 的 AI 助理}}",
     "version": "版本"
   },
   "activeAssistantGate": {
@@ -296,11 +296,11 @@
     "loadError": "此區段無法載入。請重新載入頁面再試一次。"
   },
   "macosAppBanner": {
-    "ariaLabel": "下載 macOS 應用程式",
-    "ctaAriaLabel": "下載 macOS 應用程式",
+    "ariaLabel": "{platform, select, windows {下載 Windows 應用程式} other {下載 macOS 應用程式}}",
+    "ctaAriaLabel": "{platform, select, windows {下載 Windows 應用程式} other {下載 macOS 應用程式}}",
     "ctaLabel": "下載",
     "subtitle": "電腦使用 · 終端機存取 · 原生自動化",
-    "title": "取得 macOS 應用程式"
+    "title": "{platform, select, windows {取得 Windows 應用程式} other {取得 macOS 應用程式}}"
   },
   "nativeAppBanner": {
     "bannerAria": "下載 {appName} 應用程式",
