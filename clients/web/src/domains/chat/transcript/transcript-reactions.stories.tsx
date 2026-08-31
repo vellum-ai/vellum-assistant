@@ -4,6 +4,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 import { Transcript } from "./transcript";
+import { message } from "./transcript-story-fixtures";
 import { TranscriptStoryFrame } from "./transcript-story-frame";
 import type { TranscriptItem } from "./types";
 
@@ -20,15 +21,6 @@ import type { TranscriptItem } from "./types";
 // line. `textBody` is the canonical single-text-block builder the ingest
 // boundary produces.
 // ---------------------------------------------------------------------------
-
-function message(
-  id: string,
-  role: "user" | "assistant",
-  text: string,
-): TranscriptItem {
-  const msg: DisplayMessage = { id, role, ...textBody(text) };
-  return { kind: "message", key: id, message: msg };
-}
 
 function reactionRow(
   id: string,
