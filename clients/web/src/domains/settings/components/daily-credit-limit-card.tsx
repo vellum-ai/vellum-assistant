@@ -55,6 +55,21 @@ export function validateDailyLimit(raw: string): string | undefined {
 }
 
 /**
+ * Whether a query still owes this render data. `isPending` alone is not
+ * enough: a disabled observer (the auto top-up config while the org header is
+ * resolving) sits at pending with an idle fetch status and no request on the
+ * way, so waiting on it would hold the skeleton with no error escape. An idle
+ * pending query counts as settled, and the card falls back the same way it
+ * does for a failure.
+ */
+function isAwaitingData(query: {
+  isPending: boolean;
+  fetchStatus: "fetching" | "paused" | "idle";
+}): boolean {
+  return query.isPending && query.fetchStatus !== "idle";
+}
+
+/**
  * Settings → Billing daily credit limit control. Embedded directly inside the
  * Credit Balance card by `BillingPanel.tsx`, under its own enable toggle. When
  * on, an always-visible input caps how much Vellum credit the org can spend per
@@ -85,10 +100,11 @@ export function DailyCreditLimitCard() {
   // note or the reached/skipped notices land afterwards and grow the card a
   // second time. A failure counts as settled, since each has its own fallback
   // below (the summary falls back to the limit payload, auto top-up fails
-  // open). `isPending` rather than `isLoading` for the auto top-up config: it
-  // idles with no data until the org store is ready, and that gap is loading.
+  // open).
   const layoutQueriesPending =
-    limitQuery.isPending || summaryQuery.isPending || autoTopUpQuery.isPending;
+    isAwaitingData(limitQuery) ||
+    isAwaitingData(summaryQuery) ||
+    isAwaitingData(autoTopUpQuery);
 
   // Deep links (`#daily-credit-limit`) land here once the card has revealed,
   // so the content above the anchor has taken its final height before we
@@ -117,12 +133,10 @@ export function DailyCreditLimitCard() {
   }
   if (layoutQueriesPending) {
     return (
-      <div data-testid="daily-credit-limit-card">
-        <SkeletonLines
-          lines={2}
-          lineClassName="h-6"
-          label={t("dailyCreditLimitCard.loadingLabel")}
-        />
+      // Presentational: the tab-level skeleton stack owns the single loading
+      // announcement, so this placeholder stays out of the accessibility tree.
+      <div data-testid="daily-credit-limit-card" aria-hidden>
+        <SkeletonLines lines={2} lineClassName="h-6" />
       </div>
     );
   }
@@ -228,138 +242,138 @@ export function DailyCreditLimitCard() {
     (updateMutation.isError ? t("dailyCreditLimitCard.saveError") : undefined);
   const visibleError = touched ? clientError : undefined;
 
-  const cardBody = (
-    <div data-testid="daily-credit-limit-card">
-      <div className="flex flex-col gap-4">
-        <Toggle
-          checked={enabled}
-          onChange={handleToggleChange}
-          // Locked while a save is in flight: toggling off during a pending
-          // enable would skip the clearing PUT, then the save's onSuccess
-          // would re-enable the limit against the user's last action. Also
-          // locked once a saved limit is what automatic top-ups depend on,
-          // where the only available move is the one the backend rejects.
-          disabled={
-            updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
-          }
-          label={t("dailyCreditLimitCard.toggleLabel")}
-          helperText={
-            enabled ? t("dailyCreditLimitCard.toggleSubtitle") : undefined
-          }
-        />
+  return (
+    <ContentReveal>
+      <div data-testid="daily-credit-limit-card">
+        <div className="flex flex-col gap-4">
+          <Toggle
+            checked={enabled}
+            onChange={handleToggleChange}
+            // Locked while a save is in flight: toggling off during a pending
+            // enable would skip the clearing PUT, then the save's onSuccess
+            // would re-enable the limit against the user's last action. Also
+            // locked once a saved limit is what automatic top-ups depend on,
+            // where the only available move is the one the backend rejects.
+            disabled={
+              updateMutation.isPending || (hasLimit && requiredByAutoTopUp)
+            }
+            label={t("dailyCreditLimitCard.toggleLabel")}
+            helperText={
+              enabled ? t("dailyCreditLimitCard.toggleSubtitle") : undefined
+            }
+          />
 
-        {requiredByAutoTopUp && (
-          <p
-            className="text-body-small-default text-[var(--content-tertiary)]"
-            data-testid="daily-credit-limit-required-note"
-          >
-            {t("dailyCreditLimitCard.requiredNote")}
-          </p>
-        )}
+          {requiredByAutoTopUp && (
+            <p
+              className="text-body-small-default text-[var(--content-tertiary)]"
+              data-testid="daily-credit-limit-required-note"
+            >
+              {t("dailyCreditLimitCard.requiredNote")}
+            </p>
+          )}
 
-        {enabled && (
-          <>
-            <div className="flex flex-wrap items-start gap-2">
-              <div className="w-60 max-w-full">
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  label={t("dailyCreditLimitCard.inputLabel")}
-                  helperText={t("dailyCreditLimitCard.helperText", {
-                    time: resetPhrase,
+          {enabled && (
+            <>
+              <div className="flex flex-wrap items-start gap-2">
+                <div className="w-60 max-w-full">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    label={t("dailyCreditLimitCard.inputLabel")}
+                    helperText={t("dailyCreditLimitCard.helperText", {
+                      time: resetPhrase,
+                    })}
+                    placeholder="0.00"
+                    value={value}
+                    onChange={onChange}
+                    onBlur={() => setTouched(true)}
+                    errorText={visibleError}
+                    data-testid="daily-credit-limit-input"
+                    fullWidth
+                  />
+                </div>
+                {/*
+                 * `pt-[20px]` centres the button against the input box (12px label +
+                 * 6px gap before the input starts), matching the sibling cards.
+                 */}
+                <div className="flex shrink-0 items-center gap-2 pt-[20px]">
+                  <Button
+                    variant="primary"
+                    onClick={handleSave}
+                    disabled={updateMutation.isPending}
+                    data-testid="daily-credit-limit-save-button"
+                  >
+                    {t("dailyCreditLimitCard.save")}
+                  </Button>
+                </div>
+              </div>
+
+              {hasLimit && config.daily_credit_limit_usd != null && (
+                <p
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                  data-testid="daily-credit-limit-progress"
+                >
+                  {t("dailyCreditLimitCard.progress", {
+                    spent: formatUsd(dailySpend),
+                    limit: formatUsd(config.daily_credit_limit_usd),
                   })}
-                  placeholder="0.00"
-                  value={value}
-                  onChange={onChange}
-                  onBlur={() => setTouched(true)}
-                  errorText={visibleError}
-                  data-testid="daily-credit-limit-input"
-                  fullWidth
-                />
-              </div>
-              {/*
-               * `pt-[20px]` centres the button against the input box (12px label +
-               * 6px gap before the input starts), matching the sibling cards.
-               */}
-              <div className="flex shrink-0 items-center gap-2 pt-[20px]">
-                <Button
-                  variant="primary"
-                  onClick={handleSave}
-                  disabled={updateMutation.isPending}
-                  data-testid="daily-credit-limit-save-button"
-                >
-                  {t("dailyCreditLimitCard.save")}
-                </Button>
-              </div>
-            </div>
+                </p>
+              )}
 
-            {hasLimit && config.daily_credit_limit_usd != null && (
-              <p
-                className="text-body-small-default text-[var(--content-tertiary)]"
-                data-testid="daily-credit-limit-progress"
-              >
-                {t("dailyCreditLimitCard.progress", {
-                  spent: formatUsd(dailySpend),
-                  limit: formatUsd(config.daily_credit_limit_usd),
-                })}
-              </p>
-            )}
-
-            {limitSkipped && (
-              <>
-                <Notice
-                  tone="info"
-                  data-testid="daily-credit-limit-skipped"
-                  actions={
-                    <Button
-                      variant="outlined"
-                      size="compact"
-                      onClick={() => resumeMutation.mutate({})}
-                      disabled={resumeMutation.isPending}
-                      data-testid="daily-credit-limit-resume-button"
+              {limitSkipped && (
+                <>
+                  <Notice
+                    tone="info"
+                    data-testid="daily-credit-limit-skipped"
+                    actions={
+                      <Button
+                        variant="outlined"
+                        size="compact"
+                        onClick={() => resumeMutation.mutate({})}
+                        disabled={resumeMutation.isPending}
+                        data-testid="daily-credit-limit-resume-button"
+                      >
+                        {t("dailyCreditLimitCard.resumeNow")}
+                      </Button>
+                    }
+                  >
+                    {t("dailyCreditLimitCard.skippedNotice", {
+                      time: resetPhrase,
+                    })}
+                  </Notice>
+                  {resumeMutation.isError && (
+                    <Notice
+                      tone="error"
+                      data-testid="daily-credit-limit-resume-error"
                     >
-                      {t("dailyCreditLimitCard.resumeNow")}
-                    </Button>
-                  }
-                >
-                  {t("dailyCreditLimitCard.skippedNotice", {
+                      {t("dailyCreditLimitCard.resumeError")}
+                    </Notice>
+                  )}
+                </>
+              )}
+
+              {limitReached && (
+                <Notice tone="warning" data-testid="daily-credit-limit-reached">
+                  {t("dailyCreditLimitCard.reachedNotice", {
                     time: resetPhrase,
                   })}
                 </Notice>
-                {resumeMutation.isError && (
-                  <Notice
-                    tone="error"
-                    data-testid="daily-credit-limit-resume-error"
-                  >
-                    {t("dailyCreditLimitCard.resumeError")}
-                  </Notice>
-                )}
-              </>
-            )}
+              )}
+            </>
+          )}
+        </div>
 
-            {limitReached && (
-              <Notice tone="warning" data-testid="daily-credit-limit-reached">
-                {t("dailyCreditLimitCard.reachedNotice", {
-                  time: resetPhrase,
-                })}
-              </Notice>
-            )}
-          </>
+        {saveError != null && (
+          <Notice
+            tone="error"
+            className="mt-4"
+            data-testid="daily-credit-limit-update-error"
+          >
+            {saveError}
+          </Notice>
         )}
       </div>
-
-      {saveError != null && (
-        <Notice
-          tone="error"
-          className="mt-4"
-          data-testid="daily-credit-limit-update-error"
-        >
-          {saveError}
-        </Notice>
-      )}
-    </div>
+    </ContentReveal>
   );
-
-  return <ContentReveal>{cardBody}</ContentReveal>;
 }

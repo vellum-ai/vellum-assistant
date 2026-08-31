@@ -328,10 +328,20 @@ describe("AutoTopUpCard loading state", () => {
 
     const card = getByTestId("auto-top-up-card");
     expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBe(2);
-    expect(
-      card.querySelector('[role="status"]')?.getAttribute("aria-label"),
-    ).toBe("Loading auto-reload settings");
     expect(card.textContent).toBe("");
+  });
+
+  test("the placeholder announces nothing of its own", () => {
+    // Several cards skeleton at once inside the Credits card, so the single
+    // loading announcement lives on the tab-level stack instead.
+    retrieveNeverSettles = true;
+    const { getByTestId } = render(
+      wrap(DISABLED_CONFIG, "/", new QueryClient({ defaultOptions: EAGER })),
+    );
+
+    const card = getByTestId("auto-top-up-card");
+    expect(card.getAttribute("aria-hidden")).toBe("true");
+    expect(card.querySelector('[role="status"][aria-label]')).toBeNull();
   });
 });
 
