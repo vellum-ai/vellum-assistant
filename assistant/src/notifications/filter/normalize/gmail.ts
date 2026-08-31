@@ -61,13 +61,24 @@ function headerReader(
   return (name: string) => headers.get(name.toLowerCase()) ?? null;
 }
 
-function splitAddressList(value: string | null): string[] {
+/**
+ * The addresses in an RFC 5322 address list, lowercased.
+ *
+ * Splitting on commas is enough for the comparison below: a display name that
+ * contains a comma is quoted, so the fragments it splits into still carry the
+ * angle-bracketed address, and a fragment with no address at all cannot match
+ * the mailbox anyway.
+ */
+function parseAddressList(value: string | null): string[] {
   if (!value) {
     return [];
   }
   return value
     .split(",")
-    .map((entry) => entry.trim())
+    .map((entry) => {
+      const bracketed = entry.match(/<([^>]+)>/);
+      return (bracketed?.[1] ?? entry).trim().toLowerCase();
+    })
     .filter((entry) => entry.length > 0);
 }
 
@@ -80,14 +91,22 @@ function readLabelIds(payload: Record<string, unknown>): string[] {
 }
 
 /**
- * Categorize without a profile lookup, which would be network I/O on a path
- * that runs for every polled message. Bulk mail wins over everything else. A
- * message sitting in the user's own mailbox with exactly one recipient is
- * addressed to the user, so recipient count stands in for "addressed to me".
+ * Categorize from headers the watcher already carries, with no network I/O on
+ * a path that runs for every polled message.
+ *
+ * Bulk mail wins over everything else. `dm` then means the mailbox is the sole
+ * address in `To`: the message was written to the user and to nobody else,
+ * whoever else was copied on it. That is a comparison against the authenticated
+ * mailbox address, not an inference from how many recipients a message names,
+ * which is why a one-address list alias does not read as a direct message and
+ * a direct message with a colleague in `Cc` still does. Without that address
+ * there is nothing to compare, so the message falls through rather than being
+ * guessed at.
  */
 function categorize(
   header: (name: string) => string | null,
   labelIds: string[],
+  mailboxAddress: string | null,
 ): NotificationCategory {
   if (
     header("List-Unsubscribe") ||
@@ -96,14 +115,24 @@ function categorize(
     return "broadcast";
   }
 
-  const recipientCount =
-    splitAddressList(header("To")).length +
-    splitAddressList(header("Cc")).length;
-  if (recipientCount === 1) {
-    return "dm";
+  if (mailboxAddress) {
+    const to = parseAddressList(header("To"));
+    if (to.length === 1 && to[0] === mailboxAddress) {
+      return "dm";
+    }
   }
 
   return header("In-Reply-To") ? "reply" : "fyi";
+}
+
+/** The authenticated mailbox address the watcher stamped on the payload. */
+function readMailboxAddress(payload: Record<string, unknown>): string | null {
+  const value = payload.mailboxAddress;
+  if (typeof value !== "string") {
+    return null;
+  }
+  const [address] = parseAddressList(value);
+  return address ?? null;
 }
 
 export const gmailNormalizer: NotificationNormalizer = {
@@ -147,7 +176,11 @@ export const gmailNormalizer: NotificationNormalizer = {
       content: {
         preview,
         full: null,
-        category: categorize(header, readLabelIds(payload)),
+        category: categorize(
+          header,
+          readLabelIds(payload),
+          readMailboxAddress(payload),
+        ),
       },
       meta: {
         timestamp: item.timestamp,

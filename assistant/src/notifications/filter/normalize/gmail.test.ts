@@ -57,6 +57,7 @@ function gmailItem(payload: Record<string, unknown> = {}): WatcherItem {
       date: "Sat, 1 Aug 2026 00:00:00 +0000",
       snippet: "Just checking in",
       labelIds: ["INBOX"],
+      mailboxAddress: "owner@example.com",
       ...payload,
     },
     timestamp: 1_700_000_000_000,
@@ -169,11 +170,49 @@ describe("gmailNormalizer category mapping", () => {
     expect(result!.content.category).toBe("broadcast");
   });
 
-  test("a single recipient is a dm", () => {
+  test("mail addressed to the mailbox alone is a dm", () => {
     const result = gmailNormalizer.normalize(
       gmailItem({ to: "owner@example.com" }),
     );
     expect(result!.content.category).toBe("dm");
+  });
+
+  test("matches the mailbox by address, not by the whole header", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ to: "The Owner <Owner@Example.com>" }),
+    );
+    expect(result!.content.category).toBe("dm");
+  });
+
+  test("a dm with someone else copied is still a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        to: "owner@example.com",
+        cc: "colleague@example.com, another@example.com",
+      }),
+    );
+    expect(result!.content.category).toBe("dm");
+  });
+
+  test("a one-address list alias is not a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ to: "team-announce@example.com" }),
+    );
+    expect(result!.content.category).toBe("fyi");
+  });
+
+  test("mail naming the mailbox among other recipients is not a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ to: "owner@example.com, other@example.com" }),
+    );
+    expect(result!.content.category).toBe("fyi");
+  });
+
+  test("without a mailbox address a sole recipient is not a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({ to: "owner@example.com", mailboxAddress: undefined }),
+    );
+    expect(result!.content.category).toBe("fyi");
   });
 
   test("In-Reply-To on a multi-recipient thread is a reply", () => {
@@ -184,6 +223,29 @@ describe("gmailNormalizer category mapping", () => {
       }),
     );
     expect(result!.content.category).toBe("reply");
+  });
+
+  test("a reply addressed to the mailbox alone is a dm", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        to: "owner@example.com",
+        headers: { "In-Reply-To": "<parent@example.com>" },
+      }),
+    );
+    expect(result!.content.category).toBe("dm");
+  });
+
+  test("reads the categorizing headers out of the watcher headers record", () => {
+    const result = gmailNormalizer.normalize(
+      gmailItem({
+        to: undefined,
+        headers: {
+          To: "owner@example.com",
+          "In-Reply-To": "<parent@example.com>",
+        },
+      }),
+    );
+    expect(result!.content.category).toBe("dm");
   });
 
   test("anything else is fyi", () => {
@@ -220,6 +282,33 @@ describe("gmailNormalizer.fetchFull", () => {
     const [, ids, format] = batchGetMessagesMock.mock.calls[0]!;
     expect(ids).toEqual(["msg-1"]);
     expect(format).toBe("full");
+  });
+
+  test("converts an HTML-only body rather than returning the snippet", async () => {
+    batchGetMessagesImpl = async () => [
+      {
+        id: "msg-1",
+        threadId: "thread-1",
+        snippet: "The whole b",
+        payload: {
+          mimeType: "multipart/alternative",
+          parts: [
+            {
+              mimeType: "text/html",
+              body: {
+                data: Buffer.from(
+                  "<html><body><p>The whole body</p><p>Second &amp; last</p></body></html>",
+                ).toString("base64url"),
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    await expect(gmailNormalizer.fetchFull!(normalized())).resolves.toBe(
+      "The whole body\n\nSecond & last",
+    );
   });
 
   test("returns null when the fetch fails", async () => {
