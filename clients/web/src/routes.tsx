@@ -876,15 +876,6 @@ export const routeTree = [
                     Component: ActiveAssistantGate,
                     children: [
                       {
-                        path: "home",
-                        lazy: {
-                          Component: () =>
-                            import("@/home-page-route").then(
-                              (m) => m.HomePageRoute,
-                            ),
-                        },
-                      },
-                      {
                         lazy: {
                           Component: () =>
                             import("@/domains/intelligence/intelligence-layout").then(

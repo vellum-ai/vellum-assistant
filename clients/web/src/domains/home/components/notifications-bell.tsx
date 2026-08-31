@@ -38,14 +38,6 @@ import {
   NotificationsBellDetail,
 } from "./notifications-bell-detail";
 
-/**
- * Router state read by `HomePageRoute`: arriving at the Activity page with a
- * `feedItemId` opens that item's detail drawer.
- */
-export interface ActivityLocationState {
-  feedItemId?: string;
-}
-
 // The height budget the panel's content region is drawn against: five compact
 // cards plus the four 8px gaps between them. A compact card is 73px tall: 2px
 // borders, 16px padding, a 32px title line (sized by the h-8 hover actions that
@@ -129,13 +121,13 @@ export function NotificationsBell() {
   const isDetailOpen = selectedItem !== null;
 
   // A notification can point at a conversation that has since been deleted, so
-  // the detail's "Go to Conversation" link is checked against the same three
-  // lists the Activity page merges. They load only while a detail is open: the
-  // bell renders in the top bar on every route, and the list view has no use
-  // for the ids. Disabled, these stay subscribed to the caches without
-  // fetching, so the foreground list the chat layout already loaded is read
-  // for free and opening a detail costs the background and scheduled lists at
-  // most.
+  // the detail's "Go to Conversation" link is checked against the foreground,
+  // background, and scheduled lists merged. They load only while a detail is
+  // open: the bell renders in the top bar on every route, and the list view
+  // has no use for the ids. Disabled, these stay subscribed to the caches
+  // without fetching, so the foreground list the chat layout already loaded is
+  // read for free and opening a detail costs the background and scheduled
+  // lists at most.
   const {
     conversations: foregroundConversations,
     isPending: isForegroundPending,

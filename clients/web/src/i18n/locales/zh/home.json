@@ -6,14 +6,12 @@
     "dismiss": "忽略",
     "goToThread": "前往会话",
     "goToConversation": "前往对话",
-    "goToConvo": "前往对话",
     "viewSchedule": "查看日程",
     "viewSkill": "查看技能",
     "markAllAsRead": "全部标记为已读",
     "clearAll": "全部清除"
   },
   "category": {
-    "all": "全部",
     "security": "安全",
     "email": "电子邮件",
     "scheduling": "日程安排",
@@ -24,33 +22,6 @@
   },
   "homeRecapRow": {
     "actionsTitle": "更新操作"
-  },
-  "homeTopHeader": {
-    "title": "活动"
-  },
-  "homeFeedFilterBar": {
-    "ariaLabel": "筛选通知"
-  },
-  "homeFeedList": {
-    "today": "今天",
-    "yesterday": "昨天",
-    "older": "更早",
-    "noMatches": "没有项目符合所选筛选条件。",
-    "emptyTitle": "暂无通知",
-    "emptyBody": "您的助手发出的更新和活动将显示在此处。",
-    "earlier": "更早 ({count, number})",
-    "dismissed": "已忽略 ({count, number})"
-  },
-  "homePage": {
-    "loadFailed": "无法加载主页动态。",
-    "loadFailedDetail": "无法加载主页动态：{message}"
-  },
-  "homeDetailPanel": {
-    "back": "返回",
-    "heading": "详情",
-    "close": "关闭",
-    "closeAriaLabel": "关闭详情面板",
-    "untitled": "通知"
   },
   "homeToolPermissionCard": {
     "missingScopes": "缺少范围",

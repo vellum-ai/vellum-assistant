@@ -438,7 +438,7 @@ describe("NotificationsBell panel", () => {
     expect(screen.getByRole("button", { name: "Clear all" })).toBeTruthy();
   });
 
-  test("offers no route out to the Activity page", async () => {
+  test("offers no route out to a full-page feed", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();

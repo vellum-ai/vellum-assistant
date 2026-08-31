@@ -44,7 +44,6 @@ export type VellumCommand =
   | { kind: "logout" }
   | { kind: "rePair" }
   | { kind: "sidebarToggle" }
-  | { kind: "home" }
   | { kind: "popOut" }
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }

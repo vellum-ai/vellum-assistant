@@ -412,9 +412,9 @@ describe("installCommandPaletteWindow", () => {
 
     currentMainWindow = makeMainWindow({ visible: true });
     await ipcHandlers.get("vellum:commandPalette:select")?.([
-      { kind: "home" },
+      { kind: "sidebarToggle" },
     ]);
-    expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "home" });
+    expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "sidebarToggle" });
 
     await ipcHandlers.get("vellum:commandPalette:select")?.([
       { kind: "openConversation", conversationId: "conv-123" },
@@ -452,7 +452,7 @@ describe("selectCommandPaletteCommand", () => {
 describe("commandPaletteDispatchCommandSchema", () => {
   test("accepts palette-dispatchable commands, with and without payloads", () => {
     expect(
-      commandPaletteDispatchCommandSchema.safeParse({ kind: "home" }).success,
+      commandPaletteDispatchCommandSchema.safeParse({ kind: "sidebarToggle" }).success,
     ).toBe(true);
     expect(
       commandPaletteDispatchCommandSchema.safeParse({

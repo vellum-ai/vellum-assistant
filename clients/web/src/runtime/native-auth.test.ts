@@ -99,7 +99,7 @@ describe("resolveNativePostAuthDestination", () => {
   test("native signup with a non-checkout destination stashes nothing", () => {
     const destination = resolveNativePostAuthDestination(
       "signup",
-      "/assistant/home",
+      "/assistant/identity",
     );
 
     expect(destination).toBe("/assistant/onboarding/privacy");
@@ -128,7 +128,7 @@ describe("resolveNativePostAuthDestination", () => {
 
     const destination = resolveNativePostAuthDestination(
       "signup",
-      "/assistant/home",
+      "/assistant/identity",
     );
 
     expect(destination).toBe("/assistant/onboarding/privacy");
@@ -140,10 +140,10 @@ describe("resolveNativePostAuthDestination", () => {
 
     const destination = resolveNativePostAuthDestination(
       "login",
-      "/assistant/home",
+      "/assistant/identity",
     );
 
-    expect(destination).toBe("/assistant/home");
+    expect(destination).toBe("/assistant/identity");
     expect(readCheckoutIntent()).toBeNull();
   });
 
@@ -162,10 +162,10 @@ describe("resolveNativePostAuthDestination", () => {
 
     const destination = resolveNativePostAuthDestination(
       "signup",
-      "/assistant/home",
+      "/assistant/identity",
     );
 
-    expect(destination).toBe("/assistant/home");
+    expect(destination).toBe("/assistant/identity");
     expect(readCheckoutIntent()).toBeNull();
   });
 
@@ -212,7 +212,7 @@ describe("startAuthFlow on Electron", () => {
     windowWithBridge.vellum = { platform: "electron" };
 
     const error = await startAuthFlow("workos", "/account/provider/callback", {
-      returnTo: "/assistant/home",
+      returnTo: "/assistant/identity",
     }).then(
       () => null,
       (err: unknown) => err,
@@ -227,7 +227,7 @@ describe("startAuthFlow on Electron", () => {
     windowWithBridge.vellum = { platform: "electron", auth: { startOAuth } };
 
     await startAuthFlow("workos", "/account/provider/callback", {
-      returnTo: "/assistant/home",
+      returnTo: "/assistant/identity",
       intent: "login",
     });
 
@@ -281,7 +281,7 @@ describe("clearStaleNativeCheckoutStash", () => {
     // The direct login form passes no intent and a non-checkout returnTo.
     saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
 
-    clearStaleNativeCheckoutStash(undefined, "/assistant/home");
+    clearStaleNativeCheckoutStash(undefined, "/assistant/identity");
 
     expect(readCheckoutIntent()).toBeNull();
   });
@@ -347,7 +347,7 @@ describe("startAuthFlow attribution on native", () => {
   async function runSignup(): Promise<void> {
     await startAuthFlow("workos", "/account/provider/callback", {
       intent: "signup",
-      returnTo: "/assistant/home",
+      returnTo: "/assistant/identity",
     });
   }
 
@@ -445,7 +445,7 @@ describe("startAuthFlow attribution on native", () => {
 
     await startAuthFlow("workos", "/account/provider/callback", {
       intent: "signup",
-      returnTo: "/assistant/home",
+      returnTo: "/assistant/identity",
       attribution: { utm_source: "explicit" },
     });
 
@@ -471,7 +471,7 @@ describe("startAuthFlow attribution on native", () => {
     // unauthenticated fresh Play install actually reaches.
     setLocation("?utm_source=newsletter&not_a_param=x");
 
-    await startNativeLogin({ returnTo: "/assistant/home" });
+    await startNativeLogin({ returnTo: "/assistant/identity" });
 
     expect(lastStartAuthOptions().attribution).toEqual({
       utm_source: "newsletter",
@@ -483,7 +483,7 @@ describe("startAuthFlow attribution on native", () => {
       referrer: "utm_source=google-play&utm_medium=organic",
     });
 
-    await startNativeLogin({ returnTo: "/assistant/home" });
+    await startNativeLogin({ returnTo: "/assistant/identity" });
 
     expect(readInstallReferrer).toHaveBeenCalledTimes(1);
     expect(lastStartAuthOptions().attribution).toEqual({

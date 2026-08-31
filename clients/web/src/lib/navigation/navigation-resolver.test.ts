@@ -108,11 +108,11 @@ describe("resolveNavigation", () => {
     test("preserves query string in returnTo", () => {
       const result = guard(
         s({ isAuthenticated: false }),
-        "/assistant/home?tab=1",
+        "/assistant/identity?tab=1",
       );
       expect(result).toEqual({
         action: "redirect",
-        to: "/account/login?returnTo=%2Fassistant%2Fhome%3Ftab%3D1",
+        to: "/account/login?returnTo=%2Fassistant%2Fidentity%3Ftab%3D1",
       });
     });
 
@@ -812,7 +812,7 @@ describe("resolveNavigation", () => {
     });
 
     test("redirects platform user with consent but no assistants to hatching from deep path", () => {
-      expect(guard(s({ hasAssistants: false }), "/assistant/home")).toEqual({
+      expect(guard(s({ hasAssistants: false }), "/assistant/identity")).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/hatching",
       });
@@ -838,11 +838,11 @@ describe("resolveNavigation", () => {
       expect(
         guard(
           s({ hasAssistants: false, diagnosticsConsentCurrent: false }),
-          "/assistant/home",
+          "/assistant/identity",
         ),
       ).toEqual({
         action: "redirect",
-        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fhome",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fidentity",
       });
     });
 
@@ -1831,9 +1831,9 @@ describe("resolveNavigation", () => {
     });
 
     test("login uses returnTo", () => {
-      expect(postAuth("login", "/assistant/home")).toEqual({
+      expect(postAuth("login", "/assistant/identity")).toEqual({
         action: "redirect",
-        to: "/assistant/home",
+        to: "/assistant/identity",
       });
     });
 
@@ -1856,10 +1856,10 @@ describe("resolveNavigation", () => {
         resolveNavigation(s({ alreadyOnboarded: true }), {
           kind: "post-auth",
           authIntent: "signup",
-          returnTo: "/assistant/home",
+          returnTo: "/assistant/identity",
           fallback: "/assistant",
         }),
-      ).toEqual({ action: "redirect", to: "/assistant/home" });
+      ).toEqual({ action: "redirect", to: "/assistant/identity" });
       expect(readCheckoutIntent()).toBeNull();
     });
 
@@ -1913,7 +1913,7 @@ describe("resolveNavigation", () => {
         resolveNavigation(s({ alreadyOnboarded: false, hasAssistants: true }), {
           kind: "post-auth",
           authIntent: "signup",
-          returnTo: "/assistant/home",
+          returnTo: "/assistant/identity",
           fallback: "/assistant",
         }),
       ).toEqual({
@@ -1933,9 +1933,9 @@ describe("resolveNavigation", () => {
 
     test("a non-checkout login clears a stale stash from an abandoned attempt", () => {
       saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
-      expect(postAuth("login", "/assistant/home")).toEqual({
+      expect(postAuth("login", "/assistant/identity")).toEqual({
         action: "redirect",
-        to: "/assistant/home",
+        to: "/assistant/identity",
       });
       expect(readCheckoutIntent()).toBeNull();
     });

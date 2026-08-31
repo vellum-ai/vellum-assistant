@@ -6,14 +6,12 @@
     "dismiss": "Descartar",
     "goToThread": "Ir al hilo",
     "goToConversation": "Ir a la conversación",
-    "goToConvo": "Ir a la conversación",
     "viewSchedule": "Ver programación",
     "viewSkill": "Ver habilidad",
     "markAllAsRead": "Marcar todas como leídas",
     "clearAll": "Borrar todas"
   },
   "category": {
-    "all": "Todas",
     "security": "Seguridad",
     "email": "Correo",
     "scheduling": "Programación",
@@ -23,29 +21,6 @@
     "guardianQuestion": "Pregunta del guardián"
   },
   "homeRecapRow": { "actionsTitle": "Acciones de la actualización" },
-  "homeTopHeader": { "title": "Actividad" },
-  "homeFeedFilterBar": { "ariaLabel": "Filtrar notificaciones" },
-  "homeFeedList": {
-    "today": "Hoy",
-    "yesterday": "Ayer",
-    "older": "Anteriores",
-    "noMatches": "Ningún elemento coincide con el filtro seleccionado.",
-    "emptyTitle": "Todavía no hay notificaciones",
-    "emptyBody": "Las novedades y la actividad de tu asistente aparecerán aquí.",
-    "earlier": "Anteriores ({count, number})",
-    "dismissed": "Descartadas ({count, number})"
-  },
-  "homePage": {
-    "loadFailed": "No se pudo cargar la actividad.",
-    "loadFailedDetail": "No se pudo cargar la actividad: {message}"
-  },
-  "homeDetailPanel": {
-    "back": "Atrás",
-    "heading": "Detalles",
-    "close": "Cerrar",
-    "closeAriaLabel": "Cerrar el panel de detalles",
-    "untitled": "Notificación"
-  },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
     "status": {

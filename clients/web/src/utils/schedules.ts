@@ -42,8 +42,8 @@ export async function fetchSchedules(
 /**
  * TanStack Query options for the schedules list. The single definition of the
  * list's query key + staleTime, so every consumer (the Schedules page data
- * hook, the Activity feed's "View schedule" link validation) reads one shared
- * cache entry instead of hand-copying the key.
+ * hook, the notification bell's "View schedule" link validation) reads one
+ * shared cache entry instead of hand-copying the key.
  *
  * Lives here rather than in `domains/settings/api/schedules.ts` because
  * consumers span domains (settings, schedules, home) and a domain may not
