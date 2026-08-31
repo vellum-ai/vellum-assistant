@@ -691,6 +691,51 @@ describe("loadFromDb history repair", () => {
     expect(conversation.turnCount).toBe(1);
   });
 
+  test("a slackMeta-shaped reaction row renders with its actor id as origin", async () => {
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "[reaction]" }],
+        metadata: JSON.stringify({
+          slackMeta: JSON.stringify({
+            source: "slack",
+            channelId: "C123",
+            channelTs: "1700000000.111111",
+            eventKind: "reaction",
+            actorExternalUserId: "U_REACTOR",
+            displayName: "Alice",
+            reaction: {
+              emoji: "tada",
+              targetChannelTs: "1700000000.111111",
+              op: "added",
+              actorDisplayName: "Alice",
+            },
+          }),
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const allText = conversation
+      .getMessages()
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "text")
+      .map((b) => (b.type === "text" ? b.text : ""))
+      .join("\n");
+    expect(allText).toContain("Alice reacted with :tada:");
+    expect(allText).toContain('origin="U_REACTOR"');
+  });
+
   test("persistUserMessage reloads actor-scoped history before persisting on role switch", async () => {
     mockConversation = {
       id: "conv-1",

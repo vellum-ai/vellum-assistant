@@ -255,6 +255,7 @@ export async function handleReactionIntercept(
       sourceChannel,
       reaction,
       actorDisplayName,
+      actorExternalId: canonicalSenderId ?? rawSenderId ?? undefined,
       reactedMessageTs,
       duplicate: result.duplicate,
       trustCtx: toTrustContext(trustCtx, conversationExternalId),
@@ -296,6 +297,13 @@ async function persistReactionAsMessage(params: {
   sourceChannel: ChannelId;
   reaction: InboundReactionPayload;
   actorDisplayName?: string;
+  /**
+   * The reactor's stable channel identity, canonical when resolution
+   * succeeded. Persisted as the envelope's actor id: a display name is
+   * sender-controlled labeling, and the rendered history line attributes
+   * its fenced content by this id (`origin`), never by the label.
+   */
+  actorExternalId?: string;
   reactedMessageTs: string;
   duplicate: boolean;
   /**
@@ -319,6 +327,9 @@ async function persistReactionAsMessage(params: {
       source: params.sourceChannel,
       conversationExternalId: params.conversationExternalId,
       eventKind: "reaction",
+      ...(params.actorExternalId
+        ? { actorExternalId: params.actorExternalId }
+        : {}),
       ...(params.actorDisplayName
         ? { displayName: params.actorDisplayName }
         : {}),
@@ -358,6 +369,9 @@ async function persistReactionAsMessage(params: {
     // every reader treats as "not in a thread" anyway, and storing it makes
     // the row false evidence that a thread belongs to this conversation
     // (`legacySlackConversationHasThreadEvidence`).
+    ...(params.actorExternalId
+      ? { actorExternalUserId: params.actorExternalId }
+      : {}),
     ...(params.actorDisplayName
       ? { displayName: params.actorDisplayName }
       : {}),

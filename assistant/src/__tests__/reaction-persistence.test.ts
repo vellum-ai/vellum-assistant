@@ -281,6 +281,9 @@ describe("Slack reaction event persistence", () => {
     // Slack sends no thread on a reaction, so the row claims none.
     expect(slackMeta!.threadTs).toBeUndefined();
     expect(slackMeta!.displayName).toBe(SLACK_DISPLAY_NAME);
+    // Stable identity, not the sender-controlled label: the history
+    // renderer attributes the fenced line's origin by this id.
+    expect(slackMeta!.actorExternalUserId).toBe(SLACK_USER_ID);
     expect(slackMeta!.reaction).toEqual({
       emoji: "thumbsup",
       actorDisplayName: SLACK_DISPLAY_NAME,
