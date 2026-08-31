@@ -349,17 +349,16 @@ export const listPendingRequestsByScopeOrEmpty = degradeOnFailure(
 
 /**
  * Is a decision from this conversation allowed for the request (source
- * match, or delivery match optionally narrowed by `channel`)? Throws on
+ * match, or delivery match on any channel's paired conversation)? Throws on
  * transport failure.
  */
 async function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): Promise<boolean> {
   const response = await callGateway(
     GUARDIAN_REQUESTS_IPC_METHODS.inScope,
-    { requestId, conversationId, channel },
+    { requestId, conversationId },
     GuardianRequestInScopeIpcResponseSchema,
   );
   return response.inScope;

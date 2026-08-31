@@ -222,10 +222,10 @@ export const guardianRequestRoutes: IpcRoute[] = [
     method: GUARDIAN_REQUESTS_IPC_METHODS.inScope,
     schema: GuardianRequestInScopeIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { requestId, conversationId, channel } =
+      const { requestId, conversationId } =
         GuardianRequestInScopeIpcParamsSchema.parse(params);
       return {
-        inScope: isGuardianRequestInScope(requestId, conversationId, channel),
+        inScope: isGuardianRequestInScope(requestId, conversationId),
       };
     },
   },

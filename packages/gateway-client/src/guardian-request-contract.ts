@@ -662,13 +662,15 @@ export type ListPendingGuardianRequestsByScopeIpcParams = z.infer<
 
 /**
  * Request for `guardian_requests_in_scope`: is a decision from this
- * conversation allowed for the request (source match, or delivery match
- * optionally narrowed by `channel`)?
+ * conversation allowed for the request (source match, or delivery match)?
+ * Deliberately not narrowed by delivery channel: `destinationConversationId`
+ * is always an internal conversation id, and every delivery's paired
+ * conversation renders the same actionable in-app card, so a match on any
+ * delivery row legitimizes the conversation.
  */
 export const GuardianRequestInScopeIpcParamsSchema = z.object({
   requestId: z.string().min(1),
   conversationId: z.string().min(1),
-  channel: z.string().optional(),
 });
 
 export type GuardianRequestInScopeIpcParams = z.infer<

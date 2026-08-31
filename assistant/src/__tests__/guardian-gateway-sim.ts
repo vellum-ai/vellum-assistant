@@ -527,7 +527,6 @@ export function createGuardianGatewaySim() {
   async function isGuardianRequestInScope(
     requestId: string,
     conversationId: string,
-    channel?: string,
   ): Promise<boolean> {
     throwIfReadError();
     const request = requests.get(requestId);
@@ -540,8 +539,7 @@ export function createGuardianGatewaySim() {
     return deliveries.some(
       (d) =>
         d.requestId === requestId &&
-        d.destinationConversationId === conversationId &&
-        (!channel || d.destinationChannel === channel),
+        d.destinationConversationId === conversationId,
     );
   }
 

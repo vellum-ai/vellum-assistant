@@ -219,9 +219,8 @@ export function listPendingRequestsByScope(
 export function isGuardianRequestInScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): boolean {
-  return isRequestInConversationScope(requestId, conversationId, channel);
+  return isRequestInConversationScope(requestId, conversationId);
 }
 
 export function getPendingRequestByCallSession(

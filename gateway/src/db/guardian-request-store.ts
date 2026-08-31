@@ -866,14 +866,15 @@ export function listPendingByConversationScope(
 /**
  * Check whether a guardian decision's conversation is in scope for a
  * request: either the request's `sourceConversationId` matches, or any
- * recorded delivery has a matching `destinationConversationId` (optionally
- * scoped by `channel`). Returns true when the decision is allowed from the
- * given conversation.
+ * recorded delivery has a matching `destinationConversationId`. Returns true
+ * when the decision is allowed from the given conversation. Deliberately not
+ * narrowed by delivery channel: `destinationConversationId` is always an
+ * internal conversation id, and every delivery's paired conversation renders
+ * the same actionable in-app card.
  */
 export function isRequestInConversationScope(
   requestId: string,
   conversationId: string,
-  channel?: string,
 ): boolean {
   const request = getGuardianRequest(requestId);
   if (!request) {
@@ -885,11 +886,7 @@ export function isRequestInConversationScope(
   }
 
   const deliveries = listDeliveries(requestId);
-  return deliveries.some(
-    (d) =>
-      d.destinationConversationId === conversationId &&
-      (!channel || d.destinationChannel === channel),
-  );
+  return deliveries.some((d) => d.destinationConversationId === conversationId);
 }
 
 // ---------------------------------------------------------------------------
