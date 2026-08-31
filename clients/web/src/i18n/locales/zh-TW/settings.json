@@ -271,14 +271,29 @@
     "thresholdLabel": "當餘額低於此值時自動加值"
   },
   "autoTopUpPaymentMethodModal": {
+    "addSubtitle": "將保留在檔案中，供自動加值和您的專業版方案使用。",
+    "addTitle": "新增信用卡",
     "addressFormLoadError": "無法載入帳單地址表單。請關閉並重新開啟此對話方塊。",
     "cancel": "取消",
+    "cardOnFile": "{brand} •••• {last4}",
+    "cardOnFileExpiry": "· {month} / {year}",
+    "cardOnFileNote": "儲存後將被替換",
+    "close": "關閉",
     "confirmFailed": "無法儲存付款方式。",
+    "confirmingWithBank": "正在與您的銀行確認…",
+    "declined": "您的銀行拒絕了這張卡。請改用其他卡片，或與銀行聯絡。",
     "paymentFormLoadError": "無法載入付款表單。請關閉並重新開啟此對話方塊。",
-    "save": "儲存",
-    "savedToast": "付款方式已儲存。",
+    "primaryAdd": "儲存信用卡",
+    "primaryReplace": "替換信用卡",
+    "primarySubmitting": "正在儲存",
+    "replaceSubtitle": "新的信用卡將立即生效。",
+    "replaceTitle": "替換您的信用卡",
+    "savedSubtitle": "自動加值已重新啟用",
+    "savedTitle": "{brand} •••• {last4} 已儲存",
+    "savedTitleGeneric": "信用卡已儲存",
     "setupError": "無法啟動信用卡設定。請再試一次。",
-    "title": "儲存付款方式",
+    "termsAdd": "Vellum 可以使用這張卡收取自動加值和訂閱續訂的費用。您可以隨時從帳單設定中移除它。",
+    "termsReplace": "在您從帳單設定中移除之前，舊卡會保留在 Stripe；Vellum 從現在起不再向這張卡收取費用。",
     "tryAgain": "再試一次",
     "unavailable": "付款方式設定目前無法使用。請稍後再試。"
   },
@@ -1245,8 +1260,8 @@
   },
   "paymentMethodRow": {
     "endingIn": "末四碼 {last4}",
-    "savedCard": "已儲存卡片",
-    "updateCard": "更新卡片"
+    "replaceCard": "替換卡片",
+    "savedCard": "已儲存卡片"
   },
   "paymentMethodsCard": {
     "addButton": "新增付款方式",
