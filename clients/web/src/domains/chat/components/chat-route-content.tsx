@@ -1387,6 +1387,7 @@ export function ChatMainPanel({
       suggestion={suggestion}
       hasBillingBanner={composerBillingBanner !== null}
       settingsSheetOpen={settingsSheetOpen}
+      statusControlsSlot={<ProgressStack placement="composer" />}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
@@ -1530,7 +1531,6 @@ export function ChatMainPanel({
           ? false
           : isInMaintenanceWithNoMessages,
       }}
-      aboveComposerSlot={<ProgressStack placement="composer" />}
       composerSlot={composerNode}
       pluginPillsSlot={newChatPluginsSlot}
       dragHandlers={attachmentDropHandlers}

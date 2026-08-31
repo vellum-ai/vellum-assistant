@@ -20,9 +20,12 @@
  *    detail panels all open to the RIGHT of the chat (see
  *    `AnimatedRightDrawer`), so a rail out there would be a second thing
  *    competing for that edge.
- *  - **Above the composer** otherwise, left-aligned: on a phone, which has no
- *    gutter at any width, and on a desktop column whose gutter has closed
- *    because a drawer opened, the window narrowed, or the sidebar widened. Floating controls
+ *  - **In the composer's own settings row** otherwise, on the left, beside
+ *    Relaxed and Balanced: on a phone, which has no gutter at any width, and on
+ *    a desktop column whose gutter has closed because a drawer opened, the
+ *    window narrowed, or the sidebar widened. Sharing that row rather than
+ *    floating above it means one strip of controls over the composer instead of
+ *    two, and the pills set the height these match. Floating controls
  *    would start covering the messages they annotate, so they move to the one
  *    strip that is always free, right above the input where the cursor already
  *    is. See {@link SideControlPlacementBoundary}, which measures the column
@@ -31,6 +34,8 @@
  *
  * See `docs/PLATFORM_ADAPTATION.md` on branching by window size vs. by space.
  */
+
+import type { CSSProperties } from "react";
 
 import { ProgressAgentsCard } from "@/domains/chat/components/progress-agents-card";
 import { ProgressCard } from "@/domains/chat/components/progress-card";
@@ -79,17 +84,15 @@ export function ProgressStack({ placement }: ProgressStackProps) {
   );
 
   if (placement === "composer") {
-    // In flow, not absolute: the row sits in the composer's own column so it
-    // rides above the input at every keyboard height instead of being offset
-    // against a box whose bottom moves.
-    //
-    // Left-aligned, unlike the desktop cluster's right edge. The composer's own
-    // trailing controls (the mic and send) sit at the right, and the row above
-    // them stacked into that corner; the left is the free side here.
+    // A bare group, not a row of its own: the composer's settings row owns the
+    // layout, and this sits at its leading edge while Relaxed and Balanced hold
+    // the trailing one. `--side-control-size` drops these to the pills' 32px so
+    // the row reads as one set of controls rather than two sizes side by side.
     return (
       <div
         aria-label={t("progressRail.railAria")}
-        className="flex flex-row flex-wrap items-center justify-start gap-2 pb-2 pl-1"
+        className="flex flex-row items-center gap-1.5"
+        style={{ "--side-control-size": "32px" } as CSSProperties}
       >
         {controls}
       </div>

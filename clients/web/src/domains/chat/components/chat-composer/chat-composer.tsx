@@ -206,6 +206,12 @@ export interface ChatComposerProps {
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row
   // on desktop; on mobile both settings slots move to the row above the card)
+  /**
+   * Controls seated at the LEADING edge of the mobile settings row, opposite
+   * the threshold and model pills. Carries the chat's status cluster (Progress,
+   * Agents) so the composer has one strip of controls above it rather than two.
+   */
+  statusControlsSlot?: ReactNode;
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
   // Model-profile picker rendered on the row's right end, beside the mic
@@ -358,6 +364,7 @@ export function ChatComposer({
   assistantId,
   conversationId,
   conversationIsEmpty = false,
+  statusControlsSlot,
   thresholdPickerSlot,
   modelPickerSlot,
   settingsSheetOpen = false,
@@ -1034,7 +1041,7 @@ export function ChatComposer({
   // stands throughout has no arrival to animate, and the same animation there
   // replays on every mount, settling the composer on each navigation.
   const settingsPillsClassName = settingsPillsVisible
-    ? `mb-3 flex justify-end gap-1.5 pr-1.5${
+    ? `mb-3 flex items-center justify-between gap-1.5 px-1.5${
         isNativeMobileShell
           ? ""
           : " animate-[fadeInUp_var(--anim-fast)_var(--anim-ease-out)_backwards] motion-reduce:animate-none"
@@ -1659,8 +1666,16 @@ export function ChatComposer({
               // floated past it.
               className={settingsPillsClassName}
             >
-              {thresholdPickerSlot}
-              {modelPickerSlot}
+              {/* Leading group, then the pills. Empty when there is no status
+                  to show, and `justify-between` still parks the pills on the
+                  right in that case. */}
+              <div className="flex min-w-0 items-center gap-1.5">
+                {statusControlsSlot}
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {thresholdPickerSlot}
+                {modelPickerSlot}
+              </div>
             </div>
           )}
           <Popover.Root open={emoji.show || slash.show}>

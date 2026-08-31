@@ -267,10 +267,10 @@ export const FloatingLoading: Story = {
 
 /**
  * A column too narrow to hold a gutter — what a document viewer opening beside
- * the chat looks like. The floating mount stands down and the cluster reappears
- * above the composer, the one strip that is free at any width, left-aligned so
- * it clears the composer's own trailing controls. The pills enter from the
- * BOTTOM here rather than the right, following the edge they are anchored to.
+ * the chat looks like. The floating mount stands down and the controls reappear
+ * in the composer's settings row, the one strip that is free at any width. They
+ * enter from the BOTTOM there rather than the right, following the edge they
+ * are anchored to.
  */
 export const OverflowToComposer: Story = {
   args: { loading: false, columnWidth: 820 },

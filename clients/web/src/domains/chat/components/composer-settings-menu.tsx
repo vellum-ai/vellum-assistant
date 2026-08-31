@@ -799,11 +799,14 @@ export function ComposerSettingsMenu({
   // geometry survives a trigger whose label hasn't resolved. `px-1.5` is the
   // design's 6px inset around the glyph, which fills the 32px box exactly.
   const pillIconOnlyClass = `${pillBaseClass} w-8 px-1.5`;
-  // The pills carry a 20px glyph (Figma 7840-8818), wider than the Button's
-  // own icon box, so the glyph rides as a child instead. The Button's
-  // `gap-1.5` then supplies the design's 6px between glyph and label.
+  // The glyph rides as a child rather than in the Button's own icon box, so
+  // the Button's `gap-1.5` supplies the design's 6px between glyph and label.
+  //
+  // 16px, not the 20px the pills originally carried: at 20px these read a size
+  // larger than everything around them — the desktop variants of the same two
+  // triggers use 14px, and the status controls now sharing this row are 16px.
   const pillIconClass =
-    "flex size-5 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-5";
+    "flex size-4 shrink-0 items-center justify-center text-[var(--content-tertiary)] [&_svg]:size-4";
 
   // A trigger showing a stored level before its fetch lands is inert, not
   // spent: it names the level it holds at full contrast, and only stops

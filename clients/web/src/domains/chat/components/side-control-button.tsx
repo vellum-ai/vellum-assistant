@@ -63,13 +63,18 @@ export function SideControlButton({
           iconOnly
         )
       }
-      // Height is set inline from the side-menu token rather than a `h-*`
-      // utility so the two can never drift: change the tile size and these
-      // follow. `min-w` keeps an icon-only pill circular at that height
-      // instead of collapsing to its glyph.
+      // Height comes from the side-menu token rather than a `h-*` utility, so
+      // the two can never drift: change the tile size and these follow.
+      // `min-w` keeps an icon-only pill circular at that height instead of
+      // collapsing to its glyph.
+      //
+      // Routed through a custom property so a host can retune it without
+      // prop-threading through the two controls that render this. The composer
+      // row does exactly that: it seats these beside the Relaxed/Balanced
+      // pills, which are 32px, and a 36px neighbour there reads as a mistake.
       style={{
-        height: SIDE_MENU_TILE_SIZE,
-        minWidth: SIDE_MENU_TILE_SIZE,
+        height: `var(--side-control-size, ${SIDE_MENU_TILE_SIZE}px)`,
+        minWidth: `var(--side-control-size, ${SIDE_MENU_TILE_SIZE}px)`,
         ...rest.style,
       }}
       className={cn(

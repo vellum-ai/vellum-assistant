@@ -142,13 +142,6 @@ export interface ChatBodyProps {
    * immediately above the composer.
    */
   channelFooterSlot?: ReactNode;
-  /**
-   * Rendered in flow immediately above the composer, inside the same max-width
-   * wrapper. Carries the mobile status cluster (Assets / Progress / Agents), so
-   * it rides above the input at every keyboard height rather than being offset
-   * against a box whose bottom moves.
-   */
-  aboveComposerSlot?: ReactNode;
 
   /**
    * Optional conversation-starter content for the empty state: the bottom
@@ -231,7 +224,6 @@ export function ChatBody({
   bannerSlot,
   queuedDrawerSlot,
   channelFooterSlot,
-  aboveComposerSlot,
   startersSlot,
   pluginPillsSlot,
   belowFoldSlot,
@@ -396,7 +388,6 @@ export function ChatBody({
         {channelFooterSlot}
         <ChannelReferenceChip />
         <StagedQuotesStrip />
-        {aboveComposerSlot}
         {composerSlot}
         {pluginPillsSlot &&
           renderCollapse(
