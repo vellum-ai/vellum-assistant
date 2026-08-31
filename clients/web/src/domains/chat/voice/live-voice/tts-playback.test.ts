@@ -1255,4 +1255,72 @@ describe("LiveVoiceAudioPlayer held playback", () => {
 
     expect(player.hasHeldPlayback()).toBe(false);
   });
+
+  test("holds nothing when the reply finished inside the rewind window", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100))); // 0 -> 1.0s
+
+    // Noise landing a fifth of a second after the assistant stopped talking.
+    // The rewind window still covers the reply's last syllables, but none of
+    // it is unplayed, so holding would mean replaying the end of a finished
+    // reply on the retraction. Deliberately without firing `onended`: the rule
+    // is the audio clock, not when the ended event happens to be delivered.
+    ctx.currentTime = 1.2;
+
+    player.holdPlayback();
+
+    expect(player.hasHeldPlayback()).toBe(false);
+    expect(player.resumeHeldPlayback()).toBe(false);
+  });
+
+  test("control: the same flush one moment earlier is still mid-sentence", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100))); // 0 -> 1.0s
+
+    // Identical setup, clock 0.4s earlier, so 0.2s of the reply has yet to
+    // sound. That one is worth keeping.
+    ctx.currentTime = 0.8;
+
+    player.holdPlayback();
+
+    expect(player.hasHeldPlayback()).toBe(true);
+    expect(player.resumeHeldPlayback()).toBe(true);
+  });
+
+  test("retained history shrinks as playback advances", () => {
+    const { player, ctx } = makePlayer();
+    // Ten 1.0s frames delivered up front: the whole reply decoded and
+    // scheduled before any of it has played.
+    for (let i = 0; i < 10; i++) {
+      player.enqueue(chunk(new Array(24000).fill(100)));
+    }
+    expect(player.retainedSegmentCount).toBe(10);
+
+    // Play eight of them out. Nothing further is ever scheduled, so pruning
+    // has to come off the audio clock or every decoded buffer stays pinned for
+    // the length of the reply.
+    for (let i = 0; i < 8; i++) {
+      ctx.currentTime = i + 1;
+      ctx.sources[i]!.finish();
+    }
+
+    // What is left is the two unplayed frames plus the rewind window.
+    expect(player.retainedSegmentCount).toBe(3);
+  });
+
+  test("a drained reply retains nothing between turns", () => {
+    const { player, ctx } = makePlayer();
+    player.enqueue(chunk(new Array(24000).fill(100)));
+    player.enqueue(chunk(new Array(24000).fill(200)));
+
+    ctx.currentTime = 2;
+    ctx.sources[0]!.finish();
+    ctx.sources[1]!.finish();
+
+    // A hands-free session sits idle between turns, and a drained timeline can
+    // never produce a hold, so nothing decoded for the finished reply should
+    // still be referenced.
+    expect(player.isPlaying).toBe(false);
+    expect(player.retainedSegmentCount).toBe(0);
+  });
 });

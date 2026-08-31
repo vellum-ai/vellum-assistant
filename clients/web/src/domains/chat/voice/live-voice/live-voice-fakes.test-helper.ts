@@ -281,8 +281,9 @@ export class FakePlayer {
   }
   /**
    * Flush while retaining the unplayed audio. A flush that finds nothing
-   * playing leaves an existing hold alone, mirroring the real player: the
-   * second flush of a barge-in pair must not clear what the first kept.
+   * playing captures nothing, mirroring the real player on both counts: a
+   * drained reply has nothing left to keep, and the second flush of a barge-in
+   * pair must not clear what the first kept.
    */
   holdPlayback(): void {
     this.holdCount++;

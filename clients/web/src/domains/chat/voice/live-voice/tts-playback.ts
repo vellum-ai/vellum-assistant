@@ -110,7 +110,8 @@ const RAW_PCM_MIME_TYPE = "audio/pcm";
  *
  * It also sets how much already-sounded audio {@link LiveVoiceAudioPlayer}
  * retains: the schedule log keeps this much history behind the playhead and
- * nothing more.
+ * nothing more, pruned as the audio clock advances and released outright once
+ * the timeline drains.
  */
 const RESUME_REWIND_SECONDS = 0.35;
 
@@ -485,6 +486,18 @@ export class LiveVoiceAudioPlayer {
   }
 
   /**
+   * How many buffers the schedule log currently retains.
+   *
+   * Retained history is bounded to {@link RESUME_REWIND_SECONDS} behind the
+   * playhead and released entirely once the timeline drains, so a long reply
+   * cannot pin its whole decoded PCM in a mobile WebView. Exposed so that
+   * bound is assertable; nothing in the app reads it.
+   */
+  get retainedSegmentCount(): number {
+    return this.scheduleLog.length;
+  }
+
+  /**
    * Decode a TTS frame and schedule it to play immediately after whatever is
    * already queued. The decode path is selected on `chunk.mimeType`:
    *
@@ -717,10 +730,23 @@ export class LiveVoiceAudioPlayer {
    * The undelivered tail of the scheduled timeline, from
    * {@link RESUME_REWIND_SECONDS} before now, or null when nothing is left to
    * keep. Read-only: capturing does not disturb playback.
+   *
+   * There has to be audio that has not sounded yet, not merely audio inside
+   * the rewind window. Noise arriving in the moment just after a reply ends is
+   * an ordinary event, and the window still covers the reply's last syllables
+   * then: without this gate a hold would form over a finished reply and a
+   * later retraction would replay its last words for no reason, which is
+   * exactly what users report as the assistant echoing.
    */
   private captureHeldPlayback(): HeldPlayback | null {
     const context = this.context;
     if (!context) {
+      return null;
+    }
+    // Entries are appended in schedule order and each starts no earlier than
+    // the previous one ends, so the last entry is the tail of the timeline.
+    const tail = this.scheduleLog[this.scheduleLog.length - 1];
+    if (!tail || tail.startAt + tail.durationSeconds <= context.currentTime) {
       return null;
     }
     const resumeAt = Math.max(0, context.currentTime - RESUME_REWIND_SECONDS);
@@ -1169,6 +1195,13 @@ export class LiveVoiceAudioPlayer {
       return;
     }
     source.disconnect();
+    // Retained history has to shrink with the audio clock, not only when the
+    // next buffer is scheduled. A response whose frames all arrive before any
+    // of it plays schedules nothing further, so pruning here is the only thing
+    // keeping its decoded buffers from being pinned for the whole reply.
+    if (this.context) {
+      this.pruneScheduleLog(this.context.currentTime);
+    }
     this.settleIfIdle();
   }
 
@@ -1176,6 +1209,11 @@ export class LiveVoiceAudioPlayer {
    * Mark playback finished and resolve drain waiters once nothing is left to
    * play — neither a scheduled source nor an in-flight container decode that
    * could still schedule one. Called whenever either count reaches zero.
+   *
+   * Retained history goes with it. A drained timeline can never produce a hold
+   * (see {@link captureHeldPlayback}), so keeping the rewind window past that
+   * point buys nothing and pins decoded audio through the idle stretch between
+   * turns of a hands-free session.
    */
   private settleIfIdle(): void {
     if (this.activeSources.size > 0 || this.pendingContainerDecodes > 0) {
@@ -1183,6 +1221,7 @@ export class LiveVoiceAudioPlayer {
     }
     this.playheadTime = 0;
     this.playingState = false;
+    this.scheduleLog = [];
     this.resolveDrain();
   }
 
